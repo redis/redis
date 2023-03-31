@@ -5637,6 +5637,49 @@ sds genClusterInfoString() {
     return info;
 }
 
+/* Add detailed information of a node to the output buffer of the given client for keyshard command */
+void getKeyShardReply(client *c, clusterNode *node) {
+    int reply_count = 0;
+    void *node_replylen = addReplyDeferredLen(c);
+    addReplyBulkCString(c, "shard-id");
+    addReplyBulkCBuffer(c, node->shard_id, CLUSTER_NAMELEN);
+    reply_count++;
+
+    /* We use server.tls_cluster as a proxy for whether or not
+     * the remote port is the tls port or not */
+    int plaintext_port = server.tls_cluster ? node->pport : node->port;
+    int tls_port = server.tls_cluster ? node->port : 0;
+    if (plaintext_port) {
+        addReplyBulkCString(c, "port");
+        addReplyLongLong(c, plaintext_port);
+        reply_count++;
+    }
+
+    if (tls_port) {
+        addReplyBulkCString(c, "tls-port");
+        addReplyLongLong(c, tls_port);
+        reply_count++;
+    }
+
+    addReplyBulkCString(c, "ip");
+    addReplyBulkCString(c, node->ip);
+    reply_count++;
+
+    if (sdslen(node->hostname) != 0) {
+        addReplyBulkCString(c, "hostname");
+        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
+        reply_count++;
+    }
+
+
+    addReplyBulkCString(c, "role");
+    addReplyBulkCString(c, nodeIsSlave(node) ? "replica" : "master");
+    reply_count++;
+
+    setDeferredMapLen(c, node_replylen, reply_count);
+}
+
+
 void clusterCommand(client *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -5988,6 +6031,33 @@ NULL
         sds key = c->argv[2]->ptr;
 
         addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
+    } else if (!strcasecmp(c->argv[1]->ptr,"keyshard") && c->argc == 3) {
+        /* CLUSTER KEYSHARD <key> */
+        int slot = keyHashSlot((char*)c->argv[2]->ptr,
+                                       sdslen(c->argv[2]->ptr));
+
+        clusterNode *node = server.cluster->slots[slot];
+        addReplyArrayLen(c, c->argc-2);
+        addReplyMapLen(c, 2);
+
+        addReplyBulkCString(c, "key");
+        addReplyArrayLen(c, 1);
+        addReplyBulkCString(c,(char*)c->argv[2]->ptr);
+
+        addReplyBulkCString(c, "nodes");
+        if(node == NULL || (node == myself && lookupKeyRead(c->db,c->argv[2]) == NULL)){
+            addReply(c,shared.emptyarray);
+        }
+
+        else
+        {
+            addReplyArrayLen(c, node->numslaves+1);
+            getKeyShardReply(c,node);
+            for (int i = 0; i < node->numslaves; i++) {
+                getKeyShardReply(c,node->slaves[i]);
+            }
+
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
         /* CLUSTER COUNTKEYSINSLOT <slot> */
         long long slot;

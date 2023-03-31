@@ -1,0 +1,85 @@
+{
+    "KEYSHARD": {
+        "summary": "Returns the shard details of the specified keys",
+        "complexity": "O(N) where N is the number of bytes in the key",
+        "group": "cluster",
+        "since": "7.0.0",
+        "arity": 3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+		"key_spec_index": 0
+            }
+
+        ],
+		"command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+   "reply_schema": {
+            "description": "a nested list of a map of hash ranges and shard nodes describing individual shards",
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "key": {
+                        "description": "an array specifying key name",
+                        "type": "array",
+			"items":{
+			    "type": "string"
+			 }
+                    },
+                    "nodes": {
+                        "description": "nodes where key exist",
+                        "type": "array",
+                        "items": { 
+			    "oneOf": [
+			        {
+				    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "id": {
+                                            "type": "string"
+                                        },
+                                        "port": {
+                                            "type": "integer"
+                                        },
+                                        "tls-port": {
+                                            "type": "integer"
+                                        },
+                                        "ip": {
+                                            "type": "string"
+                                        },
+                                        "hostname": {
+                                            "type": "string"
+                                        },
+                                        "role": {
+                                            "oneOf": [
+                                                {
+                                                    "const": "master"
+                                                },
+                                                {
+                                                    "const": "replica"
+                                                }
+                                            ]
+                                        }
+                                    }
+				},
+				{
+				    "type": "null",
+                                    "description": "Key does not exist."
+				}
+			    ]
+			}
+		    }
+                }
+            }
+        }
+    }
+}
