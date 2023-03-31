@@ -167,7 +167,10 @@ typedef struct redisObject robj;
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
 #define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read to network during replication. */
 #define STATS_METRIC_NET_OUTPUT_REPLICATION 4   /* Bytes written to network during replication. */
-#define STATS_METRIC_COUNT 5
+#define STATS_METRIC_EL_CYCLE 5     /* Number of eventloop cycled. */
+#define STATS_METRIC_RATE_COUNT 6
+#define STATS_METRIC_EL_DURATION 6  /* Eventloop duration. */
+#define STATS_METRIC_COUNT 7
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
@@ -1701,6 +1704,9 @@ struct redisServer {
     } inst_metric[STATS_METRIC_COUNT];
     long long stat_reply_buffer_shrinks; /* Total number of output buffer shrinks */
     long long stat_reply_buffer_expands; /* Total number of output buffer expands */
+    long long el_start;
+    long long el_cron_duration;
+    durationStats duration_stats[EL_DURATION_TYPE_NUM];
 
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
@@ -1994,8 +2000,6 @@ struct redisServer {
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
-    long long el_start;
-    durationStats duration_stats[EL_DURATION_TYPE_NUM];
     /* ACLs */
     char *acl_filename;           /* ACL Users file. NULL if not configured. */
     unsigned long acllog_max_len; /* Maximum length of the ACL LOG list. */

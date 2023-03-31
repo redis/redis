@@ -694,7 +694,7 @@ int allPersistenceDisabled(void) {
 /* ======================= Cron: called every 100 ms ======================== */
 
 /* Add a sample to the operations per second array of samples. */
-void trackInstantaneousMetric(int metric, long long current_reading) {
+void trackInstantaneousRateMetric(int metric, long long current_reading) {
     long long now = mstime();
     long long t = now - server.inst_metric[metric].last_sample_time;
     long long ops = current_reading -
@@ -709,6 +709,17 @@ void trackInstantaneousMetric(int metric, long long current_reading) {
     server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
     server.inst_metric[metric].last_sample_time = now;
     server.inst_metric[metric].last_sample_count = current_reading;
+}
+
+void trackInstantaneousAvgMetric(int metric, long long current_sum, long long current_cnt) {
+    long long time = current_sum - server.inst_metric[metric].last_sample_time;
+    long long cnt = current_cnt - server.inst_metric[metric].last_sample_count;
+    long long avg = (time > 0 && cnt > 0) ? (time / cnt) : 0;
+    server.inst_metric[metric].samples[server.inst_metric[metric].idx] = avg;
+    server.inst_metric[metric].idx++;
+    server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
+    server.inst_metric[metric].last_sample_time = current_sum;
+    server.inst_metric[metric].last_sample_count = current_cnt;
 }
 
 /* Return the mean of all the samples. */
@@ -1286,6 +1297,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* for debug purposes: skip actual cron work if pause_cron is on */
     if (server.pause_cron) return 1000/server.hz;
 
+    server.el_cron_duration = getMonotonicUs();
+
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
@@ -1294,15 +1307,18 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
 
-        trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
-        trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
+        trackInstantaneousRateMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
+        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT,
                 stat_net_input_bytes + stat_net_repl_input_bytes);
-        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
+        trackInstantaneousRateMetric(STATS_METRIC_NET_OUTPUT,
                 stat_net_output_bytes + stat_net_repl_output_bytes);
-        trackInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION,
+        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT_REPLICATION,
                                  stat_net_repl_input_bytes);
-        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION,
+        trackInstantaneousRateMetric(STATS_METRIC_NET_OUTPUT_REPLICATION,
                                  stat_net_repl_output_bytes);
+        trackInstantaneousRateMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt);
+        trackInstantaneousAvgMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].sum,
+                                    server.duration_stats[EL_DURATION_TYPE_EL].cnt);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -1515,6 +1531,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                           &ei);
 
     server.cronloops++;
+
+    server.el_cron_duration = getMonotonicUs() - server.el_cron_duration;
+
     return 1000/server.hz;
 }
 
@@ -1650,6 +1669,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData());
 
+    /* Record cron time. */
+    server.el_cron_duration -= getMonotonicUs();
+
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
@@ -1716,6 +1738,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * since the unblocked clients may write data. */
     handleClientsBlockedOnKeys();
 
+    /* Record cron time. */
+    server.el_cron_duration += getMonotonicUs();
+
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
      * in case of appendfsync=always. */
@@ -1734,6 +1759,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
 
+    /* Record cron time. */
+    server.el_cron_duration -= getMonotonicUs();
+
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
@@ -1745,9 +1773,16 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Disconnect some clients if they are consuming too much memory. */
     evictClients();
 
+    /* Record cron time. */
+    server.el_cron_duration += getMonotonicUs();
+
     /* Record eventloop latency. */
-    long long el_duration = server.el_start == 0 ? 0 : ustime() - server.el_start;
-    if (el_duration) durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+    if (server.el_start > 0) {
+        long long el_duration = ustime() - server.el_start;
+        durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+    }
+    durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
+    server.el_cron_duration = 0;
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -2501,7 +2536,7 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_writes_processed, 0);
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
-        server.inst_metric[j].last_sample_time = mstime();
+        server.inst_metric[j].last_sample_time = j < STATS_METRIC_RATE_COUNT ? mstime() : 0;
         server.inst_metric[j].last_sample_count = 0;
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
@@ -2673,6 +2708,8 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
+    server.el_start = 0;
+    server.el_cron_duration = 0;
 
     /* Initiate acl info struct */
     server.acl_info.invalid_cmd_accesses = 0;
@@ -5901,7 +5938,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_cmd_sum:%lld\r\n"
             "eventloop_duration_io_read_sum:%lld\r\n"
             "eventloop_duration_io_write_sum:%lld\r\n"
-            "eventloop_duration_aof_sum:%lld\r\n",
+            "eventloop_duration_aof_sum:%lld\r\n"
+            "eventloop_duration_cron_sum:%lld\r\n"
+            "instantaneous_eventloop_cycles:%lld\r\n"
+            "instantaneous_eventloop_duration_avg:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -5958,7 +5998,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.duration_stats[EL_DURATION_TYPE_CMD].sum,
             server.duration_stats[EL_DURATION_TYPE_IO_READ].sum,
             server.duration_stats[EL_DURATION_TYPE_IO_WRITE].sum,
-            server.duration_stats[EL_DURATION_TYPE_AOF].sum);
+            server.duration_stats[EL_DURATION_TYPE_AOF].sum,
+            server.duration_stats[EL_DURATION_TYPE_CRON].sum,
+            getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
+            getInstantaneousMetric(STATS_METRIC_EL_DURATION));
         info = genRedisInfoStringACLStats(info);
     }
 
