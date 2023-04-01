@@ -124,14 +124,14 @@ void *ztrymalloc_usable(size_t size, size_t *usable) {
 }
 
 /* Allocate memory or panic */
-void *zmalloc(size_t size) {
+__attribute__((flatten)) void *zmalloc(size_t size) {
     void *ptr = ztrymalloc_usable(size, NULL);
     if (!ptr) zmalloc_oom_handler(size);
     return ptr;
 }
 
 /* Try allocating memory, and return NULL if failed. */
-void *ztrymalloc(size_t size) {
+__attribute__((flatten)) void *ztrymalloc(size_t size) {
     void *ptr = ztrymalloc_usable(size, NULL);
     return ptr;
 }
@@ -165,7 +165,7 @@ void zfree_no_tcache(void *ptr) {
 
 /* Try allocating memory and zero it, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
-void *ztrycalloc_usable(size_t size, size_t *usable) {
+__attribute__((flatten)) void *ztrycalloc_usable(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
     void *ptr = calloc(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
@@ -186,7 +186,7 @@ void *ztrycalloc_usable(size_t size, size_t *usable) {
 
 /* Allocate memory and zero it or panic.
  * We need this wrapper to have a calloc compatible signature */
-void *zcalloc_num(size_t num, size_t size) {
+__attribute__((flatten)) void *zcalloc_num(size_t num, size_t size) {
     /* Ensure that the arguments to calloc(), when multiplied, do not wrap.
      * Division operations are susceptible to divide-by-zero errors so we also check it. */
     if ((size == 0) || (num > SIZE_MAX/size)) {
@@ -199,21 +199,21 @@ void *zcalloc_num(size_t num, size_t size) {
 }
 
 /* Allocate memory and zero it or panic */
-void *zcalloc(size_t size) {
+__attribute__((flatten)) void *zcalloc(size_t size) {
     void *ptr = ztrycalloc_usable(size, NULL);
     if (!ptr) zmalloc_oom_handler(size);
     return ptr;
 }
 
 /* Try allocating memory, and return NULL if failed. */
-void *ztrycalloc(size_t size) {
+__attribute__((flatten)) void *ztrycalloc(size_t size) {
     void *ptr = ztrycalloc_usable(size, NULL);
     return ptr;
 }
 
 /* Allocate memory or panic.
  * '*usable' is set to the usable size if non NULL. */
-void *zcalloc_usable(size_t size, size_t *usable) {
+__attribute__((flatten)) void *zcalloc_usable(size_t size, size_t *usable) {
     void *ptr = ztrycalloc_usable(size, usable);
     if (!ptr) zmalloc_oom_handler(size);
     return ptr;
@@ -221,7 +221,7 @@ void *zcalloc_usable(size_t size, size_t *usable) {
 
 /* Try reallocating memory, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
-void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable) {
+__attribute__((flatten)) void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
 #endif
@@ -276,21 +276,21 @@ void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable) {
 }
 
 /* Reallocate memory and zero it or panic */
-void *zrealloc(void *ptr, size_t size) {
+__attribute__((flatten)) void *zrealloc(void *ptr, size_t size) {
     ptr = ztryrealloc_usable(ptr, size, NULL);
     if (!ptr && size != 0) zmalloc_oom_handler(size);
     return ptr;
 }
 
 /* Try Reallocating memory, and return NULL if failed. */
-void *ztryrealloc(void *ptr, size_t size) {
+__attribute__((flatten)) void *ztryrealloc(void *ptr, size_t size) {
     ptr = ztryrealloc_usable(ptr, size, NULL);
     return ptr;
 }
 
 /* Reallocate memory or panic.
  * '*usable' is set to the usable size if non NULL. */
-void *zrealloc_usable(void *ptr, size_t size, size_t *usable) {
+__attribute__((flatten)) void *zrealloc_usable(void *ptr, size_t size, size_t *usable) {
     ptr = ztryrealloc_usable(ptr, size, usable);
     if (!ptr && size != 0) zmalloc_oom_handler(size);
     return ptr;
@@ -310,7 +310,7 @@ size_t zmalloc_usable_size(void *ptr) {
 }
 #endif
 
-void zfree(void *ptr) {
+__attribute__((flatten)) void zfree(void *ptr) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
     size_t oldsize;
@@ -329,7 +329,7 @@ void zfree(void *ptr) {
 }
 
 /* Similar to zfree, '*usable' is set to the usable size being freed. */
-void zfree_usable(void *ptr, size_t *usable) {
+__attribute__((flatten)) void zfree_usable(void *ptr, size_t *usable) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
     size_t oldsize;
