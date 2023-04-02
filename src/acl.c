@@ -1284,7 +1284,14 @@ void ACLKillPubsubClientsIfNeeded(user *u, list *upcoming) {
     listNode *ln, *lpn;
     robj *o;
     int kill = 0;
-    
+
+    /* If any of the original rule has the all-channels permission, but the new
+     * one doesn't (verifed by the caller), then the new list is not a strict
+     * superset of the original, and the next loop can be skipped. */
+    if (u->flags & USER_FLAG_ALLCHANNELS) {
+        kill = 1;
+    }
+
     /* Nothing to kill when the upcoming are a literal super set of the original
      * permissions. */
     listRewind(u->channels,&li);
