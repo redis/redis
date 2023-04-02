@@ -6497,6 +6497,17 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
     return callReplyGetProto(reply, len);
 }
 
+int RM_HandleUnblockedClients() {
+    if (server.also_propagate.numops != 0) {
+        return REDISMODULE_ERR;
+    }
+
+    if (listLength(server.ready_keys))
+        handleClientsBlockedOnKeys();
+
+    return REDISMODULE_OK;
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules data types
  *
@@ -13366,6 +13377,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringToDouble);
     REGISTER_API(StringToLongDouble);
     REGISTER_API(StringToStreamID);
+    REGISTER_API(HandleUnblockedClients);
     REGISTER_API(Call);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
