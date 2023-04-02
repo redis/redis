@@ -6127,7 +6127,7 @@ fmterr:
  *              * RM_Reply* API's
  *              * RM_BlockClient
  *              * RM_GetCurrentUserName
- *     * 'U' -- Handle/Unblock clients that are blocked on keys this RM_Call's exection made ready.  Incompatible
+ *     * 'U' -- Handle/Unblock clients that are blocked on keys this RM_Call's execution made ready.  Incompatible
  *              with replication ('!').
  *
  * * **...**: The actual arguments to the Redis command.
