@@ -395,7 +395,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
 #define REDISMODULE_ARGV_DRY_RUN (1<<10)
 #define REDISMODULE_ARGV_ALLOW_BLOCK (1<<11)
-#define REDISMODULE_ARGV_UNBLOCK_CLIENTS (1<<12)
+#define REDISMODULE_ARGV_UNBLOCK_CLIENTS (1<<11)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -6174,31 +6174,13 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
-    if (flags & REDISMODULE_ARGV_UNBLOCK_CLIENTS) {
-        if (replicate) {
-            errno = ENOTSUP;
-            if (error_as_call_replies) {
-                sds msg = sdsnew("cannot unblock clients and use replication within the same call");
-                reply = callReplyCreateError(msg, ctx);
-            }
-            return reply;
+    if (replicate && flags & REDISMODULE_ARGV_UNBLOCK_CLIENTS) {
+        errno = ENOTSUP;
+        if (error_as_call_replies) {
+            sds msg = sdsnew("cannot unblock clients and use replication within the same call");
+            reply = callReplyCreateError(msg, ctx);
         }
-        if (server.also_propagate.numops != 0) {
-            errno = ENOTSUP;
-            if (error_as_call_replies) {
-                sds msg = sdsnew("cannot unblock clients when there are pending operations to propegate");
-                reply = callReplyCreateError(msg, ctx);
-            }
-            return reply;
-        }
-        if (listLength(server.ready_keys) != 0) {
-            errno = ENOTSUP;
-            if (error_as_call_replies) {
-                sds msg = sdsnew("cannot unblock clients when there are already keys pending to unblock clients");
-                reply = callReplyCreateError(msg, ctx);
-            }
-            return reply;
-        }
+        return reply;
     }
 
     user *user = NULL;
