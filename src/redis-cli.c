@@ -3261,12 +3261,15 @@ static int isSensitiveCommand(int argc, char **argv) {
         return 1;
     } else if (argc > 2 &&
         !strcasecmp(argv[0],"config") &&
-        !strcasecmp(argv[1],"set") && (
-            !strcasecmp(argv[2],"masterauth") ||
-            !strcasecmp(argv[2],"masteruser") ||
-            !strcasecmp(argv[2],"requirepass")))
-    {
-        return 1;
+        !strcasecmp(argv[1],"set")) {
+            for (int j = 2; j < argc; j = j+2) {
+                if (!strcasecmp(argv[j],"masterauth") ||
+		    !strcasecmp(argv[j],"masteruser") ||
+		    !strcasecmp(argv[j],"requirepass")) {
+                    return 1;
+                }
+            }
+            return 0;
     /* HELLO [protover [AUTH username password] [SETNAME clientname]] */
     } else if (argc > 4 && !strcasecmp(argv[0],"hello")) {
         for (int j = 2; j < argc; j++) {
