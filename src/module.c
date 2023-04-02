@@ -395,7 +395,6 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
 #define REDISMODULE_ARGV_DRY_RUN (1<<10)
 #define REDISMODULE_ARGV_ALLOW_BLOCK (1<<11)
-#define REDISMODULE_ARGV_UNBLOCK_CLIENTS (1<<11)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -5957,7 +5956,6 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "C" -> REDISMODULE_ARGV_RUN_AS_USER
  *     "M" -> REDISMODULE_ARGV_RESPECT_DENY_OOM
  *     "K" -> REDISMODULE_ARGV_ALLOW_BLOCK
- *     'U' -> REDISMODULE_ARGV_UNBLOCK_CLIENTS
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -6034,8 +6032,6 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= (REDISMODULE_ARGV_DRY_RUN | REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS);
         } else if (*p == 'K') {
             if (flags) (*flags) |= REDISMODULE_ARGV_ALLOW_BLOCK;
-        } else if (*p == 'U') {
-            if (flags) (*flags) |= REDISMODULE_ARGV_UNBLOCK_CLIENTS;
         } else {
             goto fmterr;
         }
@@ -6127,8 +6123,6 @@ fmterr:
  *              * RM_Reply* API's
  *              * RM_BlockClient
  *              * RM_GetCurrentUserName
- *     * 'U' -- Handle/Unblock clients that are blocked on keys this RM_Call's exection made ready.  Incompatible
- *              with replication ('!').
  *
  * * **...**: The actual arguments to the Redis command.
  *
@@ -6173,15 +6167,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
-
-    if (replicate && flags & REDISMODULE_ARGV_UNBLOCK_CLIENTS) {
-        errno = ENOTSUP;
-        if (error_as_call_replies) {
-            sds msg = sdsnew("cannot unblock clients and use replication within the same call");
-            reply = callReplyCreateError(msg, ctx);
-        }
-        return reply;
-    }
 
     user *user = NULL;
     if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
@@ -6462,9 +6447,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     } else {
         reply = moduleParseReply(c, (ctx->flags & REDISMODULE_CTX_AUTO_MEMORY) ? ctx : NULL);
     }
-
-    if (flags & REDISMODULE_ARGV_UNBLOCK_CLIENTS && listLength(server.ready_keys))
-        handleClientsBlockedOnKeys();
 
 cleanup:
     if (reply) autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
