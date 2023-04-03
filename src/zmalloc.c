@@ -132,7 +132,7 @@ static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
 }
 
 void *ztrymalloc_usable(size_t size, size_t *usable) {
-    size_t usable_size;
+    size_t usable_size = 0;
     void *ptr = ztrymalloc_usable_internal(size, &usable_size);
 #ifdef HAVE_MALLOC_SIZE
     ptr = extend_to_usable(ptr, usable_size);
@@ -163,7 +163,7 @@ void *zmalloc_usable_internal(size_t size, size_t *usable) {
 /* Allocate memory or panic.
  * '*usable' is set to the usable size if non NULL. */
 void *zmalloc_usable(size_t size, size_t *usable) {
-    size_t usable_size;
+    size_t usable_size = 0;
     void *ptr = ztrymalloc_usable_internal(size, &usable_size);
     if (!ptr) zmalloc_oom_handler(size);
 #ifdef HAVE_MALLOC_SIZE
@@ -215,7 +215,7 @@ static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
 }
 
 void *ztrycalloc_usable(size_t size, size_t *usable) {
-    size_t usable_size;
+    size_t usable_size = 0;
     void *ptr = ztrycalloc_usable_internal(size, &usable_size);
 #ifdef HAVE_MALLOC_SIZE
     ptr = extend_to_usable(ptr, usable_size);
@@ -254,7 +254,7 @@ void *ztrycalloc(size_t size) {
 /* Allocate memory or panic.
  * '*usable' is set to the usable size if non NULL. */
 void *zcalloc_usable(size_t size, size_t *usable) {
-    size_t usable_size;
+    size_t usable_size = 0;
     void *ptr = ztrycalloc_usable_internal(size, &usable_size);
     if (!ptr) zmalloc_oom_handler(size);
 #ifdef HAVE_MALLOC_SIZE
@@ -322,7 +322,7 @@ static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *
 }
 
 void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable) {
-    size_t usable_size;
+    size_t usable_size = 0;
     ptr = ztryrealloc_usable_internal(ptr, size, &usable_size);
 #ifdef HAVE_MALLOC_SIZE
     ptr = extend_to_usable(ptr, usable_size);
@@ -347,7 +347,7 @@ void *ztryrealloc(void *ptr, size_t size) {
 /* Reallocate memory or panic.
  * '*usable' is set to the usable size if non NULL. */
 void *zrealloc_usable(void *ptr, size_t size, size_t *usable) {
-    size_t usable_size;
+    size_t usable_size = 0;
     ptr = ztryrealloc_usable(ptr, size, &usable_size);
     if (!ptr && size != 0) zmalloc_oom_handler(size);
 #ifdef HAVE_MALLOC_SIZE
