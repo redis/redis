@@ -10694,11 +10694,11 @@ size_t RM_MallocSize(void* ptr) {
 }
 
 /* Similar to RM_MallocSize, the difference is that RM_MallocUsableSize
- * returns the usable size of memory by the module.
- * It is safe to use 'zmalloc_usable_size()' to manipulate additional
- * memory space, as we guarantee that the compiler can recognize this
- * after 'RM_Alloc', 'RM_TryAlloc', 'RM_Realloc', or 'RM_Calloc'. */
+ * returns the usable size of memory by the module. */
 size_t RM_MallocUsableSize(void *ptr) {
+    /* It is safe to use 'zmalloc_usable_size()' to manipulate additional
+     * memory space, as we guarantee that the compiler can recognize this
+     * after 'RM_Alloc', 'RM_TryAlloc', 'RM_Realloc', or 'RM_Calloc'. */
     return zmalloc_usable_size(ptr);
 }
 

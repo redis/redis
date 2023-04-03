@@ -42,8 +42,8 @@
 /* We use zmalloc_usable/zrealloc_usable instead of zmalloc/zrealloc
  * to ensure the safe invocation of 'zmalloc_usable_size().
  * See comment in zmalloc_usable_size(). */
-#define lp_malloc zmalloc_usable
-#define lp_realloc zrealloc_usable
+#define lp_malloc(sz) zmalloc_usable(sz,NULL)
+#define lp_realloc(ptr,sz) zrealloc_usable(ptr,sz,NULL)
 #define lp_free zfree
 #define lp_malloc_size zmalloc_usable_size
 #endif
