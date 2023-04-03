@@ -131,6 +131,7 @@ __attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
+size_t zmalloc_usable_size(void *ptr);
 #else
 /* If we use 'zmalloc_usable_size()' to obtain additional available memory size
  * and manipulate it, we need to call 'extend_to_usable()' afterwards to ensure
