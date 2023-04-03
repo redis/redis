@@ -132,6 +132,10 @@ __attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
 #else
+/* To make sure that the compiler is aware of the additional available memory size,
+ * it's necessary to call 'extend_to_usable()' after calling 'usable_size()'. */
+#define zmalloc_usable_size(p) zmalloc_size(p)
+
 /* derived from https://github.com/systemd/systemd/pull/25688
  * We use zmalloc_usable_size() everywhere to use memory blocks, but that is an abuse since the
  * malloc_usable_size() isn't meant for this kind of use, it is for diagnostics only. That is also why the
@@ -141,9 +145,8 @@ size_t zmalloc_size(void *ptr);
  * The implementation returns the pointer as is; the only reason for its existence is as a conduit for the
  * alloc_size attribute. This cannot be a static inline because gcc then loses the attributes on the function.
  * See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96503 */
-void __attribute__((alloc_size(2))) __attribute__((noinline)) *extend_to_usable(void *ptr, size_t size);
+__attribute__((alloc_size(2))) __attribute__((noinline)) void *extend_to_usable(void *ptr, size_t size);
 #endif
-size_t zmalloc_usable_size(void *ptr);
 
 int get_proc_stat_ll(int i, long long *res);
 

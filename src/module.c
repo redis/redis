@@ -516,6 +516,9 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
  * You should avoid using malloc().
  * This function panics if unable to allocate enough memory. */
 void *RM_Alloc(size_t bytes) {
+    /* Use 'zmalloc_usable()' instead of 'zmalloc()' to allow the compiler
+     * to recognize the additional memory size, which makes modules to
+     * use 'RM_MallocUsableSize()' more safely. */
     return zmalloc_usable(bytes,NULL);
 }
 
@@ -10691,7 +10694,10 @@ size_t RM_MallocSize(void* ptr) {
 }
 
 /* Similar to RM_MallocSize, the difference is that RM_MallocUsableSize
- * returns the usable size of memory by the module. */
+ * returns the usable size of memory by the module.
+ * It is safe to use 'zmalloc_usable_size()' to manipulate additional
+ * memory space, as we guarantee that the compiler can recognize this
+ * after 'RM_Alloc', 'RM_TryAlloc', 'RM_Realloc', or 'RM_Calloc'. */
 size_t RM_MallocUsableSize(void *ptr) {
     return zmalloc_usable_size(ptr);
 }

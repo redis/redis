@@ -866,6 +866,14 @@ typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
 #    endif
 #endif
 
+#ifndef REDISMODULE_ATTR_ALLOC
+#    if defined(__GNUC__)
+#        define REDISMODULE_ATTR_ALLOC(...) __attribute__((__alloc_size__(__VA_ARGS__)))
+#    else
+#        define REDISMODULE_ATTR_ALLOC(...)
+#    endif
+#endif
+
 /* Incomplete structures for compiler checks but opaque access. */
 typedef struct RedisModuleCtx RedisModuleCtx;
 typedef struct RedisModuleCommand RedisModuleCommand;
@@ -955,11 +963,11 @@ typedef struct RedisModuleTypeMethods {
 #define REDISMODULE_ATTR REDISMODULE_ATTR_COMMON
 #endif
 
-REDISMODULE_API __attribute__((alloc_size(1))) void * (*RedisModule_Alloc)(size_t bytes) REDISMODULE_ATTR;
-REDISMODULE_API __attribute__((alloc_size(1))) void * (*RedisModule_TryAlloc)(size_t bytes) REDISMODULE_ATTR;
-REDISMODULE_API __attribute__((alloc_size(2))) void * (*RedisModule_Realloc)(void *ptr, size_t bytes) REDISMODULE_ATTR;
+REDISMODULE_API void * (*RedisModule_Alloc)(size_t bytes) REDISMODULE_ATTR REDISMODULE_ATTR_ALLOC(1);
+REDISMODULE_API void * (*RedisModule_TryAlloc)(size_t bytes) REDISMODULE_ATTR REDISMODULE_ATTR_ALLOC(1);
+REDISMODULE_API void * (*RedisModule_Realloc)(void *ptr, size_t bytes) REDISMODULE_ATTR REDISMODULE_ATTR_ALLOC(2);
 REDISMODULE_API void (*RedisModule_Free)(void *ptr) REDISMODULE_ATTR;
-REDISMODULE_API __attribute__((alloc_size(1,2))) void * (*RedisModule_Calloc)(size_t nmemb, size_t size) REDISMODULE_ATTR;
+REDISMODULE_API void * (*RedisModule_Calloc)(size_t nmemb, size_t size) REDISMODULE_ATTR REDISMODULE_ATTR_ALLOC(1,2);
 REDISMODULE_API char * (*RedisModule_Strdup)(const char *str) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetApi)(const char *, void *) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
