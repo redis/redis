@@ -3337,7 +3337,7 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-static void propagatePendingCommands() {
+void propagatePendingCommands() {
     if (server.also_propagate.numops == 0)
         return;
 

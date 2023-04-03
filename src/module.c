@@ -6461,10 +6461,17 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
     return callReplyGetProto(reply, len);
 }
 
-int RM_HandleUnblockedClients() {
-    if (server.also_propagate.numops != 0) {
+int RM_EndExecutionUnit() {
+    /* should only execute at top level of nesting, as otherwise would cause changes to impact DB before top level
+     * expects it.
+     *
+     * Note: this is not required to be called if one use GIL locking/unlocking, only when called from the redis main
+     * thread.
+     */
+    if (server.execution_nesting != 1)
         return REDISMODULE_ERR;
-    }
+
+    propagatePendingCommands();
 
     if (listLength(server.ready_keys))
         handleClientsBlockedOnKeys();
@@ -8431,6 +8438,9 @@ void moduleGILBeforeUnlock() {
      * released we have to propagate here). */
     exitExecutionUnit();
     postExecutionUnitOperations();
+
+    if (listLength(server.ready_keys))
+        handleClientsBlockedOnKeys();
 }
 
 /* Release the server lock after a thread safe API call was executed. */
@@ -13341,7 +13351,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringToDouble);
     REGISTER_API(StringToLongDouble);
     REGISTER_API(StringToStreamID);
-    REGISTER_API(HandleUnblockedClients);
+    REGISTER_API(EndExecutionUnit);
     REGISTER_API(Call);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
