@@ -133,6 +133,9 @@ __attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 size_t zmalloc_size(void *ptr);
 #else
 /* derived from https://github.com/systemd/systemd/pull/25688
+ * We use zmalloc_usable_size() everywhere to use memory blocks, but that is abuse since the
+ * zmalloc_usable_size() interface isn't meant for this kind of use, it is for diagnostics only.
+ * That is also why the behavior is flaky when built with _FORTIFY_SOURCE.
  * Dummy allocator to tell the compiler that the new size of ptr is newsize. The implementation returns the
  * pointer as is; the only reason for its existence is as a conduit for the alloc_size attribute. This cannot be
  * a static inline because gcc then loses the attributes on the function.
