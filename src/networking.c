@@ -2341,6 +2341,7 @@ int processMultibulkBuffer(client *c) {
                     /* Hint the sds library about the amount of bytes this string is
                      * going to contain. */
                     c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf,ll+2-sdslen(c->querybuf));
+                    if (c->querybuf_peak < (size_t)ll + 2) c->querybuf_peak = ll + 2;
                 }
             }
             c->bulklen = ll;
@@ -2635,6 +2636,7 @@ void readQueryFromClient(connection *conn) {
          * the query buffer, we also don't wanna use the greedy growth, in order
          * to avoid collision with the RESIZE_THRESHOLD mechanism. */
         c->querybuf = sdsMakeRoomForNonGreedy(c->querybuf, readlen);
+        if (c->querybuf_peak < qblen + readlen) c->querybuf_peak = qblen + readlen;
     } else {
         c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
 
