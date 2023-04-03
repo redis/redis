@@ -132,8 +132,10 @@ __attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
 #else
-/* To make sure that the compiler is aware of the additional available memory size,
- * it's necessary to call 'extend_to_usable()' after calling 'usable_size()'. */
+/* If we use 'zmalloc_usable_size()' to obtain additional available memory size
+ * and manipulate it, we need to call 'extend_to_usable()' afterwards to ensure
+ * the compiler recognizes this extra memory. However, if we use the pointer
+ * obtained from z[*]_usable() family functions, there is no need for this step. */
 #define zmalloc_usable_size(p) zmalloc_size(p)
 
 /* derived from https://github.com/systemd/systemd/pull/25688

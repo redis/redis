@@ -240,7 +240,7 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
  * over-allocated memory can be shrunk by `lpShrinkToFit`.
  * */
 unsigned char *lpNew(size_t capacity) {
-    unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1);
+    unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1, NULL);
     if (lp == NULL) return NULL;
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
     lpSetNumElements(lp,0);
@@ -257,7 +257,7 @@ void lpFree(unsigned char *lp) {
 unsigned char* lpShrinkToFit(unsigned char *lp) {
     size_t size = lpGetTotalBytes(lp);
     if (size < lp_malloc_size(lp)) {
-        return lp_realloc(lp, size);
+        return lp_realloc(lp, size, NULL);
     } else {
         return lp;
     }
@@ -852,7 +852,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     /* Realloc before: we need more room. */
     if (new_listpack_bytes > old_listpack_bytes &&
         new_listpack_bytes > lp_malloc_size(lp)) {
-        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+        if ((lp = lp_realloc(lp,new_listpack_bytes,NULL)) == NULL) return NULL;
         dst = lp + poff;
     }
 
@@ -868,7 +868,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
 
     /* Realloc after: we need to free space. */
     if (new_listpack_bytes < old_listpack_bytes) {
-        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+        if ((lp = lp_realloc(lp,new_listpack_bytes,NULL)) == NULL) return NULL;
         dst = lp + poff;
     }
 
@@ -1173,7 +1173,7 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     lplength = lplength < UINT16_MAX ? lplength : UINT16_MAX;
 
     /* Extend target to new lpbytes then append or prepend source. */
-    target = lp_realloc(target, lpbytes);
+    target = lp_realloc(target, lpbytes, NULL);
     if (append) {
         /* append == appending to target */
         /* Copy source after target (copying over original [END]):
@@ -1211,7 +1211,7 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
 
 unsigned char *lpDup(unsigned char *lp) {
     size_t lpbytes = lpBytes(lp);
-    unsigned char *newlp = lp_malloc(lpbytes);
+    unsigned char *newlp = lp_malloc(lpbytes, NULL);
     memcpy(newlp, lp, lpbytes);
     return newlp;
 }
@@ -1455,7 +1455,7 @@ void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entri
     struct pick {
         unsigned int index;
         unsigned int order;
-    } *picks = lp_malloc(count * sizeof(struct pick));
+    } *picks = lp_malloc(count * sizeof(struct pick), NULL);
     unsigned int total_size = lpLength(lp);
     assert(total_size);
     for (unsigned int i = 0; i < count; i++) {
@@ -1499,7 +1499,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         unsigned int index;
         unsigned int order;
     } rand_pick;
-    rand_pick *picks = lp_malloc(sizeof(rand_pick)*count);
+    rand_pick *picks = lp_malloc(sizeof(rand_pick)*count, NULL);
     unsigned int total_size = lpLength(lp)/2;
 
     /* Avoid div by zero on corrupt listpack */
