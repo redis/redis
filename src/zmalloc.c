@@ -165,6 +165,7 @@ void *zmalloc_usable_internal(size_t size, size_t *usable) {
 void *zmalloc_usable(size_t size, size_t *usable) {
     size_t usable_size;
     void *ptr = ztrymalloc_usable_internal(size, &usable_size);
+    if (!ptr) zmalloc_oom_handler(size);
 #ifdef HAVE_MALLOC_SIZE
     ptr = extend_to_usable(ptr, usable_size);
 #endif
@@ -255,6 +256,7 @@ void *ztrycalloc(size_t size) {
 void *zcalloc_usable(size_t size, size_t *usable) {
     size_t usable_size;
     void *ptr = ztrycalloc_usable_internal(size, &usable_size);
+    if (!ptr) zmalloc_oom_handler(size);
 #ifdef HAVE_MALLOC_SIZE
     ptr = extend_to_usable(ptr, usable_size);
 #endif
