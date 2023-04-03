@@ -365,7 +365,6 @@ void feedReplicationBuffer(char *s, size_t len) {
             size_t limit = max((size_t)server.repl_backlog_size / 16, (size_t)PROTO_REPLY_CHUNK_BYTES);
             size_t size = min(max(len, (size_t)PROTO_REPLY_CHUNK_BYTES), limit);
             tail = zmalloc_usable(size + sizeof(replBufBlock), &usable_size);
-            tail = extend_to_usable(tail, usable_size);
             /* Take over the allocation's internal fragmentation */
             tail->size = usable_size - sizeof(replBufBlock);
             size_t copy = (tail->size >= len) ? len : tail->size;

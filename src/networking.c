@@ -135,7 +135,6 @@ client *createClient(connection *conn) {
         connSetPrivateData(conn, c);
     }
     c->buf = zmalloc_usable(PROTO_REPLY_CHUNK_BYTES, &c->buf_usable_size);
-    c->buf = extend_to_usable(c->buf, c->buf_usable_size);
     selectDb(c,0);
     uint64_t client_id;
     atomicGetIncr(server.next_client_id, client_id, 1);
@@ -377,7 +376,6 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         size_t usable_size;
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc_usable(size + sizeof(clientReplyBlock), &usable_size);
-        tail = extend_to_usable(tail, usable_size);
         /* take over the allocation's internal fragmentation */
         tail->size = usable_size - sizeof(clientReplyBlock);
         tail->used = len;
@@ -705,7 +703,6 @@ void trimReplyUnusedTailSpace(client *c) {
         size_t usable_size;
         size_t old_size = tail->size;
         tail = zrealloc_usable(tail, tail->used + sizeof(clientReplyBlock), &usable_size);
-        tail = extend_to_usable(tail, usable_size);
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
         tail->size = usable_size - sizeof(clientReplyBlock);
@@ -790,7 +787,6 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         /* Create a new node */
         size_t usable_size;
         clientReplyBlock *buf = zmalloc_usable(length + sizeof(clientReplyBlock), &usable_size);
-        buf = extend_to_usable(buf, usable_size);
         /* Take over the allocation's internal fragmentation */
         buf->size = usable_size - sizeof(clientReplyBlock);
         buf->used = length;

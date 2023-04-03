@@ -104,12 +104,12 @@ __attribute__((malloc)) void *ztrymalloc(size_t size);
 __attribute__((malloc)) void *ztrycalloc(size_t size);
 __attribute__((alloc_size(2))) void *ztryrealloc(void *ptr, size_t size);
 void zfree(void *ptr);
-__attribute__((malloc)) __attribute__((alloc_size(1))) void *zmalloc_usable(size_t size, size_t *usable);
-__attribute__((malloc)) __attribute__((alloc_size(1))) void *zcalloc_usable(size_t size, size_t *usable);
-__attribute__((alloc_size(2))) void *zrealloc_usable(void *ptr, size_t size, size_t *usable);
-__attribute__((malloc)) __attribute__((alloc_size(1))) void *ztrymalloc_usable(size_t size, size_t *usable);
-__attribute__((malloc)) __attribute__((alloc_size(1))) void *ztrycalloc_usable(size_t size, size_t *usable);
-__attribute__((alloc_size(2))) void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable);
+void *zmalloc_usable(size_t size, size_t *usable);
+void *zcalloc_usable(size_t size, size_t *usable);
+void *zrealloc_usable(void *ptr, size_t size, size_t *usable);
+void *ztrymalloc_usable(size_t size, size_t *usable);
+void *ztrycalloc_usable(size_t size, size_t *usable);
+void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable);
 void zfree_usable(void *ptr, size_t *usable);
 __attribute__((malloc)) char *zstrdup(const char *s);
 size_t zmalloc_used_memory(void);
@@ -131,32 +131,15 @@ __attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
-size_t zmalloc_usable_size(void *ptr);
 #else
-#define zmalloc_usable_size(p) zmalloc_size(p)
-#endif
-
+/* derived from https://github.com/systemd/systemd/pull/25688
+ * Dummy allocator to tell the compiler that the new size of ptr is newsize. The implementation returns the
+ * pointer as is; the only reason for its existence is as a conduit for the alloc_size attribute. This cannot be
+ * a static inline because gcc then loses the attributes on the function.
+ * See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96503 */
 void __attribute__((alloc_size(2))) __attribute__((noinline)) *extend_to_usable(void *ptr, size_t size);
-
-static inline size_t zmalloc_usable_size_safe(void **ptr) {
-    size_t sz = zmalloc_usable_size(*ptr);
-    *ptr = extend_to_usable(*ptr, sz);
-    return sz;
-}
-
-static inline void *zmalloc_safe(size_t size) {
-    size_t usable_size;
-    void *ptr = zmalloc_usable(size, &usable_size);
-    ptr = extend_to_usable(ptr, usable_size);
-    return ptr;
-}
-
-static inline void *zrealloc_safe(void *ptr, size_t size) {
-    size_t usable_size;
-    ptr = zrealloc_usable(ptr, size, &usable_size);
-    ptr = extend_to_usable(ptr, usable_size);
-    return ptr;
-}
+#endif
+size_t zmalloc_usable_size(void *ptr);
 
 int get_proc_stat_ll(int i, long long *res);
 

@@ -39,10 +39,8 @@
 #ifndef LISTPACK_ALLOC_H
 #define LISTPACK_ALLOC_H
 #include "zmalloc.h"
-#define lp_malloc zmalloc_safe
-#define lp_realloc zrealloc_safe
+#define lp_malloc zmalloc
+#define lp_realloc zrealloc
 #define lp_free zfree
-/* todo: There is no need to use zmalloc_usable_size_safe() because we have
- * already ensured that it is safe for listpack to be allcated or reallocated */
 #define lp_malloc_size zmalloc_usable_size
 #endif
