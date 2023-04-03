@@ -12719,7 +12719,7 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
 
     /* Not allowed on replicas. */
     if (server.masterhost != NULL) {
-        errno = EPERM;
+        errno = ENOTSUP;
         return REDISMODULE_ERR;
     }
 

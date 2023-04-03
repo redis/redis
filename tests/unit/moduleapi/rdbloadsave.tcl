@@ -168,7 +168,7 @@ start_server {tags {"modules"}} {
                     assert_equal OK [$replica test.rdbsave rep.rdb]
 
                     # RM_RdbLoad() is not allowed on replicas
-                    assert_error {*not permitted*} {$replica test.rdbload rep.rdb}
+                    assert_error {*supported*} {$replica test.rdbload rep.rdb}
 
                     assert_equal OK [$master test.rdbsave master.rdb]
                     $master set x 20000
