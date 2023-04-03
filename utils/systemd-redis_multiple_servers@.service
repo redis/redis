@@ -12,7 +12,7 @@
 
 [Unit]
 Description=Redis data structure server - instance %i
-Documentation=https://redis.io/documentation
+Documentation=https://redis.io/docs/
 # This template unit assumes your redis-server configuration file(s)
 # to live at /etc/redis/redis_server_<INSTANCE_NAME>.conf
 AssertPathExists=/etc/redis/redis_server_%i.conf

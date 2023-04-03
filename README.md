@@ -18,7 +18,7 @@ If you want to know more, this is a list of selected starting points:
 * Introduction to Redis data types. https://redis.io/topics/data-types-intro
 * Try Redis directly inside your browser. https://try.redis.io
 * The full list of Redis commands. https://redis.io/commands
-* There is much more inside the official Redis documentation. https://redis.io/documentation
+* There is much more inside the official Redis documentation. https://redis.io/docs/
 
 Building Redis
 --------------

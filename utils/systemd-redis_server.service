@@ -17,7 +17,7 @@
 
 [Unit]
 Description=Redis data structure server
-Documentation=https://redis.io/documentation
+Documentation=https://redis.io/docs/
 #Before=your_application.service another_example_application.service
 #AssertPathExists=/var/lib/redis
 Wants=network-online.target
