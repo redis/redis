@@ -1,6 +1,6 @@
 {
     "HVALS": {
-        "summary": "Get all the values in a hash",
+        "summary": "Returns all values in a hash.",
         "complexity": "O(N) where N is the size of the hash.",
         "group": "hash",
         "since": "2.0.0",

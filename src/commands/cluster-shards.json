@@ -1,6 +1,6 @@
 {
     "SHARDS": {
-        "summary": "Get array of cluster slots to node mappings",
+        "summary": "Returns the mapping of cluster slots to shards.",
         "complexity": "O(N) where N is the total number of cluster nodes",
         "group": "cluster",
         "since": "7.0.0",

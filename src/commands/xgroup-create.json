@@ -1,6 +1,6 @@
 {
     "CREATE": {
-        "summary": "Create a consumer group.",
+        "summary": "Creates a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",

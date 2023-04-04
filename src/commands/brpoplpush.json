@@ -1,6 +1,6 @@
 {
     "BRPOPLPUSH": {
-        "summary": "Pop an element from a list, push it to another list and return it; or block until one is available",
+        "summary": "Pops an element from a list, pushes it to another list and returns it. Block until an element is available otherwise. Deletes the list if the last element was popped.",
         "complexity": "O(1)",
         "group": "list",
         "since": "2.2.0",

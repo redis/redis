@@ -1,6 +1,6 @@
 {
     "RESETSTAT": {
-        "summary": "Reset the stats returned by INFO",
+        "summary": "Resets the server's statistics.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.0.0",

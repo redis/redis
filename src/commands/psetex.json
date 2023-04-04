@@ -1,6 +1,6 @@
 {
     "PSETEX": {
-        "summary": "Set the value and expiration in milliseconds of a key",
+        "summary": "Sets both string value and expiration time in milliseconds of a key. The key is created if it doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "2.6.0",

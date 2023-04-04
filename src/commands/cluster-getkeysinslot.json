@@ -1,6 +1,6 @@
 {
     "GETKEYSINSLOT": {
-        "summary": "Return local key names in the specified hash slot",
+        "summary": "Returns the key names in a hash slot.",
         "complexity": "O(N) where N is the number of requested keys",
         "group": "cluster",
         "since": "3.0.0",

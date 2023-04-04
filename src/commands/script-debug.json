@@ -1,6 +1,6 @@
 {
     "DEBUG": {
-        "summary": "Set the debug mode for executed scripts.",
+        "summary": "Sets the debug mode of server-side Lua scripts.",
         "complexity": "O(1)",
         "group": "scripting",
         "since": "3.2.0",

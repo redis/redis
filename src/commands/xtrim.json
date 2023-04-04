@@ -1,6 +1,6 @@
 {
     "XTRIM": {
-        "summary": "Trims the stream to (approximately if '~' is passed) a certain size",
+        "summary": "Deletes messages from the beginning of a stream.",
         "complexity": "O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.",
         "group": "stream",
         "since": "5.0.0",

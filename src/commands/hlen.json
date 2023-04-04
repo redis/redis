@@ -1,6 +1,6 @@
 {
     "HLEN": {
-        "summary": "Get the number of fields in a hash",
+        "summary": "Returns the number of fields in a hash.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",

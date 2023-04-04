@@ -1,6 +1,6 @@
 {
     "PFSELFTEST": {
-        "summary": "An internal command for testing HyperLogLog values",
+        "summary": "An internal command for testing HyperLogLog values.",
         "complexity": "N/A",
         "group": "hyperloglog",
         "since": "2.8.9",

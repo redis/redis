@@ -1,6 +1,6 @@
 {
     "DUMP": {
-        "summary": "Return a serialized version of the value stored at the specified key.",
+        "summary": "Returns a serialized representation of the value stored at a key.",
         "complexity": "O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).",
         "group": "generic",
         "since": "2.6.0",

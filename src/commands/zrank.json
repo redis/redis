@@ -1,6 +1,6 @@
 {
     "ZRANK": {
-        "summary": "Determine the index of a member in a sorted set",
+        "summary": "Returns the index of a member in a sorted set ordered by ascending scores.",
         "complexity": "O(log(N))",
         "group": "sorted_set",
         "since": "2.0.0",

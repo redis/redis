@@ -1,6 +1,6 @@
 {
     "REFCOUNT": {
-        "summary": "Get the number of references to the value of the key",
+        "summary": "Returns the reference count of a value of a key.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "2.2.3",

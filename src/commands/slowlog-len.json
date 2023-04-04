@@ -1,6 +1,6 @@
 {
     "LEN": {
-        "summary": "Get the slow log's length",
+        "summary": "Returns the number of entries in the slow log.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.2.12",

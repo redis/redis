@@ -1,6 +1,6 @@
 {
     "REPLCONF": {
-        "summary": "An internal command for configuring the replication stream",
+        "summary": "An internal command for configuring the replication stream.",
         "complexity": "O(1)",
         "group": "server",
         "since": "3.0.0",

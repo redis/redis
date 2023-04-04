@@ -1,6 +1,6 @@
 {
     "SREM": {
-        "summary": "Remove one or more members from a set",
+        "summary": "Removes one or more members from a set. Deletes the set if the last member was removed.",
         "complexity": "O(N) where N is the number of members to be removed.",
         "group": "set",
         "since": "1.0.0",

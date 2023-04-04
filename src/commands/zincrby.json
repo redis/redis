@@ -1,6 +1,6 @@
 {
     "ZINCRBY": {
-        "summary": "Increment the score of a member in a sorted set",
+        "summary": "Increments the score of a member in a sorted set.",
         "complexity": "O(log(N)) where N is the number of elements in the sorted set.",
         "group": "sorted_set",
         "since": "1.2.0",

@@ -1,6 +1,6 @@
 {
     "MSETNX": {
-        "summary": "Set multiple keys to multiple values, only if none of the keys exist",
+        "summary": "Atomically modifies the string values of one or more keys only when all keys don't exist.",
         "complexity": "O(N) where N is the number of keys to set.",
         "group": "string",
         "since": "1.0.1",
