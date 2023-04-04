@@ -12724,10 +12724,8 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
     }
 
     /* Drop replicas if exist. */
-    if (listLength(server.slaves) != 0) {
-        disconnectSlaves();
-        freeReplicationBacklog();
-    }
+    disconnectSlaves();
+    freeReplicationBacklog();
 
     if (server.aof_state != AOF_OFF) stopAppendOnly();
 
