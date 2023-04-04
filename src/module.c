@@ -3565,18 +3565,19 @@ void cleanupModuleChannelSubscriber(RedisModule *module, RedisModuleChannelSubsc
     dictDelete(moduleChannelSubscribers, module);
 }
 
-void removeModuleFromChannelSubscription(RedisModule *module, robj *channel) {
+/**
+ * This method removes a module from the channel to module(s) subscription list.
+ * This method is only invoked if there is a valid module subscription for the provided
+ * channel.
+ */
+static void removeModuleFromChannelSubscription(RedisModule *module, robj *channel) {
 
     /* Clean up module from channelModuleSubscribers dict. */
     dictEntry *de = dictFind(channelModuleSubscribers, channel);
-    if (de == NULL) {
-        return;
-    }
+    serverAssert(de);
     list *subscribers = dictGetVal(de);
     listNode *ln = listSearchKey(subscribers, module);
-    if(ln == NULL) {
-        return;
-    }
+    serverAssert(ln);
     listDelNode(subscribers, ln);
     if (listLength(subscribers) == 0) {
         dictDelete(channelModuleSubscribers, channel);
@@ -3650,9 +3651,8 @@ void RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel) 
 
     listNode *ln = listSearchKey(moduleChannelSubscriber->subscriptions, channel);
 
-    if (ln == NULL) {
-        return;
-    }
+    /* module shouldn't have existed in the dictionary `moduleChannelSubscribers` in first place. */
+    serverAssert(ln);
 
     /* Find and remove the module subscriber to the channel. */
     removeModuleFromChannelSubscription(ctx->module, ln->value);
@@ -3708,10 +3708,9 @@ void RM_FreeGlobalChannelSubscriptionList(RedisModuleString **channels) {
 
 /**
  * Unsubscribe all the channel(s) this module had subscribed to.
- * 
- * @param module 
+ *  
  */
-void moduleUnsubscribeAllChannels(RedisModule *module) {
+static void moduleUnsubscribeAllChannels(RedisModule *module) {
     listNode *ln;
     listIter li;
     if (dictSize(moduleChannelSubscribers) == 0) {
@@ -3723,11 +3722,9 @@ void moduleUnsubscribeAllChannels(RedisModule *module) {
     }
     RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
 
-    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
-        return;
-    }
+    serverAssert(listLength(moduleChannelSubscriber->subscriptions));
 
-    listRewind(moduleChannelSubscriber->subscriptions,&li);
+    listRewind(moduleChannelSubscriber->subscriptions, &li);
     while ((ln = listNext(&li))) {
         removeModuleFromChannelSubscription(module, ln->value);
         listDelNode(moduleChannelSubscriber->subscriptions, ln);
