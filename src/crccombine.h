@@ -1,11 +1,16 @@
 
 #include <stdint.h>
 
+// vector combine gets 4-10x improvement on CRC combine by itself
 #define USE_VECTOR_COMBINE_INNER 1
 #define USE_SWITCH_IF_NO_VECTOR 1
 // consider testing for your platform, slower for me
 #define HAVE_AVX2_AND_WANT_USE_AVX2 0
+// Without vector combine, this nets ~50-200x improvement by itself
 #define USE_STATIC_COMBINE_CACHE 1
+// With USE_VECTOR_COMBINE_INNER and USE_STATIC_VECTOR_COMBINE_CACHE:
+// While we expect 200x-2000x improvement, we are >10,000x faster for the
+// CRC combine operation. The combination is SUPER EFFECTIVE!
 
 // mask types
 typedef unsigned long long v8uq __attribute__ ((vector_size (64)));

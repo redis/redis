@@ -64,6 +64,12 @@
 #include "crc64.h"
 #include "crccombine.h"
 
+#ifdef CLOCK_MONOTONIC
+#define BENCH_CRC_AVAILABLE 1
+#endif
+#ifdef CLOCK_REALTIME
+#define BENCH_CRC_AVAILABLE 1
+#endif
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -131,6 +137,7 @@ static struct config {
     pthread_mutex_t is_updating_slots_mutex;
     int resp3; /* use RESP3 */
     long long crc64_test_size;
+    int crc64_combine;
 } config;
 
 typedef struct _client {
@@ -228,8 +235,7 @@ static sds benchmarkVersion(void) {
 static uint64_t dictSdsHash(const void *key);
 static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 
-/* Could use some extra macros for non-linux systems... but with containers, do
- * we even worry? */
+#if BENCH_CRC_AVAILABLE
 
 #ifdef CLOCK_MONOTONIC
 #define CLOCKID CLOCK_MONOTONIC
@@ -256,6 +262,8 @@ static uint64_t nstimediff(struct timespec* start, struct timespec* end) {
     return (end->tv_sec * 1000000000) - (start->tv_sec * 1000000000) \
         + end->tv_nsec - start->tv_nsec;
 }
+
+#endif
 
 /* Implementation */
 static long long ustime(void) {
@@ -1597,6 +1605,8 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--crc")) {
             if (lastarg) goto invalid;
             config.crc64_test_size = atoll(argv[++i]);
+        } else if (!strcmp(argv[i],"--combine")) {
+            config.crc64_combine = 1;
         } else {
             /* Assume the user meant to provide an option when the arg starts
              * with a dash. We're done otherwise and should use the remainder
@@ -1655,7 +1665,10 @@ usage:
 "                    on the command line.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
 " -x                 Read last argument from STDIN.\n"
-" --crc <bytes>      Benchmark crc64 faster options, using a buffer this big, and quit when done.\n"
+#if BENCH_CRC_AVAILABLE
+" --crc <bytes>      Benchmark crc64 faster options, using a buffer ranging up this large.\n"
+" --combine          Benchmark a range of crc64 combine sizes.\n"
+#endif
 #ifdef USE_OPENSSL
 " --tls              Establish a secure TLS connection.\n"
 " --sni <host>       Server name indication for TLS.\n"
@@ -1809,16 +1822,21 @@ int main(int argc, char **argv) {
 
     tag = "";
 
-    if (config.crc64_test_size > 0) do {
-        unsigned char* data = zmalloc(config.crc64_test_size);
-        if (!data) {
-            fprintf(stderr, "Could not allocate sufficient data to test crc64 "
-                            "%lld\n", config.crc64_test_size);
-            exit(1);
-        }
+#if BENCH_CRC_AVAILABLE
 
 #define RPOLY UINT64_C(0x95ac9329ac4bc9b5)
 #define INIT_SIZE UINT64_C(0xffffffffffffffff)
+
+    if (config.crc64_test_size > 0 || config.crc64_combine) do {
+        unsigned char* data = NULL;
+        if (config.crc64_test_size > 0) {
+            data = zmalloc(config.crc64_test_size);
+            if (!data) {
+                fprintf(stderr, "Could not allocate sufficient data to test crc64 "
+                                "%lld\n", config.crc64_test_size);
+                exit(1);
+            }
+        }
 
 /* Will fix later; minimizing CPU used for getting nstime, as shifts and even
  * *returns* of values are non-zero nanosecond cost in comparison to just *not*
@@ -1838,18 +1856,22 @@ int main(int argc, char **argv) {
             RPOLY, 64);
         NSTIME(&init_end);
 
-        genBenchmarkRandomData((char*)data, config.crc64_test_size);
+        crc64_init();
+
         // We want to hash about 1 gig of data in total, looped, to get a good
         // idea of our performance.
-        uint64_t passes = (UINT64_C(0x100000000) / config.crc64_test_size);
-        passes = passes >= 2 ? passes : 2;
+        uint64_t expect = 0;
 
-        crc64_init();
-        // warm up the cache
-        set_crc64_cutoffs(config.crc64_test_size+1, config.crc64_test_size+1);
-        uint64_t expect = crc64(0, data, config.crc64_test_size);
-
-        if (config.csv) printf("algorithm,buffer,performance,crc64_matches\n");
+        if (config.crc64_test_size > 0) {
+            genBenchmarkRandomData((char*)data, config.crc64_test_size);
+            // warm up the cache
+            set_crc64_cutoffs(config.crc64_test_size+1, config.crc64_test_size+1);
+            expect = crc64(0, data, config.crc64_test_size);
+            if (config.csv) printf("algorithm,buffer,performance,crc64_matches\n");
+        } else {
+            // just need some nonzero bytes here
+            genBenchmarkRandomData((char*)(&expect), sizeof(uint64_t));
+        }
 
         // We have nanoseconds, and we need megs/second from bytes. Great,
         // just a multiply and a division.
@@ -1860,41 +1882,51 @@ int main(int argc, char **argv) {
         // some platforms.
 
         // save some copy / paste
-#define bench(WHICH, DIV) \
+#define bench(WHICH) \
         uint64_t min_##WHICH = INIT_SIZE; \
         uint64_t hash_##WHICH; \
-        for (long long i=(passes>>DIV) > 0 ? (passes>>DIV) : 1 ; i > 0; i--) { \
+        for (long long i=passes; i > 0; i--) { \
             struct timespec original_start, original_end; \
             NSTIME(&original_start); \
-            hash_##WHICH = crc64(0, data, config.crc64_test_size); \
+            hash_##WHICH = crc64(0, data, csize); \
             NSTIME(&original_end); \
             uint64_t delta = nstimediff(&original_start, &original_end); \
             min_##WHICH = min_##WHICH < delta ? min_##WHICH : delta; \
         } if (config.csv) \
-        printf("%s,%lld,%lld,%d\n", #WHICH, config.crc64_test_size, \
-            (1000 * config.crc64_test_size) / min_##WHICH, hash_##WHICH == expect); \
-        else printf("test size=%lld algorithm=%s %lld M/sec matches=%d\n", \
-            config.crc64_test_size, #WHICH, \
-            (1000 * config.crc64_test_size) / min_##WHICH, hash_##WHICH == expect)
+        printf("%s,%ld,%ld,%d\n", #WHICH, csize, (1000 * csize) / min_##WHICH, \
+            hash_##WHICH == hash_crc_1byte); \
+        else printf("test size=%ld algorithm=%s %ld M/sec matches=%d\n", \
+            csize, #WHICH, (1000 * csize) / min_##WHICH, \
+            hash_##WHICH == hash_crc_1byte)
 
-        // get the single-character version for original Redis behavior
-        set_crc64_cutoffs(0, config.crc64_test_size+1);
-        bench(crc_1byte, 0);
+        if (config.crc64_test_size > 0) {
+            for (uint64_t csize = (uint64_t)config.crc64_test_size;
+                 csize > 3;
+                 csize -= (csize >> 2) + (csize >> 3) + (csize >> 6)) {
+                // Try to hash about a 4 gigs each
+                uint64_t passes = (UINT64_C(0x100000000) / csize);
+                passes = passes >= 2 ? passes : 2;
+                passes = passes <= 10000 ? passes : 10000;
+                // get the single-character version for original Redis behavior
+                set_crc64_cutoffs(0, csize+1);
+                bench(crc_1byte);
 
-        set_crc64_cutoffs(config.crc64_test_size+1, config.crc64_test_size+1);
-        // run with 8-byte "single" path
-        bench(crcspeed, 0);
+                set_crc64_cutoffs(csize+1, csize+1);
+                // run with 8-byte "single" path
+                bench(crcspeed);
 
-        // run with dual 8-byte paths
-        set_crc64_cutoffs(1, config.crc64_test_size+1);
-        bench(crcdual, 0);
+                // run with dual 8-byte paths
+                set_crc64_cutoffs(1, csize+1);
+                bench(crcdual);
 
-        // run with tri 8-byte paths
-        set_crc64_cutoffs(1, 1);
-        bench(crctri, 0);
+                // run with tri 8-byte paths
+                set_crc64_cutoffs(1, 1);
+                bench(crctri);
+            }
 
-        // Be free memory region, be free.
-        zfree(data);
+            // Be free memory region, be free.
+            zfree(data);
+        }
 #undef bench
 
         uint64_t start, thash;
@@ -1902,38 +1934,49 @@ int main(int argc, char **argv) {
 #define bench(label, SIZE) \
         uint64_t min_##label = INIT_SIZE; \
         start = expect; \
-        thash = hash_crcspeed; \
+        thash = expect ^ (expect >> 17) ^ (expect << 3); \
         for (int i=0; i < 1000; i++) { \
             struct timespec original_start, original_end; \
             NSTIME(&original_start); \
             crc64_combine(thash, start, SIZE, RPOLY, 64); \
             NSTIME(&original_end); \
+            start += i + 1; thash += i - 5; \
             uint64_t delta = nstimediff(&original_start, &original_end); \
             min_##label = min_##label < delta ? min_##label : delta; \
         } if (config.csv) \
             printf("%s,%lu,%lu\n", #label, (uint64_t)SIZE, min_##label); \
         else printf("%s size=%lu in %lu nsec\n", #label, (uint64_t)SIZE, min_##label)
 
-        uint64_t odelta = nstimediff(&init_start, &init_end);
-        if (config.csv) {
-            printf("\noperation,size,nanoseconds\n");
-            printf("init_64,%lu,%lu\n", INIT_SIZE, odelta);
-        } else {
-            printf("init_64 size=%lu in %lu nsec\n", INIT_SIZE, odelta);
+        if (config.crc64_combine) {
+            uint64_t odelta = nstimediff(&init_start, &init_end);
+            if (config.csv) {
+                printf("\noperation,size,nanoseconds\n");
+                printf("init_64,%lu,%lu\n", INIT_SIZE, odelta);
+            } else {
+                printf("init_64 size=%lu in %lu nsec\n", INIT_SIZE, odelta);
+            }
+            // use the hash itself as the size (unpredictable)
+            bench(hash_as_size_combine, expect);
+            // let's do something big (predictable, so fast)
+            bench(largest_combine, INIT_SIZE);
+            /* 1.390625 ; just over 3 ** 0.4; good for a range of sizes
+             * just under powers of 2**(k*10)
+             * Note; csize ending point here prevents "next step" overflow
+             * resulting in an infinite loop.
+             */
+            for (uint64_t csize = 4;
+                 csize <= UINT64_C(0xb81702e05c0b8170);
+                 csize += (csize >> 2) + (csize >> 3) + (csize >> 6)) {
+                bench(combine, csize);
+            }
         }
-
-        // use the hash itself as the size (unpredictable)
-        bench(hash_as_size_combine, expect);
-        // let's do something big (predictable, so fast)
-        bench(largest_combine, INIT_SIZE);
-        // and let's do the requested size
-        bench(combine, config.crc64_test_size);
 
 #undef RPOLY
 #undef NSTIME
 #undef INIT_SIZE
         if (!config.loop) exit(0);
     } while (config.loop);
+#endif
 
 #ifdef USE_OPENSSL
     if (config.tls) {
