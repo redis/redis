@@ -2491,6 +2491,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * events to handle. */
     if (ProcessingEventsWhileBlocked) {
         uint64_t processed = 0;
+        processed += swapBatchCtxFlush(server.swap_batch_ctx);
         processed += handleClientsWithPendingReadsUsingThreads();
         processed += tlsProcessPendingData();
         processed += handleClientsWithPendingWrites();
@@ -2498,6 +2499,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         server.events_processed_while_blocked += processed;
         return;
     }
+
+    /* submit buffered swap request in current batch */
+    swapBatchCtxFlush(server.swap_batch_ctx);
 
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();

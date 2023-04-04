@@ -95,7 +95,7 @@ int swapDataAna(swapData *d, struct keyRequest *key_request,
     if (d->type->swapAna) {
         retval = d->type->swapAna(d,key_request,intention,
                 intention_flags,datactx);
-        
+
         if ((*intention_flags & SWAP_FIN_DEL_SKIP) ||
                 (*intention_flags & SWAP_EXEC_IN_DEL)) {
             /* rocksdb and mem differs. */
@@ -298,6 +298,31 @@ int swapDataDecodeAndSetupMeta(swapData *d, sds rawval, void **datactx) {
 
     swapDataSetColdObjectMeta(d,object_meta/*moved*/);
     return retval;
+}
+
+void swapDataTurnWarmOrHot(swapData *data) {
+    if (data->expire != -1) {
+        setExpire(NULL,data->db,data->key,data->expire);
+    }
+    data->db->cold_keys--;
+}
+
+void swapDataTurnCold(swapData *data) {
+    data->db->cold_keys++;
+    if (data->db->swap_absent_cache)
+        absentsCacheDelete(data->db->swap_absent_cache,data->key->ptr);
+}
+
+void swapDataTurnDeleted(swapData *data, int del_skip) {
+    if (swapDataIsCold(data)) {
+        data->db->cold_keys--;
+    } else {
+        /* rocks-meta already deleted, only need to delete object_meta
+         * from keyspace. */
+        if (!del_skip && data->expire != -1) {
+            removeExpire(data->db,data->key);
+        }
+    }
 }
 
 

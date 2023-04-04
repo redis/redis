@@ -186,14 +186,14 @@ int setSwapAnaAction(swapData *data, int intention, void *datactx_, int *action)
 
     switch (intention) {
         case SWAP_IN:
-            if (datactx->ctx.num > 0) *action = ROCKS_MULTIGET; /* Swap in specific fields */
+            if (datactx->ctx.num > 0) *action = ROCKS_GET; /* Swap in specific fields */
             else *action = ROCKS_ITERATE; /* Swap in entire set(SMEMBERS) */
             break;
         case SWAP_DEL:
             *action = ROCKS_NOP;
             break;
         case SWAP_OUT:
-            *action = ROCKS_WRITE;
+            *action = ROCKS_PUT;
             break;
         default:
             /* Should not happen .*/
@@ -753,7 +753,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         setEncodeKeys(set1_data, SWAP_IN, set1_ctx, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
         test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
-        test_assert(ROCKS_MULTIGET == action);
+        test_assert(ROCKS_GET == action);
         sds expectEncodedKey = setEncodeSubkey(db, key1->ptr, 0, f1);
         test_assert(memcmp(expectEncodedKey,rawkeys[0],sdslen(rawkeys[0])) == 0
             || memcmp(expectEncodedKey,rawkeys[1],sdslen(rawkeys[1])) == 0);
@@ -776,7 +776,7 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_ctx->ctx.num = 2;
         setSwapAnaAction(set1_data, SWAP_OUT, set1_ctx, &action);
         setEncodeData(set1_data, SWAP_OUT, set1_ctx, &numkeys, &cfs, &rawkeys, &rawvals);
-        test_assert(action == ROCKS_WRITE);
+        test_assert(action == ROCKS_PUT);
         test_assert(2 == numkeys);
 
         // decodeData - swap in

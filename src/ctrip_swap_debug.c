@@ -28,14 +28,14 @@
 
 #include "ctrip_swap.h"
 
-int doRIO(RIO *rio);
-
 static sds debugRioGet(int cf, sds rawkey) {
     sds rawval;
     RIO _rio, *rio = &_rio;
-    RIOInitGet(rio,cf,rawkey);
-    doRIO(rio);
-    rawval = rio->get.rawval;
+    int cfs[1] = {cf};
+    sds rawkeys[1] = {rawkey};
+    RIOInitGet(rio,1,cfs,rawkeys);
+    RIODo(rio);
+    rawval = rio->get.rawvals[0];
     return rawval;
 }
 
@@ -232,8 +232,8 @@ NULL
         sds prefix = sdsdup(c->argv[3]->ptr);
         sds end = NULL;
         if (0 != sdslen(prefix)) end = calculateNextPrefix(prefix);
-        RIOInititerate(rio, cf, 0, prefix, end, ROCKS_ITERATE_NO_LIMIT);
-        doRIO(rio);
+        RIOInitIterate(rio, cf, 0, prefix, end, ROCKS_ITERATE_NO_LIMIT);
+        RIODo(rio);
         addReplyArrayLen(c,rio->iterate.numkeys);
         for (int i = 0; i < rio->iterate.numkeys; i++) {
             sds repr = sdsempty();
@@ -304,15 +304,28 @@ void swapDebugMsgsInit(swapDebugMsgs *msgs, char *identity) {
     snprintf(msgs->identity,MAX_MSG,"[%s]",identity);
 }
 
-void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...) {
-    va_list ap;
+void swapDebugMsgsAppendV(swapDebugMsgs *msgs, char *step, char *fmt, va_list ap) {
     char *name = msgs->steps[msgs->index].name;
     char *info = msgs->steps[msgs->index].info;
     strncpy(name,step,MAX_MSG-1);
-    va_start(ap,fmt);
     vsnprintf(info,MAX_MSG,fmt,ap);
-    va_end(ap);
     msgs->index++;
+}
+
+void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...) {
+    va_list ap;
+    va_start(ap,fmt);
+    swapDebugMsgsAppendV(msgs, step, fmt, ap);
+    va_end(ap);
+}
+
+void swapDebugBatchMsgsAppend(swapExecBatch *batch, char *step, char *fmt, ...) {
+    for (size_t i = 0; i < batch->count; i++) {
+        va_list ap;
+        va_start(ap,fmt);
+        swapDebugMsgsAppend(batch->reqs[i]->msgs, step, fmt, ap);
+        va_end(ap);
+    }
 }
 
 void swapDebugMsgsDump(swapDebugMsgs *msgs) {

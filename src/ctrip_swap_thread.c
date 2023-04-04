@@ -53,11 +53,11 @@ void *swapThreadMain (void *arg) {
         listRewind(processing_reqs, &li);
         atomicSetWithSync(thread->is_running_rio, 1);
         while ((ln = listNext(&li))) {
-            swapRequest *req = listNodeValue(ln);
-            if (req->swap_queue_timer) {
-                metricDebugInfo(SWAP_DEBUG_SWAP_QUEUE_WAIT, elapsedUs(req->swap_queue_timer));
+            swapRequestBatch *reqs = listNodeValue(ln);
+            if (reqs->swap_queue_timer) {
+                metricDebugInfo(SWAP_DEBUG_SWAP_QUEUE_WAIT, elapsedUs(reqs->swap_queue_timer));
             }
-            processSwapRequest(req);
+            swapRequestBatchProcess(reqs);
         }
 
         atomicSetWithSync(thread->is_running_rio, 0);
@@ -113,17 +113,17 @@ static inline int swapThreadsDistNext() {
     return dist;
 }
 
-void swapThreadsDispatch(swapRequest *req, int idx) {
+void swapThreadsDispatch(swapRequestBatch *reqs, int idx) {
     if (idx == -1) {
         idx = swapThreadsDistNext() % server.swap_threads_num;
     } else {
         serverAssert(idx < server.total_swap_threads_num);
     }
-    if (server.swap_debug_trace_latency) elapsedStart(&req->swap_queue_timer);
-    if (req->trace) swapTraceDispatch(req->trace);
+    if (server.swap_debug_trace_latency) elapsedStart(&reqs->swap_queue_timer);
+    swapRequestBatchDispatched(reqs);
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);
-    listAddNodeTail(t->pending_reqs,req);
+    listAddNodeTail(t->pending_reqs,reqs);
     pthread_cond_signal(&t->cond);
     pthread_mutex_unlock(&t->lock);
 }
@@ -252,6 +252,8 @@ void createCheckpointDone(swapData *data, void *_pd, int errcode) {
 }
 
 int submitUtilTask(int type, void* pd, sds* error) {
+    swapRequest *req = NULL;
+
     if (isUtilTaskExclusive(type)) {
         if (isRunningUtilTask(server.util_task_manager, type)) {
             if(error != NULL) *error = sdsnew("task running");
@@ -262,19 +264,23 @@ int submitUtilTask(int type, void* pd, sds* error) {
 
     switch (type) {
         case COMPACT_RANGE_TASK:
-            submitSwapDataRequest(SWAP_MODE_ASYNC,SWAP_UTILS,0,NULL,
-                    NULL,NULL,NULL,compactRangeDone,pd,NULL,server.swap_util_thread_idx);
+            req = swapDataRequestNew(SWAP_UTILS,0,NULL,NULL,NULL,NULL,
+                    compactRangeDone,pd,NULL);
+            submitSwapRequest(SWAP_MODE_ASYNC,req,server.swap_util_thread_idx);
             break;
         case GET_ROCKSDB_STATS_TASK:
-            submitSwapDataRequest(SWAP_MODE_ASYNC, SWAP_UTILS,1,NULL,
-                    NULL,NULL,NULL,getRocksdbStatsDone,pd,NULL,server.swap_util_thread_idx);
+            req = swapDataRequestNew(SWAP_UTILS,1,NULL,NULL,NULL,NULL,
+                    getRocksdbStatsDone,pd,NULL);
+            submitSwapRequest(SWAP_MODE_ASYNC,req,server.swap_util_thread_idx);
             break;
         case CREATE_CHECKPOINT:
-            submitSwapDataRequest(SWAP_MODE_ASYNC, SWAP_UTILS, CREATE_CHECKPOINT, NULL,
-                                  NULL, NULL, NULL, createCheckpointDone, pd, NULL, server.swap_util_thread_idx);
+            req = swapDataRequestNew(SWAP_UTILS,CREATE_CHECKPOINT,NULL,NULL,
+                    NULL,NULL,createCheckpointDone,pd,NULL);
+            submitSwapRequest(SWAP_MODE_ASYNC,req,server.swap_util_thread_idx);
             break;
         default:
-            if (error != NULL) *error = sdscatprintf(sdsempty(), "unknown util type %d.", type);
+            if (error != NULL)
+                *error = sdscatprintf(sdsempty(),"unknown util type %d.",type);
             return 0;
     }
     return 1;

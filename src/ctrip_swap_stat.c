@@ -33,42 +33,6 @@
  * io requests faster than rocksdb can handle). */
 
 /* swap stats */
-#define SWAP_REQUEST_MEMORY_OVERHEAD (sizeof(swapRequest)+sizeof(swapCtx)+ \
-                                      sizeof(wholeKeySwapData)/*typical*/+ \
-                                      sizeof(lock))
-
-static inline size_t estimateRIOSwapMemory(RIO *rio) {
-    size_t memory = 0;
-    int i;
-    switch (rio->action) {
-    case ROCKS_GET:
-        memory += sdsalloc(rio->get.rawkey);
-        if (rio->get.rawval) memory += sdsalloc(rio->get.rawval);
-        break;
-    case ROCKS_PUT:
-        memory += sdsalloc(rio->put.rawkey);
-        memory += sdsalloc(rio->put.rawval);
-        break;
-    case ROCKS_DEL:
-        memory += sdsalloc(rio->del.rawkey);
-        break;
-    case ROCKS_WRITE:
-        rocksdb_writebatch_data(rio->write.wb,&memory);
-        break;
-    case ROCKS_MULTIGET:
-        for (i = 0; i < rio->multiget.numkeys; i++) {
-            memory += sdsalloc(rio->multiget.rawkeys[i]);
-            if (rio->multiget.rawvals && rio->multiget.rawvals[i])
-                memory += sdsalloc(rio->multiget.rawvals[i]);
-        }
-        break;
-    default:
-        break;
-    }
-
-    return memory;
-}
-
 void initStatsSwap() {
     int i, metric_offset;
     server.ror_stats = zmalloc(sizeof(rorStat));
@@ -77,6 +41,7 @@ void initStatsSwap() {
         metric_offset = SWAP_SWAP_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
         server.ror_stats->swap_stats[i].name = swapIntentionName(i);
         server.ror_stats->swap_stats[i].count = 0;
+        server.ror_stats->swap_stats[i].batch = 0;
         server.ror_stats->swap_stats[i].memory = 0;
         server.ror_stats->swap_stats[i].time = 0;
         server.ror_stats->swap_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
@@ -88,9 +53,11 @@ void initStatsSwap() {
         metric_offset = SWAP_RIO_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
         server.ror_stats->rio_stats[i].name = rocksActionName(i);
         server.ror_stats->rio_stats[i].count = 0;
+        server.ror_stats->rio_stats[i].batch = 0;
         server.ror_stats->rio_stats[i].memory = 0;
         server.ror_stats->rio_stats[i].time = 0;
         server.ror_stats->rio_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
+        server.ror_stats->rio_stats[i].stats_metric_idx_batch = metric_offset+SWAP_STAT_METRIC_BATCH;
         server.ror_stats->rio_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
         server.ror_stats->rio_stats[i].stats_metric_idx_time = metric_offset+SWAP_STAT_METRIC_TIME;
     }
@@ -119,22 +86,26 @@ void initStatsSwap() {
 void trackSwapInstantaneousMetrics() {
     int i;
     swapStat *s;
-    size_t count, memory, time;
+    size_t count, batch, memory, time;
     for (i = 1; i < SWAP_TYPES; i++) {
         s = server.ror_stats->swap_stats + i;
         atomicGet(s->count,count);
+        atomicGet(s->batch,batch);
         atomicGet(s->memory,memory);
         atomicGet(s->time,time);
         trackInstantaneousMetric(s->stats_metric_idx_count,count);
+        trackInstantaneousMetric(s->stats_metric_idx_batch,batch);
         trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
         trackInstantaneousMetric(s->stats_metric_idx_time,time);
     }
     for (i = 1; i < ROCKS_TYPES; i++) {
         s = server.ror_stats->rio_stats + i;
         atomicGet(s->count,count);
+        atomicGet(s->batch,batch);
         atomicGet(s->memory,memory);
         atomicGet(s->time,time);
         trackInstantaneousMetric(s->stats_metric_idx_count,count);
+        trackInstantaneousMetric(s->stats_metric_idx_batch,batch);
         trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
         trackInstantaneousMetric(s->stats_metric_idx_time,time);
     }
@@ -175,8 +146,8 @@ sds genSwapInfoString(sds info) {
 
 sds genSwapExecInfoString(sds info) {
     int j;
-    long long ops, total_latency;
-    size_t count, memory;
+    long long ops, batch_ps, total_latency;
+    size_t count, batch, memory;
     info = sdscatprintf(info,
             "swap_inprogress_count:%ld\r\n"
             "swap_inprogress_memory:%ld\r\n"
@@ -188,23 +159,31 @@ sds genSwapExecInfoString(sds info) {
     for (j = 1; j < SWAP_TYPES; j++) {
         swapStat *s = &server.ror_stats->swap_stats[j];
         atomicGet(s->count,count);
+        atomicGet(s->batch,batch);
         atomicGet(s->memory,memory);
         ops = getInstantaneousMetric(s->stats_metric_idx_count);
+        batch_ps = getInstantaneousMetric(s->stats_metric_idx_count);
         total_latency = getInstantaneousMetric(s->stats_metric_idx_time);
-        info = sdscatprintf(info, "swap_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld,latency_po=%lld\r\n",
-                s->name,count,memory,
-                ops, getInstantaneousMetric(s->stats_metric_idx_memory), ops > 0 ? total_latency/ops : 0);
+        info = sdscatprintf(info,
+                "swap_%s:count=%ld,batch=%ld,memory=%ld,ops=%lld,batch_ps=%lld,bps=%lld,latency_po=%lld,latency_per_batch=%lld\r\n",
+                s->name,count,batch,memory, ops, batch_ps,
+                getInstantaneousMetric(s->stats_metric_idx_memory),
+                ops > 0 ? total_latency/ops : 0,
+                batch_ps > 0 ? total_latency/batch_ps : 0);
     }
 
     for (j = 1; j < ROCKS_TYPES; j++) {
         swapStat *s = &server.ror_stats->rio_stats[j];
         atomicGet(s->count,count);
+        atomicGet(s->batch,batch);
         atomicGet(s->memory,memory);
         ops = getInstantaneousMetric(s->stats_metric_idx_count);
         total_latency = getInstantaneousMetric(s->stats_metric_idx_time);
-        info = sdscatprintf(info,"swap_rio_%s:count=%ld,memory=%ld,ops=%lld,bps=%lld,latency_po=%lld\r\n",
-                s->name,count,memory,
-                ops, getInstantaneousMetric(s->stats_metric_idx_memory), ops > 0 ? total_latency/ops : 0);
+        info = sdscatprintf(info,"swap_rio_%s:count=%ld,batch=%ld,memory=%ld,ops=%lld,batch_ps=%lld,bps=%lld,latency_po=%lld,latency_per_batch=%lld\r\n",
+                s->name,count,batch,memory,ops,batch_ps,
+                getInstantaneousMetric(s->stats_metric_idx_memory),
+                ops > 0 ? total_latency/ops : 0,
+                batch_ps > 0 ? total_latency/batch_ps : 0);
     }
 
     for (j = 0; j < CF_COUNT; j++) {
@@ -251,10 +230,12 @@ void resetStatsSwap() {
     int i;
     for (i = 0; i < SWAP_TYPES; i++) {
         server.ror_stats->swap_stats[i].count = 0;
+        server.ror_stats->swap_stats[i].batch = 0;
         server.ror_stats->swap_stats[i].memory = 0;
     }
     for (i = 0; i < ROCKS_TYPES; i++) {
         server.ror_stats->rio_stats[i].count = 0;
+        server.ror_stats->rio_stats[i].batch = 0;
         server.ror_stats->rio_stats[i].memory = 0;
     }
     for (i = 0; i < CF_COUNT; i++) {
@@ -312,64 +293,6 @@ void metricDebugInfo(int type, long val) {
     atomicIncr(server.swap_debug_info[type].value, val);
 }
 
-void updateStatsSwapStart(swapRequest *req) {
-    elapsedStart(&req->swap_timer);
-    req->swap_memory += SWAP_REQUEST_MEMORY_OVERHEAD;
-    atomicIncr(server.swap_inprogress_count,1);
-    atomicIncr(server.swap_inprogress_memory,req->swap_memory);
-}
-
-void updateStatsSwapNotify(swapRequest *req) {
-    /* req->intention may be negative when key doesn't exist */
-    int intention = req->intention < 0 ? req->key_request->cmd_intention : req->intention;
-    const long duration = elapsedUs(req->swap_timer);
-    atomicIncr(server.ror_stats->swap_stats[intention].count,1);
-    atomicIncr(server.ror_stats->swap_stats[intention].memory,req->swap_memory);
-    atomicIncr(server.ror_stats->swap_stats[intention].time, duration);
-}
-
-void updateStatsSwapFinish(swapRequest *req) {
-    atomicDecr(server.swap_inprogress_count,1);
-    atomicDecr(server.swap_inprogress_memory,req->swap_memory);
-}
-
-void updateStatsSwapDataNotFound(RIO *rio) {
-    int notfound = 0;
-
-    if (rio->action == ROCKS_GET && rio->get.rawval == NULL)
-        notfound = 1;
-
-    if (rio->action == ROCKS_MULTIGET) {
-        int anyfound = 0, i;
-        for (i = 0; i < rio->multiget.numkeys; i++) {
-            if (rio->multiget.rawvals[i] != NULL) {
-                anyfound = 1;
-                break;
-            }
-        }
-        if (!anyfound) notfound = 1;
-    }
-
-    if (notfound) {
-        atomicIncr(server.swap_hit_stats->stat_swapin_data_not_found_count,1);
-    }
-}
-
-void updateStatsSwapRIO(swapRequest *req, RIO *rio) {
-    // TODO: miss rio memory used in swap meta
-    size_t rio_memory = estimateRIOSwapMemory(rio);
-    req->swap_memory += rio_memory;
-    atomicIncr(server.swap_inprogress_memory,rio_memory);
-}
-
-void updateStatsSwapRIOFinish(RIO *rio, long duration) {
-    int action = rio->action;
-    size_t rio_memory = estimateRIOSwapMemory(rio);
-    atomicIncr(server.ror_stats->rio_stats[action].memory,rio_memory);
-    atomicIncr(server.ror_stats->rio_stats[action].count,1);
-    atomicIncr(server.ror_stats->rio_stats[action].time,duration);
-}
-
 void updateCompactionFiltSuccessCount(int cf) {
     atomicIncr(server.ror_stats->compaction_filter_stats[cf].filt_count, 1);
 }
@@ -377,6 +300,7 @@ void updateCompactionFiltSuccessCount(int cf) {
 void updateCompactionFiltScanCount(int cf) {
     atomicIncr(server.ror_stats->compaction_filter_stats[cf].scan_count, 1);
 }
+
 /* ----------------------------- ratelimit ------------------------------ */
 #define SWAP_RATELIMIT_DELAY_SLOW 1
 #define SWAP_RATELIMIT_DELAY_STOP 10
@@ -421,6 +345,6 @@ int swapRateLimit(client *c) {
     } else {
         if (c) c->swap_rl_until = 0;
     }
-    
+
     return delay;
 }

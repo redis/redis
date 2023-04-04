@@ -242,7 +242,7 @@ int zsetSwapAnaAction(swapData *data, int intention, void *datactx_, int *action
             if (datactx->type != TYPE_NONE) {
                 *action = ROCKS_ITERATE;
             } else if (datactx->bdc.num) { /* Swap in specific fields */
-                *action = ROCKS_MULTIGET;
+                *action = ROCKS_GET;
             } else { /* Swap in entire zset. */
                 *action = ROCKS_ITERATE;
             }
@@ -251,7 +251,7 @@ int zsetSwapAnaAction(swapData *data, int intention, void *datactx_, int *action
             *action = ROCKS_NOP;
             break;
         case SWAP_OUT:
-            *action = ROCKS_WRITE;
+            *action = ROCKS_PUT;
             break;
         default:
             /* Should not happen .*/
@@ -723,7 +723,7 @@ int zsetRocksDel(struct swapData *data_,  void *datactx_, int inaction,
     int oindex = 0;
     int onum = 0;
     int multi = 2;
-    *outaction = ROCKS_WRITE;
+    *outaction = ROCKS_PUT;
     if (num > 0) {
         int dbid;
         size_t keylen, subkeylen;
@@ -1283,7 +1283,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zsetEncodeKeys(zset1_data, SWAP_IN, zset1_ctx, &numkeys, &cfs, &rawkeys);
         test_assert(2 == numkeys);
         test_assert(DATA_CF == cfs[0] && DATA_CF == cfs[1]);
-        test_assert(ROCKS_MULTIGET == action);
+        test_assert(ROCKS_GET == action);
         sds expectEncodedKey = rocksEncodeDataKey(db, key1->ptr, 0, f1);
         test_assert(memcmp(expectEncodedKey,rawkeys[0],sdslen(rawkeys[0])) == 0
             || memcmp(expectEncodedKey,rawkeys[1],sdslen(rawkeys[1])) == 0);
@@ -1305,7 +1305,7 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_ctx->bdc.num = 2;
         zsetSwapAnaAction(zset1_data, SWAP_OUT, zset1_ctx, &action);
         zsetEncodeData(zset1_data, SWAP_OUT, zset1_ctx, &numkeys, &cfs, &rawkeys, &rawvals);
-        test_assert(action == ROCKS_WRITE);
+        test_assert(action == ROCKS_PUT);
         test_assert(4 == numkeys);
 
         //mock

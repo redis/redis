@@ -328,7 +328,7 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
 #define NOSWAP_REASON_ABSENTCACHEHIT 5
 #define NOSWAP_REASON_UNEXPECTED 100
 
-void keyRequestProceed(void *lock, redisDb *db, robj *key,
+void keyRequestProceed(void *lock, int flush, redisDb *db, robj *key,
         client *c, void *pd) {
     int reason_num = 0, retval = 0, swap_intention;
     void *datactx = NULL;
@@ -343,6 +343,7 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
     uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     int thread_idx = ctx->key_request->deferred ? server.swap_defer_thread_idx : -1;
     UNUSED(reason);
+    swapRequest *req = NULL;
 
 #ifdef SWAP_DEBUG
     msgs = &ctx->msgs;
@@ -393,9 +394,10 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
             reason_num = NOSWAP_REASON_ABSENTCACHEHIT;
             goto noswap;
         } else {
-            submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
+            req = swapMetaRequestNew(ctx->key_request,
                     ctx,data,datactx,ctx->key_request->trace,
-                    keyRequestSwapFinished,ctx,msgs,thread_idx);
+                    keyRequestSwapFinished,ctx,msgs);
+            swapBatchCtxFeed(server.swap_batch_ctx,flush,req,thread_idx);
             return;
         }
     }
@@ -437,8 +439,9 @@ allset:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed","start swap=%s",
             swapIntentionName(swap_intention));
 
-    submitSwapDataRequest(SWAP_MODE_ASYNC,swap_intention,swap_intention_flags,
-            ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,thread_idx);
+    req = swapDataRequestNew(swap_intention,swap_intention_flags,ctx,data,
+            datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs);
+    swapBatchCtxFeed(server.swap_batch_ctx,flush,req,thread_idx);
 
     return;
 
@@ -552,7 +555,7 @@ int dbSwap(client *c) {
          * 2. client will not reset
          * 3. client will break out process loop. */
         if (c->keyrequests_count) c->flags |= CLIENT_SWAPPING;
-        return C_ERR;    
+        return C_ERR;
     } else if (keyrequests_submit < 0) {
         /* Swapping command parsed and dispatched, return C_OK so that:
          * 1. repl client will skip call

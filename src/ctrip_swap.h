@@ -501,16 +501,21 @@ void swapDebugMsgsInit(swapDebugMsgs *msgs, char *identity);
 #ifdef __GNUC__
 void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...)
   __attribute__((format(printf, 3, 4)));
+void swapDebugBatchMsgsAppend(swapExecBatch *batch, char *step, char *fmt, ...)
+  __attribute__((format(printf, 3, 4)));
 #else
 void swapDebugMsgsAppend(swapDebugMsgs *msgs, char *step, char *fmt, ...);
+void swapDebugBatchMsgsAppend(swapExecBatch *batch, char *step, char *fmt, ...);
 #endif
 void swapDebugMsgsDump(swapDebugMsgs *msgs);
 
 #define DEBUG_MSGS_INIT(msgs, identity) do { if (msgs) swapDebugMsgsInit(msgs, identity); } while (0)
 #define DEBUG_MSGS_APPEND(msgs, step, ...) do { if (msgs) swapDebugMsgsAppend(msgs, step, __VA_ARGS__); } while (0)
+#define DEBUG_BATCH_MSGS_APPEND(batch, step, ...) do { if (batch) swapDebugBatchMsgsAppend(batch, step, __VA_ARGS__); } while (0)
 #else
 #define DEBUG_MSGS_INIT(msgs, identity)
 #define DEBUG_MSGS_APPEND(msgs, step, ...)
+#define DEBUG_BATCH_MSGS_APPEND(batch, step, ...)
 #endif
 
 /* Swap */
@@ -523,13 +528,18 @@ void swapDebugMsgsDump(swapDebugMsgs *msgs);
 #define SWAP_ERR_DATA_UNEXPECTED_INTENTION -204
 #define SWAP_ERR_DATA_DECODE_META_FAILED -205
 #define SWAP_ERR_EXEC_FAIL -300
-#define SWAP_ERR_EXEC_RIO_FAIL -301
 #define SWAP_ERR_EXEC_UNEXPECTED_ACTION -302
 #define SWAP_ERR_EXEC_UNEXPECTED_UTIL -303
+#define SWAP_ERR_METASCAN_FAIL -400
 #define SWAP_ERR_METASCAN_UNSUPPORTED_IN_MULTI -401
 #define SWAP_ERR_METASCAN_SESSION_UNASSIGNED -402
 #define SWAP_ERR_METASCAN_SESSION_INPROGRESS -403
 #define SWAP_ERR_METASCAN_SESSION_SEQUNMATCH -404
+#define SWAP_ERR_RIO_FAIL -500
+#define SWAP_ERR_RIO_GET_FAIL -501
+#define SWAP_ERR_RIO_PUT_FAIL -502
+#define SWAP_ERR_RIO_DEL_FAIL -503
+#define SWAP_ERR_RIO_ITER_FAIL -504
 
 struct swapCtx;
 
@@ -817,9 +827,11 @@ sds genSwapScanSessionStatString(sds info);
 sds getAllSwapScanSessionsInfoString(long long outer_cursor);
 
 /* Exec */
-struct swapRequest;
+#define SWAP_MODE_ASYNC 0
+#define SWAP_MODE_PARALLEL_SYNC 1
 
-typedef void (*swapRequestNotifyCallback)(struct swapRequest *req, void *pd);
+struct swapRequestBatch;
+
 typedef void (*swapRequestFinishedCallback)(swapData *data, void *pd, int errcode);
 
 #define SWAP_REQUEST_TYPE_DATA 0
@@ -829,12 +841,10 @@ typedef struct swapRequest {
   keyRequest *key_request; /* key_request for meta swap request */
   int intention; /* intention for data swap request */
   uint32_t intention_flags;
-  swapCtx *swapCtx;
+  swapCtx *swap_ctx;
   swapData *data;
   void *datactx;
   void *result; /* ref (create in decodeData, moved to swapIn) */
-  swapRequestNotifyCallback notify_cb;
-  void *notify_pd;
   swapRequestFinishedCallback finish_cb;
   void *finish_pd;
   redisAtomic size_t swap_memory;
@@ -843,17 +853,101 @@ typedef struct swapRequest {
 #endif
   int errcode;
   monotime swap_timer;
-  monotime swap_queue_timer;
-  monotime notify_queue_timer;
   swapTrace *trace;
 } swapRequest;
 
-swapRequest *swapRequestNew(keyRequest *key_request, int intention, uint32_t intention_flags, swapCtx *swapCtx, swapData *data, void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs);
+swapRequest *swapRequestNew(keyRequest *key_request, int intention,
+    uint32_t intention_flags, swapCtx *ctx, swapData *data, void *datactx,
+    swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs);
+static inline swapRequest *swapDataRequestNew(
+    int intention, uint32_t intention_flags, swapCtx *ctx, swapData *data,
+    void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd,
+    void *msgs) {
+  return swapRequestNew(NULL,intention,intention_flags,ctx,data,datactx,trace,cb,pd,msgs);
+}
+static inline swapRequest *swapMetaRequestNew(
+    keyRequest *key_request, swapCtx *ctx, swapData *data,
+    void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd,
+    void *msgs) {
+  return swapRequestNew(key_request,SWAP_UNSET,-1,ctx,data,datactx,trace,cb,pd,msgs);
+}
+static inline int swapRequestGetError(swapRequest *req) {
+  return req->errcode;
+}
+static inline void swapRequestSetError(swapRequest *req, int errcode) {
+  req->errcode = errcode;
+}
+static inline int swapRequestIsMetaType(swapRequest *req) {
+    return req->key_request != NULL;
+}
+
 void swapRequestFree(swapRequest *req);
-void processSwapRequest(swapRequest *req);
-void finishSwapRequest(swapRequest *req);
-void submitSwapDataRequest(int mode, int intention, uint32_t intention_flags, swapCtx *ctx, swapData* data, void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs, int thread_idx);
-void submitSwapMetaRequest(int mode, keyRequest *key_request, swapCtx *ctx, swapData* data, void *datactx, swapTrace *trace, swapRequestFinishedCallback cb, void *pd, void *msgs, int thread_idx);
+void swapRequestUpdateStatsStart(swapRequest *req);
+void swapRequestUpdateStatsExecuted(swapRequest *req);
+void swapRequestUpdateStatsCallback(swapRequest *req);
+void swapRequestMerge(swapRequest *req);
+void swapRequestExecuted(swapRequest *req);
+void swapRequestCallback(swapRequest *req);
+
+
+#define SWAP_BATCH_DEFAULT_SIZE 16
+#define SWAP_BATCH_LINEAR_SIZE  4096
+
+typedef void (*swapRequestBatchNotifyCallback)(struct swapRequestBatch *req, void *pd);
+
+typedef struct swapRequestBatch {
+  swapRequest *req_buf[SWAP_BATCH_DEFAULT_SIZE];
+  swapRequest **reqs;
+  size_t capacity;
+  size_t count;
+  swapRequestBatchNotifyCallback notify_cb;
+  void *notify_pd;
+  monotime notify_queue_timer;
+  monotime swap_queue_timer;
+} swapRequestBatch;
+
+swapRequestBatch *swapRequestBatchNew();
+void swapRequestBatchFree(swapRequestBatch *reqs);
+void swapRequestBatchAppend(swapRequestBatch *reqs, swapRequest *req);
+void swapRequestBatchExecute(swapRequestBatch *reqs);
+void swapRequestBatchProcess(swapRequestBatch *reqs);
+void swapRequestBatchCallback(swapRequestBatch *reqs);
+void swapRequestBatchDispatched(swapRequestBatch *reqs);
+void swapRequestBatchStart(swapRequestBatch *reqs);
+void swapRequestBatchEnd(swapRequestBatch *reqs);
+
+
+typedef struct swapExecBatch {
+    swapRequest *req_buf[SWAP_BATCH_DEFAULT_SIZE];
+    swapRequest **reqs;
+    size_t count;
+    size_t capacity;
+    int intention;
+    int action;
+} swapExecBatch;
+
+void swapExecBatchInit(swapExecBatch *exec_batch);
+void swapExecBatchDeinit(swapExecBatch *exec_batch);
+void swapExecBatchReset(swapExecBatch *exec_batch);
+void swapExecBatchAppend(swapExecBatch *exec_batch, swapRequest *req);
+void swapExecBatchExecute(swapExecBatch *exec_batch);
+void swapExecBatchFeed(swapExecBatch *exec_batch, swapRequest *req);
+void swapExecBatchPreprocess(swapExecBatch *meta_batch);
+static inline void swapExecBatchSetError(swapExecBatch *exec_batch, int errcode) {
+    for (size_t i = 0; i < exec_batch->count; i++) {
+        swapRequestSetError(exec_batch->reqs[i],errcode);
+    }
+}
+static inline int swapExecBatchGetError(swapExecBatch *exec_batch) {
+    int errcode;
+    for (size_t i = 0; i < exec_batch->count; i++) {
+        if ((errcode = swapRequestGetError(exec_batch->reqs[i])))
+            return errcode;
+    }
+    return 0;
+}
+
+
 
 /* Threads (encode/rio/decode/finish) */
 #define SWAP_THREADS_DEFAULT     4
@@ -870,19 +964,26 @@ typedef struct swapThread {
 
 int swapThreadsInit();
 void swapThreadsDeinit();
-void swapThreadsDispatch(swapRequest *req, int idx);
+void swapThreadsDispatch(struct swapRequestBatch *reqs, int idx);
 int swapThreadsDrained();
 sds genSwapThreadInfoString(sds info);
+
 
 /* RIO */
 #define ROCKS_NOP               0
 #define ROCKS_GET             	1
 #define ROCKS_PUT            	  2
 #define ROCKS_DEL              	3
-#define ROCKS_WRITE             4
-#define ROCKS_MULTIGET          5
-#define ROCKS_ITERATE           6
-#define ROCKS_TYPES             7
+#define ROCKS_ITERATE           4
+#define ROCKS_TYPES             5
+
+static inline const char *rocksActionName(int action) {
+  const char *name = "?";
+  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "ITERATE"};
+  if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
+    name = actions[action];
+  return name;
+}
 
 #define SWAP_DEBUG_LOCK_WAIT            0
 #define SWAP_DEBUG_SWAP_QUEUE_WAIT      1
@@ -890,14 +991,6 @@ sds genSwapThreadInfoString(sds info);
 #define SWAP_DEBUG_NOTIFY_QUEUE_HANDLES 3
 #define SWAP_DEBUG_NOTIFY_QUEUE_HANDLE_TIME 4
 #define SWAP_DEBUG_INFO_TYPE            5
-
-static inline const char *rocksActionName(int action) {
-  const char *name = "?";
-  const char *actions[] = {"NOP", "GET", "PUT", "DEL", "WRITE", "MULTIGET", "ITERATE"};
-  if (action >= 0 && (size_t)action < sizeof(actions)/sizeof(char*))
-    name = actions[action];
-  return name;
-}
 
 static inline const char *swapDebugName(int type) {
     const char *name = "?";
@@ -911,43 +1004,12 @@ typedef struct RIO {
 	int action;
 	union {
 		struct {
-      int cf;
-			sds rawkey;
-			sds rawval;
-		} get;
-		struct {
-      int cf;
-			sds rawkey;
-			sds rawval;
-		} put;
-		struct {
-      int cf;
-			sds rawkey;
-		} del;
-		struct {
-			rocksdb_writebatch_t *wb;
-		} write;
-		struct {
 			int numkeys;
       int *cfs;
 			sds *rawkeys;
 			sds *rawvals;
-		} multiget;
-
-		struct {
-      int cf;
-			sds start_key;
-      sds end_key;
-		} delete_range;
-
-    struct {
-      rocksdb_writebatch_t *wb;
-    } multidel;
-    struct {
-      int num;
-      int* cf;
-      sds* rawkeys;
-    } multidel_range;
+      int notfound;
+		} get, put, del, generic;
 
     struct {
         int cf;
@@ -962,6 +1024,7 @@ typedef struct RIO {
     } iterate;
 	};
   sds err;
+  int errcode;
 } RIO;
 
 #define ROCKS_ITERATE_NO_LIMIT 0
@@ -971,17 +1034,58 @@ typedef struct RIO {
 #define ROCKS_ITERATE_HIGH_BOUND_EXCLUDE (1<<3)
 #define ROCKS_ITERATE_DISABLE_CACHE (1<<4)
 
-void RIOInitGet(RIO *rio, int cf, sds rawkey);
-void RIOInitPut(RIO *rio, int cf, sds rawkey, sds rawval);
-void RIOInitDel(RIO *rio, int cf, sds rawkey);
-void RIOInitWrite(RIO *rio, rocksdb_writebatch_t *wb);
-void RIOInitMultiGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
-void RIOInitMultiDeleteRange(RIO* rio, int num, int* cf , sds* rawkeys);
-void RIOInititerate(RIO *rio, int cf, uint32_t flags, sds start, sds end, size_t limit);
+void RIOInitGet(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
+void RIOInitPut(RIO *rio, int numkeys, int *cfs, sds *rawkeys, sds *rawvals);
+void RIOInitDel(RIO *rio, int numkeys, int *cfs, sds *rawkeys);
+void RIOInitIterate(RIO *rio, int cf, uint32_t flags, sds start, sds end, size_t limit);
 void RIODeinit(RIO *rio);
+void RIODo(RIO *rio);
 
-#define SWAP_MODE_ASYNC 0
-#define SWAP_MODE_PARALLEL_SYNC 1
+size_t RIOEstimatePayloadSize(RIO *rio);
+void RIOUpdateStatsDo(RIO *rio, long duration);
+void RIOUpdateStatsDataNotFound(RIO *rio);
+
+static inline int RIOGetError(RIO *rio) {
+  return rio->errcode;
+}
+static inline int RIOGetNotFound(RIO *rio) {
+  return rio->get.notfound;
+}
+static inline void RIOSetError(RIO *rio, int errcode, MOVE sds err) {
+  rio->errcode = errcode;
+  rio->err = err;
+}
+
+/* rios with same type */
+typedef struct RIOBatch {
+   RIO rio_buf[SWAP_BATCH_DEFAULT_SIZE];
+   RIO *rios;
+   size_t capacity;
+   size_t count;
+   int action;
+} RIOBatch;
+
+void RIOBatchInit(RIOBatch *rios, int action);
+void RIOBatchDeinit(RIOBatch *rios);
+RIO *RIOBatchAlloc(RIOBatch *rios);
+void RIOBatchDo(RIOBatch *rios);
+void RIOBatchUpdateStatsDo(RIOBatch *rios, long duration);
+void RIOBatchUpdateStatsDataNotFound(RIOBatch *rios);
+
+typedef struct swapBatchStat {
+  redisAtomic long long batch_count;
+  redisAtomic long long request_count;
+} swapBatchStat;
+
+typedef struct swapBatchCtx {
+  swapBatchStat stat;
+  swapRequestBatch *batch;
+  int thread_idx;
+  int cmd_intention;
+} swapBatchCtx;
+
+void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush, swapRequest *req, int thread_idx);
+size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx);
 
 /* Async */
 #define ASYNC_COMPLETE_QUEUE_NOTIFY_READ_MAX  512
@@ -995,17 +1099,17 @@ typedef struct asyncCompleteQueue {
 
 int asyncCompleteQueueInit();
 void asyncCompleteQueueDeinit(asyncCompleteQueue *cq);
-void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req);
+void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequestBatch *reqs);
 int asyncCompleteQueueDrain(mstime_t time_limit);
 
-void asyncSwapRequestSubmit(swapRequest *req, int idx);
+void asyncSwapRequestBatchSubmit(swapRequestBatch *reqs, int idx);
 
 /* Parallel sync */
 typedef struct {
     int inprogress;         /* swap entry in progress? */
     int pipe_read_fd;       /* read end to wait rio swap finish. */
     int pipe_write_fd;      /* write end to notify swap finish by rio. */
-    swapRequest *req;
+    swapRequestBatch *reqs;
 } swapEntry;
 
 typedef struct parallelSync {
@@ -1018,7 +1122,22 @@ int parallelSyncInit(int parallel);
 void parallelSyncDeinit();
 int parallelSyncDrain();
 
-int parallelSyncSwapRequestSubmit(swapRequest *req, int idx);
+int parallelSyncSwapRequestBatchSubmit(swapRequestBatch *reqs, int idx);
+
+static inline void submitSwapRequestBatch(int mode,swapRequestBatch *reqs, int idx) {
+    if (mode == SWAP_MODE_ASYNC) {
+        asyncSwapRequestBatchSubmit(reqs,idx);
+    } else {
+        parallelSyncSwapRequestBatchSubmit(reqs,idx);
+    }
+}
+
+static inline void submitSwapRequest(int mode,swapRequest *req, int idx) {
+  swapRequestBatch *reqs = swapRequestBatchNew();
+  swapRequestBatchAppend(reqs,req);
+  submitSwapRequestBatch(mode,reqs,idx);
+}
+
 
 /* Lock */
 #define LOCK_LINKS_BUF_SIZE 2
@@ -1167,6 +1286,16 @@ typedef struct rocks {
     sds rdb_checkpoint_dir; /* checkpoint dir use for rdb saved */
 } rocks;
 
+static inline rocksdb_column_family_handle_t *swapGetCF(int cf) {
+    serverAssert(cf < CF_COUNT);
+    return server.rocks->cf_handles[cf];
+}
+
+static inline const char *swapGetCFName(int cf) {
+    serverAssert(cf < CF_COUNT);
+    return swap_cf_names[cf];
+}
+
 typedef struct rocksdbMemOverhead {
   size_t total;
   size_t block_cache;
@@ -1231,9 +1360,10 @@ void dictObjectDestructor(void *privdata, void *val);
 #define SWAP_RL_STOP    2
 
 #define SWAP_STAT_METRIC_COUNT 0
-#define SWAP_STAT_METRIC_MEMORY 1
-#define SWAP_STAT_METRIC_TIME 2
-#define SWAP_STAT_METRIC_SIZE 3
+#define SWAP_STAT_METRIC_BATCH 1
+#define SWAP_STAT_METRIC_MEMORY 2
+#define SWAP_STAT_METRIC_TIME 3
+#define SWAP_STAT_METRIC_SIZE 4
 
 #define SWAP_DEBUG_COUNT 0
 #define SWAP_DEBUG_VALUE 1
@@ -1245,7 +1375,7 @@ void dictObjectDestructor(void *privdata, void *val);
 
 #define SWAP_LOCK_METRIC_REQUEST 0
 #define SWAP_LOCK_METRIC_CONFLICT 1
-#define SWAP_LOCK_METRIC_WAIT_TIME 2 
+#define SWAP_LOCK_METRIC_WAIT_TIME 2
 #define SWAP_LOCK_METRIC_PROCEED_COUNT 3
 #define SWAP_LOCK_METRIC_SIZE 4
 
@@ -1266,9 +1396,11 @@ void dictObjectDestructor(void *privdata, void *val);
 typedef struct swapStat {
     const char *name;
     redisAtomic size_t count;
+    redisAtomic size_t batch;
     redisAtomic size_t memory;
     redisAtomic size_t time;
     int stats_metric_idx_count;
+    int stats_metric_idx_batch;
     int stats_metric_idx_memory;
     int stats_metric_idx_time;
 } swapStat;
@@ -1290,7 +1422,7 @@ typedef struct swapHitStat {
 } swapHitStat;
 
 static inline int isSwapHitStatKeyRequest(keyRequest *kr) {
-    return kr && kr->cmd_intention == SWAP_IN && 
+    return kr && kr->cmd_intention == SWAP_IN &&
         !isMetaScanRequest(kr->cmd_intention_flags);
 }
 
@@ -1305,12 +1437,6 @@ typedef struct rorStat {
 
 void initStatsSwap(void);
 void resetStatsSwap(void);
-void updateStatsSwapStart(swapRequest *req);
-void updateStatsSwapNotify(swapRequest *req);
-void updateStatsSwapRIO(swapRequest *req, RIO *rio);
-void updateStatsSwapRIOFinish(RIO *rio, long duration);
-void updateStatsSwapFinish(swapRequest *req);
-void updateStatsSwapDataNotFound(RIO *rio);
 
 void updateCompactionFiltSuccessCount(int cf);
 void updateCompactionFiltScanCount(int cf);
@@ -1597,6 +1723,7 @@ void swapExpiredCommand(client *c);
 const char *strObjectType(int type);
 int timestampIsExpired(mstime_t expire);
 size_t ctripDbSize(redisDb *db);
+long get_dir_size(char *dirname);
 
 static inline void clientSwapError(client *c, int swap_errcode) {
   if (c && swap_errcode) {

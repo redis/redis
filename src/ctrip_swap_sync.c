@@ -49,7 +49,7 @@ int parallelSyncInit(int parallel) {
         e->inprogress = 0;
         e->pipe_read_fd = fds[0];
         e->pipe_write_fd = fds[1];
-        e->req = NULL;
+        e->reqs = NULL;
 
         listAddNodeTail(ps->entries, e);
     }
@@ -85,19 +85,16 @@ static int parallelSwapProcess(swapEntry *e) {
             return C_ERR;
         }
         serverAssert(c == 'x');
-        finishSwapRequest(e->req);
-        e->req->finish_cb(e->req->data, e->req->finish_pd, e->req->errcode);
-        updateStatsSwapFinish(e->req);
-        swapRequestFree(e->req);
-        e->req = NULL;
+        swapRequestBatchCallback(e->reqs);
+        e->reqs = NULL;
         e->inprogress = 0;
     }
     return C_OK;
 }
 
-void parallelSyncSwapNotifyCallback(swapRequest *req, void *pd) {
+void parallelSyncSwapNotifyCallback(swapRequestBatch *reqs, void *pd) {
     swapEntry *e = pd;
-    UNUSED(req);
+    UNUSED(reqs);
     /* Notify svr to progress */
     if (write(e->pipe_write_fd, "x", 1) < 1 && errno != EAGAIN) {
         static mstime_t prev_log;
@@ -111,7 +108,7 @@ void parallelSyncSwapNotifyCallback(swapRequest *req, void *pd) {
 }
 
 /* Submit one swap (task). swap will start and finish in submit order. */
-int parallelSyncSwapRequestSubmit(swapRequest *req, int idx) {
+int parallelSyncSwapRequestBatchSubmit(swapRequestBatch *reqs, int idx) {
     listNode *ln;
     swapEntry *e;
     parallelSync *ps = server.parallel_sync;
@@ -121,11 +118,11 @@ int parallelSyncSwapRequestSubmit(swapRequest *req, int idx) {
     if (parallelSwapProcess(e)) return C_ERR;
     listRotateHeadToTail(ps->entries);
     /* submit */
-    req->notify_cb = parallelSyncSwapNotifyCallback;
-    req->notify_pd = e;
-    e->req = req;
+    reqs->notify_cb = parallelSyncSwapNotifyCallback;
+    reqs->notify_pd = e;
+    e->reqs = reqs;
     e->inprogress = 1;
-    swapThreadsDispatch(req,idx);
+    swapThreadsDispatch(reqs,idx);
     return C_OK;
 }
 

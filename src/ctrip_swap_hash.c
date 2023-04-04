@@ -192,7 +192,7 @@ int hashSwapAnaAction(swapData *data, int intention, void *datactx_, int *action
     hashDataCtx *datactx = datactx_;
     switch (intention) {
         case SWAP_IN:
-            if (datactx->ctx.num > 0) *action = ROCKS_MULTIGET; /* Swap in specific fields */
+            if (datactx->ctx.num > 0) *action = ROCKS_GET; /* Swap in specific fields */
             else *action = ROCKS_ITERATE; /* Swap in entire hash(HKEYS/HVALS...) */
             break;
         case SWAP_DEL:
@@ -200,7 +200,7 @@ int hashSwapAnaAction(swapData *data, int intention, void *datactx_, int *action
             *action = ROCKS_NOP;
             break;
         case SWAP_OUT:
-            *action = ROCKS_WRITE;
+            *action = ROCKS_PUT;
             break;
         default:
             *action = ROCKS_NOP;
@@ -898,7 +898,7 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
 
         hashSwapAnaAction(hash1_data,intention,hash1_ctx,&action);
         hashEncodeData(hash1_data,intention,hash1_ctx,&numkeys,&cfs,&rawkeys,&rawvals);
-        test_assert(action == ROCKS_WRITE);
+        test_assert(action == ROCKS_PUT);
         test_assert(numkeys == hash1_ctx->ctx.num);
 
         hashDecodeData(hash1_data,numkeys,cfs,rawkeys,rawvals,&decoded);
