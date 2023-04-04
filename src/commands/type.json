@@ -1,6 +1,6 @@
 {
     "TYPE": {
-        "summary": "Determine the type stored at key",
+        "summary": "Determines the type of value stored at a key.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",

@@ -1,6 +1,6 @@
 {
     "REPLICAS": {
-        "summary": "List the monitored replicas",
+        "summary": "Returns a list of the monitored Redis replicas.",
         "complexity": "O(N) where N is the number of replicas",
         "group": "sentinel",
         "since": "5.0.0",

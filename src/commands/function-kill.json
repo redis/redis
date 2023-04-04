@@ -1,6 +1,6 @@
 {
     "KILL": {
-        "summary": "Kill the function currently in execution.",
+        "summary": "Terminates a function during execution.",
         "complexity": "O(1)",
         "group": "scripting",
         "since": "7.0.0",

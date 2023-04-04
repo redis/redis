@@ -1,6 +1,6 @@
 {
     "WATCH": {
-        "summary": "Watch the given keys to determine execution of the MULTI/EXEC block",
+        "summary": "Monitors changes to keys to determine the execution of a transaction.",
         "complexity": "O(1) for every key.",
         "group": "transactions",
         "since": "2.2.0",

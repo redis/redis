@@ -1,6 +1,6 @@
 {
     "PEXPIRETIME": {
-        "summary": "Get the expiration Unix timestamp for a key in milliseconds",
+        "summary": "Returns the expiration time of a key as a Unix milliseconds timestamp.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "7.0.0",

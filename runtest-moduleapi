@@ -52,4 +52,6 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/publish \
 --single unit/moduleapi/usercall \
 --single unit/moduleapi/postnotifications \
+--single unit/moduleapi/async_rm_call \
+--single unit/moduleapi/moduleauth \
 "${@}"

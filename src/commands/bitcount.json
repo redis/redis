@@ -1,6 +1,6 @@
 {
     "BITCOUNT": {
-        "summary": "Count set bits in a string",
+        "summary": "Counts the number of set bits (population counting) in a string.",
         "complexity": "O(N)",
         "group": "bitmap",
         "since": "2.6.0",

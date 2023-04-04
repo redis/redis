@@ -1,6 +1,6 @@
 {
     "EXPIRETIME": {
-        "summary": "Get the expiration Unix timestamp for a key",
+        "summary": "Returns the expiration time of a key as a Unix timestamp.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "7.0.0",

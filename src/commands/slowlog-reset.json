@@ -1,6 +1,6 @@
 {
     "RESET": {
-        "summary": "Clear all entries from the slow log",
+        "summary": "Clears all entries from the slow log.",
         "complexity": "O(N) where N is the number of entries in the slowlog",
         "group": "server",
         "since": "2.2.12",

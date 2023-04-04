@@ -1,6 +1,6 @@
 {
     "SENTINEL": {
-        "summary": "A container for Sentinel commands",
+        "summary": "A container for Redis Sentinel commands.",
         "complexity": "Depends on subcommand.",
         "group": "sentinel",
         "since": "2.8.4",

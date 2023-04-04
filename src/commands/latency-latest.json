@@ -1,6 +1,6 @@
 {
     "LATEST": {
-        "summary": "Return the latest latency samples for all events.",
+        "summary": "Returns the latest latency samples for all events.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.13",

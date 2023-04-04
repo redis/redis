@@ -616,6 +616,7 @@ proc print_help_screen {} {
         "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
+        "--dont-pre-clean   Don't delete existing redis log files before the run."
         "--no-latency       Skip latency measurements and validation by some tests."
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."

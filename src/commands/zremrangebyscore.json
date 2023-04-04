@@ -1,6 +1,6 @@
 {
     "ZREMRANGEBYSCORE": {
-        "summary": "Remove all members in a sorted set within the given scores",
+        "summary": "Removes members in a sorted set within a range of scores. Deletes the sorted set if all members were removed.",
         "complexity": "O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements removed by the operation.",
         "group": "sorted_set",
         "since": "1.2.0",

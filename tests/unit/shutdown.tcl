@@ -3,12 +3,17 @@ start_server {tags {"shutdown external:skip"}} {
         for {set i 0} {$i < 20} {incr i} {
             r set $i $i
         }
-        # It will cost 2s(20 * 100ms) to dump rdb
-        r config set rdb-key-save-delay 100000
+        r config set rdb-key-save-delay 10000000
 
         # Child is dumping rdb
         r bgsave
-        after 100
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 1
+        } else {
+            fail "bgsave did not start in time"
+        }
+        after 100 ;# give the child a bit of time for the file to be created
+
         set dir [lindex [r config get dir] 1]
         set child_pid [get_child_pid 0]
         set temp_rdb [file join [lindex [r config get dir] 1] temp-${child_pid}.rdb]

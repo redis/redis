@@ -451,7 +451,13 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
-    if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
+    if (server.repl_backlog == NULL && listLength(slaves) == 0) {
+        /* We increment the repl_offset anyway, since we use that for tracking AOF fsyncs
+         * even when there's no replication active. This code will not be reached if AOF
+         * is also disabled. */
+        server.master_repl_offset += 1;
+        return;
+    }
 
     /* We can't have slaves attached and no backlog. */
     serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
@@ -1140,11 +1146,12 @@ void syncCommand(client *c) {
  * eof: supports EOF-style RDB transfer for diskless replication.
  * psync2: supports PSYNC v2, so understands +CONTINUE <new repl ID>.
  *
- * - ack <offset>
+ * - ack <offset> [fack <aofofs>]
  * Replica informs the master the amount of replication stream that it
- * processed so far.
+ * processed so far, and optionally the replication offset fsynced to the AOF file.
+ * This special pattern doesn't reply to the caller.
  *
- * - getack
+ * - getack <dummy>
  * Unlike other subcommands, this is used by master to get the replication
  * offset from a replica.
  *
@@ -1201,6 +1208,12 @@ void replconfCommand(client *c) {
                 return;
             if (offset > c->repl_ack_off)
                 c->repl_ack_off = offset;
+            if (c->argc > j+3 && !strcasecmp(c->argv[j+2]->ptr,"fack")) {
+                if ((getLongLongFromObject(c->argv[j+3], &offset) != C_OK))
+                    return;
+                if (offset > c->repl_aof_off)
+                    c->repl_aof_off = offset;
+            }
             c->repl_ack_time = server.unixtime;
             /* If this was a diskless replication, we need to really put
              * the slave online when the first ACK is received (which
@@ -1751,16 +1764,16 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
         connSetReadHandler(server.master->conn, readQueryFromClient);
 
     /**
-     * Important note:
-     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
-     * For commands like BLPOP, it makes no sense to block the master
-     * connection, and such blocking attempt will probably cause deadlock and
-     * break the replication. We consider such a thing as a bug because
-     * commands as BLPOP should never be sent on the replication link.
-     * A possible use-case for blocking the replication link is if a module wants
-     * to pass the execution to a background thread and unblock after the
-     * execution is done. This is the reason why we allow blocking the replication
-     * connection. */
+     * Important note:
+     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
+     * For commands like BLPOP, it makes no sense to block the master
+     * connection, and such blocking attempt will probably cause deadlock and
+     * break the replication. We consider such a thing as a bug because
+     * commands as BLPOP should never be sent on the replication link.
+     * A possible use-case for blocking the replication link is if a module wants
+     * to pass the execution to a background thread and unblock after the
+     * execution is done. This is the reason why we allow blocking the replication
+     * connection. */
     server.master->flags |= CLIENT_MASTER;
 
     server.master->authenticated = 1;
@@ -3248,11 +3261,16 @@ void replicationSendAck(void) {
     client *c = server.master;
 
     if (c != NULL) {
+        int send_fack = server.fsynced_reploff != -1;
         c->flags |= CLIENT_MASTER_FORCE_REPLY;
-        addReplyArrayLen(c,3);
+        addReplyArrayLen(c,send_fack ? 5 : 3);
         addReplyBulkCString(c,"REPLCONF");
         addReplyBulkCString(c,"ACK");
         addReplyBulkLongLong(c,c->reploff);
+        if (send_fack) {
+            addReplyBulkCString(c,"FACK");
+            addReplyBulkLongLong(c,server.fsynced_reploff);
+        }
         c->flags &= ~CLIENT_MASTER_FORCE_REPLY;
     }
 }
@@ -3487,6 +3505,23 @@ int replicationCountAcksByOffset(long long offset) {
     return count;
 }
 
+/* Return the number of replicas that already acknowledged the specified
+ * replication offset being AOF fsynced. */
+int replicationCountAOFAcksByOffset(long long offset) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+
+        if (slave->replstate != SLAVE_STATE_ONLINE) continue;
+        if (slave->repl_aof_off >= offset) count++;
+    }
+    return count;
+}
+
 /* WAIT for N replicas to acknowledge the processing of our latest
  * write command (and all the previous commands). */
 void waitCommand(client *c) {
@@ -3507,7 +3542,7 @@ void waitCommand(client *c) {
 
     /* First try without blocking at all. */
     ackreplicas = replicationCountAcksByOffset(c->woff);
-    if (ackreplicas >= numreplicas || c->flags & CLIENT_MULTI) {
+    if (ackreplicas >= numreplicas || c->flags & CLIENT_DENY_BLOCKING) {
         addReplyLongLong(c,ackreplicas);
         return;
     }
@@ -3515,6 +3550,48 @@ void waitCommand(client *c) {
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
     blockForReplication(c,timeout,offset,numreplicas);
+
+    /* Make sure that the server will send an ACK request to all the slaves
+     * before returning to the event loop. */
+    replicationRequestAckFromSlaves();
+}
+
+/* WAIT for N replicas and / or local master to acknowledge our latest
+ * write command got synced to the disk. */
+void waitaofCommand(client *c) {
+    mstime_t timeout;
+    long numreplicas, numlocal, ackreplicas, acklocal;
+
+    /* Argument parsing. */
+    if (getRangeLongFromObjectOrReply(c,c->argv[1],0,1,&numlocal,NULL) != C_OK)
+        return;
+    if (getPositiveLongFromObjectOrReply(c,c->argv[2],&numreplicas,NULL) != C_OK)
+        return;
+    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_MILLISECONDS) != C_OK)
+        return;
+
+    if (server.masterhost) {
+        addReplyError(c,"WAITAOF cannot be used with replica instances. Please also note that writes to replicas are just local and are not propagated.");
+        return;
+    }
+    if (numlocal && !server.aof_enabled) {
+        addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
+        return;
+    }
+
+    /* First try without blocking at all. */
+    ackreplicas = replicationCountAOFAcksByOffset(c->woff);
+    acklocal = server.fsynced_reploff >= c->woff;
+    if ((ackreplicas >= numreplicas && acklocal >= numlocal) || c->flags & CLIENT_DENY_BLOCKING) {
+        addReplyArrayLen(c,2);
+        addReplyLongLong(c,acklocal);
+        addReplyLongLong(c,ackreplicas);
+        return;
+    }
+
+    /* Otherwise block the client and put it into our list of clients
+     * waiting for ack from slaves. */
+    blockForAofFsync(c,timeout,c->woff,numlocal,numreplicas);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -3529,42 +3606,81 @@ void unblockClientWaitingReplicas(client *c) {
     listNode *ln = listSearchKey(server.clients_waiting_acks,c);
     serverAssert(ln != NULL);
     listDelNode(server.clients_waiting_acks,ln);
+    updateStatsOnUnblock(c, 0, 0, 0);
 }
 
-/* Check if there are clients blocked in WAIT that can be unblocked since
- * we received enough ACKs from slaves. */
+/* Check if there are clients blocked in WAIT or WAITAOF that can be unblocked
+ * since we received enough ACKs from slaves. */
 void processClientsWaitingReplicas(void) {
     long long last_offset = 0;
+    long long last_aof_offset = 0;
     int last_numreplicas = 0;
+    int last_aof_numreplicas = 0;
 
     listIter li;
     listNode *ln;
 
     listRewind(server.clients_waiting_acks,&li);
     while((ln = listNext(&li))) {
+        int numlocal = 0;
+        int numreplicas = 0;
+
         client *c = ln->value;
+        int is_wait_aof = c->bstate.btype == BLOCKED_WAITAOF;
+
+        if (is_wait_aof && c->bstate.numlocal && !server.aof_enabled) {
+            addReplyError(c, "WAITAOF cannot be used when numlocal is set but appendonly is disabled.");
+            unblockClient(c, 1);
+            continue;
+        }
 
         /* Every time we find a client that is satisfied for a given
          * offset and number of replicas, we remember it so the next client
          * may be unblocked without calling replicationCountAcksByOffset()
+         * or calling replicationCountAOFAcksByOffset()
          * if the requested offset / replicas were equal or less. */
-        if (last_offset && last_offset >= c->bstate.reploffset &&
+        if (!is_wait_aof && last_offset && last_offset >= c->bstate.reploffset &&
                            last_numreplicas >= c->bstate.numreplicas)
         {
-            /* Reply before unblocking, because unblock client calls reqresAppendResponse */
-            addReplyLongLong(c,last_numreplicas);
-            unblockClient(c);
+            numreplicas = last_numreplicas;
+        } else if (is_wait_aof && last_aof_offset && last_aof_offset >= c->bstate.reploffset &&
+                    last_aof_numreplicas >= c->bstate.numreplicas)
+        {
+            numreplicas = last_aof_numreplicas;
         } else {
-            int numreplicas = replicationCountAcksByOffset(c->bstate.reploffset);
+            numreplicas = is_wait_aof ?
+                replicationCountAOFAcksByOffset(c->bstate.reploffset) :
+                replicationCountAcksByOffset(c->bstate.reploffset);
 
-            if (numreplicas >= c->bstate.numreplicas) {
+            /* Check if the number of replicas is satisfied. */
+            if (numreplicas < c->bstate.numreplicas) continue;
+
+            if (is_wait_aof) {
+                last_aof_offset = c->bstate.reploffset;
+                last_aof_numreplicas = numreplicas;
+            } else {
                 last_offset = c->bstate.reploffset;
                 last_numreplicas = numreplicas;
-                /* Reply before unblocking, because unblock client calls reqresAppendResponse */
-                addReplyLongLong(c,numreplicas);
-                unblockClient(c);
             }
         }
+
+        /* Check if the local constraint of WAITAOF is served */
+        if (is_wait_aof) {
+            numlocal = server.fsynced_reploff >= c->bstate.reploffset;
+            if (numlocal < c->bstate.numlocal) continue;
+        }
+
+        /* Reply before unblocking, because unblock client calls reqresAppendResponse */
+        if (is_wait_aof) {
+            /* WAITAOF has an array reply */
+            addReplyArrayLen(c, 2);
+            addReplyLongLong(c, numlocal);
+            addReplyLongLong(c, numreplicas);
+        } else {
+            addReplyLongLong(c, numreplicas);
+        }
+
+        unblockClient(c, 1);
     }
 }
 

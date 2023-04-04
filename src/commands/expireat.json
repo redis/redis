@@ -1,6 +1,6 @@
 {
     "EXPIREAT": {
-        "summary": "Set the expiration for a key as a UNIX timestamp",
+        "summary": "Sets the expiration time of a key to a Unix timestamp.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.2.0",

@@ -1,6 +1,6 @@
 {
     "PFDEBUG": {
-        "summary": "Internal commands for debugging HyperLogLog values",
+        "summary": "Internal commands for debugging HyperLogLog values.",
         "complexity": "N/A",
         "group": "hyperloglog",
         "since": "2.8.9",

@@ -1,6 +1,6 @@
 {
     "FAILOVER": {
-        "summary": "Start a coordinated failover between this server and one of its replicas.",
+        "summary": "Starts a coordinated failover from a server to one of its replicas.",
         "complexity": "O(1)",
         "group": "server",
         "since": "6.2.0",

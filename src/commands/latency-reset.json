@@ -1,6 +1,6 @@
 {
     "RESET": {
-        "summary": "Reset latency data for one or more events.",
+        "summary": "Resets the latency data for one or more events.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.13",

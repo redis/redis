@@ -1,6 +1,6 @@
 {
     "BLMPOP": {
-        "summary": "Pop elements from a list, or block until one is available",
+        "summary": "Pops the first element from one of multiple lists. Blocks until an element is available otherwise. Deletes the list if the last element was popped.",
         "complexity": "O(N+M) where N is the number of provided keys and M is the number of elements returned.",
         "group": "list",
         "since": "7.0.0",

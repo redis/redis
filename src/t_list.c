@@ -526,7 +526,7 @@ void lpushxCommand(client *c) {
     pushGenericCommand(c,LIST_HEAD,1);
 }
 
-/* RPUSH <key> <element> [<element> ...] */
+/* RPUSHX <key> <element> [<element> ...] */
 void rpushxCommand(client *c) {
     pushGenericCommand(c,LIST_TAIL,1);
 }
