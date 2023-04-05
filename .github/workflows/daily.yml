@@ -323,7 +323,7 @@ jobs:
         ./src/redis-cli -p 8080 save > /dev/null
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
         if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
@@ -334,10 +334,10 @@ jobs:
         sleep 1 # wait for the completion of cache reclaim bio
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         VMOUT=$(vmtouch -v /tmp/slave/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
         if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
@@ -351,7 +351,7 @@ jobs:
         sleep 1 # wait for the completion of cache reclaim bio
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT
+        grep -q " 0%" <<< $VMOUT
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
         if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
