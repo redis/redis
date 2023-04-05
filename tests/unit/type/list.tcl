@@ -1411,7 +1411,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         }
     }
 
-    test {LINSERT multi element insert with/witout REV option} {
+    test {LINSERT multi element insert with/without REV option} {
         assert_equal 4 [r rpush mullist a b c d] "new list mullist"
         assert_equal "a b c d" [r lrange mullist 0 -1] "print list"
         assert_equal 7 [r linsert mullist before b 11 22 33] "before b multi elements"
