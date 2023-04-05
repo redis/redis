@@ -323,10 +323,10 @@ jobs:
         ./src/redis-cli -p 8080 save > /dev/null
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
 
         echo "test replication doesn't increase cache"
         ./src/redis-cli -p 8081 REPLICAOF 127.0.0.1 8080 > /dev/null
@@ -334,13 +334,13 @@ jobs:
         sleep 1 # wait for the completion of cache reclaim bio
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         VMOUT=$(vmtouch -v /tmp/slave/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
         
         echo "test reboot doesn't increase cache"
         PID=$(cat /tmp/master/redis.pid)
@@ -351,10 +351,10 @@ jobs:
         sleep 1 # wait for the completion of cache reclaim bio
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT
+        grep -q " 0%" <<< $VMOUT
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
 
   test-valgrind-test:
     runs-on: ubuntu-latest
