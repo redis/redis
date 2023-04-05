@@ -647,6 +647,8 @@ void swapInit() {
             db->swap_absent_cache = NULL;
         }
     }
+
+    server.swap_batch_ctx = swapBatchCtxNew();
 }
 
 

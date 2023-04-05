@@ -714,7 +714,6 @@ void trackSwapLockInstantaneousMetrics() {
             inst_stat->wait_time_max_index %= STATS_METRIC_SAMPLES;
             inst_stat->wait_time_maxs[inst_stat->wait_time_max_index] = 0;
         }
-        
     }
 }
 

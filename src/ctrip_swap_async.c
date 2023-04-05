@@ -51,6 +51,7 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
             metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_WAIT, elapsedUs(reqs->notify_queue_timer));
         }
         swapRequestBatchCallback(reqs);
+        swapRequestBatchFree(reqs);
     }
 
     processed = listLength(processing_reqs);

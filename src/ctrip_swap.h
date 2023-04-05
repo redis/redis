@@ -928,7 +928,7 @@ typedef struct swapExecBatch {
 
 void swapExecBatchInit(swapExecBatch *exec_batch);
 void swapExecBatchDeinit(swapExecBatch *exec_batch);
-void swapExecBatchReset(swapExecBatch *exec_batch);
+void swapExecBatchReset(swapExecBatch *exec_batch, int intention, int action);
 void swapExecBatchAppend(swapExecBatch *exec_batch, swapRequest *req);
 void swapExecBatchExecute(swapExecBatch *exec_batch);
 void swapExecBatchFeed(swapExecBatch *exec_batch, swapRequest *req);
@@ -1084,6 +1084,8 @@ typedef struct swapBatchCtx {
   int cmd_intention;
 } swapBatchCtx;
 
+swapBatchCtx *swapBatchCtxNew();
+void swapBatchCtxFree(swapBatchCtx *batch_ctx);
 void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush, swapRequest *req, int thread_idx);
 size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx);
 

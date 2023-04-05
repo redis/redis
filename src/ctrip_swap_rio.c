@@ -485,6 +485,7 @@ RIO *RIOBatchAlloc(RIOBatch *rios) {
         serverAssert(rios->capacity > rios->count);
         if (rios->rios == rios->rio_buf) {
             rios->rios = zmalloc(sizeof(RIO)*rios->capacity);
+            memcpy(rios->rios,rios->rio_buf,sizeof(RIO)*rios->count);
         } else {
             rios->rios = zrealloc(rios->rios,sizeof(RIO)*rios->capacity);
         }
@@ -530,6 +531,7 @@ void RIOBatchDoGet(RIOBatch *rios) {
     x = 0;
     for (size_t i = 0; i < rios->count; i++) {
         rio = rios->rios+i;
+        rio->get.rawvals = zmalloc(rio->get.numkeys*sizeof(sds));
         for (int j = 0; j < rio->get.numkeys; j++) {
             if (values_list[x] == NULL) {
                 rio->get.rawvals[j] = NULL;
@@ -578,8 +580,8 @@ void RIOBatchDoPut(RIOBatch *rios) {
         serverAssert(rio->action == rios->action);
         for (int j = 0; j < rio->put.numkeys; j++) {
             rocksdb_writebatch_put_cf(wb,swapGetCF(rio->put.cfs[j]),
-                    rio->put.rawkeys[i],sdslen(rio->put.rawkeys[j]),
-                    rio->put.rawvals[i],sdslen(rio->put.rawvals[j]));
+                    rio->put.rawkeys[j],sdslen(rio->put.rawkeys[j]),
+                    rio->put.rawvals[j],sdslen(rio->put.rawvals[j]));
         }
     }
 
@@ -670,7 +672,7 @@ void RIOBatchDo(RIOBatch *rios) {
         break;
     }
 #ifdef ROCKS_DEBUG
-    RIOBatchDump(rio);
+    RIOBatchDump(rios);
 #endif
 
 end:

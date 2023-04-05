@@ -27,8 +27,7 @@
 
 #include "ctrip_swap.h"
 
-/* swapExecBatch: batch of requests that have same swap intention and action
- * about to call one single rocksdb API using one RIOBatch. */
+/* swapExecBatch: batch of requests with the same swap intention and action. */
 void swapExecBatchInit(swapExecBatch *exec_batch) {
     exec_batch->reqs = exec_batch->req_buf;
     exec_batch->capacity = SWAP_BATCH_DEFAULT_SIZE;
@@ -45,10 +44,10 @@ void swapExecBatchDeinit(swapExecBatch *exec_batch) {
     }
 }
 
-void swapExecBatchReset(swapExecBatch *exec_batch) {
+void swapExecBatchReset(swapExecBatch *exec_batch, int intention, int action) {
     exec_batch->count = 0;
-    exec_batch->action = SWAP_UNSET;
-    exec_batch->intention = 0;
+    exec_batch->intention = intention;
+    exec_batch->action = action;
 }
 
 static inline int swapExecBatchEmpty(swapExecBatch *exec_batch) {
@@ -58,7 +57,6 @@ static inline int swapExecBatchEmpty(swapExecBatch *exec_batch) {
 static inline void swapExecBatchExecuteIfNeeded(swapExecBatch *exec_batch) {
     if (!swapExecBatchEmpty(exec_batch)) {
         swapExecBatchExecute(exec_batch);
-        swapExecBatchReset(exec_batch);
     }
 }
 
@@ -76,6 +74,7 @@ void swapExecBatchAppend(swapExecBatch *exec_batch, swapRequest *req) {
         serverAssert(exec_batch->capacity > exec_batch->count);
         if (exec_batch->reqs == exec_batch->req_buf) {
             exec_batch->reqs = zmalloc(sizeof(swapRequest*)*exec_batch->capacity);
+            memcpy(exec_batch->reqs,exec_batch->req_buf,sizeof(swapRequest*)*exec_batch->count);
         } else {
             exec_batch->reqs = zrealloc(exec_batch->reqs,sizeof(swapRequest*)*exec_batch->capacity);
         }
@@ -85,13 +84,24 @@ void swapExecBatchAppend(swapExecBatch *exec_batch, swapRequest *req) {
 
 void swapExecBatchFeed(swapExecBatch *exec_batch, swapRequest *req) {
     int req_action;
-    serverAssert(!swapRequestGetError(req));
-    swapDataSwapAnaAction(req->data,req->intention,req->datactx,&req_action);
+    serverAssert(req->intention != SWAP_UNSET);
+
+    if (req->intention == SWAP_IN || req->intention == SWAP_OUT ||
+            req->intention == SWAP_DEL) {
+        swapDataSwapAnaAction(req->data,req->intention,req->datactx,
+                &req_action);
+    } else {
+        req_action = ROCKS_NOP;
+    }
+
     if ((req->intention != exec_batch->intention ||
             req_action != exec_batch->action)) {
         swapExecBatchExecuteIfNeeded(exec_batch);
+
+        swapExecBatchReset(exec_batch,req->intention,req_action);
     }
-    swapExecBatchAppend(exec_batch, req);
+
+    swapExecBatchAppend(exec_batch,req);
 }
 
 /* swapRequestBatch: batch of requests that submitted together, those requests
@@ -110,6 +120,10 @@ swapRequestBatch *swapRequestBatchNew() {
 
 void swapRequestBatchFree(swapRequestBatch *reqs) {
     if (reqs == NULL) return;
+    for (size_t i = 0; i < reqs->count; i++) {
+        swapRequestFree(reqs->reqs[i]);
+        reqs->reqs[i] = NULL;
+    }
     if (reqs->reqs != reqs->req_buf) {
         zfree(reqs->reqs);
         reqs->reqs = NULL;
@@ -127,6 +141,7 @@ void swapRequestBatchAppend(swapRequestBatch *reqs, swapRequest *req) {
         serverAssert(reqs->capacity > reqs->count);
         if (reqs->reqs == reqs->req_buf) {
             reqs->reqs = zmalloc(sizeof(swapRequest*)*reqs->capacity);
+            memcpy(reqs->reqs,reqs->req_buf,reqs->count*sizeof(swapRequest*));
         } else {
             reqs->reqs = zrealloc(reqs->reqs,sizeof(swapRequest*)*reqs->capacity);
         }
@@ -141,7 +156,6 @@ void swapRequestBatchCallback(swapRequestBatch *reqs) {
     for (size_t i = 0; i < reqs->count; i++) {
        swapRequestCallback(reqs->reqs[i]);
     }
-    swapRequestBatchFree(reqs);
 }
 
 void swapRequestBatchDispatched(swapRequestBatch *reqs) {
@@ -160,6 +174,7 @@ void swapRequestBatchStart(swapRequestBatch *reqs) {
 }
 
 void swapRequestBatchEnd(swapRequestBatch *reqs) {
+    reqs->notify_cb(reqs, reqs->notify_pd);
     UNUSED(reqs);
 }
 
@@ -170,8 +185,9 @@ void swapRequestBatchExecute(swapRequestBatch *reqs) {
     swapExecBatchStart(&exec_batch);
     for (size_t i = 0; i < reqs->count; i++) {
         swapRequest *req = reqs->reqs[i];
-        if (req->intention != SWAP_NOP && swapRequestGetError(req))
+        if (!swapRequestGetError(req) && req->intention != SWAP_NOP) {
             swapExecBatchFeed(&exec_batch,req);
+        }
     }
     swapExecBatchEnd(&exec_batch);
     swapExecBatchDeinit(&exec_batch);
@@ -200,9 +216,34 @@ void swapRequestBatchProcess(swapRequestBatch *reqs) {
     swapRequestBatchStart(reqs);
     swapRequestBatchPreprocess(reqs);
     swapRequestBatchExecute(reqs);
+    swapRequestBatchEnd(reqs);
 }
 
 /* swapBatchCtx: currently acummulated requests. */
+
+void swapBatchStatInit(swapBatchStat *batch_stat) {
+    atomicSet(batch_stat->batch_count,0);
+    atomicSet(batch_stat->request_count,0);
+}
+
+swapBatchCtx *swapBatchCtxNew() {
+    swapBatchCtx *batch_ctx = zmalloc(sizeof(swapBatchCtx));
+    swapBatchStatInit(&batch_ctx->stat);
+    batch_ctx->batch = swapRequestBatchNew();
+    batch_ctx->thread_idx = -1;
+    batch_ctx->cmd_intention = SWAP_UNSET;
+    return batch_ctx;
+}
+
+void swapBatchCtxFree(swapBatchCtx *batch_ctx) {
+    if (batch_ctx == NULL) return;
+    if (batch_ctx->batch != NULL) {
+        swapRequestBatchFree(batch_ctx->batch);
+        batch_ctx->batch = NULL;
+    }
+    zfree(batch_ctx);
+}
+
 static inline swapRequestBatch *swapBatchCtxShift(swapBatchCtx *batch_ctx) {
     serverAssert(batch_ctx->batch != NULL);
     swapRequestBatch *reqs = batch_ctx->batch;
@@ -231,12 +272,13 @@ void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush,
     batch_ctx->thread_idx = thread_idx;
     batch_ctx->cmd_intention = req->intention;
 
-    swapRequestBatchAppend(batch_ctx->batch, req);
+    swapRequestBatchAppend(batch_ctx->batch,req);
     atomicIncr(batch_ctx->stat.request_count,1);
 
     /* flush after handling req if flush hint set. */
     if (force_flush) swapBatchCtxFlush(batch_ctx);
 }
+
 
 #ifdef REDIS_TEST
 #endif

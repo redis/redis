@@ -96,7 +96,7 @@ void swapRequestUpdateStatsCallback(swapRequest *req) {
 
 void swapRequestUpdateStatsSwapInNotFound(swapRequest *req) {
     /* key confirmed not exists, no need to execute swap request. */
-    serverAssert(swapDataAlreadySetup(req->data));
+    serverAssert(!swapDataAlreadySetup(req->data));
     if (isSwapHitStatKeyRequest(req->key_request)) {
         atomicIncr(server.swap_hit_stats->stat_swapin_not_found_cachemiss_count,1);
     }
@@ -112,7 +112,6 @@ void swapRequestCallback(swapRequest *req) {
     if (req->trace) swapTraceCallback(req->trace);
     req->finish_cb(req->data, req->finish_pd, req->errcode);
     swapRequestUpdateStatsCallback(req);
-    swapRequestFree(req);
 }
 
 void swapRequestDoInMeta(swapRequest *req) {
@@ -819,21 +818,26 @@ void swapExecBatchExecuteOutPut(swapExecBatch *exec_batch) {
         DEBUG_MSGS_APPEND(req->msgs,"exec-out-cleanobject","ok");
     }
 
+    num_metas = 0;
     meta_cfs = zmalloc(sizeof(int)*count);
     meta_rawkeys = zmalloc(sizeof(sds)*count);
     meta_rawvals = zmalloc(sizeof(sds)*count);
     for (size_t i = 0; i < count; i++) {
         swapRequest *req = exec_batch->reqs[i];
+        //TODO what if db/key NULL?
         if (req->data->db && req->data->key) {
             meta_cfs[num_metas] = META_CF;
             meta_rawkeys[num_metas] = swapDataEncodeMetaKey(req->data);
             meta_rawvals[num_metas] = swapDataEncodeMetaVal(req->data);
+            num_metas++;
         }
     }
+    RIOInitPut(meta_rio,num_metas,meta_cfs,meta_rawkeys,meta_rawvals);
     RIODo(meta_rio);
     if ((errcode = RIOGetError(meta_rio))) {
         swapExecBatchSetError(exec_batch,errcode);
     }
+    RIODeinit(meta_rio);
 
     for (size_t i = 0; i < count; i++) {
         swapRequest *req = exec_batch->reqs[i];
@@ -847,6 +851,17 @@ void swapExecBatchExecuteOutPut(swapExecBatch *exec_batch) {
     RIOBatchDeinit(rios);
 }
 
+void swapExecBatchExecuteIndividually(swapExecBatch *exec_batch) {
+    for (size_t i = 0; i < exec_batch->count; i++) {
+        swapRequest *req = exec_batch->reqs[i];
+        serverAssert(req->intention == SWAP_UTILS);
+        if (!swapRequestGetError(req)) {
+            swapRequestExecuteUtil(req);
+        }
+    }
+}
+
+
 void swapExecBatchExecute(swapExecBatch *exec_batch) {
     serverAssert(exec_batch->intention != SWAP_NOP);
 
@@ -856,6 +871,8 @@ void swapExecBatchExecute(swapExecBatch *exec_batch) {
     } else if (exec_batch->intention == SWAP_OUT &&
             exec_batch->action == ROCKS_PUT) {
         swapExecBatchExecuteOutPut(exec_batch);
+    } else if (exec_batch->intention == SWAP_UTILS) {
+        swapExecBatchExecuteIndividually(exec_batch);
     } else {
         swapExecBatchSetError(exec_batch,SWAP_ERR_EXEC_FAIL);
         serverLog(LL_WARNING,
@@ -875,6 +892,7 @@ void swapExecBatchPreprocess(swapExecBatch *meta_batch) {
 
     for (size_t i = 0; i < meta_batch->count; i++) {
         req = meta_batch->reqs[i];
+        cfs[i] = META_CF;
         rawkeys[i] = swapDataEncodeMetaKey(req->data);
     }
 

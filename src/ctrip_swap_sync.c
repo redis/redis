@@ -86,6 +86,7 @@ static int parallelSwapProcess(swapEntry *e) {
         }
         serverAssert(c == 'x');
         swapRequestBatchCallback(e->reqs);
+        swapRequestBatchFree(e->reqs);
         e->reqs = NULL;
         e->inprogress = 0;
     }

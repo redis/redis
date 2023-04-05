@@ -45,6 +45,7 @@ void initStatsSwap() {
         server.ror_stats->swap_stats[i].memory = 0;
         server.ror_stats->swap_stats[i].time = 0;
         server.ror_stats->swap_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
+        server.ror_stats->swap_stats[i].stats_metric_idx_batch = metric_offset+SWAP_STAT_METRIC_BATCH;
         server.ror_stats->swap_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
         server.ror_stats->swap_stats[i].stats_metric_idx_time = metric_offset+SWAP_STAT_METRIC_TIME;
     }
@@ -148,6 +149,13 @@ sds genSwapExecInfoString(sds info) {
     int j;
     long long ops, batch_ps, total_latency;
     size_t count, batch, memory;
+
+    info = sdscatprintf(info,
+            "swap_request_count:%lld\r\n"
+            "swap_batch_count:%lld\r\n",
+            server.swap_batch_ctx->stat.request_count,
+            server.swap_batch_ctx->stat.batch_count);
+
     info = sdscatprintf(info,
             "swap_inprogress_count:%ld\r\n"
             "swap_inprogress_memory:%ld\r\n"
