@@ -42,7 +42,6 @@ intset *intsetNew(void);
 intset *intsetAdd(intset *is, int64_t value, uint8_t *success);
 intset *intsetRemove(intset *is, int64_t value, int *success);
 uint8_t intsetFind(intset *is, int64_t value);
-uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos);
 int64_t intsetRandom(intset *is);
 int64_t intsetMax(intset *is);
 int64_t intsetMin(intset *is);
