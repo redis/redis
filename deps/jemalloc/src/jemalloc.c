@@ -1024,8 +1024,8 @@ malloc_conf_init_helper(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
 	static const char *opts_explain[MALLOC_CONF_NSOURCES] = {
 		"string specified via --with-malloc-conf",
 		"string pointed to by the global variable malloc_conf",
-		"\"name\" of the file referenced by the symbolic link named "
-		    "/etc/malloc.conf",
+		("\"name\" of the file referenced by the symbolic link named "
+		    "/etc/malloc.conf"),
 		"value of the environment variable MALLOC_CONF"
 	};
 	unsigned i;

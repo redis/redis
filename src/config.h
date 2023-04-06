@@ -309,16 +309,6 @@ int pthread_setname_np(const char *name);
 void setcpuaffinity(const char *cpulist);
 #endif
 
-/* deprecate unsafe functions
- *
- * NOTE: We do not use the poison pragma since it
- * will error on stdlib definitions in files as well*/
-#if (__GNUC__ && __GNUC__ >= 4) && !defined __APPLE__
-int sprintf(char *str, const char *format, ...) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of snprintf instead")));
-char *strcpy(char *restrict dest, const char *src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcpy instead")));
-char *strcat(char *restrict dest, const char *restrict src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcat instead")));
-#endif
-
 /* Test for posix_fadvise() */
 #if defined(__linux__) || __FreeBSD__ >= 10
 #define HAVE_FADVISE
