@@ -1,6 +1,6 @@
 {
     "GETEX": {
-        "summary": "Get the value of a key and optionally set its expiration",
+        "summary": "Returns the string value of a key after setting its expiration time.",
         "complexity": "O(1)",
         "group": "string",
         "since": "6.2.0",

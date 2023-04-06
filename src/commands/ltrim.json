@@ -1,6 +1,6 @@
 {
     "LTRIM": {
-        "summary": "Trim a list to the specified range",
+        "summary": "Removes elements from both ends a list. Deletes the list if all elements were trimmed.",
         "complexity": "O(N) where N is the number of elements to be removed by the operation.",
         "group": "list",
         "since": "1.0.0",

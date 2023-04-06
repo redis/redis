@@ -1,6 +1,6 @@
 {
     "GETBIT": {
-        "summary": "Returns the bit value at offset in the string value stored at key",
+        "summary": "Returns a bit value by offset.",
         "complexity": "O(1)",
         "group": "bitmap",
         "since": "2.2.0",

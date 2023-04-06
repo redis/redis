@@ -1,6 +1,6 @@
 {
     "LIST": {
-        "summary": "Get the list of client connections",
+        "summary": "Lists open connections.",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
         "since": "2.4.0",

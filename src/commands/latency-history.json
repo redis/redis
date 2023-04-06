@@ -1,6 +1,6 @@
 {
     "HISTORY": {
-        "summary": "Return timestamp-latency samples for the event.",
+        "summary": "Returns timestamp-latency samples for an event.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.13",

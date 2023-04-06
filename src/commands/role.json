@@ -1,6 +1,6 @@
 {
     "ROLE": {
-        "summary": "Return the role of the instance in the context of replication",
+        "summary": "Returns the replication role.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.12",

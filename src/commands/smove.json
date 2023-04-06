@@ -1,6 +1,6 @@
 {
     "SMOVE": {
-        "summary": "Move a member from one set to another",
+        "summary": "Moves a member from one set to another.",
         "complexity": "O(1)",
         "group": "set",
         "since": "1.0.0",

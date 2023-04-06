@@ -1,6 +1,6 @@
 {
     "DELSLOTS": {
-        "summary": "Set hash slots as unbound in receiving node",
+        "summary": "Sets hash slots as unbound for a node.",
         "complexity": "O(N) where N is the total number of hash slot arguments",
         "group": "cluster",
         "since": "3.0.0",

@@ -194,6 +194,10 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli "Subscribed mode" {
+        if {$::force_resp3} {
+            run_command $fd "hello 3"
+        }
+
         set reading "Reading messages... (press Ctrl-C to quit or any key to type command)\r"
         set erase "\033\[K"; # Erases the "Reading messages..." line.
 
@@ -214,6 +218,8 @@ start_server {tags {"cli"}} {
         set unsub2 "1) \"unsubscribe\"\n2) \"ch2\"\n3) (integer) 1\n"
         assert_equal $erase$unsub1$unsub2$reading \
             [run_command $fd "unsubscribe ch1 ch2"]
+
+        run_command $fd "hello 2"
 
         # Command forbidden in subscribed mode (RESP2).
         set err "(error) ERR Can't execute 'get': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context\n"
@@ -417,6 +423,27 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
+    test_nontty_cli "Test command-line hinting - latest server" {
+        # cli will connect to the running server and will use COMMAND DOCS
+        catch {run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+    }
+
+    test_nontty_cli "Test command-line hinting - no server" {
+        # cli will fail to connect to the server and will use the cached commands.c
+        catch {run_cli -p 123 --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+    }
+
+    test_nontty_cli "Test command-line hinting - old server" {
+        # cli will connect to the server but will not use COMMAND DOCS,
+        # and complete the missing info from the cached commands.c
+        r ACL setuser clitest on nopass +@all -command|docs
+        catch {run_cli --user clitest -a nopass --no-auth-warning --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+        r acl deluser clitest
+    }
+    
     proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
         r function flush

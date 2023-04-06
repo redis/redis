@@ -1,6 +1,6 @@
 {
     "MIGRATE": {
-        "summary": "Atomically transfer a key from a Redis instance to another one.",
+        "summary": "Atomically transfers a key from one Redis instance to another.",
         "complexity": "This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.",
         "group": "generic",
         "since": "2.6.0",

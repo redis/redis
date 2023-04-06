@@ -1,6 +1,6 @@
 {
     "SETUSER": {
-        "summary": "Modify or create the rules for a specific ACL user",
+        "summary": "Creates and modifies an ACL user and its rules.",
         "complexity": "O(N). Where N is the number of rules provided.",
         "group": "server",
         "since": "6.0.0",

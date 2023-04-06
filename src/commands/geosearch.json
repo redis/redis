@@ -1,6 +1,6 @@
 {
     "GEOSEARCH": {
-        "summary": "Query a sorted set representing a geospatial index to fetch members inside an area of a box or a circle.",
+        "summary": "Queries a geospatial index for members inside an area of a box or a circle.",
         "complexity": "O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape",
         "group": "geo",
         "since": "6.2.0",
