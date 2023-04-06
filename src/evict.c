@@ -601,8 +601,8 @@ int performEvictions(void) {
                             total_keys += keys;
                         }
                     /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
-                     * visit more than one dictionary when the number of keys is small. */
-                    } while (keys != 0 && db->dict_count > 1 && server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS &&
+                     * visit more than one dictionary in order to populate required number of samples into eviction pool. */
+                    } while (server.cluster_enabled && keys != 0 && server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS &&
                         total_keys < (unsigned long) server.maxmemory_samples
                     );
                 }
