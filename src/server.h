@@ -90,7 +90,6 @@ typedef struct redisObject robj;
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
-#include "intset.h"
 
 /* helpers */
 #define numElements(x) (sizeof(x)/sizeof((x)[0]))
