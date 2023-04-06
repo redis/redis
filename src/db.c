@@ -234,9 +234,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     serverAssertWithInfo(NULL, key, de != NULL);
     dictSetVal(d, de, val);
     db->key_count++;
-    if (server.cluster_enabled) {
-        cumulativeKeyCountAdd(db, slot, 1);
-    }
+    cumulativeKeyCountAdd(db, slot, 1);
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
@@ -270,9 +268,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     if (de == NULL) return 0;
     dictSetVal(d, de, val);
     db->key_count++;
-    if (server.cluster_enabled) {
-        cumulativeKeyCountAdd(db, slot, 1);
-    }
+    cumulativeKeyCountAdd(db, slot, 1);
     return 1;
 }
 
@@ -490,9 +486,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         * the key, because it is shared with the main dictionary. */
         if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
         dictTwoPhaseUnlinkFree(d,de,plink,table);
-        if (server.cluster_enabled) {
-            cumulativeKeyCountAdd(db, slot, -1);
-        }
+        cumulativeKeyCountAdd(db, slot, -1);
         db->key_count--;
         return 1;
     } else {
