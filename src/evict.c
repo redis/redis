@@ -161,7 +161,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, redisDb *db, struct evicti
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[getKeySlot(key)], key);
+            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[calculateKeySlot(key)], key);
             o = dictGetVal(de);
         }
 
@@ -570,11 +570,6 @@ int performEvictions(void) {
     /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
     /* Evictions are performed on random keys that have nothing to do with the current command slot. */
-    int client_slot = -1;
-    if (server.current_client) {
-        client_slot = server.current_client->slot;
-        server.current_client->slot = -1;
-    }
 
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
@@ -619,7 +614,7 @@ int performEvictions(void) {
                     bestdbid = pool[k].dbid;
 
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(server.db[bestdbid].dict[getKeySlot(pool[k].key)],
+                        de = dictFind(server.db[bestdbid].dict[calculateKeySlot(pool[k].key)],
                                       pool[k].key);
                     } else {
                         de = dictFind(server.db[bestdbid].expires,
@@ -728,7 +723,6 @@ int performEvictions(void) {
             goto cant_free; /* nothing to free... */
         }
     }
-    if (client_slot != -1) server.current_client->slot = client_slot; /* Restore client slot for further command processing. */
     /* at this point, the memory is OK, or we have reached the time limit */
     result = (isEvictionProcRunning) ? EVICT_RUNNING : EVICT_OK;
 

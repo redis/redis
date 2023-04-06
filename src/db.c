@@ -239,6 +239,14 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
 
+/* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
+ * The only difference between this function and getKeySlot, is that it's not using cached key slot from the current_client
+ * and always calculates CRC hash.
+ * This is useful when slot needs to be calculated for a key that user didn't request for, such as in case of eviction. */
+int calculateKeySlot(sds key) {
+    return server.cluster_enabled ? keyHashSlot(key, (int) sdslen(key)) : 0;
+}
+
 /* Return slot-specific dictionary for key based on key's hash slot in CME, or 0 in CMD.*/
 int getKeySlot(sds key) {
     /* This is performance optimization, that uses pre-set slot id from the current command,
@@ -247,7 +255,7 @@ int getKeySlot(sds key) {
     if (server.current_client && server.current_client->slot >= 0) {
         return server.current_client->slot;
     }
-    return server.cluster_enabled ? keyHashSlot(key, (int) sdslen(key)) : 0;
+    return calculateKeySlot(key);
 }
 
 /* This is a special version of dbAdd() that is used only when loading

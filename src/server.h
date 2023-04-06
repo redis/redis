@@ -3129,6 +3129,7 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db);
 int getKeySlot(sds key);
+int calculateKeySlot(sds key);
 unsigned long dbSlots(redisDb *db);
 void expandDb(const redisDb *db, uint64_t db_size);
 unsigned long long cumulativeKeyCountRead(redisDb *db, int idx);
