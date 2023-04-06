@@ -32,6 +32,7 @@
 #include "version.h"
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -1893,9 +1894,9 @@ int main(int argc, char **argv) {
             uint64_t delta = nstimediff(&original_start, &original_end); \
             min_##WHICH = min_##WHICH < delta ? min_##WHICH : delta; \
         } if (config.csv) \
-        printf("%s,%ld,%ld,%d\n", #WHICH, csize, (1000 * csize) / min_##WHICH, \
+        printf("%s,%" PRIu64 ",%" PRIu64 ",%d\n", #WHICH, csize, (1000 * csize) / min_##WHICH, \
             hash_##WHICH == hash_crc_1byte); \
-        else printf("test size=%ld algorithm=%s %ld M/sec matches=%d\n", \
+        else printf("test size=%" PRIu64 " algorithm=%s %" PRIu64 " M/sec matches=%d\n", \
             csize, #WHICH, (1000 * csize) / min_##WHICH, \
             hash_##WHICH == hash_crc_1byte)
 
@@ -1944,16 +1945,16 @@ int main(int argc, char **argv) {
             uint64_t delta = nstimediff(&original_start, &original_end); \
             min_##label = min_##label < delta ? min_##label : delta; \
         } if (config.csv) \
-            printf("%s,%lu,%lu\n", #label, (uint64_t)SIZE, min_##label); \
-        else printf("%s size=%lu in %lu nsec\n", #label, (uint64_t)SIZE, min_##label)
+            printf("%s,%" PRIu64 ",%" PRIu64 "\n", #label, (uint64_t)SIZE, min_##label); \
+        else printf("%s size=%" PRIu64 " in %" PRIu64 " nsec\n", #label, (uint64_t)SIZE, min_##label)
 
         if (config.crc64_combine) {
             uint64_t odelta = nstimediff(&init_start, &init_end);
             if (config.csv) {
                 printf("\noperation,size,nanoseconds\n");
-                printf("init_64,%lu,%lu\n", INIT_SIZE, odelta);
+                printf("init_64,%" PRIu64 ",%" PRIu64 "\n", INIT_SIZE, odelta);
             } else {
-                printf("init_64 size=%lu in %lu nsec\n", INIT_SIZE, odelta);
+                printf("init_64 size=%" PRIu64 " in %" PRIu64 " nsec\n", INIT_SIZE, odelta);
             }
             // use the hash itself as the size (unpredictable)
             bench(hash_as_size_combine, expect);
