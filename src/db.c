@@ -753,7 +753,7 @@ void selectCommand(client *c) {
 }
 /************************************************************
 RANDOMKEY [COUNT <count> [DUPLICATED] [PATTERN <pattern>]] (OR)
-RANDOMKEY [COUNT <count> [DUPLICATED]
+RANDOMKEY [COUNT <count> [DUPLICATED]]
 ******************************************************************/
 void randomkeyCommand(client *c) {
     robj *keyGlob;
