@@ -402,7 +402,7 @@ void cumulativeKeyCountAdd(redisDb *db, int slot, long delta) {
     if (!server.cluster_enabled) return;
     int idx = slot + 1; /* Unlike slots, BIT is 1-based, so we need to add 1. */
     while (idx <= CLUSTER_SLOTS) {
-        db->binary_index[idx] += delta;
+        db->slot_size_index[idx] += delta;
         idx += (idx & -idx);
     }
 }
@@ -417,7 +417,7 @@ unsigned long long cumulativeKeyCountRead(redisDb *db, int slot) {
     int idx = slot + 1;
     unsigned long long sum = 0;
     while (idx > 0) {
-        sum += db->binary_index[idx];
+        sum += db->slot_size_index[idx];
         idx -= (idx & -idx);
     }
     return sum;
@@ -590,8 +590,8 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].resize_cursor = 0;
         dbarray[j].key_count = 0;
         if (server.cluster_enabled) {
-            zfree(dbarray[j].binary_index);
-            dbarray[j].binary_index = zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
+            zfree(dbarray[j].slot_size_index);
+            dbarray[j].slot_size_index = zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
         }
     }
 
@@ -660,7 +660,7 @@ redisDb *initTempDb(void) {
         tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreate(&dbExpiresDictType);
-        tempDb[i].binary_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+        tempDb[i].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
     }
 
     return tempDb;
@@ -679,7 +679,7 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         zfree(tempDb[i].dict);
         dictRelease(tempDb[i].expires);
         if (server.cluster_enabled) {
-            zfree(tempDb[i].binary_index);
+            zfree(tempDb[i].slot_size_index);
         }
     }
 
@@ -1625,7 +1625,7 @@ int dbSwapDatabases(int id1, int id2) {
     db1->resize_cursor = db2->resize_cursor;
     db1->dict_count = db2->dict_count;
     db1->key_count = db2->key_count;
-    db1->binary_index = db2->binary_index;
+    db1->slot_size_index = db2->slot_size_index;
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
@@ -1634,7 +1634,7 @@ int dbSwapDatabases(int id1, int id2) {
     db2->resize_cursor = aux.resize_cursor;
     db2->dict_count = aux.dict_count;
     db2->key_count = aux.key_count;
-    db2->binary_index = aux.binary_index;
+    db2->slot_size_index = aux.slot_size_index;
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
@@ -1675,7 +1675,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->resize_cursor = newdb->resize_cursor;
         activedb->dict_count = newdb->dict_count;
         activedb->key_count = newdb->key_count;
-        activedb->binary_index = newdb->binary_index;
+        activedb->slot_size_index = newdb->slot_size_index;
 
         newdb->dict = aux.dict;
         newdb->expires = aux.expires;
@@ -1684,7 +1684,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->resize_cursor = aux.resize_cursor;
         newdb->dict_count = aux.dict_count;
         newdb->key_count = aux.key_count;
-        newdb->binary_index = aux.binary_index;
+        newdb->slot_size_index = aux.slot_size_index;
 
         /* Now we need to handle clients blocked on lists: as an effect
          * of swapping the two DBs, a client that was waiting for list
