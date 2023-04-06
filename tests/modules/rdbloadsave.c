@@ -14,31 +14,31 @@ int sanity(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleRdbStream *s = RedisModule_RdbStreamCreateFromFile("dbnew.rdb");
 
     /* NULL stream should fail. */
-    if (RedisModule_RdbLoad(NULL, 0) == REDISMODULE_OK || errno != EINVAL) {
+    if (RedisModule_RdbLoad(ctx, NULL, 0) == REDISMODULE_OK || errno != EINVAL) {
         RedisModule_ReplyWithError(ctx, strerror(errno));
         goto out;
     }
 
     /* Invalid flags should fail. */
-    if (RedisModule_RdbLoad(s, 188) == REDISMODULE_OK || errno != EINVAL) {
+    if (RedisModule_RdbLoad(ctx, s, 188) == REDISMODULE_OK || errno != EINVAL) {
         RedisModule_ReplyWithError(ctx, strerror(errno));
         goto out;
     }
 
     /* Missing file should fail. */
-    if (RedisModule_RdbLoad(s, 0) == REDISMODULE_OK || errno != ENOENT) {
+    if (RedisModule_RdbLoad(ctx, s, 0) == REDISMODULE_OK || errno != ENOENT) {
         RedisModule_ReplyWithError(ctx, strerror(errno));
         goto out;
     }
 
     /* Save RDB file. */
-    if (RedisModule_RdbSave(s, 0) != REDISMODULE_OK || errno != 0) {
+    if (RedisModule_RdbSave(ctx, s, 0) != REDISMODULE_OK || errno != 0) {
         RedisModule_ReplyWithError(ctx, strerror(errno));
         goto out;
     }
 
     /* Load the saved RDB file. */
-    if (RedisModule_RdbLoad(s, 0) != REDISMODULE_OK || errno != 0) {
+    if (RedisModule_RdbLoad(ctx, s, 0) != REDISMODULE_OK || errno != 0) {
         RedisModule_ReplyWithError(ctx, strerror(errno));
         goto out;
     }
@@ -65,7 +65,7 @@ int cmd_rdbsave(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleRdbStream *stream = RedisModule_RdbStreamCreateFromFile(tmp);
 
-    if (RedisModule_RdbSave(stream, 0) != REDISMODULE_OK || errno != 0) {
+    if (RedisModule_RdbSave(ctx, stream, 0) != REDISMODULE_OK || errno != 0) {
         RedisModule_ReplyWithError(ctx, strerror(errno));
         goto out;
     }
@@ -104,7 +104,7 @@ int cmd_rdbsave_fork(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleRdbStream *stream = RedisModule_RdbStreamCreateFromFile(tmp);
 
     int ret = 0;
-    if (RedisModule_RdbSave(stream, 0) != REDISMODULE_OK) {
+    if (RedisModule_RdbSave(ctx, stream, 0) != REDISMODULE_OK) {
         ret = errno;
     }
     RedisModule_RdbStreamFree(stream);
@@ -128,7 +128,7 @@ int cmd_rdbload(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     RedisModuleRdbStream *stream = RedisModule_RdbStreamCreateFromFile(tmp);
 
-    if (RedisModule_RdbLoad(stream, 0) != REDISMODULE_OK || errno != 0) {
+    if (RedisModule_RdbLoad(ctx, stream, 0) != REDISMODULE_OK || errno != 0) {
         RedisModule_RdbStreamFree(stream);
         RedisModule_ReplyWithError(ctx, strerror(errno));
         return REDISMODULE_OK;

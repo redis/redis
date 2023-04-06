@@ -12708,10 +12708,12 @@ void RM_RdbStreamFree(RedisModuleRdbStream *stream) {
  * Example:
  *
  *     RedisModuleRdbStream *s = RedisModule_RdbStreamCreateFromFile("exp.rdb");
- *     RedisModule_RdbLoad(s, 0);
+ *     RedisModule_RdbLoad(ctx, s, 0);
  *     RedisModule_RdbStreamFree(s);
  */
-int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
+int RM_RdbLoad(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) {
+    UNUSED(ctx);
+
     if (!stream || flags != 0) {
         errno = EINVAL;
         return REDISMODULE_ERR;
@@ -12766,10 +12768,12 @@ int RM_RdbLoad(RedisModuleRdbStream *stream, int flags) {
  * Example:
  *
  *     RedisModuleRdbStream *s = RedisModule_RdbStreamCreateFromFile("exp.rdb");
- *     RedisModule_RdbSave(s, 0);
+ *     RedisModule_RdbSave(ctx, s, 0);
  *     RedisModule_RdbStreamFree(s);
  */
-int RM_RdbSave(RedisModuleRdbStream *stream, int flags) {
+int RM_RdbSave(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) {
+    UNUSED(ctx);
+
     if (!stream || flags != 0) {
         errno = EINVAL;
         return REDISMODULE_ERR;
