@@ -458,9 +458,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
                 }
                 client *c = wk->client;
                 c->flags |= CLIENT_DIRTY_CAS;
-                /* As the client is marked as dirty, there is no point in getting here
-                 * again for others keys (or keep the memory overhead till EXEC). */
-                unwatchAllKeys(c);
+                /* Note - we could potentially call unwatchAllKeys for this specific client in order to reduce
+                 * the total number of iterations. BUT this could also free the current next entry pointer
+                 * held by the iterator and can lead to use-after-free. */
             }
         }
     }

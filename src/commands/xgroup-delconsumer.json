@@ -1,6 +1,6 @@
 {
     "DELCONSUMER": {
-        "summary": "Delete a consumer from a consumer group.",
+        "summary": "Deletes a consumer from a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",
@@ -47,6 +47,11 @@
                 "name": "consumer",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of pending messages that were yet associated with such a consumer",
+            "type": "integer",
+            "minimum": 0
+        }
     }
 }

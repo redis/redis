@@ -1,6 +1,6 @@
 {
     "BLMPOP": {
-        "summary": "Pop elements from a list, or block until one is available",
+        "summary": "Pops the first element from one of multiple lists. Blocks until an element is available otherwise. Deletes the list if the last element was popped.",
         "complexity": "O(N+M) where N is the number of provided keys and M is the number of elements returned.",
         "group": "list",
         "since": "7.0.0",
@@ -35,6 +35,34 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Operation timed-out",
+                    "type": "null"
+                },
+                {
+                    "description": "The key from which elements were popped and the popped elements",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "List key from which elements were popped.",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Array of popped elements.",
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "timeout",

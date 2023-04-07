@@ -1,6 +1,6 @@
 {
     "ZDIFF": {
-        "summary": "Subtract multiple sorted sets",
+        "summary": "Returns the difference between multiple sorted sets.",
         "complexity": "O(L + (N-K)log(N)) worst case where L is the total number of elements in all the sets, N is the size of the first set, and K is the size of the result set.",
         "group": "sorted_set",
         "since": "6.2.0",
@@ -33,6 +33,36 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "description": "A list of members. Returned in case `WITHSCORES` was not used.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "description": "Members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Member",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Score",
+                                "type": "number"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "numkeys",

@@ -1,6 +1,6 @@
 {
     "RENAMENX": {
-        "summary": "Rename a key, only if the new key does not exist",
+        "summary": "Renames a key only when the target key name doesn't exist.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",
@@ -69,6 +69,18 @@
                 "type": "key",
                 "key_spec_index": 1
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "key was renamed to newkey",
+                    "const": 1
+                },
+                {
+                    "description": "new key already exists",
+                    "const": 0
+                }
+            ]
+        }
     }
 }

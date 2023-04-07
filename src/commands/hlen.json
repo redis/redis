@@ -1,6 +1,6 @@
 {
     "HLEN": {
-        "summary": "Get the number of fields in a hash",
+        "summary": "Returns the number of fields in a hash.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",
@@ -32,6 +32,10 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of the fields in the hash, or 0 when the key does not exist."
+        },
         "arguments": [
             {
                 "name": "key",

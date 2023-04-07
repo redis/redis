@@ -1,6 +1,6 @@
 {
     "GRAPH": {
-        "summary": "Return a latency graph for the event.",
+        "summary": "Returns a latency graph for an event.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.13",
@@ -23,6 +23,10 @@
                 "name": "event",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "type": "string",
+            "description": "Latency graph"
+        }
     }
 }

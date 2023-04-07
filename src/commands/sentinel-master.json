@@ -1,6 +1,6 @@
 {
     "MASTER": {
-        "summary": "Shows the state of a master",
+        "summary": "Returns the state of a master Redis instance.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "2.8.4",
@@ -12,6 +12,13 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "object",
+            "description": "The state and info of the specified master.",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "master-name",

@@ -12,10 +12,22 @@ if {$::simulate_error} {
     }
 }
 
-test "Sentinel commands sanity check" {
+test "Sentinel command flag infrastructure works correctly" {
     foreach_sentinel_id id {
-        assert_equal {72} [llength [S $id command list]]
-        assert_equal {15} [S $id command count]
+        set command_list [S $id command list]
+
+        foreach cmd {ping info subscribe client|setinfo} {
+            assert_not_equal [S $id command docs $cmd] {}
+            assert_not_equal [lsearch $command_list $cmd] -1
+        }
+
+        foreach cmd {save bgrewriteaof blpop replicaof} {
+            assert_equal [S $id command docs $cmd] {}
+            assert_equal [lsearch $command_list $cmd] -1
+            assert_error {ERR unknown command*} {S $id $cmd}
+        }
+
+        assert_error {ERR unknown subcommand*} {S $id client no-touch}
     }
 }
 

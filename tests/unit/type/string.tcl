@@ -234,6 +234,15 @@ start_server {tags {"string"}} {
         list [r msetnx x1{t} xxx y2{t} yyy] [r get x1{t}] [r get y2{t}]
     } {1 xxx yyy}
 
+    test {MSETNX with not existing keys - same key twice} {
+        r del x1{t}
+        list [r msetnx x1{t} xxx x1{t} yyy] [r get x1{t}]
+    } {1 yyy}
+
+    test {MSETNX with already existing keys - same key twice} {
+        list [r msetnx x1{t} xxx x1{t} zzz] [r get x1{t}]
+    } {0 yyy}
+
     test "STRLEN against non-existing key" {
         assert_equal 0 [r strlen notakey]
     }
@@ -459,7 +468,15 @@ start_server {tags {"string"}} {
             assert_equal [string range $bin $_start $_end] [r getrange bin $start $end]
         }
     }
+
+    test "Coverage: SUBSTR" {
+        r set key abcde
+        assert_equal "a" [r substr key 0 0]
+        assert_equal "abcd" [r substr key 0 3]
+        assert_equal "bcde" [r substr key -4 -1]
+    }
     
+if {[string match {*jemalloc*} [s mem_allocator]]} {
     test {trim on SET with big value} {
         # set a big value to trigger increasing the query buf
         r set key [string repeat A 100000] 
@@ -468,6 +485,7 @@ start_server {tags {"string"}} {
         # asset the value was trimmed
         assert {[r memory usage key] < 42000}; # 42K to count for Jemalloc's additional memory overhead. 
     }
+} ;# if jemalloc
 
     test {Extended SET can detect syntax errors} {
         set e {}

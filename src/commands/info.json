@@ -1,6 +1,6 @@
 {
     "INFO": {
-        "summary": "Get information and statistics about the server",
+        "summary": "Returns information and statistics about the server.",
         "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",
@@ -25,6 +25,9 @@
             "REQUEST_POLICY:ALL_SHARDS",
             "RESPONSE_POLICY:SPECIAL"
         ],
+        "reply_schema": {
+            "type": "string"
+        },
         "arguments": [
             {
                 "name": "section",

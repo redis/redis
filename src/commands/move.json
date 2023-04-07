@@ -1,6 +1,6 @@
 {
     "MOVE": {
-        "summary": "Move a key to another database",
+        "summary": "Moves a key to another database.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",
@@ -44,6 +44,18 @@
                 "name": "db",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "key was moved",
+                    "const": 1
+                },
+                {
+                    "description": "key wasn't moved",
+                    "const": 0
+                }
+            ]
+        }
     }
 }

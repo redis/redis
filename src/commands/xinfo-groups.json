@@ -1,6 +1,6 @@
 {
     "GROUPS": {
-        "summary": "List the consumer groups of a stream",
+        "summary": "Returns a list of the consumer groups of a stream.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",
@@ -39,6 +39,48 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "consumers": {
+                        "type": "integer"
+                    },
+                    "pending": {
+                        "type": "integer"
+                    },
+                    "last-delivered-id": {
+                        "type": "string",
+                        "pattern": "[0-9]+-[0-9]+"
+                    },
+                    "entries-read": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    "lag": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "type": "integer"
+                            }
+                        ]
+                    }
+                }
+            }
+        },
         "arguments": [
             {
                 "name": "key",

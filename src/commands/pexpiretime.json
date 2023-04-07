@@ -1,6 +1,6 @@
 {
     "PEXPIRETIME": {
-        "summary": "Get the expiration Unix timestamp for a key in milliseconds",
+        "summary": "Returns the expiration time of a key as a Unix milliseconds timestamp.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "7.0.0",
@@ -33,6 +33,23 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "description": "Expiration Unix timestamp in milliseconds.",
+                    "minimum": 0
+                },
+                {
+                    "const": -1,
+                    "description": "The key exists but has no associated expiration time."
+                },
+                {
+                    "const": -2,
+                    "description": "The key does not exist."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

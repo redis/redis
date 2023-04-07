@@ -1,6 +1,6 @@
 {
     "SLAVES": {
-        "summary": "List replica nodes of the specified master node",
+        "summary": "Lists the replica nodes of a master node.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",
@@ -24,6 +24,14 @@
                 "name": "node-id",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "a list of replica nodes replicating from the specified master node provided in the same format used by CLUSTER NODES",
+            "type": "array",
+            "items": {
+                "type": "string",
+                "description": "the serialized cluster configuration"
+            }
+        }
     }
 }

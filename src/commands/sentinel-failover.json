@@ -1,6 +1,6 @@
 {
     "FAILOVER": {
-        "summary": "Force a failover",
+        "summary": "Forces a Redis Sentinel failover.",
         "group": "sentinel",
         "since": "2.8.4",
         "arity": 3,
@@ -11,6 +11,10 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "const": "OK",
+            "description": "Force a fail over as if the master was not reachable, and without asking for agreement to other Sentinels."
+        },
         "arguments": [
             {
                 "name": "master-name",

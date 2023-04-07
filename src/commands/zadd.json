@@ -1,6 +1,6 @@
 {
     "ZADD": {
-        "summary": "Add one or more members to a sorted set, or update its score if it already exists",
+        "summary": "Adds one or more members to a sorted set, or updates their scores. Creates the key if it doesn't exist.",
         "complexity": "O(log(N)) for each item added, where N is the number of elements in the sorted set.",
         "group": "sorted_set",
         "since": "1.2.0",
@@ -48,6 +48,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf":[
+                {
+                    "description": "Operation was aborted (conflict with one of the `XX`/`NX`/`LT`/`GT` options).",
+                    "type": "null"
+                },
+                {
+                    "description": "The number of new members (when the `CH` option is not used)",
+                    "type": "integer"
+                },
+                {
+                    "description": "The number of new or updated members (when the `CH` option is used)",
+                    "type": "integer"
+                },
+                {
+                    "description": "The updated score of the member (when the `INCR` option is used)",
+                    "type": "number"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

@@ -60,7 +60,8 @@ TEST_MODULES = \
     moduleconfigstwo.so \
     publish.so \
     usercall.so \
-    postnotifications.so
+    postnotifications.so \
+    moduleauthtwo.so
 
 .PHONY: all
 
