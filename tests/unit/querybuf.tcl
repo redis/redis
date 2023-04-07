@@ -63,4 +63,22 @@ start_server {tags {"querybuf slow"}} {
         assert {[client_query_buffer test_client] > 0 && [client_query_buffer test_client] < $orig_test_client_qbuf}
         $rd close
     }
+
+    test "query buffer shouldn't be resized with fat argv" {
+        set rd [redis_client]
+        $rd client setname test_client
+        $rd write "*3\r\n\$3\r\nset\r\n\$1\r\na\r\n\$1000000\r\n"
+        $rd flush
+        set retry 10
+        while {[incr retry -1]} {
+            after 100
+            if {[client_query_buffer test_client] > 1000000} {
+                continue
+            } else {
+                fail "query buffer should not be resized"
+            }
+        }
+        $rd close
+    }
+
 }
