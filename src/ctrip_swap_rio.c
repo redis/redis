@@ -29,7 +29,7 @@
 
 #define RIO_ITERATE_NUMKEYS_ALLOC_INIT 8
 #define RIO_ITERATE_NUMKEYS_ALLOC_LINER 4096
-#define RIO_ESTIMATE_PAYLOAD_SAMPLE 16
+#define RIO_ESTIMATE_PAYLOAD_SAMPLE 8
 
 #define MIN(a,b) ((a) > (b) ? (b): (a))
 
@@ -313,7 +313,7 @@ static sds RIODumpGeneric(RIO *rio, sds repr) {
         repr = sdscatprintf(repr, "  ([%s] ", swapGetCFName(rio->generic.cfs[i]));
         repr = sdscatrepr(repr,rio->generic.rawkeys[i],sdslen(rio->generic.rawkeys[i]));
         repr = sdscat(repr, ")=>(");
-        if (rio->generic.rawvals[i]) {
+        if (rio->generic.rawvals && rio->generic.rawvals[i]) {
             repr = sdscatrepr(repr,rio->generic.rawvals[i],sdslen(rio->generic.rawvals[i]));
         } else {
             repr = sdscatfmt(repr, "<nil>");
@@ -599,14 +599,14 @@ void RIOBatchDoDel(RIOBatch *rios) {
     char *err = NULL;
     rocksdb_writebatch_t *wb = rocksdb_writebatch_create();
 
-    serverAssert(rios->action == ROCKS_PUT);
+    serverAssert(rios->action == ROCKS_DEL);
 
     for (size_t i = 0; i < rios->count; i++) {
         RIO *rio = rios->rios+i;
         serverAssert(rio->action == rios->action);
         for (int j = 0; j < rio->del.numkeys; j++) {
             rocksdb_writebatch_delete_cf(wb,swapGetCF(rio->del.cfs[j]),
-                    rio->del.rawkeys[i],sdslen(rio->del.rawkeys[j]));
+                    rio->del.rawkeys[j],sdslen(rio->del.rawkeys[j]));
         }
     }
 
@@ -628,7 +628,7 @@ void RIOBatchDump(RIOBatch *rios) {
     }
 }
 
-static void RIOBatchDoNoBatch(RIOBatch *rios) {
+static void RIOBatchDoIndividually(RIOBatch *rios) {
     for (size_t i = 0; i < rios->count; i++) {
         RIO *rio = rios->rios+i;
         serverAssert(rio->action == rios->action);
@@ -642,7 +642,7 @@ void RIOBatchDo(RIOBatch *rios) {
 
     /* Fallback to RIODo for actions that cant batch */
     if (rios->action == ROCKS_ITERATE) {
-        RIOBatchDoNoBatch(rios);
+        RIOBatchDoIndividually(rios);
         return;
     }
 
@@ -677,6 +677,7 @@ void RIOBatchDo(RIOBatch *rios) {
 
 end:
     RIOBatchUpdateStatsDo(rios, elapsedUs(io_timer));
+    RIOBatchUpdateStatsDataNotFound(rios);
 }
 
 void RIOBatchUpdateStatsDo(RIOBatch *rios, long duration) {
@@ -740,13 +741,24 @@ void resetRIOStats() {
         atomicSet(server.ror_stats->rio_stats[action].batch,0);
         atomicSet(server.ror_stats->rio_stats[action].time,0);
     }
+    atomicSet(server.swap_hit_stats->stat_swapin_data_not_found_count,0);
 }
 
+void initServerConfig(void);
 int swapRIOTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(accurate);
     int error = 0;
+
+    TEST("RIO: init") {
+        server.hz = 10;
+        initTestRedisDb();
+        monotonicInit();
+        initServerConfig();
+        if (!server.rocks) rocksInit();
+        initStatsSwap();
+    }
 
     TEST("RIO: get/del/put") {
         RIO _rio, *rio = &_rio;
@@ -803,12 +815,14 @@ int swapRIOTest(int argc, char *argv[], int accurate) {
         rawkeys = genSdsArray(1,foo);
         RIOInitGet(rio,1,cfs,rawkeys);
         RIODo(rio);
-        test_assert(sdscmp(rio->get.rawvals[0],bar) == 0);
+        test_assert(rio->get.rawvals[0] == NULL);
         test_assert(getStatsRIO(ROCKS_GET,count) == 3);
         test_assert(getStatsRIO(ROCKS_GET,batch) == 3);
         test_assert(getStatsRIO(ROCKS_GET,memory) == miss_size+foo_size*2+bar_size);
         test_assert(getStatsDataNotFound() == 2);
         RIODeinit(rio);
+
+        sdsfree(foo), sdsfree(bar), sdsfree(miss);
     }
 
     TEST("RIO: batch get/del/put") {
@@ -822,11 +836,14 @@ int swapRIOTest(int argc, char *argv[], int accurate) {
                miss_size = sdsalloc(miss), hello_size = sdsalloc(hello),
                    world_size = sdsalloc(world), expected_size;
 
+        resetRIOStats();
+
         /* put : (foo:bar),(hello:world)
          * get : (foo),(hello),(keymiss) => (bar),(wrold),(<nil>)
          * del : (foo),(bar),(keymiss)
          * get : (foo),(bar),(keymiss) => (<nil>),(<nil>),(<nil>)
          */
+
         RIOBatchInit(rios,ROCKS_PUT);
         rio = RIOBatchAlloc(rios);
         cfs = genIntArray(1,DATA_CF);
@@ -904,6 +921,9 @@ int swapRIOTest(int argc, char *argv[], int accurate) {
         test_assert(getStatsRIO(ROCKS_GET,memory) == expected_size);
         test_assert(getStatsDataNotFound() == 4);
         RIOBatchDeinit(rios);
+
+        sdsfree(foo), sdsfree(bar), sdsfree(miss);
+        sdsfree(hello), sdsfree(world);
     }
 
     return error;

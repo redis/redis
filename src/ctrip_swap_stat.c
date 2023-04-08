@@ -40,12 +40,12 @@ void initStatsSwap() {
     for (i = 0; i < SWAP_TYPES; i++) {
         metric_offset = SWAP_SWAP_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
         server.ror_stats->swap_stats[i].name = swapIntentionName(i);
-        server.ror_stats->swap_stats[i].count = 0;
         server.ror_stats->swap_stats[i].batch = 0;
+        server.ror_stats->swap_stats[i].count = 0;
         server.ror_stats->swap_stats[i].memory = 0;
         server.ror_stats->swap_stats[i].time = 0;
-        server.ror_stats->swap_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
         server.ror_stats->swap_stats[i].stats_metric_idx_batch = metric_offset+SWAP_STAT_METRIC_BATCH;
+        server.ror_stats->swap_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
         server.ror_stats->swap_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
         server.ror_stats->swap_stats[i].stats_metric_idx_time = metric_offset+SWAP_STAT_METRIC_TIME;
     }
@@ -53,12 +53,12 @@ void initStatsSwap() {
     for (i = 0; i < ROCKS_TYPES; i++) {
         metric_offset = SWAP_RIO_STATS_METRIC_OFFSET + i*SWAP_STAT_METRIC_SIZE;
         server.ror_stats->rio_stats[i].name = rocksActionName(i);
-        server.ror_stats->rio_stats[i].count = 0;
         server.ror_stats->rio_stats[i].batch = 0;
+        server.ror_stats->rio_stats[i].count = 0;
         server.ror_stats->rio_stats[i].memory = 0;
         server.ror_stats->rio_stats[i].time = 0;
-        server.ror_stats->rio_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
         server.ror_stats->rio_stats[i].stats_metric_idx_batch = metric_offset+SWAP_STAT_METRIC_BATCH;
+        server.ror_stats->rio_stats[i].stats_metric_idx_count = metric_offset+SWAP_STAT_METRIC_COUNT;
         server.ror_stats->rio_stats[i].stats_metric_idx_memory = metric_offset+SWAP_STAT_METRIC_MEMORY;
         server.ror_stats->rio_stats[i].stats_metric_idx_time = metric_offset+SWAP_STAT_METRIC_TIME;
     }
@@ -90,23 +90,23 @@ void trackSwapInstantaneousMetrics() {
     size_t count, batch, memory, time;
     for (i = 1; i < SWAP_TYPES; i++) {
         s = server.ror_stats->swap_stats + i;
-        atomicGet(s->count,count);
         atomicGet(s->batch,batch);
+        atomicGet(s->count,count);
         atomicGet(s->memory,memory);
         atomicGet(s->time,time);
-        trackInstantaneousMetric(s->stats_metric_idx_count,count);
         trackInstantaneousMetric(s->stats_metric_idx_batch,batch);
+        trackInstantaneousMetric(s->stats_metric_idx_count,count);
         trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
         trackInstantaneousMetric(s->stats_metric_idx_time,time);
     }
     for (i = 1; i < ROCKS_TYPES; i++) {
         s = server.ror_stats->rio_stats + i;
-        atomicGet(s->count,count);
         atomicGet(s->batch,batch);
+        atomicGet(s->count,count);
         atomicGet(s->memory,memory);
         atomicGet(s->time,time);
-        trackInstantaneousMetric(s->stats_metric_idx_count,count);
         trackInstantaneousMetric(s->stats_metric_idx_batch,batch);
+        trackInstantaneousMetric(s->stats_metric_idx_count,count);
         trackInstantaneousMetric(s->stats_metric_idx_memory,memory);
         trackInstantaneousMetric(s->stats_metric_idx_time,time);
     }
@@ -157,41 +157,45 @@ sds genSwapExecInfoString(sds info) {
             server.swap_batch_ctx->stat.batch_count);
 
     info = sdscatprintf(info,
+            "swap_inprogress_batch:%ld\r\n"
             "swap_inprogress_count:%ld\r\n"
             "swap_inprogress_memory:%ld\r\n"
             "swap_inprogress_evict_count:%d\r\n",
+            server.swap_inprogress_batch,
             server.swap_inprogress_count,
             server.swap_inprogress_memory,
             server.swap_evict_inprogress_count);
 
     for (j = 1; j < SWAP_TYPES; j++) {
         swapStat *s = &server.ror_stats->swap_stats[j];
-        atomicGet(s->count,count);
         atomicGet(s->batch,batch);
+        atomicGet(s->count,count);
         atomicGet(s->memory,memory);
+        batch_ps = getInstantaneousMetric(s->stats_metric_idx_batch);
         ops = getInstantaneousMetric(s->stats_metric_idx_count);
-        batch_ps = getInstantaneousMetric(s->stats_metric_idx_count);
         total_latency = getInstantaneousMetric(s->stats_metric_idx_time);
         info = sdscatprintf(info,
-                "swap_%s:count=%ld,batch=%ld,memory=%ld,ops=%lld,batch_ps=%lld,bps=%lld,latency_po=%lld,latency_per_batch=%lld\r\n",
-                s->name,count,batch,memory, ops, batch_ps,
+                "swap_%s:batch=%ld,count=%ld,memory=%ld,batch_ps=%lld,ops=%lld,bps=%lld,latency_pb=%lld,latency_po=%lld\r\n",
+                s->name,batch,count,memory,batch_ps,ops,
                 getInstantaneousMetric(s->stats_metric_idx_memory),
-                ops > 0 ? total_latency/ops : 0,
-                batch_ps > 0 ? total_latency/batch_ps : 0);
+                batch_ps > 0 ? total_latency/batch_ps : 0,
+                ops > 0 ? total_latency/ops : 0);
     }
 
     for (j = 1; j < ROCKS_TYPES; j++) {
         swapStat *s = &server.ror_stats->rio_stats[j];
-        atomicGet(s->count,count);
         atomicGet(s->batch,batch);
+        atomicGet(s->count,count);
         atomicGet(s->memory,memory);
+        batch_ps = getInstantaneousMetric(s->stats_metric_idx_batch);
         ops = getInstantaneousMetric(s->stats_metric_idx_count);
         total_latency = getInstantaneousMetric(s->stats_metric_idx_time);
-        info = sdscatprintf(info,"swap_rio_%s:count=%ld,batch=%ld,memory=%ld,ops=%lld,batch_ps=%lld,bps=%lld,latency_po=%lld,latency_per_batch=%lld\r\n",
-                s->name,count,batch,memory,ops,batch_ps,
+        info = sdscatprintf(info,
+                "swap_rio_%s:batch=%ld,count=%ld,memory=%ld,batch_ps=%lld,ops=%lld,bps=%lld,latency_pb=%lld,latency_po=%lld\r\n",
+                s->name,batch,count,memory,batch_ps,ops,
                 getInstantaneousMetric(s->stats_metric_idx_memory),
-                ops > 0 ? total_latency/ops : 0,
-                batch_ps > 0 ? total_latency/batch_ps : 0);
+                batch_ps > 0 ? total_latency/batch_ps : 0,
+                ops > 0 ? total_latency/ops : 0);
     }
 
     for (j = 0; j < CF_COUNT; j++) {
@@ -233,7 +237,7 @@ sds genSwapUnblockInfoString(sds info) {
 }
 
 /* Note that swap thread upadates swap stats, reset when there are swapRequest
- * inprogress would result swap_in_progress overflow when swap finishs. */ 
+ * inprogress would result swap_in_progress overflow when swap finishs. */
 void resetStatsSwap() {
     int i;
     for (i = 0; i < SWAP_TYPES; i++) {

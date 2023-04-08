@@ -141,7 +141,6 @@ void asyncSwapRequestNotifyCallback(swapRequestBatch *reqs, void *pd) {
 }
 
 void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequestBatch *reqs) {
-    if (server.swap_debug_trace_latency) elapsedStart(&reqs->notify_queue_timer);
     pthread_mutex_lock(&cq->lock);
     listAddNodeTail(cq->complete_queue, reqs);
     pthread_mutex_unlock(&cq->lock);

@@ -155,6 +155,15 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {1024*1024*32, 1024*1024*8, 60}  /* pubsub */
 };
 
+/* swap batch limits presets. */
+swapBatchLimitsConfig swapBatchLimitsDefaults[SWAP_TYPES] = {
+    {0, 0}, /* NOP */
+    {16, 1024*1024*1}, /* IN */
+    {16, 1024*1024*1}, /* OUT */
+    {16, 1024*1024*1},  /* DEL */
+    {0, 0}, /* UTILS */
+};
+
 /* OOM Score defaults */
 int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT] = { 0, 200, 800 };
 
@@ -597,6 +606,20 @@ void loadServerConfigFromString(char *config) {
             server.client_obuf_limits[class].hard_limit_bytes = hard;
             server.client_obuf_limits[class].soft_limit_bytes = soft;
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+        } else if (!strcasecmp(argv[0],"swap-batch-limit") &&
+                   argc == 4)
+        {
+            int intention = getSwapIntentionByName(argv[1]), count;
+            unsigned long long mem;
+
+            if (intention <= 0 || intention == SWAP_UTILS) {
+                err = "Unrecognized or unsupported swap intention name.";
+                goto loaderr;
+            }
+            count = atoi(argv[2]);
+            mem = memtoll(argv[3],NULL);
+            server.swap_batch_limits[intention].count = count;
+            server.swap_batch_limits[intention].mem = mem;
         } else if (!strcasecmp(argv[0],"oom-score-adj-values") && argc == 1 + CONFIG_OOM_COUNT) {
             if (updateOOMScoreAdjValues(&argv[1], &err, 0) == C_ERR) goto loaderr;
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
@@ -862,6 +885,49 @@ void configSetCommand(client *c) {
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
         }
         sdsfreesplitres(v,vlen);
+    } config_set_special_field("swap-batch-limit") {
+        int vlen, j;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+
+        /* We need a multiple of 3: <intention> <count> <memory> */
+        if (vlen % 3) {
+            sdsfreesplitres(v,vlen);
+            goto badfmt;
+        }
+
+        /* Sanity check of single arguments, so that we either refuse the
+         * whole configuration string or accept it all, even if a single
+         * error in a single client class is present. */
+        for (j = 0; j < vlen; j++) {
+            long val;
+
+            if ((j % 3) == 0) {
+                int intention = getSwapIntentionByName(v[j]);
+                if (intention <= 0 || intention == SWAP_UTILS) {
+                    sdsfreesplitres(v,vlen);
+                    goto badfmt;
+                }
+            } else {
+                val = memtoll(v[j], &err);
+                if (err || val < 0) {
+                    sdsfreesplitres(v,vlen);
+                    goto badfmt;
+                }
+            }
+        }
+        /* Finally set the new config */
+        for (j = 0; j < vlen; j += 3) {
+            int intention, count;
+            unsigned long long mem;
+
+            intention = getSwapIntentionByName(v[j]);
+            count = strtoll(v[j+1],NULL,10);
+            mem = memtoll(v[j+2],NULL);
+
+            server.swap_batch_limits[intention].count = count;
+            server.swap_batch_limits[intention].mem = mem;
+        }
+        sdsfreesplitres(v,vlen);
     } config_set_special_field("oom-score-adj-values") {
         int vlen;
         int success = 1;
@@ -1009,6 +1075,23 @@ void configGetCommand(client *c) {
                 buf = sdscatlen(buf," ",1);
         }
         addReplyBulkCString(c,"client-output-buffer-limit");
+        addReplyBulkCString(c,buf);
+        sdsfree(buf);
+        matches++;
+    }
+    if (stringmatch(pattern,"swap-batch-limit",1)) {
+        sds buf = sdsempty();
+        int j;
+
+        for (j = 1; j < SWAP_UTILS; j++) {
+            buf = sdscatprintf(buf,"%s %d %llu",
+                    swapIntentionName(j),
+                    server.swap_batch_limits[j].count,
+                    server.swap_batch_limits[j].mem);
+            if (j != SWAP_UTILS-1)
+                buf = sdscatlen(buf," ",1);
+        }
+        addReplyBulkCString(c,"swap-batch-limit");
         addReplyBulkCString(c,buf);
         sdsfree(buf);
         matches++;
@@ -1522,6 +1605,28 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
     }
 }
 
+/* Rewrite the swap-batch-limit option. */
+void rewriteConfigSwapBatchlimitOption(struct rewriteConfigState *state) {
+    int j;
+    char *option = "swap-batch-limit";
+
+    for (j = 1; j < SWAP_UTILS; j++) {
+        int force = (server.swap_batch_limits[j].count !=
+                    swapBatchLimitsDefaults[j].count) ||
+                    (server.swap_batch_limits[j].mem !=
+                    swapBatchLimitsDefaults[j].mem);
+        sds line;
+        char mem[64];
+
+        rewriteConfigFormatMemory(mem,sizeof(mem),
+                server.swap_batch_limits[j].mem);
+
+        const char *typename = swapIntentionName(j);
+        line = sdscatprintf(sdsempty(),"%s %s %d %s",
+                option, typename, server.swap_batch_limits[j].count, mem);
+        rewriteConfigRewriteLine(state,option,line,force);
+    }
+}
 /* Rewrite the oom-score-adj-values option. */
 void rewriteConfigOOMScoreAdjValuesOption(struct rewriteConfigState *state) {
     int force = 0;

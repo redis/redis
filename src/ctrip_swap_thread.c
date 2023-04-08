@@ -54,9 +54,6 @@ void *swapThreadMain (void *arg) {
         atomicSetWithSync(thread->is_running_rio, 1);
         while ((ln = listNext(&li))) {
             swapRequestBatch *reqs = listNodeValue(ln);
-            if (reqs->swap_queue_timer) {
-                metricDebugInfo(SWAP_DEBUG_SWAP_QUEUE_WAIT, elapsedUs(reqs->swap_queue_timer));
-            }
             swapRequestBatchProcess(reqs);
         }
 
@@ -119,7 +116,6 @@ void swapThreadsDispatch(swapRequestBatch *reqs, int idx) {
     } else {
         serverAssert(idx < server.total_swap_threads_num);
     }
-    if (server.swap_debug_trace_latency) elapsedStart(&reqs->swap_queue_timer);
     swapRequestBatchDispatched(reqs);
     swapThread *t = server.swap_threads+idx;
     pthread_mutex_lock(&t->lock);

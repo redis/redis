@@ -3543,6 +3543,7 @@ void initServer(void) {
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
+    server.swap_inprogress_batch = 0;
     server.swap_inprogress_count = 0;
     server.swap_inprogress_memory = 0;
     server.swap_error_count = 0;

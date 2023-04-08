@@ -1093,6 +1093,12 @@ typedef struct clientBufferLimitsConfig {
 
 extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT];
 
+#define SWAP_TYPES_FORWARD 5
+typedef struct swapBatchLimitsConfig {
+    int count;
+    unsigned long long mem;
+} swapBatchLimitsConfig;
+
 /* The redisOp structure defines a Redis Operation, that is an instance of
  * a command with an argument vector, database ID, propagation target
  * (PROPAGATE_*), and command pointer.
@@ -1748,6 +1754,7 @@ struct redisServer {
     uint64_t req_submitted; /* whether request already submitted or not,
                             request will be executed with global swap lock */
     /* swap rate limiting */
+    redisAtomic size_t swap_inprogress_batch; /* swap request inprogress batch */
     redisAtomic size_t swap_inprogress_count; /* swap request inprogress count */
     redisAtomic size_t swap_inprogress_memory;  /* swap consumed memory in bytes */
     redisAtomic size_t swap_error_count;  /* swap error count */
@@ -1848,6 +1855,7 @@ struct redisServer {
 
     /* swap batch */
     struct swapBatchCtx *swap_batch_ctx;
+    swapBatchLimitsConfig swap_batch_limits[SWAP_TYPES_FORWARD];
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -3047,6 +3055,9 @@ long long getInstantaneousMetric(int metric);
 
 #if defined(SWAP_STATS_METRIC_COUNT) && (STATS_METRIC_COUNT_SWAP != SWAP_STATS_METRIC_COUNT)
 #error swap stats metric count inconsist
+#endif
+#if defined(SWAP_TYPES) && (SWAP_TYPES_FORWARD != SWAP_TYPES)
+#error swap types inconsist
 #endif
 
 #endif

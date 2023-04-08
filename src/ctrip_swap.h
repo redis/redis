@@ -95,6 +95,15 @@ static inline const char *swapIntentionName(int intention) {
     name = intentions[intention];
   return name;
 }
+static inline int getSwapIntentionByName(char *name) {
+  const char *intentions[] = {"NOP", "IN", "OUT", "DEL", "UTILS"};
+  for (int intention = 0; intention < SWAP_TYPES; intention++) {
+    if (!strcasecmp(intentions[intention], name)) {
+      return intention;
+    }
+  }
+  return SWAP_UNSET;
+}
 
 static inline int isMetaScanRequest(uint32_t intention_flag) {
     return (intention_flag & SWAP_METASCAN_SCAN) ||
@@ -852,7 +861,6 @@ typedef struct swapRequest {
   swapDebugMsgs *msgs;
 #endif
   int errcode;
-  monotime swap_timer;
   swapTrace *trace;
 } swapRequest;
 
@@ -882,7 +890,6 @@ static inline int swapRequestIsMetaType(swapRequest *req) {
 }
 
 void swapRequestFree(swapRequest *req);
-void swapRequestUpdateStatsStart(swapRequest *req);
 void swapRequestUpdateStatsExecuted(swapRequest *req);
 void swapRequestUpdateStatsCallback(swapRequest *req);
 void swapRequestMerge(swapRequest *req);
@@ -916,7 +923,6 @@ void swapRequestBatchDispatched(swapRequestBatch *reqs);
 void swapRequestBatchStart(swapRequestBatch *reqs);
 void swapRequestBatchEnd(swapRequestBatch *reqs);
 
-
 typedef struct swapExecBatch {
     swapRequest *req_buf[SWAP_BATCH_DEFAULT_SIZE];
     swapRequest **reqs;
@@ -924,15 +930,17 @@ typedef struct swapExecBatch {
     size_t capacity;
     int intention;
     int action;
+    monotime swap_timer;
 } swapExecBatch;
 
 void swapExecBatchInit(swapExecBatch *exec_batch);
 void swapExecBatchDeinit(swapExecBatch *exec_batch);
-void swapExecBatchReset(swapExecBatch *exec_batch, int intention, int action);
 void swapExecBatchAppend(swapExecBatch *exec_batch, swapRequest *req);
-void swapExecBatchExecute(swapExecBatch *exec_batch);
-void swapExecBatchFeed(swapExecBatch *exec_batch, swapRequest *req);
 void swapExecBatchPreprocess(swapExecBatch *meta_batch);
+void swapExecBatchExecute(swapExecBatch *exec_batch);
+static inline int swapExecBatchEmpty(swapExecBatch *exec_batch) {
+    return exec_batch->count == 0;
+}
 static inline void swapExecBatchSetError(swapExecBatch *exec_batch, int errcode) {
     for (size_t i = 0; i < exec_batch->count; i++) {
         swapRequestSetError(exec_batch->reqs[i],errcode);
@@ -947,6 +955,18 @@ static inline int swapExecBatchGetError(swapExecBatch *exec_batch) {
     return 0;
 }
 
+/* swapExecBatchCtx struct is identical with swapExecBatch */
+typedef swapExecBatch swapExecBatchCtx;
+
+#define swapExecBatchCtxInit swapExecBatchInit
+#define swapExecBatchCtxDeinit swapExecBatchDeinit
+#define swapExecBatchCtxEmpty swapExecBatchEmpty
+static inline void swapExecBatchCtxReset(swapExecBatch *exec_batch, int intention, int action) {
+    exec_batch->count = 0;
+    exec_batch->intention = intention;
+    exec_batch->action = action;
+}
+void swapExecBatchCtxFeed(swapExecBatch *exec_ctx, swapRequest *req);
 
 
 /* Threads (encode/rio/decode/finish) */
@@ -970,6 +990,7 @@ sds genSwapThreadInfoString(sds info);
 
 
 /* RIO */
+#define ROCKS_UNSET             -1
 #define ROCKS_NOP               0
 #define ROCKS_GET             	1
 #define ROCKS_PUT            	  2
@@ -1052,6 +1073,7 @@ static inline int RIOGetNotFound(RIO *rio) {
   return rio->get.notfound;
 }
 static inline void RIOSetError(RIO *rio, int errcode, MOVE sds err) {
+  serverAssert(rio->errcode == 0 && rio->err == NULL);
   rio->errcode = errcode;
   rio->err = err;
 }
@@ -1072,13 +1094,13 @@ void RIOBatchDo(RIOBatch *rios);
 void RIOBatchUpdateStatsDo(RIOBatch *rios, long duration);
 void RIOBatchUpdateStatsDataNotFound(RIOBatch *rios);
 
-typedef struct swapBatchStat {
+typedef struct swapBatchCtxStat {
   redisAtomic long long batch_count;
   redisAtomic long long request_count;
-} swapBatchStat;
+} swapBatchCtxStat;
 
 typedef struct swapBatchCtx {
-  swapBatchStat stat;
+  swapBatchCtxStat stat;
   swapRequestBatch *batch;
   int thread_idx;
   int cmd_intention;
@@ -1787,8 +1809,6 @@ void swapCmdSwapSubmitted(swapCmdTrace *swap_cmd);
 void swapTraceLock(swapTrace *trace);
 void swapTraceDispatch(swapTrace *trace);
 void swapTraceProcess(swapTrace *trace);
-void swapTraceDispatch(swapTrace *trace);
-void swapTraceProcess(swapTrace *trace);
 void swapTraceNotify(swapTrace *trace, int intention);
 void swapTraceCallback(swapTrace *trace);
 void swapCmdSwapFinished(swapCmdTrace *swap_cmd);
@@ -1857,6 +1877,8 @@ int swapListDataTest(int argc, char *argv[], int accurate);
 int swapListUtilsTest(int argc, char *argv[], int accurate);
 int swapHoldTest(int argc, char *argv[], int accurate);
 int swapAbsentTest(int argc, char *argv[], int accurate);
+int swapRIOTest(int argc, char *argv[], int accurate);
+int swapBatchTest(int argc, char *argv[], int accurate);
 
 int swapTest(int argc, char **argv, int accurate);
 
