@@ -174,12 +174,23 @@ void swapRequestBatchAppend(swapRequestBatch *reqs, swapRequest *req) {
 }
 
 void swapRequestBatchCallback(swapRequestBatch *reqs) {
+    size_t swap_memory = 0;
+
     if (reqs->notify_queue_timer) {
         metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_WAIT, elapsedUs(reqs->notify_queue_timer));
     }
+
     for (size_t i = 0; i < reqs->count; i++) {
-       swapRequestCallback(reqs->reqs[i]);
+        swapRequest *req = reqs->reqs[i];
+        swap_memory += req->swap_memory;
+        swapRequestMerge(req);
+        if (req->trace) swapTraceCallback(req->trace);
+        req->finish_cb(req->data, req->finish_pd, req->errcode);
     }
+
+    atomicDecr(server.swap_inprogress_batch,1);
+    atomicDecr(server.swap_inprogress_count,reqs->count);
+    atomicDecr(server.swap_inprogress_memory,swap_memory);
 }
 
 void swapRequestBatchDispatched(swapRequestBatch *reqs) {
@@ -190,7 +201,6 @@ void swapRequestBatchDispatched(swapRequestBatch *reqs) {
     for (size_t i = 0; i < reqs->count; i++) {
         swapRequest *req = reqs->reqs[i];
         if (req->trace) swapTraceDispatch(req->trace);
-
         req->swap_memory += SWAP_REQUEST_MEMORY_OVERHEAD;
         swap_memory += req->swap_memory;
     }

@@ -893,8 +893,6 @@ void swapRequestFree(swapRequest *req);
 void swapRequestUpdateStatsExecuted(swapRequest *req);
 void swapRequestUpdateStatsCallback(swapRequest *req);
 void swapRequestMerge(swapRequest *req);
-void swapRequestExecuted(swapRequest *req);
-void swapRequestCallback(swapRequest *req);
 
 
 #define SWAP_BATCH_DEFAULT_SIZE 16
@@ -1046,6 +1044,7 @@ typedef struct RIO {
 	};
   sds err;
   int errcode;
+  void *privdata;
 } RIO;
 
 #define ROCKS_ITERATE_NO_LIMIT 0
