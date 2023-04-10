@@ -19,8 +19,8 @@ proc fill_up_os_socket_send_buffer_for_repl {idx} {
 
 foreach how {sigterm shutdown} {
     test "Shutting down master waits for replica to catch up ($how)" {
-        start_server {} {
-            start_server {} {
+        start_server {overrides {save ""}} {
+            start_server {overrides {save ""}} {
                 set master [srv -1 client]
                 set master_host [srv -1 host]
                 set master_port [srv -1 port]
@@ -42,8 +42,7 @@ foreach how {sigterm shutdown} {
                 wait_for_ofs_sync $master $replica
 
                 # Pause the replica.
-                exec kill -SIGSTOP $replica_pid
-                after 10
+                pause_process $replica_pid
 
                 # Fill up the OS socket send buffer for the replica connection
                 # to prevent the following INCR from reaching the replica via
@@ -69,7 +68,7 @@ foreach how {sigterm shutdown} {
 
                 # Wake up replica and check if master has waited for it.
                 after 20; # 2 cron intervals
-                exec kill -SIGCONT $replica_pid
+                resume_process $replica_pid
                 wait_for_condition 300 1000 {
                     [$replica get k] eq 2
                 } else {
@@ -86,8 +85,8 @@ foreach how {sigterm shutdown} {
 }
 
 test {Shutting down master waits for replica timeout} {
-    start_server {} {
-        start_server {} {
+    start_server {overrides {save ""}} {
+        start_server {overrides {save ""}} {
             set master [srv -1 client]
             set master_host [srv -1 host]
             set master_port [srv -1 port]
@@ -107,8 +106,7 @@ test {Shutting down master waits for replica timeout} {
             wait_for_ofs_sync $master $replica
 
             # Pause the replica.
-            exec kill -SIGSTOP $replica_pid
-            after 10
+            pause_process $replica_pid
 
             # Fill up the OS socket send buffer for the replica connection to
             # prevent the following INCR k from reaching the replica via the OS.
@@ -129,15 +127,15 @@ test {Shutting down master waits for replica timeout} {
             verify_log_message -1 "*0 of 1 replicas are in sync*" 0
 
             # Wake up replica.
-            exec kill -SIGCONT $replica_pid
+            resume_process $replica_pid
             assert_equal 1 [$replica get k]
         }
     }
 } {} {repl external:skip}
 
 test "Shutting down master waits for replica then fails" {
-    start_server {} {
-        start_server {} {
+    start_server {overrides {save ""}} {
+        start_server {overrides {save ""}} {
             set master [srv -1 client]
             set master_host [srv -1 host]
             set master_port [srv -1 port]
@@ -150,8 +148,7 @@ test "Shutting down master waits for replica then fails" {
             wait_for_sync $replica
 
             # Pause the replica and write a key on master.
-            exec kill -SIGSTOP $replica_pid
-            after 10
+            pause_process $replica_pid
             $master incr k
 
             # Two clients call blocking SHUTDOWN in parallel.
@@ -168,7 +165,7 @@ test "Shutting down master waits for replica then fails" {
             $master config set appendonly yes
 
             # Wake up replica, causing master to continue shutting down.
-            exec kill -SIGCONT $replica_pid
+            resume_process $replica_pid
 
             # SHUTDOWN returns an error to both clients blocking on SHUTDOWN.
             catch { $rd1 read } e1
@@ -190,8 +187,8 @@ test "Shutting down master waits for replica then fails" {
 } {} {repl external:skip}
 
 test "Shutting down master waits for replica then aborted" {
-    start_server {} {
-        start_server {} {
+    start_server {overrides {save ""}} {
+        start_server {overrides {save ""}} {
             set master [srv -1 client]
             set master_host [srv -1 host]
             set master_port [srv -1 port]
@@ -204,8 +201,7 @@ test "Shutting down master waits for replica then aborted" {
             wait_for_sync $replica
 
             # Pause the replica and write a key on master.
-            exec kill -SIGSTOP $replica_pid
-            after 10
+            pause_process $replica_pid
             $master incr k
 
             # Two clients call blocking SHUTDOWN in parallel.
@@ -221,7 +217,7 @@ test "Shutting down master waits for replica then aborted" {
             $master shutdown abort
 
             # Wake up replica, causing master to continue shutting down.
-            exec kill -SIGCONT $replica_pid
+            resume_process $replica_pid
 
             # SHUTDOWN returns an error to both clients blocking on SHUTDOWN.
             catch { $rd1 read } e1
