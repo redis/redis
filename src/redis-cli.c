@@ -2981,33 +2981,6 @@ static void parseEnv() {
 static void usage(int err) {
     sds version = cliVersion();
     FILE *target = err ? stderr: stdout;
-
-#ifdef USE_OPENSSL
-#define TSL_USAGE \
-"  --tls              Establish a secure TLS connection.\n" \
-"  --sni <host>       Server name indication for TLS.\n" \
-"  --cacert <file>    CA Certificate file to verify with.\n" \
-"  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n" \
-"                     If neither cacert nor cacertdir are specified, the default\n" \
-"                     system-wide trusted root certs configuration will apply.\n" \
-"  --insecure         Allow insecure TLS connection by skipping cert validation.\n" \
-"  --cert <file>      Client certificate to authenticate with.\n" \
-"  --key <file>       Private key file to authenticate with.\n" \
-"  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n" \
-"                     in order of preference from highest to lowest separated by colon (\":\").\n" \
-"                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
-#ifdef TLS1_3_VERSION
-#define TSL1_3_USAGE \
-"  --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n" \
-"                     in order of preference from highest to lowest separated by colon (\":\").\n" \
-"                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n" \
-"                     and specifically for TLSv1.3 ciphersuites.\n"
-#endif /* TLS1_3_VERSION */
-#else
-#define TSL_USAGE
-#define TSL1_3_USAGE
-#endif /* USE_OPENSSL */
-
     fprintf(target,
 "redis-cli %s\n"
 "\n"
@@ -3039,8 +3012,26 @@ static void usage(int err) {
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 "  -e                 Return exit error code when command execution fails.\n"
-TSL_USAGE
-TSL1_3_USAGE
+#ifdef USE_OPENSSL
+"  --tls              Establish a secure TLS connection.\n"
+"  --sni <host>       Server name indication for TLS.\n"
+"  --cacert <file>    CA Certificate file to verify with.\n"
+"  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
+"                     If neither cacert nor cacertdir are specified, the default\n"
+"                     system-wide trusted root certs configuration will apply.\n"
+"  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+"  --cert <file>      Client certificate to authenticate with.\n"
+"  --key <file>       Private key file to authenticate with.\n"
+"  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
+#ifdef TLS1_3_VERSION
+"  --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
+"                     and specifically for TLSv1.3 ciphersuites.\n"
+#endif
+#endif
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
