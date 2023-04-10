@@ -1745,14 +1745,19 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * since the unblocked clients may write data. */
     handleClientsBlockedOnKeys();
 
+    /* Record time consumption of AOF writing. */
+    long long duration_aof_start = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
-    duration_before_aof = getMonotonicUs() - duration_before_aof;
+    duration_before_aof = duration_aof_start - duration_before_aof;
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
      * in case of appendfsync=always. */
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
         flushAppendOnlyFile(0);
+
+    /* Record time consumption of AOF writing. */
+    durationAddSample(EL_DURATION_TYPE_AOF, getMonotonicUs() - duration_aof_start);
 
     /* Update the fsynced replica offset.
      * If an initial rewrite is in progress then not all data is guaranteed to have actually been

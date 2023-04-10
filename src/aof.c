@@ -1076,7 +1076,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
 void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
     int sync_in_progress = 0;
-    ustime_t latency;
+    mstime_t latency;
 
     if (sdslen(server.aof_buf) == 0) {
         /* Check if we need to do fsync even the aof buffer is empty,
@@ -1137,16 +1137,14 @@ void flushAppendOnlyFile(int force) {
         usleep(server.aof_flush_sleep);
     }
 
-    latency = getMonotonicUs();
+    latencyStartMonitor(latency);
     nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
-    latency = getMonotonicUs() - latency;
-    durationAddSample(EL_DURATION_TYPE_AOF, latency);
+    latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
      * active, and when the above two conditions are missing.
      * We also use an additional event name to save all samples which is
      * useful for graphing / monitoring purposes. */
-    latency /= 1000;
     if (sync_in_progress) {
         latencyAddSampleIfNeeded("aof-write-pending-fsync",latency);
     } else if (hasActiveChildProcess()) {
@@ -1255,7 +1253,7 @@ try_fsync:
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
         /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
-        latency = getMonotonicUs();
+        latencyStartMonitor(latency);
         /* Let's try to get this data on the disk. To guarantee data safe when
          * the AOF fsync policy is 'always', we should exit if failed to fsync
          * AOF (see comment next to the exit(1) after write error above). */
@@ -1264,9 +1262,8 @@ try_fsync:
               "AOF fsync policy is 'always': %s. Exiting...", strerror(errno));
             exit(1);
         }
-        latency = getMonotonicUs() - latency;
-        durationAddSample(EL_DURATION_TYPE_AOF, latency);
-        latencyAddSampleIfNeeded("aof-fsync-always", latency / 1000);
+        latencyEndMonitor(latency);
+        latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
         server.aof_last_fsync = server.unixtime;
         atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
