@@ -693,7 +693,8 @@ int allPersistenceDisabled(void) {
 
 /* ======================= Cron: called every 100 ms ======================== */
 
-/* Add a sample to the operations per second array of samples. */
+/* Add a sample to the operations per second array of samples. This takes total operation count, and
+ * calculates the operation rate between to samples. */
 void trackInstantaneousRateMetric(int metric, long long current_reading) {
     long long now = mstime();
     long long t = now - server.inst_metric[metric].last_sample_time;
@@ -711,6 +712,8 @@ void trackInstantaneousRateMetric(int metric, long long current_reading) {
     server.inst_metric[metric].last_sample_count = current_reading;
 }
 
+/* Add a sample to time per operation array of samples. This takes total operation count and total time 
+   consumption, and record the average time consumption of one operation between two samples. */
 void trackInstantaneousAvgMetric(int metric, long long current_sum, long long current_cnt) {
     long long time = current_sum - server.inst_metric[metric].last_sample_time;
     long long cnt = current_cnt - server.inst_metric[metric].last_sample_count;
@@ -1669,8 +1672,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData());
 
-    /* Record cron time. */
-    server.el_cron_duration -= getMonotonicUs();
+    /* Record cron time in beforeSleep, which is the sum of active-expire, active-defrag and all other
+     * tasks done by cron and beforeSleep, but excluding read, write and AOF, that are counted by other
+     * sets of metrics. */
+    long long duration_before_aof = getMonotonicUs();
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -1738,8 +1743,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * since the unblocked clients may write data. */
     handleClientsBlockedOnKeys();
 
-    /* Record cron time. */
-    server.el_cron_duration += getMonotonicUs();
+    /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
+    duration_before_aof = getMonotonicUs() - duration_before_aof;
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
@@ -1759,8 +1764,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
 
-    /* Record cron time. */
-    server.el_cron_duration -= getMonotonicUs();
+    /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing above. */
+    long long duration_after_write = getMonotonicUs();
 
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
@@ -1773,14 +1778,15 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Disconnect some clients if they are consuming too much memory. */
     evictClients();
 
-    /* Record cron time. */
-    server.el_cron_duration += getMonotonicUs();
+    /* Record cron time in beforeSleep. */
+    duration_after_write = getMonotonicUs() - duration_after_write;
 
     /* Record eventloop latency. */
     if (server.el_start > 0) {
         long long el_duration = ustime() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
     }
+    server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
     server.el_cron_duration = 0;
 
