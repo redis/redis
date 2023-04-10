@@ -2716,8 +2716,6 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
-    server.el_start = 0;
-    server.el_cron_duration = 0;
 
     /* Initiate acl info struct */
     server.acl_info.invalid_cmd_accesses = 0;
