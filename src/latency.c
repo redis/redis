@@ -732,7 +732,4 @@ void durationAddSample(int type, ustime_t duration) {
     durationStats* ds = server.duration_stats + type;
     ds->cnt++;
     ds->sum += duration;
-    if (duration > ds->max) {
-        ds->max = duration;
-    }
 }
