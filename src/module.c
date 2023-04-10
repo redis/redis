@@ -518,7 +518,11 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
 void *RM_Alloc(size_t bytes) {
     /* Use 'zmalloc_usable()' instead of 'zmalloc()' to allow the compiler
      * to recognize the additional memory size, which means that modules can
-     * use the memory reported by 'RM_MallocUsableSize()' safely. */
+     * use the memory reported by 'RM_MallocUsableSize()' safely. In theory this
+     * isn't really needed since this API can't be inlined (not even for embedded
+     * modules like TLS (we use function pointers for module APIs), and the API doesn't
+     * have the malloc_size attribute, but it's hard to predict how smart future compilers
+     * will be, so better safe than sorry. */
     return zmalloc_usable(bytes,NULL);
 }
 
