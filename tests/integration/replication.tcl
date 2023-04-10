@@ -1172,7 +1172,7 @@ test {replicaof right after disconnection} {
 } {} {external:skip}
 
 test {Kill rdb child process if its dumping RDB is not useful} {
-    start_server {tags {"repl"} } {
+    start_server {tags {"repl"}} {
         set slave1 [srv 0 client]
         start_server {} {
             set slave2 [srv 0 client]
