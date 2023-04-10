@@ -168,7 +168,6 @@ typedef struct redisObject robj;
 #define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read to network during replication. */
 #define STATS_METRIC_NET_OUTPUT_REPLICATION 4   /* Bytes written to network during replication. */
 #define STATS_METRIC_EL_CYCLE 5     /* Number of eventloop cycled. */
-#define STATS_METRIC_RATE_COUNT 6
 #define STATS_METRIC_EL_DURATION 6  /* Eventloop duration. */
 #define STATS_METRIC_COUNT 7
 

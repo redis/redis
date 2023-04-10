@@ -693,22 +693,23 @@ int allPersistenceDisabled(void) {
 
 /* ======================= Cron: called every 100 ms ======================== */
 
-/* Add a sample to the operations per second array of samples. This takes total operation count, and
- * calculates the operation rate between to samples. */
-void trackInstantaneousRateMetric(int metric, long long current_reading) {
-    long long now = mstime();
-    long long t = now - server.inst_metric[metric].last_sample_time;
-    long long ops = current_reading -
-                    server.inst_metric[metric].last_sample_count;
-    long long ops_sec;
+/* Add a sample to the operations per second array of samples. This takes total operation count and
+ * current time, then calculates and records the operation rate between to samples. */
+void trackInstantaneousRateMetric(int metric, long long current_reading, long long current_time) {
+    if (server.inst_metric[metric].last_sample_time > 0) {
+        long long t = current_time - server.inst_metric[metric].last_sample_time;
+        long long ops = current_reading -
+                        server.inst_metric[metric].last_sample_count;
+        long long ops_sec;
 
-    ops_sec = t > 0 ? (ops*1000/t) : 0;
+        ops_sec = t > 0 ? (ops*1000/t) : 0;
 
-    server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
-        ops_sec;
-    server.inst_metric[metric].idx++;
-    server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
-    server.inst_metric[metric].last_sample_time = now;
+        server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
+            ops_sec;
+        server.inst_metric[metric].idx++;
+        server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
+    }
+    server.inst_metric[metric].last_sample_time = current_time;
     server.inst_metric[metric].last_sample_count = current_reading;
 }
 
@@ -1309,17 +1310,18 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
-
-        trackInstantaneousRateMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
-        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT,
-                stat_net_input_bytes + stat_net_repl_input_bytes);
+        long long current_time = mstime();
+        trackInstantaneousRateMetric(STATS_METRIC_COMMAND, server.stat_numcommands, current_time);
+        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT, stat_net_input_bytes + stat_net_repl_input_bytes,
+                                     current_time);
         trackInstantaneousRateMetric(STATS_METRIC_NET_OUTPUT,
-                stat_net_output_bytes + stat_net_repl_output_bytes);
-        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT_REPLICATION,
-                                 stat_net_repl_input_bytes);
-        trackInstantaneousRateMetric(STATS_METRIC_NET_OUTPUT_REPLICATION,
-                                 stat_net_repl_output_bytes);
-        trackInstantaneousRateMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt);
+                                     stat_net_output_bytes + stat_net_repl_output_bytes, current_time);
+        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT_REPLICATION, stat_net_repl_input_bytes,
+                                     current_time);
+        trackInstantaneousRateMetric(STATS_METRIC_NET_OUTPUT_REPLICATION, stat_net_repl_output_bytes,
+                                     current_time);
+        trackInstantaneousRateMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
+                                     current_time);
         trackInstantaneousAvgMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].sum,
                                     server.duration_stats[EL_DURATION_TYPE_EL].cnt);
     }
@@ -2542,7 +2544,7 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_writes_processed, 0);
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
-        server.inst_metric[j].last_sample_time = j < STATS_METRIC_RATE_COUNT ? mstime() : 0;
+        server.inst_metric[j].last_sample_time = 0;
         server.inst_metric[j].last_sample_count = 0;
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
