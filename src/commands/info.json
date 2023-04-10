@@ -26,6 +26,7 @@
             "RESPONSE_POLICY:SPECIAL"
         ],
         "reply_schema": {
+            "description": "The info is divided into section/sections in the form of #<section name> and below the section name, a map between named fields and values in the form of <field>:<value> lines separated by newlines composed.",
             "type": "string"
         },
         "arguments": [
