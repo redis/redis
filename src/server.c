@@ -5940,7 +5940,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "reply_buffer_expands:%lld\r\n"
             "eventloop_cycles:%lld\r\n"
             "eventloop_duration_sum:%lld\r\n"
-            "eventloop_duration_max:%lld\r\n"
             "eventloop_duration_cmd_sum:%lld\r\n"
             "eventloop_duration_io_read_sum:%lld\r\n"
             "eventloop_duration_io_write_sum:%lld\r\n"
@@ -6000,7 +5999,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_reply_buffer_expands,
             server.duration_stats[EL_DURATION_TYPE_EL].cnt,
             server.duration_stats[EL_DURATION_TYPE_EL].sum,
-            server.duration_stats[EL_DURATION_TYPE_EL].max,
             server.duration_stats[EL_DURATION_TYPE_CMD].sum,
             server.duration_stats[EL_DURATION_TYPE_IO_READ].sum,
             server.duration_stats[EL_DURATION_TYPE_IO_WRITE].sum,
