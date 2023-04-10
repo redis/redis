@@ -154,12 +154,6 @@ void *ztrymalloc(size_t size) {
     return ptr;
 }
 
-void *zmalloc_usable_internal(size_t size, size_t *usable) {
-    void *ptr = ztrymalloc_usable_internal(size, usable);
-    if (!ptr) zmalloc_oom_handler(size);
-    return ptr;
-}
-
 /* Allocate memory or panic.
  * '*usable' is set to the usable size if non NULL. */
 void *zmalloc_usable(size_t size, size_t *usable) {
