@@ -14,7 +14,7 @@
         ],
 	"reply_schema": {
             "type": "array",
-            "description": "List of sentinal instances, and their state.",
+            "description": "List of sentinel instances, and their state.",
             "items": {
                 "type": "object",
                 "additionalProperties": {
