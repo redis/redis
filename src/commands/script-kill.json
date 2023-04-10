@@ -1,6 +1,6 @@
 {
     "KILL": {
-        "summary": "Kill the script currently in execution.",
+        "summary": "Terminates a server-side Lua script during execution.",
         "complexity": "O(1)",
         "group": "scripting",
         "since": "2.6.0",

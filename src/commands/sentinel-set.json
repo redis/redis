@@ -1,6 +1,6 @@
 {
     "SET": {
-        "summary": "Change the configuration of a monitored master",
+        "summary": "Changes the configuration of a monitored Redis master.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "2.8.4",

@@ -1,6 +1,6 @@
 {
     "SLOWLOG": {
-        "summary": "A container for slow log commands",
+        "summary": "A container for slow log commands.",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "2.2.12",

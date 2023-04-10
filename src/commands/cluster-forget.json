@@ -1,6 +1,6 @@
 {
     "FORGET": {
-        "summary": "Remove a node from the nodes table",
+        "summary": "Removes a node from the nodes table.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

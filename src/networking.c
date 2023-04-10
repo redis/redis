@@ -1583,6 +1583,8 @@ void freeClient(client *c) {
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
+    /* If there is any in-flight command, we don't record their duration. */
+    c->duration = 0;
     if (c->flags & CLIENT_BLOCKED) unblockClient(c, 1);
     dictRelease(c->bstate.keys);
 
@@ -2039,8 +2041,10 @@ void resetClient(client *c) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->slot = -1;
-    c->duration = 0;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
+
+    /* Make sure the duration has been recorded to some command. */
+    serverAssert(c->duration == 0);
 #ifdef LOG_REQ_RES
     reqresReset(c, 1);
 #endif
@@ -2997,6 +3001,10 @@ void clientCommand(client *c) {
 "    Control the replies sent to the current connection.",
 "SETNAME <name>",
 "    Assign the name <name> to the current connection.",
+"SETINFO <option> <value>",
+"    Set client meta attr. Options are:",
+"    * LIB-NAME: the client lib name.",
+"    * LIB-VER: the client lib version.",
 "UNBLOCK <clientid> [TIMEOUT|ERROR]",
 "    Unblock the specified blocked client.",
 "TRACKING (ON|OFF) [REDIRECT <id>] [BCAST] [PREFIX <prefix> [...]]",

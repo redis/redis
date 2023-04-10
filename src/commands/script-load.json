@@ -1,6 +1,6 @@
 {
     "LOAD": {
-        "summary": "Load the specified Lua script into the script cache.",
+        "summary": "Loads a server-side Lua script to the script cache.",
         "complexity": "O(N) with N being the length in bytes of the script body.",
         "group": "scripting",
         "since": "2.6.0",

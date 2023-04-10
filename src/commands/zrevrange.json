@@ -1,6 +1,6 @@
 {
     "ZREVRANGE": {
-        "summary": "Return a range of members in a sorted set, by index, with scores ordered from high to low",
+        "summary": "Returns members in a sorted set within a range of indexes in reverse order.",
         "complexity": "O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.",
         "group": "sorted_set",
         "since": "1.2.0",
