@@ -111,7 +111,6 @@ void *extend_to_usable(void *ptr, size_t size) {
 
 /* Try allocating memory, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
-__attribute__((malloc)) __attribute__((alloc_size(1))) 
 static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
@@ -188,7 +187,6 @@ void zfree_no_tcache(void *ptr) {
 
 /* Try allocating memory and zero it, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
-__attribute__((malloc)) __attribute__((alloc_size(1))) 
 static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
@@ -260,7 +258,6 @@ void *zcalloc_usable(size_t size, size_t *usable) {
 
 /* Try reallocating memory, and return NULL if failed.
  * '*usable' is set to the usable size if non NULL. */
-__attribute__((alloc_size(2))) 
 static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *usable) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
