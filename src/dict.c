@@ -1534,8 +1534,8 @@ dictStats* dictGetStatsHt(dict *d, int htidx) {
     return stats;
 }
 
-
-size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats) {/* Generate human readable stats. */
+/* Generates human readable stats. */
+size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats) {
     if (stats->htUsed == 0) {
         return snprintf(buf,bufsize,
                         "No stats available for empty dictionaries\n");
