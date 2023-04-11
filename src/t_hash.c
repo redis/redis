@@ -43,6 +43,11 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
 
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
+    if (end - start + 1 > server.hash_max_listpack_entries) {
+        hashTypeConvert(o, OBJ_ENCODING_HT);
+        return;
+    }
+
     for (i = start; i <= end; i++) {
         if (!sdsEncodedObject(argv[i]))
             continue;
