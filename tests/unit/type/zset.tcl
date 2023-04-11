@@ -755,6 +755,29 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists zset]
         }
 
+        test "ZREMRANGEBYLEX basics - $encoding" {
+            proc remrangebylex {min max} {
+                create_default_lex_zset
+                assert_equal 1 [r exists zset]
+                r zremrangebylex zset $min $max
+            }
+
+            # inclusive range
+            assert_equal 3 [remrangebylex - \[cool]
+            assert_equal 3 [remrangebylex \[bar \[down]
+            assert_equal 3 [remrangebylex \[g +]
+
+            # exclusive range
+            assert_equal 2 [remrangebylex - (cool]
+            assert_equal 1 [remrangebylex (bar (down]
+            assert_equal 2 [remrangebylex (great +]
+
+            # inclusive and exclusive
+            assert_equal 0 [remrangebylex (az (b]
+            assert_equal 0 [remrangebylex (z +]
+            assert_equal 0 [remrangebylex - \[aaaa]
+        }
+
         test "ZUNIONSTORE against non-existing key doesn't set destination - $encoding" {
             r del zseta{t}
             assert_equal 0 [r zunionstore dst_key{t} 1 zseta{t}]
