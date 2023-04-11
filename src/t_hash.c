@@ -42,8 +42,8 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     size_t sum = 0;
 
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
-
-    if (end - start + 1 > server.hash_max_listpack_entries) {
+    size_t args_length = end - start + 1;
+    if (args_length > server.hash_max_listpack_entries) {
         hashTypeConvert(o, OBJ_ENCODING_HT);
         return;
     }
