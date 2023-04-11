@@ -41,20 +41,8 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
-                {
-                    "description": "The field/fields is/are new field/fields in the hash and value/values was/were set correspondingly.",
-                    "type": "integer"
-                },
-                {
-                    "description": "The field/fields already exists in the hash and new value/values were set correspondingly.",
-                    "const": 0
-                },
-                {
-                    "description": "The field/fields are combination of new and already exists in the hash and new value/values were set correspondingly.",
-                    "type": "integer"
-                }
-            ]
+            "description": "The number of fields that were added",
+            "type": "integer"
         },
         "arguments": [
             {
