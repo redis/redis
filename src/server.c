@@ -3586,7 +3586,7 @@ void call(client *c, int flags) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        if (!(c->flags & CLIENT_MULTI))
+        if (server.execution_nesting == 1)
             durationAddSample(EL_DURATION_TYPE_CMD, duration);
     }
 
