@@ -1,6 +1,6 @@
 {
     "SET": {
-        "summary": "Set the string value of a key",
+        "summary": "Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "1.0.0",

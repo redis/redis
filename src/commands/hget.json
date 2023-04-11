@@ -1,6 +1,6 @@
 {
     "HGET": {
-        "summary": "Get the value of a hash field",
+        "summary": "Returns the value of a field in a hash.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",

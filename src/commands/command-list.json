@@ -1,6 +1,6 @@
 {
     "LIST": {
-        "summary": "Get an array of Redis command names",
+        "summary": "Returns a list of command names.",
         "complexity": "O(N) where N is the total number of Redis commands",
         "group": "server",
         "since": "7.0.0",

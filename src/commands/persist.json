@@ -1,6 +1,6 @@
 {
     "PERSIST": {
-        "summary": "Remove the expiration from a key",
+        "summary": "Removes the expiration time of a key.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "2.2.0",

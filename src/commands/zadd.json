@@ -1,6 +1,6 @@
 {
     "ZADD": {
-        "summary": "Add one or more members to a sorted set, or update its score if it already exists",
+        "summary": "Adds one or more members to a sorted set, or updates their scores. Creates the key if it doesn't exist.",
         "complexity": "O(log(N)) for each item added, where N is the number of elements in the sorted set.",
         "group": "sorted_set",
         "since": "1.2.0",

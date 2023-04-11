@@ -1,6 +1,6 @@
 {
     "TTL": {
-        "summary": "Get the time to live for a key in seconds",
+        "summary": "Returns the expiration time in seconds of a key.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",

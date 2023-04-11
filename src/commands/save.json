@@ -1,6 +1,6 @@
 {
     "SAVE": {
-        "summary": "Synchronously save the dataset to disk",
+        "summary": "Synchronously saves the database(s) to disk.",
         "complexity": "O(N) where N is the total number of keys in all databases",
         "group": "server",
         "since": "1.0.0",

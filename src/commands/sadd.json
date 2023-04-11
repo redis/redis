@@ -1,6 +1,6 @@
 {
     "SADD": {
-        "summary": "Add one or more members to a set",
+        "summary": "Adds one or more members to a set. Creates the key if it doesn't exist.",
         "complexity": "O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.",
         "group": "set",
         "since": "1.0.0",

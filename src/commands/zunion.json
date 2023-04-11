@@ -1,6 +1,6 @@
 {
     "ZUNION": {
-        "summary": "Add multiple sorted sets",
+        "summary": "Returns the union of multiple sorted sets.",
         "complexity": "O(N)+O(M*log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set.",
         "group": "sorted_set",
         "since": "6.2.0",

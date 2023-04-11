@@ -423,6 +423,27 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
+    test_nontty_cli "Test command-line hinting - latest server" {
+        # cli will connect to the running server and will use COMMAND DOCS
+        catch {run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+    }
+
+    test_nontty_cli "Test command-line hinting - no server" {
+        # cli will fail to connect to the server and will use the cached commands.c
+        catch {run_cli -p 123 --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+    }
+
+    test_nontty_cli "Test command-line hinting - old server" {
+        # cli will connect to the server but will not use COMMAND DOCS,
+        # and complete the missing info from the cached commands.c
+        r ACL setuser clitest on nopass +@all -command|docs
+        catch {run_cli --user clitest -a nopass --no-auth-warning --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+        r acl deluser clitest
+    }
+    
     proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
         r function flush

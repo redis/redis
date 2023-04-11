@@ -1,6 +1,6 @@
 {
     "PAUSE": {
-        "summary": "Stop processing commands from clients for some time",
+        "summary": "Suspends commands processing.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "3.0.0",

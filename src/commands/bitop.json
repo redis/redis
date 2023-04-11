@@ -1,6 +1,6 @@
 {
     "BITOP": {
-        "summary": "Perform bitwise operations between strings",
+        "summary": "Performs bitwise operations on multiple strings, and stores the result.",
         "complexity": "O(N)",
         "group": "bitmap",
         "since": "2.6.0",
