@@ -11,8 +11,7 @@ proc are_nodenames_propagated {match_string} {
 }
 
 # Start a cluster with 3 masters.
-# These tests rely on specific node ordering, so make sure no node fails over.
-start_cluster 3 0 {tags {external:skip cluster} overrides {cluster-replica-no-failover yes}} {
+start_cluster 3 0 {tags {external:skip cluster}} {
 test "Set cluster human announced nodename and verify they are propagated" {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         R $j config set cluster-announce-human-nodename "nodename-$j.com"
@@ -27,8 +26,6 @@ test "Set cluster human announced nodename and verify they are propagated" {
     wait_for_cluster_propagation
 }
 
-
-
 test "Update human announced nodename and make sure they are all eventually propagated" {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         R $j config set cluster-announce-human-nodename "nodename-updated-$j.com"
@@ -42,7 +39,6 @@ test "Update human announced nodename and make sure they are all eventually prop
     # Now that everything is propagated, assert everyone agrees
     wait_for_cluster_propagation
 }
-
 
 test "Remove human announced nodename and make sure they are all eventually propagated" {
     for {set j 0} {$j < [llength $::servers]} {incr j} {

@@ -1487,7 +1487,7 @@ void clusterAddNode(clusterNode *node) {
     int retval;
 
     retval = dictAdd(server.cluster->nodes,
-    sdsnewlen(node->name,CLUSTER_NAMELEN), node);
+        sdsnewlen(node->name,CLUSTER_NAMELEN), node);
     serverAssert(retval == DICT_OK);
 }
 
