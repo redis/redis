@@ -642,7 +642,7 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
 /* This function is responsible for recomputing the command bits for all selectors of the existing users.
  * It uses the 'command_rules', a string representation of the ordered categories and commands, 
  * to recompute the command bits. */
-void ACLRecomputeCommandBitsFromCommandRulesAllUsers() {
+void ACLRecomputeCommandBitsFromCommandRulesAllUsers(void) {
     raxIterator ri;
     raxStart(&ri,Users);
     raxSeek(&ri,"^",NULL,0);

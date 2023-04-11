@@ -848,7 +848,7 @@ static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) 
 /* Gets the server version string by calling INFO SERVER.
  * Stores the result in config.server_version.
  * When not connected, or not possible, returns NULL. */
-static sds cliGetServerVersion() {
+static sds cliGetServerVersion(void) {
     static const char *key = "\nredis_version:";
     redisReply *serverInfo = NULL;
     char *pos;

@@ -2916,7 +2916,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
 sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose);
 void ACLUpdateDefaultUserPassword(sds password);
 sds genRedisInfoStringACLStats(sds info);
-void ACLRecomputeCommandBitsFromCommandRulesAllUsers();
+void ACLRecomputeCommandBitsFromCommandRulesAllUsers(void);
 
 /* Sorted sets data type */
 
