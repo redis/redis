@@ -764,18 +764,35 @@ start_server {tags {"zset"}} {
 
             # inclusive range
             assert_equal 3 [remrangebylex - \[cool]
+            assert_equal {down elephant foo great hill omega} [r zrange zset 0 -1]
             assert_equal 3 [remrangebylex \[bar \[down]
+            assert_equal {alpha elephant foo great hill omega} [r zrange zset 0 -1]
             assert_equal 3 [remrangebylex \[g +]
+            assert_equal {alpha bar cool down elephant foo} [r zrange zset 0 -1]
+            assert_equal 6 [r zcard zset]
 
             # exclusive range
             assert_equal 2 [remrangebylex - (cool]
+            assert_equal {cool down elephant foo great hill omega} [r zrange zset 0 -1]
             assert_equal 1 [remrangebylex (bar (down]
+            assert_equal {alpha bar down elephant foo great hill omega} [r zrange zset 0 -1]
             assert_equal 2 [remrangebylex (great +]
+            assert_equal {alpha bar cool down elephant foo great} [r zrange zset 0 -1]
+            assert_equal 7 [r zcard zset]
 
             # inclusive and exclusive
             assert_equal 0 [remrangebylex (az (b]
+            assert_equal {alpha bar cool down elephant foo great hill omega} [r zrange zset 0 -1]
             assert_equal 0 [remrangebylex (z +]
+            assert_equal {alpha bar cool down elephant foo great hill omega} [r zrange zset 0 -1]
             assert_equal 0 [remrangebylex - \[aaaa]
+            assert_equal {alpha bar cool down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 9 [r zcard zset]
+
+            # destroy when empty
+            assert_equal 9 [remrangebylex - +]
+            assert_equal 0 [r zcard zset]
+            assert_equal 0 [r exists zset]
         }
 
         test "ZUNIONSTORE against non-existing key doesn't set destination - $encoding" {
