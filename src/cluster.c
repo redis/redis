@@ -192,8 +192,8 @@ int isValidAuxChar(int c) {
     return isalnum(c) || (strchr("!#$%&()*+:;<>?@[]^{|}~", c) == NULL);
 }
 
-int isValidAuxString(char* s ,unsigned lenght) {
-    for (unsigned i = 0; i < lenght; i++) {
+int isValidAuxString(char* s ,unsigned length) {
+    for (unsigned i = 0; i < length; i++) {
         if (!isValidAuxChar(s[i])) return 0;
     }
     return 1;

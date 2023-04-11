@@ -433,5 +433,5 @@ sds clusterGenNodesDescription(client *c, int filter, int use_pport);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
 void clusterUpdateMyselfHumanNodename(void);
-int isValidAuxString(char* s ,unsigned lenght);
+int isValidAuxString(char* s ,unsigned length);
 #endif /* __CLUSTER_H */
