@@ -1,28 +1,3 @@
-# Returns 1 if no node knows node_id, 0 if any node knows it.
-proc node_is_forgotten {node_id} {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        set cluster_nodes [R $j CLUSTER NODES]
-        if { [string match "*$node_id*" $cluster_nodes] } {
-            return 0
-        }
-    }
-    return 1
-}
-
-# Isolate a node from the cluster and give it a new nodeid
-proc isolate_node {id} {
-    set node_id [R $id CLUSTER MYID]
-    R $id CLUSTER RESET HARD
-    # Here we additionally test that CLUSTER FORGET propagates to all nodes.
-    set other_id [expr $id == 0 ? 1 : 0]
-    R $other_id CLUSTER FORGET $node_id
-    wait_for_condition 50 100 {
-        [node_is_forgotten $node_id]
-    } else {
-        fail "CLUSTER FORGET was not propagated to all nodes"
-    }
-}
-
 # Check if cluster's view of human announced nodename is consistent
 proc are_nodenames_propagated {match_string} {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
@@ -35,29 +10,9 @@ proc are_nodenames_propagated {match_string} {
     return 1
 }
 
-proc get_node_info_from_shard {id reference {type node}} {
-    set shards_response [R $reference CLUSTER SHARDS]
-    foreach shard_response $shards_response {
-        set nodes [dict get $shard_response nodes]
-        foreach node $nodes {
-            if {[dict get $node id] eq $id} {
-                if {$type eq "node"} {
-                    return $node
-                } elseif {$type eq "shard"} {
-                    return $shard_response
-                } else {
-                    return {}
-                }
-            }
-        }
-    }
-    # No shard found, return nothing
-    return {}
-}
-
-# Start a cluster with 3 masters and 4 replicas.
+# Start a cluster with 3 masters.
 # These tests rely on specific node ordering, so make sure no node fails over.
-start_cluster 3 4 {tags {external:skip cluster} overrides {cluster-replica-no-failover yes}} {
+start_cluster 3 0 {tags {external:skip cluster} overrides {cluster-replica-no-failover yes}} {
 test "Set cluster human announced nodename and verify they are propagated" {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         R $j config set cluster-announce-human-nodename "nodename-$j.com"
@@ -78,7 +33,6 @@ test "Update human announced nodename and make sure they are all eventually prop
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         R $j config set cluster-announce-human-nodename "nodename-updated-$j.com"
     }
-
     wait_for_condition 50 100 {
         [are_nodenames_propagated "nodename-updated-*.com"] eq 1
     } else {
@@ -113,9 +67,13 @@ test "Test restart will keep nodename information" {
     R 0 config rewrite
 
     restart_server 0 true false
-    set node_0_id [R 0 CLUSTER MYID]
+    foreach n [get_cluster_nodes 0] {
+        if { [string match [R 0 CLUSTER MYID] [dict get $n id]] } {
+            set node $n
+        }
+    }
     wait_for_condition 50 100 {
-        [string match "restart-1.com" [dict get [get_node_info_from_shard $node_0_id 4 "node"] "nodename"]] != 0
+        [dict get $node nodename] eq "restart-1.com"
     } else {
         fail "cluster human announced nodename were not propagated after restart"
     }

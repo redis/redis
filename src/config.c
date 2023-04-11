@@ -2379,13 +2379,11 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
     return 1;
 }
 
-static int isValidAuxString(char *val,const char **err) {
-    for (unsigned i = 0; i < strlen(val); i++) {
-        if (!(isalnum(val[i]) || (strchr("!#$%&()*+:;<>?@[]^{|}~", val[i]) == NULL))){
-	    *err = "Human announced Nodename may only contain alphanumeric characters, "
-                "hyphens, dots or underscore";
-            return 0;
-	}
+static int isValidAnnouncedNodename(char *val,const char **err) {
+    if (!(isValidAuxString(val,sdslen(val)))){
+        *err = "Human announced Nodename may only contain alphanumeric characters, "
+            "hyphens, dots or underscore";
+	return 0;
     }
     return 1;
 }
@@ -3103,7 +3101,7 @@ standardConfig static_configs[] = {
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
     createStringConfig("cluster-announce-hostname", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_hostname, NULL, isValidAnnouncedHostname, updateClusterHostname),
-    createStringConfig("cluster-announce-human-nodename", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_human_nodename, NULL, isValidAuxString, updateClusterHumanNodename),
+    createStringConfig("cluster-announce-human-nodename", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_human_nodename, NULL, isValidAnnouncedNodename, updateClusterHumanNodename),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),

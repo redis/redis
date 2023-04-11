@@ -189,11 +189,11 @@ auxFieldHandler auxFieldHandlers[] = {
 };
 
 int isValidAuxChar(int c) {
-    return isalnum(c) || (strchr("!#$%&()*+-.:;<>?@[]^_{|}~", c) != NULL);
+    return isalnum(c) || (strchr("!#$%&()*+:;<>?@[]^{|}~", c) == NULL);
 }
 
-int isValidAuxString(sds s) {
-    for (unsigned i = 0; i < sdslen(s); i++) {
+int isValidAuxString(char* s ,unsigned lenght) {
+    for (unsigned i = 0; i < lenght; i++) {
         if (!isValidAuxChar(s[i])) return 0;
     }
     return 1;
@@ -230,15 +230,13 @@ int auxHumanNodenameSetter(clusterNode *n, void *value, int length) {
         return C_OK;
     }
     if (n) {
-        n->human_nodename = sdscpy(n->human_nodename, value);
+        n->human_nodename = sdscpylen(n->human_nodename, value, length);
     } else if (sdslen(n->human_nodename) != 0) {
         sdsclear(n->human_nodename);
+    } else {
+        return C_ERR;
     }
-	else
-	{
-		return C_ERR;
-	}
-	return C_OK;
+    return C_OK;
 }
 
 sds auxHumanNodenameGetter(clusterNode *n, sds s) {
@@ -392,8 +390,8 @@ int clusterLoadConfig(char *filename) {
 
             /* Validate that both aux and value contain valid characters only */
             for (unsigned j = 0; j < 2; j++) {
-                if (!isValidAuxString(field_argv[j])) {
-                    /* Invalid aux field format */
+                if (!isValidAuxString(field_argv[j],sdslen(field_argv[j]))){
+	            /* Invalid aux field format */
                     sdsfreesplitres(field_argv, field_argc);
                     sdsfreesplitres(argv,argc);
                     goto fmterr;
@@ -426,7 +424,6 @@ int clusterLoadConfig(char *filename) {
 
             sdsfreesplitres(field_argv, field_argc);
         }
-	
         /* Address and port */
         if ((p = strrchr(aux_argv[0],':')) == NULL) {
             sdsfreesplitres(aux_argv, aux_argc);
@@ -5527,11 +5524,6 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     if (sdslen(node->hostname) != 0) {
         addReplyBulkCString(c, "hostname");
         addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
-        reply_count++;
-    }
-    if (sdslen(node->human_nodename) != 0) {
-        addReplyBulkCString(c, "nodename");
-        addReplyBulkCBuffer(c, node->human_nodename, sdslen(node->human_nodename));
         reply_count++;
     }
 

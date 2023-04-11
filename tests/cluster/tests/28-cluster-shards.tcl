@@ -67,15 +67,6 @@ test "Set cluster hostnames and verify they are propagated" {
     wait_for_cluster_propagation
 }
 
-test "Set cluster nodename and verify they are propagated" {
-    for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
-        R $j config set cluster-announce-human-nodename "nodename-$j.com"
-    }
-
-    # Wait for everyone to agree about the state
-    wait_for_cluster_propagation
-}
-
 test "Verify information about the shards" {
     set ids {}
     for {set j 0} {$j < $::cluster_master_nodes + $::cluster_replica_nodes} {incr j} {
