@@ -1371,9 +1371,8 @@ typedef struct redisOp {
 /* Defines an array of Redis operations. There is an API to add to this
  * structure in an easy way.
  *
- * redisOpArrayInit(void);
- * redisOpArrayAppend(void);
- * redisOpArrayFree(void);
+ * int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target);
+ * void redisOpArrayFree(redisOpArray *oa);
  */
 typedef struct redisOpArray {
     redisOp *ops;
