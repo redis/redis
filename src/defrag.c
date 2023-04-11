@@ -781,7 +781,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
 
 /* We may need to defrag other globals, one small allocation can hold a full allocator run.
  * so although small, it is still important to defrag these */
-void defragOtherGlobals() {
+void defragOtherGlobals(void) {
 
     /* there are many more pointers to defrag (e.g. client argv, output / aof buffers, etc.
      * but we assume most of these are short lived, we only need to defrag allocations
@@ -887,7 +887,7 @@ int defragLaterStep(redisDb *db, long long endtime) {
 #define LIMIT(y, min, max) ((y)<(min)? min: ((y)>(max)? max: (y)))
 
 /* decide if defrag is needed, and at what CPU effort to invest in it */
-void computeDefragCycles() {
+void computeDefragCycles(void) {
     size_t frag_bytes;
     float frag_pct = getAllocatorFragmentation(&frag_bytes);
     /* If we're not already running, and below the threshold, exit. */

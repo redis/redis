@@ -1693,7 +1693,7 @@ char *mixlist[] = {"hello", "foo", "quux", "1024"};
 char *intlist[] = {"4294967296", "-100", "100", "128000", 
                    "non integer", "much much longer non integer"};
 
-static unsigned char *createList() {
+static unsigned char *createList(void) {
     unsigned char *lp = lpNew(0);
     lp = lpAppend(lp, (unsigned char*)mixlist[1], strlen(mixlist[1]));
     lp = lpAppend(lp, (unsigned char*)mixlist[2], strlen(mixlist[2]));
@@ -1702,7 +1702,7 @@ static unsigned char *createList() {
     return lp;
 }
 
-static unsigned char *createIntList() {
+static unsigned char *createIntList(void) {
     unsigned char *lp = lpNew(0);
     lp = lpAppend(lp, (unsigned char*)intlist[2], strlen(intlist[2]));
     lp = lpAppend(lp, (unsigned char*)intlist[3], strlen(intlist[3]));

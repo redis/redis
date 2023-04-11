@@ -379,7 +379,7 @@ static inline sds connGetPeerCert(connection *conn) {
 }
 
 /* Initialize the redis connection framework */
-int connTypeInitialize();
+int connTypeInitialize(void);
 
 /* Register a connection type into redis connection framework */
 int connTypeRegister(ConnectionType *ct);
@@ -388,13 +388,13 @@ int connTypeRegister(ConnectionType *ct);
 ConnectionType *connectionByType(const char *typename);
 
 /* Fast path to get TCP connection type */
-ConnectionType *connectionTypeTcp();
+ConnectionType *connectionTypeTcp(void);
 
 /* Fast path to get TLS connection type */
-ConnectionType *connectionTypeTls();
+ConnectionType *connectionTypeTls(void);
 
 /* Fast path to get Unix connection type */
-ConnectionType *connectionTypeUnix();
+ConnectionType *connectionTypeUnix(void);
 
 /* Lookup the index of a connection type by type name, return -1 if not found */
 int connectionIndexByType(const char *typename);
@@ -418,7 +418,7 @@ static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfig
 }
 
 /* Walk all the connection types and cleanup them all if possible */
-void connTypeCleanupAll();
+void connTypeCleanupAll(void);
 
 /* Test all the connection type has pending data or not. */
 int connTypeHasPendingData(void);
@@ -441,8 +441,8 @@ static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {
 /* Get Listeners information, note that caller should free the non-empty string */
 sds getListensInfoString(sds info);
 
-int RedisRegisterConnectionTypeSocket();
-int RedisRegisterConnectionTypeUnix();
-int RedisRegisterConnectionTypeTLS();
+int RedisRegisterConnectionTypeSocket(void);
+int RedisRegisterConnectionTypeUnix(void);
+int RedisRegisterConnectionTypeTLS(void);
 
 #endif  /* __REDIS_CONNECTION_H */

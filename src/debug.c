@@ -2056,9 +2056,9 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
-void invalidFunctionWasCalled() {}
+void invalidFunctionWasCalled(void) {}
 
-typedef void (*invalidFunctionWasCalledType)();
+typedef void (*invalidFunctionWasCalledType)(void);
 
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
@@ -2227,7 +2227,7 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
-void applyWatchdogPeriod() {
+void applyWatchdogPeriod(void) {
     struct sigaction act;
 
     /* Disable watchdog when period is 0 */

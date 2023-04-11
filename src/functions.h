@@ -110,14 +110,14 @@ struct functionLibInfo {
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
 sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx);
-unsigned long functionsMemory();
-unsigned long functionsMemoryOverhead();
-unsigned long functionsNum();
-unsigned long functionsLibNum();
-dict* functionsLibGet();
+unsigned long functionsMemory(void);
+unsigned long functionsMemoryOverhead(void);
+unsigned long functionsNum(void);
+unsigned long functionsLibNum(void);
+dict* functionsLibGet(void);
 size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx);
-functionsLibCtx* functionsLibCtxGetCurrent();
-functionsLibCtx* functionsLibCtxCreate();
+functionsLibCtx* functionsLibCtxGetCurrent(void);
+functionsLibCtx* functionsLibCtxCreate(void);
 void functionsLibCtxClearCurrent(int async);
 void functionsLibCtxFree(functionsLibCtx *lib_ctx);
 void functionsLibCtxClear(functionsLibCtx *lib_ctx);
@@ -125,7 +125,7 @@ void functionsLibCtxSwapWithCurrent(functionsLibCtx *lib_ctx);
 
 int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err);
 
-int luaEngineInitEngine();
-int functionsInit();
+int luaEngineInitEngine(void);
+int functionsInit(void);
 
 #endif /* __FUNCTIONS_H_ */
