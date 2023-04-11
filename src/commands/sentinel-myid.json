@@ -12,10 +12,9 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
-	"reply_schema": {
+        "reply_schema": {
             "description": "Node ID of the sentinel instance.",
             "type": "string"
         }
-
     }
 }
