@@ -6993,6 +6993,7 @@ int main(int argc, char **argv) {
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
+    monotonicInit(); /* Required for dict tests, that are relying on monotime during dict rehashing. */
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
         int flags = 0;
         for (j = 3; j < argc; j++) {
