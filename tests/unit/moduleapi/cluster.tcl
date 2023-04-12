@@ -171,7 +171,7 @@ start_server [list overrides $base_conf] {
 
     test "Kill a cluster node and wait for fail state" {
         # kill node3 in cluster
-        exec kill -SIGSTOP $node3_pid
+        pause_process $node3_pid
 
         wait_for_condition 1000 50 {
             [csi 0 cluster_state] eq {fail} &&
@@ -193,7 +193,7 @@ start_server [list overrides $base_conf] {
         assert_equal [s -1 blocked_clients]  {0}
     }
 
-    exec kill -SIGCONT $node3_pid
+    resume_process $node3_pid
     $node1_rd close
     $node2_rd close
 

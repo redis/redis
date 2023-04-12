@@ -255,9 +255,9 @@ jobs:
       run: make
     - name: test
       run: |
-        ./runtest --accurate --verbose --no-latency --dump-logs
+        ./runtest --accurate --verbose --verbose --clients 1 --no-latency --dump-logs
     - name: module api test
-      run: ./runtest-moduleapi --verbose
+      run: ./runtest-moduleapi --verbose --verbose --clients 1
     - name: sentinel tests
       run: ./runtest-sentinel
     - name: cluster tests

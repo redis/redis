@@ -34,25 +34,25 @@ start_server {} {
     }
 
     test {WAIT should not acknowledge 1 additional copy if slave is blocked} {
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
         $master set foo 0
         $master incr foo
         $master incr foo
         $master incr foo
         assert {[$master wait 1 1000] == 0}
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 
     test {WAIT implicitly blocks on client pause since ACKs aren't sent} {
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
         $master multi
         $master incr foo
         $master client pause 10000 write
         $master exec
         assert {[$master wait 1 1000] == 0}
         $master client unpause
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 }}
