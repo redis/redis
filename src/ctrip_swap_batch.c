@@ -314,7 +314,7 @@ inline int swapBatchCtxExceedsLimit(swapBatchCtx *batch_ctx) {
     return exceeded;
 }
 
-void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush,
+void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int flush,
         swapRequest *req, int thread_idx) {
     /* flush before handling req if req is dispatched to another thread. */
     if (batch_ctx->thread_idx != thread_idx ||
@@ -329,7 +329,7 @@ void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush,
 
     /* flush after handling req if flush hint set. */
     /* execute after append req if exceeded swap-batch-limit */
-    if (force_flush || !swapIntentionInOutDel(batch_ctx->cmd_intention)
+    if (flush || !swapIntentionInOutDel(batch_ctx->cmd_intention)
             || swapBatchCtxExceedsLimit(batch_ctx)) {
         swapBatchCtxFlush(batch_ctx);
     }

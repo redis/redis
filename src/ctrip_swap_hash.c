@@ -982,6 +982,8 @@ int swapDataHashTest(int argc, char **argv, int accurate) {
         test_assert((h = lookupKey(db,key1,LOOKUP_NOTOUCH)) != NULL);
         test_assert(hashTypeLength(h) == 4);
         test_assert(lookupKey(db, key1, LOOKUP_NOTOUCH)->persistent);
+
+        dbDelete(db,key1);
     }
 
     TEST("hash - rdbLoad & rdbSave") {

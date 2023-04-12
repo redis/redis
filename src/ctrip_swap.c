@@ -198,6 +198,7 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     return ctx;
 }
 
+/* Bind data & datactx to swapCtx so that it will be properly cleaned up */
 void swapCtxSetSwapData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx) {
     ctx->data = data;
     ctx->datactx = datactx;
@@ -389,7 +390,7 @@ void keyRequestProceed(void *lock, int flush, redisDb *db, robj *key,
 
     if (value == NULL) {
         if (db->swap_absent_cache &&
-                absentsCacheGet(db->swap_absent_cache, key->ptr)) {
+                absentsCacheGet(db->swap_absent_cache,key->ptr)) {
             reason = "key is absent";
             reason_num = NOSWAP_REASON_ABSENTCACHEHIT;
             goto noswap;
@@ -654,12 +655,24 @@ void swapInit() {
 
 
 #ifdef REDIS_TEST
+
+void initServerConfig(void);
+void initServerConfig4Test(void) {
+    static int inited;
+    if (inited) return;
+    initServerConfig();
+    inited = 1;
+}
+
 int clearTestRedisDb() {
     emptyDbStructure(server.db, -1, 0, NULL);
     return 1;
 }
 
 int initTestRedisDb() {
+    static int inited;
+    if (inited) return 1;
+
     server.dbnum = 16;
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
     /* Create the Redis databases, and initialize other internal state. */
@@ -679,13 +692,15 @@ int initTestRedisDb() {
         server.db[j].defrag_later = listCreate();
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
+
+    inited = 1;
     return 1;
 }
 
 void createSharedObjects(void);
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
-    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    if (!server.logfile) server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     swapInitVersion();
     createSharedObjects();
     initTestRedisDb();
@@ -696,29 +711,31 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
-  /* result += swapLockTest(argc, argv, accurate); */
-  /* result += swapLockReentrantTest(argc, argv, accurate); */
-  /* result += swapLockProceedTest(argc, argv, accurate); */
-  /* result += swapCmdTest(argc, argv, accurate); */
-  /* result += swapExecTest(argc, argv, accurate); */
-  /* result += swapDataTest(argc, argv, accurate); */
-  /* result += swapDataWholeKeyTest(argc, argv, accurate); */
-  /* result += swapObjectTest(argc, argv, accurate); */
-  /* result += swapRdbTest(argc, argv, accurate); */
-  /* result += swapIterTest(argc, argv, accurate); */
-  /* result += swapDataHashTest(argc, argv, accurate); */
-  /* result += swapDataSetTest(argc, argv, accurate); */
-  /* result += swapDataZsetTest(argc, argv, accurate); */
-  /* result += metaScanTest(argc, argv, accurate); */
-  /* result += swapExpireTest(argc, argv, accurate); */
-  /* result += swapUtilTest(argc, argv, accurate); */
-  /* result += swapFilterTest(argc, argv, accurate); */
-  /* result += swapListMetaTest(argc, argv, accurate); */
-  /* result += swapListDataTest(argc, argv, accurate); */
-  /* result += swapListUtilsTest(argc, argv, accurate); */
-  /* result += swapHoldTest(argc, argv, accurate); */
-  /* result += swapAbsentTest(argc, argv, accurate); */
+
+  result += swapLockTest(argc, argv, accurate);
+  result += swapLockReentrantTest(argc, argv, accurate);
+  result += swapLockProceedTest(argc, argv, accurate);
+  result += swapCmdTest(argc, argv, accurate);
+  result += swapExecTest(argc, argv, accurate);
+  result += swapDataTest(argc, argv, accurate);
+  result += swapDataWholeKeyTest(argc, argv, accurate);
+  result += swapObjectTest(argc, argv, accurate);
+  result += swapRdbTest(argc, argv, accurate);
+  result += swapIterTest(argc, argv, accurate);
+  result += swapDataHashTest(argc, argv, accurate);
+  result += swapDataSetTest(argc, argv, accurate);
+  result += swapDataZsetTest(argc, argv, accurate);
+  result += metaScanTest(argc, argv, accurate);
+  result += swapExpireTest(argc, argv, accurate);
+  result += swapUtilTest(argc, argv, accurate);
+  result += swapFilterTest(argc, argv, accurate);
+  result += swapListMetaTest(argc, argv, accurate);
+  result += swapListDataTest(argc, argv, accurate);
+  result += swapListUtilsTest(argc, argv, accurate);
+  result += swapHoldTest(argc, argv, accurate);
+  result += swapAbsentTest(argc, argv, accurate);
   result += swapRIOTest(argc, argv, accurate);
+  result += swapBatchTest(argc, argv, accurate);
   return result;
 }
 #endif

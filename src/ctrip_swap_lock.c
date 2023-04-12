@@ -1270,14 +1270,14 @@ void proceedRightaway(void *listeners, int flush, redisDb *db, robj *key, client
     lockUnlock(listeners);
 }
 
-typedef struct lockAndFlush {
+typedef struct lockerAndFlush {
     void *locker;
     int flush;
-} lockAndFlush;
+} lockerAndFlush;
 
 void proceedLaterGetLockAndFlush(void *locker, int flush, redisDb *db, robj *key, client *c, void *pd_) {
     UNUSED(flush), UNUSED(db), UNUSED(key), UNUSED(c);
-    lockAndFlush *lock_and_flush = pd_;
+    lockerAndFlush *lock_and_flush = pd_;
     lock_and_flush->flush = flush;
     lock_and_flush->locker = locker;
 }
@@ -1531,54 +1531,54 @@ int swapLockProceedTest(int argc, char *argv[], int accurate) {
         ack_case_reset();
     }
 
-    /* TEST("lock-proceeded: flush if lock blocked or blocking") { */
-        /* int proceeded; */
-        /* flushAndBlock fnb1 = {0}, fnb2 = {0}, fnb3 = {0}, fnb4 = {0}, fnb5 = {0}; */
+    TEST("lock-proceeded: flush if lock blocked or blocking") {
+        int proceeded;
+        lockerAndFlush lnf1 = {0}, lnf2 = {0}, lnf3 = {0}, lnf4 = {0}, lnf5 = {0};
 
-        /* proceeded = lockLock(70,db,key1,proceedLaterGetLockAndFlush,NULL,&fnb1,NULL,NULL); */
-        /* test_assert(proceeded == 1); */
-        /* test_assert(fnb1.flush == 0); */
-        /* test_assert(fnb1.locker != NULL); */
+        proceeded = lockLock(70,db,key1,proceedLaterGetLockAndFlush,NULL,&lnf1,NULL,NULL);
+        test_assert(proceeded == 1);
+        test_assert(lnf1.flush == 0);
+        test_assert(lnf1.locker != NULL);
 
-        /* proceeded = lockLock(71,db,key1,proceedLaterGetLockAndFlush,NULL,&fnb2,NULL,NULL); */
-        /* test_assert(proceeded == 0); */
+        proceeded = lockLock(71,db,key1,proceedLaterGetLockAndFlush,NULL,&lnf2,NULL,NULL);
+        test_assert(proceeded == 0);
 
-        /* proceeded = lockLock(71,db,key2,proceedLaterGetLockAndFlush,NULL,&fnb3,NULL,NULL); */
-        /* test_assert(proceeded == 1); */
-        /* test_assert(fnb3.flush == 0); */
-        /* test_assert(fnb3.locker != NULL); */
+        proceeded = lockLock(71,db,key2,proceedLaterGetLockAndFlush,NULL,&lnf3,NULL,NULL);
+        test_assert(proceeded == 1);
+        test_assert(lnf3.flush == 0);
+        test_assert(lnf3.locker != NULL);
 
-        /* proceeded = lockLock(72,db,NULL,proceedLaterGetLockAndFlush,NULL,&fnb4,NULL,NULL); */
-        /* test_assert(proceeded == 0); */
+        proceeded = lockLock(72,db,NULL,proceedLaterGetLockAndFlush,NULL,&lnf4,NULL,NULL);
+        test_assert(proceeded == 0);
 
-        /* proceeded = lockLock(72,db,key2,proceedLaterGetLockAndFlush,NULL,&fnb5,NULL,NULL); */
-        /* test_assert(proceeded == 0); */
+        proceeded = lockLock(72,db,key2,proceedLaterGetLockAndFlush,NULL,&lnf5,NULL,NULL);
+        test_assert(proceeded == 0);
 
-        /* lockProceeded(fnb3.locker); */
-        /* test_assert(fnb4.locker == NULL); */
+        lockProceeded(lnf3.locker);
+        test_assert(lnf4.locker == NULL);
 
-        /* lockProceeded(fnb1.locker); */
-        /* test_assert(fnb2.locker == NULL); */
+        lockProceeded(lnf1.locker);
+        test_assert(lnf2.locker == NULL);
 
-        /* lockUnlock(fnb1.locker); */
-        /* test_assert(fnb2.locker != NULL); */
-        /* test_assert(fnb2.flush == 1); [> fnb4 depends on fnb2, so fnb2 should flush. <] */
+        lockUnlock(lnf1.locker);
+        test_assert(lnf2.locker != NULL);
+        test_assert(lnf2.flush == 1); /* lnf4 depends on lnf2, so lnf2 should flush. */
 
-        /* lockProceeded(fnb2.locker); */
+        lockProceeded(lnf2.locker);
 
-        /* lockUnlock(fnb3.locker); */
-        /* test_assert(fnb4.locker == NULL); */
+        lockUnlock(lnf3.locker);
+        test_assert(lnf4.locker == NULL);
 
-        /* lockUnlock(fnb2.locker); */
-        /* test_assert(fnb4.locker != NULL); */
-        /* test_assert(fnb4.flush == 1); [> fnb5 depends on fnb4, so fnb4 should flush. <] */
+        lockUnlock(lnf2.locker);
+        test_assert(lnf4.locker != NULL);
+        test_assert(lnf4.flush == 1); /* lnf5 depends on lnf4, so lnf4 should flush. */
 
-        /* lockProceeded(fnb4.locker); */
-        /* test_assert(fnb5.locker); */
-        /* test_assert(fnb5.flush == 0); */
+        lockProceeded(lnf4.locker);
+        test_assert(lnf5.locker);
+        test_assert(lnf5.flush == 0);
 
-        /* ack_case_reset(); */
-    /* } */
+        ack_case_reset();
+    }
 
     TEST("lock-proceeded: deinit") {
         decrRefCount(key1), decrRefCount(key2);

@@ -327,7 +327,6 @@ void swapDataTurnDeleted(swapData *data, int del_skip) {
 
 
 #ifdef REDIS_TEST
-
 int swapDataTest(int argc, char *argv[], int accurate) {
     int error = 0, intention;
     uint32_t intention_flags;
@@ -348,7 +347,6 @@ int swapDataTest(int argc, char *argv[], int accurate) {
     TEST("swapdata - propagate_expire") {
         keyRequest key_request_, *key_request = &key_request_;
         key_request->level = REQUEST_LEVEL_KEY;
-        incrRefCount(key1);
         key_request->key = key1;
         key_request->b.subkeys = NULL;
         key_request->cmd_intention = SWAP_IN;
@@ -370,7 +368,6 @@ int swapDataTest(int argc, char *argv[], int accurate) {
     TEST("swapdata - set_dirty") {
         keyRequest key_request_, *key_request = &key_request_;
         key_request->level = REQUEST_LEVEL_KEY;
-        incrRefCount(key1);
         key_request->key = key1;
         key_request->b.subkeys = NULL;
         key_request->cmd_intention = SWAP_IN;
@@ -385,6 +382,10 @@ int swapDataTest(int argc, char *argv[], int accurate) {
         test_assert(data->set_dirty == 1);
 
         swapDataFree(data,datactx);
+    }
+
+    TEST("swapdata - deinit") {
+        decrRefCount(key1), decrRefCount(val1);
     }
 
     return error;

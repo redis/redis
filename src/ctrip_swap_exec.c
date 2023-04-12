@@ -698,7 +698,6 @@ int doRocksdbFlush() {
     return 0;
 }
 
-void initServerConfig(void);
 int swapExecTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
@@ -721,7 +720,7 @@ int swapExecTest(int argc, char *argv[], int accurate) {
     swapCtx *ctx = swapCtxCreate(NULL,key1_req,NULL,NULL);
 
     TEST("exec: init") {
-        initServerConfig();
+        initServerConfig4Test();
         incrRefCount(val1);
         dbAdd(db,key1,val1);
         setExpire(NULL,db,key1,EXPIRE);

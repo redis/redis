@@ -1850,6 +1850,7 @@ void incrSwapUnBlockCtxVersion();
 
 int initTestRedisDb(void);
 int initTestRedisServer(void);
+void initServerConfig4Test(void);
 int clearTestRedisDb(void);
 int clearTestRedisServer(void);
 swapData *createWholeKeySwapDataWithExpire(redisDb *db, robj *key, robj *value, long long expire, void **datactx);

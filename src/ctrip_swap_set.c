@@ -1138,6 +1138,8 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         hotraw = rdbhot.io.buffer.ptr;
 
         test_assert(!sdscmp(hotraw,coldraw) && !sdscmp(hotraw,warmraw) && !sdscmp(hotraw,hotraw));
+
+        dbDelete(db,key1);
     }
 
     TEST("set - free") {
