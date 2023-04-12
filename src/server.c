@@ -1015,12 +1015,11 @@ void clientsCron(void) {
         client *c;
         listNode *head;
 
-        /* Rotate the list, take the current head, process.
-         * This way if the client must be removed from the list it's the
-         * first element and we don't incur into O(N) computation. */
-        listRotateTailToHead(server.clients);
+        /* Take the current head, process, and then rotate the head to tail.
+         * This way we can fairly iterate all clients step by step. */
         head = listFirst(server.clients);
         c = listNodeValue(head);
+        listRotateHeadToTail(server.clients);
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
