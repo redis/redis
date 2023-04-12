@@ -18,6 +18,8 @@ proc client_query_buffer {name} {
 }
 
 start_server {tags {"querybuf slow"}} {
+    #increase the execution frequency of clientsCron
+    r config set hz 100
     # The test will run at least 2s to check if client query
     # buffer will be resized when client idle 2s.
     test "query buffer resized correctly" {
@@ -64,19 +66,22 @@ start_server {tags {"querybuf slow"}} {
         $rd close
     }
 
-    test "query buffer shouldn't be resized with fat argv" {
+    test "query buffer resized correctly with fat argv" {
         set rd [redis_client]
         $rd client setname test_client
         $rd write "*3\r\n\$3\r\nset\r\n\$1\r\na\r\n\$1000000\r\n"
         $rd flush
-        set retry 10
-        while {[incr retry -1]} {
-            after 100
-            if {[client_query_buffer test_client] > 1000000} {
-                continue
-            } else {
-                fail "query buffer should not be resized"
-            }
+        
+        after 20
+        if {[client_query_buffer test_client] < 1000000} {
+            fail "query buffer should not be shrinked when client idle time smaller than 2s"
+        }
+     
+        # Check that the query buffer is resized after 2 sec
+        wait_for_condition 1000 10 {
+            [client_idle_sec test_client] >= 3 && [client_query_buffer test_client] < 1000000
+        } else {
+            fail "query buffer should be shrinked when client idle time bigger than 2s"
         }
         $rd close
     }
