@@ -751,82 +751,95 @@ void selectCommand(client *c) {
         addReply(c,shared.ok);
     }
 }
+
+#define RAND_OPT_COUNT (1<<2)
+#define RAND_OPT_DUP (1<<3)
+#define RAND_OPT_PATT (1<<4)
+
 /************************************************************
 RANDOMKEY [COUNT <count> [DUPLICATED] [PATTERN <pattern>]] (OR)
 RANDOMKEY [COUNT <count> [DUPLICATED]]
 ******************************************************************/
 void randomkeyCommand(client *c) {
-    robj *keyGlob;
     int count = 1;
     unsigned long numkeys = 0;
     dictIterator *di = NULL;
     dictEntry *de;
     sds pattern = NULL;
-    int plen = 0, allkeys;
-    int dup = 0; /* By default order of the result is non-duplicated*/
-
-    if ((keyGlob = dbRandomKey(c->db)) == NULL) {
+    int plen = 0, allkeys = 0;
+    int numOfArgs = c->argc;
+    unsigned int userOptions = 0;
+    /* Check if db has no key, if no keys return  */
+    if (dictSize(c->db->dict) == 0) {
         addReplyNull(c);
         return;
     }
-    decrRefCount(keyGlob);
-    if ((c->argc == 5) && !strcasecmp(c->argv[3]->ptr,"pattern")) {
-        pattern = c->argv[4]->ptr;
-        dup = 0; /* If NO option or NON-DUPLICATE dup value is 0 */
-        plen = sdslen(pattern);
-        allkeys = (pattern[0] == '*' && plen == 1);
-        if (getIntFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
-            count = 1;
-    } else if ((c->argc == 4) && !strcasecmp(c->argv[1]->ptr,"count") &&
-               !strcasecmp(c->argv[3]->ptr,"duplicated")) {
-        dup = 1; /* If DUPLICATE dup value is 1 */
-        if (getIntFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
-            count = 1;
-    } else if ((c->argc == 6) && !strcasecmp(c->argv[1]->ptr,"count") &&
-               !strcasecmp(c->argv[3]->ptr,"duplicated") &&
-               !strcasecmp(c->argv[4]->ptr,"pattern")) {
-        pattern = c->argv[5]->ptr;
-        dup = 1; /* option DUPLICATED dup value is 1*/
-        plen = sdslen(pattern);
-        if (getIntFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
-            count = 1;
-    } else if ((c->argc == 3) && !strcasecmp(c->argv[1]->ptr,"count")) {
-        allkeys = 1;
-        pattern = "*";
-        plen = 1;
-        dup = 0;
-        if (getIntFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
-            count = 1;
-    } else if (c->argc == 1) {
+    /* Command Argument Parsing section,
+       if command has invalid option return error.
+    */
+    if (numOfArgs >= 3 && !strcasecmp(c->argv[1]->ptr,"count")) {
+        if (numOfArgs >= 4 && !strcasecmp(c->argv[3]->ptr,"duplicated")) {
+            if (numOfArgs == 6 && !strcasecmp(c->argv[4]->ptr,"pattern")) {
+                userOptions = RAND_OPT_COUNT|RAND_OPT_DUP|RAND_OPT_PATT;
+                pattern = c->argv[5]->ptr;
+                plen = sdslen(pattern);
+            } else if (numOfArgs == 4) {
+                userOptions = RAND_OPT_COUNT|RAND_OPT_DUP;
+            }
+        }
+        if ((numOfArgs == 5) && !strcasecmp(c->argv[3]->ptr,"pattern")) {
+            userOptions = RAND_OPT_COUNT|RAND_OPT_PATT;
+            pattern = c->argv[4]->ptr;
+            plen = sdslen(pattern);
+            allkeys = (pattern[0] == '*' && plen == 1);
+        }
+        if (numOfArgs == 3) {
+            userOptions = RAND_OPT_COUNT;
+            allkeys = plen = 1;
+            pattern = "*";
+        }
+   /*Below condition is to retain legacy behaviour */
+    } else if (numOfArgs == 1) {
+        userOptions = RAND_OPT_DUP;
         count = 1;
-        dup = 1;
-    } else if (c->argc >= 1) {
+    /* Return error for invalid options */
+    } else if (numOfArgs >= 1 && !userOptions) {
         count = 1;
-        dup = 0;
         numkeys = 0;
         addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
-    if (count < 1) {
-        count = 1;
-        dup = 0;
-        numkeys = 0;
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
+    /* Retrieve the count value from the argument.
+       Convert if its negative and return null in case the count is zero.
+    */
+    if (userOptions & RAND_OPT_COUNT) {
+        if (getIntFromObjectOrReply(c, c->argv[2], &count, NULL) != C_OK)
+            return;
+        if (count < 1) {
+            if (count == 0) {
+                count = 1;
+                userOptions = numkeys = 0;
+                addReplyNull(c);
+                return;
+            }
+            count *= -1;
+        }
     }
 
     void *replylen = addReplyDeferredLen(c);
-/* CASE 1: duplicated option is mentioned or only randomkey command without any option*/
-    if (dup == 1) {
-        if ((c->argc == 6) &&
-            ((!strcasecmp(c->argv[1]->ptr,"count") &&
-            !strcasecmp(c->argv[4]->ptr,"pattern")))) {
-            int maxtries = 1000, tries = 0;
+    if (userOptions & RAND_OPT_DUP) {
+        if ((numOfArgs == 6) &&
+            (userOptions & (RAND_OPT_COUNT|RAND_OPT_PATT))) {
+            int maxtries = 100;
+            int allvolatile = dictSize(c->db->dict) == dictSize(c->db->expires);
             di = dictGetSafeIterator(c->db->dict);
             allkeys = (pattern[0] == '*' && plen == 1);
             while (((de = dictGetFairRandomKey(c->db->dict)) != NULL) &&
                 (numkeys < (unsigned long)count)) {
                 sds key = dictGetKey(de);
+                if (dictFind(c->db->expires,key) && allvolatile &&
+                                        server.masterhost && --maxtries == 0) 
+                    break;
                 robj *keyobj;
                 if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
                     keyobj = createStringObject(key,sdslen(key));
@@ -836,18 +849,13 @@ void randomkeyCommand(client *c) {
                     }
                     decrRefCount(keyobj);
                 }
-                if (numkeys == 0) {
-                  tries++;
-                  if (tries > maxtries)
-                      break;
-                }
-                if (c->flags & CLIENT_CLOSE_ASAP)
+                if ((!numkeys && --maxtries == 0) || (c->flags & CLIENT_CLOSE_ASAP)) {
                     break;
+                }
             }
         }
-        if ((c->argc == 1) || ((c->argc == 4) &&
-            !strcasecmp(c->argv[1]->ptr,"count") &&
-            !strcasecmp(c->argv[3]->ptr,"duplicated"))) {
+        if ((numOfArgs == 1) || ((numOfArgs == 4) &&
+            (userOptions & (RAND_OPT_COUNT|RAND_OPT_DUP)))) {
             do {
                 robj *key;
                 if ((key = dbRandomKey(c->db)) == NULL) {
@@ -859,14 +867,14 @@ void randomkeyCommand(client *c) {
                 decrRefCount(key);
             } while (--count);
         }
-    } else {   /* CASE 2: All non-duplicated cases*/
+   /* CASE: All non-duplicated cases*/
+    } else {
         if (pattern[0] && plen) {
             di = dictGetSafeIterator(c->db->dict);
             while (((de = dictNext(di)) != NULL) &&
                     (numkeys < (unsigned long)count)) {
-		    sds key = dictGetKey(de);
+                sds key = dictGetKey(de);
                 robj *keyobj;
-
                 if (allkeys ||
                     stringmatchlen(pattern,plen,key,sdslen(key),0)) {
                     keyobj = createStringObject(key,sdslen(key));
