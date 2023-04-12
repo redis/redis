@@ -74,15 +74,16 @@ start_server {tags {"querybuf slow"}} {
         
         after 20
         if {[client_query_buffer test_client] < 1000000} {
-            fail "query buffer should not be shrinked when client idle time smaller than 2s"
+            fail "query buffer should not be resized when client idle time smaller than 2s"
         }
      
         # Check that the query buffer is resized after 2 sec
         wait_for_condition 1000 10 {
             [client_idle_sec test_client] >= 3 && [client_query_buffer test_client] < 1000000
         } else {
-            fail "query buffer should be shrinked when client idle time bigger than 2s"
+            fail "query buffer should be resized when client idle time bigger than 2s"
         }
+     
         $rd close
     }
 
