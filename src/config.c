@@ -158,9 +158,9 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
 /* swap batch limits presets. */
 swapBatchLimitsConfig swapBatchLimitsDefaults[SWAP_TYPES] = {
     {0, 0}, /* NOP */
-    {16, 1024*1024*1}, /* IN */
-    {16, 1024*1024*1}, /* OUT */
-    {16, 1024*1024*1},  /* DEL */
+    {SWAP_BATCH_DEFAULT_SIZE, 1024*1024*1}, /* IN */
+    {SWAP_BATCH_DEFAULT_SIZE, 1024*1024*1}, /* OUT */
+    {SWAP_BATCH_DEFAULT_SIZE, 1024*1024*1},  /* DEL */
     {0, 0}, /* UTILS */
 };
 

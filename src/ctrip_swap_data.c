@@ -74,7 +74,7 @@ int swapDataKeyRequestFinished(swapData *data) {
 
 /* Main/swap-thread: analyze data and command intention & request to decide
  * final swap intention. e.g. command might want SWAP_IN but data not
- * evicted, then intention is decided as NOP. */ 
+ * evicted, then intention is decided as NOP. */
 int swapDataAna(swapData *d, struct keyRequest *key_request,
         int *intention, uint32_t *intention_flags, void *datactx) {
     int retval = 0;

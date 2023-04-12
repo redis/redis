@@ -213,6 +213,7 @@ static void RIODoIterate(RIO *rio) {
     sds start = rio->iterate.start;
     sds end = rio->iterate.end;
     size_t limit = rio->iterate.limit;
+    rocksdb_readoptions_t *ropts = NULL;
 
     int reverse = rio->iterate.flags & ROCKS_ITERATE_REVERSE;
     int low_bound_exclude = rio->iterate.flags & ROCKS_ITERATE_LOW_BOUND_EXCLUDE;
@@ -229,7 +230,8 @@ static void RIODoIterate(RIO *rio) {
     const char *rawkey, *rawval;
     size_t start_len = start ? sdslen(start) : 0, end_len = end ? sdslen(end) : 0;
 
-    rocksdb_readoptions_t *ropts = NULL;
+    if (start == NULL && end == NULL) goto end;
+
     if (disable_cache) {
         ropts = rocksdb_readoptions_create();
         rocksdb_readoptions_set_verify_checksums(ropts, 0);
@@ -366,6 +368,18 @@ void RIODump(RIO *rio) {
     sdsfree(repr);
 }
 
+static inline int RIOGetCF(RIO *rio) {
+    int cf;
+    if (rio->action == ROCKS_ITERATE) {
+        cf = rio->iterate.cf;
+    } else if (rio->generic.numkeys > 0) {
+        cf = rio->generic.cfs[0];
+    } else {
+        cf = META_CF;
+    };
+    return cf;
+}
+
 void RIODo(RIO *rio) {
     monotime io_timer;
 
@@ -402,8 +416,10 @@ void RIODo(RIO *rio) {
 #endif
 
 end:
-    RIOUpdateStatsDo(rio, elapsedUs(io_timer));
-    RIOUpdateStatsDataNotFound(rio);
+    if (RIOGetCF(rio) != META_CF) {
+        RIOUpdateStatsDo(rio, elapsedUs(io_timer));
+        RIOUpdateStatsDataNotFound(rio);
+    }
 }
 
 size_t RIOEstimatePayloadSize(RIO *rio) {
@@ -683,12 +699,17 @@ end:
 void RIOBatchUpdateStatsDo(RIOBatch *rios, long duration) {
     int action = rios->action;
     size_t payload_size = 0;
+    size_t count = 0;
     for (size_t i = 0; i < rios->count; i++) {
         RIO *rio = rios->rios+i;
-        payload_size += RIOEstimatePayloadSize(rio);
+        int cf = RIOGetCF(rio);
+        if (cf != META_CF) {
+            payload_size += RIOEstimatePayloadSize(rio);
+            count++;
+        }
     }
     atomicIncr(server.ror_stats->rio_stats[action].memory,payload_size);
-    atomicIncr(server.ror_stats->rio_stats[action].count,rios->count);
+    atomicIncr(server.ror_stats->rio_stats[action].count,count);
     atomicIncr(server.ror_stats->rio_stats[action].batch,1);
     atomicIncr(server.ror_stats->rio_stats[action].time,duration);
 }
@@ -697,7 +718,8 @@ void RIOBatchUpdateStatsDataNotFound(RIOBatch *rios) {
     int notfound = 0;
     for (size_t i = 0; i < rios->count; i++) {
         RIO *rio = rios->rios+i;
-        notfound += rio->get.notfound;
+        int cf = RIOGetCF(rio);
+        if (cf != META_CF) notfound += rio->get.notfound;
     }
     if (notfound) {
         atomicIncr(server.swap_hit_stats->stat_swapin_data_not_found_count,

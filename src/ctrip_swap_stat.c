@@ -151,10 +151,10 @@ sds genSwapExecInfoString(sds info) {
     size_t count, batch, memory;
 
     info = sdscatprintf(info,
-            "swap_request_count:%lld\r\n"
-            "swap_batch_count:%lld\r\n",
-            server.swap_batch_ctx->stat.request_count,
-            server.swap_batch_ctx->stat.batch_count);
+            "swap_submit_request_count:%lld\r\n"
+            "swap_submit_batch_count:%lld\r\n",
+            server.swap_batch_ctx->stat.submit_request_count,
+            server.swap_batch_ctx->stat.submit_batch_count);
 
     info = sdscatprintf(info,
             "swap_inprogress_batch:%ld\r\n"

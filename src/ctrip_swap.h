@@ -1094,8 +1094,8 @@ void RIOBatchUpdateStatsDo(RIOBatch *rios, long duration);
 void RIOBatchUpdateStatsDataNotFound(RIOBatch *rios);
 
 typedef struct swapBatchCtxStat {
-  redisAtomic long long batch_count;
-  redisAtomic long long request_count;
+  redisAtomic long long submit_batch_count;
+  redisAtomic long long submit_request_count;
 } swapBatchCtxStat;
 
 typedef struct swapBatchCtx {
@@ -1109,6 +1109,8 @@ swapBatchCtx *swapBatchCtxNew();
 void swapBatchCtxFree(swapBatchCtx *batch_ctx);
 void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush, swapRequest *req, int thread_idx);
 size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx);
+
+extern swapBatchLimitsConfig swapBatchLimitsDefaults[SWAP_TYPES];
 
 /* Async */
 #define ASYNC_COMPLETE_QUEUE_NOTIFY_READ_MAX  512

@@ -80,21 +80,6 @@ static inline int swapIntentionInOutDel(int intention) {
             intention == SWAP_DEL;
 }
 
-static inline int swapExecBatchCtxExceedBatchLimit(swapExecBatchCtx *exec_ctx) {
-    int exceeded = 0;
-    swapBatchLimitsConfig *limit;
-
-    serverAssert(swapIntentionInOutDel(exec_ctx->intention));
-
-    limit = server.swap_batch_limits+exec_ctx->intention;
-    if (limit->count > 0 && exec_ctx->count >= (size_t)limit->count) {
-        exceeded = 1;
-    }
-
-    /* TODO account for mem as well. */
-    return exceeded;
-}
-
 void swapExecBatchCtxFeed(swapExecBatch *exec_ctx, swapRequest *req) {
     int req_action;
     serverAssert(req->intention != SWAP_UNSET);
@@ -115,9 +100,7 @@ void swapExecBatchCtxFeed(swapExecBatch *exec_ctx, swapRequest *req) {
 
     swapExecBatchAppend(exec_ctx,req);
 
-    /* execute after append req if exceeded swap-batch-limit */
-    if (!swapIntentionInOutDel(req->intention) ||
-            swapExecBatchCtxExceedBatchLimit(exec_ctx)) {
+    if (!swapIntentionInOutDel(req->intention)) {
         swapExecBatchCtxExecuteIfNeeded(exec_ctx);
         swapExecBatchCtxReset(exec_ctx,SWAP_UNSET,ROCKS_UNSET);
     }
@@ -183,9 +166,12 @@ void swapRequestBatchCallback(swapRequestBatch *reqs) {
     for (size_t i = 0; i < reqs->count; i++) {
         swapRequest *req = reqs->reqs[i];
         swap_memory += req->swap_memory;
-        swapRequestMerge(req);
+
+        if (!swapRequestGetError(req))
+            swapRequestMerge(req);
+
         if (req->trace) swapTraceCallback(req->trace);
-        req->finish_cb(req->data, req->finish_pd, req->errcode);
+        req->finish_cb(req->data,req->finish_pd,swapRequestGetError(req));
     }
 
     atomicDecr(server.swap_inprogress_batch,1);
@@ -230,18 +216,18 @@ void swapRequestBatchProcessEnd(swapRequestBatch *reqs) {
 }
 
 void swapRequestBatchExecute(swapRequestBatch *reqs) {
-    swapExecBatch exec_batch;
+    swapExecBatch exec_ctx;
 
-    swapExecBatchCtxInit(&exec_batch);
-    swapExecBatchCtxStart(&exec_batch);
+    swapExecBatchCtxInit(&exec_ctx);
+    swapExecBatchCtxStart(&exec_ctx);
     for (size_t i = 0; i < reqs->count; i++) {
         swapRequest *req = reqs->reqs[i];
         if (!swapRequestGetError(req) && req->intention != SWAP_NOP) {
-            swapExecBatchCtxFeed(&exec_batch,req);
+            swapExecBatchCtxFeed(&exec_ctx,req);
         }
     }
-    swapExecBatchCtxEnd(&exec_batch);
-    swapExecBatchCtxDeinit(&exec_batch);
+    swapExecBatchCtxEnd(&exec_ctx);
+    swapExecBatchCtxDeinit(&exec_ctx);
 }
 
 void swapRequestBatchPreprocess(swapRequestBatch *reqs) {
@@ -272,8 +258,8 @@ void swapRequestBatchProcess(swapRequestBatch *reqs) {
 
 /* swapBatchCtx: currently acummulated requests about to submit in batch. */
 static void swapBatchCtxStatInit(swapBatchCtxStat *batch_stat) {
-    atomicSet(batch_stat->batch_count,0);
-    atomicSet(batch_stat->request_count,0);
+    atomicSet(batch_stat->submit_batch_count,0);
+    atomicSet(batch_stat->submit_request_count,0);
 }
 
 swapBatchCtx *swapBatchCtxNew() {
@@ -306,9 +292,26 @@ size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx) {
     int thread_idx = batch_ctx->thread_idx;
     swapRequestBatch *reqs = swapBatchCtxShift(batch_ctx);
     size_t reqs_count = reqs->count;
-    atomicIncr(batch_ctx->stat.batch_count,1);
+    atomicIncr(batch_ctx->stat.submit_batch_count,1);
+    atomicIncr(batch_ctx->stat.submit_request_count,reqs_count);
     submitSwapRequestBatch(SWAP_MODE_ASYNC,reqs,thread_idx);
     return reqs_count;
+}
+
+static
+inline int swapBatchCtxExceedsLimit(swapBatchCtx *batch_ctx) {
+    int exceeded = 0;
+    swapBatchLimitsConfig *limit;
+
+    serverAssert(swapIntentionInOutDel(batch_ctx->cmd_intention));
+
+    limit = server.swap_batch_limits+batch_ctx->cmd_intention;
+    if (limit->count > 0 && batch_ctx->batch->count >= (size_t)limit->count) {
+        exceeded = 1;
+    }
+
+    /* TODO account for mem as well. */
+    return exceeded;
 }
 
 void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush,
@@ -323,27 +326,41 @@ void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush,
     batch_ctx->cmd_intention = req->intention;
 
     swapRequestBatchAppend(batch_ctx->batch,req);
-    atomicIncr(batch_ctx->stat.request_count,1);
 
     /* flush after handling req if flush hint set. */
-    if (force_flush) swapBatchCtxFlush(batch_ctx);
+    /* execute after append req if exceeded swap-batch-limit */
+    if (force_flush || !swapIntentionInOutDel(batch_ctx->cmd_intention)
+            || swapBatchCtxExceedsLimit(batch_ctx)) {
+        swapBatchCtxFlush(batch_ctx);
+    }
 }
 
 #ifdef REDIS_TEST
 
+void mockNotifyCallback(swapRequestBatch *reqs, void *pd);
+void initServerConfig(void);
 int swapBatchTest(int argc, char *argv[], int accurate) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(accurate);
+
     int error = 0;
+    server.hz = 10;
+    robj *key1 = createStringObject("key1",4);
+    robj *val1 = createStringObject("val1",4);
+    initTestRedisDb();
+    monotonicInit();
+    redisDb *db = server.db;
 
     TEST("batch: init") {
         server.hz = 10;
         initTestRedisDb();
         monotonicInit();
-        //initServerConfig();
+        initServerConfig();
         if (!server.rocks) rocksInit();
         initStatsSwap();
+        if (!server.swap_lock) swapLockCreate();
+        if (!server.swap_batch_ctx) server.swap_batch_ctx = swapBatchCtxNew();
     }
 
     TEST("batch: exec batch") {
@@ -361,14 +378,14 @@ int swapBatchTest(int argc, char *argv[], int accurate) {
         test_assert(exec_batch->count == SWAP_BATCH_DEFAULT_SIZE+1);
         test_assert(exec_batch->capacity > exec_batch->count);
         swapExecBatchDeinit(exec_batch);
+        swapRequestFree(req);
     }
 
     TEST("batch: exec batch ctx") {
         swapExecBatchCtx _exec_ctx, *exec_ctx = &_exec_ctx;
-        swapRequest *util_req = swapDataRequestNew(SWAP_UTILS,0,NULL,NULL,
-                NULL,NULL,NULL,NULL,NULL);
-        swapRequest *get_req = swapDataRequestNew(SWAP_IN,0,NULL,NULL,
-                NULL,NULL,NULL,NULL,NULL);
+        swapRequest *utils_req = swapDataRequestNew(SWAP_UTILS,COMPACT_RANGE_TASK,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+        swapData *data = createWholeKeySwapData(db,key1,val1,NULL);
+        swapRequest *out_req = swapDataRequestNew(SWAP_OUT,0,NULL,data,NULL,NULL,NULL,NULL,NULL);
 
         resetStatsSwap();
 
@@ -376,102 +393,119 @@ int swapBatchTest(int argc, char *argv[], int accurate) {
 
         swapExecBatchCtxStart(exec_ctx);
         swapExecBatchCtxEnd(exec_ctx);
-        test_assert(server.swap_batch_ctx->stat.batch_count == 0);
-        test_assert(server.swap_batch_ctx->stat.request_count == 0);
 
         swapExecBatchCtxStart(exec_ctx);
-        swapExecBatchCtxFeed(exec_ctx, util_req);
-        /* util_req buffered (not executed) */
-        test_assert(exec_ctx->intention == SWAP_UTILS);
-        test_assert(exec_ctx->action == ROCKS_UNSET);
-        test_assert(exec_ctx->count == 1);
-        test_assert(server.swap_batch_ctx->stat.batch_count == 0);
-        test_assert(server.swap_batch_ctx->stat.request_count == 0);
 
-        swapExecBatchCtxFeed(exec_ctx,get_req);
-        /* util_req executed, get_req buffered */
-        test_assert(server.swap_batch_ctx->stat.batch_count == 1);
-        test_assert(server.swap_batch_ctx->stat.request_count == 1);
+        /* out_req buffered (not executed) */
+        swapExecBatchCtxFeed(exec_ctx, out_req);
+        test_assert(exec_ctx->intention == SWAP_OUT);
+        test_assert(exec_ctx->action == ROCKS_PUT);
+        test_assert(exec_ctx->count == 1);
+        test_assert(server.ror_stats->swap_stats[SWAP_IN].batch == 0);
+        test_assert(server.ror_stats->swap_stats[SWAP_IN].count == 0);
+
+        swapExecBatchCtxFeed(exec_ctx, utils_req);
+        /* out_req executed, utils_req executed */
+        test_assert(exec_ctx->intention == SWAP_UNSET);
+        test_assert(exec_ctx->action == ROCKS_UNSET);
+        test_assert(exec_ctx->count == 0);
         test_assert(server.ror_stats->swap_stats[SWAP_UTILS].batch == 1);
         test_assert(server.ror_stats->swap_stats[SWAP_UTILS].count == 1);
-        test_assert(exec_ctx->intention == SWAP_IN);
-        test_assert(exec_ctx->action == ROCKS_GET);
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].batch == 1);
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].count == 1);
+
+        swapExecBatchCtxFeed(exec_ctx,out_req);
+        /* out_req buffered */
+        test_assert(exec_ctx->intention == SWAP_OUT);
+        test_assert(exec_ctx->action == ROCKS_PUT);
         test_assert(exec_ctx->count == 1);
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].batch == 1);
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].count == 1);
 
         swapExecBatchCtxEnd(exec_ctx);
-        /* get_req executed, all request flushed */
-        test_assert(server.swap_batch_ctx->stat.batch_count == 2);
-        test_assert(server.swap_batch_ctx->stat.request_count == 2);
-        test_assert(server.ror_stats->swap_stats[SWAP_IN].batch == 1);
-        test_assert(server.ror_stats->swap_stats[SWAP_IN].count == 1);
-        test_assert(server.ror_stats->rio_stats[ROCKS_GET].batch == 1);
-        test_assert(server.ror_stats->rio_stats[ROCKS_GET].count == 1);
+        /* out_req executed, all request flushed */
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].batch == 2);
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].count == 2);
         test_assert(exec_ctx->intention == SWAP_UNSET);
         test_assert(exec_ctx->action == ROCKS_UNSET);
         test_assert(exec_ctx->count == 0);
 
         swapExecBatchCtxDeinit(exec_ctx);
+        swapRequestFree(out_req);
+        swapRequestFree(utils_req);
+        swapDataFree(data,NULL);
     }
 
     TEST("batch: request batch") {
-        swapRequest *get_req1, *get_req2, *util_req;
+        swapData *data;
+        swapRequest *out_req1, *out_req2, *utils_req;
         swapRequestBatch *reqs;
 
         resetStatsSwap();
 
+        data = createWholeKeySwapData(db,key1,val1,NULL);
         reqs = swapRequestBatchNew();
-        get_req1 = swapDataRequestNew(SWAP_IN,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
-        get_req2 = swapDataRequestNew(SWAP_IN,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
-        util_req = swapDataRequestNew(SWAP_IN,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
-        swapRequestBatchAppend(reqs,util_req);
-        swapRequestBatchAppend(reqs,get_req1);
-        swapRequestBatchAppend(reqs,get_req2);
+        reqs->notify_cb = mockNotifyCallback;
+        reqs->notify_pd = NULL;
+        out_req1 = swapDataRequestNew(SWAP_OUT,0,NULL,data,NULL,NULL,NULL,NULL,NULL);
+        out_req2 = swapDataRequestNew(SWAP_OUT,0,NULL,data,NULL,NULL,NULL,NULL,NULL);
+        utils_req = swapDataRequestNew(SWAP_UTILS,COMPACT_RANGE_TASK,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+        swapRequestBatchAppend(reqs,utils_req);
+        swapRequestBatchAppend(reqs,out_req1);
+        swapRequestBatchAppend(reqs,out_req2);
         swapRequestBatchProcess(reqs);
         swapRequestBatchFree(reqs);
-
-        test_assert(server.swap_batch_ctx->stat.batch_count == 2);
-        test_assert(server.swap_batch_ctx->stat.request_count == 3);
-        test_assert(server.ror_stats->swap_stats[SWAP_IN].batch == 1);
-        test_assert(server.ror_stats->swap_stats[SWAP_IN].count == 2);
+        test_assert(server.ror_stats->swap_stats[SWAP_OUT].batch == 1);
+        test_assert(server.ror_stats->swap_stats[SWAP_OUT].count == 2);
         test_assert(server.ror_stats->swap_stats[SWAP_UTILS].batch == 1);
         test_assert(server.ror_stats->swap_stats[SWAP_UTILS].count == 1);
-        test_assert(server.ror_stats->rio_stats[ROCKS_GET].batch == 1);
-        test_assert(server.ror_stats->rio_stats[ROCKS_GET].count == 2);
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].batch == 1);
+        test_assert(server.ror_stats->rio_stats[ROCKS_PUT].count == 2);
+
+        swapDataFree(data,NULL);
     }
 
     TEST("batch: request batch ctx") {
+        swapData *data;
         swapBatchCtx *batch_ctx = swapBatchCtxNew();
-        swapRequest *get_req1, *get_req2, *util_req;
+        swapRequest *out_req1, *out_req2, *utils_req;
+
+        swapThreadsInit();
+        server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+        asyncCompleteQueueInit();
 
         /* flush empty ctx => nop */
         swapBatchCtxFlush(batch_ctx);
-        test_assert(batch_ctx->stat.batch_count == 0);
-        test_assert(batch_ctx->stat.request_count == 0);
+        test_assert(batch_ctx->stat.submit_batch_count == 0);
+        test_assert(batch_ctx->stat.submit_request_count == 0);
 
-        util_req = swapDataRequestNew(SWAP_IN,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
-        get_req1 = swapDataRequestNew(SWAP_IN,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
-        get_req2 = swapDataRequestNew(SWAP_IN,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+        data = createWholeKeySwapData(db,key1,val1,NULL);
+        out_req1 = swapDataRequestNew(SWAP_OUT,0,NULL,data,NULL,NULL,NULL,NULL,NULL);
+        out_req2 = swapDataRequestNew(SWAP_OUT,0,NULL,data,NULL,NULL,NULL,NULL,NULL);
+        utils_req = swapDataRequestNew(SWAP_UTILS,GET_ROCKSDB_STATS_TASK,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-        swapBatchCtxFeed(batch_ctx,0,util_req,-1);
-        test_assert(batch_ctx->stat.batch_count == 0);
+        swapBatchCtxFeed(batch_ctx,0,utils_req,-1);
+        test_assert(batch_ctx->stat.submit_batch_count == 1);
 
         /* switch intention triggers flush before append */
-        swapBatchCtxFeed(batch_ctx,0,get_req1,-1);
-        test_assert(batch_ctx->stat.batch_count == 1);
-        test_assert(batch_ctx->stat.request_count == 1);
+        swapBatchCtxFeed(batch_ctx,0,out_req1,-1);
+        test_assert(batch_ctx->stat.submit_batch_count == 1);
+        test_assert(batch_ctx->stat.submit_request_count == 1);
 
         /* force flush triggers flush after append */
-        swapBatchCtxFeed(batch_ctx,1,get_req2,-1);
-        test_assert(batch_ctx->stat.batch_count == 2);
-        test_assert(batch_ctx->stat.request_count == 3);
+        swapBatchCtxFeed(batch_ctx,1,out_req2,-1);
+        test_assert(batch_ctx->stat.submit_batch_count == 2);
+        test_assert(batch_ctx->stat.submit_request_count == 3);
 
         /* exceeds swap batch limit triggers flush after append. */
         for (int i = 0; i < SWAP_BATCH_DEFAULT_SIZE; i++) {
-            test_assert(batch_ctx->stat.batch_count == 2);
-            swapBatchCtxFeed(batch_ctx,1,get_req2,-1);
+            test_assert(batch_ctx->stat.submit_batch_count == 2);
+            swapBatchCtxFeed(batch_ctx,0,out_req2,-1);
         }
-        test_assert(batch_ctx->stat.batch_count == 3);
-        test_assert(batch_ctx->stat.batch_count == 3+SWAP_BATCH_DEFAULT_SIZE);
+        test_assert(batch_ctx->stat.submit_batch_count == 3);
+        test_assert(batch_ctx->stat.submit_request_count == 3+SWAP_BATCH_DEFAULT_SIZE);
+
+        swapBatchCtxFree(batch_ctx);
     }
 
     return error;

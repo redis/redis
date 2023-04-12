@@ -260,13 +260,13 @@ int submitUtilTask(int type, void* pd, sds* error) {
 
     switch (type) {
         case COMPACT_RANGE_TASK:
-            req = swapDataRequestNew(SWAP_UTILS,0,NULL,NULL,NULL,NULL,
-                    compactRangeDone,pd,NULL);
+            req = swapDataRequestNew(SWAP_UTILS,COMPACT_RANGE_TASK,NULL,NULL,
+                    NULL,NULL,compactRangeDone,pd,NULL);
             submitSwapRequest(SWAP_MODE_ASYNC,req,server.swap_util_thread_idx);
             break;
         case GET_ROCKSDB_STATS_TASK:
-            req = swapDataRequestNew(SWAP_UTILS,1,NULL,NULL,NULL,NULL,
-                    getRocksdbStatsDone,pd,NULL);
+            req = swapDataRequestNew(SWAP_UTILS,GET_ROCKSDB_STATS_TASK,NULL,
+                    NULL,NULL,NULL,getRocksdbStatsDone,pd,NULL);
             submitSwapRequest(SWAP_MODE_ASYNC,req,server.swap_util_thread_idx);
             break;
         case CREATE_CHECKPOINT:

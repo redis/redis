@@ -2886,6 +2886,10 @@ void initServerConfig(void) {
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
+    /* Swap batch limits presets. */
+    for (j = 0; j < SWAP_TYPES; j++)
+        server.swap_batch_limits[j] = swapBatchLimitsDefaults[j];
+
     /* Linux OOM Score config */
     for (j = 0; j < CONFIG_OOM_COUNT; j++)
         server.oom_score_adj_values[j] = configOOMScoreAdjValuesDefaults[j];
