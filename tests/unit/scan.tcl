@@ -283,6 +283,11 @@ start_server {tags {"scan network"}} {
         assert {$first_score != 0}
     }
 
+    test "scan with null string" {
+        catch {r scan ""} err
+        format $err
+    } {ERR invalid cursor}
+
     test "SCAN regression test for issue #4906" {
         for {set k 0} {$k < 100} {incr k} {
             r del set
