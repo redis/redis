@@ -125,7 +125,9 @@ proc test {name code {okpattern undefined} {options undefined}} {
         send_data_packet $::test_server_fd skip $name
         return
     }
-
+    if {$::verbose > 1} {
+        puts "starting test $name"
+    }
     # abort if only_tests was set but test name is not included
     if {[llength $::only_tests] > 0 && [lsearch $::only_tests $name] < 0} {
         incr ::num_skipped
@@ -158,11 +160,16 @@ proc test {name code {okpattern undefined} {options undefined}} {
     set prev_test $::cur_test
     set ::cur_test "$name in $::curfile"
     if {!$::external} {
+        set servers {}
         foreach srv $::servers {
             set stdout [dict get $srv stdout]
             set fd [open $stdout "a+"]
             puts $fd "### Starting test $::cur_test"
             close $fd
+            lappend servers $stdout
+        }
+        if {$::verbose > 1} {
+            puts "### Starting test $::cur_test - with servers: $servers"
         }
     }
 

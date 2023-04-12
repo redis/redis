@@ -1,5 +1,5 @@
-start_server {tags {"repl network"}} {
-    start_server {} {
+start_server {tags {"repl network"} overrides {save {}}} {
+    start_server { overrides {save {}}} {
 
         set master [srv -1 client]
         set master_host [srv -1 host]
@@ -84,7 +84,7 @@ start_server {tags {"repl"}} {
             assert_equal OK [$master set foo 123]
             assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
             # Killing a slave to make it become a lagged slave.
-            exec kill -SIGSTOP [srv 0 pid]
+            pause_process [srv 0 pid]
             # Waiting for slave kill.
             wait_for_condition 100 100 {
                 [catch {$master set foo 123}] != 0
@@ -93,7 +93,7 @@ start_server {tags {"repl"}} {
             }
             assert_error "*NOREPLICAS*" {$master set foo 123}
             assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 0}
-            exec kill -SIGCONT [srv 0 pid]
+            resume_process [srv 0 pid]
         }
     }
 }

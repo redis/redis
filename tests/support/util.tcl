@@ -582,6 +582,20 @@ proc process_is_alive pid {
     }
 }
 
+proc pause_process pid {
+    exec kill -SIGSTOP $pid
+    wait_for_condition 50 100 {
+        [string match {*T*} [lindex [exec ps j $pid] 16]]
+    } else {
+        puts [exec ps j $pid]
+        fail "process didn't stop"
+    }
+}
+
+proc resume_process pid {
+    exec kill -SIGCONT $pid
+}
+
 proc cmdrstat {cmd r} {
     if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
         set _ $value

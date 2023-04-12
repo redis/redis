@@ -1,4 +1,4 @@
-start_server {tags {"aofrw"}} {
+start_server {tags {"aofrw"} overrides {save {}}} {
     # Enable the AOF
     r config set appendonly yes
     r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
