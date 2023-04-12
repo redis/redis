@@ -188,8 +188,6 @@ void unblockClient(client *c, int queue_for_reprocessing) {
         unblockClientWaitingData(c);
     } else if (c->bstate.btype == BLOCKED_WAIT || c->bstate.btype == BLOCKED_WAITAOF) {
         unblockClientWaitingReplicas(c);
-    } else if (c->bstate.btype == BLOCKED_WAIT_AFTER_REPL) {
-        unblockClientWaitingReplicas(c);
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
@@ -204,10 +202,7 @@ void unblockClient(client *c, int queue_for_reprocessing) {
 
     /* Reset the client for a new query, unless the client has pending command to process
      * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
-    if (!(c->flags & CLIENT_PENDING_COMMAND) && 
-        c->bstate.btype != BLOCKED_SHUTDOWN &&
-        c->bstate.btype != BLOCKED_POSTPONE)
-    {
+    if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN) {
         freeClientOriginalArgv(c);
         /* Clients that are not blocked on keys are not reprocessed so we must
          * call reqresAppendResponse here (for clients blocked on key,
@@ -239,8 +234,6 @@ void replyToBlockedClientTimedOut(client *c) {
         updateStatsOnUnblock(c, 0, 0, 0);
     } else if (c->bstate.btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bstate.reploffset));
-    } else if (c->bstate.btype == BLOCKED_WAIT_AFTER_REPL) {
-        addReplyErrorObject(c, shared.timeouterr);
     } else if (c->bstate.btype == BLOCKED_WAITAOF) {
         addReplyArrayLen(c,2);
         addReplyLongLong(c,server.fsynced_reploff >= c->bstate.reploffset);
@@ -595,12 +588,12 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 }
 
 /* block a client due to wait command */
-void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas, int btype) {
+void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas) {
     c->bstate.timeout = timeout;
     c->bstate.reploffset = offset;
     c->bstate.numreplicas = numreplicas;
     listAddNodeHead(server.clients_waiting_acks,c);
-    blockClient(c,btype);
+    blockClient(c,BLOCKED_WAIT);
 }
 
 /* block a client due to waitaof command */

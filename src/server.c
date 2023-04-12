@@ -1843,8 +1843,6 @@ void createSharedObjects(void) {
         "-NOREPLICAS Not enough good replicas to write.\r\n"));
     shared.busykeyerr = createObject(OBJ_STRING,sdsnew(
         "-BUSYKEY Target key name already exists.\r\n"));
-    shared.timeouterr = createObject(OBJ_STRING,sdsnew(
-        "-TIMEOUT Redis didn't complete the command execution within the expected time limit.\r\n"));
 
     /* The shared NULL depends on the protocol version. */
     shared.null[0] = NULL;

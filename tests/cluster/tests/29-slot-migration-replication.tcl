@@ -78,6 +78,7 @@ proc validate_slot_migration_states_close {from to slot_to_move} {
     set to_nodeid [R $to cluster myid]
 
     # Close the slot migration states
+    assert_not_equal {0} [R $to cluster setslot $slot_to_move node $to_nodeid replicaonly]
     assert_equal {OK} [R $to cluster setslot $slot_to_move node $to_nodeid]
     assert_equal {OK} [R $from cluster setslot $slot_to_move node $to_nodeid]
 
@@ -297,6 +298,7 @@ test "Replica redirects key access in migrating slots with ASK" {
     if {$R0_id ne $nodefrom(id)} {
         assert_equal {OK} [R 0 cluster setslot 609 importing $nodefrom(id)]
         assert_equal {OK} [$nodefrom(link) cluster setslot 609 migrating $R0_id]
+        assert_not_equal {0} [R 0 cluster setslot 609 node $R0_id replicaonly]
         assert_equal {OK} [R 0 cluster setslot 609 node $R0_id]
         assert_equal {OK} [$nodefrom(link) cluster setslot 609 node $R0_id]
     }

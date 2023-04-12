@@ -3508,14 +3508,6 @@ int replicationCountAcksByOffset(long long offset) {
     return count;
 }
 
-void waitForReplication(client *c, mstime_t timeout, long numreplicas, long long offset) {
-    blockForReplication(c,timeout,offset,numreplicas,BLOCKED_WAIT_AFTER_REPL);
-
-    /* Make sure that the server will send an ACK request to all the slaves
-     * before returning to the event loop. */
-    replicationRequestAckFromSlaves();
-}
-
 /* Return the number of replicas that already acknowledged the specified
  * replication offset being AOF fsynced. */
 int replicationCountAOFAcksByOffset(long long offset) {
@@ -3560,7 +3552,7 @@ void waitCommand(client *c) {
 
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
-    blockForReplication(c,timeout,offset,numreplicas,BLOCKED_WAIT);
+    blockForReplication(c,timeout,offset,numreplicas);
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -4005,7 +3997,7 @@ static client *findReplica(char *host, int port) {
     return NULL;
 }
 
-const char *getFailoverStateString() {
+const char *getFailoverStateString(void) {
     switch(server.failover_state) {
         case NO_FAILOVER: return "no-failover";
         case FAILOVER_IN_PROGRESS: return "failover-in-progress";
@@ -4017,7 +4009,7 @@ const char *getFailoverStateString() {
 /* Resets the internal failover configuration, this needs
  * to be called after a failover either succeeds or fails
  * as it includes the client unpause. */
-void clearFailoverState() {
+void clearFailoverState(void) {
     server.failover_end_time = 0;
     server.force_failover = 0;
     zfree(server.target_replica_host);
