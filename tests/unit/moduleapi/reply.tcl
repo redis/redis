@@ -126,6 +126,17 @@ start_server {tags {"modules"}} {
             assert_match "An error" $e
         }
 
+        test "RESP$proto: RM_ReplyWithErrorFormat: error format reply" {
+            catch {r rw.error_format "An error: %s" foo} e
+            assert_match "ERR An error: foo" $e
+
+            catch {r rw.error_format "-ERR An error: %s" foo2} e
+            assert_match "ERR An error: foo2" $e
+
+            catch {r rw.error_format "-WRONGTYPE A type error: %s" foo3} e
+            assert_match "WRONGTYPE A type error: foo3" $e
+        }
+
         r hello 2
     }
 
