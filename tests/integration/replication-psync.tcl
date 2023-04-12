@@ -9,8 +9,8 @@
 # reconnect with the master, otherwise just the initial synchronization is
 # checked for consistency.
 proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reconnect} {
-    start_server {tags {"repl"}} {
-        start_server {} {
+    start_server {tags {"repl"} overrides {save {}}} {
+        start_server {overrides {save {}}} {
 
             set master [srv -1 client]
             set master_host [srv -1 host]

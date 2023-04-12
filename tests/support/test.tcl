@@ -168,7 +168,9 @@ proc test {name code {okpattern undefined} {tags {}}} {
         send_data_packet $::test_server_fd skip $name
         return
     }
-
+    if {$::verbose > 1} {
+        puts "starting test $name"
+    }
     # abort if only_tests was set but test name is not included
     if {[llength $::only_tests] > 0 && ![search_pattern_list $name $::only_tests]} {
         incr ::num_skipped
@@ -200,11 +202,16 @@ proc test {name code {okpattern undefined} {tags {}}} {
             $r close
         }
     } else {
+        set servers {}
         foreach srv $::servers {
             set stdout [dict get $srv stdout]
             set fd [open $stdout "a+"]
             puts $fd "### Starting test $::cur_test"
             close $fd
+            lappend servers $stdout
+        }
+        if {$::verbose > 1} {
+            puts "### Starting test $::cur_test - with servers: $servers"
         }
     }
 

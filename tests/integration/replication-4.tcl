@@ -1,5 +1,5 @@
-start_server {tags {"repl network external:skip singledb:skip"}} {
-    start_server {} {
+start_server {tags {"repl network external:skip singledb:skip"} overrides {save {}}} {
+    start_server { overrides {save {}}} {
 
         set master [srv -1 client]
         set master_host [srv -1 host]
@@ -104,7 +104,7 @@ start_server {tags {"repl external:skip"}} {
             assert_equal OK [$master set foo 123]
             assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
             # Killing a slave to make it become a lagged slave.
-            exec kill -SIGSTOP [srv 0 pid]
+            pause_process [srv 0 pid]
             # Waiting for slave kill.
             wait_for_condition 100 100 {
                 [catch {$master set foo 123}] != 0
@@ -113,7 +113,7 @@ start_server {tags {"repl external:skip"}} {
             }
             assert_error "*NOREPLICAS*" {$master set foo 123}
             assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 0}
-            exec kill -SIGCONT [srv 0 pid]
+            resume_process [srv 0 pid]
         }
     }
 }
@@ -146,12 +146,12 @@ start_server {tags {"repl external:skip"}} {
             $master debug set-active-expire 0
             $master set k 1 px $px_ms
             wait_for_ofs_sync $master $slave
-            exec kill -SIGSTOP [srv 0 pid]
+            pause_process [srv 0 pid]
             $master incr k
             after [expr $px_ms + 1]
             # Stopping the replica for one second to makes sure the INCR arrives
             # to the replica after the key is logically expired.
-            exec kill -SIGCONT [srv 0 pid]
+            resume_process [srv 0 pid]
             wait_for_ofs_sync $master $slave
             # Check that k is logically expired but is present in the replica.
             set res [$slave exists k]

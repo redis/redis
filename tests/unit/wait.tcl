@@ -47,25 +47,25 @@ start_server {} {
     }
 
     test {WAIT should not acknowledge 1 additional copy if slave is blocked} {
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
         $master set foo 0
         $master incr foo
         $master incr foo
         $master incr foo
         assert {[$master wait 1 1000] == 0}
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 
     test {WAIT implicitly blocks on client pause since ACKs aren't sent} {
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
         $master multi
         $master incr foo
         $master client pause 10000 write
         $master exec
         assert {[$master wait 1 1000] == 0}
         $master client unpause
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 
@@ -73,7 +73,7 @@ start_server {} {
         set rd [redis_deferring_client -1]
         set rd2 [redis_deferring_client -1]
 
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
 
         $rd incr foo
         $rd read
@@ -85,7 +85,7 @@ start_server {} {
         $rd2 wait 1 0
         wait_for_blocked_clients_count 2 100 10 -1
 
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
 
         assert_equal [$rd read] {1}
         assert_equal [$rd2 read] {1}
@@ -229,10 +229,10 @@ tags {"wait aof network external:skip"} {
             }
 
             test {WAITAOF replica copy if replica is blocked} {
-                exec kill -SIGSTOP $replica_pid
+                pause_process $replica_pid
                 $master incr foo
                 assert_equal [$master waitaof 0 1 50] {1 0} ;# exits on timeout
-                exec kill -SIGCONT $replica_pid
+                resume_process $replica_pid
                 assert_equal [$master waitaof 0 1 0] {1 1}
             }
 
@@ -240,7 +240,7 @@ tags {"wait aof network external:skip"} {
                 set rd [redis_deferring_client -1]
                 set rd2 [redis_deferring_client -1]
 
-                exec kill -SIGSTOP $replica_pid
+                pause_process $replica_pid
 
                 $rd incr foo
                 $rd read
@@ -252,7 +252,7 @@ tags {"wait aof network external:skip"} {
                 $rd2 waitaof 0 1 0
                 wait_for_blocked_clients_count 2 100 10 -1
 
-                exec kill -SIGCONT $replica_pid
+                resume_process $replica_pid
 
                 assert_equal [$rd read] {1 1}
                 assert_equal [$rd2 read] {1 1}
@@ -438,7 +438,7 @@ start_server {} {
         waitForBgrewriteaof $replica1
         waitForBgrewriteaof $replica2
 
-        exec kill -SIGSTOP $replica1_pid
+        pause_process $replica1_pid
 
         $rd incr foo
         $rd read
@@ -451,7 +451,7 @@ start_server {} {
 
         wait_for_blocked_clients_count 2
 
-        exec kill -SIGCONT $replica1_pid
+        resume_process $replica1_pid
 
         # WAIT will unblock the client first.
         assert_equal [$rd2 read] {2}

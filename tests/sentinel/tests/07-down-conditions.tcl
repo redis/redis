@@ -49,9 +49,9 @@ test "SDOWN is triggered by non-responding but not crashed instance" {
     set master_id [get_instance_id_by_port redis [lindex $master_addr 1]]
 
     set pid [get_instance_attrib redis $master_id pid]
-    exec kill -SIGSTOP $pid
+    pause_process $pid
     ensure_master_down
-    exec kill -SIGCONT $pid
+    resume_process $pid
     ensure_master_up
 }
 
