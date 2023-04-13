@@ -1416,6 +1416,15 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         set e
     } {*ERR*syntax*error*}
 
+    test {LINSERT against non-list value error} {
+        r set k1 v1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r linsert k1 after 0 0}
+    }
+
+    test {LINSERT against non existing key} {
+        assert_equal 0 [r linsert not-a-key before 0 0]
+    }
+
 foreach type {listpack quicklist} {
     foreach {num} {250 500} {
         if {$type == "quicklist"} {
