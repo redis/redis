@@ -481,6 +481,8 @@ static void swapExecBatchExecuteDoOutMeta(swapExecBatch *exec_batch) {
     meta_rawvals = zmalloc(sizeof(sds)*count);
     for (size_t i = 0; i < count; i++) {
         swapRequest *req = exec_batch->reqs[i];
+        /* rdb out do not meta already encoded, can't put. */
+        if (req->data->db == NULL || req->data->key == NULL) continue;
         meta_cfs[num_metas] = META_CF;
         meta_rawkeys[num_metas] = swapDataEncodeMetaKey(req->data);
         meta_rawvals[num_metas] = swapDataEncodeMetaVal(req->data);
@@ -499,7 +501,7 @@ void swapExecBatchExecuteOut(swapExecBatch *exec_batch) {
     serverAssert(exec_batch->action == ROCKS_PUT);
     RIOBatchInit(rios,ROCKS_PUT);
     swapExecBatchPrepareRIOBatch(exec_batch,rios);
-    swapExecBatchDoRIOBatch(exec_batch, rios);
+    swapExecBatchDoRIOBatch(exec_batch,rios);
     for (size_t i = 0; i < exec_batch->count; i++) {
         int errcode = 0;
         swapRequest *req = exec_batch->reqs[i];
@@ -539,13 +541,16 @@ static void swapExecBatchExecuteDoDelMeta(swapExecBatch *exec_batch) {
 
 void swapExecBatchExecuteDel(swapExecBatch *exec_batch) {
     RIOBatch _rios, *rios = &_rios;
-    serverAssert(exec_batch->action == ROCKS_DEL);
-    RIOBatchInit(rios,ROCKS_DEL);
-    swapExecBatchPrepareRIOBatch(exec_batch,rios);
-    swapExecBatchDoRIOBatch(exec_batch, rios);
+    int action = exec_batch->action;
+    serverAssert(action == ROCKS_DEL || action == ROCKS_NOP);
+    if (action != ROCKS_NOP) {
+        RIOBatchInit(rios,ROCKS_DEL);
+        swapExecBatchPrepareRIOBatch(exec_batch,rios);
+        swapExecBatchDoRIOBatch(exec_batch, rios);
+        swapExecBatchUpdateStatsRIOBatch(exec_batch,rios);
+        RIOBatchDeinit(rios);
+    }
     swapExecBatchExecuteDoDelMeta(exec_batch);
-    swapExecBatchUpdateStatsRIOBatch(exec_batch,rios);
-    RIOBatchDeinit(rios);
 }
 
 void swapExecBatchExecuteUtils(swapExecBatch *exec_batch) {
