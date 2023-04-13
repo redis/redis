@@ -1093,9 +1093,28 @@ void RIOBatchDo(RIOBatch *rios);
 void RIOBatchUpdateStatsDo(RIOBatch *rios, long duration);
 void RIOBatchUpdateStatsDataNotFound(RIOBatch *rios);
 
+#define SWAP_BATCH_FLUSH_FORCE_FLUSH    0
+#define SWAP_BATCH_FLUSH_REACH_LIMIT    1
+#define SWAP_BATCH_FLUSH_UTILS_TYPE     2
+#define SWAP_BATCH_FLUSH_THREAD_SWITCH  3
+#define SWAP_BATCH_FLUSH_INTENT_SWITCH  4
+#define SWAP_BATCH_FLUSH_BEFORE_SLEEP   5
+#define SWAP_BATCH_FLUSH_TYPES          6
+
+static inline const char *swapBatchFlushTypeName(int type) {
+    const char *name = "?";
+    const char *names[] = {"FORCE_FLUSH", "REACH_LIMIT", "UTILS_TYPE", "THREAD_SWITCH", "INTENT_SWITCH", "BEFORE_SLEEP"};
+    if (type >= 0 && (size_t)type < sizeof(names)/sizeof(char*))
+        name = names[type];
+    return name;
+}
+
 typedef struct swapBatchCtxStat {
-  redisAtomic long long submit_batch_count;
-  redisAtomic long long submit_request_count;
+  int stats_metric_idx_request;
+  int stats_metric_idx_batch;
+  long long submit_batch_count;
+  long long submit_request_count;
+  long long submit_batch_flush[SWAP_BATCH_FLUSH_TYPES];
 } swapBatchCtxStat;
 
 typedef struct swapBatchCtx {
@@ -1108,7 +1127,11 @@ typedef struct swapBatchCtx {
 swapBatchCtx *swapBatchCtxNew();
 void swapBatchCtxFree(swapBatchCtx *batch_ctx);
 void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int force_flush, swapRequest *req, int thread_idx);
-size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx);
+size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx, int reason);
+
+void trackSwapBatchInstantaneousMetrics(void);
+void resetSwapBatchInstantaneousMetrics(void);
+sds genSwapBatchInfoString(sds info);
 
 extern swapBatchLimitsConfig swapBatchLimitsDefaults[SWAP_TYPES];
 
@@ -1404,6 +1427,10 @@ void dictObjectDestructor(void *privdata, void *val);
 #define SWAP_LOCK_METRIC_PROCEED_COUNT 3
 #define SWAP_LOCK_METRIC_SIZE 4
 
+#define SWAP_BATCH_STATS_METRIC_SUBMIT_REQUEST 0
+#define SWAP_BATCH_STATS_METRIC_SUBMIT_BATCH 1
+#define SWAP_BATCH_STATS_METRIC_COUNT 2
+
 #define SWAP_SWAP_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*SWAP_TYPES)
 #define SWAP_RIO_STATS_METRIC_COUNT (SWAP_STAT_METRIC_SIZE*ROCKS_TYPES)
 #define SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT (COMPACTION_FILTER_METRIC_SIZE*CF_COUNT)
@@ -1416,7 +1443,9 @@ void dictObjectDestructor(void *privdata, void *val);
 #define SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET (SWAP_RIO_STATS_METRIC_OFFSET+SWAP_RIO_STATS_METRIC_COUNT)
 #define SWAP_DEBUG_STATS_METRIC_OFFSET (SWAP_COMPACTION_FILTER_STATS_METRIC_OFFSET+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT)
 #define SWAP_LOCK_STATS_METRIC_OFFSET (SWAP_DEBUG_STATS_METRIC_OFFSET+SWAP_DEBUG_STATS_METRIC_COUNT)
-#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT+SWAP_DEBUG_STATS_METRIC_COUNT+SWAP_LOCK_STATS_METRIC_COUNT)
+#define SWAP_BATCH_STATS_METRIC_OFFSET (SWAP_LOCK_STATS_METRIC_OFFSET+SWAP_LOCK_STATS_METRIC_COUNT)
+
+#define SWAP_STATS_METRIC_COUNT (SWAP_SWAP_STATS_METRIC_COUNT+SWAP_RIO_STATS_METRIC_COUNT+SWAP_COMPACTION_FILTER_STATS_METRIC_COUNT+SWAP_DEBUG_STATS_METRIC_COUNT+SWAP_LOCK_STATS_METRIC_COUNT+SWAP_BATCH_STATS_METRIC_COUNT)
 
 typedef struct swapStat {
     const char *name;

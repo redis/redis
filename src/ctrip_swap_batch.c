@@ -258,9 +258,67 @@ void swapRequestBatchProcess(swapRequestBatch *reqs) {
 
 /* swapBatchCtx: currently acummulated requests about to submit in batch. */
 static void swapBatchCtxStatInit(swapBatchCtxStat *batch_stat) {
-    atomicSet(batch_stat->submit_batch_count,0);
-    atomicSet(batch_stat->submit_request_count,0);
+    batch_stat->submit_batch_count = 0;
+    batch_stat->submit_request_count = 0;
+    for (int i = 0 ; i < SWAP_BATCH_FLUSH_TYPES; i++) {
+        batch_stat->submit_batch_flush[i] = 0;
+    }
 }
+
+void trackSwapBatchInstantaneousMetrics() {
+    swapBatchCtxStat *batch_stat = &server.swap_batch_ctx->stat;
+    trackInstantaneousMetric(batch_stat->stats_metric_idx_request,
+            batch_stat->submit_request_count);
+    trackInstantaneousMetric(batch_stat->stats_metric_idx_batch,
+            batch_stat->submit_batch_count);
+    batch_stat->stats_metric_idx_request =
+        SWAP_BATCH_STATS_METRIC_OFFSET+SWAP_BATCH_STATS_METRIC_SUBMIT_REQUEST;
+    batch_stat->stats_metric_idx_batch =
+        SWAP_BATCH_STATS_METRIC_OFFSET+SWAP_BATCH_STATS_METRIC_SUBMIT_BATCH;
+}
+
+void resetSwapBatchInstantaneousMetrics(void) {
+    swapBatchCtxStat *batch_stat = &server.swap_batch_ctx->stat;
+    batch_stat->submit_request_count = 0;
+    batch_stat->submit_batch_count = 0;
+    for (int i = 0; i < SWAP_BATCH_FLUSH_TYPES; i++) {
+        batch_stat->submit_batch_flush[i] = 0;
+    }
+}
+
+sds genSwapBatchInfoString(sds info) {
+    swapBatchCtxStat *batch_stat = &server.swap_batch_ctx->stat;
+    long long type_count, request_count = batch_stat->submit_request_count,
+           batch_count = batch_stat->submit_batch_count;
+    long long batch_ps, request_ps;
+    double request_pb;
+
+    request_ps = getInstantaneousMetric(batch_stat->stats_metric_idx_request);
+    batch_ps = getInstantaneousMetric(batch_stat->stats_metric_idx_batch);
+    request_pb = batch_ps == 0 ? 0 : (double)request_ps/batch_ps;
+
+    info = sdscatprintf(info,
+            "swap_submit_request_count:%lld\r\n"
+            "swap_submit_batch_count:%lld\r\n"
+            "swap_submit_instantaneous_request_ps:%lld\r\n"
+            "swap_submit_instantaneous_batch_ps:%lld\r\n"
+            "swap_submit_instantaneous_request_pb:%.2f\r\n",
+            request_count,batch_count,request_ps,batch_ps,request_pb);
+
+    info = sdscatprintf(info,"swap_submit_batch_type:");
+    for (int i = 0; i < SWAP_BATCH_FLUSH_TYPES; i++) {
+        type_count = server.swap_batch_ctx->stat.submit_batch_flush[i];
+        if (i == 0) {
+            info = sdscatprintf(info,"%s=%lld",swapBatchFlushTypeName(i),type_count);
+        } else {
+            info = sdscatprintf(info,",%s=%lld",swapBatchFlushTypeName(i),type_count);
+        }
+    }
+    info = sdscatprintf(info,"\r\n");
+
+    return info;
+}
+
 
 swapBatchCtx *swapBatchCtxNew() {
     swapBatchCtx *batch_ctx = zmalloc(sizeof(swapBatchCtx));
@@ -287,13 +345,14 @@ static inline swapRequestBatch *swapBatchCtxShift(swapBatchCtx *batch_ctx) {
     return reqs;
 }
 
-size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx) {
+size_t swapBatchCtxFlush(swapBatchCtx *batch_ctx, int reason) {
     if (swapRequestBatchEmpty(batch_ctx->batch)) return 0;
     int thread_idx = batch_ctx->thread_idx;
     swapRequestBatch *reqs = swapBatchCtxShift(batch_ctx);
     size_t reqs_count = reqs->count;
-    atomicIncr(batch_ctx->stat.submit_batch_count,1);
-    atomicIncr(batch_ctx->stat.submit_request_count,reqs_count);
+    batch_ctx->stat.submit_batch_count++;
+    batch_ctx->stat.submit_request_count+=reqs_count;
+    batch_ctx->stat.submit_batch_flush[reason]++;
     submitSwapRequestBatch(SWAP_MODE_ASYNC,reqs,thread_idx);
     return reqs_count;
 }
@@ -316,22 +375,38 @@ inline int swapBatchCtxExceedsLimit(swapBatchCtx *batch_ctx) {
 
 void swapBatchCtxFeed(swapBatchCtx *batch_ctx, int flush,
         swapRequest *req, int thread_idx) {
+    int cmd_intention;
+
+    if (req->intention == SWAP_UNSET) {
+        cmd_intention = req->key_request->cmd_intention;
+    } else {
+        cmd_intention = req->intention;
+    }
+
     /* flush before handling req if req is dispatched to another thread. */
-    if (batch_ctx->thread_idx != thread_idx ||
-            batch_ctx->cmd_intention != req->intention) {
-        swapBatchCtxFlush(batch_ctx);
+    if (batch_ctx->thread_idx != thread_idx) {
+        swapBatchCtxFlush(batch_ctx,SWAP_BATCH_FLUSH_THREAD_SWITCH);
+    } else if (batch_ctx->cmd_intention != cmd_intention) {
+        swapBatchCtxFlush(batch_ctx,SWAP_BATCH_FLUSH_INTENT_SWITCH);
+    } else {
+        /* no need to flush beforehand */
     }
 
     batch_ctx->thread_idx = thread_idx;
-    batch_ctx->cmd_intention = req->intention;
+    batch_ctx->cmd_intention = cmd_intention;
 
     swapRequestBatchAppend(batch_ctx->batch,req);
 
     /* flush after handling req if flush hint set. */
     /* execute after append req if exceeded swap-batch-limit */
-    if (flush || !swapIntentionInOutDel(batch_ctx->cmd_intention)
-            || swapBatchCtxExceedsLimit(batch_ctx)) {
-        swapBatchCtxFlush(batch_ctx);
+    if (flush) {
+        swapBatchCtxFlush(batch_ctx,SWAP_BATCH_FLUSH_FORCE_FLUSH);
+    } else if (!swapIntentionInOutDel(batch_ctx->cmd_intention)) {
+        swapBatchCtxFlush(batch_ctx,SWAP_BATCH_FLUSH_UTILS_TYPE);
+    } else if (swapBatchCtxExceedsLimit(batch_ctx)) {
+        swapBatchCtxFlush(batch_ctx,SWAP_BATCH_FLUSH_REACH_LIMIT);
+    } else {
+        /* no need to flush afterwards */
     }
 }
 
@@ -475,7 +550,7 @@ int swapBatchTest(int argc, char *argv[], int accurate) {
         asyncCompleteQueueInit();
 
         /* flush empty ctx => nop */
-        swapBatchCtxFlush(batch_ctx);
+        swapBatchCtxFlush(batch_ctx,SWAP_BATCH_FLUSH_BEFORE_SLEEP);
         test_assert(batch_ctx->stat.submit_batch_count == 0);
         test_assert(batch_ctx->stat.submit_request_count == 0);
 

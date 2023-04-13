@@ -741,8 +741,8 @@ int swapDataSetTest(int argc, char **argv, int accurate) {
         set1_data = createSwapData(db, key1,set1);
         swapDataSetupSet(set1_data, (void**)&set1_ctx);
         sds *rawkeys, *rawvals;
-        sds empty = sdsempty();
-        int *cfs, cf, flags;
+        int *cfs, cf;
+        uint32_t flags;
         sds start, end;
 
         set1_ctx->ctx.num = 2;

@@ -131,11 +131,13 @@ void trackSwapInstantaneousMetrics() {
         }
     }
     trackSwapLockInstantaneousMetrics();
+    trackSwapBatchInstantaneousMetrics();
 }
 
 sds genSwapInfoString(sds info) {
     info = genSwapStorageInfoString(info);
     info = genSwapHitInfoString(info);
+    info = genSwapBatchInfoString(info);
     info = genSwapExecInfoString(info);
     info = genSwapLockInfoString(info);
     info = genSwapReplInfoString(info);
@@ -149,12 +151,6 @@ sds genSwapExecInfoString(sds info) {
     int j;
     long long ops, batch_ps, total_latency;
     size_t count, batch, memory;
-
-    info = sdscatprintf(info,
-            "swap_submit_request_count:%lld\r\n"
-            "swap_submit_batch_count:%lld\r\n",
-            server.swap_batch_ctx->stat.submit_request_count,
-            server.swap_batch_ctx->stat.submit_batch_count);
 
     info = sdscatprintf(info,
             "swap_inprogress_batch:%ld\r\n"
@@ -255,6 +251,7 @@ void resetStatsSwap() {
         server.ror_stats->compaction_filter_stats[i].scan_count = 0;
     }
     resetSwapLockInstantaneousMetrics();
+    resetSwapBatchInstantaneousMetrics();
 }
 
 void resetSwapHitStat() {

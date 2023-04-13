@@ -174,9 +174,13 @@ void swapRequestMerge(swapRequest *req) {
         swapDataTurnDeleted(data,del_skip);
         retval = swapDataSwapDel(data,datactx,del_skip);
         break;
+    case SWAP_UTILS:
+        retval = 0;
+        break;
     default:
         serverPanic("merge: unexpected request intention");
         retval = SWAP_ERR_DATA_FIN_FAIL;
+        break;
     }
 
     if (retval) swapRequestSetError(req, retval);

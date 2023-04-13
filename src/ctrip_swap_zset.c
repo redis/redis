@@ -1272,7 +1272,8 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zset1_data = createSwapData(db, key1,zset1);
         swapDataSetupZSet(zset1_data, (void**)&zset1_ctx);
         sds *rawkeys, *rawvals;
-        int *cfs, cf, flags;
+        int *cfs, cf;
+        uint32_t flags;
         sds start, end;
 
         zset1_ctx->bdc.num = 2;
@@ -1294,7 +1295,6 @@ int swapDataZsetTest(int argc, char **argv, int accurate) {
         zsetEncodeRange(zset1_data, SWAP_IN, zset1_ctx, &numkeys, &flags, &cf, &start, &end);
         test_assert(ROCKS_ITERATE == action);
         test_assert(DATA_CF == cf);
-        sds empty = sdsnewlen("", 0);
         expectEncodedKey = rocksEncodeDataRangeStartKey(db, key1->ptr, 0);
         test_assert(memcmp(expectEncodedKey, start, sdslen(start)) == 0);
         // encodeKeys - swap del
