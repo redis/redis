@@ -474,6 +474,9 @@ start_server {tags {"string"}} {
         assert_equal "a" [r substr key 0 0]
         assert_equal "abcd" [r substr key 0 3]
         assert_equal "bcde" [r substr key -4 -1]
+        assert_equal "" [r substr key -1 -3]
+        assert_equal "" [r substr key 7 8]
+        assert_equal "" [r substr nokey 0 1]
     }
     
 if {[string match {*jemalloc*} [s mem_allocator]]} {
