@@ -1408,7 +1408,6 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             # check inserting integer encoded value
             assert_equal 9 [r linsert xlist before aa 42] "before aa"
             assert_equal 42 [r lrange xlist 0 0] "lrangeE"
-
         }
     }
 
