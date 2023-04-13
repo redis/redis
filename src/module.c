@@ -873,10 +873,20 @@ void moduleCallCommandUnblockedHandler(client *c) {
  * because we only need to track of nesting level in the main thread
  * (only the main thread uses propagatePendingCommands) */
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags) {
-    memset(out_ctx, 0 ,sizeof(RedisModuleCtx));
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
+    out_ctx->client = NULL;
+    out_ctx->blocked_client = NULL;
+    out_ctx->amqueue = NULL;
+    out_ctx->amqueue_len = out_ctx->amqueue_used = 0;
     out_ctx->flags = ctx_flags;
+    out_ctx->postponed_arrays = NULL;
+    out_ctx->postponed_arrays_count = 0;
+    out_ctx->blocked_privdata = NULL;
+    out_ctx->blocked_ready_key = NULL;
+    out_ctx->keys_result = NULL;
+    out_ctx->pa_head = NULL;
+    out_ctx->user = NULL;
     if (ctx_flags & REDISMODULE_CTX_TEMP_CLIENT)
         out_ctx->client = moduleAllocTempClient(NULL);
     else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)

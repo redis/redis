@@ -15,7 +15,10 @@ typedef struct {
 
 void SHA1Transform(uint32_t state[5], const unsigned char buffer[64]);
 void SHA1Init(SHA1_CTX* context);
-void SHA1Update(SHA1_CTX* context, const unsigned char* data, uint32_t len);
+/* 'noinline' attribute is intended to prevent the `-Wstringop-overread` warning
+ * when using gcc-12 later with LTO enabled. It may be removed once the
+ * bug[https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80922] is fixed. */
+__attribute__((noinline)) void SHA1Update(SHA1_CTX* context, const unsigned char* data, uint32_t len);
 void SHA1Final(unsigned char digest[20], SHA1_CTX* context);
 
 #ifdef REDIS_TEST
