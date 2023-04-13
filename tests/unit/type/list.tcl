@@ -1408,6 +1408,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             # check inserting integer encoded value
             assert_equal 9 [r linsert xlist before aa 42] "before aa"
             assert_equal 42 [r lrange xlist 0 0] "lrangeE"
+
         }
     }
 
@@ -1415,6 +1416,15 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         catch {[r linsert xlist aft3r aa 42]} e
         set e
     } {*ERR*syntax*error*}
+
+    test {LINSERT against non-list value error} {
+        r set k1 v1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r linsert k1 after 0 0}
+    }
+
+    test {LINSERT against non existing key} {
+        assert_equal 0 [r linsert not-a-key before 0 0]
+    }
 
 foreach type {listpack quicklist} {
     foreach {num} {250 500} {
