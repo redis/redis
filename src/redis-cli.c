@@ -239,6 +239,7 @@ static struct config {
     int get_functions_rdb_mode;
     int stat_mode;
     int scan_mode;
+    int count;
     int intrinsic_latency_mode;
     int intrinsic_latency_duration;
     sds pattern;
@@ -333,7 +334,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"[%i]",config.dbnum);
 
     /* Add TX if in transaction state*/
-    if (config.in_multi)  
+    if (config.in_multi)
         prompt = sdscatlen(prompt,"(TX)",4);
 
     if (config.pubsub_mode)
@@ -667,7 +668,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
 static size_t cliCountCommands(redisReply* commandTable) {
     size_t numCommands = commandTable->elements / 2;
 
-    /* The command docs table maps command names to a map of their specs. */    
+    /* The command docs table maps command names to a map of their specs. */
     for (size_t i = 0; i < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);  /* Command name. */
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
@@ -789,7 +790,7 @@ static helpEntry *cliLegacyInitCommandHelpEntry(char *cmdname, char *subcommandn
                                                 dict *groups, sds version) {
     helpEntry *help = next++;
     cliFillInCommandHelpEntry(help, cmdname, subcommandname);
-    
+
     help->docs.summary = sdsnew(command->summary);
     help->docs.since = sdsnew(command->since);
     help->docs.group = sdsnew(command->group);
@@ -885,7 +886,7 @@ static sds cliGetServerVersion() {
 
 static void cliLegacyInitHelp(dict *groups) {
     sds serverVersion = cliGetServerVersion();
-    
+
     /* Scan the commandDocs array and fill in the entries */
     helpEntriesLen = cliLegacyCountCommands(redisCommandTable, serverVersion);
     helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
@@ -1094,7 +1095,7 @@ static sds addHintForArguments(sds hint, cliCommandArg *args, int numargs, char 
         /* The rule is that successive "optional" arguments can appear in any order.
          * But if they are followed by a required argument, no more of those optional arguments
          * can appear after that.
-         * 
+         *
          * This code handles all successive optional args together. This lets us show the
          * completion of the currently-incomplete optional arg first, if there is one.
          */
@@ -1109,7 +1110,7 @@ static sds addHintForArguments(sds hint, cliCommandArg *args, int numargs, char 
         }
 
         /* If the following non-optional arg has not been matched, add hints for
-         * any remaining optional args in this group. 
+         * any remaining optional args in this group.
          */
         if (j == numargs || args[j].matched == 0) {
             for (; i < j; i++) {
@@ -1137,7 +1138,7 @@ static sds addHintForRepeatedArgument(sds hint, cliCommandArg *arg) {
      * so we can safely clear its matched flags before printing it.
      */
     clearMatchedArgs(arg, 1);
-        
+
     if (hint[0] != '\0') {
         hint = sdscat(hint, " ");
     }
@@ -2165,7 +2166,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
                 out = cliFormatReplyJson(out,key,mode);
             } else {
                 /* According to JSON spec, JSON map keys must be strings,
-                 * and in RESP3, they can be other types. 
+                 * and in RESP3, they can be other types.
                  * The first one(cliFormatReplyJson) is to convert non string type to string
                  * The Second one(escapeJsonString) is to escape the converted string */
                 sds keystr = cliFormatReplyJson(sdsempty(),key,mode);
@@ -2301,8 +2302,8 @@ static int cliReadReply(int output_raw_strings) {
             config.cluster_send_asking = 1;
         }
         cliRefreshPrompt();
-    } else if (!config.interactive && config.set_errcode && 
-        reply->type == REDIS_REPLY_ERROR) 
+    } else if (!config.interactive && config.set_errcode &&
+        reply->type == REDIS_REPLY_ERROR)
     {
         fprintf(stderr,"%s\n",reply->str);
         exit(1);
@@ -2524,15 +2525,15 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             }
 
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2 && 
-                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            if (!strcasecmp(command,"select") && argc == 2 &&
+                config.last_cmd_type != REDIS_REPLY_ERROR)
             {
                 config.conn_info.input_dbnum = config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
             } else if (!strcasecmp(command,"multi") && argc == 1 &&
-                config.last_cmd_type != REDIS_REPLY_ERROR) 
+                config.last_cmd_type != REDIS_REPLY_ERROR)
             {
                 config.in_multi = 1;
                 config.pre_multi_dbnum = config.dbnum;
@@ -2545,8 +2546,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                     config.conn_info.input_dbnum = config.dbnum = config.pre_multi_dbnum;
                 }
                 cliRefreshPrompt();
-            } else if (!strcasecmp(command,"discard") && argc == 1 && 
-                config.last_cmd_type != REDIS_REPLY_ERROR) 
+            } else if (!strcasecmp(command,"discard") && argc == 1 &&
+                config.last_cmd_type != REDIS_REPLY_ERROR)
             {
                 config.in_multi = 0;
                 config.conn_info.input_dbnum = config.dbnum = config.pre_multi_dbnum;
@@ -2727,6 +2728,8 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--pattern") && !lastarg) {
             sdsfree(config.pattern);
             config.pattern = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--count") && !lastarg) {
+            config.count = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--quoted-pattern") && !lastarg) {
             sdsfree(config.pattern);
             config.pattern = unquoteCString(argv[++i]);
@@ -2956,7 +2959,7 @@ static int parseOptions(int argc, char **argv) {
         fprintf(stderr,"Option --functions-rdb and --rdb are mutually exclusive.\n");
         exit(1);
     }
- 
+
     if (config.stdin_lastarg && config.stdin_tag_arg) {
         fprintf(stderr, "Options -x and -X are mutually exclusive.\n");
         exit(1);
@@ -3076,6 +3079,7 @@ static void usage(int err) {
 "  --scan             List all keys using the SCAN command.\n"
 "  --pattern <pat>    Keys pattern when using the --scan, --bigkeys or --hotkeys\n"
 "                     options (default: *).\n"
+"  --count <count>    Count option when using the --scan, --bigkeys or --hotkeys (default: 10).\n"
 "  --quoted-pattern <pat> Same as --pattern, but the specified string can be\n"
 "                         quoted, in order to pass an otherwise non binary-safe string.\n"
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
@@ -3106,6 +3110,7 @@ static void usage(int err) {
 "  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
 "  redis-cli --eval myscript.lua key1 key2 , arg1 arg2 arg3\n"
 "  redis-cli --scan --pattern '*:12345*'\n"
+"  redis-cli --scan --pattern '*:12345*' --count 100\n"
 "\n"
 "  (Note: when using --eval the comma separates KEYS[] from ARGV[] items)\n"
 "\n"
@@ -7859,7 +7864,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
                 src_port, src_ctx->errstr);
         goto cleanup;
     }
-    // Auth for the source node. 
+    // Auth for the source node.
     char *from_user = config.cluster_manager_command.from_user;
     char *from_pass = config.cluster_manager_command.from_pass;
     if (cliAuth(src_ctx, from_user, from_pass) == REDIS_ERR) {
@@ -7909,7 +7914,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     cmdfmt = sdsnew("MIGRATE %s %d %s %d %d");
     if (config.conn_info.auth) {
         if (config.conn_info.user) {
-            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.conn_info.user, config.conn_info.auth); 
+            cmdfmt = sdscatfmt(cmdfmt," AUTH2 %s %s", config.conn_info.user, config.conn_info.auth);
         } else {
             cmdfmt = sdscatfmt(cmdfmt," AUTH %s", config.conn_info.auth);
         }
@@ -8821,8 +8826,8 @@ static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply;
 
     if (config.pattern)
-        reply = redisCommand(context, "SCAN %llu MATCH %b",
-            *it, config.pattern, sdslen(config.pattern));
+        reply = redisCommand(context, "SCAN %llu MATCH %b COUNT %d",
+            *it, config.pattern, sdslen(config.pattern), config.count);
     else
         reply = redisCommand(context,"SCAN %llu",*it);
 
@@ -9711,7 +9716,7 @@ void testHintSuite(char *filename) {
         }
 
         /* Strip trailing spaces from hint - they don't matter. */
-        while (hint != NULL && sdslen(hint) > 0 && hint[sdslen(hint) - 1] == ' ') {            
+        while (hint != NULL && sdslen(hint) > 0 && hint[sdslen(hint) - 1] == ' ') {
             sdssetlen(hint, sdslen(hint) - 1);
             hint[sdslen(hint)] = '\0';
         }
@@ -9727,7 +9732,7 @@ void testHintSuite(char *filename) {
         sdsfree(hint);
     }
     fclose(fp);
-    
+
     printf("%s: %d/%d passed\n", fail == 0 ? "SUCCESS" : "FAILURE", pass, pass + fail);
     exit(fail);
 }
@@ -9765,6 +9770,7 @@ int main(int argc, char **argv) {
     config.get_functions_rdb_mode = 0;
     config.stat_mode = 0;
     config.scan_mode = 0;
+    config.count = 10;
     config.intrinsic_latency_mode = 0;
     config.pattern = NULL;
     config.rdb_filename = NULL;
