@@ -31,9 +31,10 @@
 
 #include "server.h"
 #include "cluster.h"
-#include "bio.h"
+#include "bjm.h"
 #include "functions.h"
 #include "connection.h"
+#include "lazyfree.h"
 
 #include <memory.h>
 #include <sys/time.h>
@@ -88,6 +89,19 @@ char *replicationGetSlaveName(client *c) {
     return buf;
 }
 
+
+static bjmJobFuncHandle reclaimCloseFileId;
+static void reclaimCloseFileFunc(void *privdata) {
+    int fd = (intptr_t)privdata;
+    if (reclaimFilePageCache(fd, 0, 0)) {
+        serverLog(LL_NOTICE, "Unable to reclaim page cache: %s", strerror(errno));
+    }
+    if (close(fd)) {
+        serverLog(LL_NOTICE, "Error closing file: %s", strerror(errno));
+    }
+}
+
+
 /* Plain unlink() can block for quite some time in order to actually apply
  * the file deletion to the filesystem. This call removes the file in a
  * background thread instead. We actually just do close() in the thread,
@@ -111,7 +125,8 @@ int bg_unlink(const char *filename) {
             errno = old_errno;
             return -1;
         }
-        bioCreateCloseJob(fd, 0, 0);
+        if (!reclaimCloseFileId) reclaimCloseFileId = bjmRegisterJobFunc(reclaimCloseFileFunc);
+        bjmSubmitJob(reclaimCloseFileId, (void*)(intptr_t)fd);
         return 0; /* Success. */
     }
 }
@@ -158,8 +173,8 @@ void freeReplicationBacklog(void) {
     /* Replication buffer blocks are completely released when we free the
      * backlog, since the backlog is released only when there are no replicas
      * and the backlog keeps the last reference of all blocks. */
-    freeReplicationBacklogRefMemAsync(server.repl_buffer_blocks,
-                            server.repl_backlog->blocks_index);
+    lazyfreeList(server.repl_buffer_blocks);
+    lazyfreeRax(server.repl_backlog->blocks_index);
     resetReplicationBuffer();
     zfree(server.repl_backlog);
     server.repl_backlog = NULL;
@@ -1392,7 +1407,8 @@ void closeRepldbfd(client *myself) {
     }
 
     if (reclaim) {
-        bioCreateCloseJob(myself->repldbfd, 0, 1);
+        if (!reclaimCloseFileId) reclaimCloseFileId = bjmRegisterJobFunc(reclaimCloseFileFunc);
+        bjmSubmitJob(reclaimCloseFileId, (void*)(intptr_t)myself->repldbfd);
     } else {
         close(myself->repldbfd);
     }
@@ -2212,7 +2228,10 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
         /* Close old rdb asynchronously. */
-        if (old_rdb_fd != -1) bioCreateCloseJob(old_rdb_fd, 0, 0);
+        if (old_rdb_fd != -1) {
+            if (!reclaimCloseFileId) reclaimCloseFileId = bjmRegisterJobFunc(reclaimCloseFileFunc);
+            bjmSubmitJob(reclaimCloseFileId, (void*)(intptr_t)old_rdb_fd);
+        }
 
         /* Sync the directory to ensure rename is persisted */
         if (fsyncFileDir(server.rdb_filename) == -1) {

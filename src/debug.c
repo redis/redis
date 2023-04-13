@@ -32,7 +32,7 @@
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
-#include "bio.h"
+#include "bjm.h"
 #include "quicklist.h"
 #include "fpconv_dtoa.h"
 #include "cluster.h"
@@ -1977,7 +1977,7 @@ static void killMainThread(void) {
  * to perform a fast memory check without other threads messing with memory. */
 void killThreads(void) {
     killMainThread();
-    bioKillThreads();
+    bjmKillThreads();
     killIOThreads();
 }
 

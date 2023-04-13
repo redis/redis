@@ -66,6 +66,7 @@ static void mutexFifoUnlock(MutexFifo *q) {
 
 
 static void increaseFunctionCapacity() {
+    assert(functionsCapacity > 0);  // was bjmInit called?
     functionsCapacity *= 2;
     functions = zrealloc(functions, functionsCapacity * sizeof(bjmJobFunc));
     jobsByFunc = zrealloc(jobsByFunc, functionsCapacity * sizeof(Joblist*));
@@ -248,6 +249,7 @@ void bjmKillThreads(void) {
 
 // API
 long bjmPendingJobsOfType(bjmJobFuncHandle funcHandle) {
+    if (funcHandle == 0) return 0;  // func not registered (yet)
     long jobCount;
     atomicGet(jobsByFunc[funcHandle - 1]->job_count, jobCount);
     return jobCount;

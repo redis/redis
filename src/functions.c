@@ -32,6 +32,7 @@
 #include "dict.h"
 #include "adlist.h"
 #include "atomicvar.h"
+#include "lazyfree.h"
 
 typedef enum {
     restorePolicy_Flush, restorePolicy_Append, restorePolicy_Replace
@@ -183,6 +184,23 @@ void functionsLibCtxClear(functionsLibCtx *lib_ctx) {
     }
     dictReleaseIterator(iter);
     curr_functions_lib_ctx->cache_memory = 0;
+}
+
+static bjmJobFuncHandle lazyfreeFunctionsCtxId;
+static void lazyfreeFunctionsCtxFunc(void *privdata) {
+    functionsLibCtx *functions_lib_ctx = privdata;
+    size_t len = functionsLibCtxfunctionsLen(functions_lib_ctx);
+    functionsLibCtxFree(functions_lib_ctx);
+    lazyfreeGenericComplete(len);
+}
+
+static void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx) {
+    size_t len = functionsLibCtxfunctionsLen(functions_lib_ctx);
+    if (len > LAZYFREE_THRESHOLD) {
+        lazyfreeGeneric(len, lazyfreeFunctionsCtxId, functions_lib_ctx);
+    } else {
+        functionsLibCtxFree(functions_lib_ctx);
+    }
 }
 
 void functionsLibCtxClearCurrent(int async) {
@@ -413,6 +431,8 @@ int functionsRegisterEngine(const char *engine_name, engine *engine) {
         sdsfree(engine_name_sds);
         return C_ERR;
     }
+
+    if (!lazyfreeFunctionsCtxId) lazyfreeFunctionsCtxId = bjmRegisterJobFunc(lazyfreeFunctionsCtxFunc);
 
     client *c = createClient(NULL);
     c->flags |= (CLIENT_DENY_BLOCKING | CLIENT_SCRIPT);

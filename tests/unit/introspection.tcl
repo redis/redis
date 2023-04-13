@@ -407,6 +407,7 @@ start_server {tags {"introspection"}} {
             requirepass
             server_cpulist
             bio_cpulist
+            bjm-threads
             aof_rewrite_cpulist
             bgsave_cpulist
             set-proc-title

@@ -31,12 +31,13 @@
 #include "monotonic.h"
 #include "cluster.h"
 #include "slowlog.h"
-#include "bio.h"
+#include "bjm.h"
 #include "latency.h"
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
 #include "syscheck.h"
+#include "lazyfree.h"
 
 #include <time.h>
 #include <signal.h>
@@ -67,6 +68,8 @@
 #if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
 #include <sys/sysctl.h>
 #endif
+
+int aofFsyncJobCount();     // in aof.c
 
 /* Our shared "common" objects */
 
@@ -2704,6 +2707,8 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    bjmInit(server.bjm_threads_num);
+    lazyfreeInit();
     scriptingInit(1);
     functionsInit();
     slowlogInit();
@@ -2796,7 +2801,6 @@ void initListeners() {
  * Thread Local Storage initialization collides with dlopen call.
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
 void InitServerLast() {
-    bioInit();
     initThreadedIO();
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
     server.initial_memory_usage = zmalloc_used_memory();
@@ -5766,13 +5770,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
                 "aof_buffer_length:%zu\r\n"
-                "aof_pending_bio_fsync:%lu\r\n"
+                "aof_pending_bio_fsync:%d\r\n"
                 "aof_delayed_fsync:%lu\r\n",
                 (long long) server.aof_current_size,
                 (long long) server.aof_rewrite_base_size,
                 server.aof_rewrite_scheduled,
                 sdslen(server.aof_buf),
-                bioPendingJobsOfType(BIO_AOF_FSYNC),
+                aofFsyncJobCount(),
                 server.aof_delayed_fsync);
         }
 

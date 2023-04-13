@@ -34,6 +34,7 @@
 #include "monotonic.h"
 #include "resp_parser.h"
 #include "script_lua.h"
+#include "lazyfree.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -268,7 +269,7 @@ void scriptingInit(int setup) {
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(int async) {
     if (async)
-        freeLuaScriptsAsync(lctx.lua_scripts);
+        lazyfreeDict(lctx.lua_scripts);
     else
         dictRelease(lctx.lua_scripts);
     lctx.lua_scripts_mem = 0;

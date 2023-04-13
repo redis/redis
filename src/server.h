@@ -1616,6 +1616,7 @@ struct redisServer {
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
+    int bjm_threads_num;        /* Configured number of threads for Background Job Manager */
     int io_threads_num;         /* Number of IO threads to use. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
@@ -2655,8 +2656,6 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast);
 void trackingScheduleKeyInvalidation(uint64_t client_id, robj *keyobj);
 void trackingHandlePendingKeyInvalidations(void);
 void trackingInvalidateKeysOnFlush(int async);
-void freeTrackingRadixTree(rax *rt);
-void freeTrackingRadixTreeAsync(rax *rt);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
@@ -3259,12 +3258,6 @@ void signalFlushedDb(int dbid, int async);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
-void emptyDbAsync(redisDb *db);
-size_t lazyfreeGetPendingObjectsCount(void);
-size_t lazyfreeGetFreedObjectsCount(void);
-void lazyfreeResetStats(void);
-void freeObjAsync(robj *key, robj *obj, int dbid);
-void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 
 /* API to get key arguments from commands */
 #define GET_KEYSPEC_DEFAULT 0
@@ -3323,8 +3316,6 @@ void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
-void freeLuaScriptsAsync(dict *lua_scripts);
-void freeFunctionsAsync(functionsLibCtx *lib_ctx);
 int ldbIsEnabled();
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);

@@ -1,89 +1,101 @@
 #include "server.h"
-#include "bio.h"
+#include "lazyfree.h"
+#include "dict.h"
+#include "adlist.h"
+#include "rax.h"
+#include "adlist.h"
 #include "atomicvar.h"
-#include "functions.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
 
-/* Release objects from the lazyfree thread. It's just decrRefCount()
+static bjmJobFuncHandle lazyfreeObjectId;
+static bjmJobFuncHandle lazyfreeDictId;
+static bjmJobFuncHandle lazyfreeListId;
+static bjmJobFuncHandle lazyfreeRaxId;
+static bjmJobFuncHandle lazyfreeRaxWithCallbackId;
+
+
+/* Release objects from a BJM thread. It's just decrRefCount()
  * updating the count of objects to release. */
-void lazyfreeFreeObject(void *args[]) {
-    robj *o = (robj *) args[0];
+static void lazyfreeObjectFunc(void *privdata) {
+    robj *o = (robj*)privdata;
     decrRefCount(o);
-    atomicDecr(lazyfree_objects,1);
-    atomicIncr(lazyfreed_objects,1);
+    atomicDecr(lazyfree_objects, 1);
+    atomicIncr(lazyfreed_objects, 1);
 }
 
-/* Release a database from the lazyfree thread. The 'db' pointer is the
- * database which was substituted with a fresh one in the main thread
- * when the database was logically deleted. */
-void lazyfreeFreeDatabase(void *args[]) {
-    dict *ht1 = (dict *) args[0];
-    dict *ht2 = (dict *) args[1];
 
-    size_t numkeys = dictSize(ht1);
-    dictRelease(ht1);
-    dictRelease(ht2);
-    atomicDecr(lazyfree_objects,numkeys);
-    atomicIncr(lazyfreed_objects,numkeys);
+/* Release a dict (calling free function if defined) from a BJM thread. */
+static void lazyfreeDictFunc(void *privdata) {
+    dict *d = (dict*)privdata;
+    size_t numkeys = dictSize(d);
+    dictRelease(d);
+    atomicDecr(lazyfree_objects, numkeys);
+    atomicIncr(lazyfreed_objects, numkeys);
 }
 
-/* Release the key tracking table. */
-void lazyFreeTrackingTable(void *args[]) {
-    rax *rt = args[0];
-    size_t len = rt->numele;
-    freeTrackingRadixTree(rt);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+
+/* Release a list (calling free function if defined) from a BJM thread. */
+static void lazyfreeListFunc(void *privdata) {
+    list *l = (list*)privdata;
+    size_t numkeys = listLength(l);
+    listRelease(l);
+    atomicDecr(lazyfree_objects, numkeys);
+    atomicIncr(lazyfreed_objects, numkeys);
 }
 
-/* Release the lua_scripts dict. */
-void lazyFreeLuaScripts(void *args[]) {
-    dict *lua_scripts = args[0];
-    long long len = dictSize(lua_scripts);
-    dictRelease(lua_scripts);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+
+/* Release a RAX from a BJM thread. */
+static void lazyfreeRaxFunc(void *privdata) {
+    rax *r = (rax*)privdata;
+    size_t numkeys = raxSize(r);
+    raxFree(r);
+    atomicDecr(lazyfree_objects, numkeys);
+    atomicIncr(lazyfreed_objects, numkeys);
 }
 
-/* Release the functions ctx. */
-void lazyFreeFunctionsCtx(void *args[]) {
-    functionsLibCtx *functions_lib_ctx = args[0];
-    size_t len = functionsLibCtxfunctionsLen(functions_lib_ctx);
-    functionsLibCtxFree(functions_lib_ctx);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+typedef struct {
+    rax *r;
+    void (*free)(void *ptr);
+} raxWithCallback;
+
+/* Release a RAX (calling provided free function) from a BJM thread. */
+static void lazyfreeRaxWithCallbackFunc(void *privdata) {
+    raxWithCallback *rwc = (raxWithCallback*)privdata;
+    size_t numkeys = raxSize(rwc->r);
+    raxFreeWithCallback(rwc->r, rwc->free);
+    zfree(rwc);
+    atomicDecr(lazyfree_objects, numkeys);
+    atomicIncr(lazyfreed_objects, numkeys);
 }
 
-/* Release replication backlog referencing memory. */
-void lazyFreeReplicationBacklogRefMem(void *args[]) {
-    list *blocks = args[0];
-    rax *index = args[1];
-    long long len = listLength(blocks);
-    len += raxSize(index);
-    listRelease(blocks);
-    raxFree(index);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+
+void lazyfreeInit() {
+    lazyfreeObjectId = bjmRegisterJobFunc(lazyfreeObjectFunc);
+    lazyfreeDictId = bjmRegisterJobFunc(lazyfreeDictFunc);
+    lazyfreeListId = bjmRegisterJobFunc(lazyfreeListFunc);
+    lazyfreeRaxId = bjmRegisterJobFunc(lazyfreeRaxFunc);
+    lazyfreeRaxWithCallbackId = bjmRegisterJobFunc(lazyfreeRaxWithCallbackFunc);
 }
+
 
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
     size_t aux;
-    atomicGet(lazyfree_objects,aux);
+    atomicGet(lazyfree_objects, aux);
     return aux;
 }
 
 /* Return the number of objects that have been freed. */
 size_t lazyfreeGetFreedObjectsCount(void) {
     size_t aux;
-    atomicGet(lazyfreed_objects,aux);
+    atomicGet(lazyfreed_objects, aux);
     return aux;
 }
 
 void lazyfreeResetStats() {
-    atomicSet(lazyfreed_objects,0);
+    atomicSet(lazyfreed_objects, 0);
 }
 
 /* Return the amount of work needed in order to free an object.
@@ -101,7 +113,7 @@ void lazyfreeResetStats() {
  *
  * For lists the function returns the number of elements in the quicklist
  * representing the list. */
-size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
+static size_t lazyfreeGetFreeEffort(robj *obj) {
     if (obj->type == OBJ_LIST && obj->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = obj->ptr;
         return ql->len;
@@ -139,89 +151,75 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         }
         return effort;
     } else if (obj->type == OBJ_MODULE) {
-        size_t effort = moduleGetFreeEffort(key, obj, dbid);
-        /* If the module's free_effort returns 0, we will use asynchronous free
-         * memory by default. */
-        return effort == 0 ? ULONG_MAX : effort;
+        // Modules require a DBID and KEY, this function is just for an
+        //  arbitrary robj which might not be related to a DB entry. 
+        serverAssert(0);
     } else {
         return 1; /* Everything else is a single allocation. */
     }
 }
 
-/* If there are enough allocations to free the value object asynchronously, it
- * may be put into a lazy free list instead of being freed synchronously. The
- * lazy free list will be reclaimed in a different bio.c thread. If the value is
- * composed of a few allocations, to free in a lazy way is actually just
- * slower... So under a certain limit we just free the object synchronously. */
-#define LAZYFREE_THRESHOLD 64
 
-/* Free an object, if the object is huge enough, free it in async way. */
-void freeObjAsync(robj *key, robj *obj, int dbid) {
-    size_t free_effort = lazyfreeGetFreeEffort(key,obj,dbid);
-    /* Note that if the object is shared, to reclaim it now it is not
-     * possible. This rarely happens, however sometimes the implementation
-     * of parts of the Redis core may call incrRefCount() to protect
-     * objects, and then call dbDelete(). */
-    if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
-        atomicIncr(lazyfree_objects,1);
-        bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
+void lazyfreeObject(robj *o) {
+    if (o->refcount == 1 && lazyfreeGetFreeEffort(o) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, 1);
+        bjmSubmitJob(lazyfreeObjectId, o);
     } else {
-        decrRefCount(obj);
+        decrRefCount(o);
     }
 }
 
-/* Empty a Redis DB asynchronously. What the function does actually is to
- * create a new empty set of hash tables and scheduling the old ones for
- * lazy freeing. */
-void emptyDbAsync(redisDb *db) {
-    dict *oldht1 = db->dict, *oldht2 = db->expires;
-    db->dict = dictCreate(&dbDictType);
-    db->expires = dictCreate(&dbExpiresDictType);
-    atomicIncr(lazyfree_objects,dictSize(oldht1));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
-}
 
-/* Free the key tracking table.
- * If the table is huge enough, free it in async way. */
-void freeTrackingRadixTreeAsync(rax *tracking) {
-    /* Because this rax has only keys and no values so we use numnodes. */
-    if (tracking->numnodes > LAZYFREE_THRESHOLD) {
-        atomicIncr(lazyfree_objects,tracking->numele);
-        bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
+void lazyfreeDict(dict *d) {
+    if (dictSize(d) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, dictSize(d));
+        bjmSubmitJob(lazyfreeDictId, d);
     } else {
-        freeTrackingRadixTree(tracking);
+        dictRelease(d);
     }
 }
 
-/* Free lua_scripts dict, if the dict is huge enough, free it in async way. */
-void freeLuaScriptsAsync(dict *lua_scripts) {
-    if (dictSize(lua_scripts) > LAZYFREE_THRESHOLD) {
-        atomicIncr(lazyfree_objects,dictSize(lua_scripts));
-        bioCreateLazyFreeJob(lazyFreeLuaScripts,1,lua_scripts);
+
+void lazyfreeList(list *l) {
+    if (listLength(l) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, listLength(l));
+        bjmSubmitJob(lazyfreeListId, l);
     } else {
-        dictRelease(lua_scripts);
+        listRelease(l);
     }
 }
 
-/* Free functions ctx, if the functions ctx contains enough functions, free it in async way. */
-void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx) {
-    if (functionsLibCtxfunctionsLen(functions_lib_ctx) > LAZYFREE_THRESHOLD) {
-        atomicIncr(lazyfree_objects,functionsLibCtxfunctionsLen(functions_lib_ctx));
-        bioCreateLazyFreeJob(lazyFreeFunctionsCtx,1,functions_lib_ctx);
+
+void lazyfreeRax(rax *r) {
+    if (raxSize(r) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, raxSize(r));
+        bjmSubmitJob(lazyfreeRaxId, r);
     } else {
-        functionsLibCtxFree(functions_lib_ctx);
+        raxFree(r);
     }
 }
 
-/* Free replication backlog referencing buffer blocks and rax index. */
-void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
-    if (listLength(blocks) > LAZYFREE_THRESHOLD ||
-        raxSize(index) > LAZYFREE_THRESHOLD)
-    {
-        atomicIncr(lazyfree_objects,listLength(blocks)+raxSize(index));
-        bioCreateLazyFreeJob(lazyFreeReplicationBacklogRefMem,2,blocks,index);
+
+void lazyfreeRaxWithCallback(rax *r, void (*free_callback)(void*)) {
+    if (raxSize(r) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, raxSize(r));
+        raxWithCallback *rwc = zmalloc(sizeof(raxWithCallback));
+        rwc->r = r;
+        rwc->free = free_callback;
+        bjmSubmitJob(lazyfreeRaxWithCallbackId, rwc);
     } else {
-        listRelease(blocks);
-        raxFree(index);
+        raxFreeWithCallback(r, free_callback);
     }
+}
+
+
+void lazyfreeGeneric(long cardinality, bjmJobFuncHandle func, void *item) {
+    atomicIncr(lazyfree_objects, cardinality);
+    bjmSubmitJob(func, item);
+}
+
+
+void lazyfreeGenericComplete(long cardinality) {
+    atomicDecr(lazyfree_objects, cardinality);
+    atomicIncr(lazyfreed_objects, cardinality);
 }

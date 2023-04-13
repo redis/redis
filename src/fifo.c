@@ -152,6 +152,45 @@ void fifoPush(Fifo *q, void *ptr) {
 }
 
 
+// Push an item onto the FRONT of the queue.
+void fifoPushFront(Fifo *q, void *ptr) {
+    if (q->first == NULL) {
+        fifoPush(q, ptr);
+        return;
+    }
+
+    if (q->first == q->last && q->length < ITEMS_PER_BLOCK) {
+        // With only 1 (non-full) block, shift items right and insert at 0
+        q->first->u.last_or_first_idx++;     // This is LAST index, incr for new item
+        int lastIdx = q->first->u.last_or_first_idx; // pointer portion is 0 on only block
+        for (int i = lastIdx;  i > 0;  i--) {
+            q->first->items[i] =  q->first->items[i - 1];
+        }
+        q->first->items[0] = ptr;
+    } else {
+        int firstIdx = (q->first == q->last)
+                ? 0     // We've already determined above that the ONLY block is full
+                : q->first->u.last_or_first_idx & IDX_MASK; // For other cases, firstIdx is here
+        if (firstIdx > 0) {
+            // This is the easy case.  Just insert before the others.
+            q->first->items[firstIdx - 1] = ptr;
+            q->first->u.last_or_first_idx--;
+        } else {
+            // Insert a new block in front.
+            //  The new item will be in the LAST spot in the block.
+            FifoBlock *newblock = zmalloc(sizeof(FifoBlock));
+            firstIdx = ITEMS_PER_BLOCK - 1;         // Item goes at end of block
+            newblock->items[firstIdx] = ptr;
+            newblock->u.next = q->first;
+            newblock->u.last_or_first_idx += firstIdx;  // Overlay bits onto pointer
+            q->first = newblock;
+        }
+    }
+    
+    q->length++;
+}
+
+
 // Look at the first item in the queue (without removing it).
 // NOTE: asserts if the queue is empty.
 void *fifoPeek(Fifo *q) {
@@ -292,7 +331,7 @@ void fifoJoin(Fifo *q, Fifo *other) {
 
 
 // Copy all of the items into a new Fifo (emptying the original)
-Fifo * fifoPopAll(Fifo *q) {
+Fifo *fifoPopAll(Fifo *q) {
     Fifo *newQ = zmalloc(sizeof(Fifo));
     blindlyMoveFifoContents(newQ, q);
     return newQ;

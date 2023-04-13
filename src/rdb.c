@@ -35,7 +35,7 @@
 #include "stream.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
-#include "bio.h"
+#include "bjm.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -3361,6 +3361,17 @@ eoferr:
     return C_ERR;
 }
 
+static bjmJobFuncHandle reclaimCloseFileId;
+static void reclaimCloseFileFunc(void *privdata) {
+    int fd = (intptr_t)privdata;
+    if (reclaimFilePageCache(fd, 0, 0)) {
+        serverLog(LL_NOTICE, "Unable to reclaim page cache: %s", strerror(errno));
+    }
+    if (close(fd)) {
+        serverLog(LL_NOTICE, "Error closing file: %s", strerror(errno));
+    }
+}
+
 /* Like rdbLoadRio() but takes a filename instead of a rio stream. The
  * filename is open for reading and a rio stream object created in order
  * to do the actual loading. Moreover the ETA displayed in the INFO
@@ -3397,7 +3408,10 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     if (retval == C_OK && !(rdbflags & RDBFLAGS_KEEP_CACHE)) {
         /* TODO: maybe we could combine the fopen and open into one in the future */
         rdb_fd = open(filename, O_RDONLY);
-        if (rdb_fd > 0) bioCreateCloseJob(rdb_fd, 0, 1);
+        if (rdb_fd > 0) {
+            if (!reclaimCloseFileId) reclaimCloseFileId = bjmRegisterJobFunc(reclaimCloseFileFunc);
+            bjmSubmitJob(reclaimCloseFileId, (void*)(intptr_t)rdb_fd);
+        }
     }
     return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }

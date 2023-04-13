@@ -15,6 +15,10 @@ Fifo *fifoCreate();
 // Push an item onto the end of the queue.
 void fifoPush(Fifo *q, void *ptr);
 
+// Push an item onto the FRONT of the queue.
+//  (Supports usage as a stack.)
+void fifoPushFront(Fifo *q, void *ptr);
+
 // Look at the first item in the queue (without removing it).
 // NOTE: asserts if the queue is empty.
 void *fifoPeek(Fifo *q);
@@ -36,6 +40,6 @@ void fifoJoin(Fifo *q, Fifo *other);
 
 // Returns a new Fifo, containing all of the items from "q".  "q" remains valid, but becomes empty.
 //  This is an O(1) operation.
-Fifo * fifoPopAll(Fifo *q);
+Fifo *fifoPopAll(Fifo *q);
 
 #endif
