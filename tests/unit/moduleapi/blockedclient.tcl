@@ -253,6 +253,35 @@ foreach call_type {nested normal} {
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
     }
 
+    test "dont flush between rm_call commands" {
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+        $rd blpop x 0
+
+        assert_equal "1 a" [r do_multiple_rm_call lpush x a \; lpop x]
+
+        r client unblock $id ERROR
+        catch {[$rd read]} e
+        assert_equal $e "UNBLOCKED client unblocked via CLIENT UNBLOCK"
+
+        $rd close
+    }
+
+    test "flush between rm_call commands" {
+        set rd [redis_deferring_client]
+        $rd client id
+        set id [$rd read]
+        $rd blpop x 0
+
+        assert_equal "1 {}" [r do_multiple_rm_call_with_flush lpush x a \; lpop x]
+
+        r client unblock $id ERROR
+        assert_equal a [$rd read]
+
+        $rd close
+    }
+
     test "Unload the module - blockedclient" {
         assert_equal {OK} [r module unload blockedclient]
     }

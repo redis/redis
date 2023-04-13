@@ -6461,13 +6461,27 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
     return callReplyGetProto(reply, len);
 }
 
-int RM_EndExecutionUnit() {
-    /* should only execute at top level of nesting, as otherwise would cause changes to impact DB before top level
-     * expects it.
-     *
-     * Note: this is not required to be called if one use GIL locking/unlocking, only when called from the redis main
-     * thread.
-     */
+/* Redis only exposes "side effects" of command execution at the end of an execution unit.
+ *
+ * Side effects include propagating replication/AOF operations and executing the commands of clients blocked on keys
+ * modified by commands
+ *
+ * In general, for modules, execution unit start and end with the taking/release of the GIL.  For module code executed
+ * on the Redis main thread, this is done implicitly by Redis itself, while for module code executed on a separate
+ * thread, this is done explicitly by the module itself.
+ *
+ * This function enables modules to flush the execution unit, thereby having side effects become visible during
+ * execution.
+ *
+ * Examples of usage might be that one is running multiple commands, one after another, with RM_Call and wants
+ * processCommand() like semantics, where unblocked clients will be executed before the next RM_Call is made.
+ *
+ * Note: while one Modules that calls another module via RM_Call won't nest if they are operating on a separate thread,
+ * as each will need to grab the GIL independently, they can nest if both operate on the main thread.  In that case,
+ * it doesn't make sense for the further nested module to be able to cause side effects to the top level module, and
+ * therefore this function only succeeds if running at an execution_nesting level of 1.
+ */
+int RM_FlushExecutionUnit() {
     if (server.execution_nesting != 1)
         return REDISMODULE_ERR;
 
@@ -13351,7 +13365,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringToDouble);
     REGISTER_API(StringToLongDouble);
     REGISTER_API(StringToStreamID);
-    REGISTER_API(EndExecutionUnit);
+    REGISTER_API(FlushExecutionUnit);
     REGISTER_API(Call);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
