@@ -11,6 +11,29 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+
+================================================================================
+Redis 7.0.11 Released Mon Apr 17 16:00:00 IST 2023
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2023-28856) Authenticated users can use the HINCRBYFLOAT command to create
+  an invalid hash field that will crash Redis on access
+
+Bug Fixes
+=========
+
+* Add a missing fsync of AOF file in rare cases (#11973)
+* Disconnect pub-sub subscribers when revoking allchannels permission (#11992)
+
+Platform / toolchain support related improvements
+=================================================
+
+* Fix a compiler fortification induced crash when used with link time optimizations (#11982)
+
+
 ================================================================================
 Redis 7.0.10 Released Mon Mar 20 16:00:00 IST 2023
 ================================================================================
