@@ -186,7 +186,7 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGABRT, &act, NULL);
 }
 
-static int is_fifo(char *filename) {
+static int isFifo(char *filename) {
     struct stat stat_p;
     stat(filename, &stat_p);
     return S_ISFIFO(stat_p.st_mode);
