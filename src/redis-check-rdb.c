@@ -205,7 +205,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     static rio rdb; /* Pointed by global struct riostate. */
     struct stat sb;
 
-    if (is_fifo(rdbfilename)) {
+    if (isFifo(rdbfilename)) {
         /* Cannot check RDB over named pipe because fopen blocks until another process opens the FIFO for writing. */
         return 1;
     }
