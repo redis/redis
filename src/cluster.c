@@ -391,7 +391,7 @@ int clusterLoadConfig(char *filename) {
             /* Validate that both aux and value contain valid characters only */
             for (unsigned j = 0; j < 2; j++) {
                 if (!isValidAuxString(field_argv[j],sdslen(field_argv[j]))){
-	            /* Invalid aux field format */
+                    /* Invalid aux field format */
                     sdsfreesplitres(field_argv, field_argc);
                     sdsfreesplitres(argv,argc);
                     goto fmterr;
@@ -1487,7 +1487,7 @@ void clusterAddNode(clusterNode *node) {
     int retval;
 
     retval = dictAdd(server.cluster->nodes,
-        sdsnewlen(node->name,CLUSTER_NAMELEN), node);
+            sdsnewlen(node->name,CLUSTER_NAMELEN), node);
     serverAssert(retval == DICT_OK);
 }
 
@@ -1905,7 +1905,7 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
     if (nodeIsMaster(node) && node->numslots > 0 &&
         (now - node->fail_time) >
         (server.cluster_node_timeout * CLUSTER_FAIL_UNDO_TIME_MULT))
-    {   
+    {
         serverLog(LL_NOTICE,
             "Clear FAIL state for node %.40s (%s): is reachable again and nobody is serving its slots after some time.",
                 node->name, node->human_nodename);
@@ -2028,7 +2028,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 if (flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) {
                     if (clusterNodeAddFailureReport(node,sender)) {
                         serverLog(LL_VERBOSE,
-                            "Node %.40s (%s) reported node %.40s (%s)as not reachable.",
+                            "Node %.40s (%s) reported node %.40s (%s) as not reachable.",
                             sender->name, sender->human_nodename, node->name, node->human_nodename);
                     }
                     markNodeAsFailingIfNeeded(node);
