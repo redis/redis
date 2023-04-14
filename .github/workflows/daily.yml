@@ -94,7 +94,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        apt-get update && apt-get install -y gcc-13
+        apt-get update && apt-get install -y make gcc-13
         make CC=gcc-13 REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
     - name: testprep
       run: apt-get install tcl8.6 tclx

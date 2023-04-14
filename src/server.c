@@ -3099,6 +3099,7 @@ struct redisCommand *lookupSubcommand(struct redisCommand *container, sds sub_na
  * a user requested to execute (in processCommand).
  */
 struct redisCommand *lookupCommandLogic(dict *commands, robj **argv, int argc, int strict) {
+    serverAssert(argc != 0);
     struct redisCommand *base_cmd = dictFetchValue(commands, argv[0]->ptr);
     int has_subcommands = base_cmd && base_cmd->subcommands_dict;
     if (argc == 1 || !has_subcommands) {
