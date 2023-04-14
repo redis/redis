@@ -137,6 +137,10 @@ start_server {tags {"introspection"}} {
         assert_equal {key} [r command getkeys memory usage key]
     }
 
+    test {COMMAND GETKEYS CLUSTER KEYSLOT} {
+        assert_equal {key} [r command getkeys cluster keyslot key]
+    }
+
     test {COMMAND GETKEYS XGROUP} {
         assert_equal {key} [r command getkeys xgroup create key groupname $]
     }
