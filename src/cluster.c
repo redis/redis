@@ -224,7 +224,7 @@ int auxShardIdPresent(clusterNode *n) {
 }
 
 int auxHumanNodenameSetter(clusterNode *n, void *value, int length) {
-    if (n && !strcmp(value, n->human_nodename)) {
+    if (n && !strncmp(value, n->human_nodename, length)) {
         return C_OK;
     } else if (!n && (length == 0)) {
         return C_OK;
@@ -356,7 +356,7 @@ int clusterLoadConfig(char *filename) {
             clusterAddNode(n);
         }
         /* Format for the node address and auxiliary argument information:
-	 * ip:port[@cport][,hostname][,aux=val]*] */
+         * ip:port[@cport][,hostname][,aux=val]*] */
 
         aux_argv = sdssplitlen(argv[1], sdslen(argv[1]), ",", 1, &aux_argc);
         if (aux_argv == NULL) {
