@@ -215,9 +215,7 @@ void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx) {
 
 /* Free replication backlog referencing buffer blocks and rax index. */
 void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
-    if (listLength(blocks) > LAZYFREE_THRESHOLD ||
-        raxSize(index) > LAZYFREE_THRESHOLD)
-    {
+    if (listLength(blocks) + raxSize(index) > LAZYFREE_THRESHOLD) {
         atomicIncr(lazyfree_objects,listLength(blocks)+raxSize(index));
         bioCreateLazyFreeJob(lazyFreeReplicationBacklogRefMem,2,blocks,index);
     } else {
