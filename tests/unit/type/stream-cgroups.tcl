@@ -1257,7 +1257,6 @@ start_server {
             assert {[dict get [r xinfo stream mystream] length] == 0}
             set grpinfo [r xinfo groups mystream]
             r bgrewriteaof
-#            waitForBgrewriteaof r
             r debug loadaof
             assert {[dict get [r xinfo stream mystream] length] == 0}
             assert_equal [r xinfo groups mystream] $grpinfo
