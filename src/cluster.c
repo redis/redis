@@ -174,9 +174,9 @@ typedef struct {
 
 /* Assign index to each aux field */
 typedef enum {
-    af_start,
-    af_shard_id = af_start+1,
-    af_count = 2,
+    af_shard_id,
+    af_human_nodename,
+    af_count,
 } auxFieldIndex;
 
 /* Note that
@@ -184,8 +184,8 @@ typedef enum {
  *    indices as defined in auxFieldIndex
  * 2. aux name can contain characters that pass the isValidAuxChar check only */
 auxFieldHandler auxFieldHandlers[] = {
-    {"nodename", auxHumanNodenameSetter, auxHumanNodenameGetter, auxHumanNodenamePresent},
     {"shard-id", auxShardIdSetter, auxShardIdGetter, auxShardIdPresent},
+    {"nodename", auxHumanNodenameSetter, auxHumanNodenameGetter, auxHumanNodenamePresent},
 };
 
 int isValidAuxChar(int c) {
