@@ -11254,8 +11254,9 @@ static uint64_t moduleEventVersions[] = {
  *
  *     * `REDISMODULE_SUBEVENT_FLUSHDB_START`
  *     * `REDISMODULE_SUBEVENT_FLUSHDB_END`
+ *     * `REDISMODULE_SUBEVENT_FLUSHDB_FULLSYNC_POST_FLUSHDB`
  *
- *     The data pointer can be casted to a RedisModuleFlushInfo
+ *     The data pointer can be cast to a RedisModuleFlushInfo
  *     structure with the following fields:
  *
  *         int32_t async;  // True if the flush is done in a thread.
@@ -11269,6 +11270,9 @@ static uint64_t moduleEventVersions[] = {
  *     The start event is called *before* the operation is initiated, thus
  *     allowing the callback to call DBSIZE or other operation on the
  *     yet-to-free keyspace.
+ *
+ *     The full sync post flush event is called on a replica during full
+ *     sync, at the end of flushing old data from the replica.
  *
  * * RedisModuleEvent_Loading
  *
