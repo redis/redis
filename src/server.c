@@ -4929,21 +4929,10 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
 
 /* Helper for COMMAND GETKEYS and GETKEYSANDFLAGS */
 void getKeysSubcommandImpl(client *c, int with_flags) {
-    //struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
-    struct redisCommand *cmd = lookupCommandBySds(c->argv[2]->ptr);
+    struct redisCommand *cmd = lookupCommand(c->argv+2,c->argc-2);
     getKeysResult result = GETKEYS_RESULT_INIT;
     int j;
-    //we currently have only one subcommand which accept key as argument
-    if(cmd && !(strcmp(cmd->fullname,"cluster|keyslot"))){
-        if(c->argc != 4){
-            addReplyError(c,"Invalid number of arguments specified for command");
-            return;
-        } else {
-            addReplyArrayLen(c,1);
-            addReplyBulk(c,c->argv[3]);
-            return;
-        }
-    }
+
     if (!cmd) {
         addReplyError(c,"Invalid command specified");
         return;

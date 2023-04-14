@@ -4,16 +4,36 @@
         "complexity": "O(N) where N is the number of bytes in the key",
         "group": "cluster",
         "since": "3.0.0",
-        "arity": 3,
+        "arity": -3,
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
-            "STALE"
+            "READONLY"
+        ],
+	"key_specs": [
+            {
+                "flags": [
+                    "RO"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
         ],
         "arguments": [
             {
                 "name": "key",
-                "type": "string"
+                "type": "key",
+		"key_spec_index": 0
             }
         ],
         "reply_schema": {
