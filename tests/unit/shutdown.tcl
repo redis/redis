@@ -30,7 +30,7 @@ start_server {tags {"shutdown external:skip"}} {
     }
 }
 
-start_server {tags {"shutdown external:skip"}} {
+start_server {tags {"shutdown external:skip"} overrides {save {900 1}}} {
     test {SHUTDOWN ABORT can cancel SIGTERM} {
         r debug pause-cron 1
         set pid [s process_id]
@@ -72,7 +72,7 @@ start_server {tags {"shutdown external:skip"}} {
     }
 }
 
-start_server {tags {"shutdown external:skip"}} {
+start_server {tags {"shutdown external:skip"} overrides {save {900 1}}} {
     set pid [s process_id]
     set dump_rdb [file join [lindex [r config get dir] 1] dump.rdb]
 
