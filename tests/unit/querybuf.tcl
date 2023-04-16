@@ -18,7 +18,7 @@ proc client_query_buffer {name} {
 }
 
 start_server {tags {"querybuf slow"}} {
-    #increase the execution frequency of clientsCron
+    # increase the execution frequency of clientsCron
     r config set hz 100
     # The test will run at least 2s to check if client query
     # buffer will be resized when client idle 2s.
