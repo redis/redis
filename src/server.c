@@ -744,7 +744,7 @@ int clientsCronResizeQueryBuffer(client *c) {
              *    sure not to resize to less than the bulk length. */
             size_t resize = sdslen(c->querybuf);
             if (resize < c->querybuf_peak) resize = c->querybuf_peak;
-            if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
+            if (c->bulklen != -1 && resize < (size_t)c->bulklen + 2) resize = c->bulklen + 2;
             c->querybuf = sdsResize(c->querybuf, resize, 1);
         }
     }
@@ -754,8 +754,7 @@ int clientsCronResizeQueryBuffer(client *c) {
     c->querybuf_peak = sdslen(c->querybuf);
     /* We reset to either the current used, or currently processed bulk size,
      * which ever is bigger. */
-    if (c->bulklen != -1 && (size_t)c->bulklen > c->querybuf_peak)
-        c->querybuf_peak = c->bulklen;
+    if (c->bulklen != -1 && (size_t)c->bulklen + 2 > c->querybuf_peak) c->querybuf_peak = c->bulklen + 2;
     return 0;
 }
 
