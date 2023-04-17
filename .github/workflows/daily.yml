@@ -76,7 +76,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'fortify')
-    container: ubuntu:23.04
+    container: ubuntu:lunar
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -95,7 +95,8 @@ jobs:
     - name: make
       run: |
         apt-get update && apt-get install -y make gcc-13
-        make CC=gcc-13 REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
+        update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+        make CC=gcc REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
     - name: testprep
       run: apt-get install -y tcl8.6 tclx procps
     - name: test
