@@ -242,7 +242,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
     }
 
     if (preamble) {
-        char *argv[2] = {NULL, aof_filename};
+        char *argv[2] = {NULL, aof_filepath};
         if (redis_check_rdb_main(2, argv, fp) == C_ERR) {
             printf("RDB preamble of AOF file is not sane, aborting.\n");
             exit(1);

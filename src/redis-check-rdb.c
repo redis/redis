@@ -186,15 +186,9 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGABRT, &act, NULL);
 }
 
-static int isFifo(char *filename) {
-    struct stat stat_p;
-    stat(filename, &stat_p);
-    return S_ISFIFO(stat_p.st_mode);
-}
-
 /* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
  * 1 is returned.
- * The file is specified as a filename in 'rdbfilename' if 'fp' is not NULL,
+ * The file is specified as a filename in 'rdbfilename' if 'fp' is NULL,
  * otherwise the already open file 'fp' is checked. */
 int redis_check_rdb(char *rdbfilename, FILE *fp) {
     uint64_t dbid;
@@ -204,11 +198,6 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     long long expiretime, now = mstime();
     static rio rdb; /* Pointed by global struct riostate. */
     struct stat sb;
-
-    if (isFifo(rdbfilename)) {
-        /* Cannot check RDB over named pipe because fopen blocks until another process opens the FIFO for writing. */
-        return 1;
-    }
 
     int closefile = (fp == NULL);
     if (fp == NULL && (fp = fopen(rdbfilename,"r")) == NULL) return 1;
