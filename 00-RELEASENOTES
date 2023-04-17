@@ -11,6 +11,26 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+
+================================================================================
+Redis 6.2.12 Released Mon Apr 17 16:00:00 IST 2023
+================================================================================
+
+Upgrade urgency: SECURITY, contains fixes to security issues.
+
+Security Fixes:
+* (CVE-2023-28856) Authenticated users can use the HINCRBYFLOAT command to create
+  an invalid hash field that will crash Redis on access
+
+
+Bug Fixes
+=========
+
+* Fix CLIENT REPLY OFF|SKIP to not silence push notifications (#11875)
+* Disconnect pub-sub subscribers when revoking allchannels permission (#11992)
+* Trim excessive memory usage in stream nodes when exceeding `stream-node-max-bytes` (#11885)
+
+
 ================================================================================
 Redis 6.2.11 Released Tue Feb 28 12:00:00 IST 2023
 ================================================================================
