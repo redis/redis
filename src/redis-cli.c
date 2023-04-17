@@ -3045,7 +3045,8 @@ static void usage(int err) {
 "  --quoted-json      Same as --json, but produce ASCII-safe quoted strings, not Unicode.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
-"  --stat             Print rolling stats about server: mem, clients, ...\n",version,tls_usage);
+"  --stat             Print rolling stats about server: mem, clients, ...\n",
+version,tls_usage);
 
     fprintf(target,
 "  --latency          Enter a special mode continuously sampling latency.\n"
