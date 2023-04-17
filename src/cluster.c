@@ -6047,10 +6047,7 @@ NULL
         addReplyBulkCString(c, "nodes");
         if(node == NULL || (node == myself && lookupKeyRead(c->db,c->argv[2]) == NULL)){
             addReply(c,shared.emptyarray);
-        }
-
-        else
-        {
+        } else {
             addReplyArrayLen(c, node->numslaves+1);
             getKeyShardReply(c,node);
             for (int i = 0; i < node->numslaves; i++) {
