@@ -873,7 +873,6 @@ void moduleCallCommandUnblockedHandler(client *c) {
  * because we only need to track of nesting level in the main thread
  * (only the main thread uses propagatePendingCommands) */
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags) {
-    serverAssert(out_ctx != NULL);
     memset(out_ctx, 0 ,sizeof(RedisModuleCtx));
     out_ctx->getapifuncptr = (void*)(unsigned long)&RM_GetApi;
     out_ctx->module = module;
