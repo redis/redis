@@ -438,6 +438,11 @@ start_server {tags {"string"}} {
         assert_equal "" [r getrange mykey 0 -1]
     }
 
+    test "GETRANGE against wrong key type" {
+        r lpush lkey1 "list"
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r getrange lkey1 0 -1}
+    }
+
     test "GETRANGE against string value" {
         r set mykey "Hello World"
         assert_equal "Hell" [r getrange mykey 0 3]
