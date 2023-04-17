@@ -6918,12 +6918,6 @@ int iAmMaster(void) {
             (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
 }
 
-int isFifo(char *filepath) {
-    struct stat sb;
-    if (stat(filepath, &sb) == -1) return 0;
-    return S_ISFIFO(sb.st_mode);
-}
-
 #ifdef REDIS_TEST
 #include "testhelp.h"
 #include "intset.h"  /* Compact integer set structure */
