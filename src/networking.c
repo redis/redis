@@ -873,7 +873,7 @@ void addReplyDouble(client *c, double d) {
         const int dlen = d2string(dbuf+7,sizeof(dbuf)-7,d);
         int digits = digits10(dlen);
         int start = 4 - digits;
-        serverAssert(start > 0);
+        serverAssert(start >= 0);
         dbuf[start] = '$';
 
         /* Convert `dlen` to string, putting it's digits after '$' and before the
