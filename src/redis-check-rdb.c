@@ -194,9 +194,9 @@ static int isFifo(char *filepath) {
 
 /* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
  * 1 is returned.
- * The file is specified as a filename in 'rdbfilepath' if 'fp' is NULL,
+ * The file is specified as a filename in 'rdbfilename' if 'fp' is NULL,
  * otherwise the already open file 'fp' is checked. */
-int redis_check_rdb(char *rdbfilepath, FILE *fp) {
+int redis_check_rdb(char *rdbfilename, FILE *fp) {
     uint64_t dbid;
     int selected_dbid = -1;
     int type, rdbver;
@@ -205,19 +205,19 @@ int redis_check_rdb(char *rdbfilepath, FILE *fp) {
     static rio rdb; /* Pointed by global struct riostate. */
     struct stat sb;
 
-    if (fp == NULL && isFifo(rdbfilepath)) {
+    if (fp == NULL && isFifo(rdbfilename)) {
         /* Cannot check RDB FIFO because fopen and read block until another process writes to the FIFO. */
-        rdbCheckError("Cannot check RDB that is a FIFO: %s", rdbfilepath);
+        rdbCheckError("Cannot check RDB that is a FIFO: %s", rdbfilename);
         return 1;
     }
 
     int closefile = (fp == NULL);
-    if (fp == NULL && (fp = fopen(rdbfilepath,"r")) == NULL) return 1;
+    if (fp == NULL && (fp = fopen(rdbfilename,"r")) == NULL) return 1;
 
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
 
-    startLoadingFile(sb.st_size, rdbfilepath, RDBFLAGS_NONE);
+    startLoadingFile(sb.st_size, rdbfilename, RDBFLAGS_NONE);
     rioInitWithFile(&rdb,fp);
     rdbstate.rio = &rdb;
     rdb.update_cksum = rdbLoadProgressCallback;
