@@ -186,12 +186,6 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGABRT, &act, NULL);
 }
 
-static int isFifo(char *filepath) {
-    struct stat sb;
-    if (stat(filepath, &sb) == -1) return 0;
-    return S_ISFIFO(sb.st_mode);
-}
-
 /* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
  * 1 is returned.
  * The file is specified as a filename in 'rdbfilename' if 'fp' is NULL,
@@ -204,12 +198,6 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     long long expiretime, now = mstime();
     static rio rdb; /* Pointed by global struct riostate. */
     struct stat sb;
-
-    if (fp == NULL && isFifo(rdbfilename)) {
-        /* Cannot check RDB FIFO because fopen and read block until another process writes to the FIFO. */
-        rdbCheckError("Cannot check RDB that is a FIFO: %s", rdbfilename);
-        return 1;
-    }
 
     int closefile = (fp == NULL);
     if (fp == NULL && (fp = fopen(rdbfilename,"r")) == NULL) return 1;

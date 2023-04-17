@@ -3315,6 +3315,7 @@ void sentinelRoleCommand(client *c);
 int redis_check_rdb(char *rdbfilename, FILE *fp);
 int redis_check_rdb_main(int argc, char **argv, FILE *fp);
 int redis_check_aof_main(int argc, char **argv);
+int isFifo(char *filepath);
 
 /* Scripting */
 void scriptingInit(int setup);
