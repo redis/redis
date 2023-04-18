@@ -17,7 +17,6 @@ proc main {} {
         "sentinel deny-scripts-reconfig no"
         "enable-protected-configs yes"
         "enable-debug-command yes"
-        "save ''"
     } "../tests/includes/sentinel.conf"
 
     spawn_instance redis $::redis_base_port $::instances_count {
