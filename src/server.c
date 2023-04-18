@@ -2234,7 +2234,6 @@ int *swap_tid_array = NULL;
 
 void updateCpuUsageInfo() {
     static pid_t pid;
-    // static int cpu_cores;
     static double hertz;
     static int mainTid;
     static double uptime_save;
@@ -2248,7 +2247,6 @@ void updateCpuUsageInfo() {
 
     if(pid == 0){
         pid = getpid();
-        // cpu_cores = get_nprocs();
         hertz = sysconf(_SC_CLK_TCK);
         uptime_save = getUptime();
 
@@ -2284,16 +2282,12 @@ void updateCpuUsageInfo() {
 
     // swap thread
     double temp = 0;
-    // printf("total_swap_threads_num:%d\n",server.total_swap_threads_num);
     for(int i = 0; i < server.total_swap_threads_num; i++){
         swap_thread_ticks_cur = getThreadTicks(pid,swap_tid_array[i]);
-        // printf("swap_thread_ticks_%d : %ld\n",i,swap_thread_ticks_cur);
         temp += (swap_thread_ticks_cur - swap_thread_ticks_save[i])/hertz_multiplier;
         swap_thread_ticks_save[i] = swap_thread_ticks_cur;
     }
     server.swap_threads_cpu_usage = temp;
-    printf("uptime_cur : %.2f\nmain_thread_ticks_cur : %.2f\ntid_array:%d\nhertz_multiplier:%.2f\n",
-    uptime_cur,main_thread_ticks_cur,tid_array[0],hertz_multiplier);
       
 }
 
