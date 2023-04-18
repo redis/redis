@@ -6463,25 +6463,27 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
 
 /* Redis only exposes "side effects" of command execution at the end of an execution unit.
  *
- * Side effects include propagating replication/AOF operations and executing the commands of clients blocked on keys
- * modified by commands
+ * Side effects currently handled are
+ * - propagating replication/AOF operations
+ * - executing the commands of clients blocked on keys modified by commands
  *
  * In general, for modules, execution unit start and end with the taking/release of the GIL.  For module code executed
  * on the Redis main thread, this is done implicitly by Redis itself, while for module code executed on a separate
  * thread, this is done explicitly by the module itself.
  *
- * This function enables modules to flush the execution unit, thereby having side effects become visible during
- * execution.
+ * This function enables modules to flush the execution unit within the middle of an execution unit, thereby having
+ * side effects become visible and impact future operations that occur within the execution unit.
  *
- * Examples of usage might be that one is running multiple commands, one after another, with RM_Call and wants
- * processCommand() like semantics, where unblocked clients will be executed before the next RM_Call is made.
+ * Usage Example: a module runs multiple commands via RM_Call within a single execution unit, but wants
+ * processCommand() like semantics, where blocked clients that could be unblocked by a previous RM_Call operation will
+ * be executed before the next RM_Call is made.  By calling RM_FlushExecutionUnit between RM_Call operations, the
+ * module will get those semantics.
  *
- * Note: while one Modules that calls another module via RM_Call won't nest if they are operating on a separate thread,
- * as each will need to grab the GIL independently, they can nest if both operate on the main thread.  In that case,
- * it doesn't make sense for the further nested module to be able to cause side effects to the top level module, and
- * therefore this function only succeeds if running at an execution_nesting level of 1.
  */
-int RM_FlushExecutionUnit() {
+int RM_FlushExecutionUnit(RedisModuleCtx *ctx, unsigned int flags) {
+    UNUSED(ctx)
+    UNUSED(flags)
+
     if (server.execution_nesting != 1)
         return REDISMODULE_ERR;
 
