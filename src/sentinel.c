@@ -3209,7 +3209,7 @@ void sentinelConfigSetCommand(client *c) {
         "resolve-hostnames",
         "announce-port",
         "announce-hostnames",
-	"loglevel",
+        "loglevel",
         NULL};
     static dict *options_dict = NULL;
     if (!options_dict) {
@@ -3287,14 +3287,16 @@ void sentinelConfigSetCommand(client *c) {
             drop_conns = 1;
         } else if (!strcasecmp(option, "loglevel") && moreargs > 0) {
             val = c->argv[++i];
-            if (!strcasecmp(val, "debug"))
+            if (!strcasecmp(val->ptr, "debug"))
                 server.verbosity = LL_DEBUG;
-            else if (!strcasecmp(val, "verbose"))
+            else if (!strcasecmp(val->ptr, "verbose"))
                 server.verbosity = LL_VERBOSE;
-            else if (!strcasecmp(val, "notice"))
+            else if (!strcasecmp(val->ptr, "notice"))
                 server.verbosity = LL_NOTICE;
-            else if (!strcasecmp(val, "warning"))
+            else if (!strcasecmp(val->ptr, "warning"))
                 server.verbosity = LL_WARNING;
+	    else
+                goto badfmt;
         } else {
             /* Should never reach here */
             serverAssert(0);
