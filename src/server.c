@@ -36,6 +36,10 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
 #include <time.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -47,6 +51,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <sys/times.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
 #include <sys/un.h>
@@ -2132,6 +2137,167 @@ void _rdbSaveBackground(client *c, swapCtx *ctx) {
     clientReleaseLocks(c,ctx);
 }
 
+
+double getUptime() {
+    FILE *file = fopen("/proc/uptime", "r");
+    if (!file) {
+        perror("Error opening file update open");
+        return -1;
+    }
+
+    double uptime;
+    int matched = fscanf(file, "%lf", &uptime);
+
+    fclose(file);
+
+    if (matched != 1) {
+        fprintf(stderr, "Error parsing file update read\n");
+        return -1;
+    }
+
+    return uptime;
+}
+
+double getThreadTicks(int pid, int tid) {
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "/proc/%d/task/%d/stat", pid, tid);
+
+    FILE *file = fopen(filepath, "r");
+    if (!file) {
+        perror("Error opening file /proc/<pid>/task/<pid>");
+        return -1;
+    }
+
+    double utime, stime;
+    int matched = fscanf(file, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lf %lf",
+                         &utime, &stime);
+
+    fclose(file);
+
+    if (matched != 2) {
+        fprintf(stderr, "Error parsing file /proc/<pid>/task/<pid>\n");
+        return -1;
+    }
+
+    return utime + stime;
+}
+
+void getThreadTids(int redis_pid, int *tid_array, const char *prefix,int array_length) {
+    char task_dir[256];
+    snprintf(task_dir, sizeof(task_dir), "/proc/%d/task", redis_pid);
+
+    DIR *dir = opendir(task_dir);
+    if (!dir) {
+        perror("opendir");
+        return;
+    }
+
+    struct dirent *entry;
+    int num = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type != DT_DIR || entry->d_name[0] == '.')
+            continue;
+
+        int tid = atoi(entry->d_name);
+        if (tid == 0)
+            continue;
+
+        char stat_path[256];
+        snprintf(stat_path, sizeof(stat_path), "%s/%d/stat", task_dir, tid);
+
+        FILE *file = fopen(stat_path, "r");
+        if (!file) {
+            perror("fopen");
+            continue;
+        }
+
+        int parsed_tid;
+        char comm[256];
+        if (fscanf(file, "%d %255s", &parsed_tid, comm) != 2) {
+            perror("fscanf");
+            fclose(file);
+            continue;
+        }
+
+        fclose(file);
+
+        if (strncmp(comm, prefix, 5) == 0 && num < array_length) {
+            tid_array[num++] = tid;
+        }
+    }
+
+    closedir(dir);
+}
+
+double *swap_thread_ticks_save = NULL;
+int *swap_tid_array = NULL;
+
+void updateCpuUsageInfo() {
+    static pid_t pid;
+    // static int cpu_cores;
+    static double hertz;
+    static int mainTid;
+    static double uptime_save;
+    static double main_thread_ticks_save;
+    double uptime_cur;
+    double main_thread_ticks_cur;
+    double swap_thread_ticks_cur;
+    static int n;
+
+    static int tid_array[1];
+
+    if(pid == 0){
+        pid = getpid();
+        // cpu_cores = get_nprocs();
+        hertz = sysconf(_SC_CLK_TCK);
+        uptime_save = getUptime();
+
+        //init array
+        swap_thread_ticks_save = (double*)zmalloc(server.total_swap_threads_num * sizeof(double));
+        swap_tid_array = (int*)zmalloc(server.total_swap_threads_num * sizeof(int));
+
+        getThreadTids(pid,tid_array,"(redis-server",1);
+        main_thread_ticks_save = getThreadTicks(pid,tid_array[0]);
+        
+        getThreadTids(pid,swap_tid_array,"(swap",server.total_swap_threads_num);
+
+        for(int i = 0; i < server.total_swap_threads_num; i++){
+            swap_thread_ticks_save[i] = getThreadTicks(pid,swap_tid_array[i]);
+        }
+        return;
+    }
+
+    if(n != 140){
+        n++;
+        return;
+    }
+    n = 0;
+
+    uptime_cur = getUptime();
+    double hertz_multiplier = hertz * (uptime_cur - uptime_save);
+    uptime_save = uptime_cur;
+
+    // main thread
+    main_thread_ticks_cur = getThreadTicks(pid,tid_array[0]);
+    server.main_thread_cpu_usage = (main_thread_ticks_cur - main_thread_ticks_save)/hertz_multiplier;
+    main_thread_ticks_save = main_thread_ticks_cur;
+
+    // swap thread
+    double temp = 0;
+    // printf("total_swap_threads_num:%d\n",server.total_swap_threads_num);
+    for(int i = 0; i < server.total_swap_threads_num; i++){
+        swap_thread_ticks_cur = getThreadTicks(pid,swap_tid_array[i]);
+        // printf("swap_thread_ticks_%d : %ld\n",i,swap_thread_ticks_cur);
+        temp += (swap_thread_ticks_cur - swap_thread_ticks_save[i])/hertz_multiplier;
+        swap_thread_ticks_save[i] = swap_thread_ticks_cur;
+    }
+    server.swap_threads_cpu_usage = temp;
+    printf("uptime_cur : %.2f\nmain_thread_ticks_cur : %.2f\ntid_array:%d\nhertz_multiplier:%.2f\n",
+    uptime_cur,main_thread_ticks_cur,tid_array[0],hertz_multiplier);
+      
+}
+
+
 /* This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
@@ -2156,6 +2322,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     UNUSED(eventLoop);
     UNUSED(id);
     UNUSED(clientData);
+
+    updateCpuUsageInfo();
 
     /* Software watchdog: deliver the SIGALRM that will reach the signal
      * handler if we don't return here fast enough. */
@@ -5566,6 +5734,12 @@ sds genRedisInfoString(const char *section) {
             (long)m_ru.ru_stime.tv_sec, (long)m_ru.ru_stime.tv_usec,
             (long)m_ru.ru_utime.tv_sec, (long)m_ru.ru_utime.tv_usec);
 #endif  /* RUSAGE_THREAD */
+        info = sdscatprintf(info,
+        "main_thread_cpu_usage:%.4f%%\r\n"
+        "total_swap_threads_cpu_usage:%.4f%%\r\n",
+        server.main_thread_cpu_usage * 100,
+        server.swap_threads_cpu_usage * 100);
+
     }
 
     /* Modules */

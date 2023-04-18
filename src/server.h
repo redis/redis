@@ -1241,6 +1241,11 @@ typedef enum childInfoType {
 } childInfoType;
 
 struct redisServer {
+
+    /* CPU usage */
+    double main_thread_cpu_usage; // 用于存储Redis主线程的CPU使用率
+    double swap_threads_cpu_usage; // 用于存储Redis主进程下所有swap线程的CPU使用率之和
+
     /* General */
     pid_t pid;                  /* Main process pid. */
     pthread_t main_thread_id;         /* Main thread id */
@@ -3038,6 +3043,12 @@ void rdbSaveProgress(rio *rdb, int rdbflags);
 ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
 void trackInstantaneousMetric(int metric, long long current_reading);
 long long getInstantaneousMetric(int metric);
+
+double getUptime();
+double getThreadTicks(int pid,int tid);
+void getThreadTids(int redis_pid, int *tid_array, const char *prefix,int array_length);
+void updateCpuUsageInfo();
+
 
 #include "ctrip.h"
 #include "ctrip_swap.h"
