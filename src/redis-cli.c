@@ -2525,8 +2525,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             }
 
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2 &&) 
-                config.last_cmd_type != REDIS_REPLY_ERROR)) 
+            if (!strcasecmp(command,"select") && argc == 2 && 
+                config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
                 config.conn_info.input_dbnum = config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
