@@ -254,12 +254,13 @@ foreach call_type {nested normal} {
     }
 
     test "dont flush between rm_call commands" {
+        r del x
         set rd [redis_deferring_client]
         $rd client id
         set id [$rd read]
         $rd blpop x 0
 
-        assert_equal "1 a" [r do_multiple_rm_call lpush x a \; lpop x]
+        assert_equal "1 a" [r do_multiple_rm_call lpush x a ";" lpop x]
 
         r client unblock $id ERROR
         catch {[$rd read]} e
@@ -269,15 +270,16 @@ foreach call_type {nested normal} {
     }
 
     test "flush between rm_call commands" {
+        r del x
         set rd [redis_deferring_client]
         $rd client id
         set id [$rd read]
         $rd blpop x 0
 
-        assert_equal "1 {}" [r do_multiple_rm_call_with_flush lpush x a \; lpop x]
+        assert_equal "1 {}" [r do_multiple_rm_call_with_flush lpush x a ";" lpop x]
 
         r client unblock $id ERROR
-        assert_equal a [$rd read]
+        assert_equal {x a} [$rd read]
 
         $rd close
     }
