@@ -3680,8 +3680,7 @@ void processClientsWaitingReplicas(void) {
             addReplyLongLong(c, numlocal);
             addReplyLongLong(c, numreplicas);
         } else {
-            /* Don't reply yet if there is a pending command */
-            if (!(c->flags & CLIENT_PENDING_COMMAND)) addReplyLongLong(c,numreplicas);
+            addReplyLongLong(c,numreplicas);
         }
 
         unblockClient(c, 1);
