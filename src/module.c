@@ -6481,8 +6481,8 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
  *
  */
 int RM_FlushExecutionUnit(RedisModuleCtx *ctx, unsigned int flags) {
-    UNUSED(ctx)
-    UNUSED(flags)
+    UNUSED(ctx);
+    UNUSED(flags);
 
     if (server.execution_nesting != 1)
         return REDISMODULE_ERR;
