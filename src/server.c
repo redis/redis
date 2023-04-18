@@ -3060,6 +3060,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
         return NULL;
     }
 
+    serverAssert(argc > 0); /* Avoid warning `-Wmaybe-uninitialized` in lookupCommandLogic() */
     robj objects[argc];
     robj *argv[argc];
     for (j = 0; j < argc; j++) {

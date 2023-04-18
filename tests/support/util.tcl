@@ -634,7 +634,7 @@ proc get_child_pid {idx} {
 }
 
 proc process_is_alive pid {
-    if {[catch {exec ps -p $pid} err]} {
+    if {[catch {exec ps -p $pid -f} err]} {
         return 0
     } else {
         if {[string match "*<defunct>*" $err]} { return 0 }
