@@ -309,6 +309,9 @@ typedef uint64_t RedisModuleTimerID;
  * Use RedisModule_GetModuleOptionsAll instead. */
 #define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<4)
 
+/* default set of items to flush in an execution unit */
+#define REDISMODULE_FLUSH_FLAG_DEFAULT (1<<0)
+
 /* Definitions for RedisModule_SetCommandInfo. */
 
 typedef enum {
@@ -985,7 +988,7 @@ REDISMODULE_API RedisModuleString * (*RedisModule_ListGet)(RedisModuleKey *key, 
 REDISMODULE_API int (*RedisModule_ListSet)(RedisModuleKey *key, long index, RedisModuleString *value) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ListInsert)(RedisModuleKey *key, long index, RedisModuleString *value) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ListDelete)(RedisModuleKey *key, long index) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_FlushExecutionUnit)() REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_FlushExecutionUnit)(RedisModuleCtx *ctx, unsigned int flags) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCallReply * (*RedisModule_Call)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_CallReplyProto)(RedisModuleCallReply *reply, size_t *len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeCallReply)(RedisModuleCallReply *reply) REDISMODULE_ATTR;
