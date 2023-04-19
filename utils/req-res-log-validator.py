@@ -334,9 +334,7 @@ if __name__ == '__main__':
     print("Hits per command:")
     for k, v in sorted(command_counter.items()):
         print(f"  {k}: {v}")
-    # We don't care about SENTINEL commands
-    not_hit = set(filter(lambda x: not x.startswith("sentinel"),
-                  set(docs.keys()) - set(command_counter.keys()) - set(IGNORED_COMMANDS)))
+    not_hit = set(set(docs.keys()) - set(command_counter.keys()) - set(IGNORED_COMMANDS))
     if not_hit:
         if args.verbose:
             print("WARNING! The following commands were not hit at all:")
