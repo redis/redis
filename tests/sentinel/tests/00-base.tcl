@@ -31,6 +31,42 @@ test "Sentinel command flag infrastructure works correctly" {
     }
 }
 
+test "SENTINEL HELP output the sentinel subcommand help" {
+    assert_match "*SENTINEL <subcommand> *" [S 0 SENTINEL HELP]
+}
+
+test "SENTINEL MYID return the sentinel instance ID" {
+    assert_equal 40 [string length [S 0 SENTINEL MYID]]
+    assert_equal [S 0 SENTINEL MYID] [S 0 SENTINEL MYID]
+}
+
+test "SENTINEL RESET can resets the master" {
+     # can't actually do a reset now
+     assert_equal 0 [S 0 SENTINEL RESET foo]
+}
+
+test "SENTINEL INFO CACHE returns the cached info" {
+    assert_match "*# Server*" [S 0 SENTINEL INFO-CACHE mymaster]
+}
+
+test "SENTINEL PENDING-SCRIPTS returns the information about pending scripts" {
+    # may or may not have a value, so assert greater than or equal to 0.
+    assert_morethan_equal [llength [S 0 SENTINEL PENDING-SCRIPTS]] 0
+}
+
+test "SENTINEL MASTERS returns a list of monitored Redis masters." {
+    assert_match "*mymaster*" [S 0 SENTINEL MASTERS]
+    assert_morethan_equal [llength [S 0 SENTINEL MASTERS]] 1
+}
+
+test "SENTINEL SENTINELS returns a list of Sentinel instances" {
+     assert_morethan_equal [llength [S 0 SENTINEL SENTINELS mymaster]] 1
+}
+
+test "SENTINEL SLAVES returns a list of the monitored replicas" {
+     assert_morethan_equal [llength [S 0 SENTINEL SLAVES mymaster]] 1
+}
+
 test "Basic failover works if the master is down" {
     set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]

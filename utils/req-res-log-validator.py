@@ -43,7 +43,7 @@ Future validations:
 1. Fail the script if one or more of the branches of the reply schema (e.g. oneOf, anyOf) was not hit.
 """
 
-IGNORED_COMMANDS = [
+IGNORED_COMMANDS = {
     "sync",
     "psync",
     "monitor",
@@ -56,7 +56,9 @@ IGNORED_COMMANDS = [
     "debug",
     "pfdebug",
     "lolwut",
-]
+    "sentinel|debug",
+    "sentinel|info-cache",
+}
 
 
 class Request(object):
@@ -214,6 +216,9 @@ def process_file(docs, path):
             command_counter[req.command] = command_counter.get(req.command, 0) + 1
 
             if res.error or res.queued:
+                continue
+
+            if req.command in IGNORED_COMMANDS:
                 continue
 
             try:

@@ -10,6 +10,16 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of pending scripts.",
+            "items": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            }
+        }
     }
 }
