@@ -120,7 +120,7 @@ void initStatsSwap() {
 
     server.swap_hit_stats = zcalloc(sizeof(swapHitStat));
 
-    swapCpuStatInit(&server.thread_cpu_usage);
+    swapCpuUsageInit(&server.thread_cpu_usage);
 }
 
 static double getUptime(void) {
@@ -274,7 +274,7 @@ static int count_task_subdirs(int pid) {
     return subdir_count;
 }
 
-void swapCpuStatInit(redisThreadCpuUsage *cpuUsage) {
+void swapCpuUsageInit(redisThreadCpuUsage *cpuUsage) {
     cpuUsage->pid = getpid();
     cpuUsage->hertz = sysconf(_SC_CLK_TCK);
     cpuUsage->uptime_save = getUptime();
@@ -291,7 +291,7 @@ void swapCpuStatInit(redisThreadCpuUsage *cpuUsage) {
     }
 }
 
-static void otherCpuStatInit(redisThreadCpuUsage *cpuUsage){
+static void otherCpuUsageInit(redisThreadCpuUsage *cpuUsage){
     cpuUsage->other_tids_num = count_task_subdirs(cpuUsage->pid);
     if(cpuUsage->other_tids_num == 0){
         cpuUsage->other_tids_num = -1;
@@ -311,8 +311,7 @@ static void otherCpuStatInit(redisThreadCpuUsage *cpuUsage){
 
 void redisThreadCpuUsageUpdate(redisThreadCpuUsage *cpuUsage) {
     if(cpuUsage->other_tids_num == 0)
-        otherCpuStatInit(cpuUsage);
-    printf("\n\n");
+        otherCpuUsageInit(cpuUsage);
     double time_cur = 0;
     double temp = 0;
     time_cur = getUptime();
