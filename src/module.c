@@ -58,6 +58,7 @@
 #include "monotonic.h"
 #include "script.h"
 #include "call_reply.h"
+#include "hdr_histogram.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
