@@ -6479,28 +6479,27 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
  * be executed before the next RM_Call is made.  By calling RM_FlushExecutionUnit between RM_Call operations, the
  * module will get those semantics.
  *
- * Currently, the RedisModuleCtx is not used and only NULL should be passed
- *
  * The flags is a bit mask of these:
  *
- * - `REDISMODULE_FLUSH_FLAG_DEFAULT`: We propegate pending command operations (AOF/Replication) and unblock clients
+ * - `REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT`: We propegate pending command operations (AOF/Replication) and unblock
+ *                                               clients
  */
 int RM_FlushExecutionUnit(RedisModuleCtx *ctx, unsigned int flags) {
     if (server.execution_nesting != 1)
         return REDISMODULE_ERR;
 
-    if (ctx != NULL) {
+    if (ctx == NULL) {
         return REDISMODULE_ERR;
     }
 
-    if (flags != REDISMODULE_FLUSH_FLAG_DEFAULT) {
+    if (flags == REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT) {
+        propagatePendingCommands();
+
+        if (listLength(server.ready_keys))
+            handleClientsBlockedOnKeys();
+    } else {
         return REDISMODULE_ERR;
     }
-
-    propagatePendingCommands();
-
-    if (listLength(server.ready_keys))
-        handleClientsBlockedOnKeys();
 
     return REDISMODULE_OK;
 }

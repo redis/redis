@@ -310,7 +310,7 @@ typedef uint64_t RedisModuleTimerID;
 #define _REDISMODULE_OPTIONS_FLAGS_NEXT (1<<4)
 
 /* default set of items to flush in an execution unit */
-#define REDISMODULE_FLUSH_FLAG_DEFAULT (1<<0)
+#define REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT (1<<0)
 
 /* Definitions for RedisModule_SetCommandInfo. */
 

@@ -585,7 +585,7 @@ static int multiple_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         RedisModule_ReplyWithCallReply(ctx, rep);
         RedisModule_FreeCallReply(rep);
         if (flush) {
-            RedisModule_FlushExecutionUnit(NULL, REDISMODULE_FLUSH_FLAG_DEFAULT);
+            RedisModule_FlushExecutionUnit(ctx, REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT);
         }
     }
 
