@@ -6701,6 +6701,7 @@ void loadDataFromDisk(void) {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         errno = 0; /* Prevent a stale value from affecting error checking */
         int rdb_flags = RDBFLAGS_NONE;
+        long long master_rsi_repl_offset = 0;
         if (iAmMaster()) {
             /* Master may delete expired keys when loading, we should
              * propagate expire to replication backlog. */
@@ -6735,6 +6736,7 @@ void loadDataFromDisk(void) {
                     memcpy(server.replid2,rsi.repl_id,sizeof(server.replid));
                     server.second_replid_offset = rsi.repl_offset+1;
                     /* Rebase master_repl_offset from rsi.repl_offset. */
+                    master_rsi_repl_offset = rsi.repl_offset;
                     server.master_repl_offset += rsi.repl_offset;
                     serverAssert(server.repl_backlog);
                     server.repl_backlog->offset = server.master_repl_offset -
@@ -6753,7 +6755,7 @@ void loadDataFromDisk(void) {
          * if RDB doesn't have replication info or there is no rdb, it is not
          * possible to support partial resynchronization, to avoid extra memory
          * of replication backlog, we drop it. */
-        if (server.master_repl_offset == 0 && server.repl_backlog)
+        if (master_rsi_repl_offset == 0 && server.repl_backlog)
             freeReplicationBacklog();
     }
 }

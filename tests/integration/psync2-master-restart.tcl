@@ -183,3 +183,16 @@ start_server {} {
         assert {$digest eq [$sub_replica debug digest]}
     }
 }}}
+
+start_server {tags {"psync2 external:skip"}} {
+    test {Drop replication backlog after restarting with expired if RDB doesn't have replication info} {
+        r debug set-active-expire 0
+        r set k v px 10
+        after 20
+        r save
+
+        restart_server 0 true false
+        assert_equal 0 [s repl_backlog_active]
+        assert_equal 0 [s repl_backlog_histlen]
+    }
+}
