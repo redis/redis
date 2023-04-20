@@ -292,16 +292,16 @@ void swapCpuUsageInit(redisThreadCpuUsage *cpuUsage) {
 }
 
 static void otherCpuUsageInit(redisThreadCpuUsage *cpuUsage){
-    cpuUsage->other_tids_num = count_task_subdirs(cpuUsage->pid);
+    int total_tids_num = count_task_subdirs(cpuUsage->pid);
+    int total_tids[total_tids_num];
+    getThreadTids(cpuUsage->pid, total_tids, "(", total_tids_num);
+    cpuUsage->other_tids = filter_tids(total_tids,total_tids_num,cpuUsage->main_tid,1,cpuUsage->swap_tids,server.total_swap_threads_num);
+    int other_num = total_tids_num - 1 - server.total_swap_threads_num;
+    cpuUsage->other_tids_num = other_num;
     if(cpuUsage->other_tids_num == 0){
         cpuUsage->other_tids_num = -1;
         return;
     }
-    int total_tids[cpuUsage->other_tids_num];
-    getThreadTids(cpuUsage->pid, total_tids, "(", cpuUsage->other_tids_num);
-    cpuUsage->other_tids = filter_tids(total_tids,cpuUsage->other_tids_num,cpuUsage->main_tid,1,cpuUsage->swap_tids,server.total_swap_threads_num);
-    int other_num = cpuUsage->other_tids_num - 1 - server.total_swap_threads_num;
-    cpuUsage->other_tids_num = other_num;
     cpuUsage->other_thread_ticks_save = zmalloc(other_num * sizeof(double));
     for (int i = 0; i < cpuUsage->other_tids_num; i++){
         cpuUsage->other_thread_ticks_save[i] = getThreadTicks(cpuUsage->pid, cpuUsage->other_tids[i]);
