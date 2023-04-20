@@ -45,7 +45,7 @@ Future validations:
 
 IGNORED_COMMANDS = [
     # Commands that don't work in a req-res manner (see logreqres.c)
-    "debug",  # becuase of DEBUG SEGFAULT
+    "debug",  # because of DEBUG SEGFAULT
     "sync",
     "psync",
     "monitor",
