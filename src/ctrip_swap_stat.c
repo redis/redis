@@ -195,9 +195,10 @@ static int getThreadTids(int redis_pid, int *tid_array, const char *prefix, int 
         if(num >= array_length){
             break;
         }
-        if (entry->d_type != DT_DIR || entry->d_name[0] == '.'|| entry->d_name[0] == '..')
+        if (entry->d_type != DT_DIR)
             continue;
-
+        if(entry->d_name[0] == '.'|| entry->d_name[0] == '..')
+            continue;
         int tid = atoi(entry->d_name);
         char stat_path[256];
         snprintf(stat_path, sizeof(stat_path), "%s/%d/stat", task_dir, tid);
