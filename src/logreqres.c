@@ -186,7 +186,8 @@ size_t reqresAppendRequest(client *c) {
 
     /* Ignore commands that have streaming non-standard response */
     sds cmd = argv[0]->ptr;
-    if (!strcasecmp(cmd,"sync") ||
+    if (!strcasecmp(cmd,"debug") || /* because of DEBUG SEGFAULT */
+        !strcasecmp(cmd,"sync") ||
         !strcasecmp(cmd,"psync") ||
         !strcasecmp(cmd,"monitor") ||
         !strcasecmp(cmd,"subscribe") ||
@@ -194,11 +195,7 @@ size_t reqresAppendRequest(client *c) {
         !strcasecmp(cmd,"ssubscribe") ||
         !strcasecmp(cmd,"sunsubscribe") ||
         !strcasecmp(cmd,"psubscribe") ||
-        !strcasecmp(cmd,"punsubscribe") ||
-        !strcasecmp(cmd,"debug") ||
-        !strcasecmp(cmd,"pfdebug") ||
-        !strcasecmp(cmd,"lolwut") ||
-        (!strcasecmp(cmd,"sentinel") && argc > 1 && !strcasecmp(argv[1]->ptr,"debug")))
+        !strcasecmp(cmd,"punsubscribe"))
     {
         return 0;
     }

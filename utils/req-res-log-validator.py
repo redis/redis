@@ -43,7 +43,9 @@ Future validations:
 1. Fail the script if one or more of the branches of the reply schema (e.g. oneOf, anyOf) was not hit.
 """
 
-IGNORED_COMMANDS = [
+IGNORED_COMMANDS = {
+    # Commands that don't work in a req-res manner (see logreqres.c)
+    "debug",  # because of DEBUG SEGFAULT
     "sync",
     "psync",
     "monitor",
@@ -53,11 +55,21 @@ IGNORED_COMMANDS = [
     "sunsubscribe",
     "psubscribe",
     "punsubscribe",
-    "debug",
+    # Commands to which we decided not write a reply schema
     "pfdebug",
     "lolwut",
-]
-
+    # TODO: write a reply schema for the following commands
+    "sentinel|debug",
+    "sentinel|info-cache",
+    "sentinel|pending-scripts",
+    "sentinel|reset",
+    "sentinel|simulate-failure",
+    "sentinel|help",
+    "sentinel|masters",
+    "sentinel|myid",
+    "sentinel|sentinels",
+    "sentinel|slaves",
+}
 
 class Request(object):
     """
@@ -216,6 +228,9 @@ def process_file(docs, path):
             if res.error or res.queued:
                 continue
 
+            if req.command in IGNORED_COMMANDS:
+                continue
+
             try:
                 jsonschema.validate(instance=res.json, schema=req.schema, cls=schema_validator)
             except (jsonschema.ValidationError, jsonschema.exceptions.SchemaError) as err:
@@ -286,16 +301,6 @@ if __name__ == '__main__':
 
     fetch_schemas(args.cli, args.port, redis_args, docs)
 
-    missing_schema = [k for k, v in docs.items()
-                      if "reply_schema" not in v and k not in IGNORED_COMMANDS]
-    if missing_schema:
-        print("WARNING! The following commands are missing a reply_schema:")
-        for k in sorted(missing_schema):
-            print(f"  {k}")
-        if args.fail_missing_reply_schemas:
-            print("ERROR! at least one command does not have a reply_schema")
-            sys.exit(1)
-
     # Fetch schemas from a sentinel
     print('Starting Redis sentinel')
 
@@ -306,6 +311,16 @@ if __name__ == '__main__':
     sentinel_args = [args.server, config_file, '--port', str(args.port), "--sentinel"]
     fetch_schemas(args.cli, args.port, sentinel_args, docs)
     os.unlink(config_file)
+
+    missing_schema = [k for k, v in docs.items()
+                      if "reply_schema" not in v and k not in IGNORED_COMMANDS]
+    if missing_schema:
+        print("WARNING! The following commands are missing a reply_schema:")
+        for k in sorted(missing_schema):
+            print(f"  {k}")
+        if args.fail_missing_reply_schemas:
+            print("ERROR! at least one command does not have a reply_schema")
+            sys.exit(1)
 
     start = time.time()
 
