@@ -36,6 +36,7 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 
+#include "ctrip_swap.h"
 #include <time.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -2156,6 +2157,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     UNUSED(eventLoop);
     UNUSED(id);
     UNUSED(clientData);
+
+    run_with_period(1500){
+        redisThreadCpuUsageUpdate(&server.thread_cpu_usage);
+    }
 
     /* Software watchdog: deliver the SIGALRM that will reach the signal
      * handler if we don't return here fast enough. */
@@ -4575,6 +4580,8 @@ void closeListeningSockets(int unlink_unix_socket) {
 }
 
 int prepareForShutdown(int flags) {
+     freeLoopVariable(&server.thread_cpu_usage);
+     
     /* When SHUTDOWN is called while the server is loading a dataset in
      * memory we need to make sure no attempt is performed to save
      * the dataset on shutdown (otherwise it could overwrite the current DB
@@ -4677,6 +4684,28 @@ int prepareForShutdown(int flags) {
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
+}
+
+void freeLoopVariable(redisThreadCpuUsage *cpuUsage){
+    if(cpuUsage->swap_thread_ticks_save){
+        zfree(cpuUsage->swap_thread_ticks_save);
+        cpuUsage->swap_thread_ticks_save = NULL;
+    }
+
+    if(cpuUsage->swap_tids){
+        zfree(cpuUsage->swap_tids);
+        cpuUsage->swap_tids = NULL;
+    }
+
+    if(cpuUsage->other_thread_ticks_save){
+        zfree(cpuUsage->other_thread_ticks_save);
+        cpuUsage->other_thread_ticks_save = NULL;
+    }
+
+    if(cpuUsage->other_tids){
+        zfree(cpuUsage->other_tids);
+        cpuUsage->other_tids = NULL;
+    }
 }
 
 /*================================== Commands =============================== */
@@ -5566,6 +5595,7 @@ sds genRedisInfoString(const char *section) {
             (long)m_ru.ru_stime.tv_sec, (long)m_ru.ru_stime.tv_usec,
             (long)m_ru.ru_utime.tv_sec, (long)m_ru.ru_utime.tv_usec);
 #endif  /* RUSAGE_THREAD */
+        info = genRedisThreadCpuUsageInfoString(info, &server.thread_cpu_usage);
     }
 
     /* Modules */

@@ -26,6 +26,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #include "ctrip_swap.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/times.h>
 
 /* ----------------------------- statistics ------------------------------ */
 /* Estimate memory used for one swap action, server will slow down event
@@ -114,6 +119,238 @@ void initStatsSwap() {
     }
 
     server.swap_hit_stats = zcalloc(sizeof(swapHitStat));
+
+    swapCpuStatInit(&server.thread_cpu_usage);
+}
+
+static double getUptime(void) {
+    FILE *file = fopen("/proc/uptime", "r");
+    if (!file) {
+        serverLog(LL_WARNING, "Error opening file /proc/uptime : %s (error: %d)", strerror(errno), errno);
+        return -1;
+    }
+
+    double uptime;
+    int matched = fscanf(file, "%lf", &uptime);
+    fclose(file);
+
+    if (matched != 1) {
+        serverLog(LL_WARNING, "Error reading file /proc/uptime : %s (error: %d)", strerror(errno), errno);
+        return -1;
+    }
+
+    return uptime;
+}
+
+static double getThreadTicks(int pid, int tid) {
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "/proc/%d/task/%d/stat", pid, tid);
+
+    FILE *file = fopen(filepath, "r");
+    if (!file) {
+        serverLog(LL_WARNING, "Error opening file /proc/%d/task/%d/stat : %s (error: %d)", pid, tid, strerror(errno), errno);
+        return -1;
+    }
+
+    double utime, stime;
+    int matched = fscanf(file, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lf %lf",
+                         &utime, &stime);
+    fclose(file);
+
+    if (matched != 2) {
+        serverLog(LL_WARNING, "Error reading file /proc/%d/task/%d/stat : %s (error: %d)", pid, tid, strerror(errno), errno);
+        return -1;
+    }
+
+    return utime + stime;
+}
+
+static void getThreadTids(int redis_pid, int *tid_array, const char *prefix, int array_length) {
+    char task_dir[256];
+    snprintf(task_dir, sizeof(task_dir), "/proc/%d/task", redis_pid);
+
+    DIR *dir = opendir(task_dir);
+    if (!dir) {
+        serverLog(LL_WARNING, "Error opening file /proc/%d/task : %s (error: %d)", redis_pid, strerror(errno), errno);
+        return -1;
+    }
+
+    if(array_length == -1){
+        return dirfd(dir);
+    }
+
+    struct dirent *entry;
+    int num = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        if(num >= array_length){
+            break;
+        }
+        if (entry->d_type != DT_DIR || entry->d_name[0] == '.'|| entry->d_name[0] == '..')
+            continue;
+
+        int tid = atoi(entry->d_name);
+        if (tid == 0)
+            continue;
+        char stat_path[256];
+        snprintf(stat_path, sizeof(stat_path), "%s/%d/stat", task_dir, tid);
+
+        FILE *file = fopen(stat_path, "r");
+        if (!file) {
+            serverLog(LL_WARNING, "Error opening file %s/%d/stat : %s (error: %d)", task_dir, tid, strerror(errno), errno);
+            continue;
+        }
+
+        int parsed_tid;
+        char comm[256];
+        if (fscanf(file, "%d %255s", &parsed_tid, comm) != 2) {
+            serverLog(LL_WARNING, "Error reading file %s/%d/stat : %s (error: %d)", task_dir, tid, strerror(errno), errno);
+            fclose(file);
+            continue;
+        }
+        fclose(file);
+
+        if (tid_array != NULL && strncmp(comm, prefix, strlen(prefix)) == 0) {
+            tid_array[num++] = tid;
+        }
+    }
+
+    closedir(dir);
+    return;
+}
+
+static int *filter_tids(int *total_tids, int num, int *tids1, int num1, int *tids2, int num2) {
+    int n = num - num1 - num2;
+    int *result = zmalloc(n * sizeof(int));
+    int result_idx = 0;
+
+    for (int i = 0; i < num; i++) {
+        int tid = total_tids[i];
+        int found = 0;
+
+        for (int j = 0; j < num1 && !found; j++) {
+            if (tid == tids1[j]) {
+                found = 1;
+            }
+        }
+
+        for (int j = 0; j < num2 && !found; j++) {
+            if (tid == tids2[j]) {
+                found = 1;
+            }
+        }
+
+        if (!found) {
+            result[result_idx++] = tid;
+        }
+    }
+
+    return result;
+}
+
+static int count_task_subdirs(int pid) {
+    DIR *dir;
+    struct dirent *entry;
+    int subdir_count = 0;
+    char dir_path[256];
+
+    snprintf(dir_path, sizeof(dir_path), "/proc/%d/task", pid);
+
+    dir = opendir(dir_path);
+    if (dir == NULL) {
+        serverLog(LL_WARNING, "Error opening file /proc/%d/task : %s (error: %d)", pid, strerror(errno), errno);
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_DIR) {
+            if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+                subdir_count++;
+            }
+        }
+    }
+
+    closedir(dir);
+
+    return subdir_count;
+}
+
+void swapCpuStatInit(redisThreadCpuUsage *cpuUsage) {
+    cpuUsage->pid = getpid();
+    cpuUsage->hertz = sysconf(_SC_CLK_TCK);
+    cpuUsage->uptime_save = getUptime();
+
+    cpuUsage->swap_thread_ticks_save = zmalloc(server.total_swap_threads_num * sizeof(double));
+    cpuUsage->swap_tids = zmalloc(server.total_swap_threads_num * sizeof(int));
+
+    getThreadTids(cpuUsage->pid, cpuUsage->main_tid, "(redis-server", 1);
+    cpuUsage->main_thread_ticks_save = getThreadTicks(cpuUsage->pid, cpuUsage->main_tid[0]);
+
+    getThreadTids(cpuUsage->pid, cpuUsage->swap_tids, "(swap", server.total_swap_threads_num);
+    for (int i = 0; i < server.total_swap_threads_num; i++) {
+        cpuUsage->swap_thread_ticks_save[i] = getThreadTicks(cpuUsage->pid, cpuUsage->swap_tids[i]);
+    }
+}
+
+static void otherCpuStatInit(redisThreadCpuUsage *cpuUsage){
+    cpuUsage->other_tids_num = count_task_subdirs(cpuUsage->pid);
+    if(cpuUsage->other_tids_num == 0){
+        cpuUsage->other_tids_num = -1;
+        return;
+    }
+    int total_tids[cpuUsage->other_tids_num];
+    getThreadTids(cpuUsage->pid, total_tids, "(", cpuUsage->other_tids_num);
+    cpuUsage->other_tids = filter_tids(total_tids,cpuUsage->other_tids_num,cpuUsage->main_tid,1,cpuUsage->swap_tids,server.total_swap_threads_num);
+    int other_num = cpuUsage->other_tids_num - 1 - server.total_swap_threads_num;
+    cpuUsage->other_tids_num = other_num;
+    cpuUsage->other_thread_ticks_save = zmalloc(other_num * sizeof(double));
+    for (int i = 0; i < cpuUsage->other_tids_num; i++){
+        cpuUsage->other_thread_ticks_save[i] = getThreadTicks(cpuUsage->pid, cpuUsage->other_tids[i]);
+    }
+    return;
+}
+
+void redisThreadCpuUsageUpdate(redisThreadCpuUsage *cpuUsage) {
+    if(cpuUsage->other_tids_num == 0)
+        otherCpuStatInit(cpuUsage);
+    printf("\n\n");
+    double time_cur = 0;
+    double temp = 0;
+    time_cur = getUptime();
+    double hertz_multiplier = cpuUsage->hertz * (time_cur - cpuUsage->uptime_save);
+    cpuUsage->uptime_save = time_cur;
+
+    time_cur = getThreadTicks(cpuUsage->pid, cpuUsage->main_tid[0]);
+    cpuUsage->main_thread_cpu_usage = (time_cur - cpuUsage->main_thread_ticks_save) / hertz_multiplier;
+    cpuUsage->main_thread_ticks_save = time_cur;
+
+    for (int i = 0; i < server.total_swap_threads_num; i++) {
+        time_cur = getThreadTicks(cpuUsage->pid, cpuUsage->swap_tids[i]);
+        temp += (time_cur - cpuUsage->swap_thread_ticks_save[i]) / hertz_multiplier;
+        cpuUsage->swap_thread_ticks_save[i] = time_cur;
+    }
+    cpuUsage->swap_threads_cpu_usage = temp;
+
+    if(cpuUsage->other_tids_num == -1)
+        return;
+
+    temp = 0;
+    for (int i = 0; i < cpuUsage->other_tids_num; i++){
+        time_cur = getThreadTicks(cpuUsage->pid, cpuUsage->other_tids[i]);
+        temp += (time_cur - cpuUsage->other_thread_ticks_save[i]) / hertz_multiplier;
+        cpuUsage->other_thread_ticks_save[i] = time_cur;
+    }
+    cpuUsage->other_threads_total_cpu_usage = temp;
+}
+
+sds genRedisThreadCpuUsageInfoString(sds info, redisThreadCpuUsage *cpuUsage){
+    info = sdscatprintf(info,
+                        "main_thread_cpu_usage:%.2f%%\r\n"
+                        "swap_threads_total_cpu_usage:%.2f%%\r\n"
+                        "other_threads_total_cpu_usage:%.2f%%\r\n",
+                        cpuUsage->main_thread_cpu_usage * 100,
+                        cpuUsage->swap_threads_cpu_usage * 100,
+                        cpuUsage->other_threads_total_cpu_usage * 100);
+    return info;
 }
 
 void trackSwapInstantaneousMetrics() {

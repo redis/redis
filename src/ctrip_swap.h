@@ -1685,6 +1685,10 @@ int getKeyRequestsSwapBlockedLmove(int dbid, int intention, int intention_flags,
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
 void incrSwapUnBlockCtxVersion();
 
+void initStatsSwap(void);
+void redisThreadCpuUsageUpdate(redisThreadCpuUsage *cpuUsage);
+sds genRedisThreadCpuUsageInfoString(sds info, redisThreadCpuUsage *cpuUsage);
+
 #ifdef REDIS_TEST
 
 #define TEST(name) printf("test — %s\n", name);
