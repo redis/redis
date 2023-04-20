@@ -11,6 +11,30 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The simulated flag was set.",
+                    "const": "OK"
+                },
+                {
+                    "description": "Supported simulates flags. Returned in case `HELP` was used.",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "crash-after-election",
+                            "type": "string"
+                        },
+                        {
+                            "description": "crash-after-promotion",
+                            "type": "string"
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "mode",

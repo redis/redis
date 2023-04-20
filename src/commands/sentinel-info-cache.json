@@ -12,6 +12,47 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Last cached INFO output from masters and all its replicas.",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": [
+                {
+                    "oneOf": [
+                        {
+                            "type": "string",
+                            "description": "The master name."
+                        },
+                        {
+                            "type": "array",
+                            "description": "The unix timestamp at which the logged command was processed.",
+                            "minItems": 0,
+                            "maxItems": 4294967295,
+                            "items": [
+                                {
+                                    "description": "The number of milliseconds since when the INFO was cached.",
+                                    "type": "integer"
+                                },
+                                {
+                                    "description": "The cached INFO string or null.",
+                                    "oneOf": [
+                                        {
+                                            "description": "The cached INFO string.",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "description": "No cached INFO string.",
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "nodename",

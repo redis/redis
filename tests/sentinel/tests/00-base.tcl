@@ -40,13 +40,15 @@ test "SENTINEL MYID return the sentinel instance ID" {
     assert_equal [S 0 SENTINEL MYID] [S 0 SENTINEL MYID]
 }
 
-test "SENTINEL RESET can resets the master" {
-     # can't actually do a reset now
-     assert_equal 0 [S 0 SENTINEL RESET foo]
-}
-
 test "SENTINEL INFO CACHE returns the cached info" {
-    assert_match "*# Server*" [S 0 SENTINEL INFO-CACHE mymaster]
+    set res [S 0 SENTINEL INFO-CACHE mymaster]
+    assert_morethan_equal [llength $res] 2
+    assert_equal "mymaster" [lindex $res 0]
+
+    set res [lindex $res 1]
+    assert_morethan_equal [llength $res] 2
+    assert_morethan [lindex $res 0] 0
+    assert_match "*# Server*" [lindex $res 1]
 }
 
 test "SENTINEL PENDING-SCRIPTS returns the information about pending scripts" {
@@ -54,12 +56,12 @@ test "SENTINEL PENDING-SCRIPTS returns the information about pending scripts" {
     assert_morethan_equal [llength [S 0 SENTINEL PENDING-SCRIPTS]] 0
 }
 
-test "SENTINEL MASTERS returns a list of monitored Redis masters." {
+test "SENTINEL MASTERS returns a list of monitored masters" {
     assert_match "*mymaster*" [S 0 SENTINEL MASTERS]
     assert_morethan_equal [llength [S 0 SENTINEL MASTERS]] 1
 }
 
-test "SENTINEL SENTINELS returns a list of Sentinel instances" {
+test "SENTINEL SENTINELS returns a list of sentinel instances" {
      assert_morethan_equal [llength [S 0 SENTINEL SENTINELS mymaster]] 1
 }
 
@@ -184,4 +186,10 @@ test "Failover works if we configure for absolute agreement" {
 
 test "New master [join $addr {:}] role matches" {
     assert {[RI $master_id role] eq {master}}
+}
+
+test "SENTINEL RESET can resets the master" {
+     assert_equal 1 [S 0 SENTINEL RESET mymaster]
+     assert_equal 0 [llength [S 0 SENTINEL SENTINELS mymaster]]
+     assert_equal 0 [llength [S 0 SENTINEL SLAVES mymaster]]
 }

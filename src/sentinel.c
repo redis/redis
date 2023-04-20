@@ -4071,11 +4071,14 @@ NULL
         }
 
         /* Reply format:
-         *   1.) master name
-         *   2.) 1.) info from master
-         *       2.) info from replica
-         *       ...
-         *   3.) other master name
+         *   1) master name
+         *   2) 1) 1) info cached ms
+         *         2) info from master
+         *      2) 1) info cached ms
+         *         2) info from replica1
+         *      ...
+         *   3) other master name
+         *      ...
          *   ...
          */
         addReplyArrayLen(c,dictSize(masters_local) * 2);

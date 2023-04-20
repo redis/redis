@@ -56,8 +56,8 @@ IGNORED_COMMANDS = {
     "debug",
     "pfdebug",
     "lolwut",
+    "sentinel|simulate-failure",
     "sentinel|debug",
-    "sentinel|info-cache",
 }
 
 
@@ -216,9 +216,6 @@ def process_file(docs, path):
             command_counter[req.command] = command_counter.get(req.command, 0) + 1
 
             if res.error or res.queued:
-                continue
-
-            if req.command in IGNORED_COMMANDS:
                 continue
 
             try:
