@@ -43,7 +43,7 @@ Future validations:
 1. Fail the script if one or more of the branches of the reply schema (e.g. oneOf, anyOf) was not hit.
 """
 
-IGNORED_COMMANDS = [
+IGNORED_COMMANDS = {
     # Commands that don't work in a req-res manner (see logreqres.c)
     "debug",  # because of DEBUG SEGFAULT
     "sync",
@@ -64,7 +64,7 @@ IGNORED_COMMANDS = [
     "sentinel|pending-scripts",
     "sentinel|reset",
     "sentinel|simulate-failure",
-]
+}
 
 class Request(object):
     """
@@ -221,6 +221,9 @@ def process_file(docs, path):
             command_counter[req.command] = command_counter.get(req.command, 0) + 1
 
             if res.error or res.queued:
+                continue
+
+            if req.command in IGNORED_COMMANDS:
                 continue
 
             try:
