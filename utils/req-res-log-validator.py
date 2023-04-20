@@ -64,6 +64,11 @@ IGNORED_COMMANDS = {
     "sentinel|pending-scripts",
     "sentinel|reset",
     "sentinel|simulate-failure",
+    "sentinel|help",
+    "sentinel|masters",
+    "sentinel|myid",
+    "sentinel|sentinels",
+    "sentinel|slaves",
 }
 
 class Request(object):
