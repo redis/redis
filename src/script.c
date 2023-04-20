@@ -130,7 +130,7 @@ uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
 /* Prepare the given run ctx for execution */
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
-    bool client_allow_oom = caller->flags & CLIENT_ALLOW_OOM;
+    int client_allow_oom = caller->flags & CLIENT_ALLOW_OOM;
 
     int running_stale = server.masterhost &&
             server.repl_state != REPL_STATE_CONNECTED &&
