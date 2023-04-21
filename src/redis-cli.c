@@ -29,6 +29,7 @@
  */
 
 #include "fmacros.h"
+#include "read.h"
 #include "version.h"
 
 #include <stdio.h>
@@ -4708,6 +4709,43 @@ static clusterManagerNode *clusterManagerGetSlotOwner(clusterManagerNode *n,
 static int clusterManagerSetSlot(clusterManagerNode *node1,
                                  clusterManagerNode *node2,
                                  int slot, const char *status, char **err) {
+    /* A new CLUSTER SETSLOT variant is introduced in Redis
+     * 7.2+ to help mitigate the single-point-of-failure
+     * issue related to the slot ownership finalization on
+     * HA clusters. We make a best-effort attempt below to
+     * utilize this enhanced reliability. Regardless of the
+     * result, we continue with finalizing slot ownership
+     * on the primary nodes. Note that this command is not
+     * essential. Redis 7.2+ will attempt to recover from
+     * failed slot ownership finalizations if they occur,
+     * although there may be a brief period where slots
+     * caught in this transition stage are unavailable.
+     * Including this additional step ensures no downtime
+     * for these slots if any failures arise. */
+    if (status != NULL && !strncmp(status, "node", 4)) {
+        /* Caller is attempting to finalize slot ownership.
+         * Inject the new command to attempt finalization
+         * on replicas first. */
+        redisReply *reply = CLUSTER_MANAGER_COMMAND(node1, "CLUSTER "
+                                                    "SETSLOT %d %s %s REPLICAONLY",
+                                                    slot, status,
+                                                    (char *) node2->name);
+        if (reply->type == REDIS_REPLY_ERROR) {
+            /* Target Redis server doesn't support this command */
+            clusterManagerLogWarn("*** Target node doesn't support CLUSTER SETSLOT NODE REPLICAONLY\n");
+        } else if (reply->type == REDIS_REPLY_INTEGER) {
+            if (reply->integer == 0) {
+                clusterManagerLogWarn("*** Failed to finalize slot ownership on any replicas\n");
+            } else {
+                clusterManagerLogInfo(">>> Slot ownership finalized on %d replicas\n", reply->integer);
+            }
+        } else {
+            clusterManagerLogInfo(">>> Target node has no replicas\n");
+            assert(reply->type == REDIS_REPLY_STATUS && !strncmp(reply->str, "OK", 2));
+        }
+        freeReplyObject(reply);
+    }
+
     redisReply *reply = CLUSTER_MANAGER_COMMAND(node1, "CLUSTER "
                                                 "SETSLOT %d %s %s",
                                                 slot, status,
