@@ -58,17 +58,6 @@ IGNORED_COMMANDS = {
     # Commands to which we decided not write a reply schema
     "pfdebug",
     "lolwut",
-    # TODO: write a reply schema for the following commands
-    "sentinel|debug",
-    "sentinel|info-cache",
-    "sentinel|pending-scripts",
-    "sentinel|reset",
-    "sentinel|simulate-failure",
-    "sentinel|help",
-    "sentinel|masters",
-    "sentinel|myid",
-    "sentinel|sentinels",
-    "sentinel|slaves",
 }
 
 class Request(object):

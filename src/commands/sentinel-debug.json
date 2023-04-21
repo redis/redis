@@ -12,6 +12,73 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The configuration update was successful.",
+                    "const": "OK"
+                },
+                {
+                    "description": "List of configurable time parameters and their values (milliseconds).",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "INFO-PERIOD": {
+                            "type": "string",
+                            "description": "sentinel_info_period."
+                        },
+                        "PING-PERIOD": {
+                            "type": "string",
+                            "description": "sentinel_ping_period."
+                        },
+                        "ASK-PERIOD": {
+                            "type": "string",
+                            "description": "sentinel_ask_period."
+                        },
+                        "PUBLISH-PERIOD": {
+                            "type": "string",
+                            "description": "sentinel_publish_period."
+                        },
+                        "DEFAULT-DOWN-AFTER": {
+                            "type": "string",
+                            "description": "sentinel_default_down_after."
+                        },
+                        "DEFAULT-FAILOVER-TIMEOUT": {
+                            "type": "string",
+                            "description": "sentinel_default_failover_timeout."
+                        },
+                        "TILT-TRIGGER": {
+                            "type": "string",
+                            "description": "sentinel_tilt_trigger."
+                        },
+                        "TILT-PERIOD": {
+                            "type": "string",
+                            "description": "sentinel_tilt_period."
+                        },
+                        "SLAVE-RECONF-TIMEOUT": {
+                            "type": "string",
+                            "description": "sentinel_slave_reconf_timeout."
+                        },
+                        "MIN-LINK-RECONNECT-PERIOD": {
+                            "type": "string",
+                            "description": "sentinel_min_link_reconnect_period."
+                        },
+                        "ELECTION-TIMEOUT": {
+                            "type": "string",
+                            "description": "sentinel_election_timeout."
+                        },
+                        "SCRIPT-MAX-RUNTIME": {
+                            "type": "string",
+                            "description": "sentinel_script_max_runtime."
+                        },
+                        "SCRIPT-RETRY-DELAY": {
+                            "type": "string",
+                            "description": "sentinel_script_retry_delay."
+                        }
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "data",

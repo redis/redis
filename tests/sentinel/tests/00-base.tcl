@@ -69,6 +69,12 @@ test "SENTINEL SLAVES returns a list of the monitored replicas" {
      assert_morethan_equal [llength [S 0 SENTINEL SLAVES mymaster]] 1
 }
 
+test "SENTINEL SIMULATE-FAILURE HELP list supported flags" {
+    set res [S 0 SENTINEL SIMULATE-FAILURE HELP]
+    assert_morethan_equal [llength $res] 2
+    assert_equal {crash-after-election crash-after-promotion} $res
+}
+
 test "Basic failover works if the master is down" {
     set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
@@ -192,4 +198,5 @@ test "SENTINEL RESET can resets the master" {
      assert_equal 1 [S 0 SENTINEL RESET mymaster]
      assert_equal 0 [llength [S 0 SENTINEL SENTINELS mymaster]]
      assert_equal 0 [llength [S 0 SENTINEL SLAVES mymaster]]
+     assert_equal 0 [llength [S 0 SENTINEL REPLICAS mymaster]]
 }
