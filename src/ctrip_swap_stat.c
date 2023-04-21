@@ -281,6 +281,23 @@ void swapThreadCpuUsageUpdate(swapThreadCpuUsage *cpu_usage) {
     cpu_usage->uptime_save = time_cur;
 }
 
+void swapThreadCpuUsageFree(swapThreadCpuUsage *cpuUsage){
+    if(cpuUsage->swap_thread_ticks_save){
+        zfree(cpuUsage->swap_thread_ticks_save);
+        cpuUsage->swap_thread_ticks_save = NULL;
+    }
+
+    if(cpuUsage->swap_tids){
+        zfree(cpuUsage->swap_tids);
+        cpuUsage->swap_tids = NULL;
+    }
+
+    if(server.swap_cpu_usage){
+        zfree(server.swap_cpu_usage);
+        server.swap_cpu_usage = NULL;
+    }
+}
+
 sds genRedisThreadCpuUsageInfoString(sds info, swapThreadCpuUsage *cpu_usage){
     info = sdscatprintf(info,
                         "swap_main_thread_cpu_usage:%.2f%%\r\n"

@@ -1704,6 +1704,7 @@ typedef struct swapThreadCpuUsage{
 }swapThreadCpuUsage;
 
 void swapThreadCpuUsageUpdate(swapThreadCpuUsage *cpu_usage);
+void swapThreadCpuUsageFree(swapThreadCpuUsage *cpuUsage);
 sds genRedisThreadCpuUsageInfoString(sds info, swapThreadCpuUsage *cpu_usage);
 
 #ifdef REDIS_TEST

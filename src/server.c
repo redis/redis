@@ -4580,7 +4580,8 @@ void closeListeningSockets(int unlink_unix_socket) {
 }
 
 int prepareForShutdown(int flags) {
-     freeLoopVariable(&server.swap_cpu_usage);
+
+    swapThreadCpuUsageFree(server.swap_cpu_usage);
      
     /* When SHUTDOWN is called while the server is loading a dataset in
      * memory we need to make sure no attempt is performed to save
@@ -4684,23 +4685,6 @@ int prepareForShutdown(int flags) {
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
-}
-
-void freeLoopVariable(swapThreadCpuUsage *cpuUsage){
-    if(cpuUsage->swap_thread_ticks_save){
-        zfree(cpuUsage->swap_thread_ticks_save);
-        cpuUsage->swap_thread_ticks_save = NULL;
-    }
-
-    if(cpuUsage->swap_tids){
-        zfree(cpuUsage->swap_tids);
-        cpuUsage->swap_tids = NULL;
-    }
-
-    if(server.swap_cpu_usage){
-        zfree(server.swap_cpu_usage);
-        server.swap_cpu_usage = NULL;
-    }
 }
 
 /*================================== Commands =============================== */
