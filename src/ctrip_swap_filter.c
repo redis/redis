@@ -216,6 +216,8 @@ int swapFilterTest(int argc, char **argv, int accurate) {
     robj *val1 = createStringObject("val1",4);
     initTestRedisDb();
     redisDb *db = server.db;
+    if (server.swap_batch_ctx == NULL)
+        server.swap_batch_ctx = swapBatchCtxNew();
 
     sds subkey = sdsnew("subkey");
     char* err = NULL;

@@ -46,16 +46,12 @@ int asyncCompleteQueueProcess(asyncCompleteQueue *cq) {
 
     listRewind(processing_reqs, &li);
     while ((ln = listNext(&li))) {
-        swapRequest *req = listNodeValue(ln);
-        if (req->notify_queue_timer) {
-            metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_WAIT, elapsedUs(req->notify_queue_timer));
+        swapRequestBatch *reqs = listNodeValue(ln);
+        if (reqs->notify_queue_timer) {
+            metricDebugInfo(SWAP_DEBUG_NOTIFY_QUEUE_WAIT, elapsedUs(reqs->notify_queue_timer));
         }
-        /* currently async mode are only used by cmd swap. */
-        finishSwapRequest(req);
-        if (req->trace) swapTraceCallback(req->trace);
-        req->finish_cb(req->data, req->finish_pd, req->errcode);
-        updateStatsSwapFinish(req);
-        swapRequestFree(req);
+        swapRequestBatchCallback(reqs);
+        swapRequestBatchFree(reqs);
     }
 
     processed = listLength(processing_reqs);
@@ -139,15 +135,14 @@ void asyncCompleteQueueDeinit(asyncCompleteQueue *cq) {
     listRelease(cq->complete_queue);
 }
 
-void asyncSwapRequestNotifyCallback(struct swapRequest *req, void *pd) {
+void asyncSwapRequestNotifyCallback(swapRequestBatch *reqs, void *pd) {
     UNUSED(pd);
-    asyncCompleteQueueAppend(server.CQ, req);
+    asyncCompleteQueueAppend(server.CQ, reqs);
 }
 
-void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
-    if (server.swap_debug_trace_latency) elapsedStart(&req->notify_queue_timer);
+void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequestBatch *reqs) {
     pthread_mutex_lock(&cq->lock);
-    listAddNodeTail(cq->complete_queue, req);
+    listAddNodeTail(cq->complete_queue, reqs);
     pthread_mutex_unlock(&cq->lock);
     if (write(cq->notify_send_fd, "x", 1) < 1 && errno != EAGAIN) {
         static mstime_t prev_log;
@@ -159,10 +154,10 @@ void asyncCompleteQueueAppend(asyncCompleteQueue *cq, swapRequest *req) {
     }
 }
 
-void asyncSwapRequestSubmit(swapRequest *req, int idx) {
-    req->notify_cb = asyncSwapRequestNotifyCallback;
-    req->notify_pd = NULL;
-    swapThreadsDispatch(req, idx);
+void asyncSwapRequestBatchSubmit(swapRequestBatch *reqs, int idx) {
+    reqs->notify_cb = asyncSwapRequestNotifyCallback;
+    reqs->notify_pd = NULL;
+    swapThreadsDispatch(reqs, idx);
 }
 
 static int asyncCompleteQueueDrained() {

@@ -162,7 +162,7 @@ static int pauseClientKeyRequestsIfNeeded(client *c, getKeyRequestsResult *resul
         clientKeyRequestFinished cb) {
     int is_may_replicate_command = (c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE)) ||
                                    (c->cmd->proc == execCommand && (c->mstate.cmd_flags & (CMD_WRITE | CMD_MAY_REPLICATE)));
-    if (!(c->flags & CLIENT_SLAVE) && 
+    if (!(c->flags & CLIENT_SLAVE) &&
         ((server.swap_pause_type == CLIENT_PAUSE_ALL) ||
         (server.swap_pause_type == CLIENT_PAUSE_WRITE && is_may_replicate_command))) {
         pauseClientKeyRequests(c,result,cb);
@@ -198,6 +198,7 @@ swapCtx *swapCtxCreate(client *c, keyRequest *key_request,
     return ctx;
 }
 
+/* Bind data & datactx to swapCtx so that it will be properly cleaned up */
 void swapCtxSetSwapData(swapCtx *ctx, MOVE swapData *data, MOVE void *datactx) {
     ctx->data = data;
     ctx->datactx = datactx;
@@ -328,7 +329,7 @@ int keyExpiredAndShouldDelete(redisDb *db, robj *key) {
 #define NOSWAP_REASON_ABSENTCACHEHIT 5
 #define NOSWAP_REASON_UNEXPECTED 100
 
-void keyRequestProceed(void *lock, redisDb *db, robj *key,
+void keyRequestProceed(void *lock, int flush, redisDb *db, robj *key,
         client *c, void *pd) {
     int reason_num = 0, retval = 0, swap_intention;
     void *datactx = NULL;
@@ -343,6 +344,7 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
     uint32_t cmd_intention_flags = ctx->key_request->cmd_intention_flags;
     int thread_idx = ctx->key_request->deferred ? server.swap_defer_thread_idx : -1;
     UNUSED(reason);
+    swapRequest *req = NULL;
 
 #ifdef SWAP_DEBUG
     msgs = &ctx->msgs;
@@ -388,14 +390,15 @@ void keyRequestProceed(void *lock, redisDb *db, robj *key,
 
     if (value == NULL) {
         if (db->swap_absent_cache &&
-                absentsCacheGet(db->swap_absent_cache, key->ptr)) {
+                absentsCacheGet(db->swap_absent_cache,key->ptr)) {
             reason = "key is absent";
             reason_num = NOSWAP_REASON_ABSENTCACHEHIT;
             goto noswap;
         } else {
-            submitSwapMetaRequest(SWAP_MODE_ASYNC,ctx->key_request,
+            req = swapMetaRequestNew(ctx->key_request,
                     ctx,data,datactx,ctx->key_request->trace,
-                    keyRequestSwapFinished,ctx,msgs,thread_idx);
+                    keyRequestSwapFinished,ctx,msgs);
+            swapBatchCtxFeed(server.swap_batch_ctx,flush,req,thread_idx);
             return;
         }
     }
@@ -437,8 +440,9 @@ allset:
     DEBUG_MSGS_APPEND(&ctx->msgs,"request-proceed","start swap=%s",
             swapIntentionName(swap_intention));
 
-    submitSwapDataRequest(SWAP_MODE_ASYNC,swap_intention,swap_intention_flags,
-            ctx,data,datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs,thread_idx);
+    req = swapDataRequestNew(swap_intention,swap_intention_flags,ctx,data,
+            datactx,ctx->key_request->trace,keyRequestSwapFinished,ctx,msgs);
+    swapBatchCtxFeed(server.swap_batch_ctx,flush,req,thread_idx);
 
     return;
 
@@ -552,7 +556,7 @@ int dbSwap(client *c) {
          * 2. client will not reset
          * 3. client will break out process loop. */
         if (c->keyrequests_count) c->flags |= CLIENT_SWAPPING;
-        return C_ERR;    
+        return C_ERR;
     } else if (keyrequests_submit < 0) {
         /* Swapping command parsed and dispatched, return C_OK so that:
          * 1. repl client will skip call
@@ -644,17 +648,31 @@ void swapInit() {
             db->swap_absent_cache = NULL;
         }
     }
+
+    server.swap_batch_ctx = swapBatchCtxNew();
 }
 
 
 
 #ifdef REDIS_TEST
+
+void initServerConfig(void);
+void initServerConfig4Test(void) {
+    static int inited;
+    if (inited) return;
+    initServerConfig();
+    inited = 1;
+}
+
 int clearTestRedisDb() {
     emptyDbStructure(server.db, -1, 0, NULL);
     return 1;
 }
 
 int initTestRedisDb() {
+    static int inited;
+    if (inited) return 1;
+
     server.dbnum = 16;
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
     /* Create the Redis databases, and initialize other internal state. */
@@ -674,13 +692,15 @@ int initTestRedisDb() {
         server.db[j].defrag_later = listCreate();
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
+
+    inited = 1;
     return 1;
 }
 
 void createSharedObjects(void);
 int initTestRedisServer() {
     server.maxmemory_policy = MAXMEMORY_FLAG_LFU;
-    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    if (!server.logfile) server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
     swapInitVersion();
     createSharedObjects();
     initTestRedisDb();
@@ -691,6 +711,7 @@ int clearTestRedisServer() {
 }
 int swapTest(int argc, char **argv, int accurate) {
   int result = 0;
+
   result += swapLockTest(argc, argv, accurate);
   result += swapLockReentrantTest(argc, argv, accurate);
   result += swapLockProceedTest(argc, argv, accurate);
@@ -713,6 +734,8 @@ int swapTest(int argc, char **argv, int accurate) {
   result += swapListUtilsTest(argc, argv, accurate);
   result += swapHoldTest(argc, argv, accurate);
   result += swapAbsentTest(argc, argv, accurate);
+  result += swapRIOTest(argc, argv, accurate);
+  result += swapBatchTest(argc, argv, accurate);
   return result;
 }
 #endif

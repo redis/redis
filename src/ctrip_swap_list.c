@@ -1356,7 +1356,7 @@ int listSwapAnaAction(swapData *data, int intention, void *datactx_, int *action
     switch (intention) {
         case SWAP_IN:
             if (swap_meta && swap_meta->len > 0) {
-                *action = ROCKS_MULTIGET;
+                *action = ROCKS_GET;
             } else {/* Swap in entire list(LREM/LINSERT/LPOS...) */
                 *action = ROCKS_ITERATE;
             }
@@ -1365,7 +1365,7 @@ int listSwapAnaAction(swapData *data, int intention, void *datactx_, int *action
             *action = ROCKS_NOP;
             break;
         case SWAP_OUT:
-            *action = ROCKS_WRITE;
+            *action = ROCKS_PUT;
             break;
         default:
             /* Should not happen .*/
@@ -2978,7 +2978,7 @@ int swapListDataTest(int argc, char *argv[], int accurate) {
 
         listSwapAnaAction(hotdata,SWAP_OUT,hotdatactx,&action);
         listEncodeData(hotdata,SWAP_OUT,hotdatactx,&numkeys,&cfs,&rawkeys,&rawvals);
-        test_assert(action == ROCKS_WRITE && numkeys == 3 && cfs[0] == DATA_CF);
+        test_assert(action == ROCKS_PUT && numkeys == 3 && cfs[0] == DATA_CF);
         test_assert(!sdscmp(rawkeys[0],rawkey0) && !sdscmp(rawvals[0],rawval0));
 
         listDecodeData(hotdata,numkeys,cfs,rawkeys,rawvals,(void**)&decoded);

@@ -394,8 +394,8 @@ static inline void locksChildrenLinkLock(locks* locks, lock *lock,
         }
     } else {
         /* last->links is the 'right' part of last children, but it's
-         * equvilant to 'all' of last children, left can be represented
-         * by last itself. */
+         * equvilant to 'all' of last children, 'left' part of children
+         * can be represented by last itself. */
         lockMigrateChildrenLinks(last,lock,would_block);
     }
 }
@@ -527,11 +527,16 @@ static inline void lockEndLatencyTraceIfNeeded(lock *lock) {
     }
 }
 
+static inline int lockShouldFlushAfterProceed(lock *lock) {
+    return lock->link.links.count > 0;
+}
+
 static void lockProceed(lock *lock) {
+    int flush = lockShouldFlushAfterProceed(lock);
     serverAssert(lockLinkTargetReady(&lock->link.target));
     lockEndLatencyTraceIfNeeded(lock);
     lockUpdateWaitTime(lock);
-    lock->proceed(lock,lock->db,lock->key,lock->c,lock->pd);
+    lock->proceed(lock,flush,lock->db,lock->key,lock->c,lock->pd);
 }
 
 void lockProceedByLink(lockLink *link, void *pd) {
@@ -575,16 +580,20 @@ void lockUnlock(void *lock_) {
     lockFree(lock);
 }
 
-static inline void lockProceedIfReady(lock *lock) {
+/* return 1 if lock proceeded */
+static inline int lockProceedIfReady(lock *lock) {
     lock->conflict = !lockLinkTargetReady(&lock->link.target);
     lockStatUpdateLocked(lock);
     lockStartLatencyTraceIfNeeded(lock);
     if (!lock->conflict) {
         lockProceed(lock);
+        return 1;
+    } else {
+        return 0;
     }
 }
 
-static void _lockLock(int *would_block,
+static int _lockLock(int *would_block,
         int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
         client *c, void *pd, freefunc pdfree, void *msgs) {
     lock *lock = lockNew(txid,db,key,c,cb,pd,pdfree,msgs);
@@ -627,15 +636,17 @@ end:
         DEBUG_MSGS_APPEND(msgs,"lock","locks = %s, conflict=%d",dump,conflict);
         sdsfree(dump);
 #endif
-        lockProceedIfReady(lock);
+        return lockProceedIfReady(lock);
     } else {
         lockFree(lock);
+        return 0;
     }
 }
 
-void lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
+/* return 1 if lock proceeded */
+int lockLock(int64_t txid, redisDb *db, robj *key, lockProceedCallback cb,
         client *c, void *pd, freefunc pdfree, void *msgs) {
-    _lockLock(NULL,txid,db,key,cb,c,pd,pdfree,msgs);
+    return _lockLock(NULL,txid,db,key,cb,c,pd,pdfree,msgs);
 }
 
 int lockWouldBlock(int64_t txid, redisDb *db, robj *key) {
@@ -703,7 +714,6 @@ void trackSwapLockInstantaneousMetrics() {
             inst_stat->wait_time_max_index %= STATS_METRIC_SAMPLES;
             inst_stat->wait_time_maxs[inst_stat->wait_time_max_index] = 0;
         }
-        
     }
 }
 
@@ -797,8 +807,8 @@ void swapLockDestroy() {
 
 static int blocked;
 
-void proceedLater(void *lock, redisDb *db, robj *key, client *c, void *pd_) {
-    UNUSED(db), UNUSED(key), UNUSED(c);
+void proceedLater(void *lock, int flush, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(flush), UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = lock;
     blocked--;
@@ -855,11 +865,12 @@ int swapLockTest(int argc, char *argv[], int accurate) {
    }
 
    TEST("lock: pipelined key") {
-       int i, COUNT = 3;
+       int i, COUNT = 3, proceeded;
        void *handles[COUNT];
        for (i = 0; i < COUNT; i++) {
            blocked++;
-           lockLock(txid++,db,key1,proceedLater,NULL,&handles[i],NULL,NULL);
+           proceeded = lockLock(txid++,db,key1,proceedLater,NULL,&handles[i],NULL,NULL);
+           test_assert((i == 0 && proceeded == 1) || (proceeded == 0));
        }
        test_assert(lockWouldBlock(txid++,db,key1));
        /* first one proceeded, others blocked */
@@ -874,8 +885,11 @@ int swapLockTest(int argc, char *argv[], int accurate) {
    }
 
    TEST("lock: parallel db") {
-       lockLock(txid++,db,NULL,proceedLater,NULL,&handledb,NULL,NULL), blocked++;
-       lockLock(txid++,db2,NULL,proceedLater,NULL,&handledb2,NULL,NULL), blocked++;
+       int proceeded;
+       proceeded = lockLock(txid++,db,NULL,proceedLater,NULL,&handledb,NULL,NULL), blocked++;
+       test_assert(proceeded == 1);
+       proceeded = lockLock(txid++,db2,NULL,proceedLater,NULL,&handledb2,NULL,NULL), blocked++;
+       test_assert(proceeded == 1);
        test_assert(!blocked);
        test_assert(lockWouldBlock(txid++,db,NULL));
        test_assert(lockWouldBlock(txid++,db2,NULL));
@@ -947,8 +961,8 @@ int swapLockTest(int argc, char *argv[], int accurate) {
 
 
 static int proceeded = 0;
-void proceededCounter(void *lock, redisDb *db, robj *key, client *c, void *pd_) {
-    UNUSED(db), UNUSED(key), UNUSED(c);
+void proceededCounter(void *lock, int flush, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(flush), UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = lock;
     proceeded++;
@@ -1240,20 +1254,32 @@ int swapLockReentrantTest(int argc, char *argv[], int accurate) {
     return error;
 }
 
-void proceedWithoutAck(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
-    UNUSED(db), UNUSED(key), UNUSED(c);
+void proceedWithoutAck(void *listeners, int flush, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(flush), UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
 }
 
-void proceedRightaway(void *listeners, redisDb *db, robj *key, client *c, void *pd_) {
-    UNUSED(db), UNUSED(key), UNUSED(c);
+void proceedRightaway(void *listeners, int flush, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(flush), UNUSED(db), UNUSED(key), UNUSED(c);
     void **pd = pd_;
     *pd = listeners;
     proceeded++;
     lockProceeded(listeners);
     lockUnlock(listeners);
+}
+
+typedef struct lockerAndFlush {
+    void *locker;
+    int flush;
+} lockerAndFlush;
+
+void proceedLaterGetLockAndFlush(void *locker, int flush, redisDb *db, robj *key, client *c, void *pd_) {
+    UNUSED(flush), UNUSED(db), UNUSED(key), UNUSED(c);
+    lockerAndFlush *lock_and_flush = pd_;
+    lock_and_flush->flush = flush;
+    lock_and_flush->locker = locker;
 }
 
 #define ack_case_reset() do { \
@@ -1502,6 +1528,55 @@ int swapLockProceedTest(int argc, char *argv[], int accurate) {
             lockUnlock(handle8), lockUnlock(handle9), lockUnlock(handle10);
 
         test_assert(!lockWouldBlock(62,db,key1));
+        ack_case_reset();
+    }
+
+    TEST("lock-proceeded: flush if lock blocked or blocking") {
+        int proceeded;
+        lockerAndFlush lnf1 = {0}, lnf2 = {0}, lnf3 = {0}, lnf4 = {0}, lnf5 = {0};
+
+        proceeded = lockLock(70,db,key1,proceedLaterGetLockAndFlush,NULL,&lnf1,NULL,NULL);
+        test_assert(proceeded == 1);
+        test_assert(lnf1.flush == 0);
+        test_assert(lnf1.locker != NULL);
+
+        proceeded = lockLock(71,db,key1,proceedLaterGetLockAndFlush,NULL,&lnf2,NULL,NULL);
+        test_assert(proceeded == 0);
+
+        proceeded = lockLock(71,db,key2,proceedLaterGetLockAndFlush,NULL,&lnf3,NULL,NULL);
+        test_assert(proceeded == 1);
+        test_assert(lnf3.flush == 0);
+        test_assert(lnf3.locker != NULL);
+
+        proceeded = lockLock(72,db,NULL,proceedLaterGetLockAndFlush,NULL,&lnf4,NULL,NULL);
+        test_assert(proceeded == 0);
+
+        proceeded = lockLock(72,db,key2,proceedLaterGetLockAndFlush,NULL,&lnf5,NULL,NULL);
+        test_assert(proceeded == 0);
+
+        lockProceeded(lnf3.locker);
+        test_assert(lnf4.locker == NULL);
+
+        lockProceeded(lnf1.locker);
+        test_assert(lnf2.locker == NULL);
+
+        lockUnlock(lnf1.locker);
+        test_assert(lnf2.locker != NULL);
+        test_assert(lnf2.flush == 1); /* lnf4 depends on lnf2, so lnf2 should flush. */
+
+        lockProceeded(lnf2.locker);
+
+        lockUnlock(lnf3.locker);
+        test_assert(lnf4.locker == NULL);
+
+        lockUnlock(lnf2.locker);
+        test_assert(lnf4.locker != NULL);
+        test_assert(lnf4.flush == 1); /* lnf5 depends on lnf4, so lnf4 should flush. */
+
+        lockProceeded(lnf4.locker);
+        test_assert(lnf5.locker);
+        test_assert(lnf5.flush == 0);
+
         ack_case_reset();
     }
 
