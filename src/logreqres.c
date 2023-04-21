@@ -198,7 +198,6 @@ size_t reqresAppendRequest(client *c) {
         !strcasecmp(cmd,"debug") ||
         !strcasecmp(cmd,"pfdebug") ||
         !strcasecmp(cmd,"lolwut") ||
-        (!strcasecmp(cmd,"sentinel") && argc > 1 && !strcasecmp(argv[1]->ptr,"simulate-failure")) ||
         (!strcasecmp(cmd,"sentinel") && argc > 1 && !strcasecmp(argv[1]->ptr,"debug")))
     {
         return 0;

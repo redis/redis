@@ -43,7 +43,7 @@ Future validations:
 1. Fail the script if one or more of the branches of the reply schema (e.g. oneOf, anyOf) was not hit.
 """
 
-IGNORED_COMMANDS = {
+IGNORED_COMMANDS = [
     "sync",
     "psync",
     "monitor",
@@ -56,9 +56,7 @@ IGNORED_COMMANDS = {
     "debug",
     "pfdebug",
     "lolwut",
-    "sentinel|simulate-failure",
-    "sentinel|debug",
-}
+]
 
 
 class Request(object):
