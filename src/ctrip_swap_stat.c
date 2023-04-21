@@ -165,7 +165,7 @@ static int swapThreadcpuUsageGetThreadTids(int redis_pid, int *tid_array, const 
         }
         if (entry->d_type != DT_DIR)
             continue;
-        if(entry->d_name[0] == '.'|| entry->d_name[0] == '..')
+        if(entry->d_name[0] == '.')
             continue;
         int tid = atoi(entry->d_name);
         char stat_path[256];
@@ -187,12 +187,10 @@ static int swapThreadcpuUsageGetThreadTids(int redis_pid, int *tid_array, const 
             return -1;
         }
         fclose(file);
-
         if (tid_array != NULL && strncmp(comm, prefix, strlen(prefix)) == 0) {
             tid_array[num++] = tid;
         }
     }
-
     closedir(dir);
 }
 
@@ -212,7 +210,6 @@ struct swapThreadCpuUsage *swapThreadCpuUsageNew(){
     for (int i = 0; i < server.total_swap_threads_num; i++) {
         if(swapThreadcpuUsageGetTicks(cpu_usage->pid, cpu_usage->swap_tids[i], &(cpu_usage->swap_thread_ticks_save[i]))) return;
     }
-
     swapThreadcpuUsageGetTicks(cpu_usage->pid, 0, &(cpu_usage->process_cpu_ticks_save));
 
     return cpu_usage;
@@ -249,15 +246,15 @@ void swapThreadCpuUsageUpdate(swapThreadCpuUsage *cpu_usage) {
     cpu_usage->uptime_save = time_cur;
 }
 
-void swapThreadCpuUsageFree(swapThreadCpuUsage *cpuUsage){
-    if(cpuUsage->swap_thread_ticks_save){
-        zfree(cpuUsage->swap_thread_ticks_save);
-        cpuUsage->swap_thread_ticks_save = NULL;
+void swapThreadCpuUsageFree(swapThreadCpuUsage *cpu_usage){
+    if(cpu_usage->swap_thread_ticks_save){
+        zfree(cpu_usage->swap_thread_ticks_save);
+        cpu_usage->swap_thread_ticks_save = NULL;
     }
 
-    if(cpuUsage->swap_tids){
-        zfree(cpuUsage->swap_tids);
-        cpuUsage->swap_tids = NULL;
+    if(cpu_usage->swap_tids){
+        zfree(cpu_usage->swap_tids);
+        cpu_usage->swap_tids = NULL;
     }
 
     if(server.swap_cpu_usage){

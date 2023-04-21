@@ -1855,7 +1855,6 @@ struct redisServer {
     int swap_absent_cache_enabled;
     unsigned long long swap_absent_cache_capacity;
 
-
     /* swap_cpu_usage */
     struct swapThreadCpuUsage *swap_cpu_usage;
 
