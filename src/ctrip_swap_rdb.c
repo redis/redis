@@ -577,7 +577,7 @@ int rdbLoadSwapAna(swapData *data, struct keyRequest *req,
 
 int rdbLoadSwapAnaAction(swapData *data, int intention, void *datactx, int *action) {
     UNUSED(data), UNUSED(intention), UNUSED(datactx);
-    *action = ROCKS_WRITE;
+    *action = ROCKS_PUT;
     return 0;
 }
 
@@ -674,8 +674,9 @@ void ctripRdbLoadSendBatch(ctripRdbLoadCtx *ctx) {
             ctx->batch.index);
 
     /* Submit to rio thread. */
-    submitSwapDataRequest(SWAP_MODE_PARALLEL_SYNC,SWAP_OUT,0,NULL,data,NULL,NULL,
-            ctripRdbLoadWriteFinished,NULL,msgs,-1);
+    swapRequest *req = swapDataRequestNew(SWAP_OUT,0,NULL,data,NULL,NULL,
+            ctripRdbLoadWriteFinished,NULL,msgs);
+    submitSwapRequest(SWAP_MODE_PARALLEL_SYNC,req,-1);
 }
 
 void ctripRdbLoadCtxFeed(ctripRdbLoadCtx *ctx, int cf, MOVE sds rawkey, MOVE sds rawval) {

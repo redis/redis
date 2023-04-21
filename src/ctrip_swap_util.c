@@ -29,6 +29,8 @@
  */
 
 #include "endianconv.h"
+#include <dirent.h>
+#include <sys/stat.h>
 
 /* See keyIsExpired for more details */
 size_t ctripDbSize(redisDb *db) {
@@ -486,6 +488,49 @@ int decodeIntervalSds(sds data, int* ex, char** raw, size_t* rawlen) {
     *raw = data + 1;
     *rawlen = sdslen(data) - 1;
     return C_OK;
+}
+
+/*
+    calculate the size of all files in a folder
+*/
+long get_dir_size(char *dirname)
+{
+    DIR *dir;
+    struct dirent *ptr;
+    long total_size = 0;
+    char path[PATH_MAX] = {0};
+
+    dir = opendir(dirname);
+    if(dir == NULL)
+    {
+        serverLog(LL_WARNING,"open dir(%s) failed.", dirname);
+        return -1;
+    }
+
+    while((ptr=readdir(dir)) != NULL)
+    {
+        snprintf(path, (size_t)PATH_MAX, "%s/%s", dirname,ptr->d_name);
+        struct stat buf;
+        if(lstat(path, &buf) < 0) {
+            serverLog(LL_WARNING, "path(%s) lstat error", path);
+        }
+        if(strcmp(ptr->d_name,".") == 0) {
+            total_size += buf.st_size;
+            continue;
+        }
+        if(strcmp(ptr->d_name,"..") == 0) {
+            continue;
+        }
+        if (S_ISDIR(buf.st_mode))
+        {
+            total_size += get_dir_size(path);
+            memset(path, 0, sizeof(path));
+        } else {
+            total_size += buf.st_size;
+        }
+    }
+    closedir(dir);
+    return total_size;
 }
 
 #ifdef REDIS_TEST

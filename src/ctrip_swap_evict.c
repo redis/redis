@@ -28,13 +28,6 @@
 
 #include "ctrip_swap.h"
 
-
-
-
-
-
-
-
 void evictClientKeyRequestFinished(client *c, swapCtx *ctx) {
     UNUSED(ctx);
     robj *key = ctx->key_request->key;
@@ -55,7 +48,7 @@ int submitEvictClientRequest(client *c, robj *key) {
     getKeyRequestsAppendSubkeyResult(&result,REQUEST_LEVEL_KEY,key,0,NULL,
             c->cmd->intention,c->cmd->intention_flags,c->db->id);
     c->keyrequests_count++;
-    submitClientKeyRequests(c,&result,evictClientKeyRequestFinished,NULL);
+    submitDeferredClientKeyRequests(c,&result,evictClientKeyRequestFinished,NULL);
     releaseKeyRequests(&result);
     getKeyRequestsFreeResult(&result);
 

@@ -2496,6 +2496,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * events to handle. */
     if (ProcessingEventsWhileBlocked) {
         uint64_t processed = 0;
+        processed += swapBatchCtxFlush(server.swap_batch_ctx,SWAP_BATCH_FLUSH_BEFORE_SLEEP);
         processed += handleClientsWithPendingReadsUsingThreads();
         processed += tlsProcessPendingData();
         processed += handleClientsWithPendingWrites();
@@ -2503,6 +2504,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         server.events_processed_while_blocked += processed;
         return;
     }
+
+    /* submit buffered swap request in current batch */
+    swapBatchCtxFlush(server.swap_batch_ctx,SWAP_BATCH_FLUSH_BEFORE_SLEEP);
 
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();
@@ -2886,6 +2890,10 @@ void initServerConfig(void) {
     /* Client output buffer limits */
     for (j = 0; j < CLIENT_TYPE_OBUF_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
+
+    /* Swap batch limits presets. */
+    for (j = 0; j < SWAP_TYPES; j++)
+        server.swap_batch_limits[j] = swapBatchLimitsDefaults[j];
 
     /* Linux OOM Score config */
     for (j = 0; j < CONFIG_OOM_COUNT; j++)
@@ -3544,6 +3552,7 @@ void initServer(void) {
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
+    server.swap_inprogress_batch = 0;
     server.swap_inprogress_count = 0;
     server.swap_inprogress_memory = 0;
     server.swap_error_count = 0;
