@@ -120,10 +120,10 @@ void initStatsSwap() {
 
     server.swap_hit_stats = zcalloc(sizeof(swapHitStat));
 
-    swapCpuUsageInit(&server.swap_cpu_usage);
+    server.swap_cpu_usage = swapThreadCpuUsageNew();
 }
 
-static int getUptime(double *uptime) {
+static int swapThreadcpuUsageGetUptime(double *uptime) {
     FILE *file = fopen("/proc/uptime", "r");
     if (!file) {
         serverLog(LL_WARNING, "Error opening file /proc/uptime : %s (error: %d)", strerror(errno), errno);
@@ -141,7 +141,7 @@ static int getUptime(double *uptime) {
     return 0;
 }
 
-static int getTicks(int pid, int tid, double *ticks) {
+static int swapThreadcpuUsageGetTicks(int pid, int tid, double *ticks) {
     char filepath[256];
     if(tid != 0){
         snprintf(filepath, sizeof(filepath), "/proc/%d/task/%d/stat", pid, tid);
@@ -179,7 +179,7 @@ static int getTicks(int pid, int tid, double *ticks) {
     return 0;
 }
 
-static int getThreadTids(int redis_pid, int *tid_array, const char *prefix, int array_length) {
+static int swapThreadcpuUsageGetThreadTids(int redis_pid, int *tid_array, const char *prefix, int array_length) {
     char task_dir[256];
     snprintf(task_dir, sizeof(task_dir), "/proc/%d/task", redis_pid);
 
@@ -228,63 +228,67 @@ static int getThreadTids(int redis_pid, int *tid_array, const char *prefix, int 
     closedir(dir);
 }
 
-void swapCpuUsageInit(swapThreadCpuUsage *cpuUsage) {
-    cpuUsage->pid = getpid();
-    cpuUsage->hertz = sysconf(_SC_CLK_TCK);
-    if(getUptime(&(cpuUsage->uptime_save))) return;
-    cpuUsage->swap_thread_ticks_save = zmalloc(server.total_swap_threads_num * sizeof(double));
-    cpuUsage->swap_tids = zmalloc(server.total_swap_threads_num * sizeof(int));
+struct swapThreadCpuUsage *swapThreadCpuUsageNew(){
+    swapThreadCpuUsage *cpu_usage = zmalloc(sizeof(swapThreadCpuUsage));
+    cpu_usage->pid = getpid();
+    cpu_usage->hertz = sysconf(_SC_CLK_TCK);
 
-    if(getThreadTids(cpuUsage->pid, cpuUsage->main_tid, "(redis-server", 1)) return;
-    if(getTicks(cpuUsage->pid, cpuUsage->main_tid[0], &(cpuUsage->main_thread_ticks_save))) return;
-    if(getThreadTids(cpuUsage->pid, cpuUsage->swap_tids, "(swap", server.total_swap_threads_num)) return;
+    if(swapThreadcpuUsageGetUptime(&(cpu_usage->uptime_save))) return;
+    cpu_usage->swap_thread_ticks_save = zmalloc(server.total_swap_threads_num * sizeof(double));
+    cpu_usage->swap_tids = zmalloc(server.total_swap_threads_num * sizeof(int));
+
+    if(swapThreadcpuUsageGetThreadTids(cpu_usage->pid, cpu_usage->main_tid, "(redis-server", 1)) return;
+    if(swapThreadcpuUsageGetTicks(cpu_usage->pid, cpu_usage->main_tid[0], &(cpu_usage->main_thread_ticks_save))) return;
+    if(swapThreadcpuUsageGetThreadTids(cpu_usage->pid, cpu_usage->swap_tids, "(swap", server.total_swap_threads_num)) return;
         
     for (int i = 0; i < server.total_swap_threads_num; i++) {
-        if(getTicks(cpuUsage->pid, cpuUsage->swap_tids[i], &(cpuUsage->swap_thread_ticks_save[i]))) return;
+        if(swapThreadcpuUsageGetTicks(cpu_usage->pid, cpu_usage->swap_tids[i], &(cpu_usage->swap_thread_ticks_save[i]))) return;
     }
 
-    getTicks(cpuUsage->pid, 0, &(cpuUsage->process_cpu_ticks_save));
+    swapThreadcpuUsageGetTicks(cpu_usage->pid, 0, &(cpu_usage->process_cpu_ticks_save));
+
+    return cpu_usage;
 }
 
-static double cpuUsageCacluation(swapThreadCpuUsage *cpuUsage, int tid, double time_cur, double *tick_save){
-    double hertz_multiplier = cpuUsage->hertz * (time_cur - cpuUsage->uptime_save);
+static double swapThreadcpuUsageCacluation(swapThreadCpuUsage *cpu_usage, int tid, double time_cur, double *tick_save){
+    double hertz_multiplier = cpu_usage->hertz * (time_cur - cpu_usage->uptime_save);
     double ticks_cur = 0;
-    if(getTicks(cpuUsage->pid, tid, &ticks_cur)) return;
-    double cpu_usage = (ticks_cur - *tick_save) / hertz_multiplier;
+    if(swapThreadcpuUsageGetTicks(cpu_usage->pid, tid, &ticks_cur)) return;
+    double usage = (ticks_cur - *tick_save) / hertz_multiplier;
     *tick_save = ticks_cur;
-    return cpu_usage;
+    return usage;
 };
 
-void redisThreadCpuUsageUpdate(swapThreadCpuUsage *cpuUsage) {
+void swapThreadCpuUsageUpdate(swapThreadCpuUsage *cpu_usage) {
     double time_cur = 0;
-    if(getUptime(&time_cur)) return;
+    if(swapThreadcpuUsageGetUptime(&time_cur)) return;
 
-    cpuUsage->main_thread_cpu_usage = cpuUsageCacluation(cpuUsage, cpuUsage->main_tid[0],
-        time_cur, &(cpuUsage->main_thread_ticks_save));
+    cpu_usage->main_thread_cpu_usage = swapThreadcpuUsageCacluation(cpu_usage, cpu_usage->main_tid[0],
+        time_cur, &(cpu_usage->main_thread_ticks_save));
 
     double temp = 0;
     for (int i = 0; i < server.total_swap_threads_num; i++) {
-        temp += cpuUsageCacluation(cpuUsage, cpuUsage->swap_tids[i],
-            time_cur, &(cpuUsage->swap_thread_ticks_save[i]));
+        temp += swapThreadcpuUsageCacluation(cpu_usage, cpu_usage->swap_tids[i],
+            time_cur, &(cpu_usage->swap_thread_ticks_save[i]));
     }
-    cpuUsage->swap_threads_cpu_usage = temp;
+    cpu_usage->swap_threads_cpu_usage = temp;
 
-    double process_cpu_usage = cpuUsageCacluation(cpuUsage, 0,
-        time_cur, &(cpuUsage->process_cpu_ticks_save));
-    double other_threads_cpu_usage = process_cpu_usage - cpuUsage->main_thread_cpu_usage - cpuUsage->swap_threads_cpu_usage;
-    cpuUsage->other_threads_cpu_usage = other_threads_cpu_usage < 0 ? 0 : other_threads_cpu_usage;
+    double process_cpu_usage = swapThreadcpuUsageCacluation(cpu_usage, 0,
+        time_cur, &(cpu_usage->process_cpu_ticks_save));
+    double other_threads_cpu_usage = process_cpu_usage - cpu_usage->main_thread_cpu_usage - cpu_usage->swap_threads_cpu_usage;
+    cpu_usage->other_threads_cpu_usage = other_threads_cpu_usage < 0 ? 0 : other_threads_cpu_usage;
 
-    cpuUsage->uptime_save = time_cur;
+    cpu_usage->uptime_save = time_cur;
 }
 
-sds genRedisThreadCpuUsageInfoString(sds info, swapThreadCpuUsage *cpuUsage){
+sds genRedisThreadCpuUsageInfoString(sds info, swapThreadCpuUsage *cpu_usage){
     info = sdscatprintf(info,
                         "swap_main_thread_cpu_usage:%.2f%%\r\n"
-                        "swap_swap_threads_total_cpu_usage:%.2f%%\r\n"
+                        "swap_swap_threads_cpu_usage:%.2f%%\r\n"
                         "swap_other_threads_cpu_usage:%.2f%%\r\n",
-                        cpuUsage->main_thread_cpu_usage * 100,
-                        cpuUsage->swap_threads_cpu_usage * 100,
-                        cpuUsage->other_threads_cpu_usage * 100);
+                        cpu_usage->main_thread_cpu_usage * 100,
+                        cpu_usage->swap_threads_cpu_usage * 100,
+                        cpu_usage->other_threads_cpu_usage * 100);
     return info;
 }
 

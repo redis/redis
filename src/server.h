@@ -1240,24 +1240,7 @@ typedef enum childInfoType {
     CHILD_INFO_TYPE_MODULE_COW_SIZE
 } childInfoType;
 
-
-typedef struct swapThreadCpuUsage{
-    /* CPU usage Cacluation */
-    double main_thread_cpu_usage;
-    double swap_threads_cpu_usage;
-    double other_threads_cpu_usage;
-
-    double main_thread_ticks_save;
-    double *swap_thread_ticks_save;
-    double process_cpu_ticks_save;
-
-    int main_tid[1];
-    int *swap_tids;
-
-    pid_t pid;
-    double hertz;
-    double uptime_save;
-}swapThreadCpuUsage;
+struct swapThreadCpuUsage;
 
 struct redisServer {
     /* General */
@@ -1866,8 +1849,10 @@ struct redisServer {
     unsigned long long swap_absent_cache_capacity;
 
     /* swap_cpu_usage */
-    swapThreadCpuUsage swap_cpu_usage;
+    struct swapThreadCpuUsage *swap_cpu_usage;
 };
+
+struct swapThreadCpuUsage *swapThreadCpuUsageNew();
 
 #define MAX_KEYS_BUFFER 256
 

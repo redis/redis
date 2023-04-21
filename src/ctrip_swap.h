@@ -1685,8 +1685,26 @@ int getKeyRequestsSwapBlockedLmove(int dbid, int intention, int intention_flags,
 int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int wherefrom, int whereto);
 void incrSwapUnBlockCtxVersion();
 
-void redisThreadCpuUsageUpdate(swapThreadCpuUsage *cpuUsage);
-sds genRedisThreadCpuUsageInfoString(sds info, swapThreadCpuUsage *cpuUsage);
+typedef struct swapThreadCpuUsage{
+    /* CPU usage Cacluation */
+    double main_thread_cpu_usage;
+    double swap_threads_cpu_usage;
+    double other_threads_cpu_usage;
+
+    double main_thread_ticks_save;
+    double *swap_thread_ticks_save;
+    double process_cpu_ticks_save;
+
+    int main_tid[1];
+    int *swap_tids;
+
+    pid_t pid;
+    double hertz;
+    double uptime_save;
+}swapThreadCpuUsage;
+
+void swapThreadCpuUsageUpdate(swapThreadCpuUsage *cpu_usage);
+sds genRedisThreadCpuUsageInfoString(sds info, swapThreadCpuUsage *cpu_usage);
 
 #ifdef REDIS_TEST
 

@@ -2159,7 +2159,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     UNUSED(clientData);
 
     run_with_period(1500){
-        redisThreadCpuUsageUpdate(&server.swap_cpu_usage);
+        swapThreadCpuUsageUpdate(server.swap_cpu_usage);
     }
 
     /* Software watchdog: deliver the SIGALRM that will reach the signal
@@ -4696,6 +4696,11 @@ void freeLoopVariable(swapThreadCpuUsage *cpuUsage){
         zfree(cpuUsage->swap_tids);
         cpuUsage->swap_tids = NULL;
     }
+
+    if(server.swap_cpu_usage){
+        zfree(server.swap_cpu_usage);
+        server.swap_cpu_usage = NULL;
+    }
 }
 
 /*================================== Commands =============================== */
@@ -5585,7 +5590,7 @@ sds genRedisInfoString(const char *section) {
             (long)m_ru.ru_stime.tv_sec, (long)m_ru.ru_stime.tv_usec,
             (long)m_ru.ru_utime.tv_sec, (long)m_ru.ru_utime.tv_usec);
 #endif  /* RUSAGE_THREAD */
-        info = genRedisThreadCpuUsageInfoString(info, &server.swap_cpu_usage);
+        info = genRedisThreadCpuUsageInfoString(info, server.swap_cpu_usage);
     }
 
     /* Modules */
