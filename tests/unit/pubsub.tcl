@@ -453,10 +453,17 @@ start_server {tags {"pubsub network"}} {
     }
 
     test "subscribers subcommand - no Pub/Sub clients" {
-        assert_equal {clients {}} [r pubsub subscribers global]
-        assert_equal {clients {}} [r pubsub subscribers shard]
-        assert_equal {clients {}} [r pubsub subscribers pattern]
+        assert_equal "" [r pubsub subscribers global]
+        assert_equal "" [r pubsub subscribers shard]
+        assert_equal "" [r pubsub subscribers pattern]
     }
+
+    test "subscribers subcommand - incorrect args" {
+        catch {
+            r pubsub subscribers random
+        } e
+        set e
+    } {*unknown subcommand or wrong number of arguments for 'subscribers'. Try PUBSUB HELP.}
 
     test "subscribers subcommand - Pub/Sub global clients" {
         set rd1 [redis_deferring_client]
@@ -464,14 +471,14 @@ start_server {tags {"pubsub network"}} {
 
         # Get all the subscribers for pub/sub global channel.
         set subscribers [r pubsub subscribers global]
-        assert_match {clients {{name somechannel subscribers {{id *}}}}} $subscribers
+        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
 
         # Explicit filter by channel name.
         set subscribers [r pubsub subscribers global somechannel]
-        assert_match {clients {{name somechannel subscribers {{id *}}}}} $subscribers
+        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
 
         # Explicit filter by channel name with no subscribers.
-        assert_equal {clients {{name someotherchannel subscribers {}}}} [r pubsub subscribers global someotherchannel]
+        assert_equal {someotherchannel {subscribed-clients {}}} [r pubsub subscribers global someotherchannel]
 
         # Another subscriber to multiple channels.
         set rd2 [redis_deferring_client]
@@ -481,24 +488,24 @@ start_server {tags {"pubsub network"}} {
 
         # Verify multiple subscribers for a given channel
         set subscribers [r pubsub subscribers global somechannel]
-        assert_match {clients {{name somechannel subscribers {{id *} {name anothersub id *}}}}} $subscribers
+        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*} {name anothersub id * addr 127.0.0.1*}}}} $subscribers
 
         # Verify multiple active channels.
         set subscribers [r pubsub subscribers global]
-        set clients [dict get $subscribers clients]
-        assert {[llength $clients] == 2}
-        assert_match {*somechannel*} $clients
-        assert_match {*someotherchannel*} $clients
+        assert {[llength $subscribers] == 4}
 
-        for {set j 0} {$j < [llength $clients]} {incr j} {
-            set channeltoclients [lindex $clients $j]
-            if {[dict get $channeltoclients name] == "somechannel"} {
-                assert {[llength [dict get $channeltoclients subscribers]] == 2}
+        for {set j 0} {$j < 2} {incr j} {
+            set chidx [expr {$j*2}]
+            set clientsidx [expr {$j*2 + 1}]
+            set chname [lindex $subscribers $chidx]
+            set clients [dict get [lindex $subscribers $clientsidx] subscribed-clients]
+            if {$chname == "somechannel"} {
+                assert_match {{name {} id * addr 127.0.0.1*} {name anothersub id * addr 127.0.0.1*}} $clients
             } else {
-                assert {[llength [dict get $channeltoclients subscribers]] == 1}
+                assert_match "{name anothersub id * addr 127.0.0.1*}" $clients
+                assert_match "{name anothersub id * addr 127.0.0.1*}" $clients
             }
         }
-
         $rd1 close
         $rd2 close
     }
@@ -509,23 +516,23 @@ start_server {tags {"pubsub network"}} {
 
         # Get all the subscribers for pub/sub shard channel.
         set subscribers [r pubsub subscribers shard]
-        assert_match {clients {{name somechannel subscribers {{id *}}}}} $subscribers
+        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
 
         # Explicit filter by channel name.
         set subscribers [r pubsub subscribers shard somechannel]
-        assert_match {clients {{name somechannel subscribers {{id *}}}}} $subscribers
+        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
     }
     
     test "subscribers subcommand - Pub/Sub pattern subscription" {
         set rd1 [redis_deferring_client]
-        psubscribe $rd1 somechannel*
+        psubscribe $rd1 somechannel?
 
-        # Get all the subscribers for pub/sub shard channel.
+        # Get all the subscribers via pattern for pub/sub channel.
         set subscribers [r pubsub subscribers pattern]
-        assert_match {clients {{name somechannel* subscribers {{id *}}}}} $subscribers
+        assert_match {somechannel? {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
 
-        # Explicit filter by channel name.
-        set subscribers [r pubsub subscribers pattern somechannel*]
-        assert_match {clients {{name somechannel* subscribers {{id *}}}}} $subscribers
+        # Explicit filter by pattern name.
+        set subscribers [r pubsub subscribers pattern somechannel?]
+        assert_match {somechannel? {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
     }
 }

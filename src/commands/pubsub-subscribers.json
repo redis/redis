@@ -15,8 +15,24 @@
     "arguments": [
       {
         "name": "type",
-        "type": "string",
-        "optional": false
+        "type": "oneof",
+        "arguments": [
+            {
+                "name": "global",
+                "type": "pure-token",
+                "token": "global"
+            },
+            {
+                "name": "shard",
+                "type": "pure-token",
+                "token": "shard"
+            },
+            {
+              "name": "pattern",
+              "type": "pure-token",
+              "token": "pattern"
+            }
+        ]
       },
       {
         "token": "channel",

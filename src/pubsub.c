@@ -621,62 +621,62 @@ void pubsubReplySubscribersClientInfo(client *c, list *clients) {
     listRewind(clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *client = listNodeValue(ln);
+        addReplyMapLen(c, 3);
+        addReplyBulkCString(c, "name");
         if (client->name) {
-            addReplyMapLen(c, 2);
-            addReplyBulkCString(c, "name");
             addReplyBulk(c, client->name);
         } else {
-            addReplyMapLen(c, 1);
+            addReplyNull(c);
         }
         addReplyBulkCString(c, "id");
         addReplyBulkLongLong(c, client->id);
+        addReplyBulkCString(c, "addr");
+        addReplyBulkCString(c, getClientPeerId(client));
     }
 }
 
 void pubsubReplySubscribers(client *c) {
     sds type = c->argv[2]->ptr;
     dict *d = NULL;
-    if (!strcmp(type, "global")) {
+    if (!strcasecmp(type, "global")) {
         d = server.pubsub_channels;
-    } else if (!strcmp(type, "pattern")) {
+    } else if (!strcasecmp(type, "pattern")) {
         d = server.pubsub_patterns;
-    } else if (!strcmp(type, "shard")) {
+    } else if (!strcasecmp(type, "shard")) {
         d = server.pubsubshard_channels;
     } else {
         addReplySubcommandSyntaxError(c);
         return;
     }
-    /* clients, modules. */
-    addReplyMapLen(c, 1);
-    addReplyBulkCString(c, "clients");
     /* All clients connected for a given subscription type. */
     if (c->argc == 3) {
-        addReplyArrayLen(c, dictSize(d));
+        /* Channel name and map of subscribers. */
+        addReplyArrayLen(c, dictSize(d) * 2);
         dictIterator *di = dictGetIterator(d);
         dictEntry *de;
         while ((de = dictNext(di)) != NULL) {
-            addReplyMapLen(c, 2);
-            addReplyBulkCString(c, "name");
             addReplyBulk(c, dictGetKey(de));
-            addReplyBulkCString(c, "subscribers");
+            addReplyMapLen(c, 1);
+            addReplyBulkCString(c, "subscribed-clients");
             list *clients = dictGetVal(de);
             addReplyArrayLen(c, listLength(clients));
             pubsubReplySubscribersClientInfo(c, clients);
         }
         dictReleaseIterator(di);
     } else {
-        addReplyArrayLen(c, c->argc - 3);
+        /* Channel name and map of subscribers. */
+        addReplyArrayLen(c, (c->argc - 3) * 2);
         for (int j = 3; j < c->argc; j++) {
-            addReplyMapLen(c, 2);
-            addReplyBulkCString(c, "name");
             addReplyBulk(c, c->argv[j]);
-            addReplyBulkCString(c, "subscribers");
+            addReplyMapLen(c, 1);
+            addReplyBulkCString(c, "subscribed-clients");
             list *clients = dictFetchValue(d, c->argv[j]);
             if (clients) {
                 addReplyArrayLen(c, listLength(clients));
                 pubsubReplySubscribersClientInfo(c, clients);
             } else {
-                addReplyNull(c);
+                /* If no client info is provided, the channel doesn't have any subscriptions. */
+                addReplyArrayLen(c, 0);
             }
         }
     }
