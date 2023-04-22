@@ -111,13 +111,14 @@ static void clientSetDefaultAuth(client *c) {
                        !(c->user->flags & USER_FLAG_DISABLED);
 }
 
+int userAuthRequired (user *u) {
+    /* Check if the user auth is required. This check is skipped in case
+     * the user is flagged as "nopass" and is active. */
+    return (!(u->flags & USER_FLAG_NOPASS) || (u->flags & USER_FLAG_DISABLED));
+}
+
 int authRequired(client *c) {
-    /* Check if the user is authenticated. This check is skipped in case
-     * the default user is flagged as "nopass" and is active. */
-    int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
-                          (DefaultUser->flags & USER_FLAG_DISABLED)) &&
-                        !c->authenticated;
-    return auth_required;
+    return c->user != NULL && userAuthRequired(c->user) && !c->authenticated; 
 }
 
 client *createClient(connection *conn) {
@@ -172,6 +173,10 @@ client *createClient(connection *conn) {
     c->flags = 0;
     c->slot = -1;
     c->ctime = c->lastinteraction = server.unixtime;
+    /* Initializes the last_auth_time to the creation time to simplify the
+     * max-auth-age enforcement. The last_auth_time field will be properly
+     * updated when the client is successfully authenticated */
+    c->last_auth_time = c->ctime;
     c->duration = 0;
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
@@ -2798,7 +2803,10 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i "
+        "ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U "
+        "obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i "
+        "lib-name=%s lib-ver=%s auth-age=%I",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2828,7 +2836,8 @@ sds catClientInfoString(sds s, client *client) {
         (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
         client->resp,
         client->lib_name ? (char*)client->lib_name->ptr : "",
-        client->lib_ver ? (char*)client->lib_ver->ptr : ""
+        client->lib_ver ? (char*)client->lib_ver->ptr : "",
+        (long long)(server.unixtime - client->last_auth_time)
         );
     return ret;
 }
