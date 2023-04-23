@@ -5946,10 +5946,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_cycles:%lld\r\n"
             "eventloop_duration_sum:%lld\r\n"
             "eventloop_duration_cmd_sum:%lld\r\n"
-            "eventloop_duration_aof_sum:%lld\r\n"
-            "eventloop_duration_cron_sum:%lld\r\n"
-            "instantaneous_eventloop_cycles:%lld\r\n"
-            "instantaneous_eventloop_duration_avg:%lld\r\n",
+            "instantaneous_eventloop_cycles_per_sec:%lld\r\n"
+            "instantaneous_eventloop_duration_usec:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -6003,8 +6001,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.duration_stats[EL_DURATION_TYPE_EL].cnt,
             server.duration_stats[EL_DURATION_TYPE_EL].sum,
             server.duration_stats[EL_DURATION_TYPE_CMD].sum,
-            server.duration_stats[EL_DURATION_TYPE_AOF].sum,
-            server.duration_stats[EL_DURATION_TYPE_CRON].sum,
             getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
             getInstantaneousMetric(STATS_METRIC_EL_DURATION));
         info = genRedisInfoStringACLStats(info);
@@ -6256,6 +6252,17 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                                   0, /* not a crash report */
                                   sections);
     }
+
+    if (dictFind(section_dict, "debug") != NULL) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+        "# Debug\r\n"
+        "eventloop_duration_aof_sum:%lld\r\n"
+        "eventloop_duration_cron_sum:%lld\r\n",
+        server.duration_stats[EL_DURATION_TYPE_AOF].sum,
+        server.duration_stats[EL_DURATION_TYPE_CRON].sum);
+    }
+
     return info;
 }
 
