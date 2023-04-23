@@ -173,9 +173,11 @@ client *createClient(connection *conn) {
     c->flags = 0;
     c->slot = -1;
     c->ctime = c->lastinteraction = server.unixtime;
-    /* Initializes the last_auth_time to the creation time to simplify the
-     * max-auth-age enforcement. The last_auth_time field will be properly
-     * updated when the client is successfully authenticated */
+    /* Initialize the last_auth_time to the creation time to simplify the
+     * max-auth-age enforcement. Users without passwords are implicitly
+     * authenticated, so this approach streamlines the process. For users
+     * with passwords, the last_auth_time field will be updated accordingly
+     * when the client is successfully authenticated. */
     c->last_auth_time = c->ctime;
     c->duration = 0;
     clientSetDefaultAuth(c);
