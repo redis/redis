@@ -274,5 +274,10 @@ start_server {tags {"info" "external:skip"}} {
             $rd close
         }
 
+        test {stats: cmd duration} {
+            regexp "\r\neventloop_duration_cmd_sum:(.*?)\r\n" [r info stats] -> cmd_duration
+            assert {$cmd_duration > 0}
+        }
+
     }
 }
