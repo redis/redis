@@ -276,7 +276,7 @@ start_server {tags {"info" "external:skip"}} {
 
         test {stats: cmd duration} {
             r config resetstat
-            regexp "\r\neventloop_duration_cmd_sum:(.*?)\r\n" [r info stats] -> cmd_duration
+            set cmd_duration [s eventloop_duration_cmd_sum] 
             assert {$cmd_duration > 0}
         }
 
