@@ -5946,8 +5946,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_cycles:%lld\r\n"
             "eventloop_duration_sum:%lld\r\n"
             "eventloop_duration_cmd_sum:%lld\r\n"
-            "eventloop_duration_io_read_sum:%lld\r\n"
-            "eventloop_duration_io_write_sum:%lld\r\n"
             "eventloop_duration_aof_sum:%lld\r\n"
             "eventloop_duration_cron_sum:%lld\r\n"
             "instantaneous_eventloop_cycles:%lld\r\n"
@@ -6005,8 +6003,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.duration_stats[EL_DURATION_TYPE_EL].cnt,
             server.duration_stats[EL_DURATION_TYPE_EL].sum,
             server.duration_stats[EL_DURATION_TYPE_CMD].sum,
-            server.duration_stats[EL_DURATION_TYPE_IO_READ].sum,
-            server.duration_stats[EL_DURATION_TYPE_IO_WRITE].sum,
             server.duration_stats[EL_DURATION_TYPE_AOF].sum,
             server.duration_stats[EL_DURATION_TYPE_CRON].sum,
             getInstantaneousMetric(STATS_METRIC_EL_CYCLE),

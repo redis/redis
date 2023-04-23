@@ -1994,13 +1994,7 @@ int writeToClient(client *c, int handler_installed) {
 /* Write event handler. Just send data to the client. */
 void sendReplyToClient(connection *conn) {
     client *c = connGetPrivateData(conn);
-
-    ustime_t duration = getMonotonicUs();
-
     writeToClient(c,1);
-
-    duration = getMonotonicUs() - duration;
-    durationAddSample(EL_DURATION_TYPE_IO_WRITE, duration);
 }
 
 /* This function is called just before entering the event loop, in the hope
@@ -2647,19 +2641,7 @@ void readQueryFromClient(connection *conn) {
         /* Read as much as possible from the socket to save read(2) system calls. */
         readlen = sdsavail(c->querybuf);
     }
-
-    ustime_t duration = 0;
-    if (io_threads_op == IO_THREADS_OP_IDLE) {
-        duration = getMonotonicUs();
-    }
-
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
-
-    if (io_threads_op == IO_THREADS_OP_IDLE) {
-        duration = getMonotonicUs() - duration;
-        durationAddSample(EL_DURATION_TYPE_IO_READ, duration);
-    }
-
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
@@ -4308,12 +4290,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     /* If I/O threads are disabled or we have few clients to serve, don't
      * use I/O threads, but the boring synchronous code. */
     if (server.io_threads_num == 1 || stopThreadedIOIfNeeded()) {
-        ustime_t duration = 0;
-        duration = getMonotonicUs();
-        int ret = handleClientsWithPendingWrites();
-        duration = getMonotonicUs() - duration;
-        durationAddSample(EL_DURATION_TYPE_IO_WRITE, duration);
-        return ret;
+        return handleClientsWithPendingWrites();
     }
 
     /* Start threads if needed. */
@@ -4349,8 +4326,6 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         item_id++;
     }
 
-    ustime_t duration = getMonotonicUs();
-
     /* Give the start condition to the waiting threads, by setting the
      * start condition atomic var. */
     io_threads_op = IO_THREADS_OP_WRITE;
@@ -4376,9 +4351,6 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     }
 
     io_threads_op = IO_THREADS_OP_IDLE;
-
-    duration = getMonotonicUs() - duration;
-    durationAddSample(EL_DURATION_TYPE_IO_WRITE, duration);
 
     /* Run the list of clients again to install the write handler where
      * needed. */
@@ -4453,8 +4425,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         item_id++;
     }
 
-    ustime_t duration = getMonotonicUs();
-
     /* Give the start condition to the waiting threads, by setting the
      * start condition atomic var. */
     io_threads_op = IO_THREADS_OP_READ;
@@ -4480,9 +4450,6 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     }
 
     io_threads_op = IO_THREADS_OP_IDLE;
-
-    duration = getMonotonicUs() - duration;
-    durationAddSample(EL_DURATION_TYPE_IO_READ, duration);
 
     /* Run the list of clients again to process the new buffers. */
     while(listLength(server.clients_pending_read)) {
