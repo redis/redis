@@ -695,21 +695,16 @@ int allPersistenceDisabled(void) {
 
 /* Add a sample to the operations per second array of samples. This takes total operation count and
  * current time, then calculates and records the operation rate between to samples. */
-void trackInstantaneousRateMetric(int metric, long long current_reading, long long current_time) {
+void trackInstantaneousRateMetric(int metric, long long current_reading, long long current_time_us) {
     if (server.inst_metric[metric].last_sample_time > 0) {
-        long long t = current_time - server.inst_metric[metric].last_sample_time;
-        long long ops = current_reading -
-                        server.inst_metric[metric].last_sample_count;
-        long long ops_sec;
-
-        ops_sec = t > 0 ? (ops*1000/t) : 0;
-
-        server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
-            ops_sec;
+        long long time_duration = current_time_us - server.inst_metric[metric].last_sample_time;
+        long long ops = current_reading - server.inst_metric[metric].last_sample_count;
+        long long ops_per_sec = time_duration > 0 ? (ops * 1000000 / time_duration) : 0;
+        server.inst_metric[metric].samples[server.inst_metric[metric].idx] = ops_per_sec;
         server.inst_metric[metric].idx++;
         server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
     }
-    server.inst_metric[metric].last_sample_time = current_time;
+    server.inst_metric[metric].last_sample_time = current_time_us;
     server.inst_metric[metric].last_sample_count = current_reading;
 }
 
@@ -1301,7 +1296,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* for debug purposes: skip actual cron work if pause_cron is on */
     if (server.pause_cron) return 1000/server.hz;
 
-    server.el_cron_duration = getMonotonicUs();
+    monotime cron_start = getMonotonicUs();
 
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
@@ -1310,7 +1305,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
-        long long current_time = mstime();
+        monotime current_time = getMonotonicUs();
         trackInstantaneousRateMetric(STATS_METRIC_COMMAND, server.stat_numcommands, current_time);
         trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT, stat_net_input_bytes + stat_net_repl_input_bytes,
                                      current_time);
@@ -1537,7 +1532,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     server.cronloops++;
 
-    server.el_cron_duration = getMonotonicUs() - server.el_cron_duration;
+    server.el_cron_duration = getMonotonicUs() - cron_start;
 
     return 1000/server.hz;
 }
@@ -1677,7 +1672,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Record cron time in beforeSleep, which is the sum of active-expire, active-defrag and all other
      * tasks done by cron and beforeSleep, but excluding read, write and AOF, that are counted by other
      * sets of metrics. */
-    long long duration_before_aof = getMonotonicUs();
+    monotime cron_start_time_before_aof = getMonotonicUs();
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -1746,9 +1741,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleClientsBlockedOnKeys();
 
     /* Record time consumption of AOF writing. */
-    long long duration_aof_start = getMonotonicUs();
+    monotime aof_start_time = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
-    duration_before_aof = duration_aof_start - duration_before_aof;
+    monotime duration_before_aof = aof_start_time - cron_start_time_before_aof;
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
@@ -1757,7 +1752,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         flushAppendOnlyFile(0);
 
     /* Record time consumption of AOF writing. */
-    durationAddSample(EL_DURATION_TYPE_AOF, getMonotonicUs() - duration_aof_start);
+    durationAddSample(EL_DURATION_TYPE_AOF, getMonotonicUs() - aof_start_time);
 
     /* Update the fsynced replica offset.
      * If an initial rewrite is in progress then not all data is guaranteed to have actually been
@@ -1772,7 +1767,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleClientsWithPendingWritesUsingThreads();
 
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing above. */
-    long long duration_after_write = getMonotonicUs();
+    monotime cron_start_time_after_write = getMonotonicUs();
 
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
@@ -1786,11 +1781,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     evictClients();
 
     /* Record cron time in beforeSleep. */
-    duration_after_write = getMonotonicUs() - duration_after_write;
+    monotime duration_after_write = getMonotonicUs() - cron_start_time_after_write;
 
     /* Record eventloop latency. */
     if (server.el_start > 0) {
-        long long el_duration = ustime() - server.el_start;
+        monotime el_duration = getMonotonicUs() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
     }
     server.el_cron_duration += duration_before_aof + duration_after_write;
@@ -1828,7 +1823,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
         /* Set the eventloop start time. */
-        server.el_start = ustime();
+        server.el_start = getMonotonicUs();
     }
 
     /* Update the time cache. */
@@ -5943,11 +5938,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "io_threaded_writes_processed:%lld\r\n"
             "reply_buffer_shrinks:%lld\r\n"
             "reply_buffer_expands:%lld\r\n"
-            "eventloop_cycles:%lld\r\n"
-            "eventloop_duration_sum:%lld\r\n"
-            "eventloop_duration_cmd_sum:%lld\r\n"
-            "instantaneous_eventloop_cycles_per_sec:%lld\r\n"
-            "instantaneous_eventloop_duration_usec:%lld\r\n",
+            "eventloop_cycles:%llu\r\n"
+            "eventloop_duration_sum:%llu\r\n"
+            "eventloop_duration_cmd_sum:%llu\r\n"
+            "instantaneous_eventloop_cycles_per_sec:%llu\r\n"
+            "instantaneous_eventloop_duration_usec:%llu\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -6257,8 +6252,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Debug\r\n"
-        "eventloop_duration_aof_sum:%lld\r\n"
-        "eventloop_duration_cron_sum:%lld\r\n",
+        "eventloop_duration_aof_sum:%llu\r\n"
+        "eventloop_duration_cron_sum:%llu\r\n",
         server.duration_stats[EL_DURATION_TYPE_AOF].sum,
         server.duration_stats[EL_DURATION_TYPE_CRON].sum);
     }

@@ -91,17 +91,17 @@ void latencyAddSample(const char *event, mstime_t latency);
 
 typedef struct durationStats {
     unsigned long long cnt;
-    long long sum;
+    unsigned long long sum;
 } durationStats;
 
 typedef enum {
-    EL_DURATION_TYPE_EL = 0,
-    EL_DURATION_TYPE_CMD,
-    EL_DURATION_TYPE_AOF,
-    EL_DURATION_TYPE_CRON,
+    EL_DURATION_TYPE_EL = 0, // cumulative time duration metric of the whole eventloop
+    EL_DURATION_TYPE_CMD,    // cumulative time duration metric of executing commands
+    EL_DURATION_TYPE_AOF,    // cumulative time duration metric of flushing AOF in eventloop
+    EL_DURATION_TYPE_CRON,   // cumulative time duration metric of cron (serverCron and beforeSleep, but excluding IO and AOF)
     EL_DURATION_TYPE_NUM
 } DurationType;
 
-void durationAddSample(int type, ustime_t duration);
+void durationAddSample(int type, monotime duration);
 
 #endif /* __LATENCY_H */
