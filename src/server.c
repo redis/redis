@@ -695,30 +695,30 @@ int allPersistenceDisabled(void) {
 
 /* Add a sample to the operations per second array of samples. This takes total operation count and
  * current time, then calculates and records the operation rate between to samples. */
-void trackInstantaneousRateMetric(int metric, long long current_reading, long long current_time_us) {
+void trackInstantaneousRateMetric(int metric, long long current_reading, monotime current_time) {
     if (server.inst_metric[metric].last_sample_time > 0) {
-        long long time_duration = current_time_us - server.inst_metric[metric].last_sample_time;
+        monotime time_duration = current_time - server.inst_metric[metric].last_sample_time;
         long long ops = current_reading - server.inst_metric[metric].last_sample_count;
         long long ops_per_sec = time_duration > 0 ? (ops * 1000000 / time_duration) : 0;
         server.inst_metric[metric].samples[server.inst_metric[metric].idx] = ops_per_sec;
         server.inst_metric[metric].idx++;
         server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
     }
-    server.inst_metric[metric].last_sample_time = current_time_us;
+    server.inst_metric[metric].last_sample_time = current_time;
     server.inst_metric[metric].last_sample_count = current_reading;
 }
 
 /* Add a sample to time per operation array of samples. This takes total operation count and total time 
    consumption, and record the average time consumption of one operation between two samples. */
-void trackInstantaneousAvgMetric(int metric, long long current_sum, long long current_cnt) {
-    long long time = current_sum - server.inst_metric[metric].last_sample_time;
-    long long cnt = current_cnt - server.inst_metric[metric].last_sample_count;
+void trackInstantaneousAvgMetric(int metric, long long current_reading, monotime current_time_sum) {
+    long long time = current_time_sum - server.inst_metric[metric].last_sample_time;
+    long long cnt = current_reading - server.inst_metric[metric].last_sample_count;
     long long avg = (time > 0 && cnt > 0) ? (time / cnt) : 0;
     server.inst_metric[metric].samples[server.inst_metric[metric].idx] = avg;
     server.inst_metric[metric].idx++;
     server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
-    server.inst_metric[metric].last_sample_time = current_sum;
-    server.inst_metric[metric].last_sample_count = current_cnt;
+    server.inst_metric[metric].last_sample_time = current_time_sum;
+    server.inst_metric[metric].last_sample_count = current_reading;
 }
 
 /* Return the mean of all the samples. */
@@ -1317,8 +1317,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                                      current_time);
         trackInstantaneousRateMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
                                      current_time);
-        trackInstantaneousAvgMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].sum,
-                                    server.duration_stats[EL_DURATION_TYPE_EL].cnt);
+        trackInstantaneousAvgMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
+                                    server.duration_stats[EL_DURATION_TYPE_EL].sum);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -3581,7 +3581,7 @@ void call(client *c, int flags) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        if (server.execution_nesting == 1)
+        if (server.execution_nesting == 0)
             durationAddSample(EL_DURATION_TYPE_CMD, duration);
     }
 
