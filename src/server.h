@@ -1696,7 +1696,7 @@ struct redisServer {
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
-        monotime last_sample_time; /* Timestamp of last sample in ms */
+        monotime last_sample_time; /* Timestamp of last sample in us */
         long long last_sample_count;/* Count in last sample */
         long long samples[STATS_METRIC_SAMPLES];
         int idx;

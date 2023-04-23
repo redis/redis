@@ -694,7 +694,11 @@ int allPersistenceDisabled(void) {
 /* ======================= Cron: called every 100 ms ======================== */
 
 /* Add a sample to the operations per second array of samples. This takes total operation count and
- * current time, then calculates and records the operation rate between to samples. */
+ * current time, then calculates and records the operation rate between to samples. 
+ * 
+ * current_reading - total operation count currently reads
+ * current_time - current time stamp in microseconds
+ * */
 void trackInstantaneousRateMetric(int metric, long long current_reading, monotime current_time) {
     if (server.inst_metric[metric].last_sample_time > 0) {
         monotime time_duration = current_time - server.inst_metric[metric].last_sample_time;
@@ -709,7 +713,11 @@ void trackInstantaneousRateMetric(int metric, long long current_reading, monotim
 }
 
 /* Add a sample to time per operation array of samples. This takes total operation count and total time 
-   consumption, and record the average time consumption of one operation between two samples. */
+ * duration, and record the average time duration of one operation between two samples.
+ *
+ * current_reading - total operation count currently reads
+ * current_time_sum - total time duration of the operations in microseconds
+ * */
 void trackInstantaneousAvgMetric(int metric, long long current_reading, monotime current_time_sum) {
     long long time = current_time_sum - server.inst_metric[metric].last_sample_time;
     long long cnt = current_reading - server.inst_metric[metric].last_sample_count;
