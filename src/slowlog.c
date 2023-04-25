@@ -198,7 +198,7 @@ NULL
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
-            addReplyBulkCBuffer(c, se->cname, sdslen(se->cname));
+            addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
         }
     } else {
         addReplySubcommandSyntaxError(c);
