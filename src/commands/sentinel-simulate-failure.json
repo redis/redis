@@ -20,18 +20,9 @@
                 {
                     "description": "Supported simulates flags. Returned in case `HELP` was used.",
                     "type": "array",
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "items": [
-                        {
-                            "description": "crash-after-election",
-                            "type": "string"
-                        },
-                        {
-                            "description": "crash-after-promotion",
-                            "type": "string"
-                        }
-                    ]
+                    "items": {
+                        "type": "string"
+                    }
                 }
             ]
         },

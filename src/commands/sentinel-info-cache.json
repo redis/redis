@@ -27,8 +27,8 @@
                         {
                             "type": "array",
                             "description": "The unix timestamp at which the logged command was processed.",
-                            "minItems": 0,
-                            "maxItems": 4294967295,
+                            "minItems": 2,
+                            "maxItems": 2,
                             "items": [
                                 {
                                     "description": "The number of milliseconds since when the INFO was cached.",

@@ -41,7 +41,7 @@
                         "type": "string",
                         "description": "Script run-delay."
                     },
-                    "retry-time": {
+                    "retry-num": {
                         "type": "string",
                         "description": "Number of times we tried to execute the script."
                     }
