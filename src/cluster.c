@@ -6186,9 +6186,7 @@ NULL
              * The following steps can happen in parallel:
              * a. Client C issues SETSLOT n NODE B against node A
              * b. Node B gossips its new slot ownership to the cluster,
-             *    including A, A', etc
-             * 
-             * Where A is the source primary and B is the target primary. */
+             *    including A, A', etc */
 
             n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
 

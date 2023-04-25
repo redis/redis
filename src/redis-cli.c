@@ -4732,10 +4732,12 @@ static void clusterManagerSetSlotNodeReplicaOnly(clusterManagerNode *node1,
         freeReplyObject(reply);
         return;
     } 
-    clusterManagerLogInfo(">>> Waiting for at least one replica to complete the slot finalization\n");
-    reply = CLUSTER_MANAGER_COMMAND(node1, "WAIT 1 1000");
+    clusterManagerLogInfo(">>> Waiting for %d replicas to complete slot finalization\n", node1->replicas_count);
+    reply = CLUSTER_MANAGER_COMMAND(node1, "WAIT %d 1000", node1->replicas_count);
     if (reply->type == REDIS_REPLY_ERROR) {
         clusterManagerLogWarn("*** Failed to wait for slot finalization on replicas: %s\n", reply->str);
+    } else {
+        clusterManagerLogInfo(">>> %d replicas completed slot finalization in time\n", reply->integer);
     }
     freeReplyObject(reply);
 }
