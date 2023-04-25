@@ -100,6 +100,7 @@ set ::all_tests {
     unit/cluster/hostnames
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
+    unit/cluster/slot-migration
     unit/cluster/links
 }
 # Index to the next test to run in the ::all_tests list.
