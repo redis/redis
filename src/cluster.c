@@ -6168,7 +6168,8 @@ NULL
              *
              * With the help of this command, we finalize the slots
              * on the replicas before the primary in the following
-             * sequence:
+             * sequence, where A is the source primary and B is the target
+             * primary:
              *
              * 1. Client C issues SETSLOT n NODE B REPLICAONLY against
              *    node B
