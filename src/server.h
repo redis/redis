@@ -2804,8 +2804,7 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
 void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
-const char *getFailoverStateString(void);
-void replicationRequestAckFromSlaves(void);
+const char *getFailoverStateString();
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

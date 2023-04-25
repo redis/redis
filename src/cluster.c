@@ -2245,7 +2245,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                  * for the slot in question */
                 if (server.cluster->migrating_slots_to[j] != NULL) {
                     if (!areInSameShard(sender, myself)) {
-                        serverLog(LL_NOTICE, "Clear migrating destination for slot %d.", j);
+                        serverLog(LL_NOTICE, "Clear migrating target for slot %d.", j);
                         server.cluster->migrating_slots_to[j] = NULL;
                         updateConfig += 1;
                     }
@@ -2284,8 +2284,8 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 areInSameShard(server.cluster->migrating_slots_to[j], sender)) 
             {
                 serverLog(LL_NOTICE,
-                          "Failover occurred in migration destination."
-                          " Update migrating destination for slot %d to node %.40s.",
+                          "Failover occurred in migration target."
+                          " Update migrating target for slot %d to node %.40s.",
                           j,
                           sender->name);
                 server.cluster->migrating_slots_to[j] = sender;
@@ -6155,27 +6155,39 @@ NULL
             /* CLUSTER SETSLOT <SLOT> NODE <NODE ID> REPLICAONLY */
 
             /* When finalizing the slot, there is a possibility that the
-             * destination node B sends cluster PONG to the source node A
+             * target node B sends a cluster PONG to the source node A
              * before SETSLOT has been replicated to B'. If B crashes here,
-             * B' will be in importing state and the slot will have no owner.
-             * To help mitigate this issue, we enforce the following order
-             * for slot migration finalization such that the replicas will
-             * finalize the slot ownership before this primary:
+             * B' will be in an importing state and the slot will have no
+             * owner. To help mitigate this issue, we added a new SETSLOT
+             * command variant that takes a special marker token called
+             * "REPLICAONLY". This command is a no-op on the primary. It
+             * simply replicates asynchronously the command without the
+             * "REPLICAONLY" marker to the replicas, if there exist any.
+             * The caller is expected to wait for this asynchronous
+             * replication to complete using the "WAIT" command.
              *
-             * 1. Client C issues SETSLOT n NODE B against node B
-             * 2. Node B replicates SETSLOT n NODE B to all of its
-             *    replicas, such as B', B'', etc
-             * 3. On replication completion, node B executes SETSLOT
-             *    n NODE B and returns control back to client C
-             * 4. The following steps can happen in parallel
+             * With the help of this command, we finalizes the slots
+             * on the replicas before the primary in the following
+             * sequence:
+             *
+             * 1. Client C issues SETSLOT n NODE B REPLICAONLY against
+             *    node B
+             * 2. Node B replicates SETSLOT n NODE B to all of its replicas,
+             *    such as B', B'', etc
+             * 3. Client C then issues WAIT <num_replicas> <timeout> for
+             *    a number of B's replicas of C's choice to complete the
+             *    finalization
+             * 4. On successful WAIT completion, Client C executes SETSLOT
+             *    n NODE B against node B but without the "REPLICAONLY"
+             *    marker this time, which completes the slot finalization
+             *    on node B
+             *
+             * The following steps can happen in parallel:
              * a. Client C issues SETSLOT n NODE B against node A
-             * b. node B gossips its new slot ownership to the cluster
+             * b. Node B gossips its new slot ownership to the cluster,
              *    including A, A', etc
-             *
-             * Where A is the source primary and B is the destination primary.
-             *
-             * This enforcement is implemented via a new phase called `REPLICAONLY'`
-             * in the setslot subcommand. */
+             * 
+             * Where A is the source primary and B is the target primary. */
 
             n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
 
@@ -6197,36 +6209,22 @@ NULL
                     return;
                 }
             }
-
-            /* Replicate the command to the replicas if there are any */
-            if ((server.cluster->importing_slots_from[slot] != NULL) &&
-                (nodeIsMaster(myself) != 0) &&
-                (myself->numslaves != 0))
-            {
-                /* Remove the last "REPLICAONLY" token so the command
-                 * can be applied as the real "SETSLOT" command on the
-                 * replicas. */
-                serverAssert(c->argc == 6);
-                c->argc--;
-                decrRefCount(c->argv[5]);
-                c->argv[5] = NULL;
-
-                /* We are a primary and this is the first time we see this "setslot"
-                 * command. Force-replicate the setslot command to all of our replicas
-                 * first and only on success will we handle the command.
-                 * Note that
-                 *  1) The repl offset target is set to the master's current repl
-                 *     offset + 1. There is no concern of partial replication because
-                 *     replicas always ack the repl offset at the command boundary.
-                 *  2) This request is idempotent. If the replication cannot be completed
-                 *     in 5000 ms, the user request will be failed. Admins can retry the
-                 *     request safely until it succeeds. */
-                blockForReplication(c, mstime()+5000, server.master_repl_offset+1, myself->numslaves);
-                replicationRequestAckFromSlaves();
-
-                /* Don't reply to the client yet */
-                reply = 0;
+            if (server.cluster->importing_slots_from[slot] == NULL) {
+                addReplyError(c,"Slot is not open for importing");
+                return;
             }
+            if (myself->numslaves == 0) {
+                addReplyError(c,"Target node has no replicas");
+                return;
+            }
+
+            /* Remove the last "REPLICAONLY" token so the command
+             * can be applied as the real "SETSLOT" command on the
+             * replicas. */
+            serverAssert(c->argc == 6);
+            c->argc--;
+            decrRefCount(c->argv[5]);
+            c->argv[5] = NULL;
         } else {
             addReplyError(c,
                 "Invalid CLUSTER SETSLOT action or number of arguments. Try CLUSTER HELP");
@@ -7144,7 +7142,7 @@ try_again:
 
     /* If we are here and a socket error happened, we don't want to retry.
      * Just signal the problem to the client, but only do it if we did not
-     * already queue a different error reported by the destination server. */
+     * already queue a different error reported by the target server. */
     if (!error_from_target && socket_error) {
         may_retry = 0;
         goto socket_err;

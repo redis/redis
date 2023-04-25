@@ -263,7 +263,7 @@ test "Empty-shard migration source is auto-updated after source faiover in sourc
 }
 }
 
-proc migrate_slot {slot from to} {
+proc migrate_slot {from to slot} {
   set from_id [R $from cluster myid]
   set to_id [R $to cluster myid]
   assert_equal {OK} [R $from cluster setslot $slot migrating $to_id]
@@ -283,9 +283,9 @@ set R4_id [R 4 cluster myid]
 set R5_id [R 5 cluster myid]
 
 test "Multiple slot migration states are replicated" {
-  migrate_slot 13 0 1
-  migrate_slot 7 0 1
-  migrate_slot 17 0 1
+  migrate_slot 0 1 13
+  migrate_slot 0 1 7
+  migrate_slot 0 1 17
   # Validate final states
   wait_for_slot_state 0 "\[7->-$R1_id\] \[13->-$R1_id\] \[17->-$R1_id\]"
   wait_for_slot_state 1 "\[7-<-$R0_id\] \[13-<-$R0_id\] \[17-<-$R0_id\]"
@@ -301,8 +301,38 @@ test "New replica inherits multiple migrating slots" {
   after $node_timeout
   assert_equal {OK} [R 3 cluster replicate $R0_id]
   wait_for_role 3 slave
-  # Validate that R3 now sees slot 609 open
+  # Validate final states
   wait_for_slot_state 3 "\[7->-$R1_id\] \[13->-$R1_id\] \[17->-$R1_id\]"
 }
 
+test "Slot finalization on replicas" {
+  # Trigger slot finalization on replicas
+  assert_equal {OK} [R 1 cluster setslot 7 node $R1_id replicaonly]
+  assert_equal {1} [R 1 wait 1 1000]
+  wait_for_slot_state 1 "\[7-<-$R0_id\] \[13-<-$R0_id\] \[17-<-$R0_id\]"
+  wait_for_slot_state 4 "\[13-<-$R0_id\] \[17-<-$R0_id\]"
+  assert_equal {OK} [R 1 cluster setslot 13 node $R1_id replicaonly]
+  assert_equal {1} [R 1 wait 1 1000]
+  wait_for_slot_state 1 "\[7-<-$R0_id\] \[13-<-$R0_id\] \[17-<-$R0_id\]"
+  wait_for_slot_state 4 "\[17-<-$R0_id\]"
+  assert_equal {OK} [R 1 cluster setslot 17 node $R1_id replicaonly]
+  assert_equal {1} [R 1 wait 1 1000]
+  wait_for_slot_state 1 "\[7-<-$R0_id\] \[13-<-$R0_id\] \[17-<-$R0_id\]"
+  wait_for_slot_state 4 ""
+}
+
+test "Finalizing incorrect slot" {
+  catch {R 1 cluster setslot 123 node $R1_id replicaonly} e
+  assert_equal {ERR Slot is not open for importing} $e
+}
+
+test "Slot migration without target replicas" {
+  migrate_slot 0 1 100
+  # Move the target replica away
+  assert_equal {OK} [R 4 cluster replicate $R0_id]
+  after $node_timeout
+  # Slot finalization should fail
+  catch {R 1 cluster setslot 100 node $R1_id replicaonly} e
+  assert_equal {ERR Target node has no replicas} $e
+}
 }
