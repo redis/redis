@@ -6166,7 +6166,7 @@ NULL
              * The caller is expected to wait for this asynchronous
              * replication to complete using the "WAIT" command.
              *
-             * With the help of this command, we finalizes the slots
+             * With the help of this command, we finalize the slots
              * on the replicas before the primary in the following
              * sequence:
              *
