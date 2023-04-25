@@ -26,7 +26,7 @@
                         },
                         {
                             "type": "array",
-                            "description": "The unix timestamp at which the logged command was processed.",
+                            "description": "This is actually a map, the first is the instance's INFO cached milliseconds, and the second is the instance's cached INFO string.",
                             "minItems": 2,
                             "maxItems": 2,
                             "items": [
