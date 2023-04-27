@@ -3257,7 +3257,19 @@ void sentinelConfigSetCommand(client *c) {
     for (int i = 3; i < c->argc; i++) {
         int moreargs = (c->argc-1) - i;
         option = c->argv[i]->ptr;
-        if (!strcasecmp(option, "resolve-hostnames") && moreargs > 0) {
+        if (!strcasecmp(option, "loglevel") && moreargs > 0) {
+            val = c->argv[++i];
+            if (!strcasecmp(val->ptr, "debug"))
+                server.verbosity = LL_DEBUG;
+            else if (!strcasecmp(val->ptr, "verbose"))
+                server.verbosity = LL_VERBOSE;
+            else if (!strcasecmp(val->ptr, "notice"))
+                server.ValidateValidateverbosity = LL_NOTICE;
+            else if (!strcasecmp(val->ptr, "warning"))
+                server.verbosity = LL_WARNING;
+            else
+                goto badfmt;
+        } else if (!strcasecmp(option, "resolve-hostnames") && moreargs > 0) {
             val = c->argv[++i];
             numval = yesnotoi(val->ptr);
             sentinel.resolve_hostnames = numval;
@@ -3285,18 +3297,6 @@ void sentinelConfigSetCommand(client *c) {
             sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
                 NULL : sdsdup(val->ptr);
             drop_conns = 1;
-        } else if (!strcasecmp(option, "loglevel") && moreargs > 0) {
-            val = c->argv[++i];
-            if (!strcasecmp(val->ptr, "debug"))
-                server.verbosity = LL_DEBUG;
-            else if (!strcasecmp(val->ptr, "verbose"))
-                server.verbosity = LL_VERBOSE;
-            else if (!strcasecmp(val->ptr, "notice"))
-                server.verbosity = LL_NOTICE;
-            else if (!strcasecmp(val->ptr, "warning"))
-                server.verbosity = LL_WARNING;
-	    else
-                goto badfmt;
         } else {
             /* Should never reach here */
             serverAssert(0);
