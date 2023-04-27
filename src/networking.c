@@ -32,10 +32,12 @@
 #include "cluster.h"
 #include "script.h"
 #include "fpconv_dtoa.h"
+#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
+#include <sys/mman.h>
 
 static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
@@ -240,6 +242,11 @@ void installClientWriteHandler(client *c) {
     }
 }
 
+/* Determining whether a replica requires online data updates based on its state */
+int isReplDataRequired(client *c) {
+    return c->replstate == SLAVE_STATE_ONLINE || c->replstate == SLAVE_STATE_BACKGROUND_RDB_LOAD;
+}
+
 /* This function puts the client in the queue of clients that should write
  * their output buffers to the socket. Note that it does not *yet* install
  * the write handler, to start clients are put in a queue of clients that need
@@ -253,7 +260,7 @@ void putClientInPendingWriteQueue(client *c) {
      * writes at this stage. */
     if (!(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
-         (c->replstate == SLAVE_STATE_ONLINE && !c->repl_start_cmd_stream_on_ack)))
+         (isReplDataRequired(c) && !c->repl_start_cmd_stream_on_ack)))
     {
         /* Here instead of installing the write handler, we just flag the
          * client and put it into a list of clients that have something
@@ -1410,6 +1417,15 @@ int anyOtherSlaveWaitRdb(client *except_me) {
     return 0;
 }
 
+void removeFromServerCientList(client *c) {
+    if (c->client_list_node) {
+        uint64_t id = htonu64(c->id);
+        raxRemove(server.clients_index, (unsigned char*)&id, sizeof(id), NULL);
+        listDelNode(server.clients, c->client_list_node);
+        c->client_list_node = NULL;
+    }
+}
+
 /* Remove the specified client from global lists where the client could
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
@@ -1424,12 +1440,7 @@ void unlinkClient(client *c) {
      * conn is already set to NULL. */
     if (c->conn) {
         /* Remove from the list of active clients. */
-        if (c->client_list_node) {
-            uint64_t id = htonu64(c->id);
-            raxRemove(server.clients_index,(unsigned char*)&id,sizeof(id),NULL);
-            listDelNode(server.clients,c->client_list_node);
-            c->client_list_node = NULL;
-        }
+        removeFromServerCientList(c);
 
         /* Check if this is a replica waiting for diskless replication (rdb pipe),
          * in which case it needs to be cleaned from that list */
@@ -2596,6 +2607,57 @@ int processInputBuffer(client *c) {
     return C_OK;
 }
 
+/* This handler Buffer incoming steady-state replication data while downloading and loading RDB.
+ * The buffer will store the replication data until we finish loading the RDB, then we will stream
+ * it into the db, and continue using sds type query buffer */
+void bufferReplData(connection *conn) {
+    client *c = connGetPrivateData(conn);
+    int nread;
+    long long readlen = PROTO_IOBUF_LEN;
+    replDataBuf *repl_buf = server.repl_data_buf;
+
+    /* Update total number of reads on server */
+    atomicIncr(server.stat_total_reads_processed, 1);
+
+    /* Check if the replication buffer needs more space */
+    if (repl_buf->size - repl_buf->used < readlen) {
+        long long new_size = max(repl_buf->size * REPLICA_BUFFER_GROWTH_FACTOR, repl_buf->size + readlen);
+        if (server.replica_full_sync_buffer_limit > 0 && new_size > server.replica_full_sync_buffer_limit) {
+            new_size = server.replica_full_sync_buffer_limit;
+        }
+        if (repl_buf->size >= new_size) {
+            serverLog(LL_WARNING, "Replica's replication buffer limit reached %lld. Aborting rdb-chanel-sync.", repl_buf->size);
+            abortRdbConnectionSync(1);
+            return;
+        }
+        serverLog(LL_DEBUG, "Resize replication buffer to %lld.", new_size);
+        resizeReplicationBuffer(new_size);
+    }
+
+    nread = connRead(c->conn, repl_buf->buf + repl_buf->used, readlen);
+    if (nread == -1) {
+        if (connGetState(conn) == CONN_STATE_CONNECTED) {
+            return;
+        } else {
+            serverLog(LL_VERBOSE, "Reading from primary: %s",connGetLastError(c->conn));
+            abortRdbConnectionSync(1);
+            return;
+        }
+    } else if (nread == 0) {
+        if (server.verbosity <= LL_VERBOSE) {
+            sds info = catClientInfoString(sdsempty(), c);
+            serverLog(LL_VERBOSE, "Client closed connection %s", info);
+            sdsfree(info);
+        }
+        abortRdbConnectionSync(1);
+        return;
+    }
+
+    repl_buf->used += nread;
+    c->lastinteraction = server.unixtime;    
+    incrReadsProcessed(nread);
+}
+
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;
@@ -2675,7 +2737,7 @@ void readQueryFromClient(connection *conn) {
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) {
         c->read_reploff += nread;
-        atomicIncr(server.stat_net_repl_input_bytes, nread);
+        incrReadsProcessed(nread);
     } else {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
@@ -3945,7 +4007,7 @@ void flushSlavesOutputBuffers(void) {
          *
          * 3. Obviously if the slave is not ONLINE.
          */
-        if (slave->replstate == SLAVE_STATE_ONLINE &&
+        if (isReplDataRequired(slave) &&
             can_receive_writes &&
             !slave->repl_start_cmd_stream_on_ack &&
             clientHasPendingReplies(slave))

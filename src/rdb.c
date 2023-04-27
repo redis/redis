@@ -60,6 +60,7 @@ char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
+int sendCurentOffsetToReplica(client* replica);
 
 #ifdef __GNUC__
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
@@ -1556,6 +1557,20 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     return C_OK;
 }
 
+void sendReplicationOffsetToReplicas(int req) {
+    listNode *ln;
+    listIter li;
+    listRewind(server.slaves, &li);
+    while((ln = listNext(&li))) {
+        client *replica = ln->value;
+        if ((replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) &&
+            (replica->slave_req == req) &&
+            isReplicaRdbChannel(replica)) {
+                sendCurentOffsetToReplica(replica);            
+        }
+    }
+}
+
 int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     pid_t childpid;
 
@@ -1564,6 +1579,9 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
+
+    /* Before starting the sync check if some replica needs the primary current offset */
+    sendReplicationOffsetToReplicas(req);
 
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
@@ -2958,7 +2976,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         processModuleLoadingProgressEvent(0);
     }
     if (server.repl_state == REPL_STATE_TRANSFER && rioCheckType(r) == RIO_TYPE_CONN) {
-        atomicIncr(server.stat_net_repl_input_bytes, len);
+        incrReadsProcessed(len);
     }
 }
 
@@ -3499,6 +3517,20 @@ void killRDBChild(void) {
      * - rdbRemoveTempFile */
 }
 
+/* Send to replica End Offset response with structure
+ * $ENDOFF:<end-offset> <primary-repl-id> <current-db-id> */
+int sendCurentOffsetToReplica(client* replica) {
+    char buf[128];
+    int buflen;
+    buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d\r\n", server.master_repl_offset, server.replid, server.db->id);
+    serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld", replicationGetSlaveName(replica), server.master_repl_offset);    
+    if (connWrite(replica->conn, buf, buflen) != buflen) {
+        freeClientAsync(replica);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
 int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
@@ -3545,6 +3577,9 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                 continue;
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
+            if (isReplicaRdbChannel(slave)) {
+                sendCurentOffsetToReplica(slave);
+            }
         }
     }
 

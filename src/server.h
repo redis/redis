@@ -178,6 +178,7 @@ struct hdr_histogram;
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
 #define PROTO_REPLY_MIN_BYTES   (1024) /* the lower limit on reply buffer size */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
+#define REPLICA_BUFFER_GROWTH_FACTOR (1.25) /* The growth factor of replica's replication buffer during rdb sync load */
 
 #define REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME 5000 /* 5 seconds */
 
@@ -399,6 +400,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 
+#define CLIENT_RDB_CHANNEL_PSYNCCHAN (1ULL<<46) /* RDB Channel: track a connection
+                                                   which used for PSYNC only */
+#define CLIENT_RDB_CHANNEL_RDBCHAN (1ULL<<47) /* RDB Channel: track a connection
+                                                 which used for RDB only */
+
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
 typedef enum blocking_type {
@@ -442,11 +448,19 @@ typedef enum {
     REPL_STATE_RECEIVE_AUTH_REPLY,  /* Wait for AUTH reply */
     REPL_STATE_RECEIVE_PORT_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
+    REPL_STATE_RECEIVE_PSYNC_ONLY_REPLY, /* If using rdb-channel for sync, mark main connection as psync conn */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
     /* --- End of handshake states --- */
     REPL_STATE_TRANSFER,        /* Receiving .rdb from master */
+    /* --- Second channel related states --- */
+    REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY,   /* Wait for REPLCONF reply */
+    REPL_SEC_CONN_RECEIVE_ENDOFF,           /* Wait for $ENDOFF reply */
+    REPL_SEC_CONN_SEND_PSYNC,          /* Same as REPL_STATE_SEND_PSYNC but during RDB load */
+    REPL_SEC_CONN_RECEIVE_PSYNC_REPLY, /* Same as REPL_STATE_RECEIVE_PSYNC_REPLY but during RDB load */
+    REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE, /* Replica's main connection is partial syncing while it's RDB connection loading the RDB */
+    /* --- Replication steady state ---*/
     REPL_STATE_CONNECTED,       /* Connected to master */
 } repl_state;
 
@@ -468,6 +482,8 @@ typedef enum {
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 #define SLAVE_STATE_RDB_TRANSMITTED 10 /* RDB file transmitted - This state is used only for
                                         * a replica that only wants RDB without replication buffer  */
+#define SLAVE_STATE_BACKGROUND_RDB_LOAD 11 /* Main connection of a replica which uses rdb-channel-sync. */
+
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE 0
@@ -953,6 +969,11 @@ typedef struct replBufBlock {
     size_t size, used;
     char buf[];
 } replBufBlock;
+
+typedef struct replDataBuf {
+    long long size, used;
+    char *buf;
+} replDataBuf;
 
 /* Opaque type for the Slot to Key API. */
 typedef struct clusterSlotToKeyMapping clusterSlotToKeyMapping;
@@ -1674,6 +1695,7 @@ struct redisServer {
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
     redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
+    redisAtomic long long stat_repl_processed_bytes; /* Bytes proccessed from replica's local replication buffer after full sync */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */
@@ -1790,6 +1812,7 @@ struct redisServer {
     int rdb_bgsave_scheduled;       /* BGSAVE when possible if true. */
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* C_OK or C_ERR */
+    int primary_can_sync_using_rdb_channel; /* Track whether the primary is able to sync using rdb channel */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_read;              /* RDB pipe used to transfer the rdb data */
                                     /* to the parent process in diskless repl. */
@@ -1840,6 +1863,8 @@ struct redisServer {
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     replBacklog *repl_backlog;      /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
+    long long replica_full_sync_buffer_limit; /* Buffer size limit for replica 
+                                               * data buffering during RDB channel sync */
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
@@ -1853,6 +1878,8 @@ struct redisServer {
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     int repl_diskless_sync_max_replicas;/* Max replicas for diskless repl BGSAVE
                                          * delay (start sooner if they all connect). */
+    int rdb_channel_enabled;        /* Config used to determine if the replica should 
+                                     * use rdb channel for full syncs. */
     size_t repl_buffer_mem;         /* The memory of replication buffer. */
     list *repl_buffer_blocks;       /* Replication buffers blocks list
                                      * (serving replica clients and repl backlog) */
@@ -1864,12 +1891,14 @@ struct redisServer {
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave */
     client *cached_master; /* Cached master to be reused for PSYNC. */
+    client *psync_master; /* Client used for psync during rdb load */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
     connection *repl_transfer_s;     /* Slave -> Master SYNC connection */
+    connection *repl_full_sync_s;    /* Master FULL SYNC connection (RDB download) */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
@@ -1886,6 +1915,7 @@ struct redisServer {
                                      * when it receives an error on the replication stream */
     int repl_ignore_disk_write_error;   /* Configures whether replicas panic when unable to
                                          * persist writes to AOF. */
+    replDataBuf *repl_data_buf;   /* Buffer we use to accumulate primary queries during rdb-channel-sync */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
@@ -2535,6 +2565,7 @@ void setDeferredPushLen(client *c, void *node, long length);
 int processInputBuffer(client *c);
 void acceptCommonHandler(connection *conn, int flags, char *ip);
 void readQueryFromClient(connection *conn);
+void bufferReplData(connection *conn);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);
@@ -2620,6 +2651,7 @@ int clientHasPendingReplies(client *c);
 int updateClientMemUsageAndBucket(client *c);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
+void removeFromServerCientList(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
 void protectClient(client *c);
@@ -2778,6 +2810,8 @@ void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
 void resizeReplicationBacklog();
+void setReplicaBufferLimit();
+void resizeReplicationBuffer(long long new_size);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
@@ -2807,6 +2841,11 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString();
+int isReplicaPsyncChannel(client *c);
+int isReplicaRdbChannel(client *c);
+int isOngoingRdbChannelSync();
+void abortRdbConnectionSync(int should_retry);
+void incrReadsProcessed(size_t nread);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

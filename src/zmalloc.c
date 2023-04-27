@@ -442,6 +442,63 @@ void zmadvise_dontneed(void *ptr) {
 #endif
 }
 
+/* mmap() allows a program to map a file or device into its address space, making the file's contents 
+ * directly accessible as if it were part of the program's memory. The main advantages of mmap() over 
+ * malloc() are:
+ *
+ * Efficiency: mmap() can be more efficient than malloc() for large memory allocations, because 
+ * it can use the operating system's virtual memory system to map the memory directly to disk. 
+ * This means that mmap() can avoid the overhead of copying data in and out of memory when working 
+ * with large files or datasets.
+ *
+ * Flexibility: mmap() allows a program to map a file or device into its address space in a variety 
+ * of ways, including read-only, write-only, or read-write. This can be useful in situations where 
+ * a program needs to access a large dataset in a flexible manner.
+ *
+ * Persistence: mmap() can be used to create memory-mapped files that persist across program executions. 
+ * This can be useful for creating shared memory regions between processes or for implementing 
+ * memory-mapped databases.
+ */
+void *zmmap(void *addr, size_t length, int prot, int flags, int fd, __off_t offset) {
+    void* ptr = mmap(addr, length, prot, flags, fd, offset);
+    if (ptr == MAP_FAILED) {
+        return NULL;
+    }
+    update_zmalloc_stat_alloc(length);
+    return ptr;
+}
+
+void zmunmap(void *addr, size_t length) {
+    int ret = munmap(addr, length);
+    if (ret != 0) {
+        return;
+    }
+    update_zmalloc_stat_free(length);
+    return;
+}
+
+ /* mremap() is similar to mmap() in that it allows a program to manipulate its virtual memory address 
+ * space. The main advantages of mremap() over regular malloc() are:
+ *
+ * Dynamic resizing: mremap() allows a program to dynamically resize a memory allocation, which can be 
+ * useful in situations where the size of the allocation needs to change frequently or unpredictably.
+ *
+ * Address space manipulation: mremap() allows a program to manipulate its virtual memory address space 
+ * in a variety of ways, including moving or merging memory regions. This can be useful for optimizing 
+ * memory usage or implementing custom memory management schemes.
+ *
+ * Shared memory: mremap() can be used to create shared memory regions between processes, which can be 
+ * useful for interprocess communication or implementing shared memory caches. 
+ */
+void *zmremap(void *old_address, size_t old_size, size_t new_size, int flags) {
+    void* ptr = mremap(old_address, old_size, new_size, flags);
+    if (ptr == MAP_FAILED) {
+        return NULL;
+    }
+    update_zmalloc_stat_alloc(new_size - old_size);
+    return ptr;
+}
+
 /* Get the RSS information in an OS-specific way.
  *
  * WARNING: the function zmalloc_get_rss() is not designed to be fast

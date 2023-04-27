@@ -141,6 +141,31 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
+proc verify_replica_online {master replica_idx max_retry} {
+    while {$max_retry} {
+        set info [$master info]
+        set pattern *slave$replica_idx:*state=online*
+        if {[string match $pattern $info]} {
+            break
+        } else {
+            incr max_retry -1
+            after 100
+        }
+    }
+    if {$max_retry == 0} {
+        error "assertion:Replica not correctly synchronized"
+    } 
+}
+
+proc wait_for_value_to_propegate_to_replica {master replica key} {
+    set val [$master get key]
+    wait_for_condition 50 1000 {
+                ([$replica get $key] eq $val)
+    } else {
+        error "key $key did not propegate"
+    }
+}
+
 # try to match a value to a list of patterns that are either regex (starts with "/") or plain string.
 # The caller can specify to use only glob-pattern match
 proc search_pattern_list {value pattern_list {glob_pattern false}} {

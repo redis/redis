@@ -692,6 +692,22 @@ int allPersistenceDisabled(void) {
     return server.saveparamslen == 0 && server.aof_state == AOF_OFF;
 }
 
+/* Return true if the client is the replica`s psync connection */
+int isReplicaPsyncChannel(client *c) {
+    return (c->flags & CLIENT_RDB_CHANNEL_PSYNCCHAN) != 0;
+}
+
+/* Return true if the client is a replica`s sub client for RDB only */
+int isReplicaRdbChannel(client *c) {
+    return (c->flags & CLIENT_RDB_CHANNEL_RDBCHAN) != 0;
+}
+
+/* Used on replica side to check if rdb-channel sync is currently in progress */
+int isOngoingRdbChannelSync() {
+    return server.repl_state >= REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY &&
+           server.repl_state <= REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE;
+}
+
 /* ======================= Cron: called every 100 ms ======================== */
 
 /* Add a sample to the operations per second array of samples. */
@@ -2506,6 +2522,7 @@ void resetServerStats(void) {
     atomicSet(server.stat_net_output_bytes, 0);
     atomicSet(server.stat_net_repl_input_bytes, 0);
     atomicSet(server.stat_net_repl_output_bytes, 0);
+    atomicSet(server.stat_repl_processed_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
@@ -2661,6 +2678,7 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
     server.lastbgsave_status = C_OK;
+    server.primary_can_sync_using_rdb_channel = 1;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
@@ -3175,6 +3193,10 @@ struct redisCommand *lookupCommandOrOriginal(robj **argv ,int argc) {
 /* Commands arriving from the master client or AOF client, should never be rejected. */
 int mustObeyClient(client *c) {
     return c->id == CLIENT_ID_AOF || c->flags & CLIENT_MASTER;
+}
+
+void incrReadsProcessed(size_t nread) {
+    atomicIncr(server.stat_total_reads_processed, nread);
 }
 
 static int shouldPropagate(int target) {
@@ -5253,6 +5275,8 @@ const char *replstateToString(int replstate) {
     case SLAVE_STATE_WAIT_BGSAVE_START:
     case SLAVE_STATE_WAIT_BGSAVE_END:
         return "wait_bgsave";
+    case SLAVE_STATE_BACKGROUND_RDB_LOAD:
+        return "psync";
     case SLAVE_STATE_SEND_BULK:
         return "send_bulk";
     case SLAVE_STATE_ONLINE:
@@ -5618,6 +5642,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
             "mem_total_replication_buffers:%zu\r\n"
+            "replicas_replication_buffer_size:%llu\r\n"
+            "replicas_replication_buffer_used:%llu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_cluster_links:%zu\r\n"
@@ -5672,6 +5698,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             freeMemoryGetNotCountedMemory(),
             mh->repl_backlog,
             server.repl_buffer_mem,
+            server.repl_data_buf ? server.repl_data_buf->size : 0,
+            server.repl_data_buf ? server.repl_data_buf->used : 0,
             mh->clients_slaves,
             mh->clients_normal,
             mh->cluster_links,
@@ -5824,6 +5852,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
+        long long stat_repl_processed_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -5834,6 +5863,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
+        atomicGet(server.stat_repl_processed_bytes, stat_repl_processed_bytes);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -5845,6 +5875,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_net_output_bytes:%lld\r\n"
             "total_net_repl_input_bytes:%lld\r\n"
             "total_net_repl_output_bytes:%lld\r\n"
+            "total_repl_processed_bytes:%lld\r\n"
             "instantaneous_input_kbps:%.2f\r\n"
             "instantaneous_output_kbps:%.2f\r\n"
             "instantaneous_input_repl_kbps:%.2f\r\n"
@@ -5895,6 +5926,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_net_output_bytes + stat_net_repl_output_bytes,
             stat_net_repl_input_bytes,
             stat_net_repl_output_bytes,
+            stat_repl_processed_bytes,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION)/1024,

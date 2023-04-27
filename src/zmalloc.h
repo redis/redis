@@ -126,6 +126,9 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid);
 size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
 void zmadvise_dontneed(void *ptr);
+void *zmmap(void *addr, size_t length, int prot, int flags, int fd, __off_t offset);
+void zmunmap(void *addr, size_t length);
+void *zmremap(void *old_address, size_t old_size, size_t new_size, int flags);
 
 #ifdef HAVE_DEFRAG
 void zfree_no_tcache(void *ptr);

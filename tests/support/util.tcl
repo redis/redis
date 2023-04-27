@@ -555,7 +555,15 @@ proc find_valgrind_errors {stderr on_termination} {
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls 0 &
+}
+
+# Execute a background process writing only one key for the specified number
+# of seconds to the specified Redis instance. This load handler is usefull for
+# tests which requires heavy replication stream but no memory load. 
+proc start_one_key_write_load {host port seconds key} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key &
 }
 
 # Stop a process generating write load executed with start_write_load.
