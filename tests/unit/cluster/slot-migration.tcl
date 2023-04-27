@@ -345,8 +345,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-allow-replica
         #Finalize the slot on the source first
         assert_equal {OK} [R 0 cluster setslot 609 node $R1_id]
         after $node_timeout
-        #R1 should claim slot 0 since it is still importing slot 0 from R0 
-        #but R0 no longer owns this slot
+        #R1 should claim slot 609 since it is still importing slot 609
+        #from R0 but R0 no longer owns this slot
         assert_equal {OK} [R 1 set aga foo]
     }
 }
