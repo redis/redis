@@ -2597,7 +2597,7 @@ void fullSyncWithMaster(connection* conn) {
 
     /* Send replica capabilities */
     if (server.repl_state == REPL_STATE_RECEIVE_PSYNC_REPLY) {
-        serverLog(LL_DEBUG, "Recived first reply from primary using rdb connection. Sending capa");
+        serverLog(LL_DEBUG, "Received first reply from primary using rdb connection. Sending capa");
         
         /* Send replica lisening port to master for clarification */
         sds portstr = getReplicaPortString();        
@@ -2616,7 +2616,7 @@ void fullSyncWithMaster(connection* conn) {
         }
         return;
     }
-    /* Recive replconf response */
+    /* Receive replconf response */
     if (server.repl_state == REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY) {
         err = receiveSynchronousResponse(conn);
         if (err == NULL) goto no_response_error;
@@ -2637,7 +2637,7 @@ void fullSyncWithMaster(connection* conn) {
         server.repl_state = REPL_SEC_CONN_RECEIVE_ENDOFF;
         return;
     }
-    /* Recive ENDOFF reply */
+    /* Receive ENDOFF reply */
     if (server.repl_state == REPL_SEC_CONN_RECEIVE_ENDOFF) {
         char buf[PROTO_IOBUF_LEN];
         connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
@@ -2734,7 +2734,7 @@ void streamReplDataBufToDb(client *c) {
 }
 
 /* There are two scenarios in which this method can be called during rdb-channel-sync:
- * 1. Main connection succesfully established psync with primary.
+ * 1. Main connection successfully established psync with primary.
  * 2. Rdb connection done loading rdb. 
  * Each time this method is invoked, we check whether the other connection has completed
  * his part and act accordingly */
@@ -2952,9 +2952,9 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             memcpy(new,start,CONFIG_RUN_ID_SIZE);
             new[CONFIG_RUN_ID_SIZE] = '\0';
             if (isOngoingRdbChannelSync()) {
-                /* Incase we are using rdb connection sync, the master is already initialized by now 
-                 * In this case we will just verify his id. Notice that in this case chached master is not 
-                 * relevent because it wasn't used */
+                /* In case we are using rdb connection sync, the master is already initialized by now 
+                 * In this case we will just verify his id. Notice that in this case cached master is not 
+                 * relevant because it wasn't used */
                 serverAssert(strcmp(new, server.psync_master->replid) == 0);
                 server.psync_master->read_reploff = server.psync_master->reploff;
                 /* Disconnect all the sub-slaves: they need to be notified. */
@@ -3471,7 +3471,7 @@ int cancelReplicationHandshake(int reconnect) {
         server.repl_state = REPL_STATE_CONNECT;
     } else if (server.repl_state == REPL_SEC_CONN_RECEIVE_PSYNC_REPLY || 
                server.repl_state == REPL_SEC_CONN_SEND_PSYNC){
-        /* As we cancel the sync, the rdb connection state is no longer relevent */
+        /* As we cancel the sync, the rdb connection state is no longer relevant */
         server.repl_state = REPL_STATE_TRANSFER;
         replicationAbortSyncTransfer();
         server.repl_state = REPL_STATE_CONNECT;

@@ -1509,7 +1509,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
             wait_for_condition 50 1000 {
                 [$replica get foo] == 1
             } else {
-                fail "Replica isn't conencted"
+                fail "Replica isn't connected"
             }
         }
     }

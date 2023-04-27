@@ -1695,7 +1695,7 @@ struct redisServer {
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
     redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
     redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
-    redisAtomic long long stat_repl_processed_bytes; /* Bytes proccessed from replica's local replication buffer after full sync */
+    redisAtomic long long stat_repl_processed_bytes; /* Bytes processed from replica's local replication buffer after full sync */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */

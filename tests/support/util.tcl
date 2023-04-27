@@ -559,7 +559,7 @@ proc start_write_load {host port seconds} {
 }
 
 # Execute a background process writing only one key for the specified number
-# of seconds to the specified Redis instance. This load handler is usefull for
+# of seconds to the specified Redis instance. This load handler is useful for
 # tests which requires heavy replication stream but no memory load. 
 proc start_one_key_write_load {host port seconds key} {
     set tclsh [info nameofexecutable]
