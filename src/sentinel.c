@@ -3264,7 +3264,7 @@ void sentinelConfigSetCommand(client *c) {
             else if (!strcasecmp(val->ptr, "verbose"))
                 server.verbosity = LL_VERBOSE;
             else if (!strcasecmp(val->ptr, "notice"))
-                server.ValidateValidateverbosity = LL_NOTICE;
+                server.verbosity = LL_NOTICE;
             else if (!strcasecmp(val->ptr, "warning"))
                 server.verbosity = LL_WARNING;
             else
