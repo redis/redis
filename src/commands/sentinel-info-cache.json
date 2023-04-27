@@ -14,7 +14,7 @@
         ],
         "reply_schema": {
             "type": "array",
-            "description": "Last cached INFO output from masters and all its replicas.",
+            "description": "This is actually a map, the odd entries are a master name, and the even entries are the last cached INFO output from that master and all its replicas.",
             "minItems": 0,
             "maxItems": 4294967295,
             "items": [
@@ -26,7 +26,7 @@
                         },
                         {
                             "type": "array",
-                            "description": "This is actually a map, the first is the instance's INFO cached milliseconds, and the second is the instance's cached INFO string.",
+                            "description": "This is an array of pairs, the odd entries are the INFO age, and the even entries are the cached INFO string. The first pair belong to the master and the rest are its replicas.",
                             "minItems": 2,
                             "maxItems": 2,
                             "items": [
