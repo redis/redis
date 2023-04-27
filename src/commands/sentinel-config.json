@@ -86,8 +86,8 @@
                     {
                         "name":"set",
                         "token":"SET",
-                        "multiple":true,
                         "type":"block",
+                        "multiple": true,
                         "arguments":[
                             {
                                 "name":"parameter",
