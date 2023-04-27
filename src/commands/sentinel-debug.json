@@ -12,6 +12,21 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The configuration update was successful.",
+                    "const": "OK"
+                },
+                {
+                    "description": "List of configurable time parameters and their values (milliseconds).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "data",
