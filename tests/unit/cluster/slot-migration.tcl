@@ -337,7 +337,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-allow-replica
     set R0_id [R 0 cluster myid]
     set R1_id [R 1 cluster myid]
 
-    test "Slot is auto-claimed by targt after source relinquishes ownership" {
+    test "Slot is auto-claimed by target after source relinquishes ownership" {
         migrate_slot 0 1 609
         #Validate that R1 doesn't own slot 609
         catch {[R 1 get aga]} e
