@@ -127,31 +127,31 @@ void crcspeed16big_init(crcfn16 fn, uint16_t big_table[8][256]) {
  * macros separate.
  */
 
-#define DO_8_1(I)                                       \
-    crc##I ^= *(uint64_t *)next##I;                     \
-    next##I += 8
+#define DO_8_1(crc, next)                            \
+    crc ^= *(uint64_t *)next;                        \
+    next += 8
 
-#define DO_8_2(I)                                       \
-    crc##I = little_table[7][(uint8_t)crc##I] ^         \
-             little_table[6][(uint8_t)(crc##I >> 8)] ^  \
-             little_table[5][(uint8_t)(crc##I >> 16)] ^ \
-             little_table[4][(uint8_t)(crc##I >> 24)] ^ \
-             little_table[3][(uint8_t)(crc##I >> 32)] ^ \
-             little_table[2][(uint8_t)(crc##I >> 40)] ^ \
-             little_table[1][(uint8_t)(crc##I >> 48)] ^ \
-             little_table[0][crc##I >> 56]
+#define DO_8_2(crc)                                  \
+    crc = little_table[7][(uint8_t)crc] ^            \
+             little_table[6][(uint8_t)(crc >> 8)] ^  \
+             little_table[5][(uint8_t)(crc >> 16)] ^ \
+             little_table[4][(uint8_t)(crc >> 24)] ^ \
+             little_table[3][(uint8_t)(crc >> 32)] ^ \
+             little_table[2][(uint8_t)(crc >> 40)] ^ \
+             little_table[1][(uint8_t)(crc >> 48)] ^ \
+             little_table[0][crc >> 56]
 
 #define CRC64_SPLIT(div) \
     olen = len; \
     next2 = next1 + ((len / div) & CRC64_LEN_MASK); \
     len = (next2 - next1)
 
-#define MERGE_CRC(I) \
-    crc1 = crc64_combine(crc1, crc##I, next2 - next1, CRC64_REVERSED_POLY, 64)
+#define MERGE_CRC(crcn) \
+    crc1 = crc64_combine(crc1, crcn, next2 - next1, CRC64_REVERSED_POLY, 64)
 
-#define MERGE_END(DIV) \
+#define MERGE_END(last, DIV) \
     len = olen - ((next2 - next1) * DIV); \
-    next1 = next##DIV
+    next1 = last
 
 /* Variables so we can change for benchmarking; these seem to be fairly
  * reasonable for Intel CPUs made since 2010. Please adjust as necessary if
@@ -161,9 +161,9 @@ static size_t CRC64_TRI_CUTOFF = (2*1024);
 static size_t CRC64_DUAL_CUTOFF = (128);
 
 
-void set_crc64_cutoffs(size_t dual, size_t tri) {
-    CRC64_DUAL_CUTOFF = dual;
-    CRC64_TRI_CUTOFF = tri;
+void set_crc64_cutoffs(size_t dual_cutoff, size_t tri_cutoff) {
+    CRC64_DUAL_CUTOFF = dual_cutoff;
+    CRC64_TRI_CUTOFF = tri_cutoff;
 }
 
 
@@ -191,39 +191,41 @@ uint64_t crcspeed64little(uint64_t little_table[8][256], uint64_t crc1,
         unsigned char *next2, *next3;
         uint64_t olen, crc2=0, crc3=0;
         CRC64_SPLIT(3);
-        // len is now the length of the shortest segment
+        // len is now the length of the first segment, the 3rd segment possibly
+        // having extra bytes to clean up at the end
         next3 = next2 + len;
         while (len >= 8) {
             len -= 8;
-            DO_8_1(1);
-            DO_8_1(2);
-            DO_8_1(3);
-            DO_8_2(1);
-            DO_8_2(2);
-            DO_8_2(3);
+            DO_8_1(crc1, next1);
+            DO_8_1(crc2, next2);
+            DO_8_1(crc3, next3);
+            DO_8_2(crc1);
+            DO_8_2(crc2);
+            DO_8_2(crc3);
         }
 
         /* merge the 3 crcs */
-        MERGE_CRC(2);
-        MERGE_CRC(3);
-        MERGE_END(3);
+        MERGE_CRC(crc2);
+        MERGE_CRC(crc3);
+        MERGE_END(next3, 3);
     } else if (len > CRC64_DUAL_CUTOFF) {
         /* 16 bytes per loop, doing 2 parallel 8 byte chunks at a time */
         unsigned char *next2;
         uint64_t olen, crc2=0;
         CRC64_SPLIT(2);
-        // len is now the length of the shortest segment
+        // len is now the length of the first segment, the 2nd segment possibly
+        // having extra bytes to clean up at the end
         while (len >= 8) {
             len -= 8;
-            DO_8_1(1);
-            DO_8_1(2);
-            DO_8_2(1);
-            DO_8_2(2);
+            DO_8_1(crc1, next1);
+            DO_8_1(crc2, next2);
+            DO_8_2(crc1);
+            DO_8_2(crc2);
         }
 
         /* merge the 2 crcs */
-        MERGE_CRC(2);
-        MERGE_END(2);
+        MERGE_CRC(crc2);
+        MERGE_END(next2, 2);
     }
     /* We fall through here to handle our <CRC64_DUAL_CUTOFF inputs, and for any trailing
      * bytes that wasn't evenly divisble by 16 or 24 above. */
@@ -231,8 +233,8 @@ uint64_t crcspeed64little(uint64_t little_table[8][256], uint64_t crc1,
     /* fast processing, 8 bytes (aligned!) per loop */
     while (len >= 8) {
         len -= 8;
-        DO_8_1(1);
-        DO_8_2(1);
+        DO_8_1(crc1, next1);
+        DO_8_2(crc1);
     }
 final:
     /* process remaining bytes (can't be larger than 8) */
@@ -244,7 +246,15 @@ final:
     return crc1;
 }
 
+// clean up our namespace
+#undef DO_8_1
 #undef DO_8_2
+#undef CRC64_SPLIT
+#undef MERGE_CRC
+#undef MERGE_END
+#undef CRC64_REVERSED_POLY
+#undef CRC64_LEN_MASK
+
 
 /* note: similar perf advantages can be had for long strings in crc16 using all
  * of the same optimizations as above; though this is unnecessary. crc16 is
@@ -285,16 +295,6 @@ uint16_t crcspeed16little(uint16_t little_table[8][256], uint16_t crc,
     return crc;
 }
 
-#define DO_8_2(I)                                       \
-    crc##I = big_table[0][(uint8_t)crc##I] ^         \
-             big_table[1][(uint8_t)(crc##I >> 8)] ^  \
-             big_table[2][(uint8_t)(crc##I >> 16)] ^ \
-             big_table[3][(uint8_t)(crc##I >> 24)] ^ \
-             big_table[4][(uint8_t)(crc##I >> 32)] ^ \
-             big_table[5][(uint8_t)(crc##I >> 40)] ^ \
-             big_table[6][(uint8_t)(crc##I >> 48)] ^ \
-             big_table[7][crc##I >> 56]
-
 /* Calculate a non-inverted CRC eight bytes at a time on a big-endian
  * architecture.
  */
@@ -334,15 +334,6 @@ uint64_t crcspeed64big(uint64_t big_table[8][256], uint64_t crc, void *buf,
     return rev8(crc);
 }
 
-// clean up our namespace
-
-#undef DO_8_2
-#undef DO_8_1
-#undef CRC64_SPLIT
-#undef MERGE_CRC
-#undef MERGE_END
-#undef CRC64_REVERSED_POLY
-#undef CRC64_LEN_MASK
 
 
 /* WARNING: Completely untested on big endian architecture.  Possibly broken. */

@@ -116,6 +116,7 @@ endif
 # Override default settings if possible
 -include .make-settings
 
+STD+=-DLINUX_PLATFORM=1 -DREDIS_TEST=1
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
