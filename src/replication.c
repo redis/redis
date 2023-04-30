@@ -1937,7 +1937,7 @@ void replicationAttachToNewMaster() {
 }
 
 /* Used by replica, returns true whether the connection used for RDB only */
-bool isRdbConnectionSync(connection *conn) {
+int isRdbConnectionSync(connection *conn) {
     return conn == server.repl_full_sync_s;
 }
 
