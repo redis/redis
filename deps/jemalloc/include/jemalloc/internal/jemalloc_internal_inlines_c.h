@@ -340,22 +340,21 @@ imalloc_fastpath(size_t size, void *(fallback_alloc)(size_t)) {
 JEMALLOC_ALWAYS_INLINE int
 iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 	int defrag = 0;
-	rtree_ctx_t rtree_ctx_fallback;
-	rtree_ctx_t *rtree_ctx = tsdn_rtree_ctx(tsdn, &rtree_ctx_fallback);
-	szind_t szind;
-	bool is_slab;
-	rtree_szind_slab_read(tsdn, &extents_rtree, rtree_ctx, (uintptr_t)ptr, true, &szind, &is_slab);
-	if (likely(is_slab)) {
+	emap_alloc_ctx_t alloc_ctx;
+	emap_alloc_ctx_lookup(tsdn, &arena_emap_global, ptr, &alloc_ctx);
+	if (likely(alloc_ctx.slab)) {
 		/* Small allocation. */
-		extent_t *slab = iealloc(tsdn, ptr);
-		arena_t *arena = extent_arena_get(slab);
-		szind_t binind = extent_szind_get(slab);
-		unsigned binshard = extent_binshard_get(slab);
-		bin_t *bin = &arena->bins[binind].bin_shards[binshard];
+		edata_t *slab = emap_edata_lookup(tsdn, &arena_emap_global, ptr);
+		arena_t *arena = arena_get_from_edata(slab);
+		szind_t binind = edata_szind_get(slab);
+		unsigned binshard = edata_binshard_get(slab);
+		bin_t *bin = arena_get_bin(arena, binind, binshard);
 		malloc_mutex_lock(tsdn, &bin->lock);
+		arena_dalloc_bin_locked_info_t info;
+		arena_dalloc_bin_locked_begin(&info, binind);
 		/* Don't bother moving allocations from the slab currently used for new allocations */
 		if (slab != bin->slabcur) {
-			int free_in_slab = extent_nfree_get(slab);
+			int free_in_slab = edata_nfree_get(slab);
 			if (free_in_slab) {
 				const bin_info_t *bin_info = &bin_infos[binind];
 				/* Find number of non-full slabs and the number of regs in them */
@@ -363,14 +362,14 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 				size_t curregs = 0;
 				/* Run on all bin shards (usually just one) */
 				for (uint32_t i=0; i< bin_info->n_shards; i++) {
-					bin_t *bb = &arena->bins[binind].bin_shards[i];
+					bin_t *bb = arena_get_bin(arena, binind, i);
 					curslabs += bb->stats.nonfull_slabs;
 					/* Deduct the regs in full slabs (they're not part of the game) */
 					unsigned long full_slabs = bb->stats.curslabs - bb->stats.nonfull_slabs;
 					curregs += bb->stats.curregs - full_slabs * bin_info->nregs;
 					if (bb->slabcur) {
 						/* Remove slabcur from the overall utilization (not a candidate to nove from) */
-						curregs -= bin_info->nregs - extent_nfree_get(bb->slabcur);
+						curregs -= bin_info->nregs - edata_nfree_get(bb->slabcur);
 						curslabs -= 1;
 					}
 				}
@@ -383,6 +382,7 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 				defrag = (bin_info->nregs - free_in_slab) * curslabs <= curregs + curregs / 8;
 			}
 		}
+		arena_dalloc_bin_locked_finish(tsdn, arena, bin, &info);
 		malloc_mutex_unlock(tsdn, &bin->lock);
 	}
 	return defrag;
