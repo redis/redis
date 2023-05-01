@@ -751,23 +751,16 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         streamID last_id;
         lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
 
-	if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
+        if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             remove_node = s->length - entries >= maxlen;
         } else {
-            /* Read the master ID from the radix tree key. */
-            streamDecodeID(ri.key, &master_id);
-
-            /* Read last ID. */
-            streamID last_id = {0,0};
-            lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
-
             /* We can remove the entire node id its last ID < 'id' */
             remove_node = streamCompareID(&last_id, id) < 0;
         }
 
         if (remove_node) {
-	   if (streamCompareID(&last_id,&s->max_deleted_entry_id) > 0) {
-              s->max_deleted_entry_id = last_id;
+            if (streamCompareID(&last_id,&s->max_deleted_entry_id) > 0) {
+                s->max_deleted_entry_id = last_id;
             }
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
@@ -794,8 +787,6 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             p = lpNext(lp,p); /* Skip all master fields. */
         p = lpNext(lp,p); /* Skip the zero master entry terminator. */
 
-
-	streamID delete_entry_id = {0};
         /* 'p' is now pointing to the first entry inside the listpack.
          * We have to run entry after entry, marking entries as deleted
          * if they are already not deleted. */
@@ -803,6 +794,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             /* We keep a copy of p (which point to flags part) in order to
              * update it after (and if) we actually remove the entry */
             unsigned char *pcopy = p;
+            streamID delete_entry_id = {0};
 
             int64_t flags = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip flags. */
