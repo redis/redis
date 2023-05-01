@@ -52,6 +52,9 @@ tsd_cleanup_wrapper(void *arg) {
 
 JEMALLOC_ALWAYS_INLINE void
 tsd_wrapper_set(tsd_wrapper_t *wrapper) {
+	if (unlikely(!tsd_booted)) {
+		return;
+	}
 	if (pthread_setspecific(tsd_tsd, (void *)wrapper) != 0) {
 		malloc_write("<jemalloc>: Error setting TSD\n");
 		abort();
@@ -60,7 +63,13 @@ tsd_wrapper_set(tsd_wrapper_t *wrapper) {
 
 JEMALLOC_ALWAYS_INLINE tsd_wrapper_t *
 tsd_wrapper_get(bool init) {
-	tsd_wrapper_t *wrapper = (tsd_wrapper_t *)pthread_getspecific(tsd_tsd);
+	tsd_wrapper_t *wrapper;
+
+	if (unlikely(!tsd_booted)) {
+		return &tsd_boot_wrapper;
+	}
+
+	wrapper = (tsd_wrapper_t *)pthread_getspecific(tsd_tsd);
 
 	if (init && unlikely(wrapper == NULL)) {
 		tsd_init_block_t block;
@@ -91,11 +100,21 @@ tsd_wrapper_get(bool init) {
 
 JEMALLOC_ALWAYS_INLINE bool
 tsd_boot0(void) {
+	tsd_wrapper_t *wrapper;
+	tsd_init_block_t block;
+
+	wrapper = (tsd_wrapper_t *)
+	    tsd_init_check_recursion(&tsd_init_head, &block);
+	if (wrapper) {
+		return false;
+	}
+	block.data = &tsd_boot_wrapper;
 	if (pthread_key_create(&tsd_tsd, tsd_cleanup_wrapper) != 0) {
 		return true;
 	}
-	tsd_wrapper_set(&tsd_boot_wrapper);
 	tsd_booted = true;
+	tsd_wrapper_set(&tsd_boot_wrapper);
+	tsd_init_finish(&tsd_init_head, &block);
 	return false;
 }
 

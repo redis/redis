@@ -11,7 +11,7 @@ thd_start(void *arg) {
 	int err;
 
 	p = malloc(1);
-	assert_ptr_not_null(p, "Error in malloc()");
+	expect_ptr_not_null(p, "Error in malloc()");
 	free(p);
 
 	size = sizeof(arena_ind);
@@ -31,7 +31,7 @@ thd_start(void *arg) {
 		buferror(err, buf, sizeof(buf));
 		test_fail("Error in mallctl(): %s", buf);
 	}
-	assert_u_eq(arena_ind, main_arena_ind,
+	expect_u_eq(arena_ind, main_arena_ind,
 	    "Arena index should be same as for main thread");
 
 	return NULL;
@@ -52,11 +52,11 @@ TEST_BEGIN(test_thread_arena) {
 	unsigned i;
 
 	p = malloc(1);
-	assert_ptr_not_null(p, "Error in malloc()");
+	expect_ptr_not_null(p, "Error in malloc()");
 
 	unsigned arena_ind, old_arena_ind;
 	size_t sz = sizeof(unsigned);
-	assert_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz, NULL, 0),
+	expect_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz, NULL, 0),
 	    0, "Arena creation failure");
 
 	size_t size = sizeof(arena_ind);
@@ -73,7 +73,7 @@ TEST_BEGIN(test_thread_arena) {
 	for (i = 0; i < NTHREADS; i++) {
 		intptr_t join_ret;
 		thd_join(thds[i], (void *)&join_ret);
-		assert_zd_eq(join_ret, 0, "Unexpected thread join error");
+		expect_zd_eq(join_ret, 0, "Unexpected thread join error");
 	}
 	free(p);
 }
