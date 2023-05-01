@@ -3250,6 +3250,9 @@ void sentinelConfigSetCommand(client *c) {
         } else if (!strcasecmp(option, "announce-port")) {
             if (getLongLongFromObject(val, &numval) == C_ERR ||
                 numval < 0 || numval > 65535) goto badfmt;
+        } else if (!strcasecmp(option, "loglevel")) {
+            if (!(!strcasecmp(val->ptr, "debug") || !strcasecmp(val->ptr, "verbose") ||
+                !strcasecmp(val->ptr, "notice") || !strcasecmp(val->ptr, "warning"))) goto badfmt;
         }
     }
 
@@ -3267,8 +3270,6 @@ void sentinelConfigSetCommand(client *c) {
                 server.verbosity = LL_NOTICE;
             else if (!strcasecmp(val->ptr, "warning"))
                 server.verbosity = LL_WARNING;
-            else
-                goto badfmt;
         } else if (!strcasecmp(option, "resolve-hostnames") && moreargs > 0) {
             val = c->argv[++i];
             numval = yesnotoi(val->ptr);
@@ -3319,54 +3320,49 @@ badfmt:
     dictRelease(set_configs);
 }
 
-/* SENTINEL CONFIG GET <option> */
+/* SENTINEL CONFIG GET option <option option..> */
 void sentinelConfigGetCommand(client *c) {
-    robj *o = c->argv[3];
-    const char *pattern = o->ptr;
+    char *pattern;
     void *replylen = addReplyDeferredLen(c);
     int matches = 0;
-
-    if (stringmatch(pattern,"resolve-hostnames",1)) {
-        addReplyBulkCString(c,"resolve-hostnames");
-        addReplyBulkCString(c,sentinel.resolve_hostnames ? "yes" : "no");
-        matches++;
+    /* Create a dictionary to store the input configs,to avoid adding duplicate twice */
+    dict *d = dictCreate(&externalStringType);
+    for (int i = 3; i < c->argc; i++) {
+        pattern = c->argv[i]->ptr;
+	//we dont want to print duplicates twice
+        if (dictFind(d, pattern)) continue;
+        if (stringmatch(pattern,"resolve-hostnames",1)) {
+            addReplyBulkCString(c,"resolve-hostnames");
+            addReplyBulkCString(c,sentinel.resolve_hostnames ? "yes" : "no");
+            matches++;
+        } else if (stringmatch(pattern, "announce-hostnames", 1)) {
+            addReplyBulkCString(c,"announce-hostnames");
+            addReplyBulkCString(c,sentinel.announce_hostnames ? "yes" : "no");
+            matches++;
+        } else if (stringmatch(pattern, "announce-ip", 1)) {
+            addReplyBulkCString(c,"announce-ip");
+            addReplyBulkCString(c,sentinel.announce_ip ? sentinel.announce_ip : "");
+            matches++;
+        } else if (stringmatch(pattern, "announce-port", 1)) {
+            addReplyBulkCString(c, "announce-port");
+            addReplyBulkLongLong(c, sentinel.announce_port);
+            matches++;
+        } else if (stringmatch(pattern, "sentinel-user", 1)) {
+            addReplyBulkCString(c, "sentinel-user");
+            addReplyBulkCString(c, sentinel.sentinel_auth_user ? sentinel.sentinel_auth_user : "");
+            matches++;
+        } else if (stringmatch(pattern, "sentinel-pass", 1)) {
+            addReplyBulkCString(c, "sentinel-pass");
+            addReplyBulkCString(c, sentinel.sentinel_auth_pass ? sentinel.sentinel_auth_pass : "");
+            matches++;
+        } else if (stringmatch(pattern, "loglevel", 1)) {
+            addReplyBulkCString(c, "loglevel");
+            addReplyBulkCString(c, getLogLevel());
+            matches++;
+        }
+        dictAdd(d, pattern, NULL);
     }
-
-    if (stringmatch(pattern, "announce-hostnames", 1)) {
-        addReplyBulkCString(c,"announce-hostnames");
-        addReplyBulkCString(c,sentinel.announce_hostnames ? "yes" : "no");
-        matches++;
-    }
-
-    if (stringmatch(pattern, "announce-ip", 1)) {
-        addReplyBulkCString(c,"announce-ip");
-        addReplyBulkCString(c,sentinel.announce_ip ? sentinel.announce_ip : "");
-        matches++;
-    }
-
-    if (stringmatch(pattern, "announce-port", 1)) {
-        addReplyBulkCString(c, "announce-port");
-        addReplyBulkLongLong(c, sentinel.announce_port);
-        matches++;
-    }
-
-    if (stringmatch(pattern, "sentinel-user", 1)) {
-        addReplyBulkCString(c, "sentinel-user");
-        addReplyBulkCString(c, sentinel.sentinel_auth_user ? sentinel.sentinel_auth_user : "");
-        matches++;
-    }
-
-    if (stringmatch(pattern, "sentinel-pass", 1)) {
-        addReplyBulkCString(c, "sentinel-pass");
-        addReplyBulkCString(c, sentinel.sentinel_auth_pass ? sentinel.sentinel_auth_pass : "");
-        matches++;
-    }
-
-    if (stringmatch(pattern, "loglevel", 1)) {
-        addReplyBulkCString(c, "loglevel");
-        addReplyBulkCString(c, getLogLevel());
-        matches++;
-    }
+    dictRelease(d);
     setDeferredMapLen(c, replylen, matches);
 }
 
@@ -3858,7 +3854,7 @@ void sentinelCommand(client *c) {
 "    failover.",
 "CONFIG SET param value [param value ...]",
 "    Set a global Sentinel configuration parameter.",
-"CONFIG GET <param>",
+"CONFIG GET <param> [param param param ...]",
 "    Get global Sentinel configuration parameter.",
 "DEBUG [<param> <value> ...]",
 "    Show a list of configurable time parameters and their values (milliseconds).",
@@ -4114,10 +4110,10 @@ NULL
         if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc >= 5) {
             sentinelConfigSetCommand(c);
         }
-        else if (!strcasecmp(c->argv[2]->ptr,"get") && c->argc == 4)
+        else if (!strcasecmp(c->argv[2]->ptr,"get") && c->argc >= 4)
             sentinelConfigGetCommand(c);
         else
-            addReplyError(c, "Only SENTINEL CONFIG GET <param> / SET <param> <value> [<param> <value> ...] are supported.");
+            addReplyError(c, "Only SENTINEL CONFIG GET <param> [<param> <param> ...]/ SET <param> <value> [<param> <value> ...] are supported.");
     } else if (!strcasecmp(c->argv[1]->ptr,"info-cache")) {
         /* SENTINEL INFO-CACHE <name> */
         if (c->argc < 2) goto numargserr;

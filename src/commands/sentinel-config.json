@@ -1,7 +1,7 @@
 {
     "CONFIG": {
         "summary": "Configures Redis Sentinel.",
-        "complexity": "O(1)",
+        "complexity": "O(N) when N is the number of configuration parameters provided",
         "group": "sentinel",
         "since": "6.2.0",
         "arity": -4,
@@ -102,7 +102,8 @@
                     {
                         "token":"GET",
                         "name":"parameter",
-                        "type":"string"
+                        "type":"string",
+                        "multiple": true
                     }
                 ]
             }

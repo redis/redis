@@ -1,12 +1,17 @@
 source "../tests/includes/init-tests.tcl"
 
-test "SENTINEL CONFIG SET handles multiple variables" {
+test "SENTINEL CONFIG SET and SENTINEL CONFIG GET handles multiple variables" {
     foreach_sentinel_id id {
         assert_equal {OK} [S $id SENTINEL CONFIG SET resolve-hostnames yes announce-port 1234]
     }
 
-    assert_match {*yes*} [S 1 SENTINEL CONFIG GET resolve-hostnames]
-    assert_match {*1234*} [S 1 SENTINEL CONFIG GET announce-port]
+    assert_match {*yes*1234*} [S 1 SENTINEL CONFIG GET resolve-hostnames announce-port]
+    #assert_match {*1234*} [S 1 SENTINEL CONFIG GET announce-port]
+}
+
+test "SENTINEL CONFIG GET for duplicate and unknown variables" {
+    assert_equal {OK} [S 1 SENTINEL CONFIG SET resolve-hostnames yes announce-port 1234]
+    assert_match {resolve-hostnames yes} [S 1 SENTINEL CONFIG GET resolve-hostnames resolve-hostnames does-not-exist]
 }
 
 test "SENTINEL CONFIG SET duplicate variables" {
