@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 #include <stdio.h>
+#define JEMALLOC_NO_DEMANGLE
 #include <jemalloc/jemalloc.h>
 
 using std::vector;
