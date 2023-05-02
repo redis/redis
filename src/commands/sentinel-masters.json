@@ -12,7 +12,6 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
-<<<<<<< HEAD
         "reply_schema": {
             "type": "array",
             "description": "List of monitored Redis masters, and their state.",
@@ -22,8 +21,7 @@
                     "type": "string"
                 }
             }
-        }
-=======
+        },
         "arguments": [
             {
                 "name": "param",
@@ -32,6 +30,5 @@
                 "multiple": true
             }
         ]
->>>>>>> 5be624411 (Update json file argument, add test cases and remove old code)
     }
 }
