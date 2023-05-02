@@ -11,6 +11,9 @@ start_server {} {
 
     set sub_replica [srv -2 client]
 
+    # Make sure the server saves an RDB on shutdown
+    $master config set save "3600 1"
+
     # Because we will test partial resync later, we don’t want a timeout to cause
     # the master-replica disconnect, then the extra reconnections will break the
     # sync_partial_ok stat test

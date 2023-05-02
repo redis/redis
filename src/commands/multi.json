@@ -1,6 +1,6 @@
 {
     "MULTI": {
-        "summary": "Mark the start of a transaction block",
+        "summary": "Starts a transaction.",
         "complexity": "O(1)",
         "group": "transactions",
         "since": "1.2.0",

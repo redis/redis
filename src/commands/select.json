@@ -1,6 +1,6 @@
 {
     "SELECT": {
-        "summary": "Change the selected database for the current connection",
+        "summary": "Changes the selected database.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "1.0.0",

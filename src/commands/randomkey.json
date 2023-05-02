@@ -1,6 +1,6 @@
 {
     "RANDOMKEY": {
-        "summary": "Return a random key from the keyspace",
+        "summary": "Returns a random key name from the database.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",

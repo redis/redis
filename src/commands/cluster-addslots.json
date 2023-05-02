@@ -1,6 +1,6 @@
 {
     "ADDSLOTS": {
-        "summary": "Assign new hash slots to receiving node",
+        "summary": "Assigns new hash slots to a node.",
         "complexity": "O(N) where N is the total number of hash slot arguments",
         "group": "cluster",
         "since": "3.0.0",

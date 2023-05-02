@@ -1,6 +1,6 @@
 {
     "DELCONSUMER": {
-        "summary": "Delete a consumer from a consumer group.",
+        "summary": "Deletes a consumer from a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",

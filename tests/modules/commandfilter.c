@@ -10,7 +10,7 @@ static const char retained_command_name[] = "commandfilter.retained";
 static const char unregister_command_name[] = "commandfilter.unregister";
 static int in_log_command = 0;
 
-static RedisModuleCommandFilter *filter;
+static RedisModuleCommandFilter *filter, *filter1;
 static RedisModuleString *retained;
 
 int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -87,6 +87,32 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     in_log_command = 0;
 
     return REDISMODULE_OK;
+}
+
+/* Filter to protect against Bug #11894 reappearing
+ *
+ * ensures that the filter is only run the first time through, and not on reprocessing
+ */
+void CommandFilter_BlmoveSwap(RedisModuleCommandFilterCtx *filter)
+{
+    if (RedisModule_CommandFilterArgsCount(filter) != 6)
+        return;
+
+    RedisModuleString *arg = RedisModule_CommandFilterArgGet(filter, 0);
+    size_t arg_len;
+    const char *arg_str = RedisModule_StringPtrLen(arg, &arg_len);
+
+    if (arg_len != 6 || strncmp(arg_str, "blmove", 6))
+        return;
+
+    /*
+     * Swapping directional args (right/left) from source and destination.
+     * need to hold here, can't push into the ArgReplace func, as it will cause other to freed -> use after free
+     */
+    RedisModuleString *dir1 = RedisModule_HoldString(NULL, RedisModule_CommandFilterArgGet(filter, 3));
+    RedisModuleString *dir2 = RedisModule_HoldString(NULL, RedisModule_CommandFilterArgGet(filter, 4));
+    RedisModule_CommandFilterArgReplace(filter, 3, dir2);
+    RedisModule_CommandFilterArgReplace(filter, 4, dir1);
 }
 
 void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
@@ -169,6 +195,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
+
+    if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlmoveSwap, 0)) == NULL)
+        return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }

@@ -1,7 +1,7 @@
 {
     "ZRANDMEMBER": {
-        "summary": "Get one or multiple random elements from a sorted set",
-        "complexity": "O(N) where N is the number of elements returned",
+        "summary": "Returns one or more random members from a sorted set.",
+        "complexity": "O(N) where N is the number of members returned",
         "group": "sorted_set",
         "since": "6.2.0",
         "arity": -2,

@@ -3606,6 +3606,7 @@ void unblockClientWaitingReplicas(client *c) {
     listNode *ln = listSearchKey(server.clients_waiting_acks,c);
     serverAssert(ln != NULL);
     listDelNode(server.clients_waiting_acks,ln);
+    updateStatsOnUnblock(c, 0, 0, 0);
 }
 
 /* Check if there are clients blocked in WAIT or WAITAOF that can be unblocked

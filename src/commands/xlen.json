@@ -1,6 +1,6 @@
 {
     "XLEN": {
-        "summary": "Return the number of entries in a stream",
+        "summary": "Return the number of messages in a stream.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",

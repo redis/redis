@@ -1,6 +1,6 @@
 {
     "SETEX": {
-        "summary": "Set the value and expiration of a key",
+        "summary": "Sets the string value and expiration time of a key. Creates the key if it doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "2.0.0",

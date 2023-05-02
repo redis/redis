@@ -1,6 +1,6 @@
 {
     "HISTOGRAM": {
-        "summary": "Return the cumulative distribution of latencies of a subset of commands or all.",
+        "summary": "Returns the cumulative distribution of latencies of a subset or all commands.",
         "complexity": "O(N) where N is the number of commands with latency information being retrieved.",
         "group": "server",
         "since": "7.0.0",

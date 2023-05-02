@@ -1,6 +1,6 @@
 {
     "WHOAMI": {
-        "summary": "Return the name of the user associated to the current connection",
+        "summary": "Returns the authenticated username of the current connection.",
         "complexity": "O(1)",
         "group": "server",
         "since": "6.0.0",

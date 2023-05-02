@@ -1,6 +1,6 @@
 {
     "GEOPOS": {
-        "summary": "Returns longitude and latitude of members of a geospatial index",
+        "summary": "Returns the longitude and latitude of members from a geospatial index.",
         "complexity": "O(N) where N is the number of members requested.",
         "group": "geo",
         "since": "3.2.0",
