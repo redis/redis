@@ -677,7 +677,7 @@ void smoveCommand(client *c) {
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
-        dstset = setTypeCreate(ele->ptr, c->argc - 2);
+        dstset = setTypeCreate(ele->ptr, 1);
         dbAdd(c->db,c->argv[2],dstset);
     }
 
