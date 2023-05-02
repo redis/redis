@@ -31,7 +31,7 @@
  */
 
 #include "server.h"
-#include "bio.h"
+#include "lazyfree.h"
 #include "atomicvar.h"
 #include "script.h"
 #include <math.h>
@@ -726,7 +726,7 @@ cant_free:
          * short wait here if such jobs exist, but don't wait long.  */
         mstime_t lazyfree_latency;
         latencyStartMonitor(lazyfree_latency);
-        while (bioPendingJobsOfType(BIO_LAZY_FREE) &&
+        while (lazyfreeGetPendingObjectsCount() &&
               elapsedUs(evictionTimer) < eviction_time_limit_us) {
             if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
                 result = EVICT_OK;

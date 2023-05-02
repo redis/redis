@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include "lazyfree.h"
 
 /* The tracking table is constituted by a radix tree of keys, each pointing
  * to a radix tree of client IDs, used to track the clients that may have
@@ -456,12 +457,8 @@ void trackingHandlePendingKeyInvalidations(void) {
  * in order to avoid flooding clients with many invalidation messages 
  * for all the keys they may hold.
  */
-void freeTrackingRadixTreeCallback(void *rt) {
+static void freeTrackingRadixTreeCallback(void *rt) {
     raxFree(rt);
-}
-
-void freeTrackingRadixTree(rax *rt) {
-    raxFreeWithCallback(rt,freeTrackingRadixTreeCallback);
 }
 
 /* A RESP NULL is sent to indicate that all keys are invalid */
@@ -486,9 +483,9 @@ void trackingInvalidateKeysOnFlush(int async) {
     /* In case of FLUSHALL, reclaim all the memory used by tracking. */
     if (TrackingTable) {
         if (async) {
-            freeTrackingRadixTreeAsync(TrackingTable);
+            lazyfreeRaxWithCallback(TrackingTable, freeTrackingRadixTreeCallback);
         } else {
-            freeTrackingRadixTree(TrackingTable);
+            raxFreeWithCallback(TrackingTable, freeTrackingRadixTreeCallback);
         }
         TrackingTable = raxNew();
         TrackingTableTotalItems = 0;

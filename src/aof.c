@@ -28,7 +28,7 @@
  */
 
 #include "server.h"
-#include "bio.h"
+#include "bjm.h"
 #include "rio.h"
 #include "functions.h"
 
@@ -909,25 +909,85 @@ int aofRewriteLimited(void) {
 /* ----------------------------------------------------------------------------
  * AOF file implementation
  * ------------------------------------------------------------------------- */
+typedef struct {
+    int fd; /* Fd for file based background jobs */
+    long long offset; /* A job-specific offset, if applicable */
+} fd_args;
 
-/* Return true if an AOf fsync is currently already in progress in a
- * BIO thread. */
-int aofFsyncInProgress(void) {
+static bjmJobFuncHandle aofFsyncFuncId;
+static bjmJobFuncHandle aofCloseFuncId;
+
+
+static void performFsyncOperation(fd_args *fdargs) {
+    /* The fd may be closed by main thread and reused for another
+     * socket, pipe, or file. We just ignore these errno because
+     * aof fsync did not really fail. */
+    if (redis_fsync(fdargs->fd) == -1 && errno != EBADF && errno != EINVAL) {
+        int last_status;
+        atomicGet(server.aof_bio_fsync_status, last_status);
+        atomicSet(server.aof_bio_fsync_status, C_ERR);
+        atomicSet(server.aof_bio_fsync_errno, errno);
+        if (last_status == C_OK) {
+            serverLog(LL_WARNING,
+                "Fail to fsync the AOF file: %s", strerror(errno));
+        }
+    } else {
+        atomicSet(server.aof_bio_fsync_status, C_OK);
+        atomicSet(server.fsynced_reploff_pending, fdargs->offset);
+    }
+
+    if (reclaimFilePageCache(fdargs->fd, 0, 0) == -1) {
+        serverLog(LL_NOTICE,"Unable to reclaim page cache: %s", strerror(errno));
+    }
+}
+
+static void aofFsyncFunc(void *privdata) {
+    fd_args *fdargs = privdata;
+
+    performFsyncOperation(fdargs);
+    zfree(privdata);
+}
+
+static void aofFsyncAndCloseFunc(void *privdata) {
+    fd_args *fdargs = privdata;
+
+    performFsyncOperation(fdargs);
+    close(fdargs->fd);
+    zfree(privdata);
+}
+
+
+/* Return number of FSYNC operations already queued in background thread. */
+int aofFsyncJobCount(void) {
     /* Note that we don't care about aof_background_fsync_and_close because
      * server.aof_fd has been replaced by the new INCR AOF file fd,
      * see openNewIncrAofForAppend. */
-    return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+    return bjmPendingJobsOfType(aofFsyncFuncId);
+}
+
+static int aofFsyncInProgress() {
+    return (aofFsyncJobCount() > 0);
 }
 
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
-    bioCreateFsyncJob(fd, server.master_repl_offset, 1);
+    if (!aofFsyncFuncId) aofFsyncFuncId = bjmRegisterJobFunc(aofFsyncFunc);
+
+    fd_args *fdargs = zmalloc(sizeof(fd_args));
+    fdargs->fd = fd;
+    fdargs->offset = server.master_repl_offset;
+    bjmSubmitJob(aofFsyncFuncId, fdargs);
 }
 
 /* Close the fd on the basis of aof_background_fsync. */
 void aof_background_fsync_and_close(int fd) {
-    bioCreateCloseAofJob(fd, server.master_repl_offset, 1);
+    if (!aofCloseFuncId) aofCloseFuncId = bjmRegisterJobFunc(aofFsyncAndCloseFunc);
+
+    fd_args *fdargs = zmalloc(sizeof(fd_args));
+    fdargs->fd = fd;
+    fdargs->offset = server.master_repl_offset;
+    bjmSubmitJob(aofCloseFuncId, fdargs);
 }
 
 /* Kills an AOFRW child process if exists */
@@ -971,6 +1031,12 @@ void stopAppendOnly(void) {
     server.aof_buf = sdsempty();
 }
 
+void drainBackgroundAofFsyncs() {
+    while (aofFsyncJobCount() > 0) {
+        nanosleep((const struct timespec[]){{0, 1000000L}}, NULL); // 1ms
+    }
+}
+
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
@@ -981,7 +1047,7 @@ int startAppendOnly(void) {
      * to the previous AOF, and the new one. This concern is specific for a full
      * sync scenario where we don't wanna risk the ACKed replication offset
      * jumping backwards or forward when switching to a different master. */
-    bioDrainWorker(BIO_AOF_FSYNC);
+    drainBackgroundAofFsyncs();
 
     /* Set the initial repl_offset, which will be applied to fsynced_reploff
      * when AOFRW finishes (after possibly being updated by a bio thread) */

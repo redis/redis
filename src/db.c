@@ -33,6 +33,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "lazyfree.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -216,6 +217,39 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     return 1;
 }
+
+
+static bjmJobFuncHandle freeModuleObjectId;
+static void freeModuleObjectFunc(void *privdata) {
+    robj *o = privdata;
+    decrRefCount(o);
+    lazyfreeGenericComplete(1);
+}
+
+static void freeObjAsync(robj *key, robj *obj, int dbid) {
+    if (obj->type == OBJ_MODULE) {
+        if (obj->refcount > 1) {
+            decrRefCount(obj);
+            return;
+        }
+
+        // Module values are not fundamental types.  We can't pass these
+        //  directly to lazyfree.  We need to call the module interface to
+        //  evaluate effort.  Furthermore, modules require DBID/KEY which
+        //  implies a main dictionary entry - this is not the case for
+        //  fundamental types.
+        size_t effort = moduleGetFreeEffort(key, obj, dbid);
+        if (effort == 0 || effort > LAZYFREE_THRESHOLD) {
+            if (!freeModuleObjectId) freeModuleObjectId = bjmRegisterJobFunc(freeModuleObjectFunc);
+            lazyfreeGeneric(1, freeModuleObjectId, obj);
+        } else {
+            decrRefCount(obj);
+        }
+    } else {
+        lazyfreeObject(obj);
+    }
+}
+
 
 /* Overwrite an existing key with a new value. Incrementing the reference
  * count of the new value is up to the caller.
@@ -423,6 +457,16 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     }
     return o;
 }
+
+
+static void emptyDbAsync(redisDb *db) {
+    dict *oldht1 = db->dict, *oldht2 = db->expires;
+    db->dict = dictCreate(&dbDictType);
+    db->expires = dictCreate(&dbExpiresDictType);
+    lazyfreeDict(oldht1);
+    lazyfreeDict(oldht2);
+}
+
 
 /* Remove all keys from the database(s) structure. The dbarray argument
  * may not be the server main DBs (could be a temporary DB).

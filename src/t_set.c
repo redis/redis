@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "lazyfree.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -1577,7 +1578,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 addReplyBulkLongLong(c, llval);
         }
         setTypeReleaseIterator(si);
-        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
+        server.lazyfree_lazy_server_del ? lazyfreeObject(dstset) :
                                           decrRefCount(dstset);
     } else {
         /* If we have a target key where to store the resulting set

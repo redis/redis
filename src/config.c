@@ -31,7 +31,6 @@
 #include "server.h"
 #include "cluster.h"
 #include "connection.h"
-#include "bio.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -2560,13 +2559,15 @@ int updateRequirePass(const char **err) {
     return 1;
 }
 
+void drainBackgroundAofFsyncs();    // in aof.c
+
 int updateAppendFsync(const char **err) {
     UNUSED(err);
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
         /* Wait for all bio jobs related to AOF to drain before proceeding. This prevents a race
          * between updates to `fsynced_reploff_pending` done in the main thread and those done on the
          * worker thread. */
-        bioDrainWorker(BIO_AOF_FSYNC);
+        drainBackgroundAofFsyncs();
     }
     return 1;
 }
@@ -3126,6 +3127,7 @@ standardConfig static_configs[] = {
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
+    createIntConfig("bjm-threads", NULL, IMMUTABLE_CONFIG, 1, 128, server.bjm_threads_num, 2, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("io-threads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
     createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, 100, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, 10, INTEGER_CONFIG, NULL, NULL), /* Slave max data age factor. */
