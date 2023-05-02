@@ -3101,7 +3101,7 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 
 /* Set data type */
-robj *setTypeCreate(sds value);
+robj *setTypeCreate(sds value, size_t size_hint);
 int setTypeAdd(robj *subject, sds value);
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeRemove(robj *subject, sds value);

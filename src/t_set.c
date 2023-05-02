@@ -39,11 +39,16 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table. */
-robj *setTypeCreate(sds value) {
-    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
+ * hash table.
+ *
+ * The size hint indicates approximately how many items will be added, -1 should be
+ * used if the size not known. */
+robj *setTypeCreate(sds value, size_t size_hint) {
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint < server.set_max_intset_entries)
         return createIntsetObject();
-    return createSetListpackObject();
+    if (size_hint < server.set_max_listpack_entries)
+        return createSetListpackObject();
+    return createSetObject();
 }
 
 /* Return the maximum number of entries to store in an intset. */
@@ -590,7 +595,7 @@ void saddCommand(client *c) {
     if (checkType(c,set,OBJ_SET)) return;
     
     if (set == NULL) {
-        set = setTypeCreate(c->argv[2]->ptr);
+        set = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[1],set);
     }
 
@@ -672,7 +677,7 @@ void smoveCommand(client *c) {
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
-        dstset = setTypeCreate(ele->ptr);
+        dstset = setTypeCreate(ele->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[2],dstset);
     }
 
