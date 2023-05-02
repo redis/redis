@@ -41,8 +41,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
  * an integer-encodable value, an intset will be returned. Otherwise a regular
  * hash table.
  *
- * The size hint indicates approximately how many items will be added, -1 should be
- * used if the size not known. */
+ * The size hint indicates approximately how many items will be added which is
+ * used to determine the initial representation. */
 robj *setTypeCreate(sds value, size_t size_hint) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint < server.set_max_intset_entries)
         return createIntsetObject();
