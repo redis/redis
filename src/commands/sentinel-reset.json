@@ -12,6 +12,10 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of masters that were reset."
+        },
         "arguments": [
             {
                 "name": "pattern",

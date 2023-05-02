@@ -362,18 +362,13 @@ start_server {tags {"introspection"}} {
             assert_match [r config get save] {save {100 100}}
         }
 
-        # First "save" keyword in default config file
-        start_server {config "default.conf"} {
-            assert_match [r config get save] {save {900 1}}
-        }
-
         # First "save" keyword appends default from config file
-        start_server {config "default.conf" args {--save 100 100}} {
+        start_server {config "default.conf" overrides {save {900 1}} args {--save 100 100}} {
             assert_match [r config get save] {save {900 1 100 100}}
         }
 
         # Empty "save" keyword resets all
-        start_server {config "default.conf" args {--save {}}} {
+        start_server {config "default.conf" overrides {save {900 1}} args {--save {}}} {
             assert_match [r config get save] {save {}}
         }
     } {} {external:skip}
@@ -789,7 +784,7 @@ start_server {config "minimal.conf" tags {"introspection external:skip"} overrid
 }
 
 test {config during loading} {
-    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no]] {
+    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no save "900 1"]] {
         # create a big rdb that will take long to load. it is important
         # for keys to be big since the server processes events only once in 2mb.
         # 100mb of rdb, 100k keys will load in more than 5 seconds

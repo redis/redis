@@ -96,13 +96,16 @@
 #define HAVE_DEFRAG
 #endif
 
-__attribute__((malloc,alloc_size(1))) void *zmalloc(size_t size);
-__attribute__((malloc,alloc_size(1))) void *zcalloc(size_t size);
-__attribute__((malloc,alloc_size(1,2))) void *zcalloc_num(size_t num, size_t size);
-__attribute__((alloc_size(2))) void *zrealloc(void *ptr, size_t size);
-__attribute__((malloc,alloc_size(1))) void *ztrymalloc(size_t size);
-__attribute__((malloc,alloc_size(1))) void *ztrycalloc(size_t size);
-__attribute__((alloc_size(2))) void *ztryrealloc(void *ptr, size_t size);
+/* 'noinline' attribute is intended to prevent the `-Wstringop-overread` warning
+ * when using gcc-12 later with LTO enabled. It may be removed once the
+ * bug[https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96503] is fixed. */
+__attribute__((malloc,alloc_size(1),noinline)) void *zmalloc(size_t size);
+__attribute__((malloc,alloc_size(1),noinline)) void *zcalloc(size_t size);
+__attribute__((malloc,alloc_size(1,2),noinline)) void *zcalloc_num(size_t num, size_t size);
+__attribute__((alloc_size(2),noinline)) void *zrealloc(void *ptr, size_t size);
+__attribute__((malloc,alloc_size(1),noinline)) void *ztrymalloc(size_t size);
+__attribute__((malloc,alloc_size(1),noinline)) void *ztrycalloc(size_t size);
+__attribute__((alloc_size(2),noinline)) void *ztryrealloc(void *ptr, size_t size);
 void zfree(void *ptr);
 void *zmalloc_usable(size_t size, size_t *usable);
 void *zcalloc_usable(size_t size, size_t *usable);
