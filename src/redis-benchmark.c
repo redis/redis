@@ -1496,6 +1496,11 @@ int parseOptions(int argc, char **argv) {
             fprintf(stderr,
                     "WARNING: -e option has no effect. "
                     "We now immediately exit on error to avoid false results.\n");
+        } else if (!strcmp(argv[i],"--seed")) {
+            if (lastarg) goto invalid;
+            int rand_seed = atoi(argv[++i]);
+            srandom(rand_seed);
+            init_genrand64(rand_seed);
         } else if (!strcmp(argv[i],"-t")) {
             if (lastarg) goto invalid;
             /* We get the list of tests to run as a string in the form
@@ -1641,7 +1646,8 @@ usage:
 "                    The -t option is ignored if a specific command is supplied\n"
 "                    on the command line.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n"
-" -x                 Read last argument from STDIN.\n",
+" -x                 Read last argument from STDIN.\n"
+" --seed <num>       Set the seed for random number generator. Default seed is based on time.\n",
 tls_usage,
 " --help             Output this help and exit.\n"
 " --version          Output version and exit.\n\n"
