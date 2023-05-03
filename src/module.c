@@ -6481,7 +6481,7 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
  *
  * The flags is a bit mask of these:
  *
- * - `REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT`: We propegate pending command operations (AOF/Replication) and unblock
+ * - `REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT`: We propagate pending command operations (AOF/Replication) and unblock
  *                                               clients
  */
 int RM_FlushExecutionUnit(RedisModuleCtx *ctx, unsigned int flags) {
