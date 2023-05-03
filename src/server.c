@@ -656,11 +656,11 @@ const char *strChildType(int type) {
 
 /* Return true if there are active children processes doing RDB saving,
  * AOF rewriting, or some side process spawned by a loaded module. */
-int hasActiveChildProcess() {
+int hasActiveChildProcess(void) {
     return server.child_pid != -1;
 }
 
-void resetChildState() {
+void resetChildState(void) {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
     server.stat_current_cow_peak = 0;
@@ -682,7 +682,7 @@ int isMutuallyExclusiveChildType(int type) {
 }
 
 /* Returns true when we're inside a long command that yielded to the event loop. */
-int isInsideYieldingLongCommand() {
+int isInsideYieldingLongCommand(void) {
     return scriptIsTimedout() || server.busy_module_yield_flags;
 }
 
@@ -1148,7 +1148,7 @@ void enterExecutionUnit(int update_cached_time, long long us) {
     }
 }
 
-void exitExecutionUnit() {
+void exitExecutionUnit(void) {
     --server.execution_nesting;
 }
 
@@ -1204,7 +1204,7 @@ void checkChildrenDone(void) {
 }
 
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
-void cronUpdateMemoryStats() {
+void cronUpdateMemoryStats(void) {
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
@@ -1518,14 +1518,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 }
 
 
-void blockingOperationStarts() {
+void blockingOperationStarts(void) {
     if(!server.blocking_op_nesting++){
         updateCachedTime(0);
         server.blocked_last_cron = server.mstime;
     }
 }
 
-void blockingOperationEnds() {
+void blockingOperationEnds(void) {
     if(!(--server.blocking_op_nesting)){
         server.blocked_last_cron = 0;
     }
@@ -1536,7 +1536,7 @@ void blockingOperationEnds() {
  * It attempts to do its duties at a similar rate as the configured server.hz,
  * and updates cronloops variable so that similarly to serverCron, the
  * run_with_period can be used. */
-void whileBlockedCron() {
+void whileBlockedCron(void) {
     /* Here we may want to perform some cron jobs (normally done server.hz times
      * per second). */
 
@@ -1954,7 +1954,7 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
-void initServerClientMemUsageBuckets() {
+void initServerClientMemUsageBuckets(void) {
     if (server.client_mem_usage_buckets)
         return;
     server.client_mem_usage_buckets = zmalloc(sizeof(clientMemUsageBucket)*CLIENT_MEM_USAGE_BUCKETS);
@@ -1964,7 +1964,7 @@ void initServerClientMemUsageBuckets() {
     }
 }
 
-void freeServerClientMemUsageBuckets() {
+void freeServerClientMemUsageBuckets(void) {
     if (!server.client_mem_usage_buckets)
         return;
     for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++)
@@ -2717,7 +2717,7 @@ void initServer(void) {
         initServerClientMemUsageBuckets();
 }
 
-void initListeners() {
+void initListeners(void) {
     /* Setup listeners from server config for TCP/TLS/Unix */
     int conn_index;
     connListener *listener;
@@ -2794,7 +2794,7 @@ void initListeners() {
  * Specifically, creation of threads due to a race bug in ld.so, in which
  * Thread Local Storage initialization collides with dlopen call.
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
-void InitServerLast() {
+void InitServerLast(void) {
     bioInit();
     initThreadedIO();
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
@@ -3304,7 +3304,7 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-static void propagatePendingCommands() {
+static void propagatePendingCommands(void) {
     if (server.also_propagate.numops == 0)
         return;
 
@@ -3360,7 +3360,7 @@ static void propagatePendingCommands() {
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
  * after the entire chain finished. */
-void postExecutionUnitOperations() {
+void postExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
@@ -6505,7 +6505,7 @@ void setupChildSignalHandlers(void) {
  * of the parent process, e.g. fd(socket or flock) etc.
  * should close the resources not used by the child process, so that if the
  * parent restarts it can bind/lock despite the child possibly still running. */
-void closeChildUnusedResourceAfterFork() {
+void closeChildUnusedResourceAfterFork(void) {
     closeListeningSockets(0);
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */

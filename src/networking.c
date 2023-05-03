@@ -3981,7 +3981,7 @@ void updatePausedActions(void) {
 
 /* Unblock all paused clients (ones that where blocked by BLOCKED_POSTPONE (possibly in processCommand).
  * This means they'll get re-processed in beforeSleep, and may get paused again if needed. */
-void unblockPostponedClients() {
+void unblockPostponedClients(void) {
     listNode *ln;
     listIter li;
     listRewind(server.postponed_clients, &li);
