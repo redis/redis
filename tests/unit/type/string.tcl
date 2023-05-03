@@ -151,6 +151,14 @@ start_server {tags {"string"}} {
         set ex
     } {*syntax*}
 
+    test "GETEX and GET expired key or not exist" {
+        r del foo
+        r set foo bar ex 1
+        after 1000
+        assert_equal {} [r getex foo]
+        assert_equal {} [r get foo]
+    }
+
     test "GETEX no arguments" {
          set ex {}
          catch {r getex} ex
