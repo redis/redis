@@ -897,8 +897,8 @@ start_server {tags {"multi"}} {
     
     test "Flushall while watching several keys by one client" {
         r flushall
-        r mset a a b b
-        r watch b a
+        r mset a{t} a b{t} b
+        r watch b{t} a{t}
         r flushall
         r ping
      }
