@@ -3320,7 +3320,7 @@ badfmt:
     dictRelease(set_configs);
 }
 
-/* SENTINEL CONFIG GET option <option option..> */
+/* SENTINEL CONFIG GET <option> [<option> ...] */
 void sentinelConfigGetCommand(client *c) {
     char *pattern;
     void *replylen = addReplyDeferredLen(c);
@@ -3329,38 +3329,51 @@ void sentinelConfigGetCommand(client *c) {
     dict *d = dictCreate(&externalStringType);
     for (int i = 3; i < c->argc; i++) {
         pattern = c->argv[i]->ptr;
-	//we dont want to print duplicates twice
-        if (dictFind(d, pattern)) continue;
-        if (stringmatch(pattern,"resolve-hostnames",1)) {
+        // If the string doesn't contain glob patterns and available in dictionary, dont look further, just continue.
+        if (!strpbrk(pattern, "[*?") && dictFind(d, pattern)) continue;
+        //we want to print all the matched patterns and avoid printing duplicates twice
+        if (stringmatch(pattern,"resolve-hostnames",1) && !dictFind(d, "resolve-hostnames")) {
             addReplyBulkCString(c,"resolve-hostnames");
             addReplyBulkCString(c,sentinel.resolve_hostnames ? "yes" : "no");
-            matches++;
-        } else if (stringmatch(pattern, "announce-hostnames", 1)) {
-            addReplyBulkCString(c,"announce-hostnames");
-            addReplyBulkCString(c,sentinel.announce_hostnames ? "yes" : "no");
-            matches++;
-        } else if (stringmatch(pattern, "announce-ip", 1)) {
-            addReplyBulkCString(c,"announce-ip");
-            addReplyBulkCString(c,sentinel.announce_ip ? sentinel.announce_ip : "");
-            matches++;
-        } else if (stringmatch(pattern, "announce-port", 1)) {
-            addReplyBulkCString(c, "announce-port");
-            addReplyBulkLongLong(c, sentinel.announce_port);
-            matches++;
-        } else if (stringmatch(pattern, "sentinel-user", 1)) {
-            addReplyBulkCString(c, "sentinel-user");
-            addReplyBulkCString(c, sentinel.sentinel_auth_user ? sentinel.sentinel_auth_user : "");
-            matches++;
-        } else if (stringmatch(pattern, "sentinel-pass", 1)) {
-            addReplyBulkCString(c, "sentinel-pass");
-            addReplyBulkCString(c, sentinel.sentinel_auth_pass ? sentinel.sentinel_auth_pass : "");
-            matches++;
-        } else if (stringmatch(pattern, "loglevel", 1)) {
-            addReplyBulkCString(c, "loglevel");
-            addReplyBulkCString(c, getLogLevel());
+            dictAdd(d, "resolve-hostnames", NULL);
             matches++;
         }
-        dictAdd(d, pattern, NULL);
+        if (stringmatch(pattern, "announce-hostnames", 1) && !dictFind(d, "announce-hostnames")) {
+            addReplyBulkCString(c,"announce-hostnames");
+            addReplyBulkCString(c,sentinel.announce_hostnames ? "yes" : "no");
+            dictAdd(d, "announce-hostnames", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "announce-ip", 1) && !dictFind(d, "announce-ip")) {
+            addReplyBulkCString(c,"announce-ip");
+            addReplyBulkCString(c,sentinel.announce_ip ? sentinel.announce_ip : "");
+            dictAdd(d, "announce-ip", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "announce-port", 1) && !dictFind(d, "announce-port")) {
+            addReplyBulkCString(c, "announce-port");
+            addReplyBulkLongLong(c, sentinel.announce_port);
+            dictAdd(d, "announce-port", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "sentinel-user", 1) && !dictFind(d, "sentinel-user")) {
+            addReplyBulkCString(c, "sentinel-user");
+            addReplyBulkCString(c, sentinel.sentinel_auth_user ? sentinel.sentinel_auth_user : "");
+            dictAdd(d, "sentinel-user", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "sentinel-pass", 1) && !dictFind(d, "sentinel-pass")) {
+            addReplyBulkCString(c, "sentinel-pass");
+            addReplyBulkCString(c, sentinel.sentinel_auth_pass ? sentinel.sentinel_auth_pass : "");
+            dictAdd(d, "sentinel-pass", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "loglevel", 1) && !dictFind(d, "loglevel")) {
+            addReplyBulkCString(c, "loglevel");
+            addReplyBulkCString(c, getLogLevel());
+            dictAdd(d, "loglevel", NULL);
+            matches++;
+        }
     }
     dictRelease(d);
     setDeferredMapLen(c, replylen, matches);
