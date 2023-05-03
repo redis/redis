@@ -153,8 +153,8 @@ start_server {tags {"string"}} {
 
     test "GETEX and GET expired key or not exist" {
         r del foo
-        r set foo bar ex 1
-        after 1000
+        r set foo bar px 1
+        after 2
         assert_equal {} [r getex foo]
         assert_equal {} [r get foo]
     }
