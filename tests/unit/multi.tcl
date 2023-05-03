@@ -891,7 +891,7 @@ start_server {tags {"multi"}} {
         set res [r read]
         assert_equal $res "+OK"
         set res [r read]
-        r readraw 1
+        r readraw 0
         set _ $res
     } {*CONFIG SET failed*}
     
