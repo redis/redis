@@ -8554,7 +8554,7 @@ void moduleReleaseGIL(void) {
  * that the notification code will be executed in the middle on Redis logic
  * (commands logic, eviction, expire). Changing the key space while the logic
  * runs is dangerous and discouraged. In order to react to key space events with
- * write actions, please refer to `RM_AddPostExecutionUnitJob`.
+ * write actions, please refer to `RM_AddPostNotificationJob`.
  *
  * See https://redis.io/topics/notifications for more information.
  */
