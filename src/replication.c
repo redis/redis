@@ -1904,7 +1904,7 @@ static int useDisklessLoad(void) {
     return enabled;
 }
 
-static int useRdbChannelSync() {
+static int useRdbChannelSync(void) {
     return server.rdb_channel_enabled && (server.primary_can_sync_using_rdb_channel == 1);
 }
 
@@ -2481,7 +2481,7 @@ char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens
     return NULL;
 }
 
-sds getReplicaPortString() {
+sds getReplicaPortString(void) {
     long long replica_port;
     if (server.slave_announce_port) {
         replica_port = server.slave_announce_port;
@@ -2493,7 +2493,7 @@ sds getReplicaPortString() {
     return sdsfromlonglong(replica_port);
 }
 
-void freeReplDataBuf() {
+void freeReplDataBuf(void) {
     if (server.pending_repl_data.blocks) {
         listRelease(server.pending_repl_data.blocks);
     }
@@ -2670,7 +2670,7 @@ void fullSyncWithMaster(connection* conn) {
 
 
 /* Initialize server.pending_repl_data infrastructure, we will allocate the buffer itself once we need it */
-void replDataBufInit() {
+void replDataBufInit(void) {
     serverAssert(server.pending_repl_data.blocks == NULL);
     server.pending_repl_data.len = 0;
     server.pending_repl_data.blocks = listCreate();
@@ -2712,7 +2712,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
     return read - nread;
 }
 
-int isReplicaBufferLimitReached() {
+int isReplicaBufferLimitReached(void) {
     return server.pending_repl_data.len > server.client_obuf_limits[1].hard_limit_bytes;
 }
 
