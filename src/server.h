@@ -1872,7 +1872,7 @@ struct redisServer {
     struct {                        /* Replication data buffer for rdb-channel sync */
         list *blocks;               /* list of replDataBufBlock */
         size_t len;
-    } repl_data_buf;
+    } pending_repl_data;
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
@@ -2816,8 +2816,6 @@ void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
 void resizeReplicationBacklog(void);
-void setReplicaBufferLimit();
-void resizeReplicationBuffer(long long new_size);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
@@ -2849,7 +2847,7 @@ void abortFailover(const char *err);
 const char *getFailoverStateString(void);
 int isReplicaPsyncChannel(client *c);
 int isReplicaRdbChannel(client *c);
-int isOngoingRdbChannelSync();
+int isOngoingRdbChannelSync(void);
 void abortRdbConnectionSync(int should_retry);
 void incrReadsProcessed(size_t nread);
 

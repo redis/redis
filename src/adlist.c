@@ -208,7 +208,7 @@ void listUnlinkNode(list *list, listNode *node) {
 /*
  * Remove the node and return the next one in the list
  */
-listNode *listDelNodeAndNext(list* list, listNode* node) {
+listNode *listRemoveAndGetNext(list* list, listNode* node) {
     if (node == NULL) {
         return listFirst(list);
     }
