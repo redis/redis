@@ -1065,7 +1065,7 @@ void rewriteConfigReleaseState(struct rewriteConfigState *state) {
 }
 
 /* Create the configuration rewrite state */
-struct rewriteConfigState *rewriteConfigCreateState() {
+struct rewriteConfigState *rewriteConfigCreateState(void) {
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
     state->option_to_line = dictCreate(&optionToLineDictType);
     state->rewritten = dictCreate(&optionSetDictType);
@@ -1643,7 +1643,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
 /* This function returns a string representation of all the config options
  * marked with DEBUG_CONFIG, which can be used to help with debugging. */
-sds getConfigDebugInfo() {
+sds getConfigDebugInfo(void) {
     struct rewriteConfigState *state = rewriteConfigCreateState();
     state->force_write = 1; /* Force the output */
     state->needs_signature = 0; /* Omit the rewrite signature */
@@ -3261,7 +3261,7 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
 
 /* Initialize configs to their default values and create and populate the 
  * runtime configuration dictionary. */
-void initConfigValues() {
+void initConfigValues(void) {
     configs = dictCreate(&sdsHashDictType);
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
