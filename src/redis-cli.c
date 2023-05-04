@@ -3693,6 +3693,7 @@ static void clusterManagerShowNodes(void);
 static void clusterManagerShowClusterInfo(void);
 static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err);
 static void clusterManagerWaitForClusterJoin(void);
+static list *clusterManagerGetMissingConfigNodes(void);
 static int clusterManagerCheckCluster(int quiet);
 static void clusterManagerLog(int level, const char* fmt, ...);
 static int clusterManagerIsConfigConsistent(void);
@@ -5296,6 +5297,24 @@ static void clusterManagerWaitForClusterJoin(void) {
                                          "from standard instance ports.\n");
                     listEmpty(from);
                 }
+            } else {
+                list *nodes = clusterManagerGetMissingConfigNodes();
+
+                if (nodes != NULL && nodes->len > 0) {
+                    printf("\n");
+                    clusterManagerLogErr("Warning: %lu node(s) may "
+                                         "need more configurations.\n", nodes->len);
+                    listIter li;
+                    listNode *ln;
+                    listRewind(nodes, &li);
+                    while ((ln = listNext(&li)) != NULL) {
+                        clusterManagerNode *node = ln->value;
+                        clusterManagerLogErr(" - Node %s:%d running in WSL without "
+                                             "cluster-announce-ip configuration, "
+                                             "may need it.\n", node->ip, node->port);
+                    }ex
+                }
+                if (nodes != NULL) listRelease(nodes);
             }
             if (iter != NULL) dictReleaseIterator(iter);
             if (status != NULL) dictRelease(status);
@@ -5783,6 +5802,36 @@ static dict *clusterManagerGetLinkStatus(void) {
         }
     }
     return status;
+}
+
+/* Check for nodes running in WSL without the cluster-announce-ip
+ * configuration. It returns a list of those nodes. */
+static list *clusterManagerGetMissingConfigNodes(void) {
+    if (cluster_manager.nodes == NULL) return NULL;
+    list *missingConfigNodes = listCreate();
+    if (!missingConfigNodes) return NULL;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *node = ln->value;
+        char *e = NULL;
+        redisReply *info = clusterManagerGetNodeRedisInfo(node, &e);
+        if (!info) {
+            if (e) zfree(e);
+            continue;
+        }
+        if (info->str) {
+            char *os = getInfoField(info->str, "os");
+            char *cluster_announce_ip = getInfoField(info->str,
+                                                     "cluster_announce_ip");
+            if (!os || !cluster_announce_ip) continue;
+            if ((strstr(os,"WSL") != NULL) && !strcmp(cluster_announce_ip, "0")) {
+                listAddNodeTail(missingConfigNodes, node);
+            }
+        }
+    }
+    return missingConfigNodes;
 }
 
 /* Add the error string to cluster_manager.errors and print it. */
