@@ -7,6 +7,12 @@
         "arity": -4,
         "container": "SENTINEL",
         "function": "sentinelCommand",
+        "history": [
+            [
+                "7.2.0",
+                "Added the ability to set and get multiple parameters in one call."
+            ]
+        ],
         "command_flags": [
             "ADMIN",
             "SENTINEL",
@@ -42,7 +48,7 @@
                             "type": "string"
                         },
                         "announce-port": {
-                            "type": "integer"
+                            "type": "string"
                         },
                         "sentinel-user": {
                             "type": "string"

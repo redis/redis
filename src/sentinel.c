@@ -3329,9 +3329,10 @@ void sentinelConfigGetCommand(client *c) {
     dict *d = dictCreate(&externalStringType);
     for (int i = 3; i < c->argc; i++) {
         pattern = c->argv[i]->ptr;
-        // If the string doesn't contain glob patterns and available in dictionary, dont look further, just continue.
+        /* If the string doesn't contain glob patterns and available in dictionary,
+           dont look further, just continue.*/
         if (!strpbrk(pattern, "[*?") && dictFind(d, pattern)) continue;
-        //we want to print all the matched patterns and avoid printing duplicates twice
+        /* we want to print all the matched patterns and avoid printing duplicates twice */
         if (stringmatch(pattern,"resolve-hostnames",1) && !dictFind(d, "resolve-hostnames")) {
             addReplyBulkCString(c,"resolve-hostnames");
             addReplyBulkCString(c,sentinel.resolve_hostnames ? "yes" : "no");
@@ -4120,9 +4121,8 @@ NULL
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"config")) {
         if (c->argc < 4) goto numargserr;
-        if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc >= 5) {
+        if (!strcasecmp(c->argv[2]->ptr,"set") && c->argc >= 5)
             sentinelConfigSetCommand(c);
-        }
         else if (!strcasecmp(c->argv[2]->ptr,"get") && c->argc >= 4)
             sentinelConfigGetCommand(c);
         else

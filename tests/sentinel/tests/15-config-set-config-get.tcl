@@ -39,7 +39,6 @@ test "SENTINEL CONFIG SET, one option does not exist" {
 }
 
 test "SENTINEL CONFIG SET, one option with wrong value" {
-
     foreach_sentinel_id id {
         assert_equal {OK} [S $id SENTINEL CONFIG SET resolve-hostnames no]
         catch {[S $id SENTINEL CONFIG SET announce-port -1234 resolve-hostnames yes]} e
