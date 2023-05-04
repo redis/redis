@@ -574,12 +574,11 @@ void setbitCommand(client *c) {
     /* Return original value. */
     addReply(c, bitval ? shared.cone : shared.czero);
 }
-#define LL_STR_BUF_SIZE    32
 
 /* GETBIT key offset */
 void getbitCommand(client *c) {
     robj *o;
-    char llbuf[LL_STR_BUF_SIZE];
+    char llbuf[32];
     uint64_t bitoffset;
     size_t byte, bit;
     size_t bitval = 0;
@@ -1015,7 +1014,6 @@ void bitposCommand(client *c) {
 
 #define BITFIELD_FLAG_NONE      0
 #define BITFIELD_FLAG_READONLY  (1<<0)
-#define LOCAL_STR_OBJ_SIZE      9
 
 struct bitfieldOp {
     uint64_t offset;    /* Bitfield offset. */
@@ -1218,7 +1216,7 @@ void bitfieldGeneric(client *c, int flags) {
             }
         } else {
             /* GET */
-            unsigned char buf[LOCAL_STR_OBJ_SIZE];
+            unsigned char buf[9];
             long strlen = 0;
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
@@ -1227,13 +1225,13 @@ void bitfieldGeneric(client *c, int flags) {
                 src = getObjectReadOnlyString(o,&strlen,llbuf);
 
             /* For GET we use a trick: before executing the operation
-             * copy up to 9 bytes[LOCAL_STR_OBJ_SIZE] to a local buffer, so that we can easily
+             * copy up to 9 bytes to a local buffer, so that we can easily
              * execute up to 64 bit operations that are at actual string
              * object boundaries. */
-            memset(buf,0,LOCAL_STR_OBJ_SIZE);
+            memset(buf,0,sizeof(buf));
             int i;
             uint64_t byte = thisop->offset >> 3;
-            for (i = 0; i < LOCAL_STR_OBJ_SIZE; i++) {
+            for (i = 0; i < (int)sizeof(buf); i++) {
                 if (src == NULL || i+byte >= (uint64_t)strlen) break;
                 buf[i] = src[i+byte];
             }
