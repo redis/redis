@@ -138,6 +138,7 @@ struct hdr_histogram;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
+#define PRIMARY_REPL_BUF_BLOCK_SIZE (1024*16) /* Primary replbuf block used while rdb-channel sync */
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -178,7 +179,6 @@ struct hdr_histogram;
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
 #define PROTO_REPLY_MIN_BYTES   (1024) /* the lower limit on reply buffer size */
 #define REDIS_AUTOSYNC_BYTES (1024*1024*4) /* Sync file every 4MB. */
-#define REPLICA_BUFFER_GROWTH_FACTOR (1.25) /* The growth factor of replica's replication buffer during rdb sync load */
 
 #define REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME 5000 /* 5 seconds */
 
@@ -970,10 +970,12 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
-typedef struct replDataBuf {
-    long long size, used;
-    char *buf;
-} replDataBuf;
+/* Link list block, used by replDataBuf during rdb-channel sync to store 
+ * replication data */
+typedef struct replDataBufBlock {
+    size_t size, used;
+    char buf[PRIMARY_REPL_BUF_BLOCK_SIZE];
+} replDataBufBlock;
 
 /* Opaque type for the Slot to Key API. */
 typedef struct clusterSlotToKeyMapping clusterSlotToKeyMapping;
@@ -1136,6 +1138,11 @@ typedef struct replBacklog {
     long long offset;            /* Replication "master offset" of first
                                   * byte in the replication backlog buffer.*/
 } replBacklog;
+
+typedef struct replDataBuf {
+    list *blocks; /* list of replDataBufBlock */
+    size_t len;
+} replDataBuf;
 
 typedef struct {
     list *clients;
@@ -1863,8 +1870,10 @@ struct redisServer {
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     replBacklog *repl_backlog;      /* Replication backlog for partial syncs */
     long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long replica_full_sync_buffer_limit; /* Buffer size limit for replica 
-                                               * data buffering during RDB channel sync */
+    struct {                        /* Replication data buffer for rdb-channel sync */
+        list *blocks;               /* list of replDataBufBlock */
+        size_t len;
+    } repl_data_buf;
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
@@ -1915,7 +1924,6 @@ struct redisServer {
                                      * when it receives an error on the replication stream */
     int repl_ignore_disk_write_error;   /* Configures whether replicas panic when unable to
                                          * persist writes to AOF. */
-    replDataBuf *repl_data_buf;   /* Buffer we use to accumulate primary queries during rdb-channel-sync */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
@@ -2565,7 +2573,6 @@ void setDeferredPushLen(client *c, void *node, long length);
 int processInputBuffer(client *c);
 void acceptCommonHandler(connection *conn, int flags, char *ip);
 void readQueryFromClient(connection *conn);
-void bufferReplData(connection *conn);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);

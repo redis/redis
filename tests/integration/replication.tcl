@@ -1754,15 +1754,16 @@ start_server {tags {"repl rdb-channel external:skip"}} {
 
             $replica1 slaveof no one
             $master set key4 val4            
-
-            test "Test sync fail after replica's buffer limit reached" {
+            
+            test "Test replica's buffer limit reached" {
                 $master config set repl-diskless-sync-delay 0
                 $master config set rdb-key-save-delay 500
                 # At this point we have about 10k keys in the db, 
                 # We expect that the next full sync will take 5 seconds (10k*500)ms
                 # It will give us enough time to fill the replica buffer.
                 $replica1 config set repl-rdb-channel yes
-                $replica1 config set replica-full-sync-buffer-limit 1024
+                $replica1 config set client-output-buffer-limit "replica 16383 16383 0"
+                $replica1 config set loglevel debug
 
                 $replica1 slaveof $master_host $master_port
                 # Wait for replica to establish psync using main connection
@@ -1773,23 +1774,24 @@ start_server {tags {"repl rdb-channel external:skip"}} {
                 }
 
                 populate 10000 master 10000
-                # Wait for sync to fail
+                # Wait for replica's buffer limit reached
                 wait_for_condition 50 1000 {
-                    [log_file_matches $replica1_log "*Replica's replication buffer limit reached*"]
+                    [log_file_matches $replica1_log "*Replication buffer limit reached, stopping buffering*"]
                 } else {
                     fail "Replica buffer should fill"
                 }
 
-                # Wait for mitigation and resync
-                wait_for_value_to_propegate_to_replica $master $replica1 "key4"
+                assert {[s -2 replicas_replication_buffer_size] <= 16384}
 
+                # Wait for sync to succeed 
+                wait_for_value_to_propegate_to_replica $master $replica1 "key4"
                 set res [wait_for_log_messages -2 {"*MASTER <-> REPLICA sync: Finished with success*"} $loglines 4000 1]
                 set loglines [lindex $res 1]
                 incr $loglines 
             }
 
             $replica1 slaveof no one
-            $replica1 config set replica-full-sync-buffer-limit 0; # remove limitation
+            $replica1 config set client-output-buffer-limit "replica 256mb 256mb 0"; # remove repl buffer limitation
 
             $master set key5 val5
             

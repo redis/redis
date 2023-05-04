@@ -205,6 +205,18 @@ void listUnlinkNode(list *list, listNode *node) {
     list->len--;
 }
 
+/*
+ * Remove the node and return the next one in the list
+ */
+listNode *listDelNodeAndNext(list* list, listNode* node) {
+    if (node == NULL) {
+        return listFirst(list);
+    }
+    listNode *next = node->next;
+    listDelNode(list, node);
+    return next;
+}
+
 /* Returns a list iterator 'iter'. After the initialization every
  * call to listNext() will return the next element of the list.
  *

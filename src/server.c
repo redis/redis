@@ -5642,8 +5642,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
             "mem_total_replication_buffers:%zu\r\n"
-            "replicas_replication_buffer_size:%llu\r\n"
-            "replicas_replication_buffer_used:%llu\r\n"
+            "replicas_replication_buffer_size:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_cluster_links:%zu\r\n"
@@ -5698,8 +5697,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             freeMemoryGetNotCountedMemory(),
             mh->repl_backlog,
             server.repl_buffer_mem,
-            server.repl_data_buf ? server.repl_data_buf->size : 0,
-            server.repl_data_buf ? server.repl_data_buf->used : 0,
+            server.repl_data_buf.len,
             mh->clients_slaves,
             mh->clients_normal,
             mh->cluster_links,
