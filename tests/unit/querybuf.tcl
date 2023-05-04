@@ -70,7 +70,7 @@ start_server {tags {"querybuf slow"}} {
         # Validate qbuf shrunk but isn't 0 since we maintain room based on latest peak
         assert {[client_query_buffer test_client] > 0 && [client_query_buffer test_client] < $orig_test_client_qbuf}
         $rd close
-    }
+    } {0} {needs:debug}
 
     test "query buffer resized correctly with fat argv" {
         set rd [redis_client]
