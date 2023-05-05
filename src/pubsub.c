@@ -630,7 +630,7 @@ typedef struct {
 
 static inline void pubsubSubscribersCmdArgsInitializeDefault(pubsubSubscribersCmdArgs *args) {
     args->subscription_dict = server.pubsub_channels;
-    args->subscription_type = "global";
+    args->subscription_type = "channel";
     args->cursor = 0;
     args->count = 10;
     args->use_pattern = 0;
@@ -673,15 +673,15 @@ static int parseArgsPubSubSubscribersCmd(client *c, pubsubSubscribersCmdArgs *ar
         if (!strcasecmp(o, "type") && moreargs) {
             i++;
             char *type = c->argv[i]->ptr;
-            if (!strcasecmp(type, "global")) {
+            if (!strcasecmp(type, "channel")) {
                 args->subscription_dict = server.pubsub_channels;
-                args->subscription_type = "global";
+                args->subscription_type = "channel";
             } else if (!strcasecmp(type, "pattern")) {
                 args->subscription_dict = server.pubsub_patterns;
                 args->subscription_type = "pattern";
-            } else if (!strcasecmp(type, "shard")) {
+            } else if (!strcasecmp(type, "shard-channel")) {
                 args->subscription_dict = server.pubsubshard_channels;
-                args->subscription_type = "shard";
+                args->subscription_type = "shard-channel";
             } else {
                 addReplySubcommandSyntaxError(c);
                 return C_ERR;

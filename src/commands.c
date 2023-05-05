@@ -3193,8 +3193,8 @@ struct redisCommandArg PUBSUB_SHARDNUMSUB_Args[] = {
 
 /* PUBSUB SUBSCRIBERS subscription_type argument table */
 struct redisCommandArg PUBSUB_SUBSCRIBERS_subscription_type_Subargs[] = {
-{"global",ARG_TYPE_PURE_TOKEN,-1,"GLOBAL",NULL,NULL,CMD_ARG_NONE},
-{"shard",ARG_TYPE_PURE_TOKEN,-1,"SHARD",NULL,NULL,CMD_ARG_NONE},
+{"channel",ARG_TYPE_PURE_TOKEN,-1,"CHANNEL",NULL,NULL,CMD_ARG_NONE},
+{"shard-channel",ARG_TYPE_PURE_TOKEN,-1,"SHARD-CHANNEL",NULL,NULL,CMD_ARG_NONE},
 {"pattern",ARG_TYPE_PURE_TOKEN,-1,"PATTERN",NULL,NULL,CMD_ARG_NONE},
 {0}
 };

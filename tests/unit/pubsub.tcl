@@ -454,8 +454,8 @@ start_server {tags {"pubsub network"}} {
 
     test "subscribers subcommand - no Pub/Sub clients" {
         assert_equal "0 {}" [r pubsub subscribers]
-        assert_equal "0 {}" [r pubsub subscribers type global]
-        assert_equal "0 {}" [r pubsub subscribers type shard]
+        assert_equal "0 {}" [r pubsub subscribers type channel]
+        assert_equal "0 {}" [r pubsub subscribers type shard-channel]
         assert_equal "0 {}" [r pubsub subscribers type pattern]
     }
 
@@ -481,7 +481,7 @@ start_server {tags {"pubsub network"}} {
         subscribe $rd1 somechannel
 
         # Get all the subscribers for pub/sub global channel.
-        set subscribers [r pubsub subscribers type global]
+        set subscribers [r pubsub subscribers type channel]
         assert_match {0 {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}}} $subscribers
 
         set subscribers [r pubsub subscribers]
@@ -523,12 +523,12 @@ start_server {tags {"pubsub network"}} {
     }
 
     test "subscribers subcommand - cursor based iterator with count" {
-        foreach type {"global" "shard" "pattern"} {
+        foreach type {"channel" "shard-channel" "pattern"} {
             set rd1 [redis_deferring_client]
             set channels {ch1 ch2 ch3 ch4 game1 game2 game3 game4}
-            if {$type eq "global"} {
+            if {$type eq "channel"} {
                 subscribe $rd1 $channels
-            } elseif {$type eq "shard"} {
+            } elseif {$type eq "shard-channel"} {
                 ssubscribe $rd1 $channels
             } else {
                 psubscribe $rd1 $channels
@@ -559,11 +559,11 @@ start_server {tags {"pubsub network"}} {
         ssubscribe $rd1 somechannel
 
         # Get all the subscribers for pub/sub shard channel.
-        set subscribers [r pubsub subscribers type shard]
+        set subscribers [r pubsub subscribers type shard-channel]
         assert_match {0 {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}}} $subscribers
 
         # Explicit filter by pattern.
-        set subscribers [r pubsub subscribers type shard match somechannel]
+        set subscribers [r pubsub subscribers type shard-channel match somechannel]
         assert_match {0 {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}}} $subscribers
     }
     

@@ -20,19 +20,19 @@
         "optional": true,
         "arguments": [
             {
-                "name": "global",
+                "name": "channel",
                 "type": "pure-token",
-                "token": "global"
+                "token": "CHANNEL"
             },
             {
-                "name": "shard",
+                "name": "shard-channel",
                 "type": "pure-token",
-                "token": "shard"
+                "token": "SHARD-CHANNEL"
             },
             {
               "name": "pattern",
               "type": "pure-token",
-              "token": "pattern"
+              "token": "PATTERN"
             }
         ]
       },
