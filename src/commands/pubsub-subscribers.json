@@ -1,7 +1,7 @@
 {
   "SUBSCRIBERS": {
-    "summary": "Get the subscribers for each pubsub subscription type, filter by channel name.",
-    "complexity": "O(N) for the subcommand",
+    "summary": "Get the pubsub subscribers, filter by type/pattern.",
+    "complexity": "O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.",
     "group": "pubsub",
     "since": "7.2.0",
     "arity": -2,
@@ -14,8 +14,10 @@
     ],
     "arguments": [
       {
-        "name": "type",
+        "token": "TYPE",
+        "name": "subscription-type",
         "type": "oneof",
+        "optional": true,
         "arguments": [
             {
                 "name": "global",
@@ -35,11 +37,22 @@
         ]
       },
       {
-        "token": "channel",
-        "name": "name",
+        "token": "MATCH",
+        "name": "pattern",
         "type": "string",
-        "optional": true,
-        "multiple": true
+        "optional": true
+      },
+      {
+        "token": "CURSOR",
+        "name": "cursor",
+        "type": "integer",
+        "optional": true
+      },
+      {
+        "token": "COUNT",
+        "name": "count",
+        "type": "integer",
+        "optional": true
       }
     ]
   }

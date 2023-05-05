@@ -30,6 +30,10 @@
 #include "server.h"
 #include "cluster.h"
 
+#define GLOBAL_SUBSCRIPTION_TYPE 0
+#define PATTERN_SUBSCRIPTION_TYPE 1
+#define SHARD_SUBSCRIPTION_TYPE 2
+
 /* Structure to hold the pubsub related metadata. Currently used
  * for pubsub and pubsubshard feature. */
 typedef struct pubsubtype {
@@ -615,13 +619,30 @@ void publishCommand(client *c) {
     addReplyLongLong(c,receivers);
 }
 
-void pubsubReplySubscribersClientInfo(client *c, list *clients) {
+typedef struct {
+    dict *subscription_dict;
+    char *subscription_type;
+    long long cursor;
+    long long count;
+    int use_pattern;
+    sds pat;
+} pubsubSubscribersCmdArgs;
+
+static inline void pubsubSubscribersCmdArgsInitializeDefault(pubsubSubscribersCmdArgs *args) {
+    args->subscription_dict = server.pubsub_channels;
+    args->subscription_type = "global";
+    args->cursor = 0;
+    args->count = 10;
+    args->use_pattern = 0;
+}
+
+static void pubsubReplySubscribersClientInfo(client *c, list *clients, char *subscription_type) {
     listNode *ln;
     listIter li;
     listRewind(clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *client = listNodeValue(ln);
-        addReplyMapLen(c, 3);
+        addReplyMapLen(c, 4);
         addReplyBulkCString(c, "name");
         if (client->name) {
             addReplyBulk(c, client->name);
@@ -632,54 +653,121 @@ void pubsubReplySubscribersClientInfo(client *c, list *clients) {
         addReplyBulkLongLong(c, client->id);
         addReplyBulkCString(c, "addr");
         addReplyBulkCString(c, getClientPeerId(client));
+        addReplyBulkCString(c, "subscription_type");
+        addReplyBulkCString(c, subscription_type);
     }
 }
 
-void pubsubReplySubscribers(client *c) {
-    sds type = c->argv[2]->ptr;
-    dict *d = NULL;
-    if (!strcasecmp(type, "global")) {
-        d = server.pubsub_channels;
-    } else if (!strcasecmp(type, "pattern")) {
-        d = server.pubsub_patterns;
-    } else if (!strcasecmp(type, "shard")) {
-        d = server.pubsubshard_channels;
-    } else {
-        addReplySubcommandSyntaxError(c);
+/* This callback is used by scanGenericCommand in order to collect elements
+ * returned by the dictionary iterator into a list. */
+static void subscriberInfoCallback(void *privdata, const dictEntry *de) {
+    list *subscriptions = (list *)privdata;
+    robj *subscription = dictGetKey(de);
+    listAddNodeTail(subscriptions, subscription);
+}
+
+static int parseArgsPubSubSubscribersCmd(client *c, pubsubSubscribersCmdArgs *args) {
+    for (int i = 2; i < c->argc; i++) {
+        int moreargs = c->argc-i-1;
+        char *o = c->argv[i]->ptr;
+        if (!strcasecmp(o, "type") && moreargs) {
+            i++;
+            char *type = c->argv[i]->ptr;
+            if (!strcasecmp(type, "global")) {
+                args->subscription_dict = server.pubsub_channels;
+                args->subscription_type = "global";
+            } else if (!strcasecmp(type, "pattern")) {
+                args->subscription_dict = server.pubsub_patterns;
+                args->subscription_type = "pattern";
+            } else if (!strcasecmp(type, "shard")) {
+                args->subscription_dict = server.pubsubshard_channels;
+                args->subscription_type = "shard";
+            } else {
+                addReplySubcommandSyntaxError(c);
+                return C_ERR;
+            }
+        } else if (!strcasecmp(o,"match") && moreargs) {
+            i++;
+            args->pat = c->argv[i]->ptr;
+            args->use_pattern = !(sdslen(args->pat) == 1 && args->pat[0] == '*');
+        } else if (!strcasecmp(o,"count") && moreargs) {
+            i++;
+            if (getLongLongFromObjectOrReply(c,c->argv[i],&args->count,NULL) != C_OK) {
+                return C_ERR;
+            }
+            if (args->count < 0) args->count = 0;
+        } else if (!strcasecmp(o,"cursor") && moreargs) {
+            i++;
+            if (getLongLongFromObjectOrReply(c, c->argv[i], &(args->cursor), NULL) != C_OK) {
+                return C_ERR;
+            }
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
+
+/* The method scans through the provided subscription dictionary for a fixed no. of iterations and
+ * provides the list of active channel/subscriptions. */
+static list *getActiveChannelOrSubscriptions(pubsubSubscribersCmdArgs *args) {
+    list *subscribers = listCreate();
+
+    /* Trick from scan command, helps with sparse dictionary to not freeze for long period of time and not freeze. */
+    long long maxiterations = args->count * 10;
+    do {
+        args->cursor = dictScan(args->subscription_dict, args->cursor, subscriberInfoCallback, subscribers);
+    } while (args->cursor &&
+             maxiterations-- &&
+             listLength(subscribers) < (unsigned long) args->count);
+
+    return subscribers;
+}
+
+static void pubsubReplySubscribers(client *c) {
+    /* Initialize default args and parse if any. */
+    pubsubSubscribersCmdArgs args;
+    pubsubSubscribersCmdArgsInitializeDefault(&args);
+    if (c->argc > 2 && parseArgsPubSubSubscribersCmd(c, &args) != C_OK) {
         return;
     }
-    /* All clients connected for a given subscription type. */
-    if (c->argc == 3) {
-        /* Channel name and map of subscribers. */
-        addReplyArrayLen(c, dictSize(d) * 2);
-        dictIterator *di = dictGetIterator(d);
-        dictEntry *de;
-        while ((de = dictNext(di)) != NULL) {
-            addReplyBulk(c, dictGetKey(de));
-            addReplyMapLen(c, 1);
-            addReplyBulkCString(c, "subscribed-clients");
-            list *clients = dictGetVal(de);
-            addReplyArrayLen(c, listLength(clients));
-            pubsubReplySubscribersClientInfo(c, clients);
-        }
-        dictReleaseIterator(di);
-    } else {
-        /* Channel name and map of subscribers. */
-        addReplyArrayLen(c, (c->argc - 3) * 2);
-        for (int j = 3; j < c->argc; j++) {
-            addReplyBulk(c, c->argv[j]);
-            addReplyMapLen(c, 1);
-            addReplyBulkCString(c, "subscribed-clients");
-            list *clients = dictFetchValue(d, c->argv[j]);
-            if (clients) {
-                addReplyArrayLen(c, listLength(clients));
-                pubsubReplySubscribersClientInfo(c, clients);
-            } else {
-                /* If no client info is provided, the channel doesn't have any subscriptions. */
-                addReplyArrayLen(c, 0);
-            }
-        }
+
+    /* Retrieve the valid channels/subscriptions. */
+    list *subscribers = getActiveChannelOrSubscriptions(&args);
+
+    addReplyArrayLen(c, 2);
+    addReplyLongLong(c, args.cursor);
+    if (listLength(subscribers) == 0) {
+        addReplyArrayLen(c, 0);
+        listRelease(subscribers);
+        return;
     }
+
+    void *dl = addReplyDeferredLen(c);
+    listNode *node = listFirst(subscribers);
+    int cnt = 0;
+
+    /* Filter the channels/subscriptions. */
+    while (node) {
+        listNode *nextnode = listNextNode(node);
+        sds channel = ((robj *)listNodeValue(node))->ptr;
+        if (args.use_pattern && !stringmatchlen(args.pat, sdslen(args.pat), channel, sdslen(channel), 0)) {
+            node = nextnode;
+            continue;
+        }
+        list *clients = dictFetchValue(args.subscription_dict, listNodeValue(node));
+        serverAssert(clients != NULL);
+        addReplyBulk(c, listNodeValue(node));
+        addReplyMapLen(c, 1);
+        addReplyBulkCString(c, "subscribed-clients");
+        addReplyArrayLen(c, listLength(clients));
+        pubsubReplySubscribersClientInfo(c, clients, args.subscription_type);
+        cnt++;
+        node = nextnode;
+    }
+    listRelease(subscribers);
+    setDeferredArrayLen(c, dl,cnt * 2);
 }
 
 /* PUBSUB command for Pub/Sub introspection. */
@@ -697,8 +785,8 @@ void pubsubCommand(client *c) {
 "    Return the currently active shard level channels matching a <pattern> (default: '*').",
 "SHARDNUMSUB [<shardchannel> ...]",
 "    Return the number of subscribers for the specified shard level channel(s).",
-"SUBSCRIBERS <TYPE> [<channel> ...]",
-"    Return the list of subscribers for the specified channel(s)/pattern(s)/shardchannel(s).",
+"SUBSCRIBERS [TYPE GLOBAL|SHARD|PATTERN] [MATCH <pattern>] [CURSOR <cursor>] [COUNT <count>]",
+"    Return the list of subscribers for the specified pattern and subscription type.",
 NULL
         };
         addReplyHelp(c, help);
@@ -739,7 +827,8 @@ NULL
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"subscribers") && c->argc > 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"subscribers") && c->argc >= 2) {
+        /* PUBSUB SUBSCRIBERS */
         pubsubReplySubscribers(c);
     } else {
         addReplySubcommandSyntaxError(c);
