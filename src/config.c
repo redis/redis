@@ -31,6 +31,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "connection.h"
+#include "bio.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -1064,7 +1065,7 @@ void rewriteConfigReleaseState(struct rewriteConfigState *state) {
 }
 
 /* Create the configuration rewrite state */
-struct rewriteConfigState *rewriteConfigCreateState() {
+struct rewriteConfigState *rewriteConfigCreateState(void) {
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
     state->option_to_line = dictCreate(&optionToLineDictType);
     state->rewritten = dictCreate(&optionSetDictType);
@@ -1220,7 +1221,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
  *
  * "line" is either used, or freed, so the caller does not need to free it
  * in any way. */
-void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
+int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
     sds o = sdsnew(option);
     list *l = dictFetchValue(state->option_to_line,o);
 
@@ -1230,7 +1231,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         /* Option not used previously, and we are not forced to use it. */
         sdsfree(line);
         sdsfree(o);
-        return;
+        return 0;
     }
 
     if (l) {
@@ -1253,6 +1254,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         rewriteConfigAppendLine(state,line);
     }
     sdsfree(o);
+    return 1;
 }
 
 /* Write the long long 'bytes' value as a string in a way that is parsable
@@ -1641,7 +1643,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
 /* This function returns a string representation of all the config options
  * marked with DEBUG_CONFIG, which can be used to help with debugging. */
-sds getConfigDebugInfo() {
+sds getConfigDebugInfo(void) {
     struct rewriteConfigState *state = rewriteConfigCreateState();
     state->force_write = 1; /* Force the output */
     state->needs_signature = 0; /* Omit the rewrite signature */
@@ -2558,6 +2560,17 @@ int updateRequirePass(const char **err) {
     return 1;
 }
 
+int updateAppendFsync(const char **err) {
+    UNUSED(err);
+    if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
+        /* Wait for all bio jobs related to AOF to drain before proceeding. This prevents a race
+         * between updates to `fsynced_reploff_pending` done in the main thread and those done on the
+         * worker thread. */
+        bioDrainWorker(BIO_AOF_FSYNC);
+    }
+    return 1;
+}
+
 /* applyBind affects both TCP and TLS (if enabled) together */
 static int applyBind(const char **err) {
     connListener *tcp_listener = listenerByType(CONN_TYPE_SOCKET);
@@ -3098,7 +3111,7 @@ standardConfig static_configs[] = {
     createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
     createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
-    createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
+    createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, updateAppendFsync),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, 0, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
@@ -3247,7 +3260,7 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
 
 /* Initialize configs to their default values and create and populate the 
  * runtime configuration dictionary. */
-void initConfigValues() {
+void initConfigValues(void) {
     configs = dictCreate(&sdsHashDictType);
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {

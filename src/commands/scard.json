@@ -1,6 +1,6 @@
 {
     "SCARD": {
-        "summary": "Get the number of members in a set",
+        "summary": "Returns the number of members in a set.",
         "complexity": "O(1)",
         "group": "set",
         "since": "1.0.0",

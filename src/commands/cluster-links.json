@@ -1,6 +1,6 @@
 {
     "LINKS": {
-        "summary": "Returns a list of all TCP links to and from peer nodes in cluster",
+        "summary": "Returns a list of all TCP links to and from peer nodes.",
         "complexity": "O(N) where N is the total number of Cluster nodes",
         "group": "cluster",
         "since": "7.0.0",

@@ -234,6 +234,15 @@ start_server {tags {"string"}} {
         list [r msetnx x1{t} xxx y2{t} yyy] [r get x1{t}] [r get y2{t}]
     } {1 xxx yyy}
 
+    test {MSETNX with not existing keys - same key twice} {
+        r del x1{t}
+        list [r msetnx x1{t} xxx x1{t} yyy] [r get x1{t}]
+    } {1 yyy}
+
+    test {MSETNX with already existing keys - same key twice} {
+        list [r msetnx x1{t} xxx x1{t} zzz] [r get x1{t}]
+    } {0 yyy}
+
     test "STRLEN against non-existing key" {
         assert_equal 0 [r strlen notakey]
     }
@@ -429,6 +438,11 @@ start_server {tags {"string"}} {
         assert_equal "" [r getrange mykey 0 -1]
     }
 
+    test "GETRANGE against wrong key type" {
+        r lpush lkey1 "list"
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r getrange lkey1 0 -1}
+    }
+
     test "GETRANGE against string value" {
         r set mykey "Hello World"
         assert_equal "Hell" [r getrange mykey 0 3]
@@ -465,6 +479,9 @@ start_server {tags {"string"}} {
         assert_equal "a" [r substr key 0 0]
         assert_equal "abcd" [r substr key 0 3]
         assert_equal "bcde" [r substr key -4 -1]
+        assert_equal "" [r substr key -1 -3]
+        assert_equal "" [r substr key 7 8]
+        assert_equal "" [r substr nokey 0 1]
     }
     
 if {[string match {*jemalloc*} [s mem_allocator]]} {

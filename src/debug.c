@@ -520,7 +520,7 @@ NULL
         restartServer(flags,delay);
         addReplyError(c,"failed to restart the server. Check server logs.");
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
-        void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
+        void *ptr = zmalloc(SIZE_MAX/2); /* Should trigger an out of memory. */
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
@@ -1859,11 +1859,17 @@ void logCurrentClient(client *cc, const char *title) {
     client = catClientInfoString(sdsempty(),cc);
     serverLog(LL_WARNING|LL_RAW,"%s\n", client);
     sdsfree(client);
+    serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
         decoded = getDecodedObject(cc->argv[j]);
         sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        if (!strcasecmp(decoded->ptr, "auth") || !strcasecmp(decoded->ptr, "auth2")) {
+            sdsfree(repr);
+            decrRefCount(decoded);
+            break;
+        }
         sdsfree(repr);
         decrRefCount(decoded);
     }
@@ -2050,9 +2056,9 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
-void invalidFunctionWasCalled() {}
+void invalidFunctionWasCalled(void) {}
 
-typedef void (*invalidFunctionWasCalledType)();
+typedef void (*invalidFunctionWasCalledType)(void);
 
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
@@ -2221,7 +2227,7 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
-void applyWatchdogPeriod() {
+void applyWatchdogPeriod(void) {
     struct sigaction act;
 
     /* Disable watchdog when period is 0 */

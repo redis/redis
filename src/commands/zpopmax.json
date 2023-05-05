@@ -1,6 +1,6 @@
 {
     "ZPOPMAX": {
-        "summary": "Remove and return members with the highest scores in a sorted set",
+        "summary": "Returns the highest-scoring members from a sorted set after removing them. Deletes the sorted set if the last member was popped.",
         "complexity": "O(log(N)*M) with N being the number of elements in the sorted set, and M being the number of elements popped.",
         "group": "sorted_set",
         "since": "5.0.0",

@@ -1,6 +1,6 @@
 {
     "CACHING": {
-        "summary": "Instruct the server about tracking or not keys in the next request",
+        "summary": "Instructs the server whether to track the keys in the next request.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "6.0.0",

@@ -1,6 +1,6 @@
 {
     "HSCAN": {
-        "summary": "Incrementally iterate hash fields and associated values",
+        "summary": "Iterates over fields and values of a hash.",
         "complexity": "O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.",
         "group": "hash",
         "since": "2.8.0",

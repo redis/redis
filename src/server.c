@@ -36,6 +36,7 @@
 #include "atomicvar.h"
 #include "mt19937-64.h"
 #include "functions.h"
+#include "hdr_histogram.h"
 #include "syscheck.h"
 
 #include <time.h>
@@ -216,7 +217,7 @@ mstime_t commandTimeSnapshot(void) {
      * may re-open the same key multiple times, can invalidate an already
      * open object in a next call, if the next call will see the key expired,
      * while the first did not.
-     * This is specificlally important in the context of scripts, where we
+     * This is specifically important in the context of scripts, where we
      * pretend that time freezes. This way a key can expire only the first time
      * it is accessed and not in the middle of the script execution, making
      * propagation to slaves / AOF consistent. See issue #1525 for more info.
@@ -655,11 +656,11 @@ const char *strChildType(int type) {
 
 /* Return true if there are active children processes doing RDB saving,
  * AOF rewriting, or some side process spawned by a loaded module. */
-int hasActiveChildProcess() {
+int hasActiveChildProcess(void) {
     return server.child_pid != -1;
 }
 
-void resetChildState() {
+void resetChildState(void) {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
     server.stat_current_cow_peak = 0;
@@ -681,7 +682,7 @@ int isMutuallyExclusiveChildType(int type) {
 }
 
 /* Returns true when we're inside a long command that yielded to the event loop. */
-int isInsideYieldingLongCommand() {
+int isInsideYieldingLongCommand(void) {
     return scriptIsTimedout() || server.busy_module_yield_flags;
 }
 
@@ -744,7 +745,7 @@ int clientsCronResizeQueryBuffer(client *c) {
              *    sure not to resize to less than the bulk length. */
             size_t resize = sdslen(c->querybuf);
             if (resize < c->querybuf_peak) resize = c->querybuf_peak;
-            if (c->bulklen != -1 && resize < (size_t)c->bulklen) resize = c->bulklen;
+            if (c->bulklen != -1 && resize < (size_t)c->bulklen + 2) resize = c->bulklen + 2;
             c->querybuf = sdsResize(c->querybuf, resize, 1);
         }
     }
@@ -754,8 +755,7 @@ int clientsCronResizeQueryBuffer(client *c) {
     c->querybuf_peak = sdslen(c->querybuf);
     /* We reset to either the current used, or currently processed bulk size,
      * which ever is bigger. */
-    if (c->bulklen != -1 && (size_t)c->bulklen > c->querybuf_peak)
-        c->querybuf_peak = c->bulklen;
+    if (c->bulklen != -1 && (size_t)c->bulklen + 2 > c->querybuf_peak) c->querybuf_peak = c->bulklen + 2;
     return 0;
 }
 
@@ -1015,12 +1015,11 @@ void clientsCron(void) {
         client *c;
         listNode *head;
 
-        /* Rotate the list, take the current head, process.
-         * This way if the client must be removed from the list it's the
-         * first element and we don't incur into O(N) computation. */
-        listRotateTailToHead(server.clients);
+        /* Take the current head, process, and then rotate the head to tail.
+         * This way we can fairly iterate all clients step by step. */
         head = listFirst(server.clients);
         c = listNodeValue(head);
+        listRotateHeadToTail(server.clients);
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
@@ -1133,6 +1132,26 @@ void updateCachedTime(int update_daylight_info) {
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
+/* Performing required operations in order to enter an execution unit.
+ * In general, if we are already inside an execution unit then there is nothing to do,
+ * otherwise we need to update cache times so the same cached time will be used all over
+ * the execution unit.
+ * update_cached_time - if 0, will not update the cached time even if required.
+ * us - if not zero, use this time for cached time, otherwise get current time. */
+void enterExecutionUnit(int update_cached_time, long long us) {
+    if (server.execution_nesting++ == 0 && update_cached_time) {
+        if (us == 0) {
+            us = ustime();
+        }
+        updateCachedTimeWithUs(0, us);
+        server.cmd_time_snapshot = server.mstime;
+    }
+}
+
+void exitExecutionUnit(void) {
+    --server.execution_nesting;
+}
+
 void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
@@ -1185,7 +1204,7 @@ void checkChildrenDone(void) {
 }
 
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
-void cronUpdateMemoryStats() {
+void cronUpdateMemoryStats(void) {
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
@@ -1499,14 +1518,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 }
 
 
-void blockingOperationStarts() {
+void blockingOperationStarts(void) {
     if(!server.blocking_op_nesting++){
         updateCachedTime(0);
         server.blocked_last_cron = server.mstime;
     }
 }
 
-void blockingOperationEnds() {
+void blockingOperationEnds(void) {
     if(!(--server.blocking_op_nesting)){
         server.blocked_last_cron = 0;
     }
@@ -1517,7 +1536,7 @@ void blockingOperationEnds() {
  * It attempts to do its duties at a similar rate as the configured server.hz,
  * and updates cronloops variable so that similarly to serverCron, the
  * run_with_period can be used. */
-void whileBlockedCron() {
+void whileBlockedCron(void) {
     /* Here we may want to perform some cron jobs (normally done server.hz times
      * per second). */
 
@@ -1638,11 +1657,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
-    if (server.active_expire_enabled && server.masterhost == NULL)
+    if (server.active_expire_enabled && iAmMaster())
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Unblock all the clients blocked for synchronous replication
-     * in WAIT. */
+     * in WAIT or WAITAOF. */
     if (listLength(server.clients_waiting_acks))
         processClientsWaitingReplicas();
 
@@ -1701,6 +1720,15 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * in case of appendfsync=always. */
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
         flushAppendOnlyFile(0);
+
+    /* Update the fsynced replica offset.
+     * If an initial rewrite is in progress then not all data is guaranteed to have actually been
+     * persisted to disk yet, so we cannot update the field. We will wait for the rewrite to complete. */
+    if (server.aof_state == AOF_ON && server.fsynced_reploff != -1) {
+        long long fsynced_reploff_pending;
+        atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
+        server.fsynced_reploff = fsynced_reploff_pending;
+    }
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
@@ -1926,7 +1954,7 @@ void createSharedObjects(void) {
     shared.maxstring = sdsnew("maxstring");
 }
 
-void initServerClientMemUsageBuckets() {
+void initServerClientMemUsageBuckets(void) {
     if (server.client_mem_usage_buckets)
         return;
     server.client_mem_usage_buckets = zmalloc(sizeof(clientMemUsageBucket)*CLIENT_MEM_USAGE_BUCKETS);
@@ -1936,7 +1964,7 @@ void initServerClientMemUsageBuckets() {
     }
 }
 
-void freeServerClientMemUsageBuckets() {
+void freeServerClientMemUsageBuckets(void) {
     if (!server.client_mem_usage_buckets)
         return;
     for (int j = 0; j < CLIENT_MEM_USAGE_BUCKETS; j++)
@@ -1989,6 +2017,7 @@ void initServerConfig(void) {
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.aof_last_incr_size = 0;
+    server.aof_last_incr_fsync_offset = 0;
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
@@ -2030,6 +2059,7 @@ void initServerConfig(void) {
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
+    server.fsynced_reploff_pending = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2508,6 +2538,7 @@ void initServer(void) {
 
     /* Initialization after setting defaults from the config system. */
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
+    server.fsynced_reploff = server.aof_enabled ? 0 : -1;
     server.hz = server.config_hz;
     server.pid = getpid();
     server.in_fork_child = CHILD_TYPE_NONE;
@@ -2686,7 +2717,7 @@ void initServer(void) {
         initServerClientMemUsageBuckets();
 }
 
-void initListeners() {
+void initListeners(void) {
     /* Setup listeners from server config for TCP/TLS/Unix */
     int conn_index;
     connListener *listener;
@@ -2763,7 +2794,7 @@ void initListeners() {
  * Specifically, creation of threads due to a race bug in ld.so, in which
  * Thread Local Storage initialization collides with dlopen call.
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
-void InitServerLast() {
+void InitServerLast(void) {
     bioInit();
     initThreadedIO();
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
@@ -2911,21 +2942,6 @@ void setImplicitACLCategories(struct redisCommand *c) {
         c->acl_categories |= ACL_CATEGORY_SLOW;
 }
 
-/* Recursively populate the args structure (setting num_args to the number of
- * subargs) and return the number of args. */
-int populateArgsStructure(struct redisCommandArg *args) {
-    if (!args)
-        return 0;
-    int count = 0;
-    while (args->name) {
-        serverAssert(count < INT_MAX);
-        args->num_args = populateArgsStructure(args->subargs);
-        count++;
-        args++;
-    }
-    return count;
-}
-
 /* Recursively populate the command structure.
  *
  * On success, the function return C_OK. Otherwise C_ERR is returned and we won't
@@ -2943,27 +2959,9 @@ int populateCommandStructure(struct redisCommand *c) {
      * set of flags. */
     setImplicitACLCategories(c);
 
-    /* Redis commands don't need more args than STATIC_KEY_SPECS_NUM (Number of keys
-     * specs can be greater than STATIC_KEY_SPECS_NUM only for module commands) */
-    c->key_specs = c->key_specs_static;
-    c->key_specs_max = STATIC_KEY_SPECS_NUM;
-
     /* We start with an unallocated histogram and only allocate memory when a command
      * has been issued for the first time */
     c->latency_histogram = NULL;
-
-    for (int i = 0; i < STATIC_KEY_SPECS_NUM; i++) {
-        if (c->key_specs[i].begin_search_type == KSPEC_BS_INVALID)
-            break;
-        c->key_specs_num++;
-    }
-
-    /* Count things so we don't have to use deferred reply in COMMAND reply. */
-    while (c->history && c->history[c->num_history].since)
-        c->num_history++;
-    while (c->tips && c->tips[c->num_tips])
-        c->num_tips++;
-    c->num_args = populateArgsStructure(c->args);
 
     /* Handle the legacy range spec and the "movablekeys" flag (must be done after populating all key specs). */
     populateCommandLegacyRangeSpec(c);
@@ -3130,6 +3128,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
         return NULL;
     }
 
+    serverAssert(argc > 0); /* Avoid warning `-Wmaybe-uninitialized` in lookupCommandLogic() */
     robj objects[argc];
     robj *argv[argc];
     for (j = 0; j < argc; j++) {
@@ -3305,7 +3304,7 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-static void propagatePendingCommands() {
+static void propagatePendingCommands(void) {
     if (server.also_propagate.numops == 0)
         return;
 
@@ -3361,7 +3360,7 @@ static void propagatePendingCommands() {
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
  * after the entire chain finished. */
-void postExecutionUnitOperations() {
+void postExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
@@ -3453,7 +3452,7 @@ void call(client *c, int flags) {
      * and a client which is reprocessing command again (after being unblocked).
      * Blocked clients can be blocked in different places and not always it means the call() function has been
      * called. For example this is required for avoiding double logging to monitors.*/
-    int reprocessing_command = ((!server.execution_nesting) && (c->flags & CLIENT_EXECUTING_COMMAND)) ? 1 : 0;
+    int reprocessing_command = flags & CMD_CALL_REPROCESSING;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3468,17 +3467,17 @@ void call(client *c, int flags) {
 
     /* Call the command. */
     dirty = server.dirty;
+    long long old_master_repl_offset = server.master_repl_offset;
     incrCommandStatsOnError(NULL, 0);
 
     const long long call_timer = ustime();
+    enterExecutionUnit(1, call_timer);
 
-    /* Update cache time, and indicate we are starting command execution.
-     * in case we have nested calls we want to update only on the first call */
-    if (server.execution_nesting++ == 0) {
-        updateCachedTimeWithUs(0,call_timer);
-        server.cmd_time_snapshot = server.mstime;
-        c->flags |= CLIENT_EXECUTING_COMMAND;
-    }
+    /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
+     * sending client side caching message in the middle of a command reply.
+     * In case of blocking commands, the flag will be un-set only after successfully
+     * re-processing and unblock the client.*/
+    c->flags |= CLIENT_EXECUTING_COMMAND;
 
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
@@ -3486,12 +3485,11 @@ void call(client *c, int flags) {
 
     c->cmd->proc(c);
 
-    if (--server.execution_nesting == 0) {
-        /* In case client is blocked after trying to execute the command,
-         * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
-        if (!(c->flags & CLIENT_BLOCKED))
-            c->flags &= ~(CLIENT_EXECUTING_COMMAND);
-    }
+    exitExecutionUnit();
+
+    /* In case client is blocked after trying to execute the command,
+     * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
+    if (!(c->flags & CLIENT_BLOCKED)) c->flags &= ~(CLIENT_EXECUTING_COMMAND);
 
     /* In order to avoid performance implication due to querying the clock using a system call 3 times,
      * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
@@ -3565,6 +3563,12 @@ void call(client *c, int flags) {
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
     }
 
+    /* The duration needs to be reset after each call except for a blocked command,
+     * which is expected to record and reset the duration after unblocking. */
+    if (!(c->flags & CLIENT_BLOCKED)) {
+        c->duration = 0;
+    }
+
     /* Propagate the command into the AOF and replication link.
      * We never propagate EXEC explicitly, it will be implicitly
      * propagated if needed (see propagatePendingCommands).
@@ -3588,10 +3592,12 @@ void call(client *c, int flags) {
         /* However prevent AOF / replication propagation if the command
          * implementation called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
-        if (c->flags & CLIENT_PREVENT_REPL_PROP ||
+        if (c->flags & CLIENT_PREVENT_REPL_PROP        ||
+            c->flags & CLIENT_MODULE_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
                 propagate_flags &= ~PROPAGATE_REPL;
-        if (c->flags & CLIENT_PREVENT_AOF_PROP ||
+        if (c->flags & CLIENT_PREVENT_AOF_PROP        ||
+            c->flags & CLIENT_MODULE_PREVENT_AOF_PROP ||
             !(flags & CMD_CALL_PROPAGATE_AOF))
                 propagate_flags &= ~PROPAGATE_AOF;
 
@@ -3635,6 +3641,11 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* Remember the replication offset of the client, right after its last
+     * command that resulted in propagation. */
+    if (old_master_repl_offset != server.master_repl_offset)
+        c->woff = server.master_repl_offset;
 
     /* Client pause takes effect after a transaction has finished. This needs
      * to be located after everything is propagated. */
@@ -3776,14 +3787,15 @@ int processCommand(client *c) {
         serverAssert(!scriptIsRunning());
     }
 
-    moduleCallCommandFilters(c);
-
     /* in case we are starting to ProcessCommand and we already have a command we assume
      * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
 
-    if (!client_reprocessing_command)
+    /* only run command filter if not reprocessing command */
+    if (!client_reprocessing_command) {
+        moduleCallCommandFilters(c);
         reqresAppendRequest(c);
+    }
 
     /* Handle possible security attacks. */
     if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
@@ -4098,8 +4110,9 @@ int processCommand(client *c) {
         queueMultiCommand(c, cmd_flags);
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
+        int flags = CMD_CALL_FULL;
+        if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
+        call(c,flags);
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
@@ -4317,6 +4330,8 @@ int finishShutdown(void) {
                 serverLog(LL_WARNING, "Writing initial AOF. Exit anyway.");
             } else {
                 serverLog(LL_WARNING, "Writing initial AOF, can't exit.");
+                if (server.supervised_mode == SUPERVISED_SYSTEMD)
+                    redisCommunicateSystemd("STATUS=Writing initial AOF, can't exit.\n");
                 goto error;
             }
         }
@@ -4814,28 +4829,6 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*repl
     dictReleaseIterator(di);
 }
 
-/* Must match redisCommandGroup */
-const char *COMMAND_GROUP_STR[] = {
-    "generic",
-    "string",
-    "list",
-    "set",
-    "sorted-set",
-    "hash",
-    "pubsub",
-    "transactions",
-    "connection",
-    "server",
-    "scripting",
-    "hyperloglog",
-    "cluster",
-    "sentinel",
-    "geo",
-    "stream",
-    "bitmap",
-    "module"
-};
-
 /* Output the representation of a Redis command. Used by the COMMAND command and COMMAND INFO. */
 void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
     if (!cmd) {
@@ -4894,7 +4887,7 @@ void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
 
     /* Always have the group, for module commands the group is always "module". */
     addReplyBulkCString(c, "group");
-    addReplyBulkCString(c, COMMAND_GROUP_STR[cmd->group]);
+    addReplyBulkCString(c, commandGroupStr(cmd->group));
 
     if (cmd->complexity) {
         addReplyBulkCString(c, "complexity");
@@ -6512,7 +6505,7 @@ void setupChildSignalHandlers(void) {
  * of the parent process, e.g. fd(socket or flock) etc.
  * should close the resources not used by the child process, so that if the
  * parent restarts it can bind/lock despite the child possibly still running. */
-void closeChildUnusedResourceAfterFork() {
+void closeChildUnusedResourceAfterFork(void) {
     closeListeningSockets(0);
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
@@ -7185,6 +7178,34 @@ int main(int argc, char **argv) {
         sdsfree(options);
     }
     if (server.sentinel_mode) sentinelCheckConfigFile();
+
+    /* Do system checks */
+#ifdef __linux__
+    linuxMemoryWarnings();
+    sds err_msg = NULL;
+    if (checkXenClocksource(&err_msg) < 0) {
+        serverLog(LL_WARNING, "WARNING %s", err_msg);
+        sdsfree(err_msg);
+    }
+#if defined (__arm64__)
+    int ret;
+    if ((ret = checkLinuxMadvFreeForkBug(&err_msg)) <= 0) {
+        if (ret < 0) {
+            serverLog(LL_WARNING, "WARNING %s", err_msg);
+            sdsfree(err_msg);
+        } else
+            serverLog(LL_WARNING, "Failed to test the kernel for a bug that could lead to data corruption during background save. "
+                                  "Your system could be affected, please report this error.");
+        if (!checkIgnoreWarning("ARM64-COW-BUG")) {
+            serverLog(LL_WARNING,"Redis will now exit to prevent data corruption. "
+                                 "Note that it is possible to suppress this warning by setting the following config: ignore-warnings ARM64-COW-BUG");
+            exit(1);
+        }
+    }
+#endif /* __arm64__ */
+#endif /* __linux__ */
+
+    /* Daemonize if needed */
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
@@ -7226,30 +7247,6 @@ int main(int argc, char **argv) {
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_NOTICE,"Server initialized");
-    #ifdef __linux__
-        linuxMemoryWarnings();
-        sds err_msg = NULL;
-        if (checkXenClocksource(&err_msg) < 0) {
-            serverLog(LL_WARNING, "WARNING %s", err_msg);
-            sdsfree(err_msg);
-        }
-    #if defined (__arm64__)
-        int ret;
-        if ((ret = checkLinuxMadvFreeForkBug(&err_msg)) <= 0) {
-            if (ret < 0) {
-                serverLog(LL_WARNING, "WARNING %s", err_msg);
-                sdsfree(err_msg);
-            } else
-                serverLog(LL_WARNING, "Failed to test the kernel for a bug that could lead to data corruption during background save. "
-                                      "Your system could be affected, please report this error.");
-            if (!checkIgnoreWarning("ARM64-COW-BUG")) {
-                serverLog(LL_WARNING,"Redis will now exit to prevent data corruption. "
-                                     "Note that it is possible to suppress this warning by setting the following config: ignore-warnings ARM64-COW-BUG");
-                exit(1);
-            }
-        }
-    #endif /* __arm64__ */
-    #endif /* __linux__ */
         aofLoadManifestFromDisk();
         loadDataFromDisk();
         aofOpenIfNeededOnServerStart();

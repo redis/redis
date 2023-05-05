@@ -83,7 +83,7 @@ start_server {tags {"pause network"}} {
         $rd2 close
     }
 
-    test "Test read/admin mutli-execs are not blocked by pause RO" {
+    test "Test read/admin multi-execs are not blocked by pause RO" {
         r SET FOO BAR
         r client PAUSE 100000 WRITE
         set rr [redis_client]
@@ -96,7 +96,7 @@ start_server {tags {"pause network"}} {
         $rr close
     }
 
-    test "Test write mutli-execs are blocked by pause RO" {
+    test "Test write multi-execs are blocked by pause RO" {
         set rd [redis_deferring_client]
         $rd MULTI
         assert_equal [$rd read] "OK"
@@ -174,7 +174,7 @@ start_server {tags {"pause network"}} {
         $rr close
     }
 
-    test "Test read-only scripts in mutli-exec are not blocked by pause RO" {
+    test "Test read-only scripts in multi-exec are not blocked by pause RO" {
         r SET FOO BAR
         r client PAUSE 100000 WRITE
         set rr [redis_client]
@@ -193,7 +193,7 @@ start_server {tags {"pause network"}} {
         $rr close
     }
 
-    test "Test write scripts in mutli-exec are blocked by pause RO" {
+    test "Test write scripts in multi-exec are blocked by pause RO" {
         set rd [redis_deferring_client]
         set rd2 [redis_deferring_client]
 

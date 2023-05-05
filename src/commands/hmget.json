@@ -1,6 +1,6 @@
 {
     "HMGET": {
-        "summary": "Get the values of all the given hash fields",
+        "summary": "Returns the values of all fields in a hash.",
         "complexity": "O(N) where N is the number of fields being requested.",
         "group": "hash",
         "since": "2.0.0",

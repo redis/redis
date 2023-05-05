@@ -1,6 +1,6 @@
 {
     "RPOP": {
-        "summary": "Remove and get the last elements in a list",
+        "summary": "Returns and removes the last elements of a list. Deletes the list if the last element was popped.",
         "complexity": "O(N) where N is the number of elements returned",
         "group": "list",
         "since": "1.0.0",

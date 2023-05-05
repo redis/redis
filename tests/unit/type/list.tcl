@@ -1416,6 +1416,15 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         set e
     } {*ERR*syntax*error*}
 
+    test {LINSERT against non-list value error} {
+        r set k1 v1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r linsert k1 after 0 0}
+    }
+
+    test {LINSERT against non existing key} {
+        assert_equal 0 [r linsert not-a-key before 0 0]
+    }
+
 foreach type {listpack quicklist} {
     foreach {num} {250 500} {
         if {$type == "quicklist"} {
@@ -2198,8 +2207,8 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd1 BLPOP mylist 0
         wait_for_blocked_clients_count 1
         
-        # pipline on other client a list push and a blocking pop
-        # we should expect the fainess to be kept and have $rd1
+        # pipeline on other client a list push and a blocking pop
+        # we should expect the fairness to be kept and have $rd1
         # being unblocked
         set buf ""
         append buf "LPUSH mylist 1\r\n"
@@ -2256,7 +2265,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd3 close
     }
     
-    test "Blocking command acounted only once in commandstats" {
+    test "Blocking command accounted only once in commandstats" {
         # cleanup first
         r del mylist
         
@@ -2279,7 +2288,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd close
     }
     
-    test "Blocking command acounted only once in commandstats after timeout" {
+    test "Blocking command accounted only once in commandstats after timeout" {
         # cleanup first
         r del mylist
         

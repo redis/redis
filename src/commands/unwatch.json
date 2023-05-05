@@ -1,6 +1,6 @@
 {
     "UNWATCH": {
-        "summary": "Forget about all watched keys",
+        "summary": "Forgets about watched keys of a transaction.",
         "complexity": "O(1)",
         "group": "transactions",
         "since": "2.2.0",

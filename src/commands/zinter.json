@@ -1,6 +1,6 @@
 {
     "ZINTER": {
-        "summary": "Intersect multiple sorted sets",
+        "summary": "Returns the intersect of multiple sorted sets.",
         "complexity": "O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.",
         "group": "sorted_set",
         "since": "6.2.0",

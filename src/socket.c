@@ -341,7 +341,7 @@ static int connSocketIsLocal(connection *conn) {
     if (connSocketAddr(conn, cip, sizeof(cip) - 1, NULL, 1) == C_ERR)
         return -1;
 
-    return !strcmp(cip,"127.0.0.1") || !strcmp(cip,"::1");
+    return !strncmp(cip, "127.", 4) || !strcmp(cip, "::1");
 }
 
 static int connSocketListen(connListener *listener) {
@@ -464,7 +464,7 @@ int connRecvTimeout(connection *conn, long long ms) {
     return anetRecvTimeout(NULL, conn->fd, ms);
 }
 
-int RedisRegisterConnectionTypeSocket()
+int RedisRegisterConnectionTypeSocket(void)
 {
     return connTypeRegister(&CT_Socket);
 }

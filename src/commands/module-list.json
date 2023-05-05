@@ -1,6 +1,6 @@
 {
     "LIST": {
-        "summary": "List all modules loaded by the server",
+        "summary": "Returns all loaded modules.",
         "complexity": "O(N) where N is the number of loaded modules.",
         "group": "server",
         "since": "4.0.0",

@@ -58,6 +58,7 @@
 #include "monotonic.h"
 #include "script.h"
 #include "call_reply.h"
+#include "hdr_histogram.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -229,6 +230,7 @@ struct RedisModuleKey {
  * a Redis module. */
 struct RedisModuleBlockedClient;
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, void **argv, int argc);
+typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, void *username, void *password, RedisModuleString **err);
 typedef void (*RedisModuleDisconnectFunc) (RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc);
 
 /* This struct holds the information about a command registered by a module.*/
@@ -249,6 +251,12 @@ typedef struct RedisModuleCommand RedisModuleCommand;
  * only the type, proto and protolen are filled. */
 typedef struct CallReply RedisModuleCallReply;
 
+/* Structure to hold the module auth callback & the Module implementing it. */
+typedef struct RedisModuleAuthCtx {
+    struct RedisModule *module;
+    RedisModuleAuthCallback auth_cb;
+} RedisModuleAuthCtx;
+
 /* Structure representing a blocked client. We get a pointer to such
  * an object when blocking from modules. */
 typedef struct RedisModuleBlockedClient {
@@ -256,6 +264,8 @@ typedef struct RedisModuleBlockedClient {
                         was destroyed during the life of this object. */
     RedisModule *module;    /* Module blocking the client. */
     RedisModuleCmdFunc reply_callback; /* Reply callback on normal completion.*/
+    RedisModuleAuthCallback auth_reply_cb; /* Reply callback on completing blocking
+                                                    module authentication. */
     RedisModuleCmdFunc timeout_callback; /* Reply callback on timeout. */
     RedisModuleDisconnectFunc disconnect_callback; /* Called on disconnection.*/
     void (*free_privdata)(RedisModuleCtx*,void*);/* privdata cleanup callback.*/
@@ -273,6 +283,11 @@ typedef struct RedisModuleBlockedClient {
     uint64_t background_duration; /* Current command background time duration.
                                      Used for measuring latency of blocking cmds */
 } RedisModuleBlockedClient;
+
+/* This is a list of Module Auth Contexts. Each time a Module registers a callback, a new ctx is
+ * added to this list. Multiple modules can register auth callbacks and the same Module can have
+ * multiple auth callbacks. */
+static list *moduleAuthCallbacks;
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
@@ -380,6 +395,7 @@ typedef struct RedisModuleServerInfoData {
 #define REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS (1<<8)
 #define REDISMODULE_ARGV_RESPECT_DENY_OOM (1<<9)
 #define REDISMODULE_ARGV_DRY_RUN (1<<10)
+#define REDISMODULE_ARGV_ALLOW_BLOCK (1<<11)
 
 /* Determine whether Redis should signalModifiedKey implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
@@ -455,6 +471,15 @@ struct ModuleConfig {
     RedisModule *module;
 };
 
+typedef struct RedisModuleAsyncRMCallPromise{
+    size_t ref_count;
+    void *private_data;
+    RedisModule *module;
+    RedisModuleOnUnblocked on_unblocked;
+    client *c;
+    RedisModuleCtx *ctx;
+} RedisModuleAsyncRMCallPromise;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -478,7 +503,7 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
                                                      const RedisModuleCommandInfoVersion *version);
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
-
+void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
  *
@@ -492,13 +517,20 @@ static int moduleConvertArgFlags(int flags);
  * You should avoid using malloc().
  * This function panics if unable to allocate enough memory. */
 void *RM_Alloc(size_t bytes) {
-    return zmalloc(bytes);
+    /* Use 'zmalloc_usable()' instead of 'zmalloc()' to allow the compiler
+     * to recognize the additional memory size, which means that modules can
+     * use the memory reported by 'RM_MallocUsableSize()' safely. In theory this
+     * isn't really needed since this API can't be inlined (not even for embedded
+     * modules like TLS (we use function pointers for module APIs), and the API doesn't
+     * have the malloc_size attribute, but it's hard to predict how smart future compilers
+     * will be, so better safe than sorry. */
+    return zmalloc_usable(bytes,NULL);
 }
 
 /* Similar to RM_Alloc, but returns NULL in case of allocation failure, instead
  * of panicking. */
 void *RM_TryAlloc(size_t bytes) {
-    return ztrymalloc(bytes);
+    return ztrymalloc_usable(bytes,NULL);
 }
 
 /* Use like calloc(). Memory allocated with this function is reported in
@@ -506,12 +538,12 @@ void *RM_TryAlloc(size_t bytes) {
  * and in general is taken into account as memory allocated by Redis.
  * You should avoid using calloc() directly. */
 void *RM_Calloc(size_t nmemb, size_t size) {
-    return zcalloc(nmemb*size);
+    return zcalloc_usable(nmemb*size,NULL);
 }
 
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
 void* RM_Realloc(void *ptr, size_t bytes) {
-    return zrealloc(ptr,bytes);
+    return zrealloc_usable(ptr,bytes,NULL);
 }
 
 /* Use like free() for memory obtained by RedisModule_Alloc() and
@@ -605,6 +637,16 @@ client *moduleAllocTempClient(user *user) {
     return c;
 }
 
+static void freeRedisModuleAsyncRMCallPromise(RedisModuleAsyncRMCallPromise *promise) {
+    if (--promise->ref_count > 0) {
+        return;
+    }
+    /* When the promise is finally freed it can not have a client attached to it.
+     * Either releasing the client or RM_CallReplyPromiseAbort would have removed it. */
+    serverAssert(!promise->c);
+    zfree(promise);
+}
+
 void moduleReleaseTempClient(client *c) {
     if (moduleTempClientCount == moduleTempClientCap) {
         moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap*2 : 32;
@@ -613,11 +655,18 @@ void moduleReleaseTempClient(client *c) {
     clearClientConnectionState(c);
     listEmpty(c->reply);
     c->reply_bytes = 0;
+    c->duration = 0;
     resetClient(c);
     c->bufpos = 0;
     c->flags = CLIENT_MODULE;
     c->user = NULL; /* Root user */
     c->cmd = c->lastcmd = c->realcmd = NULL;
+    if (c->bstate.async_rm_call_handle) {
+        RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
+        promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
+        freeRedisModuleAsyncRMCallPromise(promise);
+        c->bstate.async_rm_call_handle = NULL;
+    }
     moduleTempClients[moduleTempClientCount++] = c;
 }
 
@@ -740,7 +789,7 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
-void modulePostExecutionUnitOperations() {
+void modulePostExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
 
@@ -757,7 +806,7 @@ void modulePostExecutionUnitOperations() {
 void moduleFreeContext(RedisModuleCtx *ctx) {
     /* See comment in moduleCreateContext */
     if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
-        server.execution_nesting--;
+        exitExecutionUnit();
         postExecutionUnitOperations();
     }
     autoMemoryCollect(ctx);
@@ -780,6 +829,42 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
         moduleReleaseTempClient(ctx->client);
     else if (ctx->flags & REDISMODULE_CTX_NEW_CLIENT)
         freeClient(ctx->client);
+}
+
+static CallReply *moduleParseReply(client *c, RedisModuleCtx *ctx) {
+    /* Convert the result of the Redis command into a module reply. */
+    sds proto = sdsnewlen(c->buf,c->bufpos);
+    c->bufpos = 0;
+    while(listLength(c->reply)) {
+        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
+
+        proto = sdscatlen(proto,o->buf,o->used);
+        listDelNode(c->reply,listFirst(c->reply));
+    }
+    CallReply *reply = callReplyCreate(proto, c->deferred_reply_errors, ctx);
+    c->deferred_reply_errors = NULL; /* now the responsibility of the reply object. */
+    return reply;
+}
+
+void moduleCallCommandUnblockedHandler(client *c) {
+    RedisModuleCtx ctx;
+    RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
+    serverAssert(promise);
+    RedisModule *module = promise->module;
+    if (!promise->on_unblocked) {
+        moduleReleaseTempClient(c);
+        return; /* module did not set any unblock callback. */
+    }
+    moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
+    selectDb(ctx.client, c->db->id);
+
+    CallReply *reply = moduleParseReply(c, &ctx);
+    module->in_call++;
+    promise->on_unblocked(&ctx, reply, promise->private_data);
+    module->in_call--;
+
+    moduleFreeContext(&ctx);
+    moduleReleaseTempClient(c);
 }
 
 /* Create a module ctx and keep track of the nesting level.
@@ -818,7 +903,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
      * 2. If we are running in a thread (execution_nesting will be dealt with
      *    when locking/unlocking the GIL) */
     if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
-        server.execution_nesting++;
+        enterExecutionUnit(1, 0);
     }
 }
 
@@ -1076,6 +1161,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * convention.
  *
  * The function returns REDISMODULE_ERR in these cases:
+ * - If creation of module command is called outside the RedisModule_OnLoad.
  * - The specified command is already busy.
  * - The command name contains some chars that are not allowed.
  * - A set of invalid flags were passed.
@@ -1164,8 +1250,11 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * NOTE: The scheme described above serves a limited purpose and can
  * only be used to find keys that exist at constant indices.
  * For non-trivial key arguments, you may pass 0,0,0 and use
- * RedisModule_SetCommandInfo to set key specs using a more advanced scheme. */
+ * RedisModule_SetCommandInfo to set key specs using a more advanced scheme and use
+ * RedisModule_SetCommandACLCategories to set Redis ACL categories of the commands. */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
+    if (!ctx->module->onload)
+        return REDISMODULE_ERR;
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
@@ -1214,10 +1303,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     cp->rediscmd->proc = RedisModuleCommandDispatcher;
     cp->rediscmd->flags = flags | CMD_MODULE;
     cp->rediscmd->module_cmd = cp;
-    cp->rediscmd->key_specs_max = STATIC_KEY_SPECS_NUM;
-    cp->rediscmd->key_specs = cp->rediscmd->key_specs_static;
     if (firstkey != 0) {
         cp->rediscmd->key_specs_num = 1;
+        cp->rediscmd->key_specs = zcalloc(sizeof(keySpec));
         cp->rediscmd->key_specs[0].flags = CMD_KEY_FULL_ACCESS;
         if (flags & CMD_MODULE_GETKEYS)
             cp->rediscmd->key_specs[0].flags |= CMD_KEY_VARIABLE_FLAGS;
@@ -1229,6 +1317,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
         cp->rediscmd->key_specs[0].fk.range.limit = 0;
     } else {
         cp->rediscmd->key_specs_num = 0;
+        cp->rediscmd->key_specs = NULL;
     }
     populateCommandLegacyRangeSpec(cp->rediscmd);
     cp->rediscmd->microseconds = 0;
@@ -1285,8 +1374,11 @@ RedisModuleCommand *RM_GetCommand(RedisModuleCtx *ctx, const char *name) {
  * * `parent` is already a subcommand (we do not allow more than one level of command nesting)
  * * `parent` is a command with an implementation (RedisModuleCmdFunc) (A parent command should be a pure container of subcommands)
  * * `parent` already has a subcommand called `name`
+ * * Creating a subcommand is called outside of RedisModule_OnLoad.
  */
 int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
+    if (!parent->module->onload)
+        return REDISMODULE_ERR;
     int64_t flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
@@ -1339,6 +1431,78 @@ moduleCmdArgAt(const RedisModuleCommandInfoVersion *version,
                const RedisModuleCommandArg *args, int index) {
     off_t offset = index * version->sizeof_arg;
     return (RedisModuleCommandArg *)((char *)(args) + offset);
+}
+
+/* Recursively populate the args structure (setting num_args to the number of
+ * subargs) and return the number of args. */
+int populateArgsStructure(struct redisCommandArg *args) {
+    if (!args)
+        return 0;
+    int count = 0;
+    while (args->name) {
+        serverAssert(count < INT_MAX);
+        args->num_args = populateArgsStructure(args->subargs);
+        count++;
+        args++;
+    }
+    return count;
+}
+
+/* Helper for categoryFlagsFromString(). Attempts to find an acl flag representing the provided flag string
+ * and adds that flag to acl_categories_flags if a match is found.
+ *
+ * Returns '1' if acl category flag is recognized or
+ * returns '0' if not recognized  */
+int matchAclCategoryFlag(char *flag, int64_t *acl_categories_flags) {
+    uint64_t this_flag = ACLGetCommandCategoryFlagByName(flag);
+    if (this_flag) {
+        *acl_categories_flags |= (int64_t) this_flag;
+        return 1;
+    }
+    return 0; /* Unrecognized */
+}
+
+/* Helper for RM_SetCommandACLCategories(). Turns a string representing acl category
+ * flags into the acl category flags used by Redis ACL which allows users to access 
+ * the module commands by acl categories.
+ * 
+ * It returns the set of acl flags, or -1 if unknown flags are found. */
+int64_t categoryFlagsFromString(char *aclflags) {
+    int count, j;
+    int64_t acl_categories_flags = 0;
+    sds *tokens = sdssplitlen(aclflags,strlen(aclflags)," ",1,&count);
+    for (j = 0; j < count; j++) {
+        char *t = tokens[j];
+        if (!matchAclCategoryFlag(t, &acl_categories_flags)) {
+            serverLog(LL_WARNING,"Unrecognized categories flag %s on module load", t);
+            break;
+        }
+    }
+    sdsfreesplitres(tokens,count);
+    if (j != count) return -1; /* Some token not processed correctly. */
+    return acl_categories_flags;
+}
+
+/* RedisModule_SetCommandACLCategories can be used to set ACL categories to module
+ * commands and subcommands. The set of ACL categories should be passed as
+ * a space separated C string 'aclflags'.
+ * 
+ * Example, the acl flags 'write slow' marks the command as part of the write and 
+ * slow ACL categories.
+ * 
+ * On success REDISMODULE_OK is returned. On error REDISMODULE_ERR is returned.
+ * 
+ * This function can only be called during the RedisModule_OnLoad function. If called
+ * outside of this function, an error is returned.
+ */
+int RM_SetCommandACLCategories(RedisModuleCommand *command, const char *aclflags) {
+    if (!command || !command->module || !command->module->onload) return REDISMODULE_ERR;
+    int64_t categories_flags = aclflags ? categoryFlagsFromString((char*)aclflags) : 0;
+    if (categories_flags == -1) return REDISMODULE_ERR;
+    struct redisCommand *rcmd = command->rediscmd;
+    rcmd->acl_categories = categories_flags; /* ACL categories flags for module command */
+    command->module->num_commands_with_acl_categories++;
+    return REDISMODULE_OK;
 }
 
 /* Set additional command information.
@@ -1656,7 +1820,7 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         cmd->tips || cmd->args ||
         !(cmd->key_specs_num == 0 ||
           /* Allow key spec populated from legacy (first,last,step) to exist. */
-          (cmd->key_specs_num == 1 && cmd->key_specs == cmd->key_specs_static &&
+          (cmd->key_specs_num == 1 &&
            cmd->key_specs[0].begin_search_type == KSPEC_BS_INDEX &&
            cmd->key_specs[0].find_keys_type == KSPEC_FK_RANGE))) {
         errno = EEXIST;
@@ -1707,13 +1871,8 @@ int RM_SetCommandInfo(RedisModuleCommand *command, const RedisModuleCommandInfo 
         while (moduleCmdKeySpecAt(version, info->key_specs, count)->begin_search_type)
             count++;
         serverAssert(count < INT_MAX);
-        if (count <= STATIC_KEY_SPECS_NUM) {
-            cmd->key_specs_max = STATIC_KEY_SPECS_NUM;
-            cmd->key_specs = cmd->key_specs_static;
-        } else {
-            cmd->key_specs_max = count;
-            cmd->key_specs = zmalloc(sizeof(keySpec) * count);
-        }
+        zfree(cmd->key_specs);
+        cmd->key_specs = zmalloc(sizeof(keySpec) * count);
 
         /* Copy the contents of the RedisModuleCommandKeySpec array. */
         cmd->key_specs_num = count;
@@ -2092,6 +2251,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->info_cb = 0;
     module->defrag_cb = 0;
     module->loadmod = NULL;
+    module->num_commands_with_acl_categories = 0;
+    module->onload = 1;
     ctx->module = module;
 }
 
@@ -2115,7 +2276,7 @@ uint64_t RM_MonotonicMicroseconds(void) {
 }
 
 /* Return the current UNIX time in microseconds */
-ustime_t RM_Microseconds() {
+ustime_t RM_Microseconds(void) {
     return ustime();
 }
 
@@ -2125,7 +2286,7 @@ ustime_t RM_Microseconds() {
  * key space notification, causing a module to execute a RedisModule_Call,
  * causing another notification, etc.
  * It makes sense that all this callbacks would use the same clock. */
-ustime_t RM_CachedMicroseconds() {
+ustime_t RM_CachedMicroseconds(void) {
     return server.ustime;
 }
 
@@ -2576,30 +2737,30 @@ RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (ctx != NULL) {
         /*
          * Put the str in the auto memory management of the ctx.
-         * It might already be there, in this case, the ref count will
-         * be 2 and we will decrease the ref count twice and free the
-         * object in the auto memory free function.
-         *
-         * Why we can not do the same trick of just remove the object
-         * from the auto memory (like in RM_RetainString)?
-         * This code shows the issue:
-         *
-         * RM_AutoMemory(ctx);
-         * str1 = RM_CreateString(ctx, "test", 4);
-         * str2 = RM_HoldString(ctx, str1);
-         * RM_FreeString(str1);
-         * RM_FreeString(str2);
-         *
-         * If after the RM_HoldString we would just remove the string from
-         * the auto memory, this example will cause access to a freed memory
-         * on 'RM_FreeString(str2);' because the String will be free
-         * on 'RM_FreeString(str1);'.
-         *
-         * So it's safer to just increase the ref count
-         * and add the String to auto memory again.
-         *
-         * The limitation is that it is not possible to use RedisModule_StringAppendBuffer
-         * on the String.
+         * It might already be there, in this case, the ref count will
+         * be 2 and we will decrease the ref count twice and free the
+         * object in the auto memory free function.
+         *
+         * Why we can not do the same trick of just remove the object
+         * from the auto memory (like in RM_RetainString)?
+         * This code shows the issue:
+         *
+         * RM_AutoMemory(ctx);
+         * str1 = RM_CreateString(ctx, "test", 4);
+         * str2 = RM_HoldString(ctx, str1);
+         * RM_FreeString(str1);
+         * RM_FreeString(str2);
+         *
+         * If after the RM_HoldString we would just remove the string from
+         * the auto memory, this example will cause access to a freed memory
+         * on 'RM_FreeString(str2);' because the String will be free
+         * on 'RM_FreeString(str1);'.
+         *
+         * So it's safer to just increase the ref count
+         * and add the String to auto memory again.
+         *
+         * The limitation is that it is not possible to use RedisModule_StringAppendBuffer
+         * on the String.
          */
         autoMemoryAdd(ctx,REDISMODULE_AM_STRING,str);
     }
@@ -2833,6 +2994,32 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
     addReplyErrorFormat(c,"-%s",err);
+    return REDISMODULE_OK;
+}
+
+/* Reply with the error create from a printf format and arguments.
+ *
+ * If the error code is already passed in the string 'fmt', the error
+ * code provided is used, otherwise the string "-ERR " for the generic
+ * error code is automatically added.
+ *
+ * The usage is, for example:
+ *
+ *     RedisModule_ReplyWithErrorFormat(ctx, "An error: %s", "foo");
+ *
+ *     RedisModule_ReplyWithErrorFormat(ctx, "-WRONGTYPE Wrong Type: %s", "foo");
+ *
+ * The function always returns REDISMODULE_OK.
+ */
+int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+
+    va_list ap;
+    va_start(ap, fmt);
+    addReplyErrorFormatInternal(c, 0, fmt, ap);
+    va_end(ap);
+
     return REDISMODULE_OK;
 }
 
@@ -3521,7 +3708,7 @@ int RM_SetClientNameById(uint64_t id, RedisModuleString *name) {
         errno = ENOENT;
         return REDISMODULE_ERR;
     }
-    if (clientSetName(client, name) == C_ERR) {
+    if (clientSetName(client, name, NULL) == C_ERR) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -3726,7 +3913,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
  * garbage collection tasks, or that do writes and replicate such writes
  * periodically in timer callbacks or other periodic callbacks.
  */
-int RM_AvoidReplicaTraffic() {
+int RM_AvoidReplicaTraffic(void) {
     return !!(isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA));
 }
 
@@ -3836,7 +4023,7 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
  *              // REDISMODULE_OPEN_KEY_NOTOUCH is not supported
  *        }
  */
-int RM_GetOpenKeyModesAll() {
+int RM_GetOpenKeyModesAll(void) {
     return _REDISMODULE_OPEN_KEY_ALL;
 }
 
@@ -5618,9 +5805,20 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
     /* This is a wrapper for the recursive free reply function. This is needed
      * in order to have the first level function to return on nested replies,
      * but only if called by the module API. */
-    RedisModuleCtx *ctx = callReplyGetPrivateData(reply);
+
+    RedisModuleCtx *ctx = NULL;
+    if(callReplyType(reply) == REDISMODULE_REPLY_PROMISE) {
+        RedisModuleAsyncRMCallPromise *promise = callReplyGetPrivateData(reply);
+        ctx = promise->ctx;
+        freeRedisModuleAsyncRMCallPromise(promise);
+    } else {
+        ctx = callReplyGetPrivateData(reply);
+    }
+
     freeCallReply(reply);
-    autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
+    if (ctx) {
+        autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
+    }
 }
 
 /* Return the reply type as one of the following:
@@ -5637,7 +5835,8 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
  * - REDISMODULE_REPLY_DOUBLE
  * - REDISMODULE_REPLY_BIG_NUMBER
  * - REDISMODULE_REPLY_VERBATIM_STRING
- * - REDISMODULE_REPLY_ATTRIBUTE */
+ * - REDISMODULE_REPLY_ATTRIBUTE
+ * - REDISMODULE_REPLY_PROMISE */
 int RM_CallReplyType(RedisModuleCallReply *reply) {
     return callReplyType(reply);
 }
@@ -5720,6 +5919,39 @@ int RM_CallReplyAttributeElement(RedisModuleCallReply *reply, size_t idx, RedisM
     return REDISMODULE_ERR;
 }
 
+/* Set unblock handler (callback and private data) on the given promise RedisModuleCallReply.
+ * The given reply must be of promise type (REDISMODULE_REPLY_PROMISE). */
+void RM_CallReplyPromiseSetUnblockHandler(RedisModuleCallReply *reply, RedisModuleOnUnblocked on_unblock, void *private_data) {
+    RedisModuleAsyncRMCallPromise *promise = callReplyGetPrivateData(reply);
+    promise->on_unblocked = on_unblock;
+    promise->private_data = private_data;
+}
+
+/* Abort the execution of a given promise RedisModuleCallReply.
+ * return REDMODULE_OK in case the abort was done successfully and REDISMODULE_ERR
+ * if its not possible to abort the execution (execution already finished).
+ * In case the execution was aborted (REDMODULE_OK was returned), the private_data out parameter
+ * will be set with the value of the private data that was given on 'RM_CallReplyPromiseSetUnblockHandler'
+ * so the caller will be able to release the private data.
+ *
+ * If the execution was aborted successfully, it is promised that the unblock handler will not be called.
+ * That said, it is possible that the abort operation will successes but the operation will still continue.
+ * This can happened if, for example, a module implements some blocking command and does not respect the
+ * disconnect callback. For pure Redis commands this can not happened.*/
+int RM_CallReplyPromiseAbort(RedisModuleCallReply *reply, void **private_data) {
+    RedisModuleAsyncRMCallPromise *promise = callReplyGetPrivateData(reply);
+    if (!promise->c) return REDISMODULE_ERR; /* Promise can not be aborted, either already aborted or already finished. */
+    if (!(promise->c->flags & CLIENT_BLOCKED)) return REDISMODULE_ERR; /* Client is not blocked anymore, can not abort it. */
+
+    /* Client is still blocked, remove it from any blocking state and release it. */
+    if (private_data) *private_data = promise->private_data;
+    promise->private_data = NULL;
+    promise->on_unblocked = NULL;
+    unblockClient(promise->c, 0);
+    moduleReleaseTempClient(promise->c);
+    return REDISMODULE_OK;
+}
+
 /* Return the pointer and length of a string or error reply. */
 const char *RM_CallReplyStringPtr(RedisModuleCallReply *reply, size_t *len) {
     size_t private_len;
@@ -5767,6 +5999,7 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *     "0" -> REDISMODULE_ARGV_RESP_AUTO
  *     "C" -> REDISMODULE_ARGV_RUN_AS_USER
  *     "M" -> REDISMODULE_ARGV_RESPECT_DENY_OOM
+ *     "K" -> REDISMODULE_ARGV_ALLOW_BLOCK
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -5841,6 +6074,8 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             if (flags) (*flags) |= REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
         } else if (*p == 'D') {
             if (flags) (*flags) |= (REDISMODULE_ARGV_DRY_RUN | REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS);
+        } else if (*p == 'K') {
+            if (flags) (*flags) |= REDISMODULE_ARGV_ALLOW_BLOCK;
         } else {
             goto fmterr;
         }
@@ -5905,6 +6140,34 @@ fmterr:
  *              If everything succeeded, it will return with a NULL, otherwise it will
  *              return with a CallReply object denoting the error, as if it was called with
  *              the 'E' code.
+ *     * 'K' -- Allow running blocking commands. If enabled and the command gets blocked, a
+ *              special REDISMODULE_REPLY_PROMISE will be returned. This reply type
+ *              indicates that the command was blocked and the reply will be given asynchronously.
+ *              The module can use this reply object to set a handler which will be called when
+ *              the command gets unblocked using RedisModule_CallReplyPromiseSetUnblockHandler.
+ *              The handler must be set immediately after the command invocation (without releasing
+ *              the Redis lock in between). If the handler is not set, the blocking command will
+ *              still continue its execution but the reply will be ignored (fire and forget),
+ *              notice that this is dangerous in case of role change, as explained below.
+ *              The module can use RedisModule_CallReplyPromiseAbort to abort the command invocation
+ *              if it was not yet finished (see RedisModule_CallReplyPromiseAbort documentation for more
+ *              details). It is also the module's responsibility to abort the execution on role change, either by using
+ *              server event (to get notified when the instance becomes a replica) or relying on the disconnect
+ *              callback of the original client. Failing to do so can result in a write operation on a replica.
+ *              Unlike other call replies, promise call reply **must** be freed while the Redis GIL is locked.
+ *              Notice that on unblocking, the only promise is that the unblock handler will be called,
+ *              If the blocking RM_Call caused the module to also block some real client (using RM_BlockClient),
+ *              it is the module responsibility to unblock this client on the unblock handler.
+ *              On the unblock handler it is only allowed to perform the following:
+ *              * Calling additional Redis commands using RM_Call
+ *              * Open keys using RM_OpenKey
+ *              * Replicate data to the replica or AOF
+ *
+ *              Specifically, it is not allowed to call any Redis module API which are client related such as:
+ *              * RM_Reply* API's
+ *              * RM_BlockClient
+ *              * RM_GetCurrentUserName
+ *
  * * **...**: The actual arguments to the Redis command.
  *
  * On success a RedisModuleCallReply object is returned, otherwise
@@ -5964,8 +6227,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     c = moduleAllocTempClient(user);
 
-    /* We do not want to allow block, the module do not expect it */
-    c->flags |= CLIENT_DENY_BLOCKING;
+    if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
+        /* We do not want to allow block, the module do not expect it */
+        c->flags |= CLIENT_DENY_BLOCKING;
+    }
     c->db = ctx->client->db;
     c->argv = argv;
     /* We have to assign argv_len, which is equal to argc in that case (RM_Call)
@@ -6198,24 +6463,39 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     call(c,call_flags);
     server.replication_allowed = prev_replication_allowed;
 
-    serverAssert((c->flags & CLIENT_BLOCKED) == 0);
-
-    /* Convert the result of the Redis command into a module reply. */
-    sds proto = sdsnewlen(c->buf,c->bufpos);
-    c->bufpos = 0;
-    while(listLength(c->reply)) {
-        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
-
-        proto = sdscatlen(proto,o->buf,o->used);
-        listDelNode(c->reply,listFirst(c->reply));
+    if (c->flags & CLIENT_BLOCKED) {
+        serverAssert(flags & REDISMODULE_ARGV_ALLOW_BLOCK);
+        serverAssert(ctx->module);
+        RedisModuleAsyncRMCallPromise *promise = zmalloc(sizeof(RedisModuleAsyncRMCallPromise));
+        *promise = (RedisModuleAsyncRMCallPromise) {
+                /* We start with ref_count value of 2 because this object is held
+                 * by the promise CallReply and the fake client that was used to execute the command. */
+                .ref_count = 2,
+                .module = ctx->module,
+                .on_unblocked = NULL,
+                .private_data = NULL,
+                .c = c,
+                .ctx = (ctx->flags & REDISMODULE_CTX_AUTO_MEMORY) ? ctx : NULL,
+        };
+        reply = callReplyCreatePromise(promise);
+        c->bstate.async_rm_call_handle = promise;
+        if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
+            /* No need for AOF propagation, set the relevant flags of the client */
+            c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
+        }
+        if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
+            /* No need for replication propagation, set the relevant flags of the client */
+            c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
+        }
+        c = NULL; /* Make sure not to free the client */
+    } else {
+        reply = moduleParseReply(c, (ctx->flags & REDISMODULE_CTX_AUTO_MEMORY) ? ctx : NULL);
     }
-    reply = callReplyCreate(proto, c->deferred_reply_errors, ctx);
-    c->deferred_reply_errors = NULL; /* now the responsibility of the reply object. */
 
 cleanup:
     if (reply) autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
     if (ctx->module) ctx->module->in_call--;
-    moduleReleaseTempClient(c);
+    if (c) moduleReleaseTempClient(c);
     return reply;
 }
 
@@ -6513,8 +6793,9 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
- * If there is already a module registering a type with the same name,
- * and if the module name or encver is invalid, NULL is returned.
+ * If RedisModule_CreateDataType() is called outside of RedisModule_OnLoad() function,
+ * there is already a module registering a type with the same name,
+ * or if the module name or encver is invalid, NULL is returned.
  * Otherwise the new type is registered into Redis, and a reference of
  * type RedisModuleType is returned: the caller of the function should store
  * this reference into a global variable to make future use of it in the
@@ -6529,6 +6810,8 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *      }
  */
 moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, void *typemethods_ptr) {
+    if (!ctx->module->onload)
+        return NULL;
     uint64_t id = moduleTypeEncodeId(name,encver);
     if (id == 0) return NULL;
     if (moduleTypeLookupModuleByName(name) != NULL) return NULL;
@@ -6667,7 +6950,7 @@ void moduleRDBLoadError(RedisModuleIO *io) {
 /* Returns 0 if there's at least one registered data type that did not declare
  * REDISMODULE_OPTIONS_HANDLE_IO_ERRORS, in which case diskless loading should
  * be avoided since it could cause data loss. */
-int moduleAllDatatypesHandleErrors() {
+int moduleAllDatatypesHandleErrors(void) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -6687,7 +6970,7 @@ int moduleAllDatatypesHandleErrors() {
 /* Returns 0 if module did not declare REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD, in which case
  * diskless async loading should be avoided because module doesn't know there can be traffic during
  * database full resynchronization. */
-int moduleAllModulesHandleReplAsyncLoad() {
+int moduleAllModulesHandleReplAsyncLoad(void) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -7369,6 +7652,7 @@ void unblockClientFromModule(client *c) {
  *
  */
 RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                            RedisModuleAuthCallback auth_reply_callback,
                                             RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                             long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
                                             int flags) {
@@ -7388,6 +7672,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
+    bc->auth_reply_cb = auth_reply_callback;
     bc->timeout_callback = timeout_callback;
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
@@ -7408,6 +7693,13 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
+    } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
+        c->bstate.module_blocked_handle = NULL;
+        addReplyError(c, "Blocking module command called from a Reply callback context");
+    }
+    else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
+        c->bstate.module_blocked_handle = NULL;
+        addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
             blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
@@ -7416,6 +7708,185 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         }
     }
     return bc;
+}
+
+/* This API registers a callback to execute in addition to normal password based authentication.
+ * Multiple callbacks can be registered across different modules. When a Module is unloaded, all the
+ * auth callbacks registered by it are unregistered.
+ * The callbacks are attempted (in the order of most recently registered first) when the AUTH/HELLO
+ * (with AUTH field provided) commands are called.
+ * The callbacks will be called with a module context along with a username and a password, and are
+ * expected to take one of the following actions:
+ * (1) Authenticate - Use the RM_AuthenticateClient* API and return REDISMODULE_AUTH_HANDLED.
+ * This will immediately end the auth chain as successful and add the OK reply.
+ * (2) Deny Authentication - Return REDISMODULE_AUTH_HANDLED without authenticating or blocking the
+ * client. Optionally, `err` can be set to a custom error message and `err` will be automatically
+ * freed by the server.
+ * This will immediately end the auth chain as unsuccessful and add the ERR reply.
+ * (3) Block a client on authentication - Use the RM_BlockClientOnAuth API and return
+ * REDISMODULE_AUTH_HANDLED. Here, the client will be blocked until the RM_UnblockClient API is used
+ * which will trigger the auth reply callback (provided through the RM_BlockClientOnAuth).
+ * In this reply callback, the Module should authenticate, deny or skip handling authentication.
+ * (4) Skip handling Authentication - Return REDISMODULE_AUTH_NOT_HANDLED without blocking the
+ * client. This will allow the engine to attempt the next module auth callback.
+ * If none of the callbacks authenticate or deny auth, then password based auth is attempted and
+ * will authenticate or add failure logs and reply to the clients accordingly.
+ *
+ * Note: If a client is disconnected while it was in the middle of blocking module auth, that
+ * occurrence of the AUTH or HELLO command will not be tracked in the INFO command stats.
+ *
+ * The following is an example of how non-blocking module based authentication can be used:
+ *
+ *      int auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
+ *          const char *user = RedisModule_StringPtrLen(username, NULL);
+ *          const char *pwd = RedisModule_StringPtrLen(password, NULL);
+ *          if (!strcmp(user,"foo") && !strcmp(pwd,"valid_password")) {
+ *              RedisModule_AuthenticateClientWithACLUser(ctx, "foo", 3, NULL, NULL, NULL);
+ *              return REDISMODULE_AUTH_HANDLED;
+ *          }
+ *
+ *          else if (!strcmp(user,"foo") && !strcmp(pwd,"wrong_password")) {
+ *              RedisModuleString *log = RedisModule_CreateString(ctx, "Module Auth", 11);
+ *              RedisModule_ACLAddLogEntryByUserName(ctx, username, log, REDISMODULE_ACL_LOG_AUTH);
+ *              RedisModule_FreeString(ctx, log);
+ *              const char *err_msg = "Auth denied by Misc Module.";
+ *              *err = RedisModule_CreateString(ctx, err_msg, strlen(err_msg));
+ *              return REDISMODULE_AUTH_HANDLED;
+ *          }
+ *          return REDISMODULE_AUTH_NOT_HANDLED;
+ *       }
+ *
+ *      int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+ *          if (RedisModule_Init(ctx,"authmodule",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
+ *              return REDISMODULE_ERR;
+ *          RedisModule_RegisterAuthCallback(ctx, auth_cb);
+ *          return REDISMODULE_OK;
+ *      }
+ */
+void RM_RegisterAuthCallback(RedisModuleCtx *ctx, RedisModuleAuthCallback cb) {
+    RedisModuleAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleAuthCtx));
+    auth_ctx->module = ctx->module;
+    auth_ctx->auth_cb = cb;
+    listAddNodeHead(moduleAuthCallbacks, auth_ctx);
+}
+
+/* Helper function to invoke the free private data callback of a Module blocked client. */
+void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
+    if (bc->privdata && bc->free_privdata) {
+        RedisModuleCtx ctx;
+        int ctx_flags = c == NULL ? REDISMODULE_CTX_BLOCKED_DISCONNECTED : REDISMODULE_CTX_NONE;
+        moduleCreateContext(&ctx, bc->module, ctx_flags);
+        ctx.blocked_privdata = bc->privdata;
+        ctx.client = bc->client;
+        bc->free_privdata(&ctx,bc->privdata);
+        moduleFreeContext(&ctx);
+    }
+}
+
+/* Unregisters all the module auth callbacks that have been registered by this Module. */
+void moduleUnregisterAuthCBs(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    listRewind(moduleAuthCallbacks, &li);
+    while ((ln = listNext(&li))) {
+        RedisModuleAuthCtx *ctx = listNodeValue(ln);
+        if (ctx->module == module) {
+            listDelNode(moduleAuthCallbacks, ln);
+            zfree(ctx);
+        }
+    }
+}
+
+/* Search for & attempt next module auth callback after skipping the ones already attempted.
+ * Returns the result of the module auth callback. */
+int attemptNextAuthCb(client *c, robj *username, robj *password, robj **err) {
+    int handle_next_callback = c->module_auth_ctx == NULL;
+    RedisModuleAuthCtx *cur_auth_ctx = NULL;
+    listNode *ln;
+    listIter li;
+    listRewind(moduleAuthCallbacks, &li);
+    int result = REDISMODULE_AUTH_NOT_HANDLED;
+    while((ln = listNext(&li))) {
+        cur_auth_ctx = listNodeValue(ln);
+        /* Skip over the previously attempted auth contexts. */
+        if (!handle_next_callback) {
+            handle_next_callback = cur_auth_ctx == c->module_auth_ctx;
+            continue;
+        }
+        /* Remove the module auth complete flag before we attempt the next cb. */
+        c->flags &= ~CLIENT_MODULE_AUTH_HAS_RESULT;
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, cur_auth_ctx->module, REDISMODULE_CTX_NONE);
+        ctx.client = c;
+        *err = NULL;
+        c->module_auth_ctx = cur_auth_ctx;
+        result = cur_auth_ctx->auth_cb(&ctx, username, password, err);
+        moduleFreeContext(&ctx);
+        if (result == REDISMODULE_AUTH_HANDLED) break;
+        /* If Auth was not handled (allowed/denied/blocked) by the Module, try the next auth cb. */
+    }
+    return result;
+}
+
+/* Helper function to handle a reprocessed unblocked auth client.
+ * Returns REDISMODULE_AUTH_NOT_HANDLED if the client was not reprocessed after a blocking module
+ * auth operation.
+ * Otherwise, we attempt the auth reply callback & the free priv data callback, update fields and
+ * return the result of the reply callback. */
+int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, robj **err) {
+    int result = REDISMODULE_AUTH_NOT_HANDLED;
+    if (!c->module_blocked_client) return result;
+    RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *) c->module_blocked_client;
+    bc->client = c;
+    if (bc->auth_reply_cb) {
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_REPLY);
+        ctx.blocked_privdata = bc->privdata;
+        ctx.blocked_ready_key = NULL;
+        ctx.client = bc->client;
+        ctx.blocked_client = bc;
+        result = bc->auth_reply_cb(&ctx, username, password, err);
+        moduleFreeContext(&ctx);
+    }
+    moduleInvokeFreePrivDataCallback(c, bc);
+    c->module_blocked_client = NULL;
+    c->lastcmd->microseconds += bc->background_duration;
+    bc->module->blocked_clients--;
+    zfree(bc);
+    return result;
+}
+
+/* Helper function to attempt Module based authentication through module auth callbacks.
+ * Here, the Module is expected to authenticate the client using the RedisModule APIs and to add ACL
+ * logs in case of errors.
+ * Returns one of the following codes:
+ * AUTH_OK - Indicates that a module handled and authenticated the client.
+ * AUTH_ERR - Indicates that a module handled and denied authentication for this client.
+ * AUTH_NOT_HANDLED - Indicates that authentication was not handled by any Module and that
+ * normal password based authentication can be attempted next.
+ * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
+ * In this case, authentication is handled here again after the client is unblocked / reprocessed. */
+int checkModuleAuthentication(client *c, robj *username, robj *password, robj **err) {
+    if (!listLength(moduleAuthCallbacks)) return AUTH_NOT_HANDLED;
+    int result = attemptBlockedAuthReplyCallback(c, username, password, err);
+    if (result == REDISMODULE_AUTH_NOT_HANDLED) {
+        result = attemptNextAuthCb(c, username, password, err);
+    }
+    if (c->flags & CLIENT_BLOCKED) {
+        /* Modules are expected to return REDISMODULE_AUTH_HANDLED when blocking clients. */
+        serverAssert(result == REDISMODULE_AUTH_HANDLED);
+        return AUTH_BLOCKED;
+    }
+    c->module_auth_ctx = NULL;
+    if (result == REDISMODULE_AUTH_NOT_HANDLED) {
+        c->flags &= ~CLIENT_MODULE_AUTH_HAS_RESULT;
+        return AUTH_NOT_HANDLED;
+    }
+    if (c->flags & CLIENT_MODULE_AUTH_HAS_RESULT) {
+        c->flags &= ~CLIENT_MODULE_AUTH_HAS_RESULT;
+        if (c->authenticated) return AUTH_OK;
+    }
+    return AUTH_ERR;
 }
 
 /* This function is called from module.c in order to check if a module
@@ -7488,7 +7959,34 @@ int moduleTryServeClientBlockedOnKey(client *c, robj *key) {
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                          RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                          long long timeout_ms) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, NULL,0,NULL,0);
+}
+
+/* Block the current client for module authentication in the background. If module auth is not in
+ * progress on the client, the API returns NULL. Otherwise, the client is blocked and the RM_BlockedClient
+ * is returned similar to the RM_BlockClient API.
+ * Note: Only use this API from the context of a module auth callback. */
+RedisModuleBlockedClient *RM_BlockClientOnAuth(RedisModuleCtx *ctx, RedisModuleAuthCallback reply_callback,
+                                               void (*free_privdata)(RedisModuleCtx*,void*)) {
+    if (!clientHasModuleAuthInProgress(ctx->client)) {
+        addReplyError(ctx->client, "Module blocking client on auth when not currently undergoing module authentication");
+        return NULL;
+    }
+    RedisModuleBlockedClient *bc = moduleBlockClient(ctx,NULL,reply_callback,NULL,free_privdata,0, NULL,0,NULL,0);
+    if (ctx->client->flags & CLIENT_BLOCKED) {
+        ctx->client->flags |= CLIENT_PENDING_COMMAND;
+    }
+    return bc;
+}
+
+/* Get the private data that was previusely set on a blocked client */
+void *RM_BlockClientGetPrivateData(RedisModuleBlockedClient *blocked_client) {
+    return blocked_client->privdata;
+}
+
+/* Set private data on a blocked client */
+void RM_BlockClientSetPrivateData(RedisModuleBlockedClient *blocked_client, void *private_data) {
+    blocked_client->privdata = private_data;
 }
 
 /* This call is similar to RedisModule_BlockClient(), however in this case we
@@ -7552,7 +8050,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
                                                RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                                long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,0);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,0);
 }
 
 /* Same as RedisModule_BlockClientOnKeys, but can take REDISMODULE_BLOCK_* flags
@@ -7568,7 +8066,7 @@ RedisModuleBlockedClient *RM_BlockClientOnKeysWithFlags(RedisModuleCtx *ctx, Red
                                                         RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
                                                         long long timeout_ms, RedisModuleString **keys, int numkeys, void *privdata,
                                                         int flags) {
-    return moduleBlockClient(ctx,reply_callback,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,flags);
+    return moduleBlockClient(ctx,reply_callback,NULL,timeout_callback,free_privdata,timeout_ms, keys,numkeys,privdata,flags);
 }
 
 /* This function is used in order to potentially unblock a client blocked
@@ -7643,6 +8141,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
 int RM_AbortBlock(RedisModuleBlockedClient *bc) {
     bc->reply_callback = NULL;
     bc->disconnect_callback = NULL;
+    bc->auth_reply_cb = NULL;
     return RM_UnblockClient(bc,NULL);
 }
 
@@ -7709,16 +8208,13 @@ void moduleHandleBlockedClients(void) {
             reply_us = elapsedUs(replyTimer);
             moduleFreeContext(&ctx);
         }
-
-        /* Free privdata if any. */
-        if (bc->privdata && bc->free_privdata) {
-            RedisModuleCtx ctx;
-            int ctx_flags = c == NULL ? REDISMODULE_CTX_BLOCKED_DISCONNECTED : REDISMODULE_CTX_NONE;
-            moduleCreateContext(&ctx, bc->module, ctx_flags);
-            ctx.blocked_privdata = bc->privdata;
-            ctx.client = bc->client;
-            bc->free_privdata(&ctx,bc->privdata);
-            moduleFreeContext(&ctx);
+        /* Hold onto the blocked client if module auth is in progress. The reply callback is invoked
+         * when the client is reprocessed. */
+        if (c && clientHasModuleAuthInProgress(c)) {
+            c->module_blocked_client = bc;
+        } else {
+            /* Free privdata if any. */
+            moduleInvokeFreePrivDataCallback(c, bc);
         }
 
         /* It is possible that this blocked client object accumulated
@@ -7733,7 +8229,7 @@ void moduleHandleBlockedClients(void) {
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
          */
-        if (c && !bc->blocked_on_keys) {
+        if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
             updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
         }
 
@@ -7742,11 +8238,11 @@ void moduleHandleBlockedClients(void) {
              * to NULL, because if we reached this point, the client was
              * properly unblocked by the module. */
             bc->disconnect_callback = NULL;
-            unblockClient(c);
+            unblockClient(c, 1);
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
-            if (clientHasPendingReplies(c) &&
+            if (!clientHasModuleAuthInProgress(c) && clientHasPendingReplies(c) &&
                 !(c->flags & CLIENT_PENDING_WRITE))
             {
                 c->flags |= CLIENT_PENDING_WRITE;
@@ -7757,8 +8253,10 @@ void moduleHandleBlockedClients(void) {
         /* Free 'bc' only after unblocking the client, since it is
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
-        bc->module->blocked_clients--;
-        zfree(bc);
+        if (!(c && clientHasModuleAuthInProgress(c))) {
+            bc->module->blocked_clients--;
+            zfree(bc);
+        }
 
         /* Lock again before to iterate the loop. */
         pthread_mutex_lock(&moduleUnblockedClientsMutex);
@@ -7920,14 +8418,13 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
     zfree(ctx);
 }
 
-void moduleGILAfterLock() {
+void moduleGILAfterLock(void) {
     /* We should never get here if we already inside a module
      * code block which already opened a context. */
     serverAssert(server.execution_nesting == 0);
     /* Bump up the nesting level to prevent immediate propagation
      * of possible RM_Call from th thread */
-    server.execution_nesting++;
-    updateCachedTime(0);
+    enterExecutionUnit(1, 0);
 }
 
 /* Acquire the server lock before executing a thread safe API call.
@@ -7957,7 +8454,7 @@ int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-void moduleGILBeforeUnlock() {
+void moduleGILBeforeUnlock(void) {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
@@ -7965,7 +8462,7 @@ void moduleGILBeforeUnlock() {
     /* Restore nesting level and propagate pending commands
      * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
-    server.execution_nesting--;
+    exitExecutionUnit();
     postExecutionUnitOperations();
 }
 
@@ -8057,7 +8554,7 @@ void moduleReleaseGIL(void) {
  * that the notification code will be executed in the middle on Redis logic
  * (commands logic, eviction, expire). Changing the key space while the logic
  * runs is dangerous and discouraged. In order to react to key space events with
- * write actions, please refer to `RM_AddPostExecutionUnitJob`.
+ * write actions, please refer to `RM_AddPostNotificationJob`.
  *
  * See https://redis.io/topics/notifications for more information.
  */
@@ -8072,11 +8569,13 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     return REDISMODULE_OK;
 }
 
-void firePostExecutionUnitJobs() {
+void firePostExecutionUnitJobs(void) {
     /* Avoid propagation of commands.
      * In that way, postExecutionUnitOperations will prevent
-     * recursive calls to firePostExecutionUnitJobs. */
-    server.execution_nesting++;
+     * recursive calls to firePostExecutionUnitJobs.
+     * This is a special case where we need to increase 'execution_nesting'
+     * but we do not want to update the cached time */
+    enterExecutionUnit(0, 0);
     while (listLength(modulePostExecUnitJobs) > 0) {
         listNode *ln = listFirst(modulePostExecUnitJobs);
         RedisModulePostExecUnitJob *job = listNodeValue(ln);
@@ -8092,7 +8591,7 @@ void firePostExecutionUnitJobs() {
         moduleFreeContext(&ctx);
         zfree(job);
     }
-    server.execution_nesting--;
+    exitExecutionUnit();
 }
 
 /* When running inside a key space notification callback, it is dangerous and highly discouraged to perform any write
@@ -8123,7 +8622,7 @@ int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJo
 
 /* Get the configured bitmap of notify-keyspace-events (Could be used
  * for additional filtering in RedisModuleNotificationFunc) */
-int RM_GetNotifyKeyspaceEvents() {
+int RM_GetNotifyKeyspaceEvents(void) {
     return server.notify_keyspace_events;
 }
 
@@ -8155,8 +8654,11 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
      *
      * In order to do that we increment the execution_nesting counter, thus
      * preventing postExecutionUnitOperations (from within moduleFreeContext)
-     * from propagating commands from CB. */
-    server.execution_nesting++;
+     * from propagating commands from CB.
+     *
+     * This is a special case where we need to increase 'execution_nesting'
+     * but we do not want to update the cached time */
+    enterExecutionUnit(0, 0);
 
     listIter li;
     listNode *ln;
@@ -8187,7 +8689,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         }
     }
 
-    server.execution_nesting--;
+    exitExecutionUnit();
 }
 
 /* Unsubscribe any notification subscribers this module has upon unloading */
@@ -8835,7 +9337,7 @@ int RM_EventLoopAddOneShot(RedisModuleEventLoopOneShotFunc func, void *user_data
 
 /* This function will check the moduleEventLoopOneShots queue in order to
  * call the callback for the registered oneshot events. */
-static void eventLoopHandleOneShotEvents() {
+static void eventLoopHandleOneShotEvents(void) {
     pthread_mutex_lock(&moduleEventLoopMutex);
     if (moduleEventLoopOneShots) {
         while (listLength(moduleEventLoopOneShots)) {
@@ -9135,21 +9637,38 @@ int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, 
     return REDISMODULE_OK;
 }
 
-/* Adds a new entry in the ACL log.
- * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
- *
- * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
-int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
-    int acl_reason;
+/* Helper function to map a RedisModuleACLLogEntryReason to ACL Log entry reason. */
+int moduleGetACLLogEntryReason(RedisModuleACLLogEntryReason reason) {
+    int acl_reason = 0;
     switch (reason) {
         case REDISMODULE_ACL_LOG_AUTH: acl_reason = ACL_DENIED_AUTH; break;
         case REDISMODULE_ACL_LOG_KEY: acl_reason = ACL_DENIED_KEY; break;
         case REDISMODULE_ACL_LOG_CHANNEL: acl_reason = ACL_DENIED_CHANNEL; break;
         case REDISMODULE_ACL_LOG_CMD: acl_reason = ACL_DENIED_CMD; break;
-        default: return REDISMODULE_ERR;
+        default: break;
     }
+    return acl_reason;
+}
 
+/* Adds a new entry in the ACL log.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
+int RM_ACLAddLogEntry(RedisModuleCtx *ctx, RedisModuleUser *user, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason = moduleGetACLLogEntryReason(reason);
+    if (!acl_reason) return REDISMODULE_ERR;
     addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, user->user->name, sdsdup(object->ptr));
+    return REDISMODULE_OK;
+}
+
+/* Adds a new entry in the ACL log with the `username` RedisModuleString provided.
+ * Returns REDISMODULE_OK on success and REDISMODULE_ERR on error.
+ *
+ * For more information about ACL log, please refer to https://redis.io/commands/acl-log */
+int RM_ACLAddLogEntryByUserName(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *object, RedisModuleACLLogEntryReason reason) {
+    int acl_reason = moduleGetACLLogEntryReason(reason);
+    if (!acl_reason) return REDISMODULE_ERR;
+    addACLLogEntry(ctx->client, acl_reason, ACL_LOG_CTX_MODULE, -1, username->ptr, sdsdup(object->ptr));
     return REDISMODULE_OK;
 }
 
@@ -9187,6 +9706,10 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
 
     ctx->client->user = user;
     ctx->client->authenticated = 1;
+
+    if (clientHasModuleAuthInProgress(ctx->client)) {
+        ctx->client->flags |= CLIENT_MODULE_AUTH_HAS_RESULT;
+    }
 
     if (callback) {
         ctx->client->auth_callback = callback;
@@ -9915,7 +10438,7 @@ int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
  *
  * Here is an example:
  *
- *     int ... myCommandImplementation() {
+ *     int ... myCommandImplementation(void) {
  *        if (getExternalAPIs() == 0) {
  *             reply with an error here if we cannot have the APIs
  *        }
@@ -10215,6 +10738,9 @@ size_t RM_MallocSize(void* ptr) {
 /* Similar to RM_MallocSize, the difference is that RM_MallocUsableSize
  * returns the usable size of memory by the module. */
 size_t RM_MallocUsableSize(void *ptr) {
+    /* It is safe to use 'zmalloc_usable_size()' to manipulate additional
+     * memory space, as we guarantee that the compiler can recognize this
+     * after 'RM_Alloc', 'RM_TryAlloc', 'RM_Realloc', or 'RM_Calloc'. */
     return zmalloc_usable_size(ptr);
 }
 
@@ -10245,7 +10771,7 @@ size_t RM_MallocSizeDict(RedisModuleDict* dict) {
  * * Exactly 1 - Memory limit reached.
  * * Greater 1 - More memory used than the configured limit.
  */
-float RM_GetUsedMemoryRatio(){
+float RM_GetUsedMemoryRatio(void){
     float level;
     getMaxmemoryState(NULL, NULL, NULL, &level);
     return level;
@@ -10284,7 +10810,7 @@ static void moduleScanCallback(void *privdata, const dictEntry *de) {
 }
 
 /* Create a new cursor to be used with RedisModule_Scan */
-RedisModuleScanCursor *RM_ScanCursorCreate() {
+RedisModuleScanCursor *RM_ScanCursorCreate(void) {
     RedisModuleScanCursor* cursor = zmalloc(sizeof(*cursor));
     cursor->cursor = 0;
     cursor->done = 0;
@@ -11278,6 +11804,7 @@ void moduleInitModulesSystem(void) {
     server.loadmodule_queue = listCreate();
     server.module_configs_queue = dictCreate(&sdsKeyValueHashDictType);
     modules = dictCreate(&modulesDictType);
+    moduleAuthCallbacks = listCreate();
 
     /* Set up the keyspace notification subscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
@@ -11446,8 +11973,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
         if (cmd->key_specs[j].begin_search_type == KSPEC_BS_KEYWORD)
             zfree((char *)cmd->key_specs[j].bs.keyword.keyword);
     }
-    if (cmd->key_specs != cmd->key_specs_static)
-        zfree(cmd->key_specs);
+    zfree(cmd->key_specs);
     for (int j = 0; cmd->tips && cmd->tips[j]; j++)
         zfree((char *)cmd->tips[j]);
     zfree(cmd->tips);
@@ -11582,6 +12108,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleUnregisterSharedAPI(ctx.module);
             moduleUnregisterUsedAPI(ctx.module);
             moduleRemoveConfigs(ctx.module);
+            moduleUnregisterAuthCBs(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
@@ -11602,18 +12129,29 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         incrRefCount(ctx.module->loadmod->argv[i]);
     }
 
+    /* If module commands have ACL categories, recompute command bits 
+     * for all existing users once the modules has been registered. */
+    if (ctx.module->num_commands_with_acl_categories) {
+        ACLRecomputeCommandBitsFromCommandRulesAllUsers();
+    }
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
+    ctx.module->onload = 0;
 
+    int post_load_err = 0;
     if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {
         serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
-        moduleUnload(ctx.module->name);
-        moduleFreeContext(&ctx);
-        return C_ERR;
+        post_load_err = 1;
     }
 
     if (is_loadex && dictSize(server.module_configs_queue)) {
         serverLogRaw(LL_WARNING, "Loadex configurations were not applied, likely due to invalid arguments. Unloading the module.");
-        moduleUnload(ctx.module->name);
+        post_load_err = 1;
+    }
+
+    if (post_load_err) {
+        /* Unregister module auth callbacks (if any exist) that this Module registered onload. */
+        moduleUnregisterAuthCBs(ctx.module);
+        moduleUnload(ctx.module->name, NULL);
         moduleFreeContext(&ctx);
         return C_ERR;
     }
@@ -11628,32 +12166,29 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 }
 
 /* Unload the module registered with the specified name. On success
- * C_OK is returned, otherwise C_ERR is returned and errno is set
- * to the following values depending on the type of error:
- *
- * * ENONET: No such module having the specified name.
- * * EBUSY: The module exports a new data type and can only be reloaded. 
- * * EPERM: The module exports APIs which are used by other module. 
- * * EAGAIN: The module has blocked clients. 
- * * EINPROGRESS: The module holds timer not fired.
- * * ECANCELED: Unload module error.  */
-int moduleUnload(sds name) {
+ * C_OK is returned, otherwise C_ERR is returned and errmsg is set
+ * with an appropriate message. */
+int moduleUnload(sds name, const char **errmsg) {
     struct RedisModule *module = dictFetchValue(modules,name);
 
     if (module == NULL) {
-        errno = ENOENT;
+        *errmsg = "no such module with that name";
         return C_ERR;
     } else if (listLength(module->types)) {
-        errno = EBUSY;
+        *errmsg = "the module exports one or more module-side data "
+                  "types, can't unload";
         return C_ERR;
     } else if (listLength(module->usedby)) {
-        errno = EPERM;
+        *errmsg = "the module exports APIs used by other modules. "
+                  "Please unload them first and try again";
         return C_ERR;
     } else if (module->blocked_clients) {
-        errno = EAGAIN;
+        *errmsg = "the module has blocked clients. "
+                  "Please wait for them to be unblocked and try again";
         return C_ERR;
     } else if (moduleHoldsTimer(module)) {
-        errno = EINPROGRESS;
+        *errmsg = "the module holds timer that is not fired. "
+                  "Please stop the timer or wait until it fires.";
         return C_ERR;
     }
 
@@ -11678,6 +12213,7 @@ int moduleUnload(sds name) {
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
     moduleUnregisterFilters(module);
+    moduleUnregisterAuthCBs(module);
     moduleRemoveConfigs(module);
 
     /* Remove any notification subscribers this module might have */
@@ -11703,6 +12239,8 @@ int moduleUnload(sds name) {
     module->name = NULL; /* The name was already freed by dictDelete(). */
     moduleFreeModuleStructure(module);
 
+    /* Recompute command bits for all users once the modules has been completely unloaded. */
+    ACLRecomputeCommandBitsFromCommandRulesAllUsers();
     return C_OK;
 }
 
@@ -12010,6 +12548,10 @@ ModuleConfig *createModuleConfig(sds name, RedisModuleConfigApplyFunc apply_fn, 
 }
 
 int moduleConfigValidityCheck(RedisModule *module, sds name, unsigned int flags, configType type) {
+    if (!module->onload) {
+        errno = EBUSY;
+        return REDISMODULE_ERR;
+    }
     if (moduleVerifyConfigFlags(flags, type) || moduleVerifyConfigName(name)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
@@ -12116,6 +12658,7 @@ unsigned int maskModuleEnumConfigFlags(unsigned int flags) {
  *
  * If the registration fails, REDISMODULE_ERR is returned and one of the following
  * errno is set:
+ * * EBUSY: Registering the Config outside of RedisModule_OnLoad.
  * * EINVAL: The provided flags are invalid for the registration or the name of the config contains invalid characters.
  * * EALREADY: The provided configuration name is already used. */
 int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
@@ -12232,15 +12775,147 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
 
 /* Applies all pending configurations on the module load. This should be called
  * after all of the configurations have been registered for the module inside of RedisModule_OnLoad.
+ * This will return REDISMODULE_ERR if it is called outside RedisModule_OnLoad.
  * This API needs to be called when configurations are provided in either `MODULE LOADEX`
  * or provided as startup arguments. */
 int RM_LoadConfigs(RedisModuleCtx *ctx) {
-    if (!ctx || !ctx->module) {
+    if (!ctx || !ctx->module || !ctx->module->onload) {
         return REDISMODULE_ERR;
     }
     RedisModule *module = ctx->module;
     /* Load configs from conf file or arguments from loadex */
     if (loadModuleConfigs(module)) return REDISMODULE_ERR;
+    return REDISMODULE_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * ## RDB load/save API
+ * -------------------------------------------------------------------------- */
+
+#define REDISMODULE_RDB_STREAM_FILE 1
+
+typedef struct RedisModuleRdbStream {
+    int type;
+
+    union {
+        char *filename;
+    } data;
+} RedisModuleRdbStream;
+
+/* Create a stream object to save/load RDB to/from a file.
+ *
+ * This function returns a pointer to RedisModuleRdbStream which is owned
+ * by the caller. It requires a call to RM_RdbStreamFree() to free
+ * the object. */
+RedisModuleRdbStream *RM_RdbStreamCreateFromFile(const char *filename) {
+    RedisModuleRdbStream *stream = zmalloc(sizeof(*stream));
+    stream->type = REDISMODULE_RDB_STREAM_FILE;
+    stream->data.filename = zstrdup(filename);
+    return stream;
+}
+
+/* Release an RDB stream object. */
+void RM_RdbStreamFree(RedisModuleRdbStream *stream) {
+    switch (stream->type) {
+    case REDISMODULE_RDB_STREAM_FILE:
+        zfree(stream->data.filename);
+        break;
+    default:
+        serverAssert(0);
+        break;
+    }
+    zfree(stream);
+}
+
+/* Load RDB file from the `stream`. Dataset will be cleared first and then RDB
+ * file will be loaded.
+ *
+ * `flags` must be zero. This parameter is for future use.
+ *
+ * On success REDISMODULE_OK is returned, otherwise REDISMODULE_ERR is returned
+ * and errno is set accordingly.
+ *
+ * Example:
+ *
+ *     RedisModuleRdbStream *s = RedisModule_RdbStreamCreateFromFile("exp.rdb");
+ *     RedisModule_RdbLoad(ctx, s, 0);
+ *     RedisModule_RdbStreamFree(s);
+ */
+int RM_RdbLoad(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) {
+    UNUSED(ctx);
+
+    if (!stream || flags != 0) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    /* Not allowed on replicas. */
+    if (server.masterhost != NULL) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    }
+
+    /* Drop replicas if exist. */
+    disconnectSlaves();
+    freeReplicationBacklog();
+
+    if (server.aof_state != AOF_OFF) stopAppendOnly();
+
+    /* Kill existing RDB fork as it is saving outdated data. Also killing it
+     * will prevent COW memory issue. */
+    if (server.child_type == CHILD_TYPE_RDB) killRDBChild();
+
+    emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
+
+    /* rdbLoad() can go back to the networking and process network events. If
+     * RM_RdbLoad() is called inside a command callback, we don't want to
+     * process the current client. Otherwise, we may free the client or try to
+     * process next message while we are already in the command callback. */
+    if (server.current_client) protectClient(server.current_client);
+
+    serverAssert(stream->type == REDISMODULE_RDB_STREAM_FILE);
+    int ret = rdbLoad(stream->data.filename,NULL,RDBFLAGS_NONE);
+
+    if (server.current_client) unprotectClient(server.current_client);
+    if (server.aof_state != AOF_OFF) startAppendOnly();
+
+    if (ret != RDB_OK) {
+        errno = (ret == RDB_NOT_EXIST) ? ENOENT : EIO;
+        return REDISMODULE_ERR;
+    }
+
+    errno = 0;
+    return REDISMODULE_OK;
+}
+
+/* Save dataset to the RDB stream.
+ *
+ * `flags` must be zero. This parameter is for future use.
+ *
+ * On success REDISMODULE_OK is returned, otherwise REDISMODULE_ERR is returned
+ * and errno is set accordingly.
+ *
+ * Example:
+ *
+ *     RedisModuleRdbStream *s = RedisModule_RdbStreamCreateFromFile("exp.rdb");
+ *     RedisModule_RdbSave(ctx, s, 0);
+ *     RedisModule_RdbStreamFree(s);
+ */
+int RM_RdbSave(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) {
+    UNUSED(ctx);
+
+    if (!stream || flags != 0) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    serverAssert(stream->type == REDISMODULE_RDB_STREAM_FILE);
+
+    if (rdbSaveToFile(stream->data.filename) != C_OK) {
+        return REDISMODULE_ERR;
+    }
+
+    errno = 0;
     return REDISMODULE_OK;
 }
 
@@ -12301,35 +12976,13 @@ NULL
         }
 
     } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {
-        if (moduleUnload(c->argv[2]->ptr) == C_OK)
+        const char *errmsg = NULL;
+        if (moduleUnload(c->argv[2]->ptr, &errmsg) == C_OK)
             addReply(c,shared.ok);
         else {
-            char *errmsg;
-            switch(errno) {
-            case ENOENT:
-                errmsg = "no such module with that name";
-                break;
-            case EBUSY:
-                errmsg = "the module exports one or more module-side data "
-                         "types, can't unload";
-                break;
-            case EPERM:
-                errmsg = "the module exports APIs used by other modules. "
-                         "Please unload them first and try again";
-                break;
-            case EAGAIN:
-                errmsg = "the module has blocked clients. "
-                         "Please wait them unblocked and try again";
-                break;
-            case EINPROGRESS:
-                errmsg = "the module holds timer that is not fired. "
-                         "Please stop the timer or wait until it fires.";
-                break;
-            default:
-                errmsg = "operation not possible.";
-                break;
-            }
-            addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
+            if (errmsg == NULL) errmsg = "operation not possible.";
+            addReplyErrorFormat(c, "Error unloading module: %s", errmsg);
+            serverLog(LL_WARNING, "Error unloading module %s: %s", (sds) c->argv[2]->ptr, errmsg);
         }
     } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
         addReplyLoadedModules(c);
@@ -12415,7 +13068,7 @@ int RM_GetLFU(RedisModuleKey *key, long long *lfu_freq) {
  *              // REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS is not supported
  *        }
  */
-int RM_GetModuleOptionsAll() {
+int RM_GetModuleOptionsAll(void) {
     return _REDISMODULE_OPTIONS_FLAGS_NEXT - 1;
 }
 
@@ -12432,7 +13085,7 @@ int RM_GetModuleOptionsAll() {
  *              // REDISMODULE_CTX_FLAGS_MULTI is not supported
  *        }
  */
-int RM_GetContextFlagsAll() {
+int RM_GetContextFlagsAll(void) {
     return _REDISMODULE_CTX_FLAGS_NEXT - 1;
 }
 
@@ -12449,7 +13102,7 @@ int RM_GetContextFlagsAll() {
  *              // REDISMODULE_NOTIFY_LOADED is not supported
  *        }
  */
-int RM_GetKeyspaceNotificationFlagsAll() {
+int RM_GetKeyspaceNotificationFlagsAll(void) {
     return _REDISMODULE_NOTIFY_NEXT - 1;
 }
 
@@ -12457,7 +13110,7 @@ int RM_GetKeyspaceNotificationFlagsAll() {
  * Return the redis version in format of 0x00MMmmpp.
  * Example for 6.0.7 the return value will be 0x00060007.
  */
-int RM_GetServerVersion() {
+int RM_GetServerVersion(void) {
     return REDIS_VERSION_NUM;
 }
 
@@ -12466,7 +13119,7 @@ int RM_GetServerVersion() {
  * You can use that when calling RM_CreateDataType to know which fields of
  * RedisModuleTypeMethods are gonna be supported and which will be ignored.
  */
-int RM_GetTypeMethodVersion() {
+int RM_GetTypeMethodVersion(void) {
     return REDISMODULE_TYPE_METHOD_VERSION;
 }
 
@@ -12806,11 +13459,13 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCommand);
     REGISTER_API(CreateSubcommand);
     REGISTER_API(SetCommandInfo);
+    REGISTER_API(SetCommandACLCategories);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);
     REGISTER_API(ReplyWithError);
+    REGISTER_API(ReplyWithErrorFormat);
     REGISTER_API(ReplyWithSimpleString);
     REGISTER_API(ReplyWithArray);
     REGISTER_API(ReplyWithMap);
@@ -12864,6 +13519,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CallReplySetElement);
     REGISTER_API(CallReplyMapElement);
     REGISTER_API(CallReplyAttributeElement);
+    REGISTER_API(CallReplyPromiseSetUnblockHandler);
+    REGISTER_API(CallReplyPromiseAbort);
     REGISTER_API(CallReplyAttribute);
     REGISTER_API(CallReplyType);
     REGISTER_API(CallReplyLength);
@@ -12978,6 +13635,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetKeyNameFromDigest);
     REGISTER_API(GetDbIdFromDigest);
     REGISTER_API(BlockClient);
+    REGISTER_API(BlockClientGetPrivateData);
+    REGISTER_API(BlockClientSetPrivateData);
+    REGISTER_API(BlockClientOnAuth);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);
     REGISTER_API(IsBlockedTimeoutRequest);
@@ -13104,6 +13764,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ACLCheckKeyPermissions);
     REGISTER_API(ACLCheckChannelPermissions);
     REGISTER_API(ACLAddLogEntry);
+    REGISTER_API(ACLAddLogEntryByUserName);
     REGISTER_API(FreeModuleUser);
     REGISTER_API(DeauthenticateAndCloseClient);
     REGISTER_API(AuthenticateClientWithACLUser);
@@ -13134,4 +13795,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RegisterStringConfig);
     REGISTER_API(RegisterEnumConfig);
     REGISTER_API(LoadConfigs);
+    REGISTER_API(RegisterAuthCallback);
+    REGISTER_API(RdbStreamCreateFromFile);
+    REGISTER_API(RdbStreamFree);
+    REGISTER_API(RdbLoad);
+    REGISTER_API(RdbSave);
 }
