@@ -5407,7 +5407,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
          * set by streamAppendItem. */
-        moduleDelKeyIfEmpty(key);
+        if (created) moduleDelKeyIfEmpty(key);
         return REDISMODULE_ERR;
     }
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
