@@ -6591,6 +6591,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+        int rsi_is_valid = 0;
         errno = 0; /* Prevent a stale value from affecting error checking */
         int rdb_flags = RDBFLAGS_NONE;
         if (iAmMaster()) {
@@ -6611,6 +6612,7 @@ void loadDataFromDisk(void) {
                  * information in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
+                rsi_is_valid = 1;
                 if (!iAmMaster()) {
                     memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                     server.master_repl_offset = rsi.repl_offset;
@@ -6644,7 +6646,7 @@ void loadDataFromDisk(void) {
          * if RDB doesn't have replication info or there is no rdb, it is not
          * possible to support partial resynchronization, to avoid extra memory
          * of replication backlog, we drop it. */
-        if (server.master_repl_offset == 0 && server.repl_backlog)
+        if (!rsi_is_valid && server.repl_backlog)
             freeReplicationBacklog();
     }
 }
