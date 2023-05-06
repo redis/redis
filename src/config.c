@@ -79,6 +79,7 @@ configEnum loglevel_enum[] = {
     {"verbose", LL_VERBOSE},
     {"notice", LL_NOTICE},
     {"warning", LL_WARNING},
+    {"nothing", LL_NOTHING},
     {NULL,0}
 };
 
