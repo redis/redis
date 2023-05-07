@@ -53,11 +53,11 @@ robj *setTypeCreate(sds value, size_t size_hint) {
 
 /* Check if the existing set should be converted to another encoding based off the
  * the size hint. */
-void setTypeTryConvert(robj *set, size_t size_hint) {
+void setTypeMaybeConvert(robj *set, size_t size_hint) {
     if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint >= server.set_max_listpack_entries)
         || (set->encoding == OBJ_ENCODING_INTSET && size_hint >= server.set_max_intset_entries))
     {
-        setTypeConvert(set, OBJ_ENCODING_HT);
+        setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
     }
 }
 
@@ -608,7 +608,7 @@ void saddCommand(client *c) {
         set = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[1],set);
     } else {
-        setTypeTryConvert(set, c->argc - 2);
+        setTypeMaybeConvert(set, c->argc - 2);
     }
 
     for (j = 2; j < c->argc; j++) {
