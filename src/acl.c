@@ -394,6 +394,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
     u->passwords = listCreate();
     u->acl_string = NULL;
+    u->channels_cache = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetDupMethod(u->passwords,ACLListDupSds);
@@ -437,6 +438,7 @@ void ACLFreeUser(user *u) {
     }
     listRelease(u->passwords);
     listRelease(u->selectors);
+    listRelease(u->channels_cache);
     zfree(u);
 }
 
@@ -1856,20 +1858,21 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }
 
-/* Check if the user's existing pub/sub clients violate the ACL pub/sub
- * permissions specified via the upcoming argument, and kill them if so. */
-void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+/* Check if the client should be killed because it is subscribed to channels that were
+ * permitted for the user `original` but not `new`. If `client` is NULL, this function
+ * will return 0 if-and-only-if _all_ channels permitted for `original` user are valid
+ * for `new` user. */
+int ACLShouldKillPubsubClient(user *new, user *original, client *c) {
     listIter li, lpi;
     listNode *ln, *lpn;
     robj *o;
-    int kill = 0;
-    
+
     /* First optimization is we check if any selector has all channel
      * permissions. */
     listRewind(new->selectors,&li);
     while((ln = listNext(&li))) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
-        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return;
+        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return 0;
     }
 
     /* Second optimization is to check if the new list of channels
@@ -1877,15 +1880,18 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
      * created an "upcoming" list of all channels that are in
      * the new user and checking each of the existing channels
      * against it.  */
-    list *upcoming = listCreate();
-    listRewind(new->selectors,&li);
-    while((ln = listNext(&li))) {
-        aclSelector *s = (aclSelector *) listNodeValue(ln);
-        listRewind(s->channels, &lpi);
-        while((lpn = listNext(&lpi))) {
-            listAddNodeTail(upcoming, listNodeValue(lpn));
+    if (!new->channels_cache) {
+        new->channels_cache = listCreate();
+        listRewind(new->selectors, &li);
+        while ((ln = listNext(&li))) {
+            aclSelector *s = (aclSelector *) listNodeValue(ln);
+            listRewind(s->channels, &lpi);
+            while ((lpn = listNext(&lpi))) {
+                listAddNodeTail(new->channels_cache, listNodeValue(lpn));
+            }
         }
     }
+    list *upcoming = new->channels_cache;
 
     int match = 1;
     listRewind(original->selectors,&li);
@@ -1909,58 +1915,79 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
 
     if (match) {
         /* All channels were matched, no need to kill clients. */
-        listRelease(upcoming);
-        return;
+        return 0;
     }
-    
+
+    if (!c)
+        return 1;
+
+    /* Permissions have changed, so we need to check if this client's permissions are still valid. */
+    int kill = 0;
+
+    if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
+        /* Check for pattern violations. */
+        listRewind(c->pubsub_patterns,&lpi);
+        while (!kill && ((lpn = listNext(&lpi)) != NULL)) {
+
+            o = lpn->value;
+            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
+            kill = (res == ACL_DENIED_CHANNEL);
+        }
+        /* Check for channel violations. */
+        if (!kill) {
+            /* Check for global channels violation. */
+            dictIterator *di = dictGetIterator(c->pubsub_channels);
+
+            dictEntry *de;
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
+                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+                kill = (res == ACL_DENIED_CHANNEL);
+            }
+            dictReleaseIterator(di);
+
+            /* Check for shard channels violation. */
+            di = dictGetIterator(c->pubsubshard_channels);
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
+                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+                kill = (res == ACL_DENIED_CHANNEL);
+            }
+            dictReleaseIterator(di);
+        }
+
+        if (kill) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Check if the user's existing pub/sub clients violate the ACL pub/sub
+ * permissions specified via the upcoming argument, and kill them if so. */
+void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+    /* Before iterating over clients, check if the new user's pubsub permissions
+     * are a strict superset of the original. */
+    if (!ACLShouldKillPubsubClient(new, original, NULL))
+        goto done;
+
+    listIter li;
+    listNode *ln;
+
     /* Permissions have changed, so we need to iterate through all
      * the clients and disconnect those that are no longer valid.
      * Scan all connected clients to find the user's pub/subs. */
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        kill = 0;
-
-        if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
-            /* Check for pattern violations. */
-            listRewind(c->pubsub_patterns,&lpi);
-            while (!kill && ((lpn = listNext(&lpi)) != NULL)) {
-
-                o = lpn->value;
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            /* Check for channel violations. */
-            if (!kill) {
-                /* Check for global channels violation. */
-                dictIterator *di = dictGetIterator(c->pubsub_channels);
-
-                dictEntry *de;                
-                while (!kill && ((de = dictNext(di)) != NULL)) {
-                    o = dictGetKey(de);
-                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                    kill = (res == ACL_DENIED_CHANNEL);
-                }
-                dictReleaseIterator(di);
-
-                /* Check for shard channels violation. */
-                di = dictGetIterator(c->pubsubshard_channels);
-                while (!kill && ((de = dictNext(di)) != NULL)) {
-                    o = dictGetKey(de);
-                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                    kill = (res == ACL_DENIED_CHANNEL);
-                }
-
-                dictReleaseIterator(di);
-            }
-
-            /* Kill it. */
-            if (kill) {
-                freeClient(c);
-            }
-        }
+        if (ACLShouldKillPubsubClient(new, original, c))
+            freeClient(c);
     }
-    listRelease(upcoming);
+
+done:
+    /* Free cache [possibly] allocated by `ACLShouldKillPubsubClient`. */
+    listRelease(new->channels_cache);
+    new->channels_cache = NULL;
 }
 
 /* =============================================================================
@@ -2366,7 +2393,34 @@ sds ACLLoadFromFile(const char *filename) {
         ACLFreeUser(new_default);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
-        ACLFreeUsersSet(old_users);
+
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.clients,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            user *original = c->user;
+            user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
+            if (!new || ACLShouldKillPubsubClient(new, original, c)) {
+                freeClient(c);
+                continue;
+            }
+            c->user = new;
+        }
+
+        /* Release the caches allocated by calls to `ACLShouldKillPubsubClient`. */
+        raxIterator ri;
+        raxStart(&ri,Users);
+        raxSeek(&ri,"^",NULL,0);
+        while(raxNext(&ri)) {
+            user *u = ri.data;
+            listRelease(u->channels_cache);
+            u->channels_cache = NULL;
+        }
+        raxStop(&ri);
+
+        raxFreeWithCallback(old_users,(void(*)(void*))ACLFreeUser);
         sdsfree(errors);
         return NULL;
     } else {

@@ -984,16 +984,45 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         set e
     } {*NOPERM*set*}
 
+    test {SLAVAK 1} {
+        reconnect
+        r ACL SETUSER doug on nopass resetchannels &test* +@all ~*
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $rd1 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+
+        $rd2 AUTH doug doug
+        $rd2 read
+        $rd2 SUBSCRIBE test1
+        $rd2 read
+
+        r ACL LOAD
+        r PUBLISH test1 test-message
+
+        # Permissions for 'alice' haven't changed, so they should still be connected
+        assert_match {*test-message*} [$rd1 read]
+
+        # 'doug' no longer has access to "test1" channel, so they should get disconnected
+        catch {$rd2 read} e
+        assert_match {*I/O error*} $e
+
+        $rd1 close
+        $rd2 close
+    }
+
     test {ACL load and save} {
         r ACL setuser eve +get allkeys >eve on
         r ACL save
 
-        # ACL load will free user and kill clients
         r ACL load
-        catch {r ACL LIST} e
-        assert_match {*I/O error*} $e
 
-        reconnect
+        # Clients should not be disconnected since permissions haven't changed
+
         r AUTH alice alice
         r SET key value
         r AUTH eve eve
@@ -1007,12 +1036,10 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         r ACL setuser harry on nopass resetchannels &test +@all ~*
         r ACL save
 
-        # ACL load will free user and kill clients
         r ACL load
-        catch {r ACL LIST} e
-        assert_match {*I/O error*} $e
 
-        reconnect
+        # Clients should not be disconnected since permissions haven't changed
+
         r AUTH harry anything
         r publish test bar
         catch {r publish test1 bar} e

@@ -1089,6 +1089,8 @@ typedef struct {
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
     robj *acl_string; /* cached string represent of ACLs */
+    list *channels_cache; /* All channels included in the selectors for this user.
+                             This is used as a cache and will usually be NULL. */
 } user;
 
 /* With multiplexing we need to take per-client state.
