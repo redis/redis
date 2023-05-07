@@ -6,26 +6,6 @@
 #include "jemalloc/internal/sc.h"
 #include "jemalloc/internal/witness.h"
 
-bin_info_t bin_infos[SC_NBINS];
-
-static void
-bin_infos_init(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS],
-    bin_info_t bin_infos[SC_NBINS]) {
-	for (unsigned i = 0; i < SC_NBINS; i++) {
-		bin_info_t *bin_info = &bin_infos[i];
-		sc_t *sc = &sc_data->sc[i];
-		bin_info->reg_size = ((size_t)1U << sc->lg_base)
-		    + ((size_t)sc->ndelta << sc->lg_delta);
-		bin_info->slab_size = (sc->pgs << LG_PAGE);
-		bin_info->nregs =
-		    (uint32_t)(bin_info->slab_size / bin_info->reg_size);
-		bin_info->n_shards = bin_shard_sizes[i];
-		bitmap_info_t bitmap_info = BITMAP_INFO_INITIALIZER(
-		    bin_info->nregs);
-		bin_info->bitmap_info = bitmap_info;
-	}
-}
-
 bool
 bin_update_shard_size(unsigned bin_shard_sizes[SC_NBINS], size_t start_size,
     size_t end_size, size_t nshards) {
@@ -58,12 +38,6 @@ bin_shard_sizes_boot(unsigned bin_shard_sizes[SC_NBINS]) {
 	}
 }
 
-void
-bin_boot(sc_data_t *sc_data, unsigned bin_shard_sizes[SC_NBINS]) {
-	assert(sc_data->initialized);
-	bin_infos_init(sc_data, bin_shard_sizes, bin_infos);
-}
-
 bool
 bin_init(bin_t *bin) {
 	if (malloc_mutex_init(&bin->lock, "bin", WITNESS_RANK_BIN,
@@ -71,8 +45,8 @@ bin_init(bin_t *bin) {
 		return true;
 	}
 	bin->slabcur = NULL;
-	extent_heap_new(&bin->slabs_nonfull);
-	extent_list_init(&bin->slabs_full);
+	edata_heap_new(&bin->slabs_nonfull);
+	edata_list_active_init(&bin->slabs_full);
 	if (config_stats) {
 		memset(&bin->stats, 0, sizeof(bin_stats_t));
 	}
