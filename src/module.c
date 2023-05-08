@@ -140,6 +140,7 @@ typedef struct RedisModulePoolAllocBlock {
 
 struct RedisModuleBlockedClient;
 struct RedisModuleUser;
+struct RedisModuleClient;
 
 struct RedisModuleCtx {
     void *getapifuncptr;            /* NOTE: Must be the first field. */
@@ -167,6 +168,9 @@ struct RedisModuleCtx {
 
     const struct RedisModuleUser *user;  /* RedisModuleUser commands executed via
                                             RM_Call should be executed as, if set */
+
+    const struct RedisModuleClient *persistent_client;   /* persistent client to use for repeated RM_Calls.
+                                                            Not freed at end of an RM_Call */
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
@@ -426,6 +430,10 @@ typedef struct RedisModuleUser {
     user *user; /* Reference to the real redis user */
     int free_user; /* Indicates that user should also be freed when this object is freed */
 } RedisModuleUser;
+
+typedef struct RedisModuleClient {
+    client *client;
+} RedisModuleClient;
 
 /* This is a structure used to export some meta-information such as dbid to the module. */
 typedef struct RedisModuleKeyOptCtx {
@@ -5984,8 +5992,48 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
 }
 
 /* Modifies the user that RM_Call will use (e.g. for ACL checks) */
-void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
+void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user)
+{
     ctx->user = user;
+}
+
+RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx, const RedisModuleUser *rmu)
+{
+    UNUSED(ctx);
+
+    user *u = rmu ? rmu->user : NULL;
+    client *c = moduleAllocTempClient(u);
+
+    RedisModuleClient *rmc = zmalloc(sizeof(RedisModuleClient));
+    rmc->client = c;
+
+    return rmc;
+}
+
+void RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client)
+{
+    UNUSED(ctx);
+
+    if (!client) return;
+    if (client->client) moduleReleaseTempClient(client->client);
+    zfree(client);
+}
+
+void RM_SetContextClient(RedisModuleCtx *ctx, RedisModuleClient *client)
+{
+    ctx->persistent_client = client;
+}
+
+uint64_t RM_GetClientFlags(RedisModuleClient *client)
+{
+    uint64_t flags = 0;
+
+    if (client->client->flags & CLIENT_DIRTY_CAS)
+        flags |= REDISMODULE_CLIENT_FLAG_DIRTY_CAS;
+    if (client->client->flags & CLIENT_DIRTY_EXEC)
+        flags |= REDISMODULE_CLIENT_FLAG_DIRTY_EXEC;
+
+    return flags;
 }
 
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
@@ -6092,6 +6140,12 @@ fmterr:
         decrRefCount(argv[j]);
     zfree(argv);
     return NULL;
+}
+
+static void moduleFreeArgv(robj **argv, int argc) {
+    for (int j = 0; j < argc; j++)
+        decrRefCount(argv[j]);
+    zfree(argv);
 }
 
 /* Exported API to call any Redis command from modules.
@@ -6224,11 +6278,17 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
                 sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
                 reply = callReplyCreateError(msg, ctx);
             }
+            moduleFreeArgv(argv, argc);
             return reply;
         }
     }
 
-    c = moduleAllocTempClient(user);
+    if (ctx->persistent_client) {
+        serverAssert(!(flags & REDISMODULE_ARGV_ALLOW_BLOCK));
+        c = ctx->persistent_client->client;
+    } else {
+        c = moduleAllocTempClient(user);
+    }
 
     if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
         /* We do not want to allow block, the module do not expect it */
@@ -6446,6 +6506,19 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
+    if (ctx->persistent_client &&
+        c->flags & CLIENT_MULTI &&
+        c->cmd->proc != execCommand &&
+        c->cmd->proc != discardCommand &&
+        c->cmd->proc != multiCommand &&
+        c->cmd->proc != watchCommand &&
+        c->cmd->proc != quitCommand &&
+        c->cmd->proc != resetCommand) {
+        queueMultiCommand(c, cmd_flags);
+        reply = callReplyCreate(sdsdup(shared.ok->ptr), NULL, ctx);
+        goto cleanup;
+    }
+
     /* We need to use a global replication_allowed flag in order to prevent
      * replication of nested RM_Calls. Example:
      * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
@@ -6498,7 +6571,15 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 cleanup:
     if (reply) autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
     if (ctx->module) ctx->module->in_call--;
-    if (c) moduleReleaseTempClient(c);
+    if (!ctx->persistent_client) {
+        if (c) {
+            moduleReleaseTempClient(c);
+        }
+    } else {
+        moduleFreeArgv(c->argv, c->argc);
+        c->argv = NULL;
+        c->argc = 0;
+    }
     return reply;
 }
 
@@ -13803,4 +13884,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RdbStreamFree);
     REGISTER_API(RdbLoad);
     REGISTER_API(RdbSave);
+    REGISTER_API(CreateModuleClient);
+    REGISTER_API(FreeModuleClient);
+    REGISTER_API(SetContextClient);
+    REGISTER_API(GetClientFlags);
 }

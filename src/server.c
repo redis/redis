@@ -3376,7 +3376,7 @@ void postExecutionUnitOperations(void) {
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
  * The decision which counter to increment is done using the flags argument, options are:
- * * ERROR_COMMAND_REJECTED - update rejected_calls
+ * * ERROR_COMMAND_REJECTED - update rejected_callsb
  * * ERROR_COMMAND_FAILED - update failed_calls
  *
  * The function also reset the prev_err_count to make sure we will not count the same error
