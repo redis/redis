@@ -787,6 +787,10 @@ static int connTLSAddr(connection *conn, char *ip, size_t ip_len, int *port, int
     return anetFdToString(conn->fd, ip, ip_len, port, remote);
 }
 
+static int connTLSIsLocal(connection *conn) {
+    return connectionTypeTcp()->is_local(conn);
+}
+
 static int connTLSListen(connListener *listener) {
     return listenToPort(listener);
 }
@@ -1058,13 +1062,13 @@ static const char *connTLSGetType(connection *conn_) {
     return CONN_TYPE_TLS;
 }
 
-static int tlsHasPendingData() {
+static int tlsHasPendingData(void) {
     if (!pending_list)
         return 0;
     return listLength(pending_list) > 0;
 }
 
-static int tlsProcessPendingData() {
+static int tlsProcessPendingData(void) {
     listIter li;
     listNode *ln;
 
@@ -1114,6 +1118,7 @@ static ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept_handler = tlsAcceptHandler,
     .addr = connTLSAddr,
+    .is_local = connTLSIsLocal,
     .listen = connTLSListen,
 
     /* create/shutdown/close connection */
@@ -1146,13 +1151,13 @@ static ConnectionType CT_TLS = {
     .get_peer_cert = connTLSGetPeerCert,
 };
 
-int RedisRegisterConnectionTypeTLS() {
+int RedisRegisterConnectionTypeTLS(void) {
     return connTypeRegister(&CT_TLS);
 }
 
 #else   /* USE_OPENSSL */
 
-int RedisRegisterConnectionTypeTLS() {
+int RedisRegisterConnectionTypeTLS(void) {
     serverLog(LL_VERBOSE, "Connection type %s not builtin", CONN_TYPE_TLS);
     return C_ERR;
 }

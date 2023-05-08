@@ -1,6 +1,6 @@
 {
     "HMGET": {
-        "summary": "Get the values of all the given hash fields",
+        "summary": "Returns the values of all fields in a hash.",
         "complexity": "O(N) where N is the number of fields being requested.",
         "group": "hash",
         "since": "2.0.0",
@@ -33,6 +33,21 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "List of values associated with the given fields, in the same order as they are requested.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "null"
+                    }
+                ]
+            }
+        },
         "arguments": [
             {
                 "name": "key",

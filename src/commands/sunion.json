@@ -1,6 +1,6 @@
 {
     "SUNION": {
-        "summary": "Add multiple sets",
+        "summary": "Returns the union of multiple sets.",
         "complexity": "O(N) where N is the total number of elements in all given sets.",
         "group": "set",
         "since": "1.0.0",
@@ -35,6 +35,14 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List with the members of the resulting set.",
+            "uniqueItems": true,
+            "items": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "key",

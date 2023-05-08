@@ -14,6 +14,26 @@ start_server {tags {"modules"}} {
         assert_equal 0 [r exists k]
     }
 
+    test {Module zset add} {
+        r del k
+        # Check that failure does not create empty key
+        assert_error "ERR ZsetAdd failed" {r zset.add k nan hello}
+        assert_equal 0 [r exists k]
+
+        r zset.add k 100 hello
+        assert_equal {hello 100} [r zrange k 0 -1 withscores]
+    }
+
+    test {Module zset incrby} {
+        r del k
+        # Check that failure does not create empty key
+        assert_error "ERR ZsetIncrby failed" {r zset.incrby k hello nan}
+        assert_equal 0 [r exists k]
+
+        r zset.incrby k hello 100
+        assert_equal {hello 100} [r zrange k 0 -1 withscores]
+    }
+
     test "Unload the module - zset" {
         assert_equal {OK} [r module unload zset]
     }

@@ -103,6 +103,37 @@ int longlongApplyFunc(RedisModuleCtx *ctx, void *privdata, RedisModuleString **e
     return REDISMODULE_OK;
 }
 
+int registerBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    int response_ok = 0;
+    int result = RedisModule_RegisterBoolConfig(ctx, "mutable_bool", 1, REDISMODULE_CONFIG_DEFAULT, getBoolConfigCommand, setBoolConfigCommand, boolApplyFunc, &mutable_bool_val);
+    response_ok |= (result == REDISMODULE_OK);
+
+    result = RedisModule_RegisterStringConfig(ctx, "string", "secret password", REDISMODULE_CONFIG_DEFAULT, getStringConfigCommand, setStringConfigCommand, NULL, NULL);
+    response_ok |= (result == REDISMODULE_OK);
+
+    const char *enum_vals[] = {"none", "five", "one", "two", "four"};
+    const int int_vals[] = {0, 5, 1, 2, 4};
+    result = RedisModule_RegisterEnumConfig(ctx, "enum", 1, REDISMODULE_CONFIG_DEFAULT, enum_vals, int_vals, 5, getEnumConfigCommand, setEnumConfigCommand, NULL, NULL);
+    response_ok |= (result == REDISMODULE_OK);
+
+    result = RedisModule_RegisterNumericConfig(ctx, "numeric", -1, REDISMODULE_CONFIG_DEFAULT, -5, 2000, getNumericConfigCommand, setNumericConfigCommand, longlongApplyFunc, &longval);
+    response_ok |= (result == REDISMODULE_OK);
+
+    result = RedisModule_LoadConfigs(ctx);
+    response_ok |= (result == REDISMODULE_OK);
+    
+    /* This validates that it's not possible to register/load configs outside OnLoad,
+     * thus returns an error if they succeed. */
+    if (response_ok) {
+        RedisModule_ReplyWithError(ctx, "UNEXPECTEDOK");
+    } else {
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -147,6 +178,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         }
         return REDISMODULE_ERR;
     }
+    /* Creates a command which registers configs outside OnLoad() function. */
+    if (RedisModule_CreateCommand(ctx,"block.register.configs.outside.onload", registerBlockCheck, "write", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+  
     return REDISMODULE_OK;
 }
 

@@ -335,6 +335,15 @@ static int connSocketAddr(connection *conn, char *ip, size_t ip_len, int *port, 
     return C_ERR;
 }
 
+static int connSocketIsLocal(connection *conn) {
+    char cip[NET_IP_STR_LEN + 1] = { 0 };
+
+    if (connSocketAddr(conn, cip, sizeof(cip) - 1, NULL, 1) == C_ERR)
+        return -1;
+
+    return !strncmp(cip, "127.", 4) || !strcmp(cip, "::1");
+}
+
 static int connSocketListen(connListener *listener) {
     return listenToPort(listener);
 }
@@ -392,6 +401,7 @@ static ConnectionType CT_Socket = {
     .ae_handler = connSocketEventHandler,
     .accept_handler = connSocketAcceptHandler,
     .addr = connSocketAddr,
+    .is_local = connSocketIsLocal,
     .listen = connSocketListen,
 
     /* create/shutdown/close connection */
@@ -454,7 +464,7 @@ int connRecvTimeout(connection *conn, long long ms) {
     return anetRecvTimeout(NULL, conn->fd, ms);
 }
 
-int RedisRegisterConnectionTypeSocket()
+int RedisRegisterConnectionTypeSocket(void)
 {
     return connTypeRegister(&CT_Socket);
 }

@@ -113,6 +113,9 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
+        if (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH &&
+            server.current_client->cmd->proc != touchCommand)
+            flags |= LOOKUP_NOTOUCH;
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
@@ -230,7 +233,6 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
-    dictEntry auxentry = *de;
     robj *old = dictGetVal(de);
 
     val->lru = old->lru;
@@ -248,17 +250,15 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
         decrRefCount(old);
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
-        /* Entry in auxentry may be changed, so we need update auxentry */
-        auxentry = *de;
     }
     dictSetVal(db->dict, de, val);
 
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key,old,db->id);
-        dictSetVal(db->dict, &auxentry, NULL);
+    } else {
+        /* This is just decrRefCount(old); */
+        db->dict->type->valDestructor(db->dict, old);
     }
-
-    dictFreeVal(db->dict, &auxentry);
 }
 
 /* Replace an existing key with a new value, we just replace value and don't
@@ -564,7 +564,7 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
-long long dbTotalServerKeyCount() {
+long long dbTotalServerKeyCount(void) {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
@@ -645,7 +645,7 @@ void flushAllDataAndResetRDB(int flags) {
     if (server.saveparamslen > 0) {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
-        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr);
+        rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE);
     }
 
 #if defined(USE_JEMALLOC)
@@ -698,7 +698,7 @@ void flushallCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-/* This command implements DEL and LAZYDEL. */
+/* This command implements DEL and UNLINK. */
 void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
@@ -776,18 +776,19 @@ void keysCommand(client *c) {
 
     di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && plen == 1);
+    robj keyobj;
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
-        robj *keyobj;
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            keyobj = createStringObject(key,sdslen(key));
-            if (!keyIsExpired(c->db,keyobj)) {
-                addReplyBulk(c,keyobj);
+            initStaticStringObject(keyobj, key);
+            if (!keyIsExpired(c->db, &keyobj)) {
+                addReplyBulkCBuffer(c, key, sdslen(key));
                 numkeys++;
             }
-            decrRefCount(keyobj);
         }
+        if (c->flags & CLIENT_CLOSE_ASAP)
+            break;
     }
     dictReleaseIterator(di);
     setDeferredArrayLen(c,replylen,numkeys);
@@ -944,7 +945,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         privdata[0] = keys;
         privdata[1] = o;
         do {
-            cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
+            cursor = dictScan(ht, cursor, scanCallback, privdata);
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
@@ -1149,7 +1150,7 @@ void shutdownCommand(client *c) {
         return;
     }
 
-    blockClient(c, BLOCKED_SHUTDOWN);
+    blockClientShutdown(c);
     if (prepareForShutdown(flags) == C_OK) exit(0);
     /* If we're here, then shutdown is ongoing (the client is still blocked) or
      * failed (the client has received an error). */
@@ -1625,8 +1626,8 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
  *    because call() handles server.also_propagate(); or
  * 2. Outside of call(): Example: Active-expire, eviction.
  *    In this the caller must remember to call
- *    propagatePendingCommands, preferably at the end of
- *    the deletion batch, so that DELs will be wrapped
+ *    postExecutionUnitOperations, preferably just after a
+ *    single deletion batch, so that DELs will NOT be wrapped
  *    in MULTI/EXEC */
 void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
@@ -1711,7 +1712,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      * When replicating commands from the master, keys are never considered
      * expired. */
     if (server.masterhost != NULL) {
-        if (server.current_client == server.master) return 0;
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return 0;
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
     }
 

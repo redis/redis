@@ -132,7 +132,7 @@ start_cluster 3 0 [list config_lines $modules] {
 
     test "Kill a cluster node and wait for fail state" {
         # kill node3 in cluster
-        exec kill -SIGSTOP $node3_pid
+        pause_process $node3_pid
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {fail} &&
@@ -158,7 +158,7 @@ start_cluster 3 0 [list config_lines $modules] {
         assert_error "ERR Can not execute a command 'set' while the cluster is down" {$node1 do_rm_call set x 1}
     }
 
-    exec kill -SIGCONT $node3_pid
+    resume_process $node3_pid
     $node1_rd close
     $node2_rd close
 }

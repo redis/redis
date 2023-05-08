@@ -119,6 +119,10 @@ start_server {tags {"scripting"}} {
         r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
     } {myval}
 
+    test {EVALSHA_RO - Can we call a SHA1 if already defined?} {
+        r evalsha_ro fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
+    } {myval}
+
     test {EVALSHA - Can we call a SHA1 in uppercase?} {
         r evalsha FD758D1589D044DD850A6F05D52F2EEFD27F033F 1 mykey
     } {myval}
@@ -213,41 +217,45 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
-    test {EVAL - Scripts can't run blpop command} {
-        set e {}
-        catch {run_script {return redis.pcall('blpop','x',0)} 1 x} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on blpop command} {
+        r lpush l 1
+        r lpop l
+        run_script {return redis.pcall('blpop','l',0)} 1 l
+    } {}
 
-    test {EVAL - Scripts can't run brpop command} {
-        set e {}
-        catch {run_script {return redis.pcall('brpop','empty_list',0)} 1 empty_list} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on brpop command} {
+        r lpush l 1
+        r lpop l
+        run_script {return redis.pcall('brpop','l',0)} 1 l
+    } {}
 
-    test {EVAL - Scripts can't run brpoplpush command} {
-        set e {}
-        catch {run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on brpoplpush command} {
+        r lpush empty_list1{t} 1
+        r lpop empty_list1{t}
+        run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}
+    } {}
 
-    test {EVAL - Scripts can't run blmove command} {
-        set e {}
-        catch {run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on blmove command} {
+        r lpush empty_list1{t} 1
+        r lpop empty_list1{t}
+        run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}
+    } {}
 
-    test {EVAL - Scripts can't run bzpopmin command} {
-        set e {}
-        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on bzpopmin command} {
+        r zadd empty_zset 10 foo
+        r zmpop 1 empty_zset MIN
+        run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset
+    } {}
 
-    test {EVAL - Scripts can't run bzpopmax command} {
-        set e {}
-        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on bzpopmax command} {
+        r zadd empty_zset 10 foo
+        r zmpop 1 empty_zset MIN
+        run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset
+    } {}
+
+    test {EVAL - Scripts do not block on wait} {
+        run_script {return redis.pcall('wait','1','0')} 0
+    } {0}
 
     test {EVAL - Scripts can't run XREAD and XREADGROUP with BLOCK option} {
         r del s
@@ -585,6 +593,30 @@ start_server {tags {"scripting"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test {INCRBYFLOAT: We can call scripts expanding client->argv from Lua} {
+        # coverage for scripts calling commands that expand the argv array
+        # an attempt to add coverage for a possible bug in luaArgsToRedisArgv
+        # this test needs a fresh server so that lua_argv_size is 0.
+        # glibc realloc can return the same pointer even when the size changes
+        # still this test isn't able to trigger the issue, but we keep it anyway.
+        start_server {tags {"scripting"}} {
+            set repl [attach_to_replication_stream]
+            # a command with 5 argsument
+            r eval {redis.call('hmget', KEYS[1], 1, 2, 3)} 1 key
+            # then a command with 3 that is replicated as one with 4
+            r eval {redis.call('incrbyfloat', KEYS[1], 1)} 1 key
+            # then a command with 4 args
+            r eval {redis.call('set', KEYS[1], '1', 'KEEPTTL')} 1 key
+
+            assert_replication_stream $repl {
+                {select *}
+                {set key 1 KEEPTTL}
+                {set key 1 KEEPTTL}
+            }
+            close_replication_stream $repl
+        }
+    } {} {needs:repl}
+
     } ;# is_eval
 
     test {Call Redis command with many args from Lua (issue #1764)} {
@@ -679,6 +711,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
     } {} {resp3}
 
+    if {!$::log_req_res} { # this test creates a huge nested array which python can't handle (RecursionError: maximum recursion depth exceeded in comparison)
     test {Script return recursive object} {
         r readraw 1
         set res [run_script {local a = {}; local b = {a}; a[1] = b; return a} 0]
@@ -693,6 +726,7 @@ start_server {tags {"scripting"}} {
         r readraw 0
         # make sure the connection is still valid
         assert_equal [r ping] {PONG}
+    }
     }
 
     test {Script check unpack with massive arguments} {
@@ -1233,9 +1267,10 @@ start_server {tags {"scripting needs:debug"}} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
             if {[lsearch $::denytags "resp3"] >= 0} {
                 if {$client_proto == 3} {continue}
-            } else {
-                r hello $client_proto
+            } elseif {$::force_resp3} {
+                if {$client_proto == 2} {continue}
             }
+            r hello $client_proto
             set extra "RESP$i/$client_proto"
             r readraw 1
 
@@ -1343,6 +1378,7 @@ start_server {tags {"scripting needs:debug"}} {
             }
 
             r readraw 0
+            r hello 2
         }
     }
 
@@ -1971,5 +2007,30 @@ start_server {tags {"scripting"}} {
             } 0
         ] {asdf}
     }
-}
 
+    test "LUA test trim string as expected" {
+        # this test may fail if we use different memory allocator than jemalloc, as libc for example may keep the old size on realloc.
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            # test that when using LUA cache mechanism, if there is free space in the argv array, the string is trimmed.
+            r set foo [string repeat "a" 45]
+            set expected_memory [r memory usage foo]
+
+            # Jemalloc will allocate for the requested 63 bytes, 80 bytes.
+            # We can't test for larger sizes because LUA_CMD_OBJCACHE_MAX_LEN is 64.
+            # This value will be recycled to be used in the next argument.
+            # We use SETNX to avoid saving the string which will prevent us to reuse it in the next command.
+            r eval {
+                return redis.call("SETNX", "foo", string.rep("a", 63))
+            } 0
+
+            # Jemalloc will allocate for the request 45 bytes, 56 bytes.
+            # we can't test for smaller sizes because OBJ_ENCODING_EMBSTR_SIZE_LIMIT is 44 where no trim is done.
+            r eval {
+                return redis.call("SET", "foo", string.rep("a", 45))
+            } 0
+
+            # Assert the string has been trimmed and the 80 bytes from the previous alloc were not kept.
+            assert { [r memory usage foo] <= $expected_memory};
+        }
+    }
+}

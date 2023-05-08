@@ -222,6 +222,10 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 3 km asc
     } {{central park n/q/r} 4545 {union square}}
 
+    test {GEORADIUS_RO simple (sorted)} {
+        r georadius_ro nyc -73.9798091 40.7598464 3 km asc
+    } {{central park n/q/r} 4545 {union square}}
+
     test {GEOSEARCH simple (sorted)} {
         r geosearch nyc fromlonlat -73.9798091 40.7598464 bybox 6 6 km asc
     } {{central park n/q/r} 4545 {union square} {lic market}}
@@ -263,6 +267,12 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
     } {{central park n/q/r} 4545 {union square}}
 
+    test {GEORADIUS with multiple WITH* tokens} {
+        assert_match {{{central park n/q/r} 1791875761332224 {-73.97334* 40.76480*}} {4545 1791875796750882 {-73.95641* 40.74809*}}} [r georadius nyc -73.9798091 40.7598464 10 km WITHCOORD WITHHASH COUNT 2]
+        assert_match {{{central park n/q/r} 1791875761332224 {-73.97334* 40.76480*}} {4545 1791875796750882 {-73.95641* 40.74809*}}} [r georadius nyc -73.9798091 40.7598464 10 km WITHHASH WITHCOORD COUNT 2]
+        assert_match {{{central park n/q/r} 0.7750 1791875761332224 {-73.97334* 40.76480*}} {4545 2.3651 1791875796750882 {-73.95641* 40.74809*}}} [r georadius nyc -73.9798091 40.7598464 10 km WITHDIST WITHHASH WITHCOORD COUNT 2]
+    }
+
     test {GEORADIUS with ANY not sorted by default} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3 ANY
     } {{wtc one} {union square} {central park n/q/r}}
@@ -292,6 +302,10 @@ start_server {tags {"geo"}} {
 
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
+    } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
+
+    test {GEORADIUSBYMEMBER_RO simple (sorted)} {
+        r georadiusbymember_ro nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
     
     test {GEORADIUSBYMEMBER search areas contain satisfied points in oblique direction} {
@@ -514,6 +528,13 @@ start_server {tags {"geo"}} {
         r geoadd points -179.5 36 point2
         assert_equal {point1 point2} [r geosearch points fromlonlat 179 37 bybox 400 400 km asc]
         assert_equal {point2 point1} [r geosearch points fromlonlat -179 37 bybox 400 400 km asc]
+    }
+
+    test {GEOSEARCH with small distance} {
+        r del points
+        r geoadd points -122.407107 37.794300 1
+        r geoadd points -122.227336 37.794300 2
+        assert_equal {{1 0.0001} {2 9.8182}} [r GEORADIUS points -122.407107 37.794300 30 mi ASC WITHDIST]
     }
 
     foreach {type} {byradius bybox} {

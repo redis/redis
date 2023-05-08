@@ -73,7 +73,7 @@ typedef struct clusterLink {
 #define CLUSTER_CANT_FAILOVER_WAITING_DELAY 2
 #define CLUSTER_CANT_FAILOVER_EXPIRED 3
 #define CLUSTER_CANT_FAILOVER_WAITING_VOTES 4
-#define CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
+#define CLUSTER_CANT_FAILOVER_RELOG_PERIOD (10) /* seconds. */
 
 /* clusterState todo_before_sleep flags. */
 #define CLUSTER_TODO_HANDLE_FAILOVER (1<<0)
@@ -169,6 +169,9 @@ typedef struct clusterDictEntryMetadata {
     dictEntry *next;            /* Next entry with key in the same slot */
 } clusterDictEntryMetadata;
 
+typedef struct {
+    redisDb *db;                /* A link back to the db this dict belongs to */
+} clusterDictMetadata;
 
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
@@ -409,7 +412,7 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
-void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);
+void slotToKeyReplaceEntry(dict *d, dictEntry *entry);
 void slotToKeyInit(redisDb *db);
 void slotToKeyFlush(redisDb *db);
 void slotToKeyDestroy(redisDb *db);
@@ -419,5 +422,8 @@ void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
+sds clusterGenNodesDescription(int filter, int use_pport);
+sds genClusterInfoString(void);
+void freeClusterLink(clusterLink *link);
 
 #endif /* __CLUSTER_H */

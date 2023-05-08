@@ -60,16 +60,16 @@ static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
     blockingOperationStarts();
 }
 
-int scriptIsTimedout() {
+int scriptIsTimedout(void) {
     return scriptIsRunning() && (curr_run_ctx->flags & SCRIPT_TIMEDOUT);
 }
 
-client* scriptGetClient() {
+client* scriptGetClient(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->c;
 }
 
-client* scriptGetCaller() {
+client* scriptGetCaller(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->original_client;
 }
@@ -130,7 +130,7 @@ uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
 /* Prepare the given run ctx for execution */
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
-    bool client_allow_oom = caller->flags & CLIENT_ALLOW_OOM;
+    int client_allow_oom = !!(caller->flags & CLIENT_ALLOW_OOM);
 
     int running_stale = server.masterhost &&
             server.repl_state != REPL_STATE_CONNECTED &&
@@ -160,7 +160,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 return C_ERR;
             }
 
-            /* Deny writes if we're unale to persist. */
+            /* Deny writes if we're unable to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
             if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
@@ -212,7 +212,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
     client *script_client = run_ctx->c;
     client *curr_client = run_ctx->original_client;
-    server.script_caller = curr_client;
 
     /* Select the right DB in the context of the Lua client */
     selectDb(script_client, curr_client->db->id);
@@ -224,7 +223,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     }
 
     run_ctx->start_time = getMonotonicUs();
-    run_ctx->snapshot_time = mstime();
 
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
@@ -257,8 +255,6 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
 
-    server.script_caller = NULL;
-
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);
         /* Restore the client that was protected when the script timeout
@@ -273,16 +269,16 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
 }
 
 /* return true if a script is currently running */
-int scriptIsRunning() {
+int scriptIsRunning(void) {
     return curr_run_ctx != NULL;
 }
 
-const char* scriptCurrFunction() {
+const char* scriptCurrFunction(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->funcname;
 }
 
-int scriptIsEval() {
+int scriptIsEval(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->flags & SCRIPT_EVAL_MODE;
 }
@@ -559,7 +555,7 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
         goto error;
     }
 
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
+    int call_flags = CMD_CALL_NONE;
     if (run_ctx->repl_flags & PROPAGATE_AOF) {
         call_flags |= CMD_CALL_PROPAGATE_AOF;
     }
@@ -575,13 +571,7 @@ error:
     incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
-/* Returns the time when the script invocation started */
-mstime_t scriptTimeSnapshot() {
-    serverAssert(curr_run_ctx);
-    return curr_run_ctx->snapshot_time;
-}
-
-long long scriptRunDuration() {
+long long scriptRunDuration(void) {
     serverAssert(scriptIsRunning());
     return elapsedMs(curr_run_ctx->start_time);
 }

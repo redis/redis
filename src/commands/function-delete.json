@@ -1,6 +1,6 @@
 {
     "DELETE": {
-        "summary": "Delete a function by name",
+        "summary": "Deletes a library and its functions.",
         "complexity": "O(1)",
         "group": "scripting",
         "since": "7.0.0",
@@ -23,6 +23,9 @@
                 "name": "library-name",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

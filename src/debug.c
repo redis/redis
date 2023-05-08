@@ -35,6 +35,7 @@
 #include "bio.h"
 #include "quicklist.h"
 #include "fpconv_dtoa.h"
+#include "cluster.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -491,6 +492,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"CLUSTERLINK KILL <to|from|all> <node-id>",
+"    Kills the link based on the direction to/from (both) with the provided node." ,
 NULL
         };
         addReplyHelp(c, help);
@@ -517,7 +520,7 @@ NULL
         restartServer(flags,delay);
         addReplyError(c,"failed to restart the server. Check server logs.");
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
-        void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
+        void *ptr = zmalloc(SIZE_MAX/2); /* Should trigger an out of memory. */
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
@@ -554,7 +557,7 @@ NULL
         if (save) {
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
-            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
+            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) != C_OK) {
                 addReplyErrorObject(c,shared.err);
                 return;
             }
@@ -572,7 +575,7 @@ NULL
             addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
-        serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");
+        serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
@@ -582,11 +585,13 @@ NULL
         aofLoadManifestFromDisk();
         aofDelHistoryFiles();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
-        if (ret != AOF_OK && ret != AOF_EMPTY)
-            exit(1);
         unprotectClient(c);
+        if (ret != AOF_OK && ret != AOF_EMPTY) {
+            addReplyError(c, "Error trying to load the AOF files, check server logs.");
+            return;
+        }
         server.dirty = 0; /* Prevent AOF / replication */
-        serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        serverLog(LL_NOTICE,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
         long packet_type;
@@ -802,9 +807,12 @@ NULL
                 addReplyError(c,"RESP2 is not supported by this command");
                 return;
 	    }
+            uint64_t old_flags = c->flags;
+            c->flags |= CLIENT_PUSHING;
             addReplyPushLen(c,2);
             addReplyBulkCString(c,"server-cpu-usage");
             addReplyLongLong(c,42);
+            if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
             /* Push replies are not synchronous replies, so we emit also a
              * normal reply in order for blocking clients just discarding the
              * push reply, to actually consume the reply and continue. */
@@ -867,7 +875,7 @@ NULL
         sds sizes = sdsempty();
         sizes = sdscatprintf(sizes,"bits:%d ",(sizeof(void*) == 8)?64:32);
         sizes = sdscatprintf(sizes,"robj:%d ",(int)sizeof(robj));
-        sizes = sdscatprintf(sizes,"dictentry:%d ",(int)sizeof(dictEntry));
+        sizes = sdscatprintf(sizes,"dictentry:%d ",(int)dictEntryMemUsage());
         sizes = sdscatprintf(sizes,"sdshdr5:%d ",(int)sizeof(struct sdshdr5));
         sizes = sdscatprintf(sizes,"sdshdr8:%d ",(int)sizeof(struct sdshdr8));
         sizes = sdscatprintf(sizes,"sdshdr16:%d ",(int)sizeof(struct sdshdr16));
@@ -928,7 +936,7 @@ NULL
             addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
-        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        serverLog(LL_NOTICE,"Changing replication IDs after receiving DEBUG change-repl-id");
         changeReplicationId();
         clearReplicationId2();
         addReply(c,shared.ok);
@@ -996,6 +1004,33 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"CLUSTERLINK") &&
+        !strcasecmp(c->argv[2]->ptr,"KILL") &&
+        c->argc == 5) {
+        if (!server.cluster_enabled) {
+            addReplyError(c, "Debug option only available for cluster mode enabled setup!");
+            return;
+        }
+
+        /* Find the node. */
+        clusterNode *n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+        if (!n) {
+            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[4]->ptr);
+            return;
+        }
+
+        /* Terminate the link based on the direction or all. */
+        if (!strcasecmp(c->argv[3]->ptr,"from")) {
+            freeClusterLink(n->inbound_link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"to")) {
+            freeClusterLink(n->link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
+            freeClusterLink(n->link);
+            freeClusterLink(n->inbound_link);
+        } else {
+            addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
+        }
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1763,6 +1798,15 @@ void logStackTrace(void *eip, int uplevel) {
 
 #endif /* HAVE_BACKTRACE */
 
+sds genClusterDebugString(sds infostring) {
+    infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
+    infostring = sdscatsds(infostring, genClusterInfoString()); 
+    infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
+    infostring = sdscatsds(infostring, clusterGenNodesDescription(0, 0));
+    
+    return infostring;
+}
+
 /* Log global server info */
 void logServerInfo(void) {
     sds infostring, clients;
@@ -1772,6 +1816,9 @@ void logServerInfo(void) {
     argv[0] = createStringObject("all", strlen("all"));
     dict *section_dict = genInfoSectionDict(argv, 1, NULL, &all, &everything);
     infostring = genRedisInfoString(section_dict, all, everything);
+    if (server.cluster_enabled){
+        infostring = genClusterDebugString(infostring);
+    }
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString(-1);
@@ -1782,7 +1829,7 @@ void logServerInfo(void) {
     decrRefCount(argv[0]);
 }
 
-/* Log certain config values, which can be used for debuggin */
+/* Log certain config values, which can be used for debugging */
 void logConfigDebugInfo(void) {
     sds configstring;
     configstring = getConfigDebugInfo();
@@ -1802,22 +1849,27 @@ void logModulesInfo(void) {
 /* Log information about the "current" client, that is, the client that is
  * currently being served by Redis. May be NULL if Redis is not serving a
  * client right now. */
-void logCurrentClient(void) {
-    if (server.current_client == NULL) return;
+void logCurrentClient(client *cc, const char *title) {
+    if (cc == NULL) return;
 
-    client *cc = server.current_client;
     sds client;
     int j;
 
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CURRENT CLIENT INFO ------\n");
+    serverLog(LL_WARNING|LL_RAW, "\n------ %s CLIENT INFO ------\n", title);
     client = catClientInfoString(sdsempty(),cc);
     serverLog(LL_WARNING|LL_RAW,"%s\n", client);
     sdsfree(client);
+    serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
         decoded = getDecodedObject(cc->argv[j]);
         sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        if (!strcasecmp(decoded->ptr, "auth") || !strcasecmp(decoded->ptr, "auth2")) {
+            sdsfree(repr);
+            decrRefCount(decoded);
+            break;
+        }
         sdsfree(repr);
         decrRefCount(decoded);
     }
@@ -2004,9 +2056,9 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
-void invalidFunctionWasCalled() {}
+void invalidFunctionWasCalled(void) {}
 
-typedef void (*invalidFunctionWasCalledType)();
+typedef void (*invalidFunctionWasCalledType)(void);
 
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
@@ -2068,7 +2120,8 @@ void printCrashReport(void) {
     logServerInfo();
 
     /* Log the current client */
-    logCurrentClient();
+    logCurrentClient(server.current_client, "CURRENT");
+    logCurrentClient(server.executing_client, "EXECUTING");
 
     /* Log modules info. Something we wanna do last since we fear it may crash. */
     logModulesInfo();
@@ -2174,7 +2227,7 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
-void applyWatchdogPeriod() {
+void applyWatchdogPeriod(void) {
     struct sigaction act;
 
     /* Disable watchdog when period is 0 */

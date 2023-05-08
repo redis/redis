@@ -956,6 +956,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withvalues)
                     addReplyBulkCBuffer(c, value, sdslen(value));
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
         } else if (hash->encoding == OBJ_ENCODING_LISTPACK) {
             listpackEntry *keys, *vals = NULL;
@@ -970,6 +972,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                 count -= sample_count;
                 lpRandomPairs(hash->ptr, sample_count, keys, vals);
                 hrandfieldReplyWithListpack(c, sample_count, keys, vals);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(keys);
             zfree(vals);
@@ -1116,12 +1120,17 @@ void hrandfieldCommand(client *c) {
     listpackEntry ele;
 
     if (c->argc >= 3) {
-        if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+        if (getRangeLongFromObjectOrReply(c,c->argv[2],-LONG_MAX,LONG_MAX,&l,NULL) != C_OK) return;
         if (c->argc > 4 || (c->argc == 4 && strcasecmp(c->argv[3]->ptr,"withvalues"))) {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
-        } else if (c->argc == 4)
+        } else if (c->argc == 4) {
             withvalues = 1;
+            if (l < -LONG_MAX/2 || l > LONG_MAX/2) {
+                addReplyError(c,"value is out of range");
+                return;
+            }
+        }
         hrandfieldWithCountCommand(c, l, withvalues);
         return;
     }

@@ -35,6 +35,7 @@
 #include "stream.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "bio.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -87,6 +88,11 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
         /* If we're loading an rdb file form disk, run rdb check (and exit) */
         serverLog(LL_WARNING, "%s", msg);
         char *argv[2] = {"",rdbFileBeingLoaded};
+        if (anetIsFifo(argv[1])) {
+            /* Cannot check RDB FIFO because we cannot reopen the FIFO and check already streamed data. */
+            rdbCheckError("Cannot check RDB that is a FIFO: %s", argv[1]);
+            return;
+        }
         redis_check_rdb_main(2,argv,NULL);
     } else if (corruption_error) {
         /* In diskless loading, in case of corrupt file, log and exit. */
@@ -1436,36 +1442,36 @@ werr: /* Write error. */
     return C_ERR;
 }
 
-/* Save the DB on disk. Return C_ERR on error, C_OK on success. */
-int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
-    char tmpfile[256];
+static int rdbSaveInternal(int req, const char *filename, rdbSaveInfo *rsi, int rdbflags) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
-    FILE *fp = NULL;
     rio rdb;
     int error = 0;
+    int saved_errno;
     char *err_op;    /* For a detailed log */
 
-    snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
-    fp = fopen(tmpfile,"w");
+    FILE *fp = fopen(filename,"w");
     if (!fp) {
+        saved_errno = errno;
         char *str_err = strerror(errno);
         char *cwdp = getcwd(cwd,MAXPATHLEN);
         serverLog(LL_WARNING,
             "Failed opening the temp RDB file %s (in server root dir %s) "
             "for saving: %s",
-            tmpfile,
+            filename,
             cwdp ? cwdp : "unknown",
             str_err);
+        errno = saved_errno;
         return C_ERR;
     }
 
     rioInitWithFile(&rdb,fp);
-    startSaving(RDBFLAGS_NONE);
 
-    if (server.rdb_save_incremental_fsync)
+    if (server.rdb_save_incremental_fsync) {
         rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
+        if (!(rdbflags & RDBFLAGS_KEEP_CACHE)) rioSetReclaimCache(&rdb,1);
+    }
 
-    if (rdbSaveRio(req,&rdb,&error,RDBFLAGS_NONE,rsi) == C_ERR) {
+    if (rdbSaveRio(req,&rdb,&error,rdbflags,rsi) == C_ERR) {
         errno = error;
         err_op = "rdbSaveRio";
         goto werr;
@@ -1474,8 +1480,50 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp)) { err_op = "fflush"; goto werr; }
     if (fsync(fileno(fp))) { err_op = "fsync"; goto werr; }
+    if (!(rdbflags & RDBFLAGS_KEEP_CACHE) && reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
+        serverLog(LL_NOTICE,"Unable to reclaim cache after saving RDB: %s", strerror(errno));
+    }
     if (fclose(fp)) { fp = NULL; err_op = "fclose"; goto werr; }
-    fp = NULL;
+
+    return C_OK;
+
+werr:
+    saved_errno = errno;
+    serverLog(LL_WARNING,"Write error while saving DB to the disk(%s): %s", err_op, strerror(errno));
+    if (fp) fclose(fp);
+    unlink(filename);
+    errno = saved_errno;
+    return C_ERR;
+}
+
+/* Save DB to the file. Similar to rdbSave() but this function won't use a
+ * temporary file and won't update the metrics. */
+int rdbSaveToFile(const char *filename) {
+    startSaving(RDBFLAGS_NONE);
+
+    if (rdbSaveInternal(SLAVE_REQ_NONE,filename,NULL,RDBFLAGS_NONE) != C_OK) {
+        int saved_errno = errno;
+        stopSaving(0);
+        errno = saved_errno;
+        return C_ERR;
+    }
+
+    stopSaving(1);
+    return C_OK;
+}
+
+/* Save the DB on disk. Return C_ERR on error, C_OK on success. */
+int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
+    char tmpfile[256];
+    char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
+
+    startSaving(RDBFLAGS_NONE);
+    snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+
+    if (rdbSaveInternal(req,tmpfile,rsi,rdbflags) != C_OK) {
+        stopSaving(0);
+        return C_ERR;
+    }
     
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
@@ -1493,7 +1541,12 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
         stopSaving(0);
         return C_ERR;
     }
-    if (fsyncFileDir(filename) == -1) { err_op = "fsyncFileDir"; goto werr; }
+    if (fsyncFileDir(filename) != 0) {
+        serverLog(LL_WARNING,
+            "Failed to fsync directory while saving DB: %s", strerror(errno));
+        stopSaving(0);
+        return C_ERR;
+    }
 
     serverLog(LL_NOTICE,"DB saved on disk");
     server.dirty = 0;
@@ -1501,16 +1554,9 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi) {
     server.lastbgsave_status = C_OK;
     stopSaving(1);
     return C_OK;
-
-werr:
-    serverLog(LL_WARNING,"Write error saving DB on disk(%s): %s", err_op, strerror(errno));
-    if (fp) fclose(fp);
-    unlink(tmpfile);
-    stopSaving(0);
-    return C_ERR;
 }
 
-int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi) {
+int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     pid_t childpid;
 
     if (hasActiveChildProcess()) return C_ERR;
@@ -1525,7 +1571,7 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi) {
         /* Child */
         redisSetProcTitle("redis-rdb-bgsave");
         redisSetCpuAffinity(server.bgsave_cpulist);
-        retval = rdbSave(req, filename,rsi);
+        retval = rdbSave(req, filename,rsi,rdbflags);
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
@@ -3209,7 +3255,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
              * continue loading. */
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
                 if(empty_keys_skipped++ < 10)
-                    serverLog(LL_WARNING, "rdbLoadObject skipping empty key: %s", key);
+                    serverLog(LL_NOTICE, "rdbLoadObject skipping empty key: %s", key);
                 sdsfree(key);
             } else {
                 sdsfree(key);
@@ -3286,7 +3332,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if (server.rdb_checksum && !server.skip_checksum_validation) {
             memrev64ifbe(&cksum);
             if (cksum == 0) {
-                serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
+                serverLog(LL_NOTICE,"RDB file was saved with checksum disabled: no check performed.");
             } else if (cksum != expected) {
                 serverLog(LL_WARNING,"Wrong RDB checksum expected: (%llx) but "
                     "got (%llx). Aborting now.",
@@ -3299,7 +3345,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     }
 
     if (empty_keys_skipped) {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
                 server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, empty_keys_skipped);
     } else {
@@ -3332,6 +3378,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     rio rdb;
     int retval;
     struct stat sb;
+    int rdb_fd;
 
     fp = fopen(filename, "r");
     if (fp == NULL) {
@@ -3351,6 +3398,12 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     fclose(fp);
     stopLoading(retval==C_OK);
+    /* Reclaim the cache backed by rdb */
+    if (retval == C_OK && !(rdbflags & RDBFLAGS_KEEP_CACHE)) {
+        /* TODO: maybe we could combine the fopen and open into one in the future */
+        rdb_fd = open(filename, O_RDONLY);
+        if (rdb_fd > 0) bioCreateCloseJob(rdb_fd, 0, 1);
+    }
     return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }
 
@@ -3575,7 +3628,7 @@ void saveCommand(client *c) {
 
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
-    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
+    if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyErrorObject(c,shared.err);
@@ -3612,7 +3665,7 @@ void bgsaveCommand(client *c) {
             "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
             "possible.");
         }
-    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) == C_OK) {
+    } else if (rdbSaveBackground(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReplyErrorObject(c,shared.err);

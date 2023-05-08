@@ -1,5 +1,6 @@
 #include "test/jemalloc_test.h"
 
+#include "jemalloc/internal/san.h"
 #include "jemalloc/internal/spin.h"
 
 static unsigned		arena_ind;
@@ -12,58 +13,58 @@ static atomic_u_t	nfinished;
 
 static unsigned
 do_arena_create(extent_hooks_t *h) {
-	unsigned arena_ind;
-	size_t sz = sizeof(unsigned);
-	assert_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz,
+	unsigned new_arena_ind;
+	size_t ind_sz = sizeof(unsigned);
+	expect_d_eq(mallctl("arenas.create", (void *)&new_arena_ind, &ind_sz,
 	    (void *)(h != NULL ? &h : NULL), (h != NULL ? sizeof(h) : 0)), 0,
 	    "Unexpected mallctl() failure");
-	return arena_ind;
+	return new_arena_ind;
 }
 
 static void
-do_arena_destroy(unsigned arena_ind) {
+do_arena_destroy(unsigned ind) {
 	size_t mib[3];
 	size_t miblen;
 
 	miblen = sizeof(mib)/sizeof(size_t);
-	assert_d_eq(mallctlnametomib("arena.0.destroy", mib, &miblen), 0,
+	expect_d_eq(mallctlnametomib("arena.0.destroy", mib, &miblen), 0,
 	    "Unexpected mallctlnametomib() failure");
-	mib[1] = (size_t)arena_ind;
-	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
+	mib[1] = (size_t)ind;
+	expect_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
 	    "Unexpected mallctlbymib() failure");
 }
 
 static void
 do_refresh(void) {
-	uint64_t epoch = 1;
-	assert_d_eq(mallctl("epoch", NULL, NULL, (void *)&epoch,
-	    sizeof(epoch)), 0, "Unexpected mallctl() failure");
+	uint64_t refresh_epoch = 1;
+	expect_d_eq(mallctl("epoch", NULL, NULL, (void *)&refresh_epoch,
+	    sizeof(refresh_epoch)), 0, "Unexpected mallctl() failure");
 }
 
 static size_t
-do_get_size_impl(const char *cmd, unsigned arena_ind) {
+do_get_size_impl(const char *cmd, unsigned ind) {
 	size_t mib[4];
 	size_t miblen = sizeof(mib) / sizeof(size_t);
 	size_t z = sizeof(size_t);
 
-	assert_d_eq(mallctlnametomib(cmd, mib, &miblen),
+	expect_d_eq(mallctlnametomib(cmd, mib, &miblen),
 	    0, "Unexpected mallctlnametomib(\"%s\", ...) failure", cmd);
-	mib[2] = arena_ind;
+	mib[2] = ind;
 	size_t size;
-	assert_d_eq(mallctlbymib(mib, miblen, (void *)&size, &z, NULL, 0),
+	expect_d_eq(mallctlbymib(mib, miblen, (void *)&size, &z, NULL, 0),
 	    0, "Unexpected mallctlbymib([\"%s\"], ...) failure", cmd);
 
 	return size;
 }
 
 static size_t
-do_get_active(unsigned arena_ind) {
-	return do_get_size_impl("stats.arenas.0.pactive", arena_ind) * PAGE;
+do_get_active(unsigned ind) {
+	return do_get_size_impl("stats.arenas.0.pactive", ind) * PAGE;
 }
 
 static size_t
-do_get_mapped(unsigned arena_ind) {
-	return do_get_size_impl("stats.arenas.0.mapped", arena_ind);
+do_get_mapped(unsigned ind) {
+	return do_get_size_impl("stats.arenas.0.mapped", ind);
 }
 
 static void *
@@ -76,7 +77,7 @@ thd_start(void *arg) {
 		    next_epoch) {
 			spin_adaptive(&spinner);
 		}
-		assert_u_eq(cur_epoch, next_epoch, "Unexpected epoch");
+		expect_u_eq(cur_epoch, next_epoch, "Unexpected epoch");
 
 		/*
 		 * Allocate.  The main thread will reset the arena, so there's
@@ -86,7 +87,7 @@ thd_start(void *arg) {
 			void *p = mallocx(sz, MALLOCX_ARENA(arena_ind) |
 			    MALLOCX_TCACHE_NONE
 			    );
-			assert_ptr_not_null(p,
+			expect_ptr_not_null(p,
 			    "Unexpected mallocx() failure\n");
 		}
 
@@ -99,10 +100,12 @@ thd_start(void *arg) {
 
 TEST_BEGIN(test_retained) {
 	test_skip_if(!config_stats);
+	test_skip_if(opt_hpa);
 
 	arena_ind = do_arena_create(NULL);
 	sz = nallocx(HUGEPAGE, 0);
-	esz = sz + sz_large_pad;
+	size_t guard_sz = san_guard_enabled() ? SAN_PAGE_GUARDS_SIZE : 0;
+	esz = sz + sz_large_pad + guard_sz;
 
 	atomic_store_u(&epoch, 0, ATOMIC_RELAXED);
 
@@ -132,17 +135,18 @@ TEST_BEGIN(test_retained) {
 		 */
 		do_refresh();
 
-		size_t allocated = esz * nthreads * PER_THD_NALLOCS;
+		size_t allocated = (esz - guard_sz) * nthreads *
+		    PER_THD_NALLOCS;
 		size_t active = do_get_active(arena_ind);
-		assert_zu_le(allocated, active, "Unexpected active memory");
+		expect_zu_le(allocated, active, "Unexpected active memory");
 		size_t mapped = do_get_mapped(arena_ind);
-		assert_zu_le(active, mapped, "Unexpected mapped memory");
+		expect_zu_le(active, mapped, "Unexpected mapped memory");
 
 		arena_t *arena = arena_get(tsdn_fetch(), arena_ind, false);
 		size_t usable = 0;
 		size_t fragmented = 0;
 		for (pszind_t pind = sz_psz2ind(HUGEPAGE); pind <
-		    arena->extent_grow_next; pind++) {
+		    arena->pa_shard.pac.exp_grow.next; pind++) {
 			size_t psz = sz_pind2sz(pind);
 			size_t psz_fragmented = psz % esz;
 			size_t psz_usable = psz - psz_fragmented;
@@ -150,7 +154,7 @@ TEST_BEGIN(test_retained) {
 			 * Only consider size classes that wouldn't be skipped.
 			 */
 			if (psz_usable > 0) {
-				assert_zu_lt(usable, allocated,
+				expect_zu_lt(usable, allocated,
 				    "Excessive retained memory "
 				    "(%#zx[+%#zx] > %#zx)", usable, psz_usable,
 				    allocated);
@@ -165,7 +169,7 @@ TEST_BEGIN(test_retained) {
 		 * (rather than retaining) during reset.
 		 */
 		do_arena_destroy(arena_ind);
-		assert_u_eq(do_arena_create(NULL), arena_ind,
+		expect_u_eq(do_arena_create(NULL), arena_ind,
 		    "Unexpected arena index");
 	}
 

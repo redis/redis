@@ -122,17 +122,16 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
-        dictEntry *de = dictAddRaw(ht,sdsval,NULL);
-        if (de && sdsval == str) {
-            /* String was added but we don't own this sds string. Dup it and
-             * replace it in the dict entry. */
-            dictSetKey(ht,de,sdsdup((sds)str));
-            dictSetVal(ht,de,NULL);
-        } else if (!de && sdsval != str) {
-            /* String was already a member. Free our temporary sds copy. */
+        void *position = dictFindPositionForInsert(ht, sdsval, NULL);
+        if (position) {
+            /* Key doesn't already exist in the set. Add it but dup the key. */
+            if (sdsval == str) sdsval = sdsdup(sdsval);
+            dictInsertAtPosition(ht, sdsval, position);
+        } else if (sdsval != str) {
+            /* String is already a member. Free our temporary sds copy. */
             sdsfree(sdsval);
         }
-        return (de != NULL);
+        return (position != NULL);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -969,6 +968,11 @@ void spopCommand(client *c) {
  * implementation for more info. */
 #define SRANDMEMBER_SUB_STRATEGY_MUL 3
 
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define SRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
+
 void srandmemberWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
@@ -980,7 +984,7 @@ void srandmemberWithCountCommand(client *c) {
 
     dict *d;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    if (getRangeLongFromObjectOrReply(c,c->argv[2],-LONG_MAX,LONG_MAX,&l,NULL) != C_OK) return;
     if (l >= 0) {
         count = (unsigned long) l;
     } else {
@@ -1010,13 +1014,21 @@ void srandmemberWithCountCommand(client *c) {
 
         if (set->encoding == OBJ_ENCODING_LISTPACK && count > 1) {
             /* Specialized case for listpack, traversing it only once. */
-            listpackEntry *entries = zmalloc(count * sizeof(listpackEntry));
-            lpRandomEntries(set->ptr, count, entries);
-            for (unsigned long i = 0; i < count; i++) {
-                if (entries[i].sval)
-                    addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
-                else
-                    addReplyBulkLongLong(c, entries[i].lval);
+            unsigned long limit, sample_count;
+            limit = count > SRANDFIELD_RANDOM_SAMPLE_LIMIT ? SRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
+            listpackEntry *entries = zmalloc(limit * sizeof(listpackEntry));
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                lpRandomEntries(set->ptr, sample_count, entries);
+                for (unsigned long i = 0; i < sample_count; i++) {
+                    if (entries[i].sval)
+                        addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
+                    else
+                        addReplyBulkLongLong(c, entries[i].lval);
+                }
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(entries);
             return;
@@ -1029,6 +1041,8 @@ void srandmemberWithCountCommand(client *c) {
             } else {
                 addReplyBulkCBuffer(c, str, len);
             }
+            if (c->flags & CLIENT_CLOSE_ASAP)
+                break;
         }
         return;
     }

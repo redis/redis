@@ -212,12 +212,12 @@ void functionsLibCtxSwapWithCurrent(functionsLibCtx *new_lib_ctx) {
 }
 
 /* return the current functions ctx */
-functionsLibCtx* functionsLibCtxGetCurrent() {
+functionsLibCtx* functionsLibCtxGetCurrent(void) {
     return curr_functions_lib_ctx;
 }
 
 /* Create a new functions ctx */
-functionsLibCtx* functionsLibCtxCreate() {
+functionsLibCtx* functionsLibCtxCreate(void) {
     functionsLibCtx *ret = zmalloc(sizeof(functionsLibCtx));
     ret->libraries = dictCreate(&librariesDictType);
     ret->functions = dictCreate(&functionDictType);
@@ -1075,7 +1075,7 @@ void functionLoadCommand(client *c) {
 }
 
 /* Return memory usage of all the engines combine */
-unsigned long functionsMemory() {
+unsigned long functionsMemory(void) {
     dictIterator *iter = dictGetIterator(engines);
     dictEntry *entry = NULL;
     size_t engines_nemory = 0;
@@ -1090,11 +1090,10 @@ unsigned long functionsMemory() {
 }
 
 /* Return memory overhead of all the engines combine */
-unsigned long functionsMemoryOverhead() {
-    size_t memory_overhead = dictSize(engines) * sizeof(dictEntry) +
-            dictSlots(engines) * sizeof(dictEntry*);
-    memory_overhead += dictSize(curr_functions_lib_ctx->functions) * sizeof(dictEntry) +
-            dictSlots(curr_functions_lib_ctx->functions) * sizeof(dictEntry*) + sizeof(functionsLibCtx);
+unsigned long functionsMemoryOverhead(void) {
+    size_t memory_overhead = dictMemUsage(engines);
+    memory_overhead += dictMemUsage(curr_functions_lib_ctx->functions);
+    memory_overhead += sizeof(functionsLibCtx);
     memory_overhead += curr_functions_lib_ctx->cache_memory;
     memory_overhead += engine_cache_memory;
 
@@ -1102,15 +1101,15 @@ unsigned long functionsMemoryOverhead() {
 }
 
 /* Returns the number of functions */
-unsigned long functionsNum() {
+unsigned long functionsNum(void) {
     return dictSize(curr_functions_lib_ctx->functions);
 }
 
-unsigned long functionsLibNum() {
+unsigned long functionsLibNum(void) {
     return dictSize(curr_functions_lib_ctx->libraries);
 }
 
-dict* functionsLibGet() {
+dict* functionsLibGet(void) {
     return curr_functions_lib_ctx->libraries;
 }
 
@@ -1120,7 +1119,7 @@ size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx) {
 
 /* Initialize engine data structures.
  * Should be called once on server initialization */
-int functionsInit() {
+int functionsInit(void) {
     engines = dictCreate(&engineDictType);
 
     if (luaEngineInitEngine() != C_OK) {

@@ -35,6 +35,7 @@
 #include "solarisfixes.h"
 #include "rio.h"
 #include "atomicvar.h"
+#include "commands.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -52,7 +53,6 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
-#include "hdr_histogram.h"
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -90,6 +90,8 @@ typedef struct redisObject robj;
 #include "sha1.h"
 #include "endianconv.h"
 #include "crc64.h"
+
+struct hdr_histogram;
 
 /* helpers */
 #define numElements(x) (sizeof(x)/sizeof((x)[0]))
@@ -227,6 +229,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                      * Populated by populateCommandLegacyRangeSpec. */
 #define CMD_ALLOW_BUSY ((1ULL<<26))
 #define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
+#define CMD_TOUCHES_ARBITRARY_KEYS (1ULL<<28)
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -359,7 +362,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
 #define CLIENT_MODULE (1<<27) /* Non connected client used by some module. */
 #define CLIENT_PROTECTED (1<<28) /* Client should not be freed for now. */
-/* #define CLIENT_... (1<<29) currently unused, feel free to use in the future */
+#define CLIENT_EXECUTING_COMMAND (1<<29) /* Indicates that the client is currently in the process of handling
+                                          a command. usually this will be marked only during call()
+                                          however, blocked clients might have this flag kept until they
+                                          will try to reprocess the command. */
+
 #define CLIENT_PENDING_COMMAND (1<<30) /* Indicates the client has a fully
                                         * parsed command ready for execution. */
 #define CLIENT_TRACKING (1ULL<<31) /* Client enabled keys tracking in order to
@@ -385,18 +392,28 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                       memory eviction. */
 #define CLIENT_ALLOW_OOM (1ULL<<44) /* Client used by RM_Call is allowed to fully execute
                                        scripts even when in OOM */
+#define CLIENT_NO_TOUCH (1ULL<<45) /* This client will not touch LFU/LRU stats. */
+#define CLIENT_PUSHING (1ULL<<46) /* This client is pushing notifications. */
+#define CLIENT_MODULE_AUTH_HAS_RESULT (1ULL<<47) /* Indicates a client in the middle of module based
+                                                    auth had been authenticated from the Module. */
+#define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
+#define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
-#define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
-#define BLOCKED_LIST 1    /* BLPOP & co. */
-#define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
-#define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
-#define BLOCKED_STREAM 4  /* XREAD. */
-#define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_POSTPONE 6 /* Blocked by processCommand, re-try processing later. */
-#define BLOCKED_SHUTDOWN 7 /* SHUTDOWN. */
-#define BLOCKED_NUM 8      /* Number of blocked states. */
+typedef enum blocking_type {
+    BLOCKED_NONE,    /* Not blocked, no CLIENT_BLOCKED flag set. */
+    BLOCKED_LIST,    /* BLPOP & co. */
+    BLOCKED_WAIT,    /* WAIT for synchronous replication. */
+    BLOCKED_WAITAOF, /* WAITAOF for AOF file fsync. */
+    BLOCKED_MODULE,  /* Blocked by a loadable module. */
+    BLOCKED_STREAM,  /* XREAD. */
+    BLOCKED_ZSET,    /* BZPOP et al. */
+    BLOCKED_POSTPONE, /* Blocked by processCommand, re-try processing later. */
+    BLOCKED_SHUTDOWN, /* SHUTDOWN. */
+    BLOCKED_NUM,      /* Number of blocked states. */
+    BLOCKED_END       /* End of enumeration */
+} blocking_type;
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -569,13 +586,12 @@ typedef enum {
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
-#define CMD_CALL_SLOWLOG (1<<0)
-#define CMD_CALL_STATS (1<<1)
-#define CMD_CALL_PROPAGATE_AOF (1<<2)
-#define CMD_CALL_PROPAGATE_REPL (1<<3)
+#define CMD_CALL_PROPAGATE_AOF (1<<0)
+#define CMD_CALL_PROPAGATE_REPL (1<<1)
+#define CMD_CALL_REPROCESSING (1<<2)
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
-#define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
-#define CMD_CALL_FROM_MODULE (1<<4)  /* From RM_Call */
+#define CMD_CALL_FULL (CMD_CALL_PROPAGATE)
+#define CMD_CALL_FROM_MODULE (1<<2)  /* From RM_Call */
 
 /* Command propagation flags, see propagateNow() function */
 #define PROPAGATE_NONE 0
@@ -731,6 +747,7 @@ typedef void (*moduleTypeFreeFunc2)(struct RedisModuleKeyOptCtx *ctx, void *valu
 typedef size_t (*moduleTypeFreeEffortFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
 typedef void (*moduleTypeUnlinkFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
 typedef void *(*moduleTypeCopyFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
+typedef int (*moduleTypeAuthCallback)(struct RedisModuleCtx *ctx, void *username, void *password, const char **err);
 
 
 /* The module type, which is referenced in each value of a given type, defines
@@ -798,6 +815,8 @@ struct RedisModule {
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
+    int num_commands_with_acl_categories; /* Number of commands in this module included in acl categories */
+    int onload;     /* Flag to identify if the call is being made from Onload (0 or 1) */
 };
 typedef struct RedisModule RedisModule;
 
@@ -847,6 +866,9 @@ struct RedisModuleDigest {
     memset(mdvar.x,0,sizeof(mdvar.x)); \
 } while(0)
 
+/* Macro to check if the client is in the middle of module based authentication. */
+#define clientHasModuleAuthInProgress(c) ((c)->module_auth_ctx != NULL)
+
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
@@ -880,7 +902,7 @@ struct redisObject {
     void *ptr;
 };
 
-/* The a string name for an object's type as listed above
+/* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
  * and Module types have their registered name returned. */
 char *getObjectTypeName(robj*);
@@ -913,8 +935,8 @@ typedef struct clientReplyBlock {
  *      |                                            /       \
  *      |                                           /         \
  *      |                                          /           \
- *  Repl Backlog                               Replia_A      Replia_B
- * 
+ *  Repl Backlog                               Replica_A    Replica_B
+ *
  * Each replica or replication backlog increments only the refcount of the
  * 'ref_repl_buf_node' which it points to. So when replica walks to the next
  * node, it should first increase the next node's refcount, and when we trim
@@ -992,36 +1014,27 @@ typedef struct multiState {
  * The fields used depend on client->btype. */
 typedef struct blockingState {
     /* Generic fields. */
-    long count;             /* Elements to pop if count was specified (BLMPOP/BZMPOP), -1 otherwise. */
-    mstime_t timeout;       /* Blocking operation timeout. If UNIX current time
-                             * is > timeout then the operation timed out. */
+    blocking_type btype;                  /* Type of blocking op if CLIENT_BLOCKED. */
+    mstime_t timeout;           /* Blocking operation timeout. If UNIX current time
+                                 * is > timeout then the operation timed out. */
+    int unblock_on_nokey;       /* Whether to unblock the client when at least one of the keys
+                                   is deleted or does not exist anymore */
+    /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM or any other Keys related blocking */
+    dict *keys;                 /* The keys we are blocked on */
 
-    /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM */
-    dict *keys;             /* The keys we are waiting to terminate a blocking
-                             * operation such as BLPOP or XREAD. Or NULL. */
-    robj *target;           /* The key that should receive the element,
-                             * for BLMOVE. */
-    struct blockPos {
-        int wherefrom;      /* Where to pop from */
-        int whereto;        /* Where to push to */
-    } blockpos;              /* The positions in the src/dst lists/zsets
-                             * where we want to pop/push an element
-                             * for BLPOP, BRPOP, BLMOVE and BZMPOP. */
-
-    /* BLOCK_STREAM */
-    size_t xread_count;     /* XREAD COUNT option. */
-    robj *xread_group;      /* XREADGROUP group name. */
-    robj *xread_consumer;   /* XREADGROUP consumer name. */
-    int xread_group_noack;
-
-    /* BLOCKED_WAIT */
+    /* BLOCKED_WAIT and BLOCKED_WAITAOF */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
+    int numlocal;           /* Indication if WAITAOF is waiting for local fsync. */
     long long reploffset;   /* Replication offset to reach. */
 
     /* BLOCKED_MODULE */
     void *module_blocked_handle; /* RedisModuleBlockedClient structure.
                                     which is opaque for the Redis core, only
                                     handled in module.c. */
+
+    void *async_rm_call_handle; /* RedisModuleAsyncRMCallPromise structure.
+                                   which is opaque for the Redis core, only
+                                   handled in module.c. */
 } blockingState;
 
 /* The following structure represents a node in the server.ready_keys list,
@@ -1029,7 +1042,7 @@ typedef struct blockingState {
  * operation such as B[LR]POP, but received new data in the context of the
  * last executed command.
  *
- * After the execution of every command or script, we run this list to check
+ * After the execution of every command or script, we iterate over this list to check
  * if as a result we should serve data to clients blocked, unblocking them.
  * Note that server.ready_keys will not have duplicates as there dictionary
  * also called ready_keys in every structure representing a Redis database,
@@ -1085,7 +1098,7 @@ typedef struct {
                                       need more reserved IDs use UINT64_MAX-1,
                                       -2, ... and so forth. */
 
-/* Replication backlog is not separate memory, it just is one consumer of
+/* Replication backlog is not a separate memory, it just is one consumer of
  * the global replication buffer. This structure records the reference of
  * replication buffers. Since the replication buffer block list may be very long,
  * it would cost much time to search replication offset on partial resync, so
@@ -1108,6 +1121,31 @@ typedef struct {
     size_t mem_usage_sum;
 } clientMemUsageBucket;
 
+#ifdef LOG_REQ_RES
+/* Structure used to log client's requests and their
+ * responses (see logreqres.c) */
+typedef struct {
+    /* General */
+    int argv_logged; /* 1 if the command was logged */
+    /* Vars for log buffer */
+    unsigned char *buf; /* Buffer holding the data (request and response) */
+    size_t used;
+    size_t capacity;
+    /* Vars for offsets within the client's reply */
+    struct {
+        /* General */
+        int saved; /* 1 if we already saved the offset (first time we call addReply*) */
+        /* Offset within the static reply buffer */
+        int bufpos;
+        /* Offset within the reply block list */
+        struct {
+            int index;
+            size_t used;
+        } last_node;
+    } offset;
+} clientReqResInfo;
+#endif
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
@@ -1115,6 +1153,8 @@ typedef struct client {
     int resp;               /* RESP protocol version. Can be 2 or 3. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
+    robj *lib_name;         /* The client library name as set by CLIENT SETINFO. */
+    robj *lib_ver;          /* The client library version as set by CLIENT SETINFO. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
@@ -1156,6 +1196,7 @@ typedef struct client {
     long long reploff;      /* Applied replication offset if this is a master. */
     long long repl_applied; /* Applied replication data count in querybuf, if this is a replica. */
     long long repl_ack_off; /* Replication ack offset, if this is a slave. */
+    long long repl_aof_off; /* Replication AOF fsync ack offset, if this is a slave. */
     long long repl_ack_time;/* Replication ack time, if this is a slave. */
     long long repl_last_partial_write; /* The last time the server did a partial write from the RDB child pipe to this replica  */
     long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
@@ -1167,8 +1208,7 @@ typedef struct client {
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     int slave_req;          /* Slave requirements: SLAVE_REQ_* */
     multiState mstate;      /* MULTI/EXEC state */
-    int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
-    blockingState bpop;     /* blocking state */
+    blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
@@ -1179,6 +1219,12 @@ typedef struct client {
     listNode *client_list_node; /* list node in client list */
     listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
+    void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
+                                  * client. This is set in case of module authentication before the
+                                  * unblocked client is reprocessed to handle reply callbacks. */
+    void *module_auth_ctx; /* Ongoing / attempted module based auth callback's ctx.
+                            * This is only tracked within the context of the command attempting
+                            * authentication. If not NULL, it means module auth is in progress. */
     RedisModuleUserChangedFunc auth_callback; /* Module callback to execute
                                                * when the authenticated user
                                                * changes. */
@@ -1190,7 +1236,7 @@ typedef struct client {
                              * unloaded for cleanup. Opaque for Redis Core.*/
 
     /* If this client is in tracking mode and this field is non zero,
-     * invalidation messages for keys fetched by this client will be send to
+     * invalidation messages for keys fetched by this client will be sent to
      * the specified client ID. */
     uint64_t client_tracking_redirection;
     rax *client_tracking_prefixes; /* A dictionary of prefixes we are already
@@ -1220,6 +1266,9 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+#ifdef LOG_REQ_RES
+    clientReqResInfo reqres;
+#endif
 } client;
 
 /* ACL information */
@@ -1323,9 +1372,8 @@ typedef struct redisOp {
 /* Defines an array of Redis operations. There is an API to add to this
  * structure in an easy way.
  *
- * redisOpArrayInit();
- * redisOpArrayAppend();
- * redisOpArrayFree();
+ * int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target);
+ * void redisOpArrayFree(redisOpArray *oa);
  */
 typedef struct redisOpArray {
     redisOp *ops;
@@ -1515,8 +1563,6 @@ struct redisServer {
     int in_exec;                /* Are we inside EXEC? */
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
-    int core_propagates;        /* Is the core (in oppose to the module subsystem) is in charge of calling propagatePendingCommands? */
-    int module_ctx_nesting;     /* moduleCreateContext() nesting level */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
     int thp_enabled;                 /* If true, THP is enabled. */
@@ -1547,13 +1593,21 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    client *current_client;     /* Current client executing the command. */
+    client *current_client;     /* The client that triggered the command execution (External or AOF). */
+    client *executing_client;   /* The client executing the current command (possibly script or module). */
+
+#ifdef LOG_REQ_RES
+    char *req_res_logfile; /* Path of log file for logging all requests and their replies. If NULL, no logging will be performed */
+    unsigned int client_default_resp;
+#endif
 
     /* Stuff for client mem eviction */
     clientMemUsageBucket* client_mem_usage_buckets;
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
-    int in_nested_call;         /* If > 0, in a nested call of a call */
+    int execution_nesting;      /* Execution nesting level.
+                                 * e.g. call(), async module stuff (timers, events, etc.),
+                                 * cron stuff (active expire, eviction) */
     rax *clients_index;         /* Active clients dictionary by client ID. */
     uint32_t paused_actions;   /* Bitmask of actions that are currently paused */
     list *postponed_clients;       /* List of postponed clients */
@@ -1689,7 +1743,8 @@ struct redisServer {
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF current size (Including BASE + INCRs). */
     off_t aof_last_incr_size;       /* The size of the latest incr AOF. */
-    off_t aof_fsync_offset;         /* AOF offset which is already synced to disk. */
+    off_t aof_last_incr_fsync_offset; /* AOF offset which is already requested to be synced to disk.
+                                       * Compare with the aof_last_incr_size. */
     int aof_flush_sleep;            /* Micros to sleep before flush. (used by tests) */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
@@ -1744,7 +1799,7 @@ struct redisServer {
     char *rdb_pipe_buff;            /* In diskless replication, this buffer holds data */
     int rdb_pipe_bufflen;           /* that was read from the rdb pipe. */
     int rdb_key_save_delay;         /* Delay in microseconds between keys while
-                                     * writing the RDB. (for testings). negative
+                                     * writing aof or rdb. (for testings). negative
                                      * value means fractions of microseconds (on average). */
     int key_load_delay;             /* Delay in microseconds between keys while
                                      * loading aof or rdb. (for testings). negative
@@ -1775,6 +1830,11 @@ struct redisServer {
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
+    redisAtomic long long fsynced_reploff_pending;/* Largest replication offset to
+                                     * potentially have been fsynced, applied to
+                                       fsynced_reploff only when AOF state is AOF_ON
+                                       (not during the initial rewrite) */
+    long long fsynced_reploff;      /* Largest replication offset that has been confirmed to be fsynced */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     replBacklog *repl_backlog;      /* Replication backlog for partial syncs */
@@ -1832,7 +1892,7 @@ struct redisServer {
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     /* Synchronous replication. */
-    list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
+    list *clients_waiting_acks;         /* Clients waiting in WAIT or WAITAOF. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
@@ -1882,6 +1942,7 @@ struct redisServer {
     int daylight_active;        /* Currently in daylight saving time. */
     mstime_t mstime;            /* 'unixtime' in milliseconds. */
     ustime_t ustime;            /* 'unixtime' in microseconds. */
+    mstime_t cmd_time_snapshot; /* Time snapshot of the root execution nesting. */
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
     /* Pubsub */
@@ -1916,12 +1977,11 @@ struct redisServer {
                                       REDISMODULE_CLUSTER_FLAG_*. */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
-    int cluster_config_file_lock_fd;   /* cluster config fd, will be flock */
+    int cluster_config_file_lock_fd;   /* cluster config fd, will be flocked. */
     unsigned long long cluster_link_msg_queue_limit_bytes;  /* Memory usage limit on individual link msg queue */
     int cluster_drop_packet_filter; /* Debug config that allows tactically
                                    * dropping packets of a specific type */
     /* Scripting */
-    client *script_caller;       /* The client running script right now, or NULL */
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
     int pre_command_oom_state;         /* OOM before command (script?) was started */
     int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
@@ -2076,67 +2136,38 @@ typedef struct {
     } fk;
 } keySpec;
 
-/* Number of static key specs */
-#define STATIC_KEY_SPECS_NUM 4
+#ifdef LOG_REQ_RES
 
-/* Must be synced with ARG_TYPE_STR and generate-command-code.py */
+/* Must be synced with generate-command-code.py */
 typedef enum {
-    ARG_TYPE_STRING,
-    ARG_TYPE_INTEGER,
-    ARG_TYPE_DOUBLE,
-    ARG_TYPE_KEY, /* A string, but represents a keyname */
-    ARG_TYPE_PATTERN,
-    ARG_TYPE_UNIX_TIME,
-    ARG_TYPE_PURE_TOKEN,
-    ARG_TYPE_ONEOF, /* Has subargs */
-    ARG_TYPE_BLOCK /* Has subargs */
-} redisCommandArgType;
+    JSON_TYPE_STRING,
+    JSON_TYPE_INTEGER,
+    JSON_TYPE_BOOLEAN,
+    JSON_TYPE_OBJECT,
+    JSON_TYPE_ARRAY,
+} jsonType;
 
-#define CMD_ARG_NONE            (0)
-#define CMD_ARG_OPTIONAL        (1<<0)
-#define CMD_ARG_MULTIPLE        (1<<1)
-#define CMD_ARG_MULTIPLE_TOKEN  (1<<2)
+typedef struct jsonObjectElement {
+    jsonType type;
+    const char *key;
+    union {
+        const char *string;
+        long long integer;
+        int boolean;
+        struct jsonObject *object;
+        struct {
+            struct jsonObject **objects;
+            int length;
+        } array;
+    } value;
+} jsonObjectElement;
 
-/* WARNING! This struct must match RedisModuleCommandArg */
-typedef struct redisCommandArg {
-    const char *name;
-    redisCommandArgType type;
-    int key_spec_index;
-    const char *token;
-    const char *summary;
-    const char *since;
-    int flags;
-    const char *deprecated_since;
-    struct redisCommandArg *subargs;
-    const char *display_text;
-    /* runtime populated data */
-    int num_args;
-} redisCommandArg;
+typedef struct jsonObject {
+    struct jsonObjectElement *elements;
+    int length;
+} jsonObject;
 
-/* Must be synced with RESP2_TYPE_STR and generate-command-code.py */
-typedef enum {
-    RESP2_SIMPLE_STRING,
-    RESP2_ERROR,
-    RESP2_INTEGER,
-    RESP2_BULK_STRING,
-    RESP2_NULL_BULK_STRING,
-    RESP2_ARRAY,
-    RESP2_NULL_ARRAY,
-} redisCommandRESP2Type;
-
-/* Must be synced with RESP3_TYPE_STR and generate-command-code.py */
-typedef enum {
-    RESP3_SIMPLE_STRING,
-    RESP3_ERROR,
-    RESP3_INTEGER,
-    RESP3_DOUBLE,
-    RESP3_BULK_STRING,
-    RESP3_ARRAY,
-    RESP3_MAP,
-    RESP3_SET,
-    RESP3_BOOL,
-    RESP3_NULL,
-} redisCommandRESP3Type;
+#endif
 
 /* WARNING! This struct must match RedisModuleCommandHistoryEntry */
 typedef struct {
@@ -2235,6 +2266,12 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_NO_MULTI: The command is not allowed inside a transaction
  *
+ * CMD_ALLOW_BUSY: The command can run while another command is running for
+ *                 a long time (timedout script, module command that yields)
+ *
+ * CMD_TOUCHES_ARBITRARY_KEYS: The command may touch (and cause lazy-expire)
+ *                             arbitrary key (i.e not provided in argv)
+ *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
  * See redis.conf for the exact meaning of each.
@@ -2268,19 +2305,27 @@ struct redisCommand {
     const char *deprecated_since; /* In case the command is deprecated, when did it happen? */
     redisCommandGroup group; /* Command group */
     commandHistory *history; /* History of the command */
+    int num_history;
     const char **tips; /* An array of strings that are meant to be tips for clients/proxies regarding this command */
+    int num_tips;
     redisCommandProc *proc; /* Command implementation */
     int arity; /* Number of arguments, it is possible to use -N to say >= N */
     uint64_t flags; /* Command flags, see CMD_*. */
     uint64_t acl_categories; /* ACl categories, see ACL_CATEGORY_*. */
-    keySpec key_specs_static[STATIC_KEY_SPECS_NUM]; /* Key specs. See keySpec */
+    keySpec *key_specs;
+    int key_specs_num;
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect (may be NULL) */
     redisGetKeysProc *getkeys_proc;
+    int num_args; /* Length of args array. */
     /* Array of subcommands (may be NULL) */
     struct redisCommand *subcommands;
     /* Array of arguments (may be NULL) */
     struct redisCommandArg *args;
+#ifdef LOG_REQ_RES
+    /* Reply schema */
+    struct jsonObject *reply_schema;
+#endif
 
     /* Runtime populated data */
     long long microseconds, calls, rejected_calls, failed_calls;
@@ -2291,16 +2336,10 @@ struct redisCommand {
                    bit set in the bitmap of allowed commands. */
     sds fullname; /* A SDS string representing the command fullname. */
     struct hdr_histogram* latency_histogram; /*points to the command latency command histogram (unit of time nanosecond) */
-    keySpec *key_specs;
     keySpec legacy_range_key_spec; /* The legacy (first,last,step) key spec is
                                      * still maintained (if applicable) so that
                                      * we can still support the reply format of
                                      * COMMAND INFO and COMMAND GETKEYS */
-    int num_args;
-    int num_history;
-    int num_tips;
-    int key_specs_num;
-    int key_specs_max;
     dict *subcommands_dict; /* A dictionary that holds the subcommands, the key is the subcommand sds name
                              * (not the fullname), and the value is the redisCommand structure pointer. */
     struct redisCommand *parent;
@@ -2407,14 +2446,13 @@ extern dict *modules;
 
 /* Command metadata */
 void populateCommandLegacyRangeSpec(struct redisCommand *c);
-int populateArgsStructure(struct redisCommandArg *args);
 
 /* Modules */
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
-int moduleUnload(sds name);
+int moduleUnload(sds name, const char **errmsg);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -2423,6 +2461,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid);
 const char *moduleTypeModuleName(moduleType *mt);
 const char *moduleNameFromCommand(struct redisCommand *cmd);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
+void moduleCallCommandUnblockedHandler(client *c);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c);
@@ -2432,13 +2471,14 @@ void moduleAcquireGIL(void);
 int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
-void firePostExecutionUnitJobs();
+void firePostExecutionUnitJobs(void);
 void moduleCallCommandFilters(client *c);
+void modulePostExecutionUnitOperations(void);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
 int TerminateModuleForkChild(int child_pid, int wait);
 ssize_t rdbSaveModulesAux(rio *rdb, int when);
-int moduleAllDatatypesHandleErrors();
-int moduleAllModulesHandleReplAsyncLoad();
+int moduleAllDatatypesHandleErrors(void);
+int moduleAllModulesHandleReplAsyncLoad(void);
 sds modulesCollectInfo(sds info, dict *sections_dict, int for_crash_report, int sections);
 void moduleFireServerEvent(uint64_t eid, int subid, void *data);
 void processModuleLoadingProgressEvent(int is_aof);
@@ -2451,9 +2491,9 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags);
 size_t moduleGetFreeEffort(robj *key, robj *val, int dbid);
 size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid);
 robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj *value);
-int moduleDefragValue(robj *key, robj *obj, long *defragged, int dbid);
-int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, long long *defragged, int dbid);
-long moduleDefragGlobals(void);
+int moduleDefragValue(robj *key, robj *obj, int dbid);
+int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, int dbid);
+void moduleDefragGlobals(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
@@ -2513,6 +2553,7 @@ void setDeferredReplyBulkSds(client *c, void *node, sds s);
 void addReplyErrorObject(client *c, robj *err);
 void addReplyOrErrorObject(client *c, robj *reply);
 void afterErrorReply(client *c, const char *s, size_t len, int flags);
+void addReplyErrorFormatInternal(client *c, int flags, const char *fmt, va_list ap);
 void addReplyErrorSdsEx(client *c, sds err, int flags);
 void addReplyErrorSds(client *c, sds err);
 void addReplyErrorSdsSafe(client *c, sds err);
@@ -2544,7 +2585,7 @@ char *getClientPeerId(client *client);
 char *getClientSockName(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(int type);
-int clientSetName(client *c, robj *name);
+int clientSetName(client *c, robj *name, const char **err);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
@@ -2565,17 +2606,16 @@ void unpauseActions(pause_purpose purpose);
 uint32_t isPausedActions(uint32_t action_bitmask);
 uint32_t isPausedActionsWithUpdate(uint32_t action_bitmask);
 void updatePausedActions(void);
-void unblockPostponedClients();
+void unblockPostponedClients(void);
 void processEventsWhileBlocked(void);
-void whileBlockedCron();
-void blockingOperationStarts();
-void blockingOperationEnds();
+void whileBlockedCron(void);
+void blockingOperationStarts(void);
+void blockingOperationEnds(void);
 int handleClientsWithPendingWrites(void);
 int handleClientsWithPendingWritesUsingThreads(void);
 int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
-int islocalClient(client *c);
 int updateClientMemUsageAndBucket(client *c);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
@@ -2587,6 +2627,12 @@ void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
+
+/* logreqres.c - logging of requests and responses */
+void reqresReset(client *c, int free_buf);
+void reqresSaveClientReplyOffset(client *c);
+size_t reqresAppendRequest(client *c);
+size_t reqresAppendResponse(client *c);
 
 #ifdef __GNUC__
 void addReplyErrorFormatEx(client *c, int flags, const char *fmt, ...)
@@ -2604,7 +2650,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 /* Client side caching (tracking mode) */
 void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **prefix, size_t numprefix);
 void disableTracking(client *c);
-void trackingRememberKeys(client *c);
+void trackingRememberKeys(client *tracking, client *executing);
 void trackingInvalidateKey(client *c, robj *keyobj, int bcast);
 void trackingScheduleKeyInvalidation(uint64_t client_id, robj *keyobj);
 void trackingHandlePendingKeyInvalidations(void);
@@ -2634,7 +2680,6 @@ int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 robj *listTypeDup(robj *o);
 void listTypeDelRange(robj *o, long start, long stop);
-void unblockClientWaitingData(client *c);
 void popGenericCommand(client *c, int where);
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
 typedef enum {
@@ -2712,7 +2757,7 @@ int compareStringObjects(const robj *a, const robj *b);
 int collateStringObjects(const robj *a, const robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
-void trimStringObjectIfNeeded(robj *o);
+void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
@@ -2732,7 +2777,7 @@ void replicationCron(void);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
-void resizeReplicationBacklog();
+void resizeReplicationBacklog(void);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
@@ -2740,6 +2785,7 @@ int checkGoodReplicasStatus(void);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(client *c);
 int replicationCountAcksByOffset(long long offset);
+int replicationCountAOFAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
@@ -2760,7 +2806,7 @@ void rdbPipeWriteHandlerConnRemoved(struct connection *conn);
 void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
-const char *getFailoverStateString();
+const char *getFailoverStateString(void);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);
@@ -2794,7 +2840,7 @@ void stopAppendOnly(void);
 int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void killAppendOnlyChild(void);
-void restartAOFAfterSYNC();
+void restartAOFAfterSYNC(void);
 void aofLoadManifestFromDisk(void);
 void aofOpenIfNeededOnServerStart(void);
 void aofManifestFree(aofManifest *am);
@@ -2811,8 +2857,8 @@ void receiveChildInfo(void);
 
 /* Fork helpers */
 int redisFork(int purpose);
-int hasActiveChildProcess();
-void resetChildState();
+int hasActiveChildProcess(void);
+void resetChildState(void);
 int isMutuallyExclusiveChildType(int type);
 
 /* acl.c -- Authentication related prototypes. */
@@ -2837,8 +2883,18 @@ void ACLInit(void);
 #define ACL_WRITE_PERMISSION (1<<1)
 #define ACL_ALL_PERMISSION (ACL_READ_PERMISSION|ACL_WRITE_PERMISSION)
 
+/* Return codes for Authentication functions to indicate the result. */
+typedef enum {
+    AUTH_OK = 0,
+    AUTH_ERR,
+    AUTH_NOT_HANDLED,
+    AUTH_BLOCKED
+} AuthResult;
+
 int ACLCheckUserCredentials(robj *username, robj *password);
-int ACLAuthenticateUser(client *c, robj *username, robj *password);
+int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err);
+int checkModuleAuthentication(client *c, robj *username, robj *password, robj **err);
+void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
@@ -2856,12 +2912,13 @@ int ACLLoadConfiguredUsers(void);
 robj *ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
 void addReplyCommandCategories(client *c, struct redisCommand *cmd);
-user *ACLCreateUnlinkedUser();
+user *ACLCreateUnlinkedUser(void);
 void ACLFreeUserAndKillClients(user *u);
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object);
 sds getAclErrorMessage(int acl_res, user *user, struct redisCommand *cmd, sds errored_val, int verbose);
 void ACLUpdateDefaultUserPassword(sds password);
 sds genRedisInfoStringACLStats(sds info);
+void ACLRecomputeCommandBitsFromCommandRulesAllUsers(void);
 
 /* Sorted sets data type */
 
@@ -2933,11 +2990,12 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Core functions */
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level);
-size_t freeMemoryGetNotCountedMemory();
+size_t freeMemoryGetNotCountedMemory(void);
 int overMaxmemoryAfterAlloc(size_t moremem);
 uint64_t getCommandFlags(client *c);
 int processCommand(client *c);
 int processPendingCommandAndInputBuffer(client *c);
+int processCommandAndResetClient(client *c);
 void setupSignalHandlers(void);
 void removeSignalHandlers(void);
 int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
@@ -2953,11 +3011,11 @@ struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
 int commandCheckExistence(client *c, sds *err);
 int commandCheckArity(client *c, sds *err);
-void startCommandExecution();
+void startCommandExecution(void);
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
-void postExecutionUnitOperations();
+void postExecutionUnitOperations(void);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
@@ -2988,6 +3046,8 @@ void adjustOpenFilesLimit(void);
 void incrementErrorCount(const char *fullerr, size_t namelen);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(int update_daylight_info);
+void enterExecutionUnit(int update_cached_time, long long us);
+void exitExecutionUnit(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 unsigned int getLRUClock(void);
@@ -2999,7 +3059,7 @@ void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
-robj *activeDefragStringOb(robj* ob, long *defragged);
+robj *activeDefragStringOb(robj* ob);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
 void dismissMemoryInChild(void);
@@ -3061,8 +3121,8 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message, int sharded);
 int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded);
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bulk);
-int serverPubsubSubscriptionCount();
-int serverPubsubShardSubscriptionCount();
+int serverPubsubSubscriptionCount(void);
+int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
 
 /* Keyspace events notification */
@@ -3113,15 +3173,15 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
-void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
+int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
-void initConfigValues();
+void initConfigValues(void);
 void removeConfig(sds name);
-sds getConfigDebugInfo();
+sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
-void initServerClientMemUsageBuckets();
-void freeServerClientMemUsageBuckets();
+void initServerClientMemUsageBuckets(void);
+void freeServerClientMemUsageBuckets(void);
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
@@ -3166,6 +3226,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses counters. */
 #define LOOKUP_WRITE (1<<3)    /* Delete expired keys even in replicas. */
 #define LOOKUP_NOEXPIRE (1<<4) /* Avoid deleting lazy expired keys. */
+#define LOOKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
 
 void dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
@@ -3188,7 +3249,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 long long emptyData(int dbnum, int flags, void(callback)(dict*));
 long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback)(dict*));
 void flushAllDataAndResetRDB(int flags);
-long long dbTotalServerKeyCount();
+long long dbTotalServerKeyCount(void);
 redisDb *initTempDb(void);
 void discardTempDb(redisDb *tempDb, void(callback)(dict*));
 
@@ -3265,36 +3326,48 @@ sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
 void freeLuaScriptsAsync(dict *lua_scripts);
 void freeFunctionsAsync(functionsLibCtx *lib_ctx);
-int ldbIsEnabled();
+int ldbIsEnabled(void);
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);
 void sha1hex(char *digest, char *script, size_t len);
-unsigned long evalMemory();
-dict* evalScriptsDict();
-unsigned long evalScriptsMemory();
+unsigned long evalMemory(void);
+dict* evalScriptsDict(void);
+unsigned long evalScriptsMemory(void);
 uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
 uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
-int isInsideYieldingLongCommand();
+int isInsideYieldingLongCommand(void);
 
 typedef struct luaScript {
     uint64_t flags;
     robj *body;
 } luaScript;
+/* Cache of recently used small arguments to avoid malloc calls. */
+#define LUA_CMD_OBJCACHE_SIZE 32
+#define LUA_CMD_OBJCACHE_MAX_LEN 64
 
-/* Blocked clients */
+/* Blocked clients API */
 void processUnblockedClients(void);
+void initClientBlockingState(client *c);
 void blockClient(client *c, int btype);
-void unblockClient(client *c);
+void unblockClient(client *c, int queue_for_reprocessing);
+void unblockClientOnTimeout(client *c);
+void unblockClientOnError(client *c, const char *err_str);
 void queueClientForReprocessing(client *c);
 void replyToBlockedClientTimedOut(client *c);
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit);
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, int unblock_on_nokey);
+void blockClientShutdown(client *c);
+void blockPostponeClient(client *c);
+void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas);
+void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas);
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, long count, mstime_t timeout, robj *target, struct blockPos *blockpos, streamID *ids, int unblock_on_nokey);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
+void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey);
+
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */
 void addClientToTimeoutTable(client *c);
@@ -3532,6 +3605,7 @@ void objectCommand(client *c);
 void memoryCommand(client *c);
 void clientCommand(client *c);
 void helloCommand(client *c);
+void clientSetinfoCommand(client *c);
 void evalCommand(client *c);
 void evalRoCommand(client *c);
 void evalShaCommand(client *c);
@@ -3554,6 +3628,7 @@ void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);
 void waitCommand(client *c);
+void waitaofCommand(client *c);
 void georadiusbymemberCommand(client *c);
 void georadiusbymemberroCommand(client *c);
 void georadiusCommand(client *c);
@@ -3616,7 +3691,7 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
 void releaseInfoSectionDict(dict *sec);
 sds genRedisInfoString(dict *section_dict, int all_sections, int everything);
 sds genModulesInfoString(sds info);
-void applyWatchdogPeriod();
+void applyWatchdogPeriod(void);
 void watchdogScheduleSignal(int period);
 void serverLogHexDump(int level, char *descr, void *value, size_t len);
 int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
