@@ -64,7 +64,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test "Wait for cluster to be stable" {
-        # Cluster check just verifies the the config state is self-consistent,
+        # Cluster check just verifies the config state is self-consistent,
         # waiting for cluster_state to be okay is an independent check that all the
         # nodes actually believe each other are healthy, prevent cluster down error.
         wait_for_condition 1000 50 {
