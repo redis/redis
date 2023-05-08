@@ -659,7 +659,7 @@ void smoveCommand(client *c) {
     robj *srcset, *dstset, *ele;
     srcset = lookupKeyWrite(c->db,c->argv[1]);
     dstset = lookupKeyWrite(c->db,c->argv[2]);
-    int added =0, removed =0;
+    int added = 0, removed = 0;
     /* If the source key does not exist return 0 */
     if (srcset == NULL) {
         addReply(c,shared.czero);
@@ -673,7 +673,7 @@ void smoveCommand(client *c) {
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
-        int member =0;
+        int member = 0;
         for (int j = 3; j < c->argc; j++) {
             ele = c->argv[j];
             /*even if one element is present in src set, we will return 1*/
@@ -695,12 +695,12 @@ void smoveCommand(client *c) {
     /* If none of the element can be removed from the src set, return 0. */
     for (int j = 3; j < c->argc; j++) {
         if (setTypeRemove(srcset,c->argv[j]->ptr)) {
-            removed ++;
+            removed++;
             /*we only add the item which can be removed from src set*/
             if (setTypeAdd(dstset,c->argv[j]->ptr)) added++;
         }
     }
-    if (removed==0) {
+    if (removed == 0) {
         addReply(c,shared.czero);
         return;
     }
