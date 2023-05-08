@@ -48,7 +48,12 @@ robj *setTypeCreate(sds value, size_t size_hint) {
         return createIntsetObject();
     if (size_hint < server.set_max_listpack_entries)
         return createSetListpackObject();
-    return createSetObject();
+
+    /* We may oversize the set by using the hint if the hint is not accurate,
+     * but we will assume this is accpetable to maximize performance. */
+    robj *o = createSetObject();
+    dictExpand(o->ptr, size_hint);
+    return o;
 }
 
 /* Check if the existing set should be converted to another encoding based off the
