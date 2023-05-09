@@ -193,7 +193,7 @@
                         "name": "storedistkey",
                         "display": "key",
                         "type": "key",
-                        "key_spec_index": 1
+                        "key_spec_index": 2
                     }
                 ]
             }
