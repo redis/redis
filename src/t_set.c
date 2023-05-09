@@ -712,12 +712,6 @@ void smoveCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
-    /* Create the destination set when it doesn't exist */
-    if (!dstset) {
-        dstset = setTypeCreate(ele->ptr, 1);
-        dbAdd(c->db,c->argv[2],dstset);
-    }
-
     signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty++;
     /* An extra key has changed when ele was successfully added to dstset */
