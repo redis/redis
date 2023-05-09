@@ -717,7 +717,7 @@ void smoveCommand(client *c) {
     signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty += removed;
 
-    /* An extra key has changed when atleast ele was successfully added to dstset */
+    /* An extra key has changed when at least one ele was successfully added to dstset */
     if (added) {
         server.dirty += added;
         signalModifiedKey(c,c->db,c->argv[2]);
