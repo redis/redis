@@ -188,20 +188,21 @@
             {
                 "name": "store",
                 "type": "oneof",
-                "key_spec_index": 1,
                 "optional": true,
                 "arguments": [
                     {
                         "token": "STORE",
                         "name": "storekey",
                         "display": "key",
-                        "type": "key"
+                        "type": "key",
+                        "key_spec_index": 1
                     },
                     {
                         "token": "STOREDIST",
                         "name": "storedistkey",
                         "display": "key",
-                        "type": "key"
+                        "type": "key",
+                        "key_spec_index": 1
                     }
                 ]
             }
