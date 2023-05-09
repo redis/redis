@@ -30,10 +30,6 @@
 #include "server.h"
 #include "cluster.h"
 
-#define GLOBAL_SUBSCRIPTION_TYPE 0
-#define PATTERN_SUBSCRIPTION_TYPE 1
-#define SHARD_SUBSCRIPTION_TYPE 2
-
 /* Structure to hold the pubsub related metadata. Currently used
  * for pubsub and pubsubshard feature. */
 typedef struct pubsubtype {
