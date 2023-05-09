@@ -1,11 +1,17 @@
 {
     "SMOVE": {
-        "summary": "Moves a member from one set to another.",
-        "complexity": "O(1)",
+        "summary": "Moves one or more member from one set to another.Deletes the source set if the last member was moved.",
+        "complexity": "O(N) where N is the number of members to be moved.",
         "group": "set",
         "since": "1.0.0",
-        "arity": 4,
+        "arity": -4,
         "function": "smoveCommand",
+        "history": [
+            [
+                "7.2.0",
+                "Accepts multiple `member` arguments."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "FAST"
@@ -56,7 +62,7 @@
             "oneOf": [
                 {
                     "const": 1,
-                    "description": "Element is moved."
+                    "description": "One or more element is moved."
                 },
                 {
                     "const": 0,
@@ -77,7 +83,8 @@
             },
             {
                 "name": "member",
-                "type": "string"
+                "type": "string",
+                "multiple": true
             }
         ]
     }
