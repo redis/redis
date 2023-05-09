@@ -537,6 +537,9 @@ proc start_server {options {code undefined}} {
         set fd [open $stdout "a+"]
         puts $fd "### Starting server for test $::cur_test"
         close $fd
+        if {$::verbose > 1} {
+            puts "### Starting server $stdout for test - $::cur_test"
+        }
     }
 
     # We may have a stdout left over from the previous tests, so we need

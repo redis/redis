@@ -1,7 +1,6 @@
 #ifndef JEMALLOC_INTERNAL_BITMAP_H
 #define JEMALLOC_INTERNAL_BITMAP_H
 
-#include "jemalloc/internal/arena_types.h"
 #include "jemalloc/internal/bit_util.h"
 #include "jemalloc/internal/sc.h"
 
@@ -9,9 +8,9 @@ typedef unsigned long bitmap_t;
 #define LG_SIZEOF_BITMAP	LG_SIZEOF_LONG
 
 /* Maximum bitmap bit count is 2^LG_BITMAP_MAXBITS. */
-#if LG_SLAB_MAXREGS > LG_CEIL(SC_NSIZES)
+#if SC_LG_SLAB_MAXREGS > LG_CEIL(SC_NSIZES)
 /* Maximum bitmap bit count is determined by maximum regions per slab. */
-#  define LG_BITMAP_MAXBITS	LG_SLAB_MAXREGS
+#  define LG_BITMAP_MAXBITS	SC_LG_SLAB_MAXREGS
 #else
 /* Maximum bitmap bit count is determined by number of extent size classes. */
 #  define LG_BITMAP_MAXBITS	LG_CEIL(SC_NSIZES)
@@ -273,7 +272,7 @@ bitmap_ffu(const bitmap_t *bitmap, const bitmap_info_t *binfo, size_t min_bit) {
 			}
 			return bitmap_ffu(bitmap, binfo, sib_base);
 		}
-		bit += ((size_t)(ffs_lu(group_masked) - 1)) <<
+		bit += ((size_t)ffs_lu(group_masked)) <<
 		    (lg_bits_per_group - LG_BITMAP_GROUP_NBITS);
 	}
 	assert(bit >= min_bit);
@@ -285,9 +284,9 @@ bitmap_ffu(const bitmap_t *bitmap, const bitmap_info_t *binfo, size_t min_bit) {
 	    - 1);
 	size_t bit;
 	do {
-		bit = ffs_lu(g);
-		if (bit != 0) {
-			return (i << LG_BITMAP_GROUP_NBITS) + (bit - 1);
+		if (g != 0) {
+			bit = ffs_lu(g);
+			return (i << LG_BITMAP_GROUP_NBITS) + bit;
 		}
 		i++;
 		g = bitmap[i];
@@ -308,20 +307,20 @@ bitmap_sfu(bitmap_t *bitmap, const bitmap_info_t *binfo) {
 #ifdef BITMAP_USE_TREE
 	i = binfo->nlevels - 1;
 	g = bitmap[binfo->levels[i].group_offset];
-	bit = ffs_lu(g) - 1;
+	bit = ffs_lu(g);
 	while (i > 0) {
 		i--;
 		g = bitmap[binfo->levels[i].group_offset + bit];
-		bit = (bit << LG_BITMAP_GROUP_NBITS) + (ffs_lu(g) - 1);
+		bit = (bit << LG_BITMAP_GROUP_NBITS) + ffs_lu(g);
 	}
 #else
 	i = 0;
 	g = bitmap[0];
-	while ((bit = ffs_lu(g)) == 0) {
+	while (g == 0) {
 		i++;
 		g = bitmap[i];
 	}
-	bit = (i << LG_BITMAP_GROUP_NBITS) + (bit - 1);
+	bit = (i << LG_BITMAP_GROUP_NBITS) + ffs_lu(g);
 #endif
 	bitmap_set(bitmap, binfo, bit);
 	return bit;

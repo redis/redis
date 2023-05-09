@@ -2,6 +2,7 @@
 #define JEMALLOC_INTERNAL_PROF_STRUCTS_H
 
 #include "jemalloc/internal/ckh.h"
+#include "jemalloc/internal/edata.h"
 #include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/prng.h"
 #include "jemalloc/internal/rb.h"
@@ -15,26 +16,22 @@ struct prof_bt_s {
 #ifdef JEMALLOC_PROF_LIBGCC
 /* Data structure passed to libgcc _Unwind_Backtrace() callback functions. */
 typedef struct {
-	prof_bt_t	*bt;
+	void 		**vec;
+	unsigned	*len;
 	unsigned	max;
 } prof_unwind_data_t;
 #endif
 
-struct prof_accum_s {
-#ifndef JEMALLOC_ATOMIC_U64
-	malloc_mutex_t	mtx;
-	uint64_t	accumbytes;
-#else
-	atomic_u64_t	accumbytes;
-#endif
-};
-
 struct prof_cnt_s {
 	/* Profiling counters. */
 	uint64_t	curobjs;
+	uint64_t	curobjs_shifted_unbiased;
 	uint64_t	curbytes;
+	uint64_t	curbytes_unbiased;
 	uint64_t	accumobjs;
+	uint64_t	accumobjs_shifted_unbiased;
 	uint64_t	accumbytes;
+	uint64_t	accumbytes_unbiased;
 };
 
 typedef enum {
@@ -54,6 +51,12 @@ struct prof_tctx_s {
 	 */
 	uint64_t		thr_uid;
 	uint64_t		thr_discrim;
+
+	/*
+	 * Reference count of how many times this tctx object is referenced in
+	 * recent allocation / deallocation records, protected by tdata->lock.
+	 */
+	uint64_t		recent_count;
 
 	/* Profiling counters, protected by tdata->lock. */
 	prof_cnt_t		cnts;
@@ -95,6 +98,15 @@ struct prof_tctx_s {
 	prof_cnt_t		dump_cnts;
 };
 typedef rb_tree(prof_tctx_t) prof_tctx_tree_t;
+
+struct prof_info_s {
+	/* Time when the allocation was made. */
+	nstime_t		alloc_time;
+	/* Points to the prof_tctx_t corresponding to the allocation. */
+	prof_tctx_t		*alloc_tctx;
+	/* Allocation request size. */
+	size_t			alloc_size;
+};
 
 struct prof_gctx_s {
 	/* Protects nlimbo, cnt_summed, and tctxs. */
@@ -167,9 +179,6 @@ struct prof_tdata_s {
 	 */
 	ckh_t			bt2tctx;
 
-	/* Sampling state. */
-	uint64_t		prng_state;
-
 	/* State used to avoid dumping while operating on prof internals. */
 	bool			enq;
 	bool			enq_idump;
@@ -196,5 +205,17 @@ struct prof_tdata_s {
 	void			*vec[PROF_BT_MAX];
 };
 typedef rb_tree(prof_tdata_t) prof_tdata_tree_t;
+
+struct prof_recent_s {
+	nstime_t alloc_time;
+	nstime_t dalloc_time;
+
+	ql_elm(prof_recent_t) link;
+	size_t size;
+	size_t usize;
+	atomic_p_t alloc_edata; /* NULL means allocation has been freed. */
+	prof_tctx_t *alloc_tctx;
+	prof_tctx_t *dalloc_tctx;
+};
 
 #endif /* JEMALLOC_INTERNAL_PROF_STRUCTS_H */

@@ -32,11 +32,11 @@ static char monotonic_info_string[32];
 
 static long mono_ticksPerMicrosecond = 0;
 
-static monotime getMonotonicUs_x86() {
+static monotime getMonotonicUs_x86(void) {
     return __rdtsc() / mono_ticksPerMicrosecond;
 }
 
-static void monotonicInit_x86linux() {
+static void monotonicInit_x86linux(void) {
     const int bufflen = 256;
     char buf[bufflen];
     regex_t cpuGhzRegex, constTscRegex;
@@ -99,24 +99,24 @@ static void monotonicInit_x86linux() {
 static long mono_ticksPerMicrosecond = 0;
 
 /* Read the clock value.  */
-static inline uint64_t __cntvct() {
+static inline uint64_t __cntvct(void) {
     uint64_t virtual_timer_value;
     __asm__ volatile("mrs %0, cntvct_el0" : "=r"(virtual_timer_value));
     return virtual_timer_value;
 }
 
 /* Read the Count-timer Frequency.  */
-static inline uint32_t cntfrq_hz() {
+static inline uint32_t cntfrq_hz(void) {
     uint64_t virtual_freq_value;
     __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(virtual_freq_value));
     return (uint32_t)virtual_freq_value;    /* top 32 bits are reserved */
 }
 
-static monotime getMonotonicUs_aarch64() {
+static monotime getMonotonicUs_aarch64(void) {
     return __cntvct() / mono_ticksPerMicrosecond;
 }
 
-static void monotonicInit_aarch64() {
+static void monotonicInit_aarch64(void) {
     mono_ticksPerMicrosecond = (long)cntfrq_hz() / 1000L / 1000L;
     if (mono_ticksPerMicrosecond == 0) {
         fprintf(stderr, "monotonic: aarch64, unable to determine clock rate");
@@ -130,7 +130,7 @@ static void monotonicInit_aarch64() {
 #endif
 
 
-static monotime getMonotonicUs_posix() {
+static monotime getMonotonicUs_posix(void) {
     /* clock_gettime() is specified in POSIX.1b (1993).  Even so, some systems
      * did not support this until much later.  CLOCK_MONOTONIC is technically
      * optional and may not be supported - but it appears to be universal.
@@ -140,7 +140,7 @@ static monotime getMonotonicUs_posix() {
     return ((uint64_t)ts.tv_sec) * 1000000 + ts.tv_nsec / 1000;
 }
 
-static void monotonicInit_posix() {
+static void monotonicInit_posix(void) {
     /* Ensure that CLOCK_MONOTONIC is supported.  This should be supported
      * on any reasonably current OS.  If the assertion below fails, provide
      * an appropriate alternate implementation.  */
@@ -155,7 +155,7 @@ static void monotonicInit_posix() {
 
 
 
-const char * monotonicInit() {
+const char * monotonicInit(void) {
     #if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif
@@ -169,11 +169,11 @@ const char * monotonicInit() {
     return monotonic_info_string;
 }
 
-const char *monotonicInfoString() {
+const char *monotonicInfoString(void) {
     return monotonic_info_string;
 }
 
-monotonic_clock_type monotonicGetType() {
+monotonic_clock_type monotonicGetType(void) {
     if (getMonotonicUs == getMonotonicUs_posix)
         return MONOTONIC_CLOCK_POSIX;
     return MONOTONIC_CLOCK_HW;

@@ -86,7 +86,7 @@ size_t lazyfreeGetFreedObjectsCount(void) {
     return aux;
 }
 
-void lazyfreeResetStats() {
+void lazyfreeResetStats(void) {
     atomicSet(lazyfreed_objects,0);
 }
 

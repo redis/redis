@@ -53,9 +53,9 @@
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
  *
- * Note that even when dict_can_resize is set to 0, not all resizes are
- * prevented: a hash table is still allowed to grow if the ratio between
- * the number of elements and the buckets > dict_force_resize_ratio. */
+ * Note that even when dict_can_resize is set to DICT_RESIZE_AVOID, not all
+ * resizes are prevented: a hash table is still allowed to grow if the ratio
+ * between the number of elements and the buckets > dict_force_resize_ratio. */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
 

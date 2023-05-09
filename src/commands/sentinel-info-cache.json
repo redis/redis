@@ -12,6 +12,47 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "This is actually a map, the odd entries are a master name, and the even entries are the last cached INFO output from that master and all its replicas.",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": [
+                {
+                    "oneOf": [
+                        {
+                            "type": "string",
+                            "description": "The master name."
+                        },
+                        {
+                            "type": "array",
+                            "description": "This is an array of pairs, the odd entries are the INFO age, and the even entries are the cached INFO string. The first pair belong to the master and the rest are its replicas.",
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "items": [
+                                {
+                                    "description": "The number of milliseconds since when the INFO was cached.",
+                                    "type": "integer"
+                                },
+                                {
+                                    "description": "The cached INFO string or null.",
+                                    "oneOf": [
+                                        {
+                                            "description": "The cached INFO string.",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "description": "No cached INFO string.",
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "nodename",

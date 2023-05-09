@@ -650,15 +650,15 @@ NULL
     }
 }
 
-unsigned long evalMemory() {
+unsigned long evalMemory(void) {
     return luaMemory(lctx.lua);
 }
 
-dict* evalScriptsDict() {
+dict* evalScriptsDict(void) {
     return lctx.lua_scripts;
 }
 
-unsigned long evalScriptsMemory() {
+unsigned long evalScriptsMemory(void) {
     return lctx.lua_scripts_mem +
             dictMemUsage(lctx.lua_scripts) +
             dictSize(lctx.lua_scripts) * sizeof(luaScript);
@@ -688,7 +688,7 @@ void ldbFlushLog(list *log) {
         listDelNode(log,ln);
 }
 
-int ldbIsEnabled(){
+int ldbIsEnabled(void){
     return ldb.active && ldb.step;
 }
 

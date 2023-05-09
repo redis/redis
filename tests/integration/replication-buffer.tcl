@@ -159,7 +159,7 @@ start_server {} {
         assert {[s repl_backlog_histlen] > [expr 2*10000*10000]}
         assert_equal [s connected_slaves] {2}
 
-        exec kill -SIGSTOP $replica2_pid
+        pause_process $replica2_pid
         r config set client-output-buffer-limit "replica 128k 0 0"
         # trigger output buffer limit check
         r set key [string repeat A [expr 64*1024]]
@@ -178,7 +178,7 @@ start_server {} {
         } else {
             fail "Replication backlog memory is not smaller"
         }
-        exec kill -SIGCONT $replica2_pid
+        resume_process $replica2_pid
     }
     # speed up termination
     $master config set shutdown-timeout 0

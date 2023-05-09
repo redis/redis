@@ -327,7 +327,8 @@ void mallctl_int(client *c, robj **argv, int argc) {
     }
     size_t sz = sizeof(old);
     while (sz > 0) {
-        if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
+        size_t zz = sz;
+        if ((ret=je_mallctl(argv[0]->ptr, &old, &zz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
             if (ret == EPERM && argc > 1) {
                 /* if this option is write only, try just writing to it. */
                 if (!(ret=je_mallctl(argv[0]->ptr, NULL, 0, &val, sz))) {
@@ -518,7 +519,7 @@ NULL
         restartServer(flags,delay);
         addReplyError(c,"failed to restart the server. Check server logs.");
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
-        void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
+        void *ptr = zmalloc(SIZE_MAX/2); /* Should trigger an out of memory. */
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
@@ -2054,9 +2055,9 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
-void invalidFunctionWasCalled() {}
+void invalidFunctionWasCalled(void) {}
 
-typedef void (*invalidFunctionWasCalledType)();
+typedef void (*invalidFunctionWasCalledType)(void);
 
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
@@ -2225,7 +2226,7 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
-void applyWatchdogPeriod() {
+void applyWatchdogPeriod(void) {
     struct sigaction act;
 
     /* Disable watchdog when period is 0 */

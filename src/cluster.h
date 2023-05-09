@@ -396,7 +396,7 @@ void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
 sds clusterGenNodesDescription(int filter, int use_pport);
-sds genClusterInfoString();
+sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 

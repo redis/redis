@@ -6,7 +6,7 @@
 TEST_BEGIN(test_mtx_basic) {
 	mtx_t mtx;
 
-	assert_false(mtx_init(&mtx), "Unexpected mtx_init() failure");
+	expect_false(mtx_init(&mtx), "Unexpected mtx_init() failure");
 	mtx_lock(&mtx);
 	mtx_unlock(&mtx);
 	mtx_fini(&mtx);
@@ -36,7 +36,7 @@ TEST_BEGIN(test_mtx_race) {
 	thd_t thds[NTHREADS];
 	unsigned i;
 
-	assert_false(mtx_init(&arg.mtx), "Unexpected mtx_init() failure");
+	expect_false(mtx_init(&arg.mtx), "Unexpected mtx_init() failure");
 	arg.x = 0;
 	for (i = 0; i < NTHREADS; i++) {
 		thd_create(&thds[i], thd_start, (void *)&arg);
@@ -44,7 +44,7 @@ TEST_BEGIN(test_mtx_race) {
 	for (i = 0; i < NTHREADS; i++) {
 		thd_join(thds[i], NULL);
 	}
-	assert_u_eq(arg.x, NTHREADS * NINCRS,
+	expect_u_eq(arg.x, NTHREADS * NINCRS,
 	    "Race-related counter corruption");
 }
 TEST_END

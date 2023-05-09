@@ -11,6 +11,21 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The simulated flag was set.",
+                    "const": "OK"
+                },
+                {
+                    "description": "Supported simulates flags. Returned in case `HELP` was used.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "mode",

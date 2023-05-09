@@ -64,7 +64,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
     }
 
     test "Wait for cluster to be stable" {
-        # Cluster check just verifies the the config state is self-consistent,
+        # Cluster check just verifies the config state is self-consistent,
         # waiting for cluster_state to be okay is an independent check that all the
         # nodes actually believe each other are healthy, prevent cluster down error.
         wait_for_condition 1000 50 {
@@ -116,7 +116,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
 
      test "Kill a cluster node and wait for fail state" {
         # kill node3 in cluster
-        exec kill -SIGSTOP $node3_pid
+        pause_process $node3_pid
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {fail} &&
@@ -134,7 +134,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
         assert_equal [s -1 blocked_clients]  {0}
     }
 
-    exec kill -SIGCONT $node3_pid
+    resume_process $node3_pid
     $node1_rd close
 
 } ;# stop servers

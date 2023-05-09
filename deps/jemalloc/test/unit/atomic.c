@@ -6,7 +6,7 @@
  * some places and "ptr" in others.  In the long run it would be nice to unify
  * these, but in the short run we'll use this shim.
  */
-#define assert_p_eq assert_ptr_eq
+#define expect_p_eq expect_ptr_eq
 
 /*
  * t: the non-atomic type, like "uint32_t".
@@ -24,20 +24,20 @@
 									\
 	/* ATOMIC_INIT and load. */					\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val1, val, "Load or init failed");		\
+	expect_##ta##_eq(val1, val, "Load or init failed");		\
 									\
 	/* Store. */							\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	atomic_store_##ta(&atom, val2, ATOMIC_RELAXED);			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val2, val, "Store failed");			\
+	expect_##ta##_eq(val2, val, "Store failed");			\
 									\
 	/* Exchange. */							\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	val = atomic_exchange_##ta(&atom, val2, ATOMIC_RELAXED);	\
-	assert_##ta##_eq(val1, val, "Exchange returned invalid value");	\
+	expect_##ta##_eq(val1, val, "Exchange returned invalid value");	\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val2, val, "Exchange store invalid value");	\
+	expect_##ta##_eq(val2, val, "Exchange store invalid value");	\
 									\
 	/* 								\
 	 * Weak CAS.  Spurious failures are allowed, so we loop a few	\
@@ -45,21 +45,21 @@
 	 */								\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	success = false;						\
-	for (int i = 0; i < 10 && !success; i++) {			\
+	for (int retry = 0; retry < 10 && !success; retry++) {		\
 		expected = val2;					\
 		success = atomic_compare_exchange_weak_##ta(&atom,	\
 		    &expected, val3, ATOMIC_RELAXED, ATOMIC_RELAXED);	\
-		assert_##ta##_eq(val1, expected, 			\
+		expect_##ta##_eq(val1, expected, 			\
 		    "CAS should update expected");			\
 	}								\
-	assert_b_eq(val1 == val2, success,				\
+	expect_b_eq(val1 == val2, success,				\
 	    "Weak CAS did the wrong state update");			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
 	if (success) {							\
-		assert_##ta##_eq(val3, val,				\
+		expect_##ta##_eq(val3, val,				\
 		    "Successful CAS should update atomic");		\
 	} else {							\
-		assert_##ta##_eq(val1, val,				\
+		expect_##ta##_eq(val1, val,				\
 		    "Unsuccessful CAS should not update atomic");	\
 	}								\
 									\
@@ -68,14 +68,14 @@
 	expected = val2;						\
 	success = atomic_compare_exchange_strong_##ta(&atom, &expected,	\
 	    val3, ATOMIC_RELAXED, ATOMIC_RELAXED);			\
-	assert_b_eq(val1 == val2, success,				\
+	expect_b_eq(val1 == val2, success,				\
 	    "Strong CAS did the wrong state update");			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
 	if (success) {							\
-		assert_##ta##_eq(val3, val,				\
+		expect_##ta##_eq(val3, val,				\
 		    "Successful CAS should update atomic");		\
 	} else {							\
-		assert_##ta##_eq(val1, val,				\
+		expect_##ta##_eq(val1, val,				\
 		    "Unsuccessful CAS should not update atomic");	\
 	}								\
 									\
@@ -89,46 +89,46 @@
 	/* Fetch-add. */						\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	val = atomic_fetch_add_##ta(&atom, val2, ATOMIC_RELAXED);	\
-	assert_##ta##_eq(val1, val,					\
+	expect_##ta##_eq(val1, val,					\
 	    "Fetch-add should return previous value");			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val1 + val2, val,				\
+	expect_##ta##_eq(val1 + val2, val,				\
 	    "Fetch-add should update atomic");				\
 									\
 	/* Fetch-sub. */						\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	val = atomic_fetch_sub_##ta(&atom, val2, ATOMIC_RELAXED);	\
-	assert_##ta##_eq(val1, val,					\
+	expect_##ta##_eq(val1, val,					\
 	    "Fetch-sub should return previous value");			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val1 - val2, val,				\
+	expect_##ta##_eq(val1 - val2, val,				\
 	    "Fetch-sub should update atomic");				\
 									\
 	/* Fetch-and. */						\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	val = atomic_fetch_and_##ta(&atom, val2, ATOMIC_RELAXED);	\
-	assert_##ta##_eq(val1, val,					\
+	expect_##ta##_eq(val1, val,					\
 	    "Fetch-and should return previous value");			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val1 & val2, val,				\
+	expect_##ta##_eq(val1 & val2, val,				\
 	    "Fetch-and should update atomic");				\
 									\
 	/* Fetch-or. */							\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	val = atomic_fetch_or_##ta(&atom, val2, ATOMIC_RELAXED);	\
-	assert_##ta##_eq(val1, val,					\
+	expect_##ta##_eq(val1, val,					\
 	    "Fetch-or should return previous value");			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val1 | val2, val,				\
+	expect_##ta##_eq(val1 | val2, val,				\
 	    "Fetch-or should update atomic");				\
 									\
 	/* Fetch-xor. */						\
 	atomic_store_##ta(&atom, val1, ATOMIC_RELAXED);			\
 	val = atomic_fetch_xor_##ta(&atom, val2, ATOMIC_RELAXED);	\
-	assert_##ta##_eq(val1, val,					\
+	expect_##ta##_eq(val1, val,					\
 	    "Fetch-xor should return previous value");			\
 	val = atomic_load_##ta(&atom, ATOMIC_RELAXED);			\
-	assert_##ta##_eq(val1 ^ val2, val,				\
+	expect_##ta##_eq(val1 ^ val2, val,				\
 	    "Fetch-xor should update atomic");				\
 } while (0)
 

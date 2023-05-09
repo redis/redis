@@ -464,7 +464,7 @@ int connRecvTimeout(connection *conn, long long ms) {
     return anetRecvTimeout(NULL, conn->fd, ms);
 }
 
-int RedisRegisterConnectionTypeSocket()
+int RedisRegisterConnectionTypeSocket(void)
 {
     return connTypeRegister(&CT_Socket);
 }

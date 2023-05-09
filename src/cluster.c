@@ -126,7 +126,7 @@ dictType clusterNodesBlackListDictType = {
         NULL                        /* allow to expand */
 };
 
-static ConnectionType *connTypeOfCluster() {
+static ConnectionType *connTypeOfCluster(void) {
     if (server.tls_cluster) {
         return connectionTypeTls();
     }
@@ -2318,18 +2318,18 @@ uint32_t getAlignedPingExtSize(uint32_t dataSize) {
     return sizeof(clusterMsgPingExt) + EIGHT_BYTE_ALIGN(dataSize);
 }
 
-uint32_t getHostnamePingExtSize() {
+uint32_t getHostnamePingExtSize(void) {
     if (sdslen(myself->hostname) == 0) {
         return 0;
     }
     return getAlignedPingExtSize(sdslen(myself->hostname) + 1);
 }
 
-uint32_t getShardIdPingExtSize() {
+uint32_t getShardIdPingExtSize(void) {
     return getAlignedPingExtSize(sizeof(clusterMsgPingExtShardId));
 }
 
-uint32_t getForgottenNodeExtSize() {
+uint32_t getForgottenNodeExtSize(void) {
     return getAlignedPingExtSize(sizeof(clusterMsgPingExtForgottenNode));
 }
 
@@ -5556,7 +5556,7 @@ void clusterReplyMultiBulkSlots(client * c) {
     setDeferredArrayLen(c, slot_replylen, num_masters);
 }
 
-sds genClusterInfoString() {
+sds genClusterInfoString(void) {
     sds info = sdsempty();
     char *statestr[] = {"ok","fail"};
     int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;

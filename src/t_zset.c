@@ -3563,7 +3563,7 @@ void zrevrangebylexCommand(client *c) {
 
 /**
  * This function handles ZRANGE and ZRANGESTORE, and also the deprecated
- * Z[REV]RANGE[BYPOS|BYLEX] commands.
+ * Z[REV]RANGE[BYSCORE|BYLEX] commands.
  *
  * The simple ZRANGE and ZRANGESTORE can take _AUTO in rangetype and direction,
  * other command pass explicit value.

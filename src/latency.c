@@ -34,6 +34,7 @@
  */
 
 #include "server.h"
+#include "hdr_histogram.h"
 
 /* Dictionary type for latency events. */
 int dictStringKeyCompare(dict *d, const void *key1, const void *key2) {

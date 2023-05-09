@@ -43,6 +43,16 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
 
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
+    /* We guess that most of the values in the input are unique, so
+     * if there are enough arguments we create a pre-sized hash, which
+     * might overallocate memory if their are duplicates. */
+    size_t new_fields = (end - start + 1) / 2;
+    if (new_fields > server.hash_max_listpack_entries) {
+        hashTypeConvert(o, OBJ_ENCODING_HT);
+        dictExpand(o->ptr, new_fields);
+        return;
+    }
+
     for (i = start; i <= end; i++) {
         if (!sdsEncodedObject(argv[i]))
             continue;

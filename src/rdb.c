@@ -88,6 +88,11 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
         /* If we're loading an rdb file form disk, run rdb check (and exit) */
         serverLog(LL_WARNING, "%s", msg);
         char *argv[2] = {"",rdbFileBeingLoaded};
+        if (anetIsFifo(argv[1])) {
+            /* Cannot check RDB FIFO because we cannot reopen the FIFO and check already streamed data. */
+            rdbCheckError("Cannot check RDB that is a FIFO: %s", argv[1]);
+            return;
+        }
         redis_check_rdb_main(2,argv,NULL);
     } else if (corruption_error) {
         /* In diskless loading, in case of corrupt file, log and exit. */

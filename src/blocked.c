@@ -650,7 +650,7 @@ static void unblockClientOnKey(client *c, robj *key) {
          * to run atomically, this is why we must enter the execution unit here before
          * running the command, and exit the execution unit after calling the unblock handler (if exists).
          * Notice that we also must set the current client so it will be available
-         * when we will try to send the the client side caching notification (done on 'afterCommand'). */
+         * when we will try to send the client side caching notification (done on 'afterCommand'). */
         client *old_client = server.current_client;
         server.current_client = c;
         enterExecutionUnit(1, 0);

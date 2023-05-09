@@ -1740,7 +1740,7 @@ const char *sentinelCheckCreateInstanceErrors(int role) {
 }
 
 /* init function for server.sentinel_config */
-void initializeSentinelConfig() {
+void initializeSentinelConfig(void) {
     server.sentinel_config = zmalloc(sizeof(struct sentinelConfig));
     server.sentinel_config->monitor_cfg = listCreate();
     server.sentinel_config->pre_monitor_cfg = listCreate();
@@ -1751,7 +1751,7 @@ void initializeSentinelConfig() {
 }
 
 /* destroy function for server.sentinel_config */
-void freeSentinelConfig() {
+void freeSentinelConfig(void) {
     /* release these three config queues since we will not use it anymore */
     listRelease(server.sentinel_config->pre_monitor_cfg);
     listRelease(server.sentinel_config->monitor_cfg);
@@ -3179,7 +3179,7 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
 
 /* =========================== SENTINEL command ============================= */
 
-const char* getLogLevel() {
+const char* getLogLevel(void) {
    switch (server.verbosity) {
     case LL_DEBUG: return "debug";
     case LL_VERBOSE: return "verbose";
@@ -4071,11 +4071,14 @@ NULL
         }
 
         /* Reply format:
-         *   1.) master name
-         *   2.) 1.) info from master
-         *       2.) info from replica
-         *       ...
-         *   3.) other master name
+         *   1) master name
+         *   2) 1) 1) info cached ms
+         *         2) info from master
+         *      2) 1) info cached ms
+         *         2) info from replica1
+         *      ...
+         *   3) other master name
+         *      ...
          *   ...
          */
         addReplyArrayLen(c,dictSize(masters_local) * 2);
