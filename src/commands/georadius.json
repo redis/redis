@@ -186,20 +186,24 @@
                 ]
             },
             {
-                "token": "STORE",
-                "name": "storekey",
-                "display": "key",
-                "type": "key",
+                "name": "store",
+                "type": "oneof",
                 "key_spec_index": 1,
-                "optional": true
-            },
-            {
-                "token": "STOREDIST",
-                "name": "storedistkey",
-                "display": "key",
-                "type": "key",
-                "key_spec_index": 2,
-                "optional": true
+                "optional": true,
+                "arguments": [
+                    {
+                        "token": "STORE",
+                        "name": "storekey",
+                        "display": "key",
+                        "type": "key"
+                    },
+                    {
+                        "token": "STOREDIST",
+                        "name": "storedistkey",
+                        "display": "key",
+                        "type": "key"
+                    }
+                ]
             }
         ],
         "reply_schema": {
