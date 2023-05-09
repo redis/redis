@@ -659,7 +659,7 @@ void smoveCommand(client *c) {
     robj *srcset, *dstset, *ele;
     srcset = lookupKeyWrite(c->db,c->argv[1]);
     dstset = lookupKeyWrite(c->db,c->argv[2]);
-    ele = c->argv[3];
+    int added = 0, removed = 0, member = 0;
 
     /* If the source key does not exist return 0 */
     if (srcset == NULL) {
@@ -672,15 +672,37 @@ void smoveCommand(client *c) {
     if (checkType(c,srcset,OBJ_SET) ||
         checkType(c,dstset,OBJ_SET)) return;
 
-    /* If srcset and dstset are equal, SMOVE is a no-op */
+    /* check number element present in source set, if destination doesn't
+     * exist we need to create dstset accordingly */
+    for (int j = 3; j < c->argc; j++) {
+        ele = c->argv[j];
+        if (setTypeIsMember(srcset,ele->ptr)){
+            member++;
+        }
+    }
+    /* If srcset and dstset are equal, SMOVE is a no-op
+     * if none of the members are available in srcset we will return 0*/
     if (srcset == dstset) {
-        addReply(c,setTypeIsMember(srcset,ele->ptr) ?
-            shared.cone : shared.czero);
+        addReply(c,member == 0 ?
+            shared.czero : shared.cone);
         return;
     }
+    /* Create the destination set when it doesn't exist */
+    if (!dstset) {
+        dstset = setTypeCreate(c->argv[3]->ptr,member);
+        dbAdd(c->db,c->argv[2],dstset);
+    }
 
-    /* If the element cannot be removed from the src set, return 0. */
-    if (!setTypeRemove(srcset,ele->ptr)) {
+    /* If none of the element can be removed from the src set, return 0. */
+    for (int j = 3; j < c->argc; j++) {
+        ele = c->argv[j];
+        if (setTypeRemove(srcset,ele->ptr)) {
+            removed++;
+            /*we only add the item which can be removed from src set*/
+            if (setTypeAdd(dstset,ele->ptr)) added++;
+        }
+    }
+    if (!removed) {
         addReply(c,shared.czero);
         return;
     }
@@ -692,18 +714,12 @@ void smoveCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
-    /* Create the destination set when it doesn't exist */
-    if (!dstset) {
-        dstset = setTypeCreate(ele->ptr, 1);
-        dbAdd(c->db,c->argv[2],dstset);
-    }
-
     signalModifiedKey(c,c->db,c->argv[1]);
-    server.dirty++;
+    server.dirty += removed;
 
-    /* An extra key has changed when ele was successfully added to dstset */
-    if (setTypeAdd(dstset,ele->ptr)) {
-        server.dirty++;
+    /* An extra key has changed when atleast ele was successfully added to dstset */
+    if (added) {
+        server.dirty += added;
         signalModifiedKey(c,c->db,c->argv[2]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }

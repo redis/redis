@@ -7837,7 +7837,9 @@ struct COMMAND_ARG SMISMEMBER_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SMOVE history */
-#define SMOVE_History NULL
+commandHistory SMOVE_History[] = {
+{"7.2.0","Accepts multiple `member` arguments."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7856,7 +7858,7 @@ keySpec SMOVE_Keyspecs[2] = {
 struct COMMAND_ARG SMOVE_Args[] = {
 {MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /********** SPOP ********************/
@@ -10741,7 +10743,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("sismember","Determines whether a member belongs to a set.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SISMEMBER_History,0,SISMEMBER_Tips,0,sismemberCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SISMEMBER_Keyspecs,1,NULL,2),.args=SISMEMBER_Args},
 {MAKE_CMD("smembers","Returns all members of a set.","O(N) where N is the set cardinality.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SMEMBERS_History,0,SMEMBERS_Tips,1,sinterCommand,2,CMD_READONLY,ACL_CATEGORY_SET,SMEMBERS_Keyspecs,1,NULL,1),.args=SMEMBERS_Args},
 {MAKE_CMD("smismember","Determines whether multiple members belong to a set.","O(N) where N is the number of elements being checked for membership","6.2.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SMISMEMBER_History,0,SMISMEMBER_Tips,0,smismemberCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SMISMEMBER_Keyspecs,1,NULL,2),.args=SMISMEMBER_Args},
-{MAKE_CMD("smove","Moves a member from one set to another.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SMOVE_History,0,SMOVE_Tips,0,smoveCommand,4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SMOVE_Keyspecs,2,NULL,3),.args=SMOVE_Args},
+{MAKE_CMD("smove","Moves one or more member from one set to another.Deletes the source set if the last member was moved.","O(N) where N is the number of members to be moved.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SMOVE_History,1,SMOVE_Tips,0,smoveCommand,-4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SMOVE_Keyspecs,2,NULL,3),.args=SMOVE_Args},
 {MAKE_CMD("spop","Returns one or more random members from a set after removing them. Deletes the set if the last member was popped.","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SPOP_History,1,SPOP_Tips,1,spopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SPOP_Keyspecs,1,NULL,2),.args=SPOP_Args},
 {MAKE_CMD("srandmember","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SRANDMEMBER_History,1,SRANDMEMBER_Tips,1,srandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SRANDMEMBER_Keyspecs,1,NULL,2),.args=SRANDMEMBER_Args},
 {MAKE_CMD("srem","Removes one or more members from a set. Deletes the set if the last member was removed.","O(N) where N is the number of members to be removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SREM_History,1,SREM_Tips,0,sremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SREM_Keyspecs,1,NULL,2),.args=SREM_Args},

@@ -929,7 +929,7 @@ start_server {
 
     proc setup_move {} {
         r del myset3{t} myset4{t}
-        create_set myset1{t} {1 a b}
+        create_set myset1{t} {1 5 a b c d}
         create_set myset2{t} {2 3 4}
         assert_encoding listpack myset1{t}
         assert_encoding intset myset2{t}
@@ -939,31 +939,58 @@ start_server {
         # move a non-integer element to an intset should convert encoding
         setup_move
         assert_equal 1 [r smove myset1{t} myset2{t} a]
-        assert_equal {1 b} [lsort [r smembers myset1{t}]]
+        assert_equal {1 5 b c d} [lsort [r smembers myset1{t}]]
         assert_equal {2 3 4 a} [lsort [r smembers myset2{t}]]
+        assert_encoding listpack myset2{t}
+
+        #move multiple non-integer element to an intset should convert encoding
+        setup_move
+        assert_equal 1 [r smove myset1{t} myset2{t} a b c]
+        assert_equal {1 5 d} [lsort [r smembers myset1{t}]]
+        assert_equal {2 3 4 a b c} [lsort [r smembers myset2{t}]]
         assert_encoding listpack myset2{t}
 
         # move an integer element should not convert the encoding
         setup_move
         assert_equal 1 [r smove myset1{t} myset2{t} 1]
-        assert_equal {a b} [lsort [r smembers myset1{t}]]
+        assert_equal {5 a b c d} [lsort [r smembers myset1{t}]]
         assert_equal {1 2 3 4} [lsort [r smembers myset2{t}]]
         assert_encoding intset myset2{t}
+
+	# move multiple integer element should not convert the encoding
+        setup_move
+        assert_equal 1 [r smove myset1{t} myset2{t} 1 5]
+        assert_equal {a b c d} [lsort [r smembers myset1{t}]]
+        assert_equal {1 2 3 4 5} [lsort [r smembers myset2{t}]]
+        assert_encoding intset myset2{t}
+
     }
 
     test "SMOVE basics - from intset to regular set" {
         setup_move
         assert_equal 1 [r smove myset2{t} myset1{t} 2]
-        assert_equal {1 2 a b} [lsort [r smembers myset1{t}]]
+        assert_equal {1 2 5 a b c d} [lsort [r smembers myset1{t}]]
         assert_equal {3 4} [lsort [r smembers myset2{t}]]
+        #move multiple elements
+        assert_equal 1 [r smove myset2{t} myset1{t} 3 4]
+        assert_equal {1 2 3 4 5 a b c d} [lsort [r smembers myset1{t}]]
+        assert_equal {} [r smembers myset2{t}]
     }
 
     test "SMOVE non existing key" {
         setup_move
         assert_equal 0 [r smove myset1{t} myset2{t} foo]
         assert_equal 0 [r smove myset1{t} myset1{t} foo]
-        assert_equal {1 a b} [lsort [r smembers myset1{t}]]
+        assert_equal {1 5 a b c d} [lsort [r smembers myset1{t}]]
         assert_equal {2 3 4} [lsort [r smembers myset2{t}]]
+    }
+
+    test "SMOVE non existing key and existing key" {
+        setup_move
+        assert_equal 0 [r smove myset1{t} myset2{t} foo]
+        assert_equal 1 [r smove myset1{t} myset2{t} foo 1 5]
+        assert_equal {a b c d} [lsort [r smembers myset1{t}]]
+        assert_equal {1 2 3 4 5} [r smembers myset2{t}]
     }
 
     test "SMOVE non existing src set" {
@@ -974,17 +1001,17 @@ start_server {
 
     test "SMOVE from regular set to non existing destination set" {
         setup_move
-        assert_equal 1 [r smove myset1{t} myset3{t} a]
-        assert_equal {1 b} [lsort [r smembers myset1{t}]]
-        assert_equal {a} [lsort [r smembers myset3{t}]]
+        assert_equal 1 [r smove myset1{t} myset3{t} a b]
+        assert_equal {1 5 c d} [lsort [r smembers myset1{t}]]
+        assert_equal {a b} [lsort [r smembers myset3{t}]]
         assert_encoding listpack myset3{t}
     }
 
     test "SMOVE from intset to non existing destination set" {
         setup_move
-        assert_equal 1 [r smove myset2{t} myset3{t} 2]
-        assert_equal {3 4} [lsort [r smembers myset2{t}]]
-        assert_equal {2} [lsort [r smembers myset3{t}]]
+        assert_equal 1 [r smove myset2{t} myset3{t} 2 3]
+        assert_equal {4} [lsort [r smembers myset2{t}]]
+        assert_equal {2 3} [lsort [r smembers myset3{t}]]
         assert_encoding intset myset3{t}
     }
 
@@ -1000,10 +1027,11 @@ start_server {
 
     test "SMOVE with identical source and destination" {
         r del set{t}
-        r sadd set{t} a b c
-        r smove set{t} set{t} b
-        lsort [r smembers set{t}]
-    } {a b c}
+        r sadd set{t} a b c d e
+        assert_equal 1 [r smove set{t} set{t} b c]
+        assert_equal 0 [r smove set{t} set{t} nokey]
+        assert_equal {a b c d e} [lsort [r smembers set{t}]]
+    }
 
     test "SMOVE only notify dstset when the addition is successful" {
         r del srcset{t}
