@@ -621,28 +621,23 @@ void publishCommand(client *c) {
 
 typedef struct {
     dict *subscription_dict;
-    char *subscription_type;
-    long long cursor;
-    long long count;
+    long count;
     int use_pattern;
     sds pat;
 } pubsubSubscribersCmdArgs;
 
 static inline void pubsubSubscribersCmdArgsInitializeDefault(pubsubSubscribersCmdArgs *args) {
-    args->subscription_dict = server.pubsub_channels;
-    args->subscription_type = "channel";
-    args->cursor = 0;
-    args->count = 10;
+    args->count = 1000;
     args->use_pattern = 0;
 }
 
-static void pubsubReplySubscribersClientInfo(client *c, list *clients, char *subscription_type) {
+static void pubsubReplySubscribersClientInfo(client *c, list *clients) {
     listNode *ln;
     listIter li;
     listRewind(clients, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *client = listNodeValue(ln);
-        addReplyMapLen(c, 4);
+        addReplyMapLen(c, 3);
         addReplyBulkCString(c, "name");
         if (client->name) {
             addReplyBulk(c, client->name);
@@ -653,53 +648,46 @@ static void pubsubReplySubscribersClientInfo(client *c, list *clients, char *sub
         addReplyBulkLongLong(c, client->id);
         addReplyBulkCString(c, "addr");
         addReplyBulkCString(c, getClientPeerId(client));
-        addReplyBulkCString(c, "subscription_type");
-        addReplyBulkCString(c, subscription_type);
     }
 }
 
-/* This callback is used by scanGenericCommand in order to collect elements
- * returned by the dictionary iterator into a list. */
-static void subscriberInfoCallback(void *privdata, const dictEntry *de) {
-    list *subscriptions = (list *)privdata;
-    robj *subscription = dictGetKey(de);
-    listAddNodeTail(subscriptions, subscription);
-}
-
+/* Parse the arguments for PUBSUB SUBSCRIBERS command */
 static int parseArgsPubSubSubscribersCmd(client *c, pubsubSubscribersCmdArgs *args) {
-    for (int i = 2; i < c->argc; i++) {
+    if (c->argc < 3) {
+        addReplySubcommandSyntaxError(c);
+        return C_ERR;
+    }
+
+    /* Mandatory parameter - subscription_type */
+    char *type = c->argv[2]->ptr;
+    if (!strcasecmp(type, "channel")) {
+        args->subscription_dict = server.pubsub_channels;
+    } else if (!strcasecmp(type, "pattern")) {
+        args->subscription_dict = server.pubsub_patterns;
+    } else if (!strcasecmp(type, "shard-channel")) {
+        args->subscription_dict = server.pubsubshard_channels;
+    } else {
+        addReplySubcommandSyntaxError(c);
+        return C_ERR;
+    }
+
+    /* Optional parameter - match / count */
+    for (int i = 3; i < c->argc; i++) {
         int moreargs = c->argc-i-1;
         char *o = c->argv[i]->ptr;
-        if (!strcasecmp(o, "type") && moreargs) {
-            i++;
-            char *type = c->argv[i]->ptr;
-            if (!strcasecmp(type, "channel")) {
-                args->subscription_dict = server.pubsub_channels;
-                args->subscription_type = "channel";
-            } else if (!strcasecmp(type, "pattern")) {
-                args->subscription_dict = server.pubsub_patterns;
-                args->subscription_type = "pattern";
-            } else if (!strcasecmp(type, "shard-channel")) {
-                args->subscription_dict = server.pubsubshard_channels;
-                args->subscription_type = "shard-channel";
-            } else {
-                addReplySubcommandSyntaxError(c);
-                return C_ERR;
-            }
-        } else if (!strcasecmp(o,"match") && moreargs) {
+        if (!strcasecmp(o, "match") && moreargs) {
             i++;
             args->pat = c->argv[i]->ptr;
             args->use_pattern = !(sdslen(args->pat) == 1 && args->pat[0] == '*');
-        } else if (!strcasecmp(o,"count") && moreargs) {
+        } else if (!strcasecmp(o, "count") && moreargs) {
             i++;
-            if (getLongLongFromObjectOrReply(c,c->argv[i],&args->count,NULL) != C_OK) {
+            if (getRangeLongFromObjectOrReply(c, c->argv[i], -1, LONG_MAX, &args->count,
+                                             "count should be greater than or equal to -1") != C_OK) {
                 return C_ERR;
             }
-            if (args->count < 0) args->count = 0;
-        } else if (!strcasecmp(o,"cursor") && moreargs) {
-            i++;
-            if (getLongLongFromObjectOrReply(c, c->argv[i], &(args->cursor), NULL) != C_OK) {
-                return C_ERR;
+            /* count arg provided as -1 signifies all the channels needs to be sent. */
+            if (args->count == -1) {
+                args->count = dictSize(args->subscription_dict);
             }
         } else {
             addReplySubcommandSyntaxError(c);
@@ -709,64 +697,35 @@ static int parseArgsPubSubSubscribersCmd(client *c, pubsubSubscribersCmdArgs *ar
     return C_OK;
 }
 
-/* The method scans through the provided subscription dictionary for a fixed no. of iterations and
- * provides the list of active channel/subscriptions. */
-static list *getActiveChannelOrSubscriptions(pubsubSubscribersCmdArgs *args) {
-    list *subscribers = listCreate();
-
-    /* Trick from scan command, helps with sparse dictionary to not freeze for long period of time and not freeze. */
-    long long maxiterations = args->count * 10;
-    do {
-        args->cursor = dictScan(args->subscription_dict, args->cursor, subscriberInfoCallback, subscribers);
-    } while (args->cursor &&
-             maxiterations-- &&
-             listLength(subscribers) < (unsigned long) args->count);
-
-    return subscribers;
-}
-
 static void pubsubReplySubscribers(client *c) {
     /* Initialize default args and parse if any. */
     pubsubSubscribersCmdArgs args;
     pubsubSubscribersCmdArgsInitializeDefault(&args);
-    if (c->argc > 2 && parseArgsPubSubSubscribersCmd(c, &args) != C_OK) {
-        return;
-    }
-
-    /* Retrieve the valid channels/subscriptions. */
-    list *subscribers = getActiveChannelOrSubscriptions(&args);
-
-    addReplyArrayLen(c, 2);
-    addReplyLongLong(c, args.cursor);
-    if (listLength(subscribers) == 0) {
-        addReplyArrayLen(c, 0);
-        listRelease(subscribers);
+    if (parseArgsPubSubSubscribersCmd(c, &args) != C_OK) {
         return;
     }
 
     void *dl = addReplyDeferredLen(c);
-    listNode *node = listFirst(subscribers);
-    int cnt = 0;
+    long long cnt = 0;
 
-    /* Filter the channels/subscriptions. */
-    while (node) {
-        listNode *nextnode = listNextNode(node);
-        sds channel = ((robj *)listNodeValue(node))->ptr;
+    dictIterator *di = dictGetIterator(args.subscription_dict);
+    dictEntry *de;
+    while((de = dictNext(di)) != NULL && cnt < args.count) {
+        /* Filter the channels/subscriptions. */
+        sds channel = ((robj *)dictGetKey(de))->ptr;
         if (args.use_pattern && !stringmatchlen(args.pat, sdslen(args.pat), channel, sdslen(channel), 0)) {
-            node = nextnode;
             continue;
         }
-        list *clients = dictFetchValue(args.subscription_dict, listNodeValue(node));
+        list *clients = dictGetVal(de);
         serverAssert(clients != NULL);
-        addReplyBulk(c, listNodeValue(node));
+        addReplyBulkCString(c, channel);
         addReplyMapLen(c, 1);
         addReplyBulkCString(c, "subscribed-clients");
         addReplyArrayLen(c, listLength(clients));
-        pubsubReplySubscribersClientInfo(c, clients, args.subscription_type);
+        pubsubReplySubscribersClientInfo(c, clients);
         cnt++;
-        node = nextnode;
     }
-    listRelease(subscribers);
+    dictReleaseIterator(di);
     setDeferredArrayLen(c, dl,cnt * 2);
 }
 
@@ -785,7 +744,7 @@ void pubsubCommand(client *c) {
 "    Return the currently active shard level channels matching a <pattern> (default: '*').",
 "SHARDNUMSUB [<shardchannel> ...]",
 "    Return the number of subscribers for the specified shard level channel(s).",
-"SUBSCRIBERS [TYPE GLOBAL|SHARD|PATTERN] [MATCH <pattern>] [CURSOR <cursor>] [COUNT <count>]",
+"SUBSCRIBERS TYPE GLOBAL|SHARD|PATTERN [MATCH <pattern>] [COUNT <count>]",
 "    Return the list of subscribers for the specified pattern and subscription type.",
 NULL
         };

@@ -4571,6 +4571,37 @@ struct COMMAND_ARG PUBSUB_SHARDNUMSUB_Args[] = {
 {MAKE_ARG("shardchannel",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** PUBSUB SUBSCRIBERS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* PUBSUB SUBSCRIBERS history */
+#define PUBSUB_SUBSCRIBERS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* PUBSUB SUBSCRIBERS tips */
+#define PUBSUB_SUBSCRIBERS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* PUBSUB SUBSCRIBERS key specs */
+#define PUBSUB_SUBSCRIBERS_Keyspecs NULL
+#endif
+
+/* PUBSUB SUBSCRIBERS subscription_type argument table */
+struct COMMAND_ARG PUBSUB_SUBSCRIBERS_subscription_type_Subargs[] = {
+{MAKE_ARG("channel",ARG_TYPE_PURE_TOKEN,-1,"CHANNEL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("shard-channel",ARG_TYPE_PURE_TOKEN,-1,"SHARD-CHANNEL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PURE_TOKEN,-1,"PATTERN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* PUBSUB SUBSCRIBERS argument table */
+struct COMMAND_ARG PUBSUB_SUBSCRIBERS_Args[] = {
+{MAKE_ARG("subscription-type",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=PUBSUB_SUBSCRIBERS_subscription_type_Subargs},
+{MAKE_ARG("pattern",ARG_TYPE_STRING,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /* PUBSUB command table */
 struct COMMAND_STRUCT PUBSUB_Subcommands[] = {
 {MAKE_CMD("channels","Returns the active channels.","O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_CHANNELS_History,0,PUBSUB_CHANNELS_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_CHANNELS_Keyspecs,0,NULL,1),.args=PUBSUB_CHANNELS_Args},
@@ -4579,6 +4610,7 @@ struct COMMAND_STRUCT PUBSUB_Subcommands[] = {
 {MAKE_CMD("numsub","Returns a count of subscribers to channels.","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_NUMSUB_History,0,PUBSUB_NUMSUB_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_NUMSUB_Keyspecs,0,NULL,1),.args=PUBSUB_NUMSUB_Args},
 {MAKE_CMD("shardchannels","Returns the active shard channels.","O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short shard channels).","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_SHARDCHANNELS_History,0,PUBSUB_SHARDCHANNELS_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_SHARDCHANNELS_Keyspecs,0,NULL,1),.args=PUBSUB_SHARDCHANNELS_Args},
 {MAKE_CMD("shardnumsub","Returns the count of subscribers of shard channels.","O(N) for the SHARDNUMSUB subcommand, where N is the number of requested shard channels","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_SHARDNUMSUB_History,0,PUBSUB_SHARDNUMSUB_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_SHARDNUMSUB_Keyspecs,0,NULL,1),.args=PUBSUB_SHARDNUMSUB_Args},
+{MAKE_CMD("subscribers","Get the pubsub subscribers, filter by type/pattern.","O(N * M) where N is the number of matched channel/patterns and M is the number of subscribed clients","7.2.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_SUBSCRIBERS_History,0,PUBSUB_SUBSCRIBERS_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_SUBSCRIBERS_Keyspecs,0,NULL,3),.args=PUBSUB_SUBSCRIBERS_Args},
 {0}
 };
 

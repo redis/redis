@@ -1,7 +1,7 @@
 {
   "SUBSCRIBERS": {
     "summary": "Get the pubsub subscribers, filter by type/pattern.",
-    "complexity": "O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.",
+    "complexity": "O(N * M) where N is the number of matched channel/patterns and M is the number of subscribed clients",
     "group": "pubsub",
     "since": "7.2.0",
     "arity": -2,
@@ -14,38 +14,30 @@
     ],
     "arguments": [
       {
-        "token": "TYPE",
         "name": "subscription-type",
         "type": "oneof",
-        "optional": true,
         "arguments": [
-            {
-                "name": "channel",
-                "type": "pure-token",
-                "token": "CHANNEL"
-            },
-            {
-                "name": "shard-channel",
-                "type": "pure-token",
-                "token": "SHARD-CHANNEL"
-            },
-            {
-              "name": "pattern",
-              "type": "pure-token",
-              "token": "PATTERN"
-            }
+          {
+            "name": "channel",
+            "type": "pure-token",
+            "token": "CHANNEL"
+          },
+          {
+            "name": "shard-channel",
+            "type": "pure-token",
+            "token": "SHARD-CHANNEL"
+          },
+          {
+            "name": "pattern",
+            "type": "pure-token",
+            "token": "PATTERN"
+          }
         ]
       },
       {
         "token": "MATCH",
         "name": "pattern",
         "type": "string",
-        "optional": true
-      },
-      {
-        "token": "CURSOR",
-        "name": "cursor",
-        "type": "integer",
         "optional": true
       },
       {
