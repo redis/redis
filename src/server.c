@@ -1311,7 +1311,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         trackInstantaneousMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
                                  current_time, factor);
         trackInstantaneousMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].sum,
-                                 server.duration_stats[EL_DURATION_TYPE_EL].cnt, factor);
+                                 server.duration_stats[EL_DURATION_TYPE_EL].cnt, 1);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
