@@ -693,40 +693,24 @@ int allPersistenceDisabled(void) {
 
 /* ======================= Cron: called every 100 ms ======================== */
 
-/* Add a sample to the operations per second array of samples. This takes total operation count and
- * current time, then calculates and records the operation rate between to samples. 
+/* Add a sample to the instantaneous metric. This function computes the quotient
+ * of the increment of value and base, which is useful to record operation count
+ * per second, or the average time consumption of an operation.
  * 
- * current_reading - total operation count currently reads
- * current_time - current time stamp in microseconds
+ * current_value - The dividend
+ * current_base - The divisor
  * */
-void trackInstantaneousRateMetric(int metric, long long current_reading, monotime current_time) {
-    if (server.inst_metric[metric].last_sample_time > 0) {
-        monotime time_duration = current_time - server.inst_metric[metric].last_sample_time;
-        long long ops = current_reading - server.inst_metric[metric].last_sample_count;
-        long long ops_per_sec = time_duration > 0 ? (ops * 1000000 / time_duration) : 0;
-        server.inst_metric[metric].samples[server.inst_metric[metric].idx] = ops_per_sec;
+void trackInstantaneousMetric(int metric, long long current_value, long long current_base, long long factor) {
+    if (server.inst_metric[metric].last_sample_base > 0) {
+        long long base = current_base - server.inst_metric[metric].last_sample_base;
+        long long value = current_value - server.inst_metric[metric].last_sample_value;
+        long long avg = base > 0 ? (value * factor / base) : 0;
+        server.inst_metric[metric].samples[server.inst_metric[metric].idx] = avg;
         server.inst_metric[metric].idx++;
         server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
     }
-    server.inst_metric[metric].last_sample_time = current_time;
-    server.inst_metric[metric].last_sample_count = current_reading;
-}
-
-/* Add a sample to time per operation array of samples. This takes total operation count and total time 
- * duration, and record the average time duration of one operation between two samples.
- *
- * current_reading - total operation count currently reads
- * current_time_sum - total time duration of the operations in microseconds
- * */
-void trackInstantaneousAvgMetric(int metric, long long current_reading, monotime current_time_sum) {
-    long long time = current_time_sum - server.inst_metric[metric].last_sample_time;
-    long long cnt = current_reading - server.inst_metric[metric].last_sample_count;
-    long long avg = (time > 0 && cnt > 0) ? (time / cnt) : 0;
-    server.inst_metric[metric].samples[server.inst_metric[metric].idx] = avg;
-    server.inst_metric[metric].idx++;
-    server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
-    server.inst_metric[metric].last_sample_time = current_time_sum;
-    server.inst_metric[metric].last_sample_count = current_reading;
+    server.inst_metric[metric].last_sample_base = current_base;
+    server.inst_metric[metric].last_sample_value = current_value;
 }
 
 /* Return the mean of all the samples. */
@@ -1314,19 +1298,20 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
         monotime current_time = getMonotonicUs();
-        trackInstantaneousRateMetric(STATS_METRIC_COMMAND, server.stat_numcommands, current_time);
-        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT, stat_net_input_bytes + stat_net_repl_input_bytes,
-                                     current_time);
-        trackInstantaneousRateMetric(STATS_METRIC_NET_OUTPUT,
-                                     stat_net_output_bytes + stat_net_repl_output_bytes, current_time);
-        trackInstantaneousRateMetric(STATS_METRIC_NET_INPUT_REPLICATION, stat_net_repl_input_bytes,
-                                     current_time);
-        trackInstantaneousRateMetric(STATS_METRIC_NET_OUTPUT_REPLICATION, stat_net_repl_output_bytes,
-                                     current_time);
-        trackInstantaneousRateMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
-                                     current_time);
-        trackInstantaneousAvgMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
-                                    server.duration_stats[EL_DURATION_TYPE_EL].sum);
+        long long factor = 1000000;  // us
+        trackInstantaneousMetric(STATS_METRIC_COMMAND, server.stat_numcommands, current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_INPUT, stat_net_input_bytes + stat_net_repl_input_bytes,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT, stat_net_output_bytes + stat_net_repl_output_bytes,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION, stat_net_repl_input_bytes, current_time,
+                                 factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION, stat_net_repl_output_bytes,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].sum,
+                                 server.duration_stats[EL_DURATION_TYPE_EL].cnt, factor);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -2552,8 +2537,8 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_writes_processed, 0);
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
-        server.inst_metric[j].last_sample_time = 0;
-        server.inst_metric[j].last_sample_count = 0;
+        server.inst_metric[j].last_sample_base = 0;
+        server.inst_metric[j].last_sample_value = 0;
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
     }
