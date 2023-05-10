@@ -1,92 +1,92 @@
 {
-	"SUBSCRIBERS": {
-		"summary": "Get the pubsub subscribers, filter by type/pattern.",
-		"complexity": "O(N * M) where N is the number of matched channel/patterns and M is the number of subscribed clients",
-		"group": "pubsub",
-		"since": "7.2.0",
-		"arity": -2,
-		"container": "PUBSUB",
-		"function": "pubsubCommand",
-		"command_flags": [
-			"PUBSUB",
-			"LOADING",
-			"STALE"
-		],
-		"arguments": [
-			{
-				"name": "subscription-type",
-				"type": "oneof",
-				"arguments": [
-					{
-						"name": "channel",
-						"type": "pure-token",
-						"token": "CHANNEL"
-					},
-					{
-						"name": "shard-channel",
-						"type": "pure-token",
-						"token": "SHARD-CHANNEL"
-					},
-					{
-						"name": "pattern",
-						"type": "pure-token",
-						"token": "PATTERN"
-					}
-				]
-			},
-			{
-				"token": "MATCH",
-				"name": "pattern",
-				"type": "string",
-				"optional": true
-			},
-			{
-				"token": "COUNT",
-				"name": "count",
-				"type": "integer",
-				"optional": true
-			}
-		],
-		"reply_schema": {
-			"description": "an even number element array specifying channel/patterns and it's subscriptions.",
-			"type": "array",
-			"minItems": 0,
-			"maxItems": 4294967295,
-			"items": [
-				{
-					"description": "unique channel/pattern name",
-					"type": "string"
-				},
-				{
-					"type": "object",
-					"additionalProperties": false,
-					"properties": {
-						"subscribed-clients": {
-							"type": "array",
-							"minItems": 6,
-							"maxItems": 6,
-							"items": {
-								"type": "object",
-								"additionalProperties": false,
-								"properties": {
-									"name": {
-										"description": "name of the client",
-										"type": "string"
-									},
-									"id": {
-										"description": "unique id of the client",
-										"type": "string"
-									},
-									"addr": {
-										"description": "address (ip:port) of the client",
-										"type": "string"
-									}
-								}
-							}
-						}
-					}
-				}
-			]
-		}
-	}
+    "SUBSCRIBERS": {
+        "summary": "Get the pubsub subscribers, filter by type/pattern.",
+        "complexity": "O(N * M) where N is the number of matched channel/patterns and M is the number of subscribed clients",
+        "group": "pubsub",
+        "since": "7.2.0",
+        "arity": -2,
+        "container": "PUBSUB",
+        "function": "pubsubCommand",
+        "command_flags": [
+            "PUBSUB",
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "subscription-type",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "channel",
+                        "type": "pure-token",
+                        "token": "CHANNEL"
+                    },
+                    {
+                        "name": "shard-channel",
+                        "type": "pure-token",
+                        "token": "SHARD-CHANNEL"
+                    },
+                    {
+                        "name": "pattern",
+                        "type": "pure-token",
+                        "token": "PATTERN"
+                    }
+                ]
+            },
+            {
+                "token": "MATCH",
+                "name": "pattern",
+                "type": "string",
+                "optional": true
+            },
+            {
+                "token": "COUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            }
+        ],
+        "reply_schema": {
+            "description": "an even number element array specifying channel/patterns and it's subscriptions.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": [
+                {
+                    "description": "unique channel/pattern name",
+                    "type": "string"
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "subscribed-clients": {
+                            "type": "array",
+                            "minItems": 6,
+                            "maxItems": 6,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": {
+                                        "description": "name of the client",
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "description": "unique id of the client",
+                                        "type": "string"
+                                    },
+                                    "addr": {
+                                        "description": "address (ip:port) of the client",
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
 }
