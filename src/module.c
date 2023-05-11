@@ -6094,6 +6094,12 @@ fmterr:
     return NULL;
 }
 
+static void moduleFreeArgv(robj **argv, int argc) {
+    for (int j = 0; j < argc; j++)
+        decrRefCount(argv[j]);
+    zfree(argv);
+}
+
 /* Exported API to call any Redis command from modules.
  *
  * * **cmdname**: The Redis command to call.
@@ -6224,6 +6230,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
                 sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
                 reply = callReplyCreateError(msg, ctx);
             }
+            moduleFreeArgv(argv, argc);
             return reply;
         }
     }
