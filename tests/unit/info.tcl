@@ -274,10 +274,48 @@ start_server {tags {"info" "external:skip"}} {
             $rd close
         }
 
-        test {stats: cmd duration} {
+        foreach metric {eventloop_cycles eventloop_duration_sum eventloop_duration_cmd_sum} {
+            test "stats: $metric" {
+                set value1 [s $metric]
+                assert {$value1 > 0}
+                after 110
+                set value2 [s $metric]
+                assert {$value2 > $value1}
+            }
+        }
+ 
+        test {stats: instantaneous metrics} {
             r config resetstat
-            set cmd_duration [s eventloop_duration_cmd_sum] 
-            assert {$cmd_duration > 0}
+            after 1600
+            set value [s instantaneous_eventloop_cycles_per_sec]
+            assert {$value > 0}
+            # default hz is 10
+            assert {$value <= 10}
+            set value [s instantaneous_eventloop_duration_usec]
+            assert {$value > 0}
+            # default hz is 10, so duration < 1000 / 10
+            assert {$value < 100}
+        }
+
+        test {stats: debug metrics} {
+            set info1 [r info debug]
+
+            set aof1 [getInfoProperty $info1 eventloop_duration_aof_sum]
+            assert {$value1 >= 0}
+            set cron1 [getInfoProperty $info1 eventloop_duration_cron_sum]
+            assert {$value1 > 0}
+            set value [getInfoProperty $info1 eventloop_cmd_per_cycle_max]
+            assert {$value > 0}
+            set value [getInfoProperty $info1 eventloop_duration_max]
+            assert {$value > 0}
+
+            after 110
+            set info2 [r info debug]
+
+            set aof2 [getInfoProperty $info2 eventloop_duration_aof_sum]
+            assert {$aof2 >= $aof1}
+            set cron2 [getInfoProperty $info2 eventloop_duration_cron_sum]
+            assert {$cron2 > $cron1}
         }
 
     }
