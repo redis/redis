@@ -1784,6 +1784,14 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
     server.el_cron_duration = 0;
+    /* Record max command count per cycle. */
+    if (server.duration_stats[EL_DURATION_TYPE_CMD].cnt > server.el_cmd_cnt_start) {
+        unsigned long long el_command_cnt =
+            server.duration_stats[EL_DURATION_TYPE_CMD].cnt - server.el_cmd_cnt_start;
+        if (el_command_cnt > server.el_cmd_cnt_max) {
+            server.el_cmd_cnt_max = el_command_cnt;
+        }
+    }
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -1817,6 +1825,8 @@ void afterSleep(struct aeEventLoop *eventLoop) {
         }
         /* Set the eventloop start time. */
         server.el_start = getMonotonicUs();
+        /* Set the eventloop command count at start. */
+        server.el_cmd_cnt_start = server.duration_stats[EL_DURATION_TYPE_CMD].cnt;
     }
 
     /* Update the time cache. */
@@ -2556,6 +2566,7 @@ void resetServerStats(void) {
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
+    server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
 }
 
@@ -6246,9 +6257,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         info = sdscatprintf(info,
         "# Debug\r\n"
         "eventloop_duration_aof_sum:%llu\r\n"
-        "eventloop_duration_cron_sum:%llu\r\n",
+        "eventloop_duration_cron_sum:%llu\r\n"
+        "eventloop_duration_max:%llu\r\n"
+        "eventloop_cmd_per_cycle_max:%llu\r\n",
         server.duration_stats[EL_DURATION_TYPE_AOF].sum,
-        server.duration_stats[EL_DURATION_TYPE_CRON].sum);
+        server.duration_stats[EL_DURATION_TYPE_CRON].sum,
+        server.duration_stats[EL_DURATION_TYPE_EL].max,
+        server.el_cmd_cnt_max);
     }
 
     return info;

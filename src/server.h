@@ -1704,6 +1704,8 @@ struct redisServer {
     long long stat_reply_buffer_shrinks; /* Total number of output buffer shrinks */
     long long stat_reply_buffer_expands; /* Total number of output buffer expands */
     monotime el_start;
+    unsigned long long el_cmd_cnt_start;
+    unsigned long long el_cmd_cnt_max;
     /* The sum of active-expire, active-defrag and all other tasks done by cron and beforeSleep,
        but excluding read, write and AOF, which are counted by other sets of metrics. */
     monotime el_cron_duration; 

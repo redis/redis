@@ -732,4 +732,7 @@ void durationAddSample(int type, monotime duration) {
     durationStats* ds = &server.duration_stats[type];
     ds->cnt++;
     ds->sum += duration;
+    if (duration > ds->max) {
+        ds->max = duration;
+    }
 }

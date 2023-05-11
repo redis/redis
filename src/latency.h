@@ -92,6 +92,7 @@ void latencyAddSample(const char *event, mstime_t latency);
 typedef struct durationStats {
     unsigned long long cnt;
     unsigned long long sum;
+    unsigned long long max;
 } durationStats;
 
 typedef enum {
