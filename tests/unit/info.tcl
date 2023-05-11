@@ -274,48 +274,64 @@ start_server {tags {"info" "external:skip"}} {
             $rd close
         }
 
-        foreach metric {eventloop_cycles eventloop_duration_sum eventloop_duration_cmd_sum} {
-            test "stats: $metric" {
-                set value1 [s $metric]
-                assert {$value1 > 0}
-                after 110
-                set value2 [s $metric]
-                assert {$value2 > $value1}
-            }
+        test {stats: eventloop metrics} {
+            set info1 [r info stats]
+            set cycle1 [getInfoProperty $info1 eventloop_cycles]
+            set el_sum1 [getInfoProperty $info1 eventloop_duration_sum]
+            set cmd_sum1 [getInfoProperty $info1 eventloop_duration_cmd_sum]
+            assert_morethan $cycle1 0
+            assert_morethan $el_sum1 0
+            assert_morethan $cmd_sum1 0
+            after 110 ;# default hz is 10, wait for a cron tick. 
+            set info2 [r info stats]
+            set cycle2 [getInfoProperty $info2 eventloop_cycles]
+            set el_sum2 [getInfoProperty $info2 eventloop_duration_sum]
+            set cmd_sum2 [getInfoProperty $info2 eventloop_duration_cmd_sum]
+            assert_morethan $cycle2 $cycle1   
+            assert_morethan $el_sum2 $el_sum1
+            assert_morethan $cmd_sum2 $cmd_sum1
         }
  
         test {stats: instantaneous metrics} {
             r config resetstat
-            after 1600
+            after 1600 ;# hz is 10, wait for 16 cron tick so that sample array is fulfilled
             set value [s instantaneous_eventloop_cycles_per_sec]
-            assert {$value > 0}
-            # default hz is 10
-            assert {$value <= 10}
+            assert_morethan $value 0
+            assert_lessthan $value 15 ;# default hz is 10
             set value [s instantaneous_eventloop_duration_usec]
-            assert {$value > 0}
-            # default hz is 10, so duration < 1000 / 10
-            assert {$value < 100}
+            assert_morethan $value 0
+            assert_lessthan $value 150 ;# default hz is 10, so duration < 1000 / 10
         }
 
         test {stats: debug metrics} {
+            # make sure debug info is hidden
+            set info [r info]
+            assert_equal [getInfoProperty $info eventloop_duration_aof_sum] {}
+            set info_all [r info all]
+            assert_equal [getInfoProperty $info_all eventloop_duration_aof_sum] {}
+
             set info1 [r info debug]
 
             set aof1 [getInfoProperty $info1 eventloop_duration_aof_sum]
-            assert {$value1 >= 0}
+            assert {$aof1 >= 0}
             set cron1 [getInfoProperty $info1 eventloop_duration_cron_sum]
-            assert {$value1 > 0}
-            set value [getInfoProperty $info1 eventloop_cmd_per_cycle_max]
-            assert {$value > 0}
-            set value [getInfoProperty $info1 eventloop_duration_max]
-            assert {$value > 0}
+            assert {$cron1 > 0}
+            set cycle_max1 [getInfoProperty $info1 eventloop_cmd_per_cycle_max]
+            assert {$cycle_max1 > 0}
+            set duration_max1 [getInfoProperty $info1 eventloop_duration_max]
+            assert {$duration_max1 > 0}
 
-            after 110
+            after 110 ;# hz is 10, wait for a cron tick.
             set info2 [r info debug]
 
             set aof2 [getInfoProperty $info2 eventloop_duration_aof_sum]
-            assert {$aof2 >= $aof1}
+            assert {$aof2 >= $aof1} ;# AOF is disabled, we expect $aof2 == $aof1, but allow some tolerance.
             set cron2 [getInfoProperty $info2 eventloop_duration_cron_sum]
-            assert {$cron2 > $cron1}
+            assert_morethan $cron2 $cron1
+            set cycle_max2 [getInfoProperty $info2 eventloop_cmd_per_cycle_max]
+            assert {$cycle_max2 >= $cycle_max1}
+            set duration_max2 [getInfoProperty $info2 eventloop_duration_max]
+            assert {$duration_max2 >= $duration_max1}
         }
 
     }
