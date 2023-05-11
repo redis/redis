@@ -1785,9 +1785,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
     server.el_cron_duration = 0;
     /* Record max command count per cycle. */
-    if (server.duration_stats[EL_DURATION_TYPE_CMD].cnt > server.el_cmd_cnt_start) {
-        unsigned long long el_command_cnt =
-            server.duration_stats[EL_DURATION_TYPE_CMD].cnt - server.el_cmd_cnt_start;
+    if (server.stat_numcommands > server.el_cmd_cnt_start) {
+        long long el_command_cnt = server.stat_numcommands - server.el_cmd_cnt_start;
         if (el_command_cnt > server.el_cmd_cnt_max) {
             server.el_cmd_cnt_max = el_command_cnt;
         }
@@ -1826,7 +1825,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
         /* Set the eventloop start time. */
         server.el_start = getMonotonicUs();
         /* Set the eventloop command count at start. */
-        server.el_cmd_cnt_start = server.duration_stats[EL_DURATION_TYPE_CMD].cnt;
+        server.el_cmd_cnt_start = server.stat_numcommands;
     }
 
     /* Update the time cache. */
@@ -6259,7 +6258,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         "eventloop_duration_aof_sum:%llu\r\n"
         "eventloop_duration_cron_sum:%llu\r\n"
         "eventloop_duration_max:%llu\r\n"
-        "eventloop_cmd_per_cycle_max:%llu\r\n",
+        "eventloop_cmd_per_cycle_max:%lld\r\n",
         server.duration_stats[EL_DURATION_TYPE_AOF].sum,
         server.duration_stats[EL_DURATION_TYPE_CRON].sum,
         server.duration_stats[EL_DURATION_TYPE_EL].max,
