@@ -6019,6 +6019,15 @@ void RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client)
     zfree(client);
 }
 
+void RM_SetClientUser(RedisModuleClient *client, RedisModuleUser *user)
+{
+    if (user) {
+        client->client->user = user->user;
+    } else {
+        client->client->user = NULL;
+    }
+}
+
 void RM_SetContextClient(RedisModuleCtx *ctx, RedisModuleClient *client)
 {
     ctx->persistent_client = client;
@@ -13888,4 +13897,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(FreeModuleClient);
     REGISTER_API(SetContextClient);
     REGISTER_API(GetClientFlags);
+    REGISTER_API(SetClientUser);
 }

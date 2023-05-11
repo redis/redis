@@ -1318,6 +1318,7 @@ REDISMODULE_API RedisModuleClient * (*RedisModule_CreateModuleClient)(RedisModul
 REDISMODULE_API void (*RedisModule_FreeModuleClient)(RedisModuleCtx *ctx, RedisModuleClient *client) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetContextClient)(RedisModuleCtx *ctx, RedisModuleClient *client) REDISMODULE_ATTR;
 REDISMODULE_API uint64_t (*RedisModule_GetClientFlags)(RedisModuleClient *client) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_SetClientUser)(RedisModuleClient *client, RedisModuleUser *user) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1682,6 +1683,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(FreeModuleClient);
     REDISMODULE_GET_API(SetContextClient);
     REDISMODULE_GET_API(GetClientFlags);
+
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
