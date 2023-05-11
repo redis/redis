@@ -5997,12 +5997,11 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user)
     ctx->user = user;
 }
 
-RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx, const RedisModuleUser *rmu)
+RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx)
 {
     UNUSED(ctx);
 
-    user *u = rmu ? rmu->user : NULL;
-    client *c = moduleAllocTempClient(u);
+    client *c = moduleAllocTempClient(NULL);
 
     RedisModuleClient *rmc = zmalloc(sizeof(RedisModuleClient));
     rmc->client = c;

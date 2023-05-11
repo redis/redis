@@ -2,16 +2,13 @@
 #include "redismodule.h"
 
 RedisModuleClient *client = NULL;
-RedisModuleUser *user = NULL;
 
 int mc_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
     if (client == NULL) {
-        user = RedisModule_CreateModuleUser("mc-test-user");
-        RedisModule_Assert(RedisModule_SetModuleUserACLString(ctx, user, "allcommands allkeys", NULL) == REDISMODULE_OK);
-        client = RedisModule_CreateModuleClient(ctx, user);
+        client = RedisModule_CreateModuleClient(ctx);
     }
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -25,8 +22,6 @@ int mc_delete(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (client != NULL) {
         RedisModule_FreeModuleClient(ctx, client);
         client = NULL;
-        RedisModule_FreeModuleUser(user);
-        user = NULL;
     }
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
