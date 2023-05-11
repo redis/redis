@@ -1683,6 +1683,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(FreeModuleClient);
     REDISMODULE_GET_API(SetContextClient);
     REDISMODULE_GET_API(GetClientFlags);
+    REDISMODULE_GET_API(SetClientUser);
 
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

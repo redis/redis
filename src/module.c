@@ -6279,7 +6279,14 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     user *user = NULL;
     if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
-        user = ctx->user ? ctx->user->user : ctx->client->user;
+        user = ctx->client->user;
+        if (ctx->persistent_client) {
+            /* only used for ACL check */
+            user = ctx->persistent_client->client->user;
+        } else if (ctx->user) {
+            user = ctx->user->user;
+        }
+
         if (!user) {
             errno = ENOTSUP;
             if (error_as_call_replies) {
