@@ -11696,7 +11696,7 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     } else if (flags & DB_FLAG_KEY_OVERWRITE) {
         subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITTEN;
     }
-    KeyInfo info = {dbid, key, val, REDISMODULE_WRITE};
+    KeyInfo info = {dbid, key, val, REDISMODULE_READ};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &info);
 
     if (val->type == OBJ_MODULE) {
