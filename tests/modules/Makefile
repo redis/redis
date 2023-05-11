@@ -4,10 +4,10 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 warning_cflags = -W -Wall -Wno-missing-field-initializers
 ifeq ($(uname_S),Darwin)
-	SHOBJ_CFLAGS ?= $(warning_cflags) -dynamic -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= $(warning_cflags) -dynamic -fno-common -g -ggdb -std=c99 -O0
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 else	# Linux, others
-	SHOBJ_CFLAGS ?= $(warning_cflags) -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= $(warning_cflags) -fno-common -g -ggdb -std=c99 -O0
 	SHOBJ_LDFLAGS ?= -shared
 endif
 
