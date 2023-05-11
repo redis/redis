@@ -618,14 +618,8 @@ void publishCommand(client *c) {
 typedef struct {
     dict *subscription_dict;
     long count;
-    int use_pattern;
     sds pat;
 } pubsubSubscribersCmdArgs;
-
-static inline void pubsubSubscribersCmdArgsInitializeDefault(pubsubSubscribersCmdArgs *args) {
-    args->count = 1000;
-    args->use_pattern = 0;
-}
 
 static void pubsubReplySubscribersClientInfo(client *c, list *clients) {
     listNode *ln;
@@ -638,7 +632,7 @@ static void pubsubReplySubscribersClientInfo(client *c, list *clients) {
         if (client->name) {
             addReplyBulk(c, client->name);
         } else {
-            addReplyNull(c);
+            addReplyBulkCBuffer(c, "", 0);
         }
         addReplyBulkCString(c, "id");
         addReplyBulkLongLong(c, client->id);
@@ -647,12 +641,36 @@ static void pubsubReplySubscribersClientInfo(client *c, list *clients) {
     }
 }
 
-/* Parse the arguments for PUBSUB SUBSCRIBERS command */
-static int parseArgsPubSubSubscribersCmd(client *c, pubsubSubscribersCmdArgs *args) {
-    if (c->argc < 3) {
-        addReplySubcommandSyntaxError(c);
-        return C_ERR;
+static void pubsubReplySubscribers(client *c, pubsubSubscribersCmdArgs args) {
+    void *dl = addReplyDeferredLen(c);
+    long long channel_cnt = 0;
+    long long subscription_cnt = 0;
+
+    dictIterator *di = dictGetIterator(args.subscription_dict);
+    dictEntry *de;
+    while((de = dictNext(di)) != NULL && subscription_cnt < args.count) {
+        /* Filter the channels/subscriptions. */
+        sds channel = ((robj *)dictGetKey(de))->ptr;
+        if (args.pat && !stringmatchlen(args.pat, sdslen(args.pat), channel, sdslen(channel), 0)) {
+            continue;
+        }
+        list *clients = dictGetVal(de);
+        serverAssert(clients != NULL);
+        addReplyBulkCString(c, channel);
+        addReplyArrayLen(c, listLength(clients));
+        pubsubReplySubscribersClientInfo(c, clients);
+        subscription_cnt+=listLength(clients);
+        channel_cnt++;
     }
+    dictReleaseIterator(di);
+    setDeferredMapLen(c, dl,channel_cnt);
+}
+
+/* Parse the arguments for PUBSUB SUBSCRIBERS command */
+static int parseArgsPubSubSubscribersCmdOrReply(client *c, pubsubSubscribersCmdArgs *args) {
+    /* Initialize default args and parse if any. */
+    args->count = LONG_MIN;
+    args->pat = NULL;
 
     /* Mandatory parameter - subscription_type */
     char *type = c->argv[2]->ptr;
@@ -671,58 +689,31 @@ static int parseArgsPubSubSubscribersCmd(client *c, pubsubSubscribersCmdArgs *ar
     for (int i = 3; i < c->argc; i++) {
         int moreargs = c->argc-i-1;
         char *o = c->argv[i]->ptr;
-        if (!strcasecmp(o, "match") && moreargs) {
+        if (!strcasecmp(o, "match") && !args->pat && moreargs) {
             i++;
             args->pat = c->argv[i]->ptr;
-            args->use_pattern = !(sdslen(args->pat) == 1 && args->pat[0] == '*');
-        } else if (!strcasecmp(o, "count") && moreargs) {
+        } else if (!strcasecmp(o, "count") && args->count < -1  && moreargs) {
             i++;
             if (getRangeLongFromObjectOrReply(c, c->argv[i], -1, LONG_MAX, &args->count,
-                                             "count should be greater than or equal to -1") != C_OK) {
+                                              "count should be greater than or equal to -1") != C_OK) {
                 return C_ERR;
             }
-            /* count arg provided as -1 signifies all the channels needs to be sent. */
+            /* count arg provided as -1 signifies all the subscriptions needs to be returned. */
             if (args->count == -1) {
-                args->count = dictSize(args->subscription_dict);
+                args->count = LONG_MAX;
             }
         } else {
             addReplySubcommandSyntaxError(c);
             return C_ERR;
         }
     }
+
+    /* if count parameter wasn't provided, set it to 1000 as default. */
+    if (args->count == LONG_MIN) {
+        args->count = 1000;
+    }
+
     return C_OK;
-}
-
-static void pubsubReplySubscribers(client *c) {
-    /* Initialize default args and parse if any. */
-    pubsubSubscribersCmdArgs args;
-    pubsubSubscribersCmdArgsInitializeDefault(&args);
-    if (parseArgsPubSubSubscribersCmd(c, &args) != C_OK) {
-        return;
-    }
-
-    void *dl = addReplyDeferredLen(c);
-    long long cnt = 0;
-
-    dictIterator *di = dictGetIterator(args.subscription_dict);
-    dictEntry *de;
-    while((de = dictNext(di)) != NULL && cnt < args.count) {
-        /* Filter the channels/subscriptions. */
-        sds channel = ((robj *)dictGetKey(de))->ptr;
-        if (args.use_pattern && !stringmatchlen(args.pat, sdslen(args.pat), channel, sdslen(channel), 0)) {
-            continue;
-        }
-        list *clients = dictGetVal(de);
-        serverAssert(clients != NULL);
-        addReplyBulkCString(c, channel);
-        addReplyMapLen(c, 1);
-        addReplyBulkCString(c, "subscribed-clients");
-        addReplyArrayLen(c, listLength(clients));
-        pubsubReplySubscribersClientInfo(c, clients);
-        cnt++;
-    }
-    dictReleaseIterator(di);
-    setDeferredArrayLen(c, dl,cnt * 2);
 }
 
 /* PUBSUB command for Pub/Sub introspection. */
@@ -782,9 +773,13 @@ NULL
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"subscribers") && c->argc >= 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"subscribers") && c->argc >= 3) {
+        pubsubSubscribersCmdArgs args;
         /* PUBSUB SUBSCRIBERS */
-        pubsubReplySubscribers(c);
+        if (parseArgsPubSubSubscribersCmdOrReply(c, &args) != C_OK) {
+            return;
+        }
+        pubsubReplySubscribers(c, args);
     } else {
         addReplySubcommandSyntaxError(c);
     }

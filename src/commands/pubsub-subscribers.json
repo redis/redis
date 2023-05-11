@@ -48,45 +48,33 @@
             }
         ],
         "reply_schema": {
-            "description": "an even number element array specifying channel/patterns and it's subscriptions.",
-            "type": "array",
-            "minItems": 0,
-            "maxItems": 4294967295,
-            "items": [
-                {
-                    "description": "unique channel/pattern name",
-                    "type": "string"
-                },
-                {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                        "subscribed-clients": {
-                            "type": "array",
-                            "minItems": 6,
-                            "maxItems": 6,
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": false,
-                                "properties": {
-                                    "name": {
-                                        "description": "name of the client",
-                                        "type": "string"
-                                    },
-                                    "id": {
-                                        "description": "unique id of the client",
-                                        "type": "string"
-                                    },
-                                    "addr": {
-                                        "description": "address (ip:port) of the client",
-                                        "type": "string"
-                                    }
+            "description": "A map where each key is a channel name/pattern, and each value is the list of subscriptions",
+            "type": "object",
+            "patternProperties": {
+                "^.*$": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 4294967295,
+                    "items": [
+                        {
+                            "description": "information about the subscribed client",
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "addr": {
+                                    "type": "string"
                                 }
                             }
                         }
-                    }
+                    ]
                 }
-            ]
+            }
         }
     }
 }

@@ -459,13 +459,26 @@ start_server {tags {"pubsub network"}} {
     }
 
     test "subscribers subcommand - incorrect args" {
+
+        # unsupported type
         catch { r pubsub subscribers random } e
         assert_match "*unknown subcommand or wrong number of arguments for 'subscribers'. Try PUBSUB HELP." $e
 
+        # duplicate arguments
+        catch { r pubsub subscribers channel count -1 count 1 } e
+        assert_match "*unknown subcommand or wrong number of arguments for 'subscribers'. Try PUBSUB HELP." $e
+
+        catch { r pubsub subscribers channel match * match ? } e
+        assert_match "*unknown subcommand or wrong number of arguments for 'subscribers'. Try PUBSUB HELP." $e
+
+        # incorrect count value
         catch { r pubsub subscribers channel count a } e
         assert_match "*count should be greater than or equal to -1*" $e
 
         catch { r pubsub subscribers channel count -2 } e
+        assert_match "*count should be greater than or equal to -1*" $e
+
+        catch { r pubsub subscribers channel count -2147483648} e
         assert_match "*count should be greater than or equal to -1*" $e
     }
 
@@ -475,14 +488,14 @@ start_server {tags {"pubsub network"}} {
 
         # Get all the subscribers for pub/sub global channel.
         set subscribers [r pubsub subscribers channel]
-        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel {{name {} id * addr 127.0.0.1*}}} $subscribers
 
         set subscribers [r pubsub subscribers channel]
-        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel {{name {} id * addr 127.0.0.1*}}} $subscribers
 
         # Explicit filter by channel name.
         set subscribers [r pubsub subscribers channel match somechannel]
-        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel {{name {} id * addr 127.0.0.1*}}} $subscribers
 
         # Explicit filter by channel name with no subscribers.
         assert_equal {} [r pubsub subscribers channel match someotherchannel]
@@ -495,7 +508,7 @@ start_server {tags {"pubsub network"}} {
 
         # Verify multiple subscribers for a given channel
         set subscribers [r pubsub subscribers channel match somechannel]
-        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*} {name anothersub id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel {{name {} id * addr 127.0.0.1*} {name anothersub id * addr 127.0.0.1*}}} $subscribers
 
         # Verify multiple active subscriptions.
         set subscribers [r pubsub subscribers channel]
@@ -503,7 +516,7 @@ start_server {tags {"pubsub network"}} {
 
         for {set j 0} {$j < 2} {incr j} {
             set chname [lindex $subscribers [expr {$j*2}]]
-            set clients [dict get [lindex $subscribers [expr {$j*2 + 1}]] subscribed-clients]
+            set clients [lindex $subscribers [expr {$j*2 + 1}]]
             if {$chname == "somechannel"} {
                 assert_match {{name {} id * addr 127.0.0.1*} {name anothersub id * addr 127.0.0.1*}} $clients
             } else {
@@ -519,18 +532,25 @@ start_server {tags {"pubsub network"}} {
         set rd [redis_deferring_client]
         subscribe $rd {somechannel somechannel2 somechannel3 somechannel4 somechannel5}
 
-        # default count is 1000 on server, should return all 5 channels.
-        set subscribers [r pubsub subscribers channel]
+        # default count is 1000 on server, should return all 5 channels with each having one subscription.
+        set subscribers [r pubsub subscribers channel match somechannel*]
         assert {[llength $subscribers] == 10}
 
-        # return all active channel
+        # return all active subscriptions
         assert_equal $subscribers [r pubsub subscribers channel count -1]
-
-        # return at max. count number of channels
         assert_equal $subscribers [r pubsub subscribers channel count 5]
 
-        # return subset of results
+        # return subset of results (1 channel would be skipped)
         assert {[llength [r pubsub subscribers channel count 4]] == 8}
+
+        set rd2 [redis_deferring_client]
+        subscribe $rd2 {somechannel somechannel2 somechannel3 somechannel4 somechannel5}
+
+        # partial set of channels will be returned (3 channels, 2 subscriptions each)
+        assert {[llength [r pubsub subscribers channel count 5]] == 6}
+
+        # all channels/subscriptions (5 channels, 2 subscriptions each)
+        assert {[llength [r pubsub subscribers channel]] == 10}
     }
 
     test "subscribers subcommand - Pub/Sub shard clients" {
@@ -539,11 +559,11 @@ start_server {tags {"pubsub network"}} {
 
         # Get all the subscribers for pub/sub shard channel.
         set subscribers [r pubsub subscribers shard-channel]
-        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel {{name {} id * addr 127.0.0.1*}}} $subscribers
 
-        # Explicit filter by pattern.
+        # Filter by glob match.
         set subscribers [r pubsub subscribers shard-channel match somechannel]
-        assert_match {somechannel {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel {{name {} id * addr 127.0.0.1*}}} $subscribers
     }
     
     test "subscribers subcommand - Pub/Sub pattern subscription" {
@@ -552,10 +572,10 @@ start_server {tags {"pubsub network"}} {
 
         # Get all the subscribers via pattern for pub/sub channel.
         set subscribers [r pubsub subscribers pattern]
-        assert_match {somechannel? {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel? {{name {} id * addr 127.0.0.1*}}} $subscribers
 
-        # Explicit filter by pattern name.
+        # Filter by glob match.
         set subscribers [r pubsub subscribers pattern match some*]
-        assert_match {somechannel? {subscribed-clients {{name {} id * addr 127.0.0.1*}}}} $subscribers
+        assert_match {somechannel? {{name {} id * addr 127.0.0.1*}}} $subscribers
     }
 }
