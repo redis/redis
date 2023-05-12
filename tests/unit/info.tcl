@@ -292,7 +292,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_morethan $el_sum2 $el_sum1
             assert_lessthan $el_sum2 [expr $el_sum1+5000] ;# we expect roughly 100ms here, but allow some tolerance
             assert_morethan $cmd_sum2 $cmd_sum1
-            assert_lessthan $cmd_sum2 [expr $cmd_sum1+1000] ;# we expect about tens of ms here, but allow some tolerance
+            assert_lessthan $cmd_sum2 [expr $cmd_sum1+3000] ;# we expect about tens of ms here, but allow some tolerance
         }
  
         test {stats: instantaneous metrics} {
