@@ -3900,7 +3900,7 @@ static void moduleUnsubscribeAllChannels(RedisModule *module, RedisModulePubSubM
  * @param channel 
  * @param message 
  */
-void moduleSendMessageSubscriber(robj *channel, robj *message, bool sharded) {
+void moduleSendMessageSubscriber(robj *channel, robj *message, int sharded) {
     RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(sharded);
 
     /* Return if there are no subscribers. */

@@ -2473,7 +2473,7 @@ int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void firePostExecutionUnitJobs(void);
-void moduleSendMessageSubscriber(robj *channel, robj *message, bool sharded);
+void moduleSendMessageSubscriber(robj *channel, robj *message, int sharded);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
