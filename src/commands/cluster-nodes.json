@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the total number of Cluster nodes",
         "group": "cluster",
         "since": "3.0.0",
-        "arity": 2,
+        "arity": -2,
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
@@ -12,6 +12,14 @@
         ],
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "verbose",
+                "type": "string",
+                "optional": true,
+                "since": "4.0.0"
+            }
         ],
         "reply_schema": {
             "description": "the serialized cluster configuration",
