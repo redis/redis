@@ -3176,7 +3176,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
     sds *strings = sdssplitlen(s,sdslen(s),"|",1,&argc);
     if (strings == NULL)
         return NULL;
-    if (argc > 2) {
+    if (argc < 1 || argc > 2) {
         /* Currently we support just one level of subcommands */
         sdsfreesplitres(strings,argc);
         return NULL;
