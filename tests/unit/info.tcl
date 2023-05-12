@@ -287,9 +287,12 @@ start_server {tags {"info" "external:skip"}} {
             set cycle2 [getInfoProperty $info2 eventloop_cycles]
             set el_sum2 [getInfoProperty $info2 eventloop_duration_sum]
             set cmd_sum2 [getInfoProperty $info2 eventloop_duration_cmd_sum]
-            assert_morethan $cycle2 $cycle1   
+            assert_morethan $cycle2 $cycle1
+            assert_lessthan $cycle2 [expr $cycle1+10] ;# we expect 2 or 3 cycles here, but allow some tolerence
             assert_morethan $el_sum2 $el_sum1
+            assert_lessthan $el_sum2 [expr $el_sum1+1000] ;# we expect roughly 100ms here, but allow some tolerence
             assert_morethan $cmd_sum2 $cmd_sum1
+            assert_lessthan $cmd_sum2 [expr $cmd_sum1+300] ;# we expect about tens of ms here, but allow some tolerence
         }
  
         test {stats: instantaneous metrics} {
