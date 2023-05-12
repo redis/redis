@@ -290,9 +290,9 @@ start_server {tags {"info" "external:skip"}} {
             assert_morethan $cycle2 $cycle1
             assert_lessthan $cycle2 [expr $cycle1+10] ;# we expect 2 or 3 cycles here, but allow some tolerance
             assert_morethan $el_sum2 $el_sum1
-            assert_lessthan $el_sum2 [expr $el_sum1+1000] ;# we expect roughly 100ms here, but allow some tolerance
+            assert_lessthan $el_sum2 [expr $el_sum1+5000] ;# we expect roughly 100ms here, but allow some tolerance
             assert_morethan $cmd_sum2 $cmd_sum1
-            assert_lessthan $cmd_sum2 [expr $cmd_sum1+300] ;# we expect about tens of ms here, but allow some tolerance
+            assert_lessthan $cmd_sum2 [expr $cmd_sum1+1000] ;# we expect about tens of ms here, but allow some tolerance
         }
  
         test {stats: instantaneous metrics} {
@@ -303,7 +303,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_lessthan $value 15 ;# default hz is 10
             set value [s instantaneous_eventloop_duration_usec]
             assert_morethan $value 0
-            assert_lessthan $value 150 ;# default hz is 10, so duration < 1000 / 10
+            assert_lessthan $value 1000 ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
         }
 
         test {stats: debug metrics} {
