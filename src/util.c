@@ -50,9 +50,11 @@
 #include "sha256.h"
 #include "config.h"
 
+#define UNUSED(x) ((void)(x))
+
 /* Glob-style pattern matching. */
-int stringmatchlen(const char *pattern, int patternLen,
-        const char *string, int stringLen, int nocase)
+static int stringmatchlen_impl(const char *pattern, int patternLen,
+        const char *string, int stringLen, int nocase, int *skipLongerMatches)
 {
     while(patternLen && stringLen) {
         switch(pattern[0]) {
@@ -64,12 +66,25 @@ int stringmatchlen(const char *pattern, int patternLen,
             if (patternLen == 1)
                 return 1; /* match */
             while(stringLen) {
-                if (stringmatchlen(pattern+1, patternLen-1,
-                            string, stringLen, nocase))
+                if (stringmatchlen_impl(pattern+1, patternLen-1,
+                            string, stringLen, nocase, skipLongerMatches))
                     return 1; /* match */
+                if (*skipLongerMatches)
+                    return 0; /* no match */
                 string++;
                 stringLen--;
             }
+            /* There was no match for the rest of the pattern starting
+             * from anywhere in the rest of the string. If there were
+             * any '*' earlier in the pattern, we can terminate the
+             * search early without trying to match them to longer
+             * substrings. This is because a longer match for the
+             * earlier part of the pattern would require the rest of the
+             * pattern to match starting later in the string, and we
+             * have just determined that there is no match for the rest
+             * of the pattern starting from anywhere in the current
+             * string. */
+            *skipLongerMatches = 1;
             return 0; /* no match */
             break;
         case '?':
@@ -169,6 +184,12 @@ int stringmatchlen(const char *pattern, int patternLen,
     if (patternLen == 0 && stringLen == 0)
         return 1;
     return 0;
+}
+
+int stringmatchlen(const char *pattern, int patternLen,
+        const char *string, int stringLen, int nocase) {
+    int skipLongerMatches = 0;
+    return stringmatchlen_impl(pattern,patternLen,string,stringLen,nocase,&skipLongerMatches);
 }
 
 int stringmatch(const char *pattern, const char *string, int nocase) {
@@ -601,8 +622,13 @@ int double2ll(double d, long long *out) {
  * into a listpack representing a sorted set. */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
+        /* Libc in some systems will format nan in a different way,
+         * like nan, -nan, NAN, nan(char-sequence).
+         * So we normalize it and create a single nan form in an explicit way. */
         len = snprintf(buf,len,"nan");
     } else if (isinf(value)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
         if (value < 0)
             len = snprintf(buf,len,"-inf");
         else
@@ -1108,8 +1134,24 @@ int fsyncFileDir(const char *filename) {
     return 0;
 }
 
+ /* free OS pages backed by file */
+int reclaimFilePageCache(int fd, size_t offset, size_t length) {
+#ifdef HAVE_FADVISE
+    int ret = posix_fadvise(fd, offset, length, POSIX_FADV_DONTNEED);
+    if (ret) return -1;
+    return 0;
+#else
+    UNUSED(fd);
+    UNUSED(offset);
+    UNUSED(length);
+    return 0;
+#endif
+}
+
 #ifdef REDIS_TEST
 #include <assert.h>
+#include <sys/mman.h>
+#include "testhelp.h"
 
 static void test_string2ll(void) {
     char buf[32];
@@ -1328,7 +1370,44 @@ static void test_fixedpoint_d2string(void) {
     assert(sz == 0);
 }
 
-#define UNUSED(x) (void)(x)
+#if defined(__linux__)
+/* Since fadvise and mincore is only supported in specific platforms like
+ * Linux, we only verify the fadvise mechanism works in Linux */
+static int cache_exist(int fd) {
+    unsigned char flag;
+    void *m = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd, 0);
+    assert(m);
+    assert(mincore(m, 4096, &flag) == 0);
+    munmap(m, 4096);
+    /* the least significant bit of the byte will be set if the corresponding
+     * page is currently resident in memory */
+    return flag&1;
+}
+
+static void test_reclaimFilePageCache(void) {
+    char *tmpfile = "/tmp/redis-reclaim-cache-test";
+    int fd = open(tmpfile, O_RDWR|O_CREAT, 0644);
+    assert(fd >= 0);
+
+    /* test write file */
+    char buf[4] = "foo";
+    assert(write(fd, buf, sizeof(buf)) > 0);
+    assert(cache_exist(fd));
+    assert(redis_fsync(fd) == 0);
+    assert(reclaimFilePageCache(fd, 0, 0) == 0);
+    assert(!cache_exist(fd));
+
+    /* test read file */
+    assert(pread(fd, buf, sizeof(buf), 0) > 0);
+    assert(cache_exist(fd));
+    assert(reclaimFilePageCache(fd, 0, 0) == 0);
+    assert(!cache_exist(fd));
+
+    unlink(tmpfile);
+    printf("reclaimFilePageCach test is ok\n");
+}
+#endif
+
 int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -1339,6 +1418,12 @@ int utilTest(int argc, char **argv, int flags) {
     test_ll2string();
     test_ld2string();
     test_fixedpoint_d2string();
+#if defined(__linux__)
+    if (!(flags & REDIS_TEST_VALGRIND)) {
+        test_reclaimFilePageCache();
+    }
+#endif
+    printf("Done testing util\n");
     return 0;
 }
 #endif

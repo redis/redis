@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/misc.so]
 
-start_server {tags {"modules"}} {
+start_server {overrides {save {900 1}} tags {"modules"}} {
     r module load $testmodule
 
     test {test RM_Call} {
@@ -116,6 +116,36 @@ start_server {tags {"modules"}} {
         r client tracking on
         set info [r test.clientinfo]
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
+        r CLIENT TRACKING off
+    }
+
+    test {tracking with rm_call sanity} {
+        set rd_trk [redis_client]
+        $rd_trk HELLO 3
+        $rd_trk CLIENT TRACKING on
+        r MSET key1{t} 1 key2{t} 1
+
+        # GET triggers tracking, SET does not
+        $rd_trk test.rm_call GET key1{t}
+        $rd_trk test.rm_call SET key2{t} 2
+        r MSET key1{t} 2 key2{t} 2
+        assert_equal {invalidate key1{t}} [$rd_trk read]
+        assert_equal "PONG" [$rd_trk ping]
+        $rd_trk close
+    }
+
+    test {tracking with rm_call with script} {
+        set rd_trk [redis_client]
+        $rd_trk HELLO 3
+        $rd_trk CLIENT TRACKING on
+        r MSET key1{t} 1 key2{t} 1
+
+        # GET triggers tracking, SET does not
+        $rd_trk test.rm_call EVAL "redis.call('get', 'key1{t}')" 2 key1{t} key2{t}
+        r MSET key1{t} 2 key2{t} 2
+        assert_equal {invalidate key1{t}} [$rd_trk read]
+        assert_equal "PONG" [$rd_trk ping]
+        $rd_trk close
     }
 
     test {test module get/set client name by id api} {
@@ -484,6 +514,27 @@ start_server {tags {"modules"}} {
         r acl setuser default +@all ~*
         assert_equal [r get x] $x
     }
+
+    test {test silent open key} {
+        r debug set-active-expire 0
+        r test.clear_n_events
+        r set x 1 PX 10
+        after 1000
+        # now the key has been expired, open it silently and make sure not event were fired.
+        assert_error {key not found} {r test.silent_open_key x}
+        assert_equal {0} [r test.get_n_events]
+    }
+
+if {[string match {*jemalloc*} [s mem_allocator]]} {
+    test {test RM_Call with large arg for SET command} {
+        # set a big value to trigger increasing the query buf
+        r set foo [string repeat A 100000]
+        # set a smaller value but > PROTO_MBULK_BIG_ARG (32*1024) Redis will try to save the query buf itself on the DB.
+        r test.call_generic set bar [string repeat A 33000]
+        # asset the value was trimmed
+        assert {[r memory usage bar] < 42000}; # 42K to count for Jemalloc's additional memory overhead.
+    }
+} ;# if jemalloc
 
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]

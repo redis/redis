@@ -36,7 +36,7 @@ proc wait_for_cluster_propagation {} {
 
 # Wait for cluster size to be consistent across nodes.
 proc wait_for_cluster_size {cluster_size} {
-    wait_for_condition 50 100 {
+    wait_for_condition 1000 50 {
         [cluster_size_consistent $cluster_size] eq 1
     } else {
         fail "cluster size did not reach a consistent size $cluster_size"

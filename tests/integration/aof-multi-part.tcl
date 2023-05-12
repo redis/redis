@@ -755,7 +755,7 @@ tags {"external:skip"} {
     # writing pressure, etc.
 
 
-    start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendonly {no}}} {
+    start_server {tags {"Multi Part AOF"} overrides {aof-use-rdb-preamble {yes} appendonly {no} save {}}} {
         set dir [get_redis_dir]
         set aof_basename "appendonly.aof"
         set aof_dirname "appendonlydir"
@@ -1173,7 +1173,7 @@ tags {"external:skip"} {
             assert {$d1 eq $d2}
         }
 
-        start_server {overrides {aof-use-rdb-preamble {yes} appendonly {no}}} {
+        start_server {overrides {aof-use-rdb-preamble {yes} appendonly {no} save {}}} {
             set dir [get_redis_dir]
             set aof_basename "appendonly.aof"
             set aof_dirname "appendonlydir"

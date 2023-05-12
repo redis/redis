@@ -53,6 +53,8 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
 
+long long ACLLogEntryCount = 0; /* Number of ACL log entries created */
+
 static rax *commandId = NULL; /* Command name to id mapping */
 
 static unsigned long nextid = 0; /* Next command id that has not been assigned */
@@ -627,7 +629,6 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & CMD_MODULE) continue; /* Ignore modules commands. */
         if (cmd->acl_categories & cflag) {
             ACLChangeSelectorPerm(selector,cmd,value);
         }
@@ -636,6 +637,44 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
         }
     }
     dictReleaseIterator(di);
+}
+
+/* This function is responsible for recomputing the command bits for all selectors of the existing users.
+ * It uses the 'command_rules', a string representation of the ordered categories and commands, 
+ * to recompute the command bits. */
+void ACLRecomputeCommandBitsFromCommandRulesAllUsers(void) {
+    raxIterator ri;
+    raxStart(&ri,Users);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *u = ri.data;
+        listIter li;
+        listNode *ln;
+        listRewind(u->selectors,&li);
+        while((ln = listNext(&li))) {
+            aclSelector *selector = (aclSelector *) listNodeValue(ln);
+            int argc = 0;
+            sds *argv = sdssplitargs(selector->command_rules, &argc);
+            serverAssert(argv != NULL);
+            /* Checking selector's permissions for all commands to start with a clean state. */
+            if (ACLSelectorCanExecuteFutureCommands(selector)) {
+                int res = ACLSetSelector(selector,"+@all",-1);
+                serverAssert(res == C_OK);
+            } else {
+                int res = ACLSetSelector(selector,"-@all",-1);
+                serverAssert(res == C_OK);
+            }
+
+            /* Apply all of the commands and categories to this selector. */
+            for(int i = 0; i < argc; i++) {
+                int res = ACLSetSelector(selector, argv[i], sdslen(argv[i]));
+                serverAssert(res == C_OK);
+            }
+            sdsfreesplitres(argv, argc);
+        }
+    }
+    raxStop(&ri);
+
 }
 
 int ACLSetSelectorCategory(aclSelector *selector, const char *category, int allow) {
@@ -1404,22 +1443,48 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     return C_ERR;
 }
 
+/* If `err` is provided, this is added as an error reply to the client.
+ * Otherwise, the standard Auth error is added as a reply. */
+void addAuthErrReply(client *c, robj *err) {
+    if (clientHasPendingReplies(c)) return;
+    if (!err) {
+        addReplyError(c, "-WRONGPASS invalid username-password pair or user is disabled.");
+        return;
+    }
+    addReplyError(c, err->ptr);
+}
+
 /* This is like ACLCheckUserCredentials(), however if the user/pass
  * are correct, the connection is put in authenticated state and the
  * connection user reference is populated.
  *
- * The return value is C_OK or C_ERR with the same meaning as
- * ACLCheckUserCredentials(). */
-int ACLAuthenticateUser(client *c, robj *username, robj *password) {
+ * The return value is AUTH_OK on success (valid username / password pair) & AUTH_ERR otherwise. */
+int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
         c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
         moduleNotifyUserChanged(c);
-        return C_OK;
+        return AUTH_OK;
     } else {
         addACLLogEntry(c,ACL_DENIED_AUTH,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,0,username->ptr,NULL);
-        return C_ERR;
+        return AUTH_ERR;
     }
+}
+
+/* Attempt authenticating the user - first through module based authentication,
+ * and then, if needed, with normal password based authentication.
+ * Returns one of the following codes:
+ * AUTH_OK - Indicates that authentication succeeded.
+ * AUTH_ERR - Indicates that authentication failed.
+ * AUTH_BLOCKED - Indicates module authentication is in progress through a blocking implementation.
+ */
+int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err) {
+    int result = checkModuleAuthentication(c, username, password, err);
+    /* If authentication was not handled by any Module, attempt normal password based auth. */
+    if (result == AUTH_NOT_HANDLED) {
+        result = checkPasswordBasedAuth(c, username, password);
+    }
+    return result;
 }
 
 /* For ACL purposes, every user has a bitmap with the commands that such
@@ -1826,6 +1891,13 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     listRewind(original->selectors,&li);
     while((ln = listNext(&li)) && match) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
+        /* If any of the original selectors has the all-channels permission, but
+         * the new ones don't (this is checked earlier in this function), then the
+         * new list is not a strict superset of the original.  */
+        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) {
+            match = 0;
+            break;
+        }
         listRewind(s->channels, &lpi);
         while((lpn = listNext(&lpi)) && match) {
             if (!listSearchKey(upcoming, listNodeValue(lpn))) {
@@ -2433,6 +2505,9 @@ typedef struct ACLLogEntry {
     sds username;       /* User the client is authenticated with. */
     mstime_t ctime;     /* Milliseconds time of last update to this entry. */
     sds cinfo;          /* Client info (last client if updated). */
+    long long entry_id;         /* The pair (entry_id, timestamp_created) is a unique identifier of this entry 
+                                  * in case the node dies and is restarted, it can detect that if it's a new series. */
+    mstime_t timestamp_created; /* UNIX time in milliseconds at the time of this entry's creation. */
 } ACLLogEntry;
 
 /* This function will check if ACL entries 'a' and 'b' are similar enough
@@ -2498,6 +2573,8 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     le->reason = reason;
     le->username = sdsdup(username ? username : c->user->name);
     le->ctime = commandTimeSnapshot();
+    le->entry_id = ACLLogEntryCount;
+    le->timestamp_created = le->ctime;
 
     if (object) {
         le->object = object;
@@ -2511,8 +2588,8 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
         }
     }
 
-    client *realclient = c;
-    if (realclient->flags & CLIENT_SCRIPT) realclient = server.script_caller;
+    /* if we have a real client from the network, use it (could be missing on module timers) */
+    client *realclient = server.current_client? server.current_client : c;
 
     le->cinfo = catClientInfoString(sdsempty(),realclient);
     le->context = context;
@@ -2550,6 +2627,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
     } else {
         /* Add it to our list of entries. We'll have to trim the list
          * to its maximum size. */
+        ACLLogEntryCount++; /* Incrementing the entry_id count to make each record in the log unique. */
         listAddNodeHead(ACLLog, le);
         while(listLength(ACLLog) > server.acllog_max_len) {
             listNode *ln = listLast(ACLLog);
@@ -2884,7 +2962,7 @@ void aclCommand(client *c) {
         mstime_t now = commandTimeSnapshot();
         while (count-- && (ln = listNext(&li)) != NULL) {
             ACLLogEntry *le = listNodeValue(ln);
-            addReplyMapLen(c,7);
+            addReplyMapLen(c,10);
             addReplyBulkCString(c,"count");
             addReplyLongLong(c,le->count);
 
@@ -2919,6 +2997,12 @@ void aclCommand(client *c) {
             addReplyDouble(c,age);
             addReplyBulkCString(c,"client-info");
             addReplyBulkCBuffer(c,le->cinfo,sdslen(le->cinfo));
+            addReplyBulkCString(c, "entry-id");
+            addReplyLongLong(c, le->entry_id);
+            addReplyBulkCString(c, "timestamp-created");
+            addReplyLongLong(c, le->timestamp_created);
+            addReplyBulkCString(c, "timestamp-last-updated");
+            addReplyLongLong(c, le->ctime);
         }
     } else if (!strcasecmp(sub,"dryrun") && c->argc >= 4) {
         struct redisCommand *cmd;
@@ -3032,11 +3116,14 @@ void authCommand(client *c) {
         redactClientCommandArgument(c, 2);
     }
 
-    if (ACLAuthenticateUser(c,username,password) == C_OK) {
-        addReply(c,shared.ok);
-    } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair or user is disabled.");
+    robj *err = NULL;
+    int result = ACLAuthenticateUser(c, username, password, &err);
+    if (result == AUTH_OK) {
+        addReply(c, shared.ok);
+    } else if (result == AUTH_ERR) {
+        addAuthErrReply(c, err);
     }
+    if (err) decrRefCount(err);
 }
 
 /* Set the password for the "default" ACL user. This implements supports for

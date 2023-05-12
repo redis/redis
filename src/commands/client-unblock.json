@@ -1,6 +1,6 @@
 {
     "UNBLOCK": {
-        "summary": "Unblock a client blocked in a blocking command from a different connection",
+        "summary": "Unblocks a client blocked by a blocking command from a different connection.",
         "complexity": "O(log N) where N is the number of client connections",
         "group": "connection",
         "since": "5.0.0",
@@ -17,6 +17,18 @@
         "acl_categories": [
             "CONNECTION"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": 0,
+                    "description": "if the client was unblocked successfully"
+                },
+                {
+                    "const": 1,
+                    "description": "if the client wasn't unblocked"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "client-id",

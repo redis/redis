@@ -1,6 +1,6 @@
 {
     "EVALSHA_RO": {
-        "summary": "Execute a read-only Lua script server side",
+        "summary": "Executes a read-only server-side Lua script by SHA1 digest.",
         "complexity": "Depends on the script that is executed.",
         "group": "scripting",
         "since": "7.0.0",
@@ -59,6 +59,9 @@
                 "optional":true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "Return value depends on the script that is executed"
+        }
     }
 }

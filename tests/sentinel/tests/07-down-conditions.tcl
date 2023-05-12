@@ -49,9 +49,9 @@ test "SDOWN is triggered by non-responding but not crashed instance" {
     set master_id [get_instance_id_by_port redis [lindex $master_addr 1]]
 
     set pid [get_instance_attrib redis $master_id pid]
-    exec kill -SIGSTOP $pid
+    pause_process $pid
     ensure_master_down
-    exec kill -SIGCONT $pid
+    resume_process $pid
     ensure_master_up
 }
 
@@ -72,6 +72,7 @@ test "SDOWN is triggered by masters advertising as slaves" {
     ensure_master_up
 }
 
+if {!$::log_req_res} { # this test changes 'dir' config to '/' and logreqres.c cannot open protocol dump file under the root directory.
 test "SDOWN is triggered by misconfigured instance replying with errors" {
     ensure_master_up
     set orig_dir [lindex [R 0 config get dir] 1]
@@ -89,6 +90,7 @@ test "SDOWN is triggered by misconfigured instance replying with errors" {
     R 0 config set dbfilename dump.rdb
     R 0 bgsave
     ensure_master_up
+}
 }
 
 # We use this test setup to also test command renaming, as a side

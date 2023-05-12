@@ -35,7 +35,7 @@
  * callback represents a different reply type. Each callback gets a p_ctx that
  * was given to the parseReply function. The callbacks also give the protocol
  * (underlying blob) of the current reply and the size.
- *
+ *
  * Some callbacks also get the parser object itself:
  * - array_callback
  * - set_callback

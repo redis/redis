@@ -31,6 +31,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "connection.h"
+#include "bio.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -702,7 +703,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
 
     /* Append content from stdin */
     if (config_from_stdin) {
-        serverLog(LL_WARNING,"Reading config from stdin");
+        serverLog(LL_NOTICE,"Reading config from stdin");
         fp = stdin;
         while(fgets(buf,CONFIG_READ_LEN+1,fp) != NULL)
             config = sdscat(config,buf);
@@ -1064,7 +1065,7 @@ void rewriteConfigReleaseState(struct rewriteConfigState *state) {
 }
 
 /* Create the configuration rewrite state */
-struct rewriteConfigState *rewriteConfigCreateState() {
+struct rewriteConfigState *rewriteConfigCreateState(void) {
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
     state->option_to_line = dictCreate(&optionToLineDictType);
     state->rewritten = dictCreate(&optionSetDictType);
@@ -1220,7 +1221,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
  *
  * "line" is either used, or freed, so the caller does not need to free it
  * in any way. */
-void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
+int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
     sds o = sdsnew(option);
     list *l = dictFetchValue(state->option_to_line,o);
 
@@ -1230,7 +1231,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         /* Option not used previously, and we are not forced to use it. */
         sdsfree(line);
         sdsfree(o);
-        return;
+        return 0;
     }
 
     if (l) {
@@ -1253,6 +1254,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         rewriteConfigAppendLine(state,line);
     }
     sdsfree(o);
+    return 1;
 }
 
 /* Write the long long 'bytes' value as a string in a way that is parsable
@@ -1641,7 +1643,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
 /* This function returns a string representation of all the config options
  * marked with DEBUG_CONFIG, which can be used to help with debugging. */
-sds getConfigDebugInfo() {
+sds getConfigDebugInfo(void) {
     struct rewriteConfigState *state = rewriteConfigCreateState();
     state->force_write = 1; /* Force the output */
     state->needs_signature = 0; /* Omit the rewrite signature */
@@ -2558,6 +2560,17 @@ int updateRequirePass(const char **err) {
     return 1;
 }
 
+int updateAppendFsync(const char **err) {
+    UNUSED(err);
+    if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
+        /* Wait for all bio jobs related to AOF to drain before proceeding. This prevents a race
+         * between updates to `fsynced_reploff_pending` done in the main thread and those done on the
+         * worker thread. */
+        bioDrainWorker(BIO_AOF_FSYNC);
+    }
+    return 1;
+}
+
 /* applyBind affects both TCP and TLS (if enabled) together */
 static int applyBind(const char **err) {
     connListener *tcp_listener = listenerByType(CONN_TYPE_SOCKET);
@@ -3083,6 +3096,9 @@ standardConfig static_configs[] = {
     createStringConfig("proc-title-template", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.proc_title_template, CONFIG_DEFAULT_PROC_TITLE_TEMPLATE, isValidProcTitleTemplate, updateProcTitleTemplate),
     createStringConfig("bind-source-addr", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.bind_source_addr, NULL, NULL, NULL),
     createStringConfig("logfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.logfile, "", NULL, NULL),
+#ifdef LOG_REQ_RES
+    createStringConfig("req-res-logfile", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, EMPTY_STRING_IS_NULL, server.req_res_logfile, NULL, NULL, NULL),
+#endif
     createStringConfig("locale-collate", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.locale_collate, "", NULL, updateLocaleCollate),
 
     /* SDS Configs */
@@ -3095,7 +3111,7 @@ standardConfig static_configs[] = {
     createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
     createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
-    createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, NULL),
+    createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, updateAppendFsync),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, 0, NULL, NULL),
     createEnumConfig("sanitize-dump-payload", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, sanitize_dump_payload_enum, server.sanitize_dump_payload, SANITIZE_DUMP_NO, NULL, NULL),
@@ -3150,6 +3166,9 @@ standardConfig static_configs[] = {
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
     createUIntConfig("unixsocketperm", NULL, IMMUTABLE_CONFIG, 0, 0777, server.unixsocketperm, 0, OCTAL_CONFIG, NULL, NULL),
     createUIntConfig("socket-mark-id", NULL, IMMUTABLE_CONFIG, 0, UINT_MAX, server.socket_mark_id, 0, INTEGER_CONFIG, NULL, NULL),
+#ifdef LOG_REQ_RES
+    createUIntConfig("client-default-resp", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, 2, 3, server.client_default_resp, 2, INTEGER_CONFIG, NULL, NULL),
+#endif
 
     /* Unsigned Long configs */
     createULongConfig("active-defrag-max-scan-fields", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.active_defrag_max_scan_fields, 1000, INTEGER_CONFIG, NULL, NULL), /* Default: keys with more than 1000 fields will be processed separately */
@@ -3241,7 +3260,7 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
 
 /* Initialize configs to their default values and create and populate the 
  * runtime configuration dictionary. */
-void initConfigValues() {
+void initConfigValues(void) {
     configs = dictCreate(&sdsHashDictType);
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
@@ -3366,7 +3385,7 @@ void configRewriteCommand(client *c) {
         serverLog(LL_WARNING,"CONFIG REWRITE failed: %s", strerror(err));
         addReplyErrorFormat(c,"Rewriting config file: %s", strerror(err));
     } else {
-        serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
+        serverLog(LL_NOTICE,"CONFIG REWRITE executed with success.");
         addReply(c,shared.ok);
     }
 }

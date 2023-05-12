@@ -1,6 +1,6 @@
 {
     "BRPOP": {
-        "summary": "Remove and get the last element in a list, or block until one is available",
+        "summary": "Removes and returns the last element in a list. Blocks until an element is available otherwise. Deletes the list if the last element was popped.",
         "complexity": "O(N) where N is the number of provided keys.",
         "group": "list",
         "since": "2.0.0",
@@ -14,7 +14,6 @@
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT",
             "BLOCKING"
         ],
         "acl_categories": [
@@ -52,6 +51,29 @@
                 "name": "timeout",
                 "type": "double"
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "No element could be popped and the timeout expired.",
+                    "type": "null"
+                },
+                {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "The name of the key where an element was popped ",
+                            "type": "string"
+                        },
+                        {
+                            "description": "The value of the popped element",
+                            "type": "string"
+                        }
+                    ]
+                }
+            ]
+        }
     }
 }

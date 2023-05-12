@@ -1,6 +1,6 @@
 {
     "LASTSAVE": {
-        "summary": "Get the UNIX time stamp of the last successful save to disk",
+        "summary": "Returns the Unix timestamp of the last successful save to disk.",
         "complexity": "O(1)",
         "group": "server",
         "since": "1.0.0",
@@ -17,6 +17,10 @@
         "acl_categories": [
             "ADMIN",
             "DANGEROUS"
-        ]
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "UNIX TIME of the last DB save executed with success."
+        }
     }
 }

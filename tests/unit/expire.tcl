@@ -571,6 +571,23 @@ start_server {tags {"expire"}} {
                 assert_equal [$primary pexpiretime $key] [$replica pexpiretime $key]
             }
         }
+
+        test {expired key which is created in writeable replicas should be deleted by active expiry} {
+            $primary flushall
+            $replica config set replica-read-only no
+            foreach {yes_or_no} {yes no} {
+                $replica config set appendonly $yes_or_no
+                waitForBgrewriteaof $replica
+                set prev_expired [s expired_keys]
+                $replica set foo bar PX 1
+                wait_for_condition 100 10 {
+                    [s expired_keys] eq $prev_expired + 1
+                } else {
+                    fail "key not expired"
+                }
+                assert_equal {} [$replica get foo]
+            }
+        }
     }
 
     test {SET command will remove expire} {
@@ -603,14 +620,17 @@ start_server {tags {"expire"}} {
     } {-1}
 
     test {GETEX use of PERSIST option should remove TTL after loadaof} {
+       r config set appendonly yes
        r set foo bar EX 100
        r getex foo PERSIST
-       after 2000
        r debug loadaof
        r ttl foo
     } {-1} {needs:debug}
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
+        # In the above tests, many keys with random expiration times are set, flush
+        # the DBs to avoid active expiry kicking in and messing the replication streams.
+        r flushall
        set repl [attach_to_replication_stream]
        r set foo bar EX 100
        r getex foo PERSIST
@@ -764,6 +784,48 @@ start_server {tags {"expire"}} {
             {select *}
             {del foo}
             {set x 1}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {SCAN: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r scan 0
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r randomkey
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
         }
         close_replication_stream $repl
         assert_equal [r debug set-active-expire 1] {OK}

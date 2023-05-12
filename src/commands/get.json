@@ -1,6 +1,6 @@
 {
     "GET": {
-        "summary": "Get the value of a key",
+        "summary": "Returns the string value of a key.",
         "complexity": "O(1)",
         "group": "string",
         "since": "1.0.0",
@@ -33,6 +33,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The value of the key.",
+                    "type": "string"
+                },
+                {
+                    "description": "Key does not exist.",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

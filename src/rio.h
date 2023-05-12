@@ -81,6 +81,7 @@ struct _rio {
             FILE *fp;
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
+            unsigned reclaim_cache:1; /* A flag to indicate reclaim cache after fsync */
         } file;
         /* Connection object (used to read from socket) */
         struct {
@@ -179,5 +180,6 @@ int rioWriteBulkObject(rio *r, struct redisObject *obj);
 
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
 void rioSetAutoSync(rio *r, off_t bytes);
+void rioSetReclaimCache(rio *r, int enabled); 
 uint8_t rioCheckType(rio *r);
 #endif

@@ -87,6 +87,7 @@ int dirRemove(char *dname);
 int fileExist(char *filename);
 sds makePath(char *path, char *filename);
 int fsyncFileDir(const char *filename);
+int reclaimFilePageCache(int fd, size_t offset, size_t length);
 
 size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
 size_t redis_strlcat(char *dst, const char *src, size_t dsize);

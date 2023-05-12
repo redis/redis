@@ -1,6 +1,6 @@
 {
     "BLMOVE": {
-        "summary": "Pop an element from a list, push it to another list and return it; or block until one is available",
+        "summary": "Pops an element from a list, pushes it to another list and returns it. Blocks until an element is available otherwise. Deletes the list if the last element was moved.",
         "complexity": "O(1)",
         "group": "list",
         "since": "6.2.0",
@@ -9,7 +9,6 @@
         "command_flags": [
             "WRITE",
             "DENYOOM",
-            "NOSCRIPT",
             "BLOCKING"
         ],
         "acl_categories": [
@@ -54,6 +53,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The popped element.",
+                    "type": "string"
+                },
+                {
+                    "description": "Operation timed-out",
+                    "type": "null"
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "source",
