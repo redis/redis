@@ -11,7 +11,7 @@ set ::cluster_replica_nodes 0
 # Returns a parsed CLUSTER NODES output as a list of dictionaries. Optional status field
 # can be specified to only returns entries that match the provided status.
 proc get_cluster_nodes {id {status "*"}} {
-    set lines [split [R $id cluster nodes] "\r\n"]
+    set lines [split [R $id cluster nodes verbose] "\r\n"]
     set nodes {}
     foreach l $lines {
         set l [string trim $l]

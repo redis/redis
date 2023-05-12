@@ -601,7 +601,7 @@ int clusterSaveConfig(int do_fsync) {
 
     /* Get the nodes description and concatenate our "vars" directive to
      * save currentEpoch and lastVoteEpoch. */
-    ci = clusterGenNodesDescription(CLUSTER_NODE_HANDSHAKE, 0);
+    ci = clusterGenNodesDescription(CLUSTER_NODE_HANDSHAKE, 0, 1);
     ci = sdscatprintf(ci,"vars currentEpoch %llu lastVoteEpoch %llu\n",
         (unsigned long long) server.cluster->currentEpoch,
         (unsigned long long) server.cluster->lastVoteEpoch);
@@ -5000,7 +5000,7 @@ sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_cou
  * See clusterGenNodesDescription() top comment for more information.
  *
  * The function returns the string representation as an SDS string. */
-sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
+sds clusterGenNodeDescription(clusterNode *node, int use_pport, int include_aux_fields) {
     int j, start;
     sds ci;
     int port = use_pport && node->pport ? node->pport : node->port;
@@ -5022,10 +5022,12 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport) {
     }
 
     /* Node's aux fields */
-    for (int i = af_start; i < af_count; i++) {
-        if (auxFieldHandlers[i].isPresent(node)) {
-            ci = sdscatprintf(ci, ",%s=", auxFieldHandlers[i].field);
-            ci = auxFieldHandlers[i].getter(node, ci);
+    if (include_aux_fields != 0) {
+        for (int i = af_start; i < af_count; i++) {
+            if (auxFieldHandlers[i].isPresent(node)) {
+                ci = sdscatprintf(ci, ",%s=", auxFieldHandlers[i].field);
+                ci = auxFieldHandlers[i].getter(node, ci);
+            }
         }
     }
 
@@ -5150,7 +5152,7 @@ void clusterFreeNodesSlotsInfo(clusterNode *n) {
  * The representation obtained using this function is used for the output
  * of the CLUSTER NODES function, and as format for the cluster
  * configuration file (nodes.conf) for a given node. */
-sds clusterGenNodesDescription(int filter, int use_pport) {
+sds clusterGenNodesDescription(int filter, int use_pport, int include_aux_fields) {
     sds ci = sdsempty(), ni;
     dictIterator *di;
     dictEntry *de;
@@ -5163,7 +5165,7 @@ sds clusterGenNodesDescription(int filter, int use_pport) {
         clusterNode *node = dictGetVal(de);
 
         if (node->flags & filter) continue;
-        ni = clusterGenNodeDescription(node, use_pport);
+        ni = clusterGenNodeDescription(node, use_pport, include_aux_fields);
         ci = sdscatsds(ci,ni);
         sdsfree(ni);
         ci = sdscatlen(ci,"\n",1);
@@ -5731,13 +5733,15 @@ NULL
         } else {
             addReply(c,shared.ok);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
-        /* CLUSTER NODES */
+    } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && (c->argc == 2 || c->argc == 3))
+    {
+        /* CLUSTER NODES [VERBOSE] */
         /* Report plaintext ports, only if cluster is TLS but client is known to
          * be non-TLS). */
         int use_pport = (server.tls_cluster &&
                         c->conn && (c->conn->type != connectionTypeTls()));
-        sds nodes = clusterGenNodesDescription(0, use_pport);
+        int include_aux_fields = (c->argc == 3) && !strcasecmp(c->argv[2]->ptr, "verbose");
+        sds nodes = clusterGenNodesDescription(0, use_pport, include_aux_fields);
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -6104,7 +6108,7 @@ NULL
                          c->conn && (c->conn->type != connectionTypeTls()));
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
-            sds ni = clusterGenNodeDescription(n->slaves[j], use_pport);
+            sds ni = clusterGenNodeDescription(n->slaves[j], use_pport, 1);
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
