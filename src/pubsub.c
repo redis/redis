@@ -659,7 +659,7 @@ static void pubsubReplySubscribers(client *c, pubsubSubscribersCmdArgs args) {
         addReplyBulkCString(c, channel);
         addReplyArrayLen(c, listLength(clients));
         pubsubReplySubscribersClientInfo(c, clients);
-        subscription_cnt += listLength(clients);
+        subscription_count += listLength(clients);
         channel_count++;
     }
     dictReleaseIterator(di);
