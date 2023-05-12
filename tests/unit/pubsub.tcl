@@ -551,6 +551,9 @@ start_server {tags {"pubsub network"}} {
 
         # all channels/subscriptions (5 channels, 2 subscriptions each)
         assert {[llength [r pubsub subscribers channel]] == 10}
+
+        $rd close
+        $rd2 close
     }
 
     test "subscribers subcommand - Pub/Sub shard clients" {
@@ -564,6 +567,8 @@ start_server {tags {"pubsub network"}} {
         # Filter by glob match.
         set subscribers [r pubsub subscribers shard-channel match somechannel]
         assert_match {somechannel {{name {} id * addr 127.0.0.1*}}} $subscribers
+
+        $rd1 close
     }
     
     test "subscribers subcommand - Pub/Sub pattern subscription" {
@@ -577,5 +582,7 @@ start_server {tags {"pubsub network"}} {
         # Filter by glob match.
         set subscribers [r pubsub subscribers pattern match some*]
         assert_match {somechannel? {{name {} id * addr 127.0.0.1*}}} $subscribers
+
+        $rd1 close
     }
 }
