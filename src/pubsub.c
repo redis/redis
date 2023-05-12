@@ -731,7 +731,7 @@ void pubsubCommand(client *c) {
 "    Return the currently active shard level channels matching a <pattern> (default: '*').",
 "SHARDNUMSUB [<shardchannel> ...]",
 "    Return the number of subscribers for the specified shard level channel(s).",
-"SUBSCRIBERS TYPE GLOBAL|SHARD|PATTERN [MATCH <pattern>] [COUNT <count>]",
+"SUBSCRIBERS GLOBAL|SHARD|PATTERN [MATCH <pattern>] [COUNT <count>]",
 "    Return the list of subscribers for the specified pattern and subscription type.",
 NULL
         };
