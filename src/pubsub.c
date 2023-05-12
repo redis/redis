@@ -643,12 +643,12 @@ static void pubsubReplySubscribersClientInfo(client *c, list *clients) {
 
 static void pubsubReplySubscribers(client *c, pubsubSubscribersCmdArgs args) {
     void *dl = addReplyDeferredLen(c);
-    long long channel_cnt = 0;
-    long long subscription_cnt = 0;
+    long long channel_count = 0;
+    long long subscription_count = 0;
 
     dictIterator *di = dictGetIterator(args.subscription_dict);
     dictEntry *de;
-    while((de = dictNext(di)) != NULL && subscription_cnt < args.count) {
+    while((de = dictNext(di)) != NULL && subscription_count < args.count) {
         /* Filter the channels/subscriptions. */
         sds channel = ((robj *)dictGetKey(de))->ptr;
         if (args.pat && !stringmatchlen(args.pat, sdslen(args.pat), channel, sdslen(channel), 0)) {
@@ -659,11 +659,11 @@ static void pubsubReplySubscribers(client *c, pubsubSubscribersCmdArgs args) {
         addReplyBulkCString(c, channel);
         addReplyArrayLen(c, listLength(clients));
         pubsubReplySubscribersClientInfo(c, clients);
-        subscription_cnt+=listLength(clients);
-        channel_cnt++;
+        subscription_cnt += listLength(clients);
+        channel_count++;
     }
     dictReleaseIterator(di);
-    setDeferredMapLen(c, dl,channel_cnt);
+    setDeferredMapLen(c, dl, channel_count);
 }
 
 /* Parse the arguments for PUBSUB SUBSCRIBERS command */
