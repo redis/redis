@@ -74,4 +74,18 @@ tags "modules" {
             }
         }
     }
+
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        test {Subscribe to all channels, and verify the callback is parsing messages} {
+            r set foo bar
+            r subscribech.subscribe_to_all_channels
+            assert_equal {0} [r publish event clear]
+            assert_equal 0 [r dbsize]
+
+            r set foo bar
+            r subscribech.unsubscribe_from_all_channels
+            assert_equal {0} [r publish event clear]
+            assert_equal 1 [r dbsize]
+        }
+    }
 }

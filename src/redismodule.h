@@ -1100,6 +1100,8 @@ REDISMODULE_API int (*RedisModule_PublishMessage)(RedisModuleCtx *ctx, RedisModu
 REDISMODULE_API int (*RedisModule_PublishMessageShard)(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SubscribeToChannel)(RedisModuleCtx *ctx, RedisModuleString *channel,  RedisModuleSubscribeFunc callback, int sharded) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_UnsubscribeFromChannel)(RedisModuleCtx *ctx, RedisModuleString *channel, int sharded) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_SubscribeToAllChannels)(RedisModuleCtx *ctx, RedisModuleSubscribeFunc callback) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_UnsubscribeFromAllChannels)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlags)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_AvoidReplicaTraffic)(void) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_PoolAlloc)(RedisModuleCtx *ctx, size_t bytes) REDISMODULE_ATTR;
@@ -1557,6 +1559,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(PublishMessageShard);
     REDISMODULE_GET_API(SubscribeToChannel);
     REDISMODULE_GET_API(UnsubscribeFromChannel);
+    REDISMODULE_GET_API(SubscribeToAllChannels);
+    REDISMODULE_GET_API(UnsubscribeFromAllChannels);
     REDISMODULE_GET_API(SubscribeToServerEvent);
     REDISMODULE_GET_API(SetLRU);
     REDISMODULE_GET_API(GetLRU);

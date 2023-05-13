@@ -43,6 +43,26 @@ void ShardChannelSubscriptionCallback(RedisModuleCtx *ctx, RedisModuleString *ch
     RedisModule_FreeString(ctx, unsubscribe_msg);
 }
 
+static int subscribeToAllChannels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) {
+        return RedisModule_WrongArity(ctx);
+    }
+    RedisModule_SubscribeToAllChannels(ctx, ChannelSubscriptionCallback);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+static int unsubscribeFromAllChannels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) {
+        return RedisModule_WrongArity(ctx);
+    }
+    RedisModule_UnsubscribeFromAllChannels(ctx);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 static int subscribeToChannel(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if(argc != 3){
         return RedisModule_WrongArity(ctx);
@@ -101,6 +121,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if (RedisModule_CreateCommand(ctx, "subscribech.subscribe_to_all_channels", subscribeToAllChannels, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "subscribech.unsubscribe_from_all_channels", unsubscribeFromAllChannels, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
     return REDISMODULE_OK;
 }
 

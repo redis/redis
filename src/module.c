@@ -3736,6 +3736,10 @@ typedef void (*RedisModuleSubscribeFunc) (RedisModuleCtx *ctx, RedisModuleString
 typedef struct RedisModuleChannelSubscriber {
     /* Notification callback in the module. */
     RedisModuleSubscribeFunc subscribe_callback;
+
+    /* set to 1, if subscribed to all channel. */
+    int all_channels;
+
     /* The channel subscriptions list. */
     list *subscriptions;
 } RedisModuleChannelSubscriber;
@@ -3757,7 +3761,10 @@ static inline RedisModulePubSubMeta *getPubSubMeta(int sharded) {
 }
 
 void cleanupModuleChannelSubscriber(RedisModule *module, RedisModuleChannelSubscriber *moduleChannelSubscriber, RedisModulePubSubMeta *pubSubMeta) {
-    listRelease(moduleChannelSubscriber->subscriptions);
+    if (moduleChannelSubscriber->subscriptions) {
+        listRelease(moduleChannelSubscriber->subscriptions);
+        moduleChannelSubscriber->subscriptions = NULL;
+    }
     zfree(moduleChannelSubscriber);
     dictDelete(pubSubMeta->moduleChannelSubscribers, module);
 }
@@ -3783,6 +3790,40 @@ static void removeModuleFromChannelSubscription(RedisModule *module, robj *chann
 }
 
 /**
+ * Unsubscribe all the channel(s) this module had subscribed to.
+ *
+ */
+static void moduleUnsubscribeAllChannels(RedisModule *module, RedisModulePubSubMeta *pubSubMeta) {
+    listNode *ln;
+    listIter li;
+    if (dictSize(pubSubMeta->moduleChannelSubscribers) == 0) {
+        return;
+    }
+    dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, module);
+    if (de == NULL) {
+        return;
+    }
+    RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
+
+    if (moduleChannelSubscriber->all_channels) {
+        cleanupModuleChannelSubscriber(module, moduleChannelSubscriber, pubSubMeta);
+        return;
+    }
+
+    serverAssert(listLength(moduleChannelSubscriber->subscriptions));
+
+    listRewind(moduleChannelSubscriber->subscriptions, &li);
+    while ((ln = listNext(&li))) {
+        removeModuleFromChannelSubscription(module, ln->value, pubSubMeta);
+        listDelNode(moduleChannelSubscriber->subscriptions, ln);
+    }
+
+    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
+        cleanupModuleChannelSubscriber(module, moduleChannelSubscriber, pubSubMeta);
+    }
+}
+
+/**
  * Subscribe the module to a channel with a callback. The API is idempotent based on the channel name, a
  * module has subscribed to. Hence, if the callback needs to be updated then the client needs to unsubscribe
  * from the channel and subscribe.
@@ -3797,6 +3838,7 @@ void RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redi
     if (de == NULL) {
         moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
         moduleChannelSubscriber->subscribe_callback = callback;
+        moduleChannelSubscriber->all_channels = 0;
         moduleChannelSubscriber->subscriptions = listCreate();
         listSetMatchMethod(moduleChannelSubscriber->subscriptions, listMatchStringObjects);
         listSetFreeMethod(moduleChannelSubscriber->subscriptions, decrRefCountVoid);
@@ -3805,7 +3847,8 @@ void RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redi
         moduleChannelSubscriber = dictGetVal(de);
     }
 
-    if (listSearchKey(moduleChannelSubscriber->subscriptions, channel)) {
+    if (moduleChannelSubscriber->all_channels || listSearchKey(moduleChannelSubscriber->subscriptions, channel)) {
+        moduleChannelSubscriber->subscribe_callback = callback;
         return;
     }
 
@@ -3865,33 +3908,25 @@ void RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel, 
     serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.", ctx->module->name, (char *)channel->ptr);
 }
 
-/**
- * Unsubscribe all the channel(s) this module had subscribed to.
- *  
- */
-static void moduleUnsubscribeAllChannels(RedisModule *module, RedisModulePubSubMeta *pubSubMeta) {
-    listNode *ln;
-    listIter li;
-    if (dictSize(pubSubMeta->moduleChannelSubscribers) == 0) {
-        return;
+void RM_SubscribeToAllChannels(RedisModuleCtx *ctx, RedisModuleSubscribeFunc callback) {
+    RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(0);
+    dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, ctx->module);
+    RedisModuleChannelSubscriber *moduleChannelSubscriber;
+    if (de) {
+        moduleChannelSubscriber = dictGetVal(de);
+        if (!moduleChannelSubscriber->all_channels) {
+            moduleUnsubscribeAllChannels(ctx->module, pubSubMeta);
+        }
     }
-    dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, module);
-    if (de == NULL) {
-        return;
-    }
-    RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
+    moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
+    moduleChannelSubscriber->subscribe_callback = callback;
+    moduleChannelSubscriber->all_channels = 1;
+    moduleChannelSubscriber->subscriptions = NULL;
+    dictAdd(pubSubMeta->moduleChannelSubscribers, ctx->module, moduleChannelSubscriber);
+}
 
-    serverAssert(listLength(moduleChannelSubscriber->subscriptions));
-
-    listRewind(moduleChannelSubscriber->subscriptions, &li);
-    while ((ln = listNext(&li))) {
-        removeModuleFromChannelSubscription(module, ln->value, pubSubMeta);
-        listDelNode(moduleChannelSubscriber->subscriptions, ln);
-    }
-
-    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
-        cleanupModuleChannelSubscriber(module, moduleChannelSubscriber, pubSubMeta);
-    }
+void RM_UnsubscribeFromAllChannels(RedisModuleCtx *ctx) {
+    moduleUnsubscribeAllChannels(ctx->module, getPubSubMeta(0));
 }
 
 /**
@@ -3902,6 +3937,24 @@ static void moduleUnsubscribeAllChannels(RedisModule *module, RedisModulePubSubM
  */
 void moduleSendMessageSubscriber(robj *channel, robj *message, int sharded) {
     RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(sharded);
+
+    /* Invoke callback where a module is subscribed to all channels */
+    if (sharded == 0) {
+        dictIterator *di = dictGetIterator(pubSubMeta->moduleChannelSubscribers);
+        dictEntry *de;
+        while ((de = dictNext(di)) != NULL) {
+            RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
+            if (moduleChannelSubscriber->all_channels) {
+                /* Invoke the callback registered for this module. */
+                RedisModuleCtx ctx;
+                moduleCreateContext(&ctx, dictGetKey(de), REDISMODULE_CTX_TEMP_CLIENT);
+                moduleChannelSubscriber->subscribe_callback(&ctx, channel, message);
+                moduleFreeContext(&ctx);
+            }
+        }
+        dictReleaseIterator(di);
+    }
+
 
     /* Return if there are no subscribers. */
     if (dictSize(pubSubMeta->channelModuleSubscribers) == 0) return;
@@ -13981,7 +14034,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(PublishMessage);
     REGISTER_API(PublishMessageShard);
     REGISTER_API(SubscribeToChannel);
+    REGISTER_API(SubscribeToAllChannels);
     REGISTER_API(UnsubscribeFromChannel);
+    REGISTER_API(UnsubscribeFromAllChannels);
     REGISTER_API(SubscribeToServerEvent);
     REGISTER_API(SetLRU);
     REGISTER_API(GetLRU);
