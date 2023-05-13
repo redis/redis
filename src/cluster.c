@@ -601,7 +601,7 @@ int clusterSaveConfig(int do_fsync) {
 
     /* Get the nodes description and concatenate our "vars" directive to
      * save currentEpoch and lastVoteEpoch. */
-    ci = clusterGenNodesDescription(CLUSTER_NODE_HANDSHAKE, 0, 1);
+    ci = clusterGenNodesDescription(NULL, CLUSTER_NODE_HANDSHAKE, 0);
     ci = sdscatprintf(ci,"vars currentEpoch %llu lastVoteEpoch %llu\n",
         (unsigned long long) server.cluster->currentEpoch,
         (unsigned long long) server.cluster->lastVoteEpoch);
@@ -5000,7 +5000,7 @@ sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_cou
  * See clusterGenNodesDescription() top comment for more information.
  *
  * The function returns the string representation as an SDS string. */
-sds clusterGenNodeDescription(clusterNode *node, int use_pport, int verbose) {
+sds clusterGenNodeDescription(client *c, clusterNode *node, int use_pport) {
     int j, start;
     sds ci;
     int port = use_pport && node->pport ? node->pport : node->port;
@@ -5021,8 +5021,9 @@ sds clusterGenNodeDescription(clusterNode *node, int use_pport, int verbose) {
             node->cport);
     }
 
-    /* Output node's aux fields in verbose mode only */
-    if (verbose != 0) {
+    /* Don't expose aux fields to any clients yet but do allow them
+     * to be persisted to nodes.conf */
+    if (c == NULL) {
         for (int i = af_start; i < af_count; i++) {
             if (auxFieldHandlers[i].isPresent(node)) {
                 ci = sdscatprintf(ci, ",%s=", auxFieldHandlers[i].field);
@@ -5152,7 +5153,7 @@ void clusterFreeNodesSlotsInfo(clusterNode *n) {
  * The representation obtained using this function is used for the output
  * of the CLUSTER NODES function, and as format for the cluster
  * configuration file (nodes.conf) for a given node. */
-sds clusterGenNodesDescription(int filter, int use_pport, int verbose) {
+sds clusterGenNodesDescription(client *c, int filter, int use_pport) {
     sds ci = sdsempty(), ni;
     dictIterator *di;
     dictEntry *de;
@@ -5165,7 +5166,7 @@ sds clusterGenNodesDescription(int filter, int use_pport, int verbose) {
         clusterNode *node = dictGetVal(de);
 
         if (node->flags & filter) continue;
-        ni = clusterGenNodeDescription(node, use_pport, verbose);
+        ni = clusterGenNodeDescription(c, node, use_pport);
         ci = sdscatsds(ci,ni);
         sdsfree(ni);
         ci = sdscatlen(ci,"\n",1);
@@ -5679,10 +5680,9 @@ void clusterCommand(client *c) {
 "    Return the node id.",
 "MYSHARDID",
 "    Return the node's shard id.",
-"NODES [verbose]",
+"NODES",
 "    Return cluster configuration seen by node. Output format:",
 "    <id> <ip:port@bus-port[,hostname]> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
-"    The output will include all aux fields if the verbose flag is specified.",
 "REPLICATE <node-id>",
 "    Configure current node as replica to <node-id>.",
 "RESET [HARD|SOFT]",
@@ -5734,16 +5734,13 @@ NULL
         } else {
             addReply(c,shared.ok);
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"nodes") &&
-              (c->argc == 2 || (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"verbose"))))
-    {
-        /* CLUSTER NODES [VERBOSE] */
+    } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
+        /* CLUSTER NODES */
         /* Report plaintext ports, only if cluster is TLS but client is known to
          * be non-TLS). */
         int use_pport = (server.tls_cluster &&
                         c->conn && (c->conn->type != connectionTypeTls()));
-        int verbose = (c->argc == 3) && !strcasecmp(c->argv[2]->ptr, "verbose");
-        sds nodes = clusterGenNodesDescription(0, use_pport, verbose);
+        sds nodes = clusterGenNodesDescription(c, 0, use_pport);
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -6110,7 +6107,7 @@ NULL
                          c->conn && (c->conn->type != connectionTypeTls()));
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
-            sds ni = clusterGenNodeDescription(n->slaves[j], use_pport, 1);
+            sds ni = clusterGenNodeDescription(c, n->slaves[j], use_pport);
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }

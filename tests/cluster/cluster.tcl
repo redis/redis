@@ -11,7 +11,7 @@ set ::cluster_replica_nodes 0
 # Returns a parsed CLUSTER NODES output as a list of dictionaries. Optional status field
 # can be specified to only returns entries that match the provided status.
 proc get_cluster_nodes {id {status "*"}} {
-    set lines [split [R $id cluster nodes verbose] "\r\n"]
+    set lines [split [R $id cluster nodes] "\r\n"]
     set nodes {}
     foreach l $lines {
         set l [string trim $l]
@@ -19,8 +19,7 @@ proc get_cluster_nodes {id {status "*"}} {
         set args [split $l]
         set node [dict create \
             id [lindex $args 0] \
-            addr [lindex [split [lindex $args 1] ,] 0] \
-            shard-id [lindex [split [lindex [split [lindex $args 1] ,] 2] = ] 1]\
+            addr [lindex $args 1] \
             flags [split [lindex $args 2] ,] \
             slaveof [lindex $args 3] \
             ping_sent [lindex $args 4] \
