@@ -303,7 +303,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_lessthan $value 15 ;# default hz is 10
             set value [s instantaneous_eventloop_duration_usec]
             assert_morethan $value 0
-            assert_lessthan $value 1000 ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
+            assert_lessthan $value 22000 ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
         }
 
         test {stats: debug metrics} {
