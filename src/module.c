@@ -665,7 +665,7 @@ void moduleReleaseTempClient(client *c) {
     if (c->flags & CLIENT_MODULE_PERSISTENT) {
         /* if a persistent client, only reset flags and free argv
          * don't reset client in general or return to pool */
-        c->flags &= ~(CLIENT_DENY_BLOCKING||CLIENT_ALLOW_OOM|CLIENT_READONLY|CLIENT_ASKING);
+        c->flags &= ~(CLIENT_DENY_BLOCKING|CLIENT_ALLOW_OOM|CLIENT_READONLY|CLIENT_ASKING);
         moduleFreeArgv(c->argv, c->argc);
         c->argv = NULL;
         c->argc = 0;
