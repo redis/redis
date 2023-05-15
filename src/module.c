@@ -7671,7 +7671,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
      * commands from Lua or MULTI. We actually create an already aborted
      * (client set to NULL) blocked client handle, and actually reply with
      * an error. */
-    mstime_t timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
@@ -7689,7 +7688,17 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
-    c->bstate.timeout = timeout;
+
+    c->bstate.timeout = 0;
+    if (timeout_ms) {
+        mstime_t now = mstime();
+        if  (timeout_ms > LLONG_MAX - now) {
+            c->bstate.module_blocked_handle = NULL;
+            addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
+            return bc;
+        }
+        c->bstate.timeout = timeout_ms + now;
+    }
 
     if (islua || ismulti) {
         c->bstate.module_blocked_handle = NULL;
@@ -7699,13 +7708,12 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Blocking module command called from a Reply callback context");
-    }
-    else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
+    } else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,c->bstate.timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
