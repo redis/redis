@@ -608,7 +608,6 @@ void saddCommand(client *c) {
 
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,set,OBJ_SET)) return;
-    
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[1],set);
@@ -807,9 +806,12 @@ void spopWithCountCommand(client *c) {
     /* Case 2 and 3 require to replicate SPOP as a SREM command.
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
-    robj **propargv = zmalloc(sizeof(robj *) * (2 + count));
+    unsigned long batchsize = 1024;
+    unsigned long batchindex = 0;
+    robj **propargv = zmalloc(sizeof(robj *) * (2 + (count / batchsize > 0 ? batchsize : count)));
     propargv[0] = shared.srem;
     propargv[1] = c->argv[1];
+    unsigned long propindex = 2;
     addReplySetLen(c,count);
 
     /* Common iteration vars. */
@@ -840,10 +842,20 @@ void spopWithCountCommand(client *c) {
 
             if (str) {
                 addReplyBulkCBuffer(c, str, len);
-                propargv[i + 2] = createStringObject(str, len);
+                propargv[propindex++] = createStringObject(str, len);
             } else {
                 addReplyBulkLongLong(c, llele);
-                propargv[i + 2] = createStringObjectFromLongLong(llele);
+                propargv[propindex++] = createStringObjectFromLongLong(llele);
+            }
+            if (count / batchsize > 0 && propindex > 2 + batchsize) {
+                if (batchindex > 0) {
+                    for (unsigned long i = 0; i < batchsize; i++) {
+                        decrRefCount(propargv[i + 2]);
+                    }
+                }
+                alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+                propindex = 2;
+                batchindex++;
             }
 
             /* Store pointer for later deletion and move to next. */
@@ -852,17 +864,32 @@ void spopWithCountCommand(client *c) {
             index++;
         }
         /* Replicate/AOF this command as an SREM operation */
-        alsoPropagate(c->db->id,propargv,2 + count,PROPAGATE_AOF|PROPAGATE_REPL);
+        if (count % batchsize) {
+            alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+        }
         lp = lpBatchDelete(lp, ps, count);
         zfree(ps);
         set->ptr = lp;
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         for (unsigned long i = 0; i < count; i++) {
-            propargv[i + 2] = setTypePopRandom(set);
-            addReplyBulk(c, propargv[i + 2]);
+            propargv[propindex] = setTypePopRandom(set);
+            addReplyBulk(c, propargv[propindex]);
+            propindex++;
+            if (count / batchsize > 0 && propindex > 2 + batchsize) {
+                if (batchindex > 0) {
+                    for (unsigned long i = 0; i < batchsize; i++) {
+                        decrRefCount(propargv[i + 2]);
+                    }
+                }
+                alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+                propindex = 2;
+                batchindex++;
+            }
         }
         /* Replicate/AOF this command as an SREM operation */
-        alsoPropagate(c->db->id,propargv,2 + count,PROPAGATE_AOF|PROPAGATE_REPL);
+        if (count % batchsize) {
+            alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+        }
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
      * the size of the set itself. After some time extracting random elements
@@ -873,7 +900,6 @@ void spopWithCountCommand(client *c) {
      * set). Then we return the elements left in the original set and
      * release it. */
         robj *newset = NULL;
-        unsigned long index = 2;
         /* Create a new set with just the remaining elements. */
         if (set->encoding == OBJ_ENCODING_LISTPACK) {
             /* Specialized case for listpack. Traverse it only once. */
@@ -911,20 +937,32 @@ void spopWithCountCommand(client *c) {
         while (setTypeNext(si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
-                propargv[index++] = createStringObjectFromLongLong(llele);
+                propargv[propindex++] = createStringObjectFromLongLong(llele);
             } else {
                 addReplyBulkCBuffer(c, str, len);
-                propargv[index++] = createStringObject(str, len);
+                propargv[propindex++] = createStringObject(str, len);
+            }
+            if (count / batchsize > 0 && propindex > 2 + batchsize) {
+                if (batchindex > 0) {
+                    for (unsigned long i = 0; i < batchsize; i++) {
+                        decrRefCount(propargv[i + 2]);
+                    }
+                }
+                alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+                propindex = 2;
+                batchindex++;
             }
         }
         /* Replicate/AOF this command as an SREM operation */
-        alsoPropagate(c->db->id,propargv,2 + count,PROPAGATE_AOF|PROPAGATE_REPL);
+        if (count % batchsize) {
+            alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+        }
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
         dbReplaceValue(c->db,c->argv[1],newset);
     }
-    for (unsigned long i = 0; i < count; i++) {
+    for (unsigned long i = 0; i < count % batchsize; i++) {
         decrRefCount(propargv[i + 2]);
     }
     zfree(propargv);
@@ -1459,7 +1497,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     int encoding;
     int j, cardinality = 0;
     int diff_algo = 1;
-    int sameset = 0; 
+    int sameset = 0;
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1473,7 +1511,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
         sets[j] = setobj;
         if (j > 0 && sets[0] == sets[j]) {
-            sameset = 1; 
+            sameset = 1;
         }
     }
 
