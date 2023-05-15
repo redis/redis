@@ -40,7 +40,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r client setname foobar
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
-        assert_equal [llength $e] 6
+        assert_equal [llength $e] 8
         if {!$::external} {
             assert_equal [lindex $e 0] 107
         }
@@ -48,6 +48,24 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal [lindex $e 3] {debug sleep 0.2}
         assert_equal {foobar} [lindex $e 5]
     } {} {needs:debug}
+
+    test {SLOWLOG - logged entry ACL and dbindex check} {
+        r SELECT 9
+        r config set slowlog-log-slower-than 0
+        r slowlog reset
+        r set k1 0
+        set e [lindex [r slowlog get] 0]
+        assert_equal {9} [lindex $e 6]
+        assert_equal {default} [lindex $e 7]
+
+        r ACL setuser user1 +@all allkeys
+        r ACL setuser user1 >passwd1 on
+        r AUTH user1 passwd1
+        r set k1 0
+        set e [lindex [r slowlog get] 0]
+        assert_equal {9} [lindex $e 6]
+        assert_equal {user1} [lindex $e 7]
+    }
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
         r config set slowlog-log-slower-than 0
