@@ -30,7 +30,7 @@ start_server {tags {"shutdown external:skip"}} {
     }
 }
 
-start_server {tags {"shutdown external:skip"}} {
+start_server {tags {"shutdown external:skip"} overrides {save {900 1}}} {
     test {SHUTDOWN ABORT can cancel SIGTERM} {
         r debug pause-cron 1
         set pid [s process_id]
@@ -48,7 +48,7 @@ start_server {tags {"shutdown external:skip"}} {
         }
         # It will cost 2s (20 * 100ms) to dump rdb
         r config set rdb-key-save-delay 100000
-        
+
         set pid [s process_id]
         set temp_rdb [file join [lindex [r config get dir] 1] temp-${pid}.rdb]
 
@@ -72,7 +72,7 @@ start_server {tags {"shutdown external:skip"}} {
     }
 }
 
-start_server {tags {"shutdown external:skip"}} {
+start_server {tags {"shutdown external:skip"} overrides {save {900 1}}} {
     set pid [s process_id]
     set dump_rdb [file join [lindex [r config get dir] 1] dump.rdb]
 
@@ -105,5 +105,29 @@ start_server {tags {"shutdown external:skip"}} {
     }
     test {Clean up rdb same named folder} {
         exec rm -r $dump_rdb
+    }
+}
+
+
+start_server {tags {"shutdown external:skip"} overrides {appendonly no}} {
+    test {SHUTDOWN SIGTERM will abort if there's an initial AOFRW - default} {
+        r config set shutdown-on-sigterm default
+        r config set rdb-key-save-delay 10000000
+        for {set i 0} {$i < 10} {incr i} {
+            r set $i $i
+        }
+
+        r config set appendonly yes
+        wait_for_condition 1000 10 {
+            [s aof_rewrite_in_progress] eq 1
+        } else {
+            fail "aof rewrite did not start in time"
+        }
+
+        set pid [s process_id]
+        exec kill -SIGTERM $pid
+        wait_for_log_messages 0 {"*Writing initial AOF, can't exit*"} 0 1000 10
+
+        r config set shutdown-on-sigterm force
     }
 }

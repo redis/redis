@@ -3,7 +3,9 @@
 
 #include "jemalloc/internal/hook.h"
 #include "jemalloc/internal/jemalloc_internal_types.h"
+#include "jemalloc/internal/log.h"
 #include "jemalloc/internal/sz.h"
+#include "jemalloc/internal/thread_event.h"
 #include "jemalloc/internal/witness.h"
 
 /*
@@ -101,8 +103,8 @@ ivsalloc(tsdn_t *tsdn, const void *ptr) {
 }
 
 JEMALLOC_ALWAYS_INLINE void
-idalloctm(tsdn_t *tsdn, void *ptr, tcache_t *tcache, alloc_ctx_t *alloc_ctx,
-    bool is_internal, bool slow_path) {
+idalloctm(tsdn_t *tsdn, void *ptr, tcache_t *tcache,
+    emap_alloc_ctx_t *alloc_ctx, bool is_internal, bool slow_path) {
 	assert(ptr != NULL);
 	assert(!is_internal || tcache == NULL);
 	assert(!is_internal || arena_is_auto(iaalloc(tsdn, ptr)));
@@ -125,7 +127,7 @@ idalloc(tsd_t *tsd, void *ptr) {
 
 JEMALLOC_ALWAYS_INLINE void
 isdalloct(tsdn_t *tsdn, void *ptr, size_t size, tcache_t *tcache,
-    alloc_ctx_t *alloc_ctx, bool slow_path) {
+    emap_alloc_ctx_t *alloc_ctx, bool slow_path) {
 	witness_assert_depth_to_rank(tsdn_witness_tsdp_get(tsdn),
 	    WITNESS_RANK_CORE, 0);
 	arena_sdalloc(tsdn, ptr, size, tcache, alloc_ctx, slow_path);
@@ -219,25 +221,140 @@ ixalloc(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size, size_t extra,
 	    newsize);
 }
 
+JEMALLOC_ALWAYS_INLINE void
+fastpath_success_finish(tsd_t *tsd, uint64_t allocated_after,
+    cache_bin_t *bin, void *ret) {
+	thread_allocated_set(tsd, allocated_after);
+	if (config_stats) {
+		bin->tstats.nrequests++;
+	}
+
+	LOG("core.malloc.exit", "result: %p", ret);
+}
+
+JEMALLOC_ALWAYS_INLINE bool
+malloc_initialized(void) {
+	return (malloc_init_state == malloc_init_initialized);
+}
+
+/*
+ * malloc() fastpath.  Included here so that we can inline it into operator new;
+ * function call overhead there is non-negligible as a fraction of total CPU in
+ * allocation-heavy C++ programs.  We take the fallback alloc to allow malloc
+ * (which can return NULL) to differ in its behavior from operator new (which
+ * can't).  It matches the signature of malloc / operator new so that we can
+ * tail-call the fallback allocator, allowing us to avoid setting up the call
+ * frame in the common case.
+ *
+ * Fastpath assumes size <= SC_LOOKUP_MAXCLASS, and that we hit
+ * tcache.  If either of these is false, we tail-call to the slowpath,
+ * malloc_default().  Tail-calling is used to avoid any caller-saved
+ * registers.
+ *
+ * fastpath supports ticker and profiling, both of which will also
+ * tail-call to the slowpath if they fire.
+ */
+JEMALLOC_ALWAYS_INLINE void *
+imalloc_fastpath(size_t size, void *(fallback_alloc)(size_t)) {
+	LOG("core.malloc.entry", "size: %zu", size);
+	if (tsd_get_allocates() && unlikely(!malloc_initialized())) {
+		return fallback_alloc(size);
+	}
+
+	tsd_t *tsd = tsd_get(false);
+	if (unlikely((size > SC_LOOKUP_MAXCLASS) || tsd == NULL)) {
+		return fallback_alloc(size);
+	}
+	/*
+	 * The code below till the branch checking the next_event threshold may
+	 * execute before malloc_init(), in which case the threshold is 0 to
+	 * trigger slow path and initialization.
+	 *
+	 * Note that when uninitialized, only the fast-path variants of the sz /
+	 * tsd facilities may be called.
+	 */
+	szind_t ind;
+	/*
+	 * The thread_allocated counter in tsd serves as a general purpose
+	 * accumulator for bytes of allocation to trigger different types of
+	 * events.  usize is always needed to advance thread_allocated, though
+	 * it's not always needed in the core allocation logic.
+	 */
+	size_t usize;
+	sz_size2index_usize_fastpath(size, &ind, &usize);
+	/* Fast path relies on size being a bin. */
+	assert(ind < SC_NBINS);
+	assert((SC_LOOKUP_MAXCLASS < SC_SMALL_MAXCLASS) &&
+	    (size <= SC_SMALL_MAXCLASS));
+
+	uint64_t allocated, threshold;
+	te_malloc_fastpath_ctx(tsd, &allocated, &threshold);
+	uint64_t allocated_after = allocated + usize;
+	/*
+	 * The ind and usize might be uninitialized (or partially) before
+	 * malloc_init().  The assertions check for: 1) full correctness (usize
+	 * & ind) when initialized; and 2) guaranteed slow-path (threshold == 0)
+	 * when !initialized.
+	 */
+	if (!malloc_initialized()) {
+		assert(threshold == 0);
+	} else {
+		assert(ind == sz_size2index(size));
+		assert(usize > 0 && usize == sz_index2size(ind));
+	}
+	/*
+	 * Check for events and tsd non-nominal (fast_threshold will be set to
+	 * 0) in a single branch.
+	 */
+	if (unlikely(allocated_after >= threshold)) {
+		return fallback_alloc(size);
+	}
+	assert(tsd_fast(tsd));
+
+	tcache_t *tcache = tsd_tcachep_get(tsd);
+	assert(tcache == tcache_get(tsd));
+	cache_bin_t *bin = &tcache->bins[ind];
+	bool tcache_success;
+	void *ret;
+
+	/*
+	 * We split up the code this way so that redundant low-water
+	 * computation doesn't happen on the (more common) case in which we
+	 * don't touch the low water mark.  The compiler won't do this
+	 * duplication on its own.
+	 */
+	ret = cache_bin_alloc_easy(bin, &tcache_success);
+	if (tcache_success) {
+		fastpath_success_finish(tsd, allocated_after, bin, ret);
+		return ret;
+	}
+	ret = cache_bin_alloc(bin, &tcache_success);
+	if (tcache_success) {
+		fastpath_success_finish(tsd, allocated_after, bin, ret);
+		return ret;
+	}
+
+	return fallback_alloc(size);
+}
+
 JEMALLOC_ALWAYS_INLINE int
 iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 	int defrag = 0;
-	rtree_ctx_t rtree_ctx_fallback;
-	rtree_ctx_t *rtree_ctx = tsdn_rtree_ctx(tsdn, &rtree_ctx_fallback);
-	szind_t szind;
-	bool is_slab;
-	rtree_szind_slab_read(tsdn, &extents_rtree, rtree_ctx, (uintptr_t)ptr, true, &szind, &is_slab);
-	if (likely(is_slab)) {
+	emap_alloc_ctx_t alloc_ctx;
+	emap_alloc_ctx_lookup(tsdn, &arena_emap_global, ptr, &alloc_ctx);
+	if (likely(alloc_ctx.slab)) {
 		/* Small allocation. */
-		extent_t *slab = iealloc(tsdn, ptr);
-		arena_t *arena = extent_arena_get(slab);
-		szind_t binind = extent_szind_get(slab);
-		unsigned binshard = extent_binshard_get(slab);
-		bin_t *bin = &arena->bins[binind].bin_shards[binshard];
+		edata_t *slab = emap_edata_lookup(tsdn, &arena_emap_global, ptr);
+		arena_t *arena = arena_get_from_edata(slab);
+		szind_t binind = edata_szind_get(slab);
+		unsigned binshard = edata_binshard_get(slab);
+		bin_t *bin = arena_get_bin(arena, binind, binshard);
 		malloc_mutex_lock(tsdn, &bin->lock);
+		arena_dalloc_bin_locked_info_t info;
+		arena_dalloc_bin_locked_begin(&info, binind);
 		/* Don't bother moving allocations from the slab currently used for new allocations */
 		if (slab != bin->slabcur) {
-			int free_in_slab = extent_nfree_get(slab);
+			int free_in_slab = edata_nfree_get(slab);
 			if (free_in_slab) {
 				const bin_info_t *bin_info = &bin_infos[binind];
 				/* Find number of non-full slabs and the number of regs in them */
@@ -245,14 +362,14 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 				size_t curregs = 0;
 				/* Run on all bin shards (usually just one) */
 				for (uint32_t i=0; i< bin_info->n_shards; i++) {
-					bin_t *bb = &arena->bins[binind].bin_shards[i];
+					bin_t *bb = arena_get_bin(arena, binind, i);
 					curslabs += bb->stats.nonfull_slabs;
 					/* Deduct the regs in full slabs (they're not part of the game) */
 					unsigned long full_slabs = bb->stats.curslabs - bb->stats.nonfull_slabs;
 					curregs += bb->stats.curregs - full_slabs * bin_info->nregs;
 					if (bb->slabcur) {
 						/* Remove slabcur from the overall utilization (not a candidate to nove from) */
-						curregs -= bin_info->nregs - extent_nfree_get(bb->slabcur);
+						curregs -= bin_info->nregs - edata_nfree_get(bb->slabcur);
 						curslabs -= 1;
 					}
 				}
@@ -265,6 +382,7 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr) {
 				defrag = (bin_info->nregs - free_in_slab) * curslabs <= curregs + curregs / 8;
 			}
 		}
+		arena_dalloc_bin_locked_finish(tsdn, arena, bin, &info);
 		malloc_mutex_unlock(tsdn, &bin->lock);
 	}
 	return defrag;

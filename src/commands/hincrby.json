@@ -1,6 +1,6 @@
 {
     "HINCRBY": {
-        "summary": "Increment the integer value of a hash field by the given number",
+        "summary": "Increments the integer value of a field in a hash by a number. Uses 0 as initial value if the field doesn't exist.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",

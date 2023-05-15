@@ -1,6 +1,6 @@
 {
     "GETNAME": {
-        "summary": "Get the current connection name",
+        "summary": "Returns the name of the connection.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "2.6.9",

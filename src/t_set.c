@@ -39,11 +39,31 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table. */
-robj *setTypeCreate(sds value) {
-    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
+ * hash table.
+ *
+ * The size hint indicates approximately how many items will be added which is
+ * used to determine the initial representation. */
+robj *setTypeCreate(sds value, size_t size_hint) {
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint < server.set_max_intset_entries)
         return createIntsetObject();
-    return createSetListpackObject();
+    if (size_hint < server.set_max_listpack_entries)
+        return createSetListpackObject();
+
+    /* We may oversize the set by using the hint if the hint is not accurate,
+     * but we will assume this is accpetable to maximize performance. */
+    robj *o = createSetObject();
+    dictExpand(o->ptr, size_hint);
+    return o;
+}
+
+/* Check if the existing set should be converted to another encoding based off the
+ * the size hint. */
+void setTypeMaybeConvert(robj *set, size_t size_hint) {
+    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint >= server.set_max_listpack_entries)
+        || (set->encoding == OBJ_ENCODING_INTSET && size_hint >= server.set_max_intset_entries))
+    {
+        setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
+    }
 }
 
 /* Return the maximum number of entries to store in an intset. */
@@ -590,8 +610,10 @@ void saddCommand(client *c) {
     if (checkType(c,set,OBJ_SET)) return;
     
     if (set == NULL) {
-        set = setTypeCreate(c->argv[2]->ptr);
+        set = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[1],set);
+    } else {
+        setTypeMaybeConvert(set, c->argc - 2);
     }
 
     for (j = 2; j < c->argc; j++) {
@@ -672,7 +694,7 @@ void smoveCommand(client *c) {
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
-        dstset = setTypeCreate(ele->ptr);
+        dstset = setTypeCreate(ele->ptr, 1);
         dbAdd(c->db,c->argv[2],dstset);
     }
 

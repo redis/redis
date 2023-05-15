@@ -1065,7 +1065,7 @@ void rewriteConfigReleaseState(struct rewriteConfigState *state) {
 }
 
 /* Create the configuration rewrite state */
-struct rewriteConfigState *rewriteConfigCreateState() {
+struct rewriteConfigState *rewriteConfigCreateState(void) {
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
     state->option_to_line = dictCreate(&optionToLineDictType);
     state->rewritten = dictCreate(&optionSetDictType);
@@ -1221,7 +1221,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
  *
  * "line" is either used, or freed, so the caller does not need to free it
  * in any way. */
-void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
+int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force) {
     sds o = sdsnew(option);
     list *l = dictFetchValue(state->option_to_line,o);
 
@@ -1231,7 +1231,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         /* Option not used previously, and we are not forced to use it. */
         sdsfree(line);
         sdsfree(o);
-        return;
+        return 0;
     }
 
     if (l) {
@@ -1254,6 +1254,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
         rewriteConfigAppendLine(state,line);
     }
     sdsfree(o);
+    return 1;
 }
 
 /* Write the long long 'bytes' value as a string in a way that is parsable
@@ -1642,7 +1643,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
 /* This function returns a string representation of all the config options
  * marked with DEBUG_CONFIG, which can be used to help with debugging. */
-sds getConfigDebugInfo() {
+sds getConfigDebugInfo(void) {
     struct rewriteConfigState *state = rewriteConfigCreateState();
     state->force_write = 1; /* Force the output */
     state->needs_signature = 0; /* Omit the rewrite signature */
@@ -3259,7 +3260,7 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
 
 /* Initialize configs to their default values and create and populate the 
  * runtime configuration dictionary. */
-void initConfigValues() {
+void initConfigValues(void) {
     configs = dictCreate(&sdsHashDictType);
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {

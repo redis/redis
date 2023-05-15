@@ -41,7 +41,7 @@ TEST_BEGIN(test_ln_gamma_factorial) {
 
 	/* exp(ln_gamma(x)) == (x-1)! for integer x. */
 	for (x = 1; x <= 21; x++) {
-		assert_true(double_eq_rel(exp(ln_gamma(x)),
+		expect_true(double_eq_rel(exp(ln_gamma(x)),
 		    (double)factorial(x-1), MAX_REL_ERR, MAX_ABS_ERR),
 		    "Incorrect factorial result for x=%u", x);
 	}
@@ -192,7 +192,7 @@ TEST_BEGIN(test_ln_gamma_misc) {
 
 	for (i = 1; i < sizeof(ln_gamma_misc_expected)/sizeof(double); i++) {
 		double x = (double)i * 0.25;
-		assert_true(double_eq_rel(ln_gamma(x),
+		expect_true(double_eq_rel(ln_gamma(x),
 		    ln_gamma_misc_expected[i], MAX_REL_ERR, MAX_ABS_ERR),
 		    "Incorrect ln_gamma result for i=%u", i);
 	}
@@ -242,7 +242,7 @@ TEST_BEGIN(test_pt_norm) {
 
 	for (i = 1; i < sizeof(pt_norm_expected)/sizeof(double); i++) {
 		double p = (double)i * 0.01;
-		assert_true(double_eq_rel(pt_norm(p), pt_norm_expected[i],
+		expect_true(double_eq_rel(pt_norm(p), pt_norm_expected[i],
 		    MAX_REL_ERR, MAX_ABS_ERR),
 		    "Incorrect pt_norm result for i=%u", i);
 	}
@@ -295,7 +295,7 @@ TEST_BEGIN(test_pt_chi2) {
 		double ln_gamma_df = ln_gamma(df * 0.5);
 		for (j = 1; j < 100; j += 7) {
 			double p = (double)j * 0.01;
-			assert_true(double_eq_rel(pt_chi2(p, df, ln_gamma_df),
+			expect_true(double_eq_rel(pt_chi2(p, df, ln_gamma_df),
 			    pt_chi2_expected[e], MAX_REL_ERR, MAX_ABS_ERR),
 			    "Incorrect pt_chi2 result for i=%u, j=%u", i, j);
 			e++;
@@ -356,7 +356,7 @@ TEST_BEGIN(test_pt_gamma_shape) {
 		double ln_gamma_shape = ln_gamma(shape);
 		for (j = 1; j < 100; j += 7) {
 			double p = (double)j * 0.01;
-			assert_true(double_eq_rel(pt_gamma(p, shape, 1.0,
+			expect_true(double_eq_rel(pt_gamma(p, shape, 1.0,
 			    ln_gamma_shape), pt_gamma_expected[e], MAX_REL_ERR,
 			    MAX_ABS_ERR),
 			    "Incorrect pt_gamma result for i=%u, j=%u", i, j);
@@ -370,7 +370,7 @@ TEST_BEGIN(test_pt_gamma_scale) {
 	double shape = 1.0;
 	double ln_gamma_shape = ln_gamma(shape);
 
-	assert_true(double_eq_rel(
+	expect_true(double_eq_rel(
 	    pt_gamma(0.5, shape, 1.0, ln_gamma_shape) * 10.0,
 	    pt_gamma(0.5, shape, 10.0, ln_gamma_shape), MAX_REL_ERR,
 	    MAX_ABS_ERR),

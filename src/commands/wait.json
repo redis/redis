@@ -1,6 +1,6 @@
 {
     "WAIT": {
-        "summary": "Wait for the synchronous replication of all the write commands sent in the context of the current connection",
+        "summary": "Blocks until the asynchronous replication of all preceding write commands sent by the connection is completed.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "3.0.0",

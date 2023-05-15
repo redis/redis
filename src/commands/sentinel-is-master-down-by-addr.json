@@ -1,6 +1,6 @@
 {
     "IS-MASTER-DOWN-BY-ADDR": {
-        "summary": "Check if a master is down",
+        "summary": "Determines whether a master Redis instance is down.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "2.8.4",

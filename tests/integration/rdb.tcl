@@ -173,7 +173,7 @@ start_server {} {
 }
 
 test {client freed during loading} {
-    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no]] {
+    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no save "900 1"]] {
         # create a big rdb that will take long to load. it is important
         # for keys to be big since the server processes events only once in 2mb.
         # 100mb of rdb, 100k keys will load in more than 5 seconds
@@ -370,6 +370,9 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "scriptbackup
 
 start_server {} {
     test "failed bgsave prevents writes" {
+        # Make sure the server saves an RDB on shutdown
+        r config set save "900 1"
+
         r config set rdb-key-save-delay 10000000
         populate 1000
         r set x x

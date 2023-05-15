@@ -1,6 +1,6 @@
 {
     "SETINFO": {
-        "summary": "Set client or connection specific info",
+        "summary": "Sets information specific to the client or connection.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "7.2.0",

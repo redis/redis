@@ -1,6 +1,6 @@
 {
     "GET": {
-        "summary": "Get the value of a key",
+        "summary": "Returns the string value of a key.",
         "complexity": "O(1)",
         "group": "string",
         "since": "1.0.0",

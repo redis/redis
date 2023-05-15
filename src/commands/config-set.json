@@ -1,6 +1,6 @@
 {
     "SET": {
-        "summary": "Set configuration parameters to the given values",
+        "summary": "Sets configuration parameters in-flight.",
         "complexity": "O(N) when N is the number of configuration parameters provided",
         "group": "server",
         "since": "2.0.0",

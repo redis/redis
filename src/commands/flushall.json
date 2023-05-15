@@ -1,6 +1,6 @@
 {
     "FLUSHALL": {
-        "summary": "Remove all keys from all databases",
+        "summary": "Removes all keys from all databases.",
         "complexity": "O(N) where N is the total number of keys in all databases",
         "group": "server",
         "since": "1.0.0",

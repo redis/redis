@@ -1,6 +1,6 @@
 {
     "SISMEMBER": {
-        "summary": "Determine if a given value is a member of a set",
+        "summary": "Determines whether a member belongs to a set.",
         "complexity": "O(1)",
         "group": "set",
         "since": "1.0.0",

@@ -1,6 +1,6 @@
 {
     "LOAD": {
-        "summary": "Create a function with the given arguments (name, code, description)",
+        "summary": "Creates a library.",
         "complexity": "O(1) (considering compilation time is redundant)",
         "group": "scripting",
         "since": "7.0.0",

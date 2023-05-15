@@ -52,6 +52,27 @@
 #define ATOMIC_SEQ_CST atomic_memory_order_seq_cst
 
 /*
+ * Another convenience -- simple atomic helper functions.
+ */
+#define JEMALLOC_GENERATE_EXPANDED_INT_ATOMICS(type, short_type,	\
+    lg_size)								\
+    JEMALLOC_GENERATE_INT_ATOMICS(type, short_type, lg_size)		\
+    ATOMIC_INLINE void							\
+    atomic_load_add_store_##short_type(atomic_##short_type##_t *a,	\
+	type inc) {							\
+	    type oldval = atomic_load_##short_type(a, ATOMIC_RELAXED);	\
+	    type newval = oldval + inc;					\
+	    atomic_store_##short_type(a, newval, ATOMIC_RELAXED);	\
+	}								\
+    ATOMIC_INLINE void							\
+    atomic_load_sub_store_##short_type(atomic_##short_type##_t *a,	\
+	type inc) {							\
+	    type oldval = atomic_load_##short_type(a, ATOMIC_RELAXED);	\
+	    type newval = oldval - inc;					\
+	    atomic_store_##short_type(a, newval, ATOMIC_RELAXED);	\
+	}
+
+/*
  * Not all platforms have 64-bit atomics.  If we do, this #define exposes that
  * fact.
  */
@@ -67,18 +88,18 @@ JEMALLOC_GENERATE_ATOMICS(void *, p, LG_SIZEOF_PTR)
  */
 JEMALLOC_GENERATE_ATOMICS(bool, b, 0)
 
-JEMALLOC_GENERATE_INT_ATOMICS(unsigned, u, LG_SIZEOF_INT)
+JEMALLOC_GENERATE_EXPANDED_INT_ATOMICS(unsigned, u, LG_SIZEOF_INT)
 
-JEMALLOC_GENERATE_INT_ATOMICS(size_t, zu, LG_SIZEOF_PTR)
+JEMALLOC_GENERATE_EXPANDED_INT_ATOMICS(size_t, zu, LG_SIZEOF_PTR)
 
-JEMALLOC_GENERATE_INT_ATOMICS(ssize_t, zd, LG_SIZEOF_PTR)
+JEMALLOC_GENERATE_EXPANDED_INT_ATOMICS(ssize_t, zd, LG_SIZEOF_PTR)
 
-JEMALLOC_GENERATE_INT_ATOMICS(uint8_t, u8, 0)
+JEMALLOC_GENERATE_EXPANDED_INT_ATOMICS(uint8_t, u8, 0)
 
-JEMALLOC_GENERATE_INT_ATOMICS(uint32_t, u32, 2)
+JEMALLOC_GENERATE_EXPANDED_INT_ATOMICS(uint32_t, u32, 2)
 
 #ifdef JEMALLOC_ATOMIC_U64
-JEMALLOC_GENERATE_INT_ATOMICS(uint64_t, u64, 3)
+JEMALLOC_GENERATE_EXPANDED_INT_ATOMICS(uint64_t, u64, 3)
 #endif
 
 #undef ATOMIC_INLINE

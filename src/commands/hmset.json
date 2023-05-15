@@ -1,6 +1,6 @@
 {
     "HMSET": {
-        "summary": "Set multiple hash fields to multiple values",
+        "summary": "Sets the values of multiple fields.",
         "complexity": "O(N) where N is the number of fields being set.",
         "group": "hash",
         "since": "2.0.0",

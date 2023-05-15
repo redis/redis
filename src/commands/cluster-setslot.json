@@ -1,6 +1,6 @@
 {
     "SETSLOT": {
-        "summary": "Bind a hash slot to a specific node",
+        "summary": "Binds a hash slot to a node.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

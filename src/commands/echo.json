@@ -1,6 +1,6 @@
 {
     "ECHO": {
-        "summary": "Echo the given string",
+        "summary": "Returns the given string.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "1.0.0",

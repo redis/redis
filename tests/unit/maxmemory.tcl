@@ -350,7 +350,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             # put the slave to sleep
             set rd_slave [redis_deferring_client]
-            exec kill -SIGSTOP $slave_pid
+            pause_process $slave_pid
 
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
@@ -399,7 +399,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
         }
         # unfreeze slave process (after the 'test' succeeded or failed, but before we attempt to terminate the server
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         }
     }
 }

@@ -1,6 +1,6 @@
 {
     "ZINTERSTORE": {
-        "summary": "Intersect multiple sorted sets and store the resulting sorted set in a new key",
+        "summary": "Stores the intersect of multiple sorted sets in a key.",
         "complexity": "O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.",
         "group": "sorted_set",
         "since": "2.0.0",

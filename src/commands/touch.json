@@ -1,6 +1,6 @@
 {
     "TOUCH": {
-        "summary": "Alters the last access time of a key(s). Returns the number of existing keys specified.",
+        "summary": "Returns the number of existing keys out of those specified after updating the time they were last accessed.",
         "complexity": "O(N) where N is the number of keys that will be touched.",
         "group": "generic",
         "since": "3.2.1",

@@ -1,6 +1,6 @@
 {
     "NO-TOUCH": {
-        "summary": "Controls whether commands sent by the client will alter the LRU/LFU of the keys they access.",
+        "summary": "Controls whether commands sent by the client affect the LRU/LFU of accessed keys.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "7.2.0",

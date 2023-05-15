@@ -1,6 +1,6 @@
 {
     "GETUSER": {
-        "summary": "Get the rules for a specific ACL user",
+        "summary": "Lists the ACL rules of a user.",
         "complexity": "O(N). Where N is the number of password, command and pattern rules that the user has.",
         "group": "server",
         "since": "6.0.0",

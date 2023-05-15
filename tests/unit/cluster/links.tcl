@@ -200,7 +200,7 @@ start_cluster 3 0 {tags {external:skip cluster}} {
         # To manufacture an ever-growing send buffer from primary1 to primary2,
         # make primary2 unresponsive.
         set primary2_pid [srv [expr -1*$primary2_id] pid]
-        exec kill -SIGSTOP $primary2_pid
+        pause_process $primary2_pid
 
         # On primary1, send 128KB Pubsub messages in a loop until the send buffer of the link from
         # primary1 to primary2 exceeds buffer limit therefore be dropped.
@@ -226,7 +226,7 @@ start_cluster 3 0 {tags {external:skip cluster}} {
         assert {[dict get $same_link_p1_from_p2 create-time] eq [dict get $orig_link_p1_from_p2 create-time]}
 
         # Revive primary2
-        exec kill -SIGCONT $primary2_pid
+        resume_process $primary2_pid
 
         # Reset configs on primary1 so config changes don't leak out to other tests
         $primary1 CONFIG set cluster-node-timeout $oldtimeout

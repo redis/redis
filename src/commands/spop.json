@@ -1,6 +1,6 @@
 {
     "SPOP": {
-        "summary": "Remove and return one or multiple random members from a set",
+        "summary": "Returns one or more random members from a set after removing them. Deletes the set if the last member was popped.",
         "complexity": "Without the count argument O(1), otherwise O(N) where N is the value of the passed count.",
         "group": "set",
         "since": "1.0.0",

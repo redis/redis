@@ -1,6 +1,6 @@
 {
     "XREVRANGE": {
-        "summary": "Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE",
+        "summary": "Returns the messages from a stream within a range of IDs in reverse order.",
         "complexity": "O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).",
         "group": "stream",
         "since": "5.0.0",

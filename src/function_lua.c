@@ -420,7 +420,7 @@ static int luaRegisterFunction(lua_State *lua) {
 }
 
 /* Initialize Lua engine, should be called once on start. */
-int luaEngineInitEngine() {
+int luaEngineInitEngine(void) {
     luaEngineCtx *lua_engine_ctx = zmalloc(sizeof(*lua_engine_ctx));
     lua_engine_ctx->lua = lua_open();
 

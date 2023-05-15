@@ -1,6 +1,6 @@
 {
     "PEXPIRE": {
-        "summary": "Set a key's time to live in milliseconds",
+        "summary": "Sets the expiration time of a key in milliseconds.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "2.6.0",

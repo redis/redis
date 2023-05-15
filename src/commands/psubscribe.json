@@ -1,6 +1,6 @@
 {
     "PSUBSCRIBE": {
-        "summary": "Listen for messages published to channels matching the given patterns",
+        "summary": "Listens for messages published to channels that match one or more patterns.",
         "complexity": "O(N) where N is the number of patterns the client is already subscribed to.",
         "group": "pubsub",
         "since": "2.0.0",

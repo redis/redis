@@ -562,7 +562,7 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
-long long dbTotalServerKeyCount() {
+long long dbTotalServerKeyCount(void) {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
@@ -774,17 +774,16 @@ void keysCommand(client *c) {
 
     di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && plen == 1);
+    robj keyobj;
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
-        robj *keyobj;
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            keyobj = createStringObject(key,sdslen(key));
-            if (!keyIsExpired(c->db,keyobj)) {
-                addReplyBulk(c,keyobj);
+            initStaticStringObject(keyobj, key);
+            if (!keyIsExpired(c->db, &keyobj)) {
+                addReplyBulkCBuffer(c, key, sdslen(key));
                 numkeys++;
             }
-            decrRefCount(keyobj);
         }
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
@@ -2316,7 +2315,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
 
 /* Helper function to extract keys from following commands:
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
- *                             [COUNT count] [STORE key] [STOREDIST key]
+ *                             [COUNT count] [STORE key|STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
  * 
  * This command has a fully defined keyspec, so returning flags isn't needed. */

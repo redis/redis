@@ -1,6 +1,6 @@
 {
     "EVAL": {
-        "summary": "Execute a Lua script server side",
+        "summary": "Executes a server-side Lua script.",
         "complexity": "Depends on the script that is executed.",
         "group": "scripting",
         "since": "2.6.0",

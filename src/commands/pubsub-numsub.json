@@ -1,6 +1,6 @@
 {
     "NUMSUB": {
-        "summary": "Get the count of subscribers for channels",
+        "summary": "Returns a count of subscribers to channels.",
         "complexity": "O(N) for the NUMSUB subcommand, where N is the number of requested channels",
         "group": "pubsub",
         "since": "2.8.0",

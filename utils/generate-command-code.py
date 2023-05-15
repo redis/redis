@@ -196,7 +196,7 @@ class Argument(object):
     def struct_code(self):
         """
         Output example:
-        "expiration",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_expiration_Subargs
+        MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=GETEX_expiration_Subargs
         """
 
         def _flags_code():
@@ -210,7 +210,7 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
-        s = "\"%s\",%s,%d,%s,%s,%s,%s" % (
+        s = "MAKE_ARG(\"%s\",%s,%d,%s,%s,%s,%s,%d,%s)" % (
             self.name,
             ARG_TYPES[self.type],
             self.desc.get("key_spec_index", -1),
@@ -218,9 +218,9 @@ class Argument(object):
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
             _flags_code(),
+            len(self.subargs),
+            get_optional_desc_string(self.desc, "deprecated_since"),
         )
-        if "deprecated_since" in self.desc:
-            s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
         if "display" in self.desc:
             s += ",.display_text=\"%s\"" % self.desc["display"].lower()
         if self.subargs:
@@ -234,10 +234,9 @@ class Argument(object):
                 subarg.write_internal_structs(f)
 
             f.write("/* %s argument table */\n" % self.fullname())
-            f.write("struct redisCommandArg %s[] = {\n" % self.subarg_table_name())
+            f.write("struct COMMAND_ARG %s[] = {\n" % self.subarg_table_name())
             for subarg in self.subargs:
                 f.write("{%s},\n" % subarg.struct_code())
-            f.write("{0}\n")
             f.write("};\n\n")
 
 
@@ -339,10 +338,13 @@ class Command(object):
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
     def tips_table_name(self):
-        return "%s_tips" % (self.fullname().replace(" ", "_"))
+        return "%s_Tips" % (self.fullname().replace(" ", "_"))
 
     def arg_table_name(self):
         return "%s_Args" % (self.fullname().replace(" ", "_"))
+
+    def key_specs_table_name(self):
+        return "%s_Keyspecs" % (self.fullname().replace(" ", "_"))
 
     def reply_schema_name(self):
         return "%s_ReplySchema" % (self.fullname().replace(" ", "_"))
@@ -356,8 +358,12 @@ class Command(object):
         s = ""
         for tupl in self.desc["history"]:
             s += "{\"%s\",\"%s\"},\n" % (tupl[0], tupl[1])
-        s += "{0}"
         return s
+
+    def num_history(self):
+        if not self.desc.get("history"):
+            return 0
+        return len(self.desc["history"])
 
     def tips_code(self):
         if not self.desc.get("command_tips"):
@@ -365,13 +371,24 @@ class Command(object):
         s = ""
         for hint in self.desc["command_tips"]:
             s += "\"%s\",\n" % hint.lower()
-        s += "NULL"
         return s
+
+    def num_tips(self):
+        if not self.desc.get("command_tips"):
+            return 0
+        return len(self.desc["command_tips"])
+
+    def key_specs_code(self):
+        s = ""
+        for spec in self.key_specs:
+            s += "{%s}," % KeySpec(spec).struct_code()
+        return s[:-1]
+
 
     def struct_code(self):
         """
         Output example:
-        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
+        MAKE_CMD("set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args
         """
 
         def _flags_code():
@@ -392,13 +409,7 @@ class Command(object):
                 s += "CMD_DOC_%s|" % flag
             return s[:-1] if s else "CMD_DOC_NONE"
 
-        def _key_specs_code():
-            s = ""
-            for spec in self.key_specs:
-                s += "{%s}," % KeySpec(spec).struct_code()
-            return s[:-1]
-
-        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%s," % (
+        s = "MAKE_CMD(\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%d,%s,%d,%s,%s,%s,%d,%s,%d)," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
@@ -406,21 +417,21 @@ class Command(object):
             _doc_flags_code(),
             get_optional_desc_string(self.desc, "replaced_by"),
             get_optional_desc_string(self.desc, "deprecated_since"),
+            "\"%s\"" % self.group,
             GROUPS[self.group],
             self.history_table_name(),
+            self.num_history(),
             self.tips_table_name(),
+            self.num_tips(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
             _flags_code(),
-            _acl_categories_code()
+            _acl_categories_code(),
+            self.key_specs_table_name(),
+            len(self.key_specs),
+            self.desc.get("get_keys_function", "NULL"),
+            len(self.args),
         )
-
-        specs = _key_specs_code()
-        if specs:
-            s += "{%s}," % specs
-
-        if self.desc.get("get_keys_function"):
-            s += "%s," % self.desc["get_keys_function"]
 
         if self.subcommands:
             s += ".subcommands=%s," % self.subcommand_table_name()
@@ -440,7 +451,7 @@ class Command(object):
                 subcommand.write_internal_structs(f)
 
             f.write("/* %s command table */\n" % self.fullname())
-            f.write("struct redisCommand %s[] = {\n" % self.subcommand_table_name())
+            f.write("struct COMMAND_STRUCT %s[] = {\n" % self.subcommand_table_name())
             for subcommand in subcommand_list:
                 f.write("{%s},\n" % subcommand.struct_code())
             f.write("{0}\n")
@@ -448,33 +459,47 @@ class Command(object):
 
         f.write("/********** %s ********************/\n\n" % self.fullname())
 
+        f.write("#ifndef SKIP_CMD_HISTORY_TABLE\n")
         f.write("/* %s history */\n" % self.fullname())
         code = self.history_code()
         if code:
             f.write("commandHistory %s[] = {\n" % self.history_table_name())
-            f.write("%s\n" % code)
-            f.write("};\n\n")
+            f.write("%s" % code)
+            f.write("};\n")
         else:
-            f.write("#define %s NULL\n\n" % self.history_table_name())
+            f.write("#define %s NULL\n" % self.history_table_name())
+        f.write("#endif\n\n")
 
+        f.write("#ifndef SKIP_CMD_TIPS_TABLE\n")
         f.write("/* %s tips */\n" % self.fullname())
         code = self.tips_code()
         if code:
             f.write("const char *%s[] = {\n" % self.tips_table_name())
-            f.write("%s\n" % code)
-            f.write("};\n\n")
+            f.write("%s" % code)
+            f.write("};\n")
         else:
-            f.write("#define %s NULL\n\n" % self.tips_table_name())
+            f.write("#define %s NULL\n" % self.tips_table_name())
+        f.write("#endif\n\n")
+
+        f.write("#ifndef SKIP_CMD_KEY_SPECS_TABLE\n")
+        f.write("/* %s key specs */\n" % self.fullname())
+        code = self.key_specs_code()
+        if code:
+            f.write("keySpec %s[%d] = {\n" % (self.key_specs_table_name(), len(self.key_specs)))
+            f.write("%s\n" % code)
+            f.write("};\n")
+        else:
+            f.write("#define %s NULL\n" % self.key_specs_table_name())
+        f.write("#endif\n\n")
 
         if self.args:
             for arg in self.args:
                 arg.write_internal_structs(f)
 
             f.write("/* %s argument table */\n" % self.fullname())
-            f.write("struct redisCommandArg %s[] = {\n" % self.arg_table_name())
+            f.write("struct COMMAND_ARG %s[] = {\n" % self.arg_table_name())
             for arg in self.args:
                 f.write("{%s},\n" % arg.struct_code())
-            f.write("{0}\n")
             f.write("};\n\n")
 
         if self.reply_schema and args.with_reply_schema:
@@ -543,15 +568,40 @@ if check_command_error_counter != 0:
     exit(1)
 
 commands_filename = "commands_with_reply_schema" if args.with_reply_schema else "commands"
-print("Generating %s.c..." % commands_filename)
-with open("%s/%s.c" % (srcdir, commands_filename), "w") as f:
+print("Generating %s.def..." % commands_filename)
+with open("%s/%s.def" % (srcdir, commands_filename), "w") as f:
     f.write("/* Automatically generated by %s, do not edit. */\n\n" % os.path.basename(__file__))
-    f.write("#include \"server.h\"\n")
     f.write(
 """
 /* We have fabulous commands from
  * the fantastic
- * Redis Command Table! */\n
+ * Redis Command Table! */
+
+/* Must match redisCommandGroup */
+const char *COMMAND_GROUP_STR[] = {
+    "generic",
+    "string",
+    "list",
+    "set",
+    "sorted-set",
+    "hash",
+    "pubsub",
+    "transactions",
+    "connection",
+    "server",
+    "scripting",
+    "hyperloglog",
+    "cluster",
+    "sentinel",
+    "geo",
+    "stream",
+    "bitmap",
+    "module"
+};
+
+const char *commandGroupStr(int index) {
+    return COMMAND_GROUP_STR[index];
+}
 """
     )
 
@@ -560,7 +610,7 @@ with open("%s/%s.c" % (srcdir, commands_filename), "w") as f:
         command.write_internal_structs(f)
 
     f.write("/* Main command table */\n")
-    f.write("struct redisCommand redisCommandTable[] = {\n")
+    f.write("struct COMMAND_STRUCT redisCommandTable[] = {\n")
     curr_group = None
     for command in command_list:
         if curr_group != command.group:

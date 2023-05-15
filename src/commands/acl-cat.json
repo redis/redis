@@ -1,6 +1,6 @@
 {
     "CAT": {
-        "summary": "List the ACL categories or the commands inside a category",
+        "summary": "Lists the ACL categories, or the commands inside a category.",
         "complexity": "O(1) since the categories and commands are a fixed set.",
         "group": "server",
         "since": "6.0.0",
@@ -17,14 +17,14 @@
             "anyOf": [
                 {
                     "type": "array",
-                    "description": "In case `categoryname` was not given, a list of existing ACL categories",
+                    "description": "In case `category` was not given, a list of existing ACL categories",
                     "items": {
                         "type": "string"
                     }
                 },
                 {
                     "type": "array",
-                    "description": "In case `categoryname` was given, list of commands that fall under the provided ACL category",
+                    "description": "In case `category` was given, list of commands that fall under the provided ACL category",
                     "items": {
                         "type": "string"
                     }
@@ -33,7 +33,7 @@
         },
         "arguments": [
             {
-                "name": "categoryname",
+                "name": "category",
                 "type": "string",
                 "optional": true
             }

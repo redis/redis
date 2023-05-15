@@ -1,6 +1,6 @@
 {
     "ZCARD": {
-        "summary": "Get the number of members in a sorted set",
+        "summary": "Returns the number of members in a sorted set.",
         "complexity": "O(1)",
         "group": "sorted_set",
         "since": "1.2.0",
