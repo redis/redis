@@ -3830,8 +3830,23 @@ static void moduleUnsubscribeAllChannels(RedisModule *module, RedisModulePubSubM
  * 
  * The callback registered would be invoked on each message published to a given channel.
  */
-void RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback, int sharded) {
+int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback, int sharded) {
     RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(sharded);
+
+    if (sharded && server.cluster_enabled) {
+        const char *cmdname = "SSUBSCRIBE";
+        int argc = 2;
+        int error_code;
+        robj **argv = zmalloc(argc * sizeof(robj*));
+        argv[0] = shared.ssubscribebulk;
+        argv[1] = channel;
+        client *c = moduleAllocTempClient(NULL);
+        c->cmd = c->lastcmd = c->realcmd = lookupCommandByCString((char*)cmdname);
+        if (getNodeByQuery(c, c->cmd, c->argv, c->argc, NULL, &error_code) != server.cluster->myself) {
+            errno = EPERM;
+            return REDISMODULE_ERR;
+        }
+    }
 
     dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, ctx->module);
     RedisModuleChannelSubscriber *moduleChannelSubscriber;
@@ -3849,7 +3864,7 @@ void RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redi
 
     if (moduleChannelSubscriber->all_channels || listSearchKey(moduleChannelSubscriber->subscriptions, channel)) {
         moduleChannelSubscriber->subscribe_callback = callback;
-        return;
+        return REDISMODULE_OK;
     }
 
     /* Add the channel to the list of subscriptions. */
@@ -3870,7 +3885,7 @@ void RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, Redi
 
     serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, (char *)channelToAdd->ptr);
 
-    return;
+    return REDISMODULE_OK;
 }
 
 /**
