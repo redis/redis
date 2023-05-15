@@ -327,12 +327,7 @@ void freeReplicaReferencedReplBuffer(client *replica) {
  * all replica clients use replication buffers collectively, this function replace
  * 'addReply*', 'feedReplicationBacklog' for replicas and replication backlog,
  * First we add buffer into global replication buffer block list, and then
- * update replica / replication-backlog referenced node and block position.
- * 
- * Caller is responsible for trimming the replication backlog. It is important to trim
- * after adding replication data to keep the backlog size close to repl_backlog_size
- * in the common case. See comments in freeMemoryGetNotCountedMemory() for details on
- * replication backlog memory tracking. */
+ * update replica / replication-backlog referenced node and block position. */
 void feedReplicationBuffer(char *s, size_t len) {
     static long long repl_block_id = 0;
 
@@ -423,6 +418,12 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
         if (add_new_block) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
+
+            /* It is important to trim after adding replication data to keep the backlog size close to
+            * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
+            * unnecessary trimming attempts when small amounts of data are added. See comments in
+            * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
+            incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
         }
     }
 }
@@ -514,9 +515,6 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         feedReplicationBufferWithObject(argv[j]);
         feedReplicationBuffer(aux+len+1,2);
     }
-
-    /* Trim the replication backlog after feeding the entire command. */
-    incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
 }
 
 /* This is a debugging function that gets called when we detect something
@@ -572,7 +570,6 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
          * replication stream. */
         prepareReplicasToWrite();
         feedReplicationBuffer(buf,buflen);
-        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
 }
 
