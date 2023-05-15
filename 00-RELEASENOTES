@@ -12,6 +12,60 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 7.2 RC2   Released Mon May 15 12:00:00 IST 2023
+================================================================================
+
+Upgrade urgency LOW: This is the second Release Candidate for Redis 7.2.
+
+INFO fields and introspection changes
+=====================================
+
+* Add a few low level event loop metrics to help diagnose latency (#11963)
+
+Performance and resource utilization improvements
+=================================================
+
+* Minor performance improvement to SADD and HSET (#12019)
+
+Platform / toolchain support related changes
+=================================================
+
+* Upgrade to Jemalloc 5.3.0, resolves a rare fork child hang (#12115)
+* Fix a compiler fortification induced crash when used with link time optimizations (#11982)
+* Fix local clients detection, 127.*.*.* instead of 127.0.0.1 (#11664)
+* Report AOF failure status to systemd in shutdown (#12065)
+
+Changes in CLI tools
+====================
+
+* redis-cli: Reimplement and improve help hints based on actual command arg docs (#10515)
+* redis-cli: Add option --count for tuning SCAN based features (#12042)
+* redis-benchmark: Add --seed option to seed the random number generator (#11945)
+
+Module API changes
+==================
+
+* Add RM_RdbLoad and RM_RdbSave APIs (#11852)
+* Add RM_ReplyWithErrorFormat that can support format string (#11923)
+* Fix: Delete empty key when RM_ZsetAdd, RM_ZsetIncrby, RM_StreamAdd fail (#12129)
+
+Bug Fixes
+=========
+
+* LPOS with RANK set to LONG_MIN returning wrong result (#12167)
+* Avoid unnecessary full sync after master restart in a rare case (#12088)
+* Iterate clients fairly when processing background chores (#12025)
+* Avoid incorrect shrinking of query buffer when reading large data from clients (#12000)
+* Sentinel: Fix config rewrite error when old known-slave is used (#11775)
+* ACL: Disconnect pub-sub subscribers when revoking allchannels permission (#11992)
+* Add a missing fsync of AOF file in rare cases (#11973)
+
+Fixes for issues in previous releases of Redis 7.2
+--------------------------------------------------
+
+* Fix tracking of command duration metrics for MULTI, EVAL, WAIT and modules (#11970)
+
+================================================================================
 Redis 7.2 RC1   Released Wed Mar 22 12:00:00 IST 2023
 ================================================================================
 
@@ -200,28 +254,28 @@ A special thank you for the amount of work put into this release by:
 - Zhu Binbin
 - Guy Benoish
 - Oran Agra
-- Ran Shidlansik
 - sundb
+- Ran Shidlansik
 - Zhenwei Pi
 - Karthik Subbarao
 - Huang Zhw
 - Ping Xie
 - Madelyn Olson
 - Brennan Cathcart
-- Zhu Tian
+- Chen Tianjie
 - Slava Koyfman
+- Ozan Tezcan
+- Zhu Tian
 - Roshan Khatri
 - Shaya Potter
 - Moti Cohen
 - Arad Zilberstein
 - Wen Hui
-- Chen Tianjie
 - Basel Naamna
 - Mingyi Kang
 - Uri Yagelnik
 - Filipe Oliveira
 - Valentino Geron
-- Ozan Tezcan
 - Adi Pinsky
 - Li Changjun
 
