@@ -1,6 +1,6 @@
 {
     "HSETNX": {
-        "summary": "Set the value of a hash field, only if the field does not exist",
+        "summary": "Sets the value of a field in a hash only when the field doesn't exist.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",

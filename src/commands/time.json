@@ -1,6 +1,6 @@
 {
     "TIME": {
-        "summary": "Return the current server time",
+        "summary": "Returns the server time.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.6.0",

@@ -1,6 +1,6 @@
 {
     "HELLO": {
-        "summary": "Handshake with Redis",
+        "summary": "Handshakes with the Redis server.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "6.0.0",

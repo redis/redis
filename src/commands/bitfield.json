@@ -1,6 +1,6 @@
 {
     "BITFIELD": {
-        "summary": "Perform arbitrary bitfield integer operations on strings",
+        "summary": "Performs arbitrary bitfield integer operations on strings.",
         "complexity": "O(1) for each subcommand specified",
         "group": "bitmap",
         "since": "3.2.0",

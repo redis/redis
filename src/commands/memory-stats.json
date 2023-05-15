@@ -1,6 +1,6 @@
 {
     "STATS": {
-        "summary": "Show memory usage details",
+        "summary": "Returns details about memory usage.",
         "complexity": "O(1)",
         "group": "server",
         "since": "4.0.0",

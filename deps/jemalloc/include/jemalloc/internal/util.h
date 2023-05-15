@@ -62,6 +62,62 @@ get_errno(void) {
 #endif
 }
 
+JEMALLOC_ALWAYS_INLINE void
+util_assume(bool b) {
+	if (!b) {
+		unreachable();
+	}
+}
+
+/* ptr should be valid. */
+JEMALLOC_ALWAYS_INLINE void
+util_prefetch_read(void *ptr) {
+	/*
+	 * This should arguably be a config check; but any version of GCC so old
+	 * that it doesn't support __builtin_prefetch is also too old to build
+	 * jemalloc.
+	 */
+#ifdef __GNUC__
+	if (config_debug) {
+		/* Enforce the "valid ptr" requirement. */
+		*(volatile char *)ptr;
+	}
+	__builtin_prefetch(ptr, /* read or write */ 0, /* locality hint */ 3);
+#else
+	*(volatile char *)ptr;
+#endif
+}
+
+JEMALLOC_ALWAYS_INLINE void
+util_prefetch_write(void *ptr) {
+#ifdef __GNUC__
+	if (config_debug) {
+		*(volatile char *)ptr;
+	}
+	/*
+	 * The only difference from the read variant is that this has a 1 as the
+	 * second argument (the write hint).
+	 */
+	__builtin_prefetch(ptr, 1, 3);
+#else
+	*(volatile char *)ptr;
+#endif
+}
+
+JEMALLOC_ALWAYS_INLINE void
+util_prefetch_read_range(void *ptr, size_t sz) {
+	for (size_t i = 0; i < sz; i += CACHELINE) {
+		util_prefetch_read((void *)((uintptr_t)ptr + i));
+	}
+}
+
+JEMALLOC_ALWAYS_INLINE void
+util_prefetch_write_range(void *ptr, size_t sz) {
+	for (size_t i = 0; i < sz; i += CACHELINE) {
+		util_prefetch_write((void *)((uintptr_t)ptr + i));
+	}
+}
+
 #undef UTIL_INLINE
 
 #endif /* JEMALLOC_INTERNAL_UTIL_H */

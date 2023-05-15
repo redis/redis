@@ -1,6 +1,6 @@
 {
     "HRANDFIELD": {
-        "summary": "Get one or multiple random fields from a hash",
+        "summary": "Returns one or more random fields from a hash.",
         "complexity": "O(N) where N is the number of fields returned",
         "group": "hash",
         "since": "6.2.0",

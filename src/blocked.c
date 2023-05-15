@@ -114,6 +114,7 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_err
         updateCommandLatencyHistogram(&(c->lastcmd->latency_histogram), total_cmd_duration*1000);
     /* Log the command into the Slow log if needed. */
     slowlogPushCurrentCommand(c, c->lastcmd, total_cmd_duration);
+    c->duration = 0;
     /* Log the reply duration event. */
     latencyAddSampleIfNeeded("command-unblocking",reply_us/1000);
 }
@@ -649,7 +650,7 @@ static void unblockClientOnKey(client *c, robj *key) {
          * to run atomically, this is why we must enter the execution unit here before
          * running the command, and exit the execution unit after calling the unblock handler (if exists).
          * Notice that we also must set the current client so it will be available
-         * when we will try to send the the client side caching notification (done on 'afterCommand'). */
+         * when we will try to send the client side caching notification (done on 'afterCommand'). */
         client *old_client = server.current_client;
         server.current_client = c;
         enterExecutionUnit(1, 0);

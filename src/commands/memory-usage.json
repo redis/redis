@@ -1,6 +1,6 @@
 {
     "USAGE": {
-        "summary": "Estimate the memory usage of a key",
+        "summary": "Estimates the memory usage of a key.",
         "complexity": "O(N) where N is the number of samples.",
         "group": "server",
         "since": "4.0.0",

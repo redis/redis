@@ -1,6 +1,6 @@
 {
     "PEXPIREAT": {
-        "summary": "Set the expiration for a key as a UNIX timestamp specified in milliseconds",
+        "summary": "Sets the expiration time of a key to a Unix milliseconds timestamp.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "2.6.0",

@@ -1,6 +1,6 @@
 {
     "GETKEYS": {
-        "summary": "Extract keys given a full Redis command",
+        "summary": "Extracts the key names from an arbitrary command.",
         "complexity": "O(N) where N is the number of arguments to the command",
         "group": "server",
         "since": "2.8.13",

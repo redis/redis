@@ -1,6 +1,6 @@
 {
     "LOG": {
-        "summary": "List latest events denied because of ACLs in place",
+        "summary": "Lists recent security events generated due to ACL rules.",
         "complexity": "O(N) with N being the number of entries shown.",
         "group": "server",
         "since": "6.0.0",

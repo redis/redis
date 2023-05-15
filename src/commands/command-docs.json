@@ -1,6 +1,6 @@
 {
     "DOCS": {
-        "summary": "Get array of specific Redis command documentation",
+        "summary": "Returns documentary information about one, multiple or all commands.",
         "complexity": "O(N) where N is the number of commands to look up",
         "group": "server",
         "since": "7.0.0",

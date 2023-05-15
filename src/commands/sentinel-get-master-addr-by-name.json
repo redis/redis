@@ -1,6 +1,6 @@
 {
     "GET-MASTER-ADDR-BY-NAME": {
-        "summary": "Get port and address of a master",
+        "summary": "Returns the port and address of a master Redis instance.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "2.8.4",

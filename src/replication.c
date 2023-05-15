@@ -55,7 +55,7 @@ int cancelReplicationHandshake(int reconnect);
 int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
-static ConnectionType *connTypeOfReplication() {
+static ConnectionType *connTypeOfReplication(void) {
     if (server.tls_replication) {
         return connectionTypeTls();
     }
@@ -1793,7 +1793,7 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
  * master-replica synchronization: if it fails after multiple attempts
  * the replica cannot be considered reliable and exists with an
  * error. */
-void restartAOFAfterSYNC() {
+void restartAOFAfterSYNC(void) {
     unsigned int tries, max_tries = 10;
     for (tries = 0; tries < max_tries; ++tries) {
         if (startAppendOnly() == C_OK) break;
@@ -1810,7 +1810,7 @@ void restartAOFAfterSYNC() {
     }
 }
 
-static int useDisklessLoad() {
+static int useDisklessLoad(void) {
     /* compute boolean decision to use diskless load */
     int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
@@ -1849,7 +1849,7 @@ void disklessLoadDiscardTempDb(redisDb *tempDb) {
  * we have no way to incrementally feed our replicas after that.
  * We want our replicas to resync with us as well, if we have any sub-replicas.
  * This is useful on readSyncBulkPayload in places where we just finished transferring db. */
-void replicationAttachToNewMaster() { 
+void replicationAttachToNewMaster(void) { 
     /* Replica starts to apply data from new master, we must discard the cached
      * master structure. */
     serverAssert(server.master == NULL);
@@ -3606,6 +3606,7 @@ void unblockClientWaitingReplicas(client *c) {
     listNode *ln = listSearchKey(server.clients_waiting_acks,c);
     serverAssert(ln != NULL);
     listDelNode(server.clients_waiting_acks,ln);
+    updateStatsOnUnblock(c, 0, 0, 0);
 }
 
 /* Check if there are clients blocked in WAIT or WAITAOF that can be unblocked
@@ -3992,7 +3993,7 @@ static client *findReplica(char *host, int port) {
     return NULL;
 }
 
-const char *getFailoverStateString() {
+const char *getFailoverStateString(void) {
     switch(server.failover_state) {
         case NO_FAILOVER: return "no-failover";
         case FAILOVER_IN_PROGRESS: return "failover-in-progress";
@@ -4004,7 +4005,7 @@ const char *getFailoverStateString() {
 /* Resets the internal failover configuration, this needs
  * to be called after a failover either succeeds or fails
  * as it includes the client unpause. */
-void clearFailoverState() {
+void clearFailoverState(void) {
     server.failover_end_time = 0;
     server.force_failover = 0;
     zfree(server.target_replica_host);

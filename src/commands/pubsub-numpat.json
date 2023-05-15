@@ -1,6 +1,6 @@
 {
     "NUMPAT": {
-        "summary": "Get the count of unique patterns pattern subscriptions",
+        "summary": "Returns a count of unique pattern subscriptions.",
         "complexity": "O(1)",
         "group": "pubsub",
         "since": "2.8.0",

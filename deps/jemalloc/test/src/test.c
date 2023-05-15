@@ -87,8 +87,8 @@ test_fail(const char *format, ...) {
 }
 
 static const char *
-test_status_string(test_status_t test_status) {
-	switch (test_status) {
+test_status_string(test_status_t current_status) {
+	switch (current_status) {
 	case test_status_pass: return "pass";
 	case test_status_skip: return "skip";
 	case test_status_fail: return "fail";

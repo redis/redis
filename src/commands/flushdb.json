@@ -1,6 +1,6 @@
 {
     "FLUSHDB": {
-        "summary": "Remove all keys from the current database",
+        "summary": "Remove all keys from the current database.",
         "complexity": "O(N) where N is the number of keys in the selected database",
         "group": "server",
         "since": "1.0.0",

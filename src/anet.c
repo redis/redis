@@ -697,3 +697,9 @@ int anetSetSockMarkId(char *err, int fd, uint32_t id) {
     return ANET_OK;
 #endif
 }
+
+int anetIsFifo(char *filepath) {
+    struct stat sb;
+    if (stat(filepath, &sb) == -1) return 0;
+    return S_ISFIFO(sb.st_mode);
+}

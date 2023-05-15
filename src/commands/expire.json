@@ -1,6 +1,6 @@
 {
     "EXPIRE": {
-        "summary": "Set a key's time to live in seconds",
+        "summary": "Sets the expiration time of a key in seconds.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",

@@ -1,6 +1,6 @@
 {
     "BZPOPMAX": {
-        "summary": "Remove and return the member with the highest score from one or more sorted sets, or block until one is available",
+        "summary": "Removes and returns the member with the highest score from one or more sorted sets. Blocks until a member available otherwise.  Deletes the sorted set if the last element was popped.",
         "complexity": "O(log(N)) with N being the number of elements in the sorted set.",
         "group": "sorted_set",
         "since": "5.0.0",

@@ -1,6 +1,6 @@
 {
     "LOAD": {
-        "summary": "Load a module",
+        "summary": "Loads a module.",
         "complexity": "O(1)",
         "group": "server",
         "since": "4.0.0",

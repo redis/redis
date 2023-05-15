@@ -61,7 +61,8 @@ TEST_MODULES = \
     publish.so \
     usercall.so \
     postnotifications.so \
-    moduleauthtwo.so
+    moduleauthtwo.so \
+    rdbloadsave.so
 
 .PHONY: all
 

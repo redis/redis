@@ -1,6 +1,6 @@
 {
     "DISCARD": {
-        "summary": "Discard all commands issued after MULTI",
+        "summary": "Discards a transaction.",
         "complexity": "O(N), when N is the number of queued commands",
         "group": "transactions",
         "since": "2.0.0",
