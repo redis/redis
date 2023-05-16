@@ -420,9 +420,9 @@ void feedReplicationBuffer(char *s, size_t len) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
 
             /* It is important to trim after adding replication data to keep the backlog size close to
-            * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
-            * unnecessary trimming attempts when small amounts of data are added. See comments in
-            * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
+             * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
+             * unnecessary trimming attempts when small amounts of data are added. See comments in
+             * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
             incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
         }
     }
