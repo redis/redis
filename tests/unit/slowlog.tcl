@@ -50,7 +50,6 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {} {needs:debug}
 
     test {SLOWLOG - logged entry ACL and dbindex check} {
-        r SELECT 9
         r config set slowlog-log-slower-than 0
         r slowlog reset
         r set k1 0
