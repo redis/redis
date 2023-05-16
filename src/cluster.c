@@ -2379,9 +2379,6 @@ uint32_t getHostnamePingExtSize(void) {
     return getAlignedPingExtSize(sdslen(myself->hostname) + 1);
 }
 
-<<<<<<< HEAD
-uint32_t getShardIdPingExtSize(void) {
-=======
 uint32_t getHumanNodenamePingExtSize() {
     if (sdslen(myself->human_nodename) == 0) {
         return 0;
@@ -2389,8 +2386,7 @@ uint32_t getHumanNodenamePingExtSize() {
     return getAlignedPingExtSize(sdslen(myself->human_nodename) + 1);
 }
 
-uint32_t getShardIdPingExtSize() {
->>>>>>> 313ff2b3c (update codes for new requirement)
+uint32_t getShardIdPingExtSize(void) {
     return getAlignedPingExtSize(sizeof(clusterMsgPingExtShardId));
 }
 
