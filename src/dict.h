@@ -56,6 +56,8 @@ typedef struct dictType {
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
     void (*rehashingStarted)(dict *d);
+    size_t (*keyLen)(const void *key);
+    size_t (*keyToBytes)(unsigned char *buf, const void *key, unsigned char *header_size);
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -68,6 +70,7 @@ typedef struct dictType {
     unsigned int keys_are_odd:1;
     /* TODO: Add a 'keys_are_even' flag and use a similar optimization if that
      * flag is set. */
+    unsigned int embedded_entry:1;
 } dictType;
 
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
@@ -116,6 +119,8 @@ typedef struct {
     dictDefragAllocFunction *defragKey;   /* Defrag-realloc keys (optional) */
     dictDefragAllocFunction *defragVal;   /* Defrag-realloc values (optional) */
 } dictDefragFunctions;
+
+static const int ENTRY_METADATA_BYTES = 1;
 
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_EXP      2
