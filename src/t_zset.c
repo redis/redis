@@ -1165,6 +1165,37 @@ unsigned long zsetLength(const robj *zobj) {
     return length;
 }
 
+/* Factory method to return a zset.
+ *
+ * The size hint indicates approximately how many items will be added which is
+ * used to determine the initial representation. */
+robj *zsetTypeCreate(sds value, size_t size_hint) {
+    if (size_hint <= server.zset_max_listpack_entries ||
+        sdslen(value) <= server.zset_max_listpack_value)
+    {
+        return createZsetListpackObject();
+    }
+
+    robj *zobj = createZsetObject();
+    zset *zs = zobj->ptr;
+    dictExpand(zs->dict, size_hint);
+    return zobj;
+}
+
+/* Check if the existing zset should be converted to another encoding based off the
+ * the size hint. */
+void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
+        size_hint > server.zset_max_listpack_entries)
+    {
+        zsetConvert(zobj, OBJ_ENCODING_SKIPLIST);
+        if (size_hint > zsetLength(zobj)) {
+            zset *zs = zobj->ptr;
+            dictExpand(zs->dict, size_hint);
+        }
+    }
+}
+
 void zsetConvert(robj *zobj, int encoding) {
     zset *zs;
     zskiplistNode *node, *next;
@@ -1749,14 +1780,10 @@ void zaddGenericCommand(client *c, int flags) {
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
-        if (server.zset_max_listpack_entries == 0 ||
-            server.zset_max_listpack_value < sdslen(c->argv[scoreidx+1]->ptr))
-        {
-            zobj = createZsetObject();
-        } else {
-            zobj = createZsetListpackObject();
-        }
+        zobj = zsetTypeCreate(c->argv[scoreidx+1]->ptr, elements);
         dbAdd(c->db,key,zobj);
+    } else {
+        zsetTypeMaybeConvert(zobj, elements);
     }
 
     for (j = 0; j < elements; j++) {
