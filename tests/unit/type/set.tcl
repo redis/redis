@@ -109,13 +109,43 @@ start_server {
         assert_equal {1} [r smismember myset 213244124402402314402033402]
     }
 
-    test "SADD overflows the maximum allowed integers in an intset" {
+foreach type {single multiple} {
+    test "SADD overflows the maximum allowed integers in an intset - $type" {
         r del myset
-        for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+
+        if {$type == "single"} {
+            for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+        } elseif {$type == "multiple"} {
+            set args {}
+            for {set i 0} {$i < 512} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        }
+
         assert_encoding intset myset
+        assert_equal 512 [r scard myset]
         assert_equal 1 [r sadd myset 512]
         assert_encoding hashtable myset
     }
+
+    test "SADD overflows the maximum allowed elements in a listpack - $type" {
+        r del myset
+
+        if {$type == "single"} {
+            r sadd myset a
+            for {set i 0} {$i < 127} {incr i} { r sadd myset $i }
+        } elseif {$type == "multiple"} {
+            set args {}
+            lappend args a
+            for {set i 0} {$i < 127} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        }
+
+        assert_encoding listpack myset
+        assert_equal 128 [r scard myset]
+        assert_equal 1 [r sadd myset b]
+        assert_encoding hashtable myset
+    }
+}
 
     test {Variadic SADD} {
         r del myset

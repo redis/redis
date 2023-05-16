@@ -44,13 +44,13 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
  * The size hint indicates approximately how many items will be added which is
  * used to determine the initial representation. */
 robj *setTypeCreate(sds value, size_t size_hint) {
-    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint < server.set_max_intset_entries)
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint <= server.set_max_intset_entries)
         return createIntsetObject();
-    if (size_hint < server.set_max_listpack_entries)
+    if (size_hint <= server.set_max_listpack_entries)
         return createSetListpackObject();
 
     /* We may oversize the set by using the hint if the hint is not accurate,
-     * but we will assume this is accpetable to maximize performance. */
+     * but we will assume this is acceptable to maximize performance. */
     robj *o = createSetObject();
     dictExpand(o->ptr, size_hint);
     return o;
@@ -59,6 +59,7 @@ robj *setTypeCreate(sds value, size_t size_hint) {
 /* Check if the existing set should be converted to another encoding based off the
  * the size hint. */
 void setTypeMaybeConvert(robj *set, size_t size_hint) {
+    /* Because this is an existing set, there will be at least one element, so we use >= */
     if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint >= server.set_max_listpack_entries)
         || (set->encoding == OBJ_ENCODING_INTSET && size_hint >= server.set_max_intset_entries))
     {
