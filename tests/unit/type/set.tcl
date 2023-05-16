@@ -109,13 +109,21 @@ start_server {
         assert_equal {1} [r smismember myset 213244124402402314402033402]
     }
 
-foreach type {single multiple} {
+foreach type {single multiple single_multiple} {
     test "SADD overflows the maximum allowed integers in an intset - $type" {
         r del myset
 
         if {$type == "single"} {
+            # All are single sadd commands.
             for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
         } elseif {$type == "multiple"} {
+            # One sadd command to add all elements.
+            set args {}
+            for {set i 0} {$i < 512} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        } elseif {$type == "single_multiple"} {
+            # First one sadd adds an element (creates a key) and then one sadd adds all elements.
+            r sadd myset 1
             set args {}
             for {set i 0} {$i < 512} {incr i} { lappend args $i }
             r sadd myset {*}$args
@@ -131,9 +139,18 @@ foreach type {single multiple} {
         r del myset
 
         if {$type == "single"} {
+            # All are single sadd commands.
             r sadd myset a
             for {set i 0} {$i < 127} {incr i} { r sadd myset $i }
         } elseif {$type == "multiple"} {
+            # One sadd command to add all elements.
+            set args {}
+            lappend args a
+            for {set i 0} {$i < 127} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        } elseif {$type == "single_multiple"} {
+            # First one sadd adds an element (creates a key) and then one sadd adds all elements.
+            r sadd myset a
             set args {}
             lappend args a
             for {set i 0} {$i < 127} {incr i} { lappend args $i }
