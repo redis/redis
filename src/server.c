@@ -717,22 +717,24 @@ int allPersistenceDisabled(void) {
 
 /* ======================= Cron: called every 100 ms ======================== */
 
-/* Add a sample to the operations per second array of samples. */
-void trackInstantaneousMetric(int metric, long long current_reading) {
-    long long now = mstime();
-    long long t = now - server.inst_metric[metric].last_sample_time;
-    long long ops = current_reading -
-                    server.inst_metric[metric].last_sample_count;
-    long long ops_sec;
-
-    ops_sec = t > 0 ? (ops*1000/t) : 0;
-
-    server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
-        ops_sec;
-    server.inst_metric[metric].idx++;
-    server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
-    server.inst_metric[metric].last_sample_time = now;
-    server.inst_metric[metric].last_sample_count = current_reading;
+/* Add a sample to the instantaneous metric. This function computes the quotient
+ * of the increment of value and base, which is useful to record operation count
+ * per second, or the average time consumption of an operation.
+ * 
+ * current_value - The dividend
+ * current_base - The divisor
+ * */
+void trackInstantaneousMetric(int metric, long long current_value, long long current_base, long long factor) {
+    if (server.inst_metric[metric].last_sample_base > 0) {
+        long long base = current_base - server.inst_metric[metric].last_sample_base;
+        long long value = current_value - server.inst_metric[metric].last_sample_value;
+        long long avg = base > 0 ? (value * factor / base) : 0;
+        server.inst_metric[metric].samples[server.inst_metric[metric].idx] = avg;
+        server.inst_metric[metric].idx++;
+        server.inst_metric[metric].idx %= STATS_METRIC_SAMPLES;
+    }
+    server.inst_metric[metric].last_sample_base = current_base;
+    server.inst_metric[metric].last_sample_value = current_value;
 }
 
 /* Return the mean of all the samples. */
@@ -1308,6 +1310,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* for debug purposes: skip actual cron work if pause_cron is on */
     if (server.pause_cron) return 1000/server.hz;
 
+    monotime cron_start = getMonotonicUs();
+
     run_with_period(100) {
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
@@ -1315,16 +1319,21 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
-
-        trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
-        trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
-                stat_net_input_bytes + stat_net_repl_input_bytes);
-        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
-                stat_net_output_bytes + stat_net_repl_output_bytes);
-        trackInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION,
-                                 stat_net_repl_input_bytes);
-        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION,
-                                 stat_net_repl_output_bytes);
+        monotime current_time = getMonotonicUs();
+        long long factor = 1000000;  // us
+        trackInstantaneousMetric(STATS_METRIC_COMMAND, server.stat_numcommands, current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_INPUT, stat_net_input_bytes + stat_net_repl_input_bytes,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT, stat_net_output_bytes + stat_net_repl_output_bytes,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION, stat_net_repl_input_bytes, current_time,
+                                 factor);
+        trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION, stat_net_repl_output_bytes,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_EL_CYCLE, server.duration_stats[EL_DURATION_TYPE_EL].cnt,
+                                 current_time, factor);
+        trackInstantaneousMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].sum,
+                                 server.duration_stats[EL_DURATION_TYPE_EL].cnt, 1);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -1537,6 +1546,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                           &ei);
 
     server.cronloops++;
+
+    server.el_cron_duration = getMonotonicUs() - cron_start;
+
     return 1000/server.hz;
 }
 
@@ -1672,6 +1684,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData());
 
+    /* Record cron time in beforeSleep, which is the sum of active-expire, active-defrag and all other
+     * tasks done by cron and beforeSleep, but excluding read, write and AOF, that are counted by other
+     * sets of metrics. */
+    monotime cron_start_time_before_aof = getMonotonicUs();
+
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
@@ -1738,11 +1755,19 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * since the unblocked clients may write data. */
     handleClientsBlockedOnKeys();
 
+    /* Record time consumption of AOF writing. */
+    monotime aof_start_time = getMonotonicUs();
+    /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
+    monotime duration_before_aof = aof_start_time - cron_start_time_before_aof;
+
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
      * in case of appendfsync=always. */
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
         flushAppendOnlyFile(0);
+
+    /* Record time consumption of AOF writing. */
+    durationAddSample(EL_DURATION_TYPE_AOF, getMonotonicUs() - aof_start_time);
 
     /* Update the fsynced replica offset.
      * If an initial rewrite is in progress then not all data is guaranteed to have actually been
@@ -1756,6 +1781,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWritesUsingThreads();
 
+    /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing above. */
+    monotime cron_start_time_after_write = getMonotonicUs();
+
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
@@ -1766,6 +1794,25 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Disconnect some clients if they are consuming too much memory. */
     evictClients();
+
+    /* Record cron time in beforeSleep. */
+    monotime duration_after_write = getMonotonicUs() - cron_start_time_after_write;
+
+    /* Record eventloop latency. */
+    if (server.el_start > 0) {
+        monotime el_duration = getMonotonicUs() - server.el_start;
+        durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+    }
+    server.el_cron_duration += duration_before_aof + duration_after_write;
+    durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
+    server.el_cron_duration = 0;
+    /* Record max command count per cycle. */
+    if (server.stat_numcommands > server.el_cmd_cnt_start) {
+        long long el_command_cnt = server.stat_numcommands - server.el_cmd_cnt_start;
+        if (el_command_cnt > server.el_cmd_cnt_max) {
+            server.el_cmd_cnt_max = el_command_cnt;
+        }
+    }
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -1797,6 +1844,10 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
+        /* Set the eventloop start time. */
+        server.el_start = getMonotonicUs();
+        /* Set the eventloop command count at start. */
+        server.el_cmd_cnt_start = server.stat_numcommands;
     }
 
     /* Update the time cache. */
@@ -2517,8 +2568,8 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_writes_processed, 0);
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
-        server.inst_metric[j].last_sample_time = mstime();
-        server.inst_metric[j].last_sample_count = 0;
+        server.inst_metric[j].last_sample_base = 0;
+        server.inst_metric[j].last_sample_value = 0;
         memset(server.inst_metric[j].samples,0,
             sizeof(server.inst_metric[j].samples));
     }
@@ -2535,6 +2586,8 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
+    memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
+    server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
 }
 
@@ -3150,7 +3203,7 @@ struct redisCommand *lookupCommandBySdsLogic(dict *commands, sds s) {
     sds *strings = sdssplitlen(s,sdslen(s),"|",1,&argc);
     if (strings == NULL)
         return NULL;
-    if (argc > 2) {
+    if (argc < 1 || argc > 2) {
         /* Currently we support just one level of subcommands */
         sdsfreesplitres(strings,argc);
         return NULL;
@@ -3559,6 +3612,8 @@ void call(client *c, int flags) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
+        if (server.execution_nesting == 0)
+            durationAddSample(EL_DURATION_TYPE_CMD, duration);
     }
 
     /* Log the command into the Slow log if needed.
@@ -5915,7 +5970,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "io_threaded_reads_processed:%lld\r\n"
             "io_threaded_writes_processed:%lld\r\n"
             "reply_buffer_shrinks:%lld\r\n"
-            "reply_buffer_expands:%lld\r\n",
+            "reply_buffer_expands:%lld\r\n"
+            "eventloop_cycles:%llu\r\n"
+            "eventloop_duration_sum:%llu\r\n"
+            "eventloop_duration_cmd_sum:%llu\r\n"
+            "instantaneous_eventloop_cycles_per_sec:%llu\r\n"
+            "instantaneous_eventloop_duration_usec:%llu\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -5965,7 +6025,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_io_reads_processed,
             server.stat_io_writes_processed,
             server.stat_reply_buffer_shrinks,
-            server.stat_reply_buffer_expands);
+            server.stat_reply_buffer_expands,
+            server.duration_stats[EL_DURATION_TYPE_EL].cnt,
+            server.duration_stats[EL_DURATION_TYPE_EL].sum,
+            server.duration_stats[EL_DURATION_TYPE_CMD].sum,
+            getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
+            getInstantaneousMetric(STATS_METRIC_EL_DURATION));
         info = genRedisInfoStringACLStats(info);
     }
 
@@ -6215,6 +6280,21 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                                   0, /* not a crash report */
                                   sections);
     }
+
+    if (dictFind(section_dict, "debug") != NULL) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+        "# Debug\r\n"
+        "eventloop_duration_aof_sum:%llu\r\n"
+        "eventloop_duration_cron_sum:%llu\r\n"
+        "eventloop_duration_max:%llu\r\n"
+        "eventloop_cmd_per_cycle_max:%lld\r\n",
+        server.duration_stats[EL_DURATION_TYPE_AOF].sum,
+        server.duration_stats[EL_DURATION_TYPE_CRON].sum,
+        server.duration_stats[EL_DURATION_TYPE_EL].max,
+        server.el_cmd_cnt_max);
+    }
+
     return info;
 }
 

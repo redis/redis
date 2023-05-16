@@ -170,7 +170,9 @@ struct hdr_histogram;
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
 #define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read to network during replication. */
 #define STATS_METRIC_NET_OUTPUT_REPLICATION 4   /* Bytes written to network during replication. */
-#define STATS_METRIC_COUNT 5
+#define STATS_METRIC_EL_CYCLE 5     /* Number of eventloop cycled. */
+#define STATS_METRIC_EL_DURATION 6  /* Eventloop duration. */
+#define STATS_METRIC_COUNT 7
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
@@ -1697,13 +1699,22 @@ struct redisServer {
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
-        long long last_sample_time; /* Timestamp of last sample in ms */
-        long long last_sample_count;/* Count in last sample */
+        long long last_sample_base;  /* The divisor of last sample window */
+        long long last_sample_value; /* The dividend of last sample window */
         long long samples[STATS_METRIC_SAMPLES];
         int idx;
     } inst_metric[STATS_METRIC_COUNT];
     long long stat_reply_buffer_shrinks; /* Total number of output buffer shrinks */
     long long stat_reply_buffer_expands; /* Total number of output buffer expands */
+    monotime el_start;
+    /* The following two are used to record the max number of commands executed in one eventloop.
+     * Note that commands in transactions are also counted. */
+    long long el_cmd_cnt_start;
+    long long el_cmd_cnt_max;
+    /* The sum of active-expire, active-defrag and all other tasks done by cron and beforeSleep,
+       but excluding read, write and AOF, which are counted by other sets of metrics. */
+    monotime el_cron_duration; 
+    durationStats duration_stats[EL_DURATION_TYPE_NUM];
 
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
