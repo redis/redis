@@ -38,8 +38,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op);
 
 /* Factory method to return a set that *can* hold "value". When the object has
- * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table.
+ * an integer-encodable value, an intset will be returned. Otherwise a listpack
+ * or a regular hash table.
  *
  * The size hint indicates approximately how many items will be added which is
  * used to determine the initial representation. */
