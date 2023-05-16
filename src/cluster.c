@@ -2379,7 +2379,7 @@ uint32_t getHostnamePingExtSize(void) {
     return getAlignedPingExtSize(sdslen(myself->hostname) + 1);
 }
 
-uint32_t getHumanNodenamePingExtSize() {
+uint32_t getHumanNodenamePingExtSize(void) {
     if (sdslen(myself->human_nodename) == 0) {
         return 0;
     }
