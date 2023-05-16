@@ -38,19 +38,19 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op);
 
 /* Factory method to return a set that *can* hold "value". When the object has
- * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table.
+ * an integer-encodable value, an intset will be returned. Otherwise a listpack
+ * or a regular hash table.
  *
  * The size hint indicates approximately how many items will be added which is
  * used to determine the initial representation. */
 robj *setTypeCreate(sds value, size_t size_hint) {
-    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint < server.set_max_intset_entries)
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint <= server.set_max_intset_entries)
         return createIntsetObject();
-    if (size_hint < server.set_max_listpack_entries)
+    if (size_hint <= server.set_max_listpack_entries)
         return createSetListpackObject();
 
     /* We may oversize the set by using the hint if the hint is not accurate,
-     * but we will assume this is accpetable to maximize performance. */
+     * but we will assume this is acceptable to maximize performance. */
     robj *o = createSetObject();
     dictExpand(o->ptr, size_hint);
     return o;
@@ -59,8 +59,8 @@ robj *setTypeCreate(sds value, size_t size_hint) {
 /* Check if the existing set should be converted to another encoding based off the
  * the size hint. */
 void setTypeMaybeConvert(robj *set, size_t size_hint) {
-    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint >= server.set_max_listpack_entries)
-        || (set->encoding == OBJ_ENCODING_INTSET && size_hint >= server.set_max_intset_entries))
+    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint > server.set_max_listpack_entries)
+        || (set->encoding == OBJ_ENCODING_INTSET && size_hint > server.set_max_intset_entries))
     {
         setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
     }
