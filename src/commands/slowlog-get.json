@@ -11,6 +11,10 @@
             [
                 "4.0.0",
                 "Added client IP address, port and name to the reply."
+            ],
+            [
+                "7.2.0",
+                "Added database index and acl username to the reply."
             ]
         ],
         "command_flags": [
@@ -28,8 +32,8 @@
             "uniqueItems": true,
             "items": {
                 "type": "array",
-                "minItems": 6,
-                "maxItems": 6,
+                "minItems": 8,
+                "maxItems": 8,
                 "items": [
                     {
                         "type": "integer",
@@ -59,6 +63,14 @@
                     {
                         "type": "string",
                         "description": "Client name if set via the CLIENT SETNAME command."
+                    },
+                    {
+                        "type": "integer",
+                        "description": "database index value which represents which database client executes the command."
+                    },
+                    {
+                        "type": "string",
+                        "description": "acl username."
                     }
                 ]
             }
