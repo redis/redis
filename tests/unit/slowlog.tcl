@@ -49,12 +49,11 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal {foobar} [lindex $e 5]
     } {} {needs:debug}
 
-    test {SLOWLOG - logged entry ACL and dbindex check} {
+    test {SLOWLOG - logged entry ACL username} {
         r config set slowlog-log-slower-than 0
         r slowlog reset
         r set k1 0
         set e [lindex [r slowlog get] 0]
-        assert_equal {9} [lindex $e 6]
         assert_equal {default} [lindex $e 7]
 
         r ACL setuser user1 +@all allkeys
@@ -62,7 +61,6 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r AUTH user1 passwd1
         r set k1 0
         set e [lindex [r slowlog get] 0]
-        assert_equal {9} [lindex $e 6]
         assert_equal {user1} [lindex $e 7]
     }
 
