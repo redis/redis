@@ -53,14 +53,18 @@ start_server {
         assert_equal {16 17} [lsort [r smembers myset]]
     }
 
-    test {SMISMEMBER against non set} {
+    test {SMISMEMBER SMEMBERS SCARD against non set} {
         r lpush mylist foo
         assert_error WRONGTYPE* {r smismember mylist bar}
+        assert_error WRONGTYPE* {r smembers mylist}
+        assert_error WRONGTYPE* {r scard mylist}
     }
 
-    test {SMISMEMBER non existing key} {
+    test {SMISMEMBER SMEMBERS SCARD against non existing key} {
         assert_equal {0} [r smismember myset1 foo]
         assert_equal {0 0} [r smismember myset1 foo bar]
+        assert_equal {} [r smembers myset1]
+        assert_equal {0} [r scard myset1]
     }
 
     test {SMISMEMBER requires one or more members} {
