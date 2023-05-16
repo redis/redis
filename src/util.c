@@ -107,8 +107,13 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
                 if (pattern[0] == '\\' && patternLen >= 2) {
                     pattern++;
                     patternLen--;
-                    if (pattern[0] == string[0])
-                        match = 1;
+                    if (!nocase) {
+                        if (pattern[0] == string[0])
+                            match = 1;
+                    } else {
+                        if (tolower((int)pattern[0]) == tolower((int)string[0]))
+                            match = 1;
+                    }
                 } else if (pattern[0] == ']') {
                     break;
                 } else if (patternLen == 0) {
@@ -1129,7 +1134,7 @@ int fsyncFileDir(const char *filename) {
         errno = save_errno;
         return -1;
     }
-    
+
     close(dir_fd);
     return 0;
 }
@@ -1427,5 +1432,3 @@ int utilTest(int argc, char **argv, int flags) {
     return 0;
 }
 #endif
-
-
