@@ -312,6 +312,10 @@ typedef uint64_t RedisModuleTimerID;
 /* RM_GetClientFlags */
 #define REDISMODULE_CLIENT_FLAG_DIRTY_CAS (1<<0)   /* Watched keys modified. EXEC will fail. */
 #define REDISMODULE_CLIENT_FLAG_DIRTY_EXEC (1<<1)  /* EXEC will fail for errors while queueing */
+/* Next client flag, must be updated when adding new flags above!
+This flag should not be used directly by the module.
+ * Use RedisModule_GetClientFlagsAll instead. */
+#define _REDISMODULE_CLIENT_FLAGS_NEXT (1<<2)
 
 /* Definitions for RedisModule_SetCommandInfo. */
 
@@ -1318,6 +1322,7 @@ REDISMODULE_API RedisModuleClient * (*RedisModule_CreateModuleClient)(RedisModul
 REDISMODULE_API int (*RedisModule_FreeModuleClient)(RedisModuleCtx *ctx, RedisModuleClient *client) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetContextClient)(RedisModuleCtx *ctx, RedisModuleClient *client) REDISMODULE_ATTR;
 REDISMODULE_API uint64_t (*RedisModule_GetClientFlags)(RedisModuleClient *client) REDISMODULE_ATTR;
+REDISMODULE_API uint64_t (*RedisModule_GetClientFlagsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetClientUser)(RedisModuleClient *client, RedisModuleUser *user) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
@@ -1683,6 +1688,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(FreeModuleClient);
     REDISMODULE_GET_API(SetContextClient);
     REDISMODULE_GET_API(GetClientFlags);
+    REDISMODULE_GET_API(GetClientFlagsAll);
     REDISMODULE_GET_API(SetClientUser);
 
 

@@ -3376,7 +3376,7 @@ void postExecutionUnitOperations(void) {
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
  * The decision which counter to increment is done using the flags argument, options are:
- * * ERROR_COMMAND_REJECTED - update rejected_callsb
+ * * ERROR_COMMAND_REJECTED - update rejected_calls
  * * ERROR_COMMAND_FAILED - update failed_calls
  *
  * The function also reset the prev_err_count to make sure we will not count the same error
@@ -3769,6 +3769,19 @@ uint64_t getCommandFlags(client *c) {
     return cmd_flags;
 }
 
+int isMultiQueuedCommand(client *c) {
+    if (c->cmd->proc == execCommand ||
+    c->cmd->proc == discardCommand ||
+    c->cmd->proc == multiCommand ||
+    c->cmd->proc == watchCommand ||
+    c->cmd->proc == quitCommand ||
+    c->cmd->proc == resetCommand) {
+        return 0;
+    }
+
+    return 1;
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -4099,13 +4112,7 @@ int processCommand(client *c) {
     }
 
     /* Exec the command */
-    if (c->flags & CLIENT_MULTI &&
-        c->cmd->proc != execCommand &&
-        c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand &&
-        c->cmd->proc != watchCommand &&
-        c->cmd->proc != quitCommand &&
-        c->cmd->proc != resetCommand)
+    if (c->flags & CLIENT_MULTI && isMultiQueuedCommand(c))
     {
         queueMultiCommand(c, cmd_flags);
         addReply(c,shared.queued);

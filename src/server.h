@@ -2704,6 +2704,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
+int isMultiQueuedCommand(client *c);
 
 /* Redis object implementation */
 void decrRefCount(robj *o);

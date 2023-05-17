@@ -662,6 +662,8 @@ static void moduleFreeArgv(robj **argv, int argc) {
 }
 
 void moduleReleaseTempClient(client *c) {
+    serverAssert(!(c->flags & CLIENT_BLOCKED));
+
     if (c->flags & CLIENT_MODULE_PERSISTENT) {
         /* if a persistent client, only reset flags and free argv
          * don't reset client in general or return to pool */
@@ -669,22 +671,32 @@ void moduleReleaseTempClient(client *c) {
         moduleFreeArgv(c->argv, c->argc);
         c->argv = NULL;
         c->argc = 0;
-    } else {
-        if (moduleTempClientCount == moduleTempClientCap) {
-            moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap * 2 : 32;
-            moduleTempClients = zrealloc(moduleTempClients, sizeof(c) * moduleTempClientCap);
-        }
-        clearClientConnectionState(c);
-        listEmpty(c->reply);
-        c->reply_bytes = 0;
-        c->duration = 0;
-        resetClient(c);
-        c->bufpos = 0;
-        c->flags = CLIENT_MODULE;
-        c->user = NULL; /* Root user */
-        c->cmd = c->lastcmd = c->realcmd = NULL;
-        moduleTempClients[moduleTempClientCount++] = c;
+
+        return;
     }
+
+    if (moduleTempClientCount == moduleTempClientCap) {
+        moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap * 2 : 32;
+        moduleTempClients = zrealloc(moduleTempClients, sizeof(c) * moduleTempClientCap);
+    }
+
+    clearClientConnectionState(c);
+    listEmpty(c->reply);
+    c->reply_bytes = 0;
+    c->duration = 0;
+    resetClient(c);
+    c->bufpos = 0;
+    c->flags = CLIENT_MODULE;
+    c->user = NULL; /* Root user */
+    c->cmd = c->lastcmd = c->realcmd = NULL;
+
+    /* reset client stat that can persist */
+    pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeShardAllChannels(c, 0);
+    pubsubUnsubscribeAllPatterns(c,0);
+    freeClientMultiState(c);
+
+    moduleTempClients[moduleTempClientCount++] = c;
 }
 
 /* Create an empty key of the specified type. `key` must point to a key object
@@ -6010,8 +6022,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
 }
 
 /* Modifies the user that RM_Call will use (e.g. for ACL checks) */
-void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user)
-{
+void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
 
@@ -6020,8 +6031,7 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user)
  * between multiple RM_Calls.  This simulates a network connected
  * client and enables modules to use WATCH/MULTI/Exec transaction
  */
-RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx)
-{
+RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
     UNUSED(ctx);
 
     client *c = moduleAllocTempClient(NULL);
@@ -6033,8 +6043,7 @@ RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx)
     return rmc;
 }
 
-int RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client)
-{
+int RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client) {
     UNUSED(ctx);
 
     if (!client) return REDISMODULE_OK;
@@ -6054,8 +6063,7 @@ int RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client)
 /* Enables persistent clients to work with ACLs.  Requires using RM_Call with
  * the 'C' flag to check ACLs
  */
-void RM_SetClientUser(RedisModuleClient *client, RedisModuleUser *user)
-{
+void RM_SetClientUser(RedisModuleClient *client, RedisModuleUser *user) {
     if (user) {
         client->client->user = user->user;
     } else {
@@ -6066,14 +6074,12 @@ void RM_SetClientUser(RedisModuleClient *client, RedisModuleUser *user)
 /* Sets the persistent client object on the given context.  To unset the
  * client, call with the client seto NULL)
  */
-void RM_SetContextClient(RedisModuleCtx *ctx, RedisModuleClient *client)
-{
+void RM_SetContextClient(RedisModuleCtx *ctx, RedisModuleClient *client) {
     ctx->persistent_client = client;
 }
 
 /* Get the client flags that are exported to Redis Modules */
-uint64_t RM_GetClientFlags(RedisModuleClient *client)
-{
+uint64_t RM_GetClientFlags(RedisModuleClient *client) {
     uint64_t flags = 0;
 
     if (client->client->flags & CLIENT_DIRTY_CAS)
@@ -6082,6 +6088,23 @@ uint64_t RM_GetClientFlags(RedisModuleClient *client)
         flags |= REDISMODULE_CLIENT_FLAG_DIRTY_EXEC;
 
     return flags;
+}
+
+/**
+ * Returns the full ClientFlags mask, using the return value
+ * the module can check if a certain set of flags are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedFlags = RM_GetClientFlagsAll();
+ *        if (supportedFlags & REDISMODULE_CLIENT_FLAG_DIRTY_CAS) {
+ *              // REDISMODULE_CLIENT_FLAG_DIRTY_CAS is supported
+ *        } else{
+ *              // REDISMODULE_CLIENT_FLAG_DIRTY_CAS is not supported
+ *        }
+ */
+uint64_t RM_GetClientFlagsAll(void) {
+    return _REDISMODULE_CLIENT_FLAGS_NEXT-1;
 }
 
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
@@ -6564,16 +6587,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
-    if (ctx->persistent_client &&
-        c->flags & CLIENT_MULTI &&
-        c->cmd->proc != execCommand &&
-        c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand &&
-        c->cmd->proc != watchCommand &&
-        c->cmd->proc != quitCommand &&
-        c->cmd->proc != resetCommand) {
+    if (ctx->persistent_client && c->flags & CLIENT_MULTI && isMultiQueuedCommand(c)) {
         queueMultiCommand(c, cmd_flags);
-        reply = callReplyCreate(sdsdup(shared.ok->ptr), NULL, ctx);
+        reply = callReplyCreate(sdsdup(shared.queued->ptr), NULL, ctx);
         goto cleanup;
     }
 
@@ -6629,9 +6645,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 cleanup:
     if (reply) autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
     if (ctx->module) ctx->module->in_call--;
-    if (c) {
-        moduleReleaseTempClient(c);
-    }
+    if (c) moduleReleaseTempClient(c);
     return reply;
 }
 
@@ -13940,5 +13954,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(FreeModuleClient);
     REGISTER_API(SetContextClient);
     REGISTER_API(GetClientFlags);
+    REGISTER_API(GetClientFlagsAll);
     REGISTER_API(SetClientUser);
 }
