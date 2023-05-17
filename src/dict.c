@@ -655,6 +655,9 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);
     dictFreeVal(d, he);
+    /* Clear the embedded data */
+    if (entryIsEmbedded(he)) zfree(decodeEmbeddedEntry(he)->data);
+    /* Clear the dictEntry */
     if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
 }
 
