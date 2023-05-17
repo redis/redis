@@ -303,14 +303,17 @@ static void cliPushHandler(void *, void *);
 
 uint16_t crc16(const char *buf, int len);
 
-static long long ustime(void) {
-    struct timeval tv;
-    long long ust;
+static long long nstime(void) {
+    struct timespec tv;
+    long long nst;
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    nst = ((long long)tv.tv_sec)*1000000000;
+    nst += tv.tv_nsec;
+    return nst;
+}
 
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
+static long long ustime(void) {
+  return nstime()/1000;
 }
 
 static long long mstime(void) {
@@ -9617,35 +9620,35 @@ static void sigIntHandler(int s) {
 static void intrinsicLatencyMode(void) {
     long long test_end, run_time, max_latency = 0, runs = 0;
 
-    run_time = (long long)config.intrinsic_latency_duration * 1000000;
-    test_end = ustime() + run_time;
+    run_time = (long long)config.intrinsic_latency_duration * 1000000000;
+    test_end = nstime() + run_time;
     signal(SIGINT, longStatLoopModeStop);
 
     while(1) {
         long long start, end, latency;
 
-        start = ustime();
+        start = nstime();
         compute_something_fast();
-        end = ustime();
+        end = nstime();
         latency = end-start;
         runs++;
         if (latency <= 0) continue;
 
         /* Reporting */
         if (latency > max_latency) {
+            if (((latency - max_latency) / 1000) > 0)
+                printf("Max latency so far: %lld microseconds.\n", latency / 1000);
             max_latency = latency;
-            printf("Max latency so far: %lld microseconds.\n", max_latency);
         }
 
-        double avg_us = (double)run_time/runs;
-        double avg_ns = avg_us * 1e3;
         if (force_cancel_loop || end > test_end) {
-            printf("\n%lld total runs "
+           double avg_ns = (double)run_time/runs;
+           printf("\n%lld total runs "
                 "(avg latency: "
                 "%.4f microseconds / %.2f nanoseconds per run).\n",
-                runs, avg_us, avg_ns);
+                runs, (avg_ns/1e3), avg_ns);
             printf("Worst run took %.0fx longer than the average latency.\n",
-                max_latency / avg_us);
+                max_latency / avg_ns);
             exit(0);
         }
     }
@@ -9748,7 +9751,6 @@ void testHintSuite(char *filename) {
 
 int main(int argc, char **argv) {
     int firstarg;
-    struct timeval tv;
 
     memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.conn_info.hostip = sdsnew("127.0.0.1");
@@ -9856,8 +9858,7 @@ int main(int argc, char **argv) {
     }
 #endif
 
-    gettimeofday(&tv, NULL);
-    init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
+    init_genrand64(ustime() ^ getpid());
 
     /* Cluster Manager mode */
     if (CLUSTER_MANAGER_MODE()) {
