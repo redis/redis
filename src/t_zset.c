@@ -66,6 +66,7 @@
 
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
+void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
@@ -1167,11 +1168,12 @@ unsigned long zsetLength(const robj *zobj) {
 
 /* Factory method to return a zset.
  *
- * The size hint indicates approximately how many items will be added which is
- * used to determine the initial representation. */
-robj *zsetTypeCreate(sds value, size_t size_hint) {
-    if (size_hint <= server.zset_max_listpack_entries ||
-        sdslen(value) <= server.zset_max_listpack_value)
+ * The size hint indicates approximately how many items will be added,
+ * and the value len hint indicates the approximate individual size of the added elements,
+ * they are used to determine the initial representation. */
+robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
+    if (size_hint <= server.zset_max_listpack_entries &&
+        val_len_hint <= server.zset_max_listpack_value)
     {
         return createZsetListpackObject();
     }
@@ -1787,7 +1789,7 @@ void zaddGenericCommand(client *c, int flags) {
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
-        zobj = zsetTypeCreate(c->argv[scoreidx+1]->ptr, elements);
+        zobj = zsetTypeCreate(elements, sdslen(c->argv[scoreidx+1]->ptr));
         dbAdd(c->db,key,zobj);
     } else {
         zsetTypeMaybeConvert(zobj, elements);
@@ -2989,14 +2991,7 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
-    if (length > (long)server.zset_max_listpack_entries) {
-        robj *zobj = createZsetObject();
-        zset *zs = zobj->ptr;
-        dictExpand(zs->dict, length);
-        handler->dstobj = zobj;
-    }
-    else
-        handler->dstobj = createZsetListpackObject();
+    handler->dstobj = zsetTypeCreate(length, 0);
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,

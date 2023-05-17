@@ -2976,7 +2976,6 @@ unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range);
 unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range);
 unsigned long zsetLength(const robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
-void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap);
 void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelelen);
 int zsetScore(robj *zobj, sds member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
