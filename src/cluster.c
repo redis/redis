@@ -6942,20 +6942,12 @@ void askingCommand(client *c) {
  * In this mode slaves will not redirect clients as long as clients access
  * with read-only commands to keys that are served by the slave's master. */
 void readonlyCommand(client *c) {
-    if (server.cluster_enabled == 0) {
-        addReplyError(c,"This instance has cluster support disabled");
-        return;
-    }
     c->flags |= CLIENT_READONLY;
     addReply(c,shared.ok);
 }
 
 /* The READWRITE command just clears the READONLY command state. */
 void readwriteCommand(client *c) {
-    if (server.cluster_enabled == 0) {
-        addReplyError(c,"This instance has cluster support disabled");
-        return;
-    }
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
 }

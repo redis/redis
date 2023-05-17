@@ -3968,6 +3968,17 @@ int processCommand(client *c) {
         }
     }
 
+    if (!server.cluster_enabled &&
+        server.masterhost &&
+        !mustObeyClient(c) &&
+        server.repl_replica_redirect_rw &&
+        (is_write_command ||
+         (is_read_command && !(c->flags & CLIENT_READONLY)))) {
+        addReplyErrorSds(c,sdscatprintf(sdsempty(), "-MOVED -1 %s:%d",
+                                                    server.masterhost, server.masterport));
+        return C_OK;
+    }
+
     /* Disconnect some clients if total clients memory is too high. We do this
      * before key eviction, after the last command was executed and consumed
      * some client output buffer memory. */
