@@ -44,19 +44,21 @@ start_server {tags {"modules persistentclient"}} {
     }
 
     test {test persistent client with blocking command} {
+        r del x
         r mc.create
         set rd [redis_deferring_client]
         $rd mc.exec_async blpop x 0
         r lpush x 1
-        assert_equal [$rd read] {"x" 1"}
+        assert_equal [$rd read] {x 1}
     }
 
     test {test persistent client with blocking command inside multi} {
+        r del x
         r mc.create
         r set y 1
         r mc.exec multi
         r mc.exec blpop x 0
         r mc.exec get y
-        assert { [r mc.exec exec]  = { {} 1 } }
+        assert { [r mc.exec exec] == {{} 1} }
     }
 }
