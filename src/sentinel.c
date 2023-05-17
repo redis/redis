@@ -3329,7 +3329,7 @@ void sentinelConfigGetCommand(client *c) {
     dict *d = dictCreate(&externalStringType);
     for (int i = 3; i < c->argc; i++) {
         pattern = c->argv[i]->ptr;
-        /* If the string doesn't contain glob patterns and available in dictionary,dont look further, just continue.*/
+        /* If the string doesn't contain glob patterns and available in dictionary, don't look further, just continue. */
         if (!strpbrk(pattern, "[*?") && dictFind(d, pattern)) continue;
         /* we want to print all the matched patterns and avoid printing duplicates twice */
         if (stringmatch(pattern,"resolve-hostnames",1) && !dictFind(d, "resolve-hostnames")) {
