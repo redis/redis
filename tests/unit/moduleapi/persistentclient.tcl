@@ -57,7 +57,7 @@ start_server {tags {"modules persistentclient"}} {
         r mc.create
         r set y 1
         r mc.exec multi
-        r mc.exec blpop x 0
+        r mc.exec_async blpop x 0
         r mc.exec get y
         assert { [r mc.exec exec] == {{} 1} }
     }
