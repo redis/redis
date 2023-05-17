@@ -1188,15 +1188,19 @@ void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
         size_hint > server.zset_max_listpack_entries)
     {
-        zsetConvert(zobj, OBJ_ENCODING_SKIPLIST);
-        if (size_hint > zsetLength(zobj)) {
-            zset *zs = zobj->ptr;
-            dictExpand(zs->dict, size_hint);
-        }
+        zsetConvertAndExpand(zobj, OBJ_ENCODING_SKIPLIST, size_hint);
     }
 }
 
+/* Convert the zset to specified encoding. The zset dict (when converting
+ * to a skiplist) is presized to hold the number of elements in the original
+ * zset. */
 void zsetConvert(robj *zobj, int encoding) {
+    zsetConvertAndExpand(zobj, encoding, zsetLength(zobj));
+}
+
+/* Converts a zset to the specified encoding, pre-sizing it for 'cap' elements. */
+void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
     zset *zs;
     zskiplistNode *node, *next;
     sds ele;
@@ -1216,6 +1220,9 @@ void zsetConvert(robj *zobj, int encoding) {
         zs = zmalloc(sizeof(*zs));
         zs->dict = dictCreate(&zsetDictType);
         zs->zsl = zslCreate();
+
+        /* Presize the dict to avoid rehashing */
+        dictExpand(zs->dict, cap);
 
         eptr = lpSeek(zl,0);
         if (eptr != NULL) {
@@ -1406,7 +1413,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 sdslen(ele) > server.zset_max_listpack_value ||
                 !lpSafeToAdd(zobj->ptr, sdslen(ele)))
             {
-                zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
+                zsetConvertAndExpand(zobj, OBJ_ENCODING_SKIPLIST, zsetLength(zobj) + 1);
             } else {
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
                 if (newscore) *newscore = score;
