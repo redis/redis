@@ -668,6 +668,7 @@ void moduleReleaseTempClient(client *c) {
         /* if a persistent client, only reset flags and free argv
          * don't reset client in general or return to pool */
         c->flags &= ~(c->reset_flags);
+        c->reset_flags = 0;
         moduleFreeArgv(c->argv, c->argc);
         c->argv = NULL;
         c->argc = 0;
@@ -6036,6 +6037,7 @@ RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
 
     client *c = moduleAllocTempClient(NULL);
     c->flags |= CLIENT_MODULE_PERSISTENT;
+    c->reset_flags = 0;
 
     RedisModuleClient *rmc = zmalloc(sizeof(RedisModuleClient));
     rmc->client = c;
