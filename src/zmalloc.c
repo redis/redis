@@ -458,7 +458,7 @@ void zmadvise_dontneed(void *ptr) {
 #include <fcntl.h>
 #endif
 
-/* Get the i'th field from "/proc/self/stats" note i is 1 based as appears in the 'proc' man page */
+/* Get the i'th field from "/proc/self/stat" note i is 1 based as appears in the 'proc' man page */
 int get_proc_stat_ll(int i, long long *res) {
 #if defined(HAVE_PROC_STAT)
     char buf[4096];
