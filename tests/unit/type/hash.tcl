@@ -350,7 +350,7 @@ start_server {tags {"hash"}} {
         set _ $rv
     } {{{} {}} {{} {}} {{} {}}}
 
-    test {HMGET HRANDFIELD HGET HGETALL HDEL HINCRBY HINCRBYFLOAT HSTRLEN against wrong type} {
+    test {HKEYS HVALS  HEXISTS HMGET HRANDFIELD HGET HGETALL HDEL HINCRBY HINCRBYFLOAT HSTRLEN against wrong type} {
         r set wrongtype somevalue
         assert_error "WRONGTYPE Operation against a key*" {r hmget wrongtype field1 field2}
         assert_error "WRONGTYPE Operation against a key*" {r hrandfield wrongtype}
@@ -360,6 +360,9 @@ start_server {tags {"hash"}} {
         assert_error "WRONGTYPE Operation against a key*" {r hincrby wrongtype field1 2}
         assert_error "WRONGTYPE Operation against a key*" {r hincrbyfloat wrongtype field1 2.5}
         assert_error "WRONGTYPE Operation against a key*" {r hstrlen wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hvals wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hkeys wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hexists wrongtype field1}
     }
 
     test {HMGET - small hash} {
