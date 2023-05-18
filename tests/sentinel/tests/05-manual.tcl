@@ -63,6 +63,9 @@ test "The old master eventually gets reconfigured as a slave" {
 }
 
 foreach flag {crash-after-election crash-after-promotion} {
+    # Before each SIMULATE-FAILURE test, re-source init-tests to get a clean environment
+    source "../tests/includes/init-tests.tcl"
+
     test "SENTINEL SIMULATE-FAILURE $flag works" {
         assert_equal {OK} [S 0 SENTINEL SIMULATE-FAILURE $flag]
 
