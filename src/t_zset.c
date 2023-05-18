@@ -1170,7 +1170,9 @@ unsigned long zsetLength(const robj *zobj) {
  *
  * The size hint indicates approximately how many items will be added,
  * and the value len hint indicates the approximate individual size of the added elements,
- * they are used to determine the initial representation. */
+ * they are used to determine the initial representation.
+ *
+ * If the hints are not known, and underestimation or 0 is suitable. */
 robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
     if (size_hint <= server.zset_max_listpack_entries &&
         val_len_hint <= server.zset_max_listpack_value)
