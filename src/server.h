@@ -1150,7 +1150,6 @@ typedef struct {
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
-    uint64_t reset_flags;   /* flags to reset in persistent clients after each execution, generally set by RM_Call */
     connection *conn;
     int resp;               /* RESP protocol version. Can be 2 or 3. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
@@ -1268,6 +1267,7 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+    uint64_t reset_flags;   /* flags to reset in persistent clients after each execution, generally set by RM_Call */
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
