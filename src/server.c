@@ -4113,8 +4113,7 @@ int processCommand(client *c) {
     }
 
     /* Exec the command */
-    if (c->flags & CLIENT_MULTI && isMultiQueuedCommand(c))
-    {
+    if (c->flags & CLIENT_MULTI && isMultiQueuedCommand(c)) {
         queueMultiCommand(c, cmd_flags);
         addReply(c,shared.queued);
     } else {
