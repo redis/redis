@@ -3771,11 +3771,12 @@ uint64_t getCommandFlags(client *c) {
 
 int isMultiQueuedCommand(client *c) {
     if (c->cmd->proc == execCommand ||
-    c->cmd->proc == discardCommand ||
-    c->cmd->proc == multiCommand ||
-    c->cmd->proc == watchCommand ||
-    c->cmd->proc == quitCommand ||
-    c->cmd->proc == resetCommand) {
+        c->cmd->proc == discardCommand ||
+        c->cmd->proc == multiCommand ||
+        c->cmd->proc == watchCommand ||
+        c->cmd->proc == quitCommand ||
+        c->cmd->proc == resetCommand)
+    {
         return 0;
     }
 
