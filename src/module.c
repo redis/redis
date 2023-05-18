@@ -667,7 +667,7 @@ void moduleReleaseTempClient(client *c) {
     if (c->flags & CLIENT_MODULE_PERSISTENT) {
         /* if a persistent client, only reset flags and free argv
          * don't reset client in general or return to pool */
-        c->flags &= ~(CLIENT_DENY_BLOCKING|CLIENT_ALLOW_OOM|CLIENT_READONLY|CLIENT_ASKING);
+        c->flags &= ~(c->reset_flags);
         moduleFreeArgv(c->argv, c->argc);
         c->argv = NULL;
         c->argc = 0;
@@ -6219,6 +6219,11 @@ fmterr:
     return NULL;
 }
 
+static void setRMCallClientFlags(client *c, uint64_t flags) {
+    c->flags |= flags;
+    c->reset_flags |= flags;
+}
+
 /* Exported API to call any Redis command from modules.
  *
  * * **cmdname**: The Redis command to call.
@@ -6380,7 +6385,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
         /* We do not want to allow block, the module do not expect it */
-        c->flags |= CLIENT_DENY_BLOCKING;
+        setRMCallClientFlags(c, CLIENT_DENY_BLOCKING);
     }
     c->db = ctx->client->db;
     c->argv = argv;
@@ -6465,7 +6470,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
     } else {
         /* if we aren't OOM checking in RM_Call, we want further executions from this client to also not fail on OOM */
-        c->flags |= CLIENT_ALLOW_OOM;
+        setRMCallClientFlags(c, CLIENT_ALLOW_OOM);
     }
 
     if (flags & REDISMODULE_ARGV_NO_WRITES) {
@@ -6562,7 +6567,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         int error_code;
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
-        c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
+        setRMCallClientFlags(c, ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING));
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
@@ -6638,11 +6643,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->bstate.async_rm_call_handle = promise;
         if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
-            c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
+            setRMCallClientFlags(c, CLIENT_MODULE_PREVENT_AOF_PROP);
         }
         if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
             /* No need for replication propagation, set the relevant flags of the client */
-            c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
+            setRMCallClientFlags(c, CLIENT_MODULE_PREVENT_REPL_PROP);
         }
         c = NULL; /* Make sure not to free the client */
     } else {
