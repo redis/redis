@@ -806,9 +806,8 @@ void spopWithCountCommand(client *c) {
     /* Case 2 and 3 require to replicate SPOP as a SREM command.
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
-    unsigned long batchsize = 1024;
-    unsigned long batchindex = 0;
-    robj **propargv = zmalloc(sizeof(robj *) * (2 + (count / batchsize > 0 ? batchsize : count)));
+    unsigned long batchsize = count > 1024 ? 1024 : count;
+    robj **propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
     propargv[0] = shared.srem;
     propargv[1] = c->argv[1];
     unsigned long propindex = 2;
@@ -847,15 +846,13 @@ void spopWithCountCommand(client *c) {
                 addReplyBulkLongLong(c, llele);
                 propargv[propindex++] = createStringObjectFromLongLong(llele);
             }
-            if (count / batchsize > 0 && propindex > 2 + batchsize) {
-                if (batchindex > 0) {
-                    for (unsigned long i = 0; i < batchsize; i++) {
-                        decrRefCount(propargv[i + 2]);
-                    }
-                }
+            /* Replicate/AOF this command as an SREM operation */
+            if (propindex == 2 + batchsize) {
                 alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
                 propindex = 2;
-                batchindex++;
+                for (unsigned long j = 0; j < batchsize; j++) {
+                    decrRefCount(propargv[j + 2]);
+                }
             }
 
             /* Store pointer for later deletion and move to next. */
@@ -864,8 +861,11 @@ void spopWithCountCommand(client *c) {
             index++;
         }
         /* Replicate/AOF this command as an SREM operation */
-        if (count % batchsize) {
+        if (batchsize == 1024 && count % batchsize > 0) {
             alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 0; i < count % batchsize; i++) {
+                decrRefCount(propargv[i + 2]);
+            }
         }
         lp = lpBatchDelete(lp, ps, count);
         zfree(ps);
@@ -875,20 +875,21 @@ void spopWithCountCommand(client *c) {
             propargv[propindex] = setTypePopRandom(set);
             addReplyBulk(c, propargv[propindex]);
             propindex++;
-            if (count / batchsize > 0 && propindex > 2 + batchsize) {
-                if (batchindex > 0) {
-                    for (unsigned long i = 0; i < batchsize; i++) {
-                        decrRefCount(propargv[i + 2]);
-                    }
-                }
+            /* Replicate/AOF this command as an SREM operation */
+            if (propindex == 2 + batchsize) {
                 alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
                 propindex = 2;
-                batchindex++;
+                for (unsigned long j = 0; j < batchsize; j++) {
+                    decrRefCount(propargv[j + 2]);
+                }
             }
         }
         /* Replicate/AOF this command as an SREM operation */
-        if (count % batchsize) {
+        if (batchsize == 1024 && count % batchsize > 0) {
             alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 0; i < count % batchsize; i++) {
+                decrRefCount(propargv[i + 2]);
+            }
         }
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
@@ -942,28 +943,26 @@ void spopWithCountCommand(client *c) {
                 addReplyBulkCBuffer(c, str, len);
                 propargv[propindex++] = createStringObject(str, len);
             }
-            if (count / batchsize > 0 && propindex > 2 + batchsize) {
-                if (batchindex > 0) {
-                    for (unsigned long i = 0; i < batchsize; i++) {
-                        decrRefCount(propargv[i + 2]);
-                    }
-                }
+            /* Replicate/AOF this command as an SREM operation */
+            if (propindex == 2 + batchsize) {
                 alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
                 propindex = 2;
-                batchindex++;
+                for (unsigned long i = 0; i < batchsize; i++) {
+                    decrRefCount(propargv[i + 2]);
+                }
             }
         }
         /* Replicate/AOF this command as an SREM operation */
-        if (count % batchsize) {
+        if (batchsize == 1024 && count % batchsize > 0) {
             alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
+            for (unsigned long i = 0; i < count % batchsize; i++) {
+                decrRefCount(propargv[i + 2]);
+            }
         }
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
         dbReplaceValue(c->db,c->argv[1],newset);
-    }
-    for (unsigned long i = 0; i < count % batchsize; i++) {
-        decrRefCount(propargv[i + 2]);
     }
     zfree(propargv);
 

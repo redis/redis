@@ -204,6 +204,29 @@ start_server {tags {"repl external:skip"}} {
             assert {[$master dbsize] > 0}
         }
 
+        test {spopwithcount rewrite srem command} {
+            $master del myset
+
+            set content {}
+            for {set j 0} {$j < 4000} {} {
+                lappend content [incr j]
+            }
+            $master sadd myset {*}$content
+            $master spop myset 1023
+            $master spop myset 1024
+            $master spop myset 1025
+
+            assert_match 928 [$master scard myset]
+            assert_match {*calls=3,*} [cmdrstat spop $master]
+
+            wait_for_condition 500 100 {
+                 [status $slave master_repl_offset] == [status $master master_repl_offset]
+            } else {
+                fail "SREM replication inconsistency."
+            }
+            assert_match {*calls=4,*} [cmdrstat srem $slave]
+        }
+
         test {Replication of SPOP command -- alsoPropagate() API} {
             $master del myset
             set size [expr 1+[randomInt 100]]
