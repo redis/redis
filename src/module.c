@@ -676,8 +676,8 @@ void moduleReleaseTempClient(client *c) {
     }
 
     if (moduleTempClientCount == moduleTempClientCap) {
-        moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap * 2 : 32;
-        moduleTempClients = zrealloc(moduleTempClients, sizeof(c) * moduleTempClientCap);
+        moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap*2 : 32;
+        moduleTempClients = zrealloc(moduleTempClients, sizeof(c)*moduleTempClientCap);
     }
 
     clearClientConnectionState(c);
@@ -6078,7 +6078,13 @@ void RM_SetContextClient(RedisModuleCtx *ctx, RedisModuleClient *client) {
     ctx->persistent_client = client;
 }
 
-/* Get the client flags that are exported to Redis Modules */
+/* Get the client flags that are exported to Redis Modules
+ * Available flags and their meaning:
+ *
+ *  * REDISMODULE_CLIENT_FLAG_DIRTY_CAS: Watched keys modified. EXEC will fail
+ *
+ *  * REDISMODULE_CLIENT_FLAG_DIRTY_EXEC: EXEC will fail for errors while queueing
+ */
 uint64_t RM_GetClientFlags(RedisModuleClient *client) {
     uint64_t flags = 0;
 
@@ -6339,10 +6345,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (ctx->client) {
             user = ctx->client->user;
         }
-        if (ctx->persistent_client) {
-            user = ctx->persistent_client->client->user;
-        } else if (ctx->user) {
+
+        if (ctx->user) {
             user = ctx->user->user;
+        } else if (ctx->persistent_client) {
+            user = ctx->persistent_client->client->user;
         }
 
         if (!user) {
@@ -6538,7 +6545,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, c->user->name, object);
             if (error_as_call_replies) {
                 /* verbosity should be same as processCommand() in server.c */
-                sds acl_msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+                sds acl_msg = getAclErrorMessage(acl_retval, user, c->cmd, c->argv[acl_errpos]->ptr, 0);
                 sds msg = sdscatfmt(sdsempty(), "-NOPERM %S\r\n", acl_msg);
                 sdsfree(acl_msg);
                 reply = callReplyCreateError(msg, ctx);
