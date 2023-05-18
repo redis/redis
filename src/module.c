@@ -691,9 +691,9 @@ void moduleReleaseTempClient(client *c) {
     c->cmd = c->lastcmd = c->realcmd = NULL;
 
     /* reset client stat that can persist */
-    pubsubUnsubscribeAllChannels(c,0);
+    pubsubUnsubscribeAllChannels(c, 0);
     pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
+    pubsubUnsubscribeAllPatterns(c, 0);
     freeClientMultiState(c);
 
     moduleTempClients[moduleTempClientCount++] = c;
