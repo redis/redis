@@ -248,12 +248,12 @@ void activeDefragSdsDict(dict* d, int val_type) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
         .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
                       val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
                       val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
                       val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
-                      NULL)
+                      NULL),
+        .defragEmbeddedData = (dictDefragAllocFunction *)activeDefragAlloc
     };
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
@@ -415,8 +415,8 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
-        .defragVal = (dictDefragAllocFunction *)activeDefragSds
+        .defragVal = (dictDefragAllocFunction *)activeDefragSds,
+        .defragEmbeddedData = activeDefragAlloc
     };
     *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
 }
@@ -674,26 +674,11 @@ void defragKey(redisDb *db, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
     unsigned char *newzl;
-    sds newsds;
-
-    /* Try to defrag the key name. */
-    newsds = activeDefragSds(keysds);
-    if (newsds) {
-        dictSetKey(db->dict[calculateKeySlot(newsds)], de, newsds);
-        if (dictSize(db->expires)) {
-            /* We can't search in db->expires for that key after we've released
-             * the pointer it holds, since it won't be able to do the string
-             * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(db->dict[calculateKeySlot(newsds)], newsds);
-            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires, keysds, hash);
-            if (expire_de) dictSetKey(db->expires, expire_de, newsds);
-        }
-    }
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[calculateKeySlot(newsds)], de, newob);
+        dictSetVal(db->dict[calculateKeySlot(keysds)], de, newob);
         ob = newob;
     }
 

@@ -892,12 +892,12 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    return dictSize(d) * sizeof(dictEntry) +
-        dictSlots(d) * sizeof(dictEntry*);
+    return dictSize(d) * sizeof(embeddedDictEntry) +
+        dictSlots(d) * sizeof(embeddedDictEntry*);
 }
 
 size_t dictEntryMemUsage(void) {
-    return sizeof(dictEntry);
+    return sizeof(embeddedDictEntry);
 }
 
 /* A fingerprint is a 64 bit number that represents the state of the dictionary
@@ -1153,10 +1153,11 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
 
 /* Reallocate the dictEntry, key and value allocations in a bucket using the
  * provided allocation functions in order to defrag them. */
-static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragfns) {
+static void dictDefragBucket(dictType *dt, dictEntry **bucketref, dictDefragFunctions *defragfns) {
     dictDefragAllocFunction *defragalloc = defragfns->defragAlloc;
     dictDefragAllocFunction *defragkey = defragfns->defragKey;
     dictDefragAllocFunction *defragval = defragfns->defragVal;
+    dictDefragAllocFunction *defragEmbeddedData = defragfns->defragEmbeddedData;
     while (bucketref && *bucketref) {
         dictEntry *de = *bucketref, *newde = NULL;
         void *newkey = defragkey ? defragkey(dictGetKey(de)) : NULL;
@@ -1171,6 +1172,13 @@ static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragf
                 entry = newentry;
             }
             if (newkey) entry->key = newkey;
+        } else if (entryIsEmbedded(de)) {
+            embeddedDictEntry *entry = decodeEmbeddedEntry(de), *newentry;
+            if (defragEmbeddedData && (newentry = defragEmbeddedData(entry))) {
+                memcpy(newentry->data, entry->data, dt->keyLen(de->key) + ENTRY_METADATA_BYTES);
+                newde = encodeMaskedPtr(newentry, ENTRY_PTR_EMBEDDED);
+                entry = newentry;
+            }
         } else {
             assert(entryIsNormal(de));
             newde = defragalloc(de);
@@ -1342,7 +1350,7 @@ unsigned long dictScanDefrag(dict *d,
 
         /* Emit entries at cursor */
         if (defragfns) {
-            dictDefragBucket(&d->ht_table[htidx0][v & m0], defragfns);
+            dictDefragBucket(d->type, &d->ht_table[htidx0][v & m0], defragfns);
         }
         de = d->ht_table[htidx0][v & m0];
         while (de) {
@@ -1375,7 +1383,7 @@ unsigned long dictScanDefrag(dict *d,
 
         /* Emit entries at cursor */
         if (defragfns) {
-            dictDefragBucket(&d->ht_table[htidx0][v & m0], defragfns);
+            dictDefragBucket(d->type, &d->ht_table[htidx0][v & m0], defragfns);
         }
         de = d->ht_table[htidx0][v & m0];
         while (de) {
@@ -1389,7 +1397,7 @@ unsigned long dictScanDefrag(dict *d,
         do {
             /* Emit entries at cursor */
             if (defragfns) {
-                dictDefragBucket(&d->ht_table[htidx1][v & m1], defragfns);
+                dictDefragBucket(d->type, &d->ht_table[htidx1][v & m1], defragfns);
             }
             de = d->ht_table[htidx1][v & m1];
             while (de) {
