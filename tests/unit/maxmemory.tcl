@@ -571,3 +571,11 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r config set maxmemory-policy noeviction
     }
 }
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {client with big values don't cause oom when values litter than maxmemory} {
+        r config set maxmemory 2MB
+        set val [randstring 1024000 1024000 alpha]
+        r set foo $val
+    } {OK}
+}

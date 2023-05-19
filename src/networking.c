@@ -2374,8 +2374,9 @@ int processMultibulkBuffer(client *c) {
                 c->argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
-                 * likely... */
-                c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);
+                 * likely, But we also need to consider the cost of predicting */
+                c->querybuf =
+                    sdsnewlen(SDS_NOINIT, c->bulklen + 2 < PROTO_MBULK_BIG_ARG * 2 ? c->bulklen + 2 : PROTO_IOBUF_LEN);
                 sdsclear(c->querybuf);
             } else {
                 c->argv[c->argc++] =

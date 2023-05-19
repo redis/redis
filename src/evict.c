@@ -402,6 +402,12 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
     mem_reported = zmalloc_used_memory();
     if (total) *total = mem_reported;
 
+    /* here we should immediately update memory peak, so when eviction occurred,
+     * we can see that used_memory_peak is indeed greater than maxmemory */
+    if (server.stat_peak_memory < mem_reported) {
+        server.stat_peak_memory = mem_reported;
+    }
+
     /* We may return ASAP if there is no need to compute the level. */
     if (!server.maxmemory) {
         if (level) *level = 0;
