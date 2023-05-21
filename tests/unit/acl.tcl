@@ -984,7 +984,7 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         set e
     } {*NOPERM*set*}
 
-    test {SLAVAK 1} {
+    test {ACL LOAD only disconnects affected clients} {
         reconnect
         r ACL SETUSER doug on nopass resetchannels &test* +@all ~*
 
@@ -1008,6 +1008,37 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         assert_match {*test-message*} [$rd1 read]
 
         # 'doug' no longer has access to "test1" channel, so they should get disconnected
+        catch {$rd2 read} e
+        assert_match {*I/O error*} $e
+
+        $rd1 close
+        $rd2 close
+    }
+
+    test {ACL LOAD disconnects clients of deleted users} {
+        reconnect
+        r ACL SETUSER mortimer on >mortimer ~* &* +@all
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $rd1 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE test
+        $rd1 read
+
+        $rd2 AUTH mortimer mortimer
+        $rd2 read
+        $rd2 SUBSCRIBE test
+        $rd2 read
+
+        r ACL LOAD
+        r PUBLISH test test-message
+
+        # Permissions for 'alice' haven't changed, so they should still be connected
+        assert_match {*test-message*} [$rd1 read]
+
+        # 'mortimer' has been deleted, so their client should get disconnected
         catch {$rd2 read} e
         assert_match {*I/O error*} $e
 

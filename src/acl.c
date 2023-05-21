@@ -491,12 +491,6 @@ void ACLCopyUser(user *dst, user *src) {
     }
 }
 
-/* Free all the users registered in the radix tree 'users' and free the
- * radix tree itself. */
-void ACLFreeUsersSet(rax *users) {
-    raxFreeWithCallback(users,(void(*)(void*))ACLFreeUserAndKillClients);
-}
-
 /* Given a command ID, this function set by reference 'word' and 'bit'
  * so that user->allowed_commands[word] will address the right word
  * where the corresponding bit for the provided ID is stored, and
@@ -2424,7 +2418,7 @@ sds ACLLoadFromFile(const char *filename) {
         sdsfree(errors);
         return NULL;
     } else {
-        ACLFreeUsersSet(Users);
+        raxFreeWithCallback(Users,(void(*)(void*))ACLFreeUser);
         Users = old_users;
         errors = sdscat(errors,"WARNING: ACL errors detected, no change to the previously active ACL rules was performed");
         return errors;
