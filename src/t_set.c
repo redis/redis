@@ -1093,13 +1093,8 @@ void srandmemberWithCountCommand(client *c) {
      * Listpack encoded sets are meant to be relatively small, so
      * SRANDMEMBER_SUB_STRATEGY_MUL isn't necessary and we rather not make
      * copies of the entries. Instead, we emit them directly to the output
-     * buffer.
-     *
-     * This is actually an optimization for later CASE 4. Note that we don't
-     * do this in CASE 3 because we also expect a random order too. */
-    if (set->encoding == OBJ_ENCODING_LISTPACK &&
-        (count*SRANDMEMBER_SUB_STRATEGY_MUL <= size))
-    {
+     * buffer. */
+    if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
         unsigned int i = 0;
