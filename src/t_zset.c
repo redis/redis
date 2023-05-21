@@ -77,7 +77,9 @@ zskiplistNode *zslCreateNode(int level, double score, sds ele) {
     return zn;
 }
 
-/* Create a new skiplist. */
+/* Create a new skiplist. 
+ * 创建一个新碟 skiplist
+*/
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
@@ -85,7 +87,10 @@ zskiplist *zslCreate(void) {
     zsl = zmalloc(sizeof(*zsl));
     zsl->level = 1;
     zsl->length = 0;
+    // 创建头节点, 最大32层，头节点评分为0， 不存储数据 O(1)
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
+    // 对于头节点的每一层初始化前进指针和跨度 O(1)
+    // ZSKIPLIST_MAXLEVEL，这个是跳跃表的最大层数，源码里通过宏定义设置为了32，也就是说，节点再多，也不会超过32层
     for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
         zsl->header->level[j].forward = NULL;
         zsl->header->level[j].span = 0;
@@ -130,32 +135,55 @@ int zslRandomLevel(void) {
 
 /* Insert a new node in the skiplist. Assumes the element does not already
  * exist (up to the caller to enforce that). The skiplist takes ownership
- * of the passed SDS string 'ele'. */
+ * of the passed SDS string 'ele'. 
+ *  创建一个成员为 ele ，分值为 score 的新节点，并将这个新节点插入到跳跃表 zsl 中。
+ *  函数的返回值为新节点
+ * 
+ *  T_wrost = O(N^2), T_avg = O(N log N)
+ * */
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
+    // 记录查找元素过程中，每层能够到达的最右节点
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    // 记录查找元素过程中，每层所跨越的节点数量
     unsigned long rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     serverAssert(!isnan(score));
     x = zsl->header;
+
+    // 记录沿途访问的节点 x 到 update[i]，以及跨越的节点数量 span 到 rank[i]
+    // T_wrost = O(N^2), T_avg = O(N log N)
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
+        // 
         rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
-        while (x->level[i].forward &&
-                (x->level[i].forward->score < score ||
-                    (x->level[i].forward->score == score &&
-                    sdscmp(x->level[i].forward->ele,ele) < 0)))
+        
+        //  节点当前层存在右节点
+        while (x->level[i].forward 
+                // 右节点的score 比给定的score小
+            && (x->level[i].forward->score < score 
+                // 右节点的score 等于给定的score && 右节点存储ele小于给定存储ele
+                || (x->level[i].forward->score == score && sdscmp(x->level[i].forward->ele,ele) < 0)))
         {
+            //  记录跨越了多少个元素
             rank[i] += x->level[i].span;
+            // 继续访问下一个元素
             x = x->level[i].forward;
         }
+        // 保存本层访问的元素
         update[i] = x;
     }
     /* we assume the element is not already inside, since we allow duplicated
      * scores, reinserting the same element should never happen since the
      * caller of zslInsert() should test in the hash table if the element is
      * already inside or not. */
+    // 因为这个函数不可能处理两个节点 ele 和 score 都相同的情况，
+    // 所以直接创建新节点，不用检查存在性
+    // 随机获取当前元素所在层， n+1层的概率是n层概率的4倍
     level = zslRandomLevel();
+    // 新节点所在层大于跳表当前拥有的最大层，
+    // 那么更新 zsl->level 参数
+    // 并且初始化 update 和 rank 参数在相应的层的数据
     if (level > zsl->level) {
         for (i = zsl->level; i < level; i++) {
             rank[i] = 0;
@@ -164,27 +192,37 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         }
         zsl->level = level;
     }
+    // 创建新节点
     x = zslCreateNode(level,score,ele);
+    // 根据 update 和 rank 两个数组的资料，初始化新节点
+    // 并设置相应的指针
     for (i = 0; i < level; i++) {
+        // 设置前进指针
         x->level[i].forward = update[i]->level[i].forward;
         update[i]->level[i].forward = x;
 
+        // 设置节点跨度 span
         /* update span covered by update[i] as x is inserted here */
         x->level[i].span = update[i]->level[i].span - (rank[0] - rank[i]);
         update[i]->level[i].span = (rank[0] - rank[i]) + 1;
     }
 
+    // 更新沿途访问节点的 span 值
     /* increment span for untouched levels */
     for (i = level; i < zsl->level; i++) {
         update[i]->level[i].span++;
     }
 
+    // 设置后退指针
     x->backward = (update[0] == zsl->header) ? NULL : update[0];
+    // 设置前进指针
     if (x->level[0].forward)
         x->level[0].forward->backward = x;
     else
         zsl->tail = x;
+    // 更新跳跃表节点数量
     zsl->length++;
+    
     return x;
 }
 
