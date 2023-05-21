@@ -215,8 +215,12 @@ static inline void sdssetalloc(sds s, size_t newlen) {
     }
 }
 
+/* 函数声明 */
+
+// 创建一个包含给定 C 字符串的 SDS， 
 sds sdsnewlen(const void *init, size_t initlen);
 sds sdstrynewlen(const void *init, size_t initlen);
+// 创建一个包含给定 C 字符串的 SDS，时间复杂度O(N), N为字符串长度
 sds sdsnew(const char *init);
 sds sdsempty(void);
 sds sdsdup(const sds s);

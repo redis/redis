@@ -165,9 +165,11 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     return s;
 }
 
+/* 函数定义*/
 sds sdsnewlen(const void *init, size_t initlen) {
     return _sdsnewlen(init, initlen, 0);
 }
+
 
 sds sdstrynewlen(const void *init, size_t initlen) {
     return _sdsnewlen(init, initlen, 1);
