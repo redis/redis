@@ -219,12 +219,13 @@ start_server {tags {"repl external:skip"}} {
             assert_match 928 [$master scard myset]
             assert_match {*calls=3,*} [cmdrstat spop $master]
 
-            wait_for_condition 500 100 {
+            wait_for_condition 50 100 {
                  [status $slave master_repl_offset] == [status $master master_repl_offset]
             } else {
                 fail "SREM replication inconsistency."
             }
             assert_match {*calls=4,*} [cmdrstat srem $slave]
+            assert_match 928 [$slave scard myset]
         }
 
         test {Replication of SPOP command -- alsoPropagate() API} {

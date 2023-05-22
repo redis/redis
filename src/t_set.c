@@ -608,6 +608,7 @@ void saddCommand(client *c) {
 
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,set,OBJ_SET)) return;
+
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[1],set);
@@ -803,7 +804,7 @@ void spopWithCountCommand(client *c) {
         return;
     }
 
-    /* Case 2 and 3 require to replicate SPOP as a SREM command.
+    /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
     unsigned long batchsize = count > 1024 ? 1024 : count;
@@ -848,24 +849,17 @@ void spopWithCountCommand(client *c) {
             }
             /* Replicate/AOF this command as an SREM operation */
             if (propindex == 2 + batchsize) {
-                alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
-                propindex = 2;
-                for (unsigned long j = 0; j < batchsize; j++) {
-                    decrRefCount(propargv[j + 2]);
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
                 }
+                propindex = 2;
             }
 
             /* Store pointer for later deletion and move to next. */
             ps[i] = p;
             p = lpNext(lp, p);
             index++;
-        }
-        /* Replicate/AOF this command as an SREM operation */
-        if (batchsize == 1024 && count % batchsize > 0) {
-            alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
-            for (unsigned long i = 0; i < count % batchsize; i++) {
-                decrRefCount(propargv[i + 2]);
-            }
         }
         lp = lpBatchDelete(lp, ps, count);
         zfree(ps);
@@ -877,18 +871,11 @@ void spopWithCountCommand(client *c) {
             propindex++;
             /* Replicate/AOF this command as an SREM operation */
             if (propindex == 2 + batchsize) {
-                alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
-                propindex = 2;
-                for (unsigned long j = 0; j < batchsize; j++) {
-                    decrRefCount(propargv[j + 2]);
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
                 }
-            }
-        }
-        /* Replicate/AOF this command as an SREM operation */
-        if (batchsize == 1024 && count % batchsize > 0) {
-            alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
-            for (unsigned long i = 0; i < count % batchsize; i++) {
-                decrRefCount(propargv[i + 2]);
+                propindex = 2;
             }
         }
     } else {
@@ -945,24 +932,26 @@ void spopWithCountCommand(client *c) {
             }
             /* Replicate/AOF this command as an SREM operation */
             if (propindex == 2 + batchsize) {
-                alsoPropagate(c->db->id, propargv, 2 + batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
-                propindex = 2;
-                for (unsigned long i = 0; i < batchsize; i++) {
-                    decrRefCount(propargv[i + 2]);
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long i = 2; i < propindex; i++) {
+                    decrRefCount(propargv[i]);
                 }
-            }
-        }
-        /* Replicate/AOF this command as an SREM operation */
-        if (batchsize == 1024 && count % batchsize > 0) {
-            alsoPropagate(c->db->id, propargv, 2 + count % batchsize, PROPAGATE_AOF | PROPAGATE_REPL);
-            for (unsigned long i = 0; i < count % batchsize; i++) {
-                decrRefCount(propargv[i + 2]);
+                propindex = 2;
             }
         }
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
         dbReplaceValue(c->db,c->argv[1],newset);
+    }
+
+    /* Replicate/AOF the remaining elements as an SREM operation */
+    if (propindex != 2) {
+        alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+        for (unsigned long i = 2; i < propindex; i++) {
+            decrRefCount(propargv[i]);
+        }
+        propindex = 2;
     }
     zfree(propargv);
 
