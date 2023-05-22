@@ -1502,7 +1502,7 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
 /* ------------------------------- Debugging ---------------------------------*/
 
 #define DICT_STATS_VECTLEN 50
-size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
+size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx, int full) {
     unsigned long i, slots = 0, chainlen, maxchainlen = 0;
     unsigned long totchainlen = 0;
     unsigned long clvector[DICT_STATS_VECTLEN];
@@ -1511,6 +1511,19 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
     if (d->ht_used[htidx] == 0) {
         return snprintf(buf,bufsize,
             "No stats available for empty dictionaries\n");
+    }
+
+    if (!full) {
+        l += snprintf(buf+l,bufsize-l,
+            "Hash table %d stats (%s):\n"
+            " table size: %lu\n"
+            " number of elements: %lu\n",
+            htidx, (htidx == 0) ? "main hash table" : "rehashing target",
+            DICTHT_SIZE(d->ht_size_exp[htidx]), d->ht_used[htidx]);
+
+        /* Unlike snprintf(), return the number of characters actually written. */
+        if (bufsize) buf[bufsize-1] = '\0';
+        return strlen(buf);
     }
 
     /* Compute stats. */
@@ -1562,16 +1575,16 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
     return strlen(buf);
 }
 
-void dictGetStats(char *buf, size_t bufsize, dict *d) {
+void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     size_t l;
     char *orig_buf = buf;
     size_t orig_bufsize = bufsize;
 
-    l = _dictGetStatsHt(buf,bufsize,d,0);
+    l = _dictGetStatsHt(buf,bufsize,d,0,full);
     buf += l;
     bufsize -= l;
     if (dictIsRehashing(d) && bufsize > 0) {
-        _dictGetStatsHt(buf,bufsize,d,1);
+        _dictGetStatsHt(buf,bufsize,d,1,full);
     }
     /* Make sure there is a NULL term at the end. */
     if (orig_bufsize) orig_buf[orig_bufsize-1] = '\0';
