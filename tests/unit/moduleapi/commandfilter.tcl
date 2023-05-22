@@ -141,3 +141,24 @@ test {Blocking Commands don't run through command filter when reprocessed} {
         assert_equal [r lpop list2{t}] 1
     }
 }
+
+test {Filtering based on client id} {
+    start_server {tags {"modules"}} {
+        r module load $testmodule log-key 0
+
+        set rd [redis_deferring_client]
+        $rd client id
+        set cid [$rd read]
+        r unfilter_clientid $cid
+
+        r rpush mylist elem1 @replaceme elem2
+        assert_equal [r lrange mylist 0 -1] {elem1 --replaced-- elem2}
+
+        r del mylist
+
+        $rd rpush mylist elem1 @replaceme elem2
+        assert_equal [$rd read] 3
+        $rd lrange mylist 0 -1
+        assert_equal [$rd read] {elem1 @replaceme elem2}
+    }
+}
