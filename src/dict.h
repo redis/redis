@@ -118,7 +118,6 @@ typedef struct {
     dictDefragAllocFunction *defragAlloc; /* Used for entries etc. */
     dictDefragAllocFunction *defragKey;   /* Defrag-realloc keys (optional) */
     dictDefragAllocFunction *defragVal;   /* Defrag-realloc values (optional) */
-    dictDefragAllocFunction *defragEmbeddedData; /* Defrag-realloc embedded data (optional) */
 } dictDefragFunctions;
 
 static const int ENTRY_METADATA_BYTES = 1;

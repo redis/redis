@@ -248,12 +248,12 @@ void activeDefragSdsDict(dict* d, int val_type) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
         .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
                       val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
                       val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
                       val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
                       NULL),
-        .defragEmbeddedData = (dictDefragAllocFunction *)activeDefragAlloc
     };
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
@@ -415,8 +415,8 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
         .defragVal = (dictDefragAllocFunction *)activeDefragSds,
-        .defragEmbeddedData = activeDefragAlloc
     };
     *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
 }
@@ -670,15 +670,14 @@ void defragModule(redisDb *db, dictEntry *kde) {
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. Returns a stat of how many pointers were
  * moved. */
-void defragKey(redisDb *db, dictEntry *de) {
-    sds keysds = dictGetKey(de);
+void defragValue(redisDb *db, dictEntry *de) {
     robj *newob, *ob;
     unsigned char *newzl;
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[calculateKeySlot(keysds)], de, newob);
+        dictSetVal(db->dict[calculateKeySlot(dictGetKey(de))], de, newob);
         ob = newob;
     }
 
@@ -735,7 +734,7 @@ void defragKey(redisDb *db, dictEntry *de) {
 /* Defrag scan callback for the main db dictionary. */
 void defragScanCallback(void *privdata, const dictEntry *de) {
     long long hits_before = server.stat_active_defrag_hits;
-    defragKey((redisDb*)privdata, (dictEntry*)de);
+    defragValue((redisDb*)privdata, (dictEntry*)de);
     if (server.stat_active_defrag_hits != hits_before)
         server.stat_active_defrag_key_hits++;
     else
