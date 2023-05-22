@@ -608,7 +608,7 @@ void saddCommand(client *c) {
 
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (checkType(c,set,OBJ_SET)) return;
-
+    
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[1],set);
@@ -888,6 +888,7 @@ void spopWithCountCommand(client *c) {
      * set). Then we return the elements left in the original set and
      * release it. */
         robj *newset = NULL;
+
         /* Create a new set with just the remaining elements. */
         if (set->encoding == OBJ_ENCODING_LISTPACK) {
             /* Specialized case for listpack. Traverse it only once. */
@@ -1485,7 +1486,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     int encoding;
     int j, cardinality = 0;
     int diff_algo = 1;
-    int sameset = 0;
+    int sameset = 0; 
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1499,7 +1500,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
         sets[j] = setobj;
         if (j > 0 && sets[0] == sets[j]) {
-            sameset = 1;
+            sameset = 1; 
         }
     }
 
