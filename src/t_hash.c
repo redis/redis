@@ -1015,7 +1015,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 
     /* CASE 2.5 listpack only. Sampling unique elements, in non-random order.
-     * Listpack encoded zsets are meant to be relatively small, so
+     * Listpack encoded hashes are meant to be relatively small, so
      * HRANDFIELD_SUB_STRATEGY_MUL isn't necessary and we rather not make
      * copies of the entries. Instead, we emit them directly to the output
      * buffer.
