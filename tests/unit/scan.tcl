@@ -97,6 +97,32 @@ start_server {tags {"scan network"}} {
 
         assert_equal 1000 [llength $keys]
     }
+    test "SCAN with expired keys" {
+        r flushdb
+        #make sure that passive expiration is triggered by the scan
+        r debug set-active-expire 0
+
+        populate 1000
+        r set foo bar
+        r pexpire foo 1
+        
+        after 2
+
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string" count 10]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+
+        #make sure that expired key have been removed by scan command
+        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+    } {} {needs:debug}
 
     foreach enc {intset listpack hashtable} {
         test "SSCAN with encoding $enc" {

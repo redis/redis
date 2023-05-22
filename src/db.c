@@ -1008,8 +1008,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             if (strcasecmp((char*) typename, type)) filter = 1;
         }
 
-        /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) filter = 1;
+        /* Filter element if it is an expired key. And when the key's type have been checked before,
+         * which means expire time have been checked in lookupKey* function, we could avoid double
+         * checking expire time in this step */
+        if (!filter && o == NULL && !typename && expireIfNeeded(c->db, kobj, 0)) filter = 1;
 
         /* Remove the element and its associated value if needed. */
         if (filter) {
