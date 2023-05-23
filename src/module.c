@@ -6094,12 +6094,6 @@ fmterr:
     return NULL;
 }
 
-static void moduleFreeArgv(robj **argv, int argc) {
-    for (int j = 0; j < argc; j++)
-        decrRefCount(argv[j]);
-    zfree(argv);
-}
-
 /* Exported API to call any Redis command from modules.
  *
  * * **cmdname**: The Redis command to call.
@@ -6221,20 +6215,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
-    user *user = NULL;
-    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
-        user = ctx->user ? ctx->user->user : ctx->client->user;
-        if (!user) {
-            errno = ENOTSUP;
-            if (error_as_call_replies) {
-                sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
-                reply = callReplyCreateError(msg, ctx);
-            }
-            moduleFreeArgv(argv, argc);
-            return reply;
-        }
-    }
-
     c = moduleAllocTempClient(user);
 
     if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
@@ -6254,6 +6234,19 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->resp = ctx->client->resp;
     }
     if (ctx->module) ctx->module->in_call++;
+
+    user *user = NULL;
+    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
+        user = ctx->user ? ctx->user->user : ctx->client->user;
+        if (!user) {
+            errno = ENOTSUP;
+            if (error_as_call_replies) {
+                sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
+        }
+    }
 
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
