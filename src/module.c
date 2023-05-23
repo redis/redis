@@ -6246,7 +6246,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
             goto cleanup;
         }
-	c->user = user;
+        c->user = user;
     }
 
     /* We handle the above format error only when the client is setup so that
