@@ -5093,11 +5093,11 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int use_pport) {
     if (sdslen(node->hostname) == 0) {
         ci = sdscatfmt(ci,",", 1);
     }
-
+    
     /* Don't expose aux fields to any clients yet but do allow them
      * to be persisted to nodes.conf */
     if (c == NULL) {
-        for (int i = af_count-1; i >=0; i-) {
+        for (int i = af_count-1; i >=0; i--) {
             if (auxFieldHandlers[i].isPresent(node)) {
                 ci = sdscatprintf(ci, ",%s=", auxFieldHandlers[i].field);
                 ci = auxFieldHandlers[i].getter(node, ci);
