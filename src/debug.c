@@ -1803,7 +1803,7 @@ sds genClusterDebugString(sds infostring) {
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
     infostring = sdscatsds(infostring, genClusterInfoString()); 
     infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
-    infostring = sdscatsds(infostring, clusterGenNodesDescription(0, 0));
+    infostring = sdscatsds(infostring, clusterGenNodesDescription(NULL, 0, 0));
     
     return infostring;
 }
