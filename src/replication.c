@@ -1834,16 +1834,16 @@ client *replicationCreateMasterClient(connection *conn, int dbid) {
         connSetReadHandler(master_client->conn, readQueryFromClient);
 
     /**
-    * Important note:
-    * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
-    * For commands like BLPOP, it makes no sense to block the master
-    * connection, and such blocking attempt will probably cause deadlock and
-    * break the replication. We consider such a thing as a bug because
-    * commands as BLPOP should never be sent on the replication link.
-    * A possible use-case for blocking the replication link is if a module wants
-    * to pass the execution to a background thread and unblock after the
-    * execution is done. This is the reason why we allow blocking the replication
-    * connection. */
+     * Important note:
+     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
+     * For commands like BLPOP, it makes no sense to block the master
+     * connection, and such blocking attempt will probably cause deadlock and
+     * break the replication. We consider such a thing as a bug because
+     * commands as BLPOP should never be sent on the replication link.
+     * A possible use-case for blocking the replication link is if a module wants
+     * to pass the execution to a background thread and unblock after the
+     * execution is done. This is the reason why we allow blocking the replication
+     * connection. */
     master_client->flags |= CLIENT_MASTER;
 
     master_client->authenticated = 1;
