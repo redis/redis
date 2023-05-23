@@ -8241,6 +8241,11 @@ void moduleHandleBlockedClients(void) {
              * properly unblocked by the module. */
             bc->disconnect_callback = NULL;
             unblockClient(c, 1);
+
+            /* Update the wait offset, we don't know if this blocked client propagated anything,
+             * currently we rather not add any API for that, so we just assume it did. */
+            c->woff = server.master_repl_offset;
+
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
