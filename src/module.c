@@ -620,7 +620,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient() {
+client *moduleAllocTempClient(void) {
     client *c = NULL;
 
     if (moduleTempClientCount > 0) {
