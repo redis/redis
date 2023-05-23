@@ -1522,7 +1522,7 @@ static void addActualKeysValuesHint(const sds* secondArgv, hisds* hint) {
         redisReply *reply = NULL;
         unsigned int cur = 0, cnt = 0;
         do {
-            reply = redisCommand(context,"SCAN %d MATCH %s COUNT 1",cur, matchPattern);
+            reply = redisCommand(context,"SCAN %d MATCH %s COUNT 10000",cur, matchPattern);
             cur = atoi(reply->element[0]->str);
             reply = reply->element[1];
 
