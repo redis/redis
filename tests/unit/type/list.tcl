@@ -464,6 +464,7 @@ foreach {type large} [array get largevalue] {
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
         assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
+        assert_error "*value is out of range*" {r LPOS mylist c RANK -9223372036854775808}
     }
 
     test {LPOS COUNT option} {

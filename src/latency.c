@@ -726,3 +726,14 @@ nodataerr:
         "No samples available for event '%s'", (char*) c->argv[2]->ptr);
 }
 
+void durationAddSample(int type, monotime duration) {
+    if (type >= EL_DURATION_TYPE_NUM) {
+        return;
+    }
+    durationStats* ds = &server.duration_stats[type];
+    ds->cnt++;
+    ds->sum += duration;
+    if (duration > ds->max) {
+        ds->max = duration;
+    }
+}

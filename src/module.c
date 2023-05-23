@@ -628,7 +628,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient(user *user) {
+client *moduleAllocTempClient(void) {
     client *c = NULL;
 
     if (moduleTempClientCount > 0) {
@@ -638,10 +638,8 @@ client *moduleAllocTempClient(user *user) {
     } else {
         c = createClient(NULL);
         c->flags |= CLIENT_MODULE;
+        c->user = NULL; /* Root user */
     }
-
-    c->user = user;
-
     return c;
 }
 
@@ -914,7 +912,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
     if (ctx_flags & REDISMODULE_CTX_TEMP_CLIENT)
-        out_ctx->client = moduleAllocTempClient(NULL);
+        out_ctx->client = moduleAllocTempClient();
     else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)
         out_ctx->client = createClient(NULL);
 
@@ -6035,7 +6033,7 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
 RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
     UNUSED(ctx);
 
-    client *c = moduleAllocTempClient(NULL);
+    client *c = moduleAllocTempClient();
     c->flags |= CLIENT_MODULE_PERSISTENT;
     c->reset_flags = 0;
 
@@ -6347,33 +6345,10 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
-    user *user = NULL;
-    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
-        if (ctx->client) {
-            user = ctx->client->user;
-        }
-
-        if (ctx->user) {
-            user = ctx->user->user;
-        } else if (ctx->persistent_client) {
-            user = ctx->persistent_client->client->user;
-        }
-
-        if (!user) {
-            errno = ENOTSUP;
-            if (error_as_call_replies) {
-                sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
-                reply = callReplyCreateError(msg, ctx);
-            }
-            moduleFreeArgv(argv, argc);
-            return reply;
-        }
-    }
-
     if (ctx->persistent_client) {
         c = ctx->persistent_client->client;
     } else {
-        c = moduleAllocTempClient(user);
+        c = moduleAllocTempClient();
     }
 
     if (c->flags & CLIENT_BLOCKED) {
@@ -6402,6 +6377,29 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->resp = ctx->client->resp;
     }
     if (ctx->module) ctx->module->in_call++;
+
+    user *user = NULL;
+    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
+        if (ctx->client) {
+            user = ctx->client->user;
+        }
+
+        if (ctx->user) {
+            user = ctx->user->user;
+        } else if (ctx->persistent_client) {
+            user = ctx->persistent_client->client->user;
+        }
+
+        if (!user) {
+            errno = ENOTSUP;
+            if (error_as_call_replies) {
+                sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
+        }
+        c->user = user;
+    }
 
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
@@ -7841,8 +7839,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
-    bc->reply_client = moduleAllocTempClient(NULL);
-    bc->thread_safe_ctx_client = moduleAllocTempClient(NULL);
+    bc->reply_client = moduleAllocTempClient();
+    bc->thread_safe_ctx_client = moduleAllocTempClient();
     if (bc->client)
         bc->reply_client->resp = bc->client->resp;
     bc->dbid = c->db->id;
@@ -11857,7 +11855,7 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
     } else if (flags & DB_FLAG_KEY_OVERWRITE) {
         subevent = REDISMODULE_SUBEVENT_KEY_OVERWRITTEN;
     }
-    KeyInfo info = {dbid, key, val, REDISMODULE_WRITE};
+    KeyInfo info = {dbid, key, val, REDISMODULE_READ};
     moduleFireServerEvent(REDISMODULE_EVENT_KEY, subevent, &info);
 
     if (val->type == OBJ_MODULE) {
