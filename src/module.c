@@ -620,7 +620,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient(user *user) {
+client *moduleAllocTempClient() {
     client *c = NULL;
 
     if (moduleTempClientCount > 0) {
@@ -630,10 +630,8 @@ client *moduleAllocTempClient(user *user) {
     } else {
         c = createClient(NULL);
         c->flags |= CLIENT_MODULE;
+        c->user = NULL; /* Root user */
     }
-
-    c->user = user;
-
     return c;
 }
 
@@ -879,7 +877,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
     if (ctx_flags & REDISMODULE_CTX_TEMP_CLIENT)
-        out_ctx->client = moduleAllocTempClient(NULL);
+        out_ctx->client = moduleAllocTempClient();
     else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)
         out_ctx->client = createClient(NULL);
 
@@ -6215,7 +6213,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
-    c = moduleAllocTempClient(NULL);
+    c = moduleAllocTempClient();
 
     if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
         /* We do not want to allow block, the module do not expect it */
@@ -7681,8 +7679,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
-    bc->reply_client = moduleAllocTempClient(NULL);
-    bc->thread_safe_ctx_client = moduleAllocTempClient(NULL);
+    bc->reply_client = moduleAllocTempClient();
+    bc->thread_safe_ctx_client = moduleAllocTempClient();
     if (bc->client)
         bc->reply_client->resp = bc->client->resp;
     bc->dbid = c->db->id;
