@@ -795,8 +795,8 @@ void keysCommand(client *c) {
 /* Data used by the dict scan callback. */
 typedef struct {
     list *keys;   /* elements that collect from dict*/
-    robj *o;      /* */
-    sds typename; /* */
+    robj *o;      /* o must be a hash/set/zset object, NULL means current db*/
+    sds typename; /* the particular type when scan the db */
 } scanData;
 
 /* This callback is used by scanGenericCommand in order to collect elements
@@ -806,6 +806,9 @@ void scanCallback(void *privdata, const dictEntry *de) {
     list *keys = data->keys;
     robj *o = data->o;
     robj *key, *val = NULL;
+
+    /* typename is only meaningful when o is NULL*/
+    serverAssert(!data->typename || !o);
 
     if (o == NULL) {
         sds sdskey = dictGetKey(de);
@@ -949,9 +952,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * of returning no or very few elements. */
         long maxiterations = count*10;
 
-        /* We pass two pointers to the callback: the list to which it will
-         * add new elements, and the object containing the dictionary so that
-         * it is possible to fetch more data in a type-dependent way. */
+        /* We pass scanData which have three pointers to the callback:
+         * 1. data.keys: the list to which it will add new elements;
+         * 2. data.o: the object containing the dictionary so that
+         * it is possible to fetch more data in a type-dependent way.
+         * 3. data.typename: the specified type scan in the db */
         scanData data = {
             .keys = keys,
             .o = o,
