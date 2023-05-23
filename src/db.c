@@ -792,16 +792,29 @@ void keysCommand(client *c) {
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
+/* Data used by the dict scan callback. */
+typedef struct {
+    list *keys;   /* elements that collect from dict*/
+    robj *o;      /* */
+    sds typename; /* */
+} scanData;
+
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de) {
-    void **pd = (void**) privdata;
-    list *keys = pd[0];
-    robj *o = pd[1];
+    scanData *data = (scanData *)privdata;
+    list *keys = data->keys;
+    robj *o = data->o;
     robj *key, *val = NULL;
 
     if (o == NULL) {
         sds sdskey = dictGetKey(de);
+        robj *val = dictGetVal(de);
+        /* Filter an element if it isn't the type we want. */
+        if (data->typename) {
+            char *type = getObjectTypeName(val);
+            if (strcasecmp((char *)data->typename, type)) return;
+        }
         key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == OBJ_SET) {
         sds keysds = dictGetKey(de);
@@ -930,7 +943,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     if (ht) {
-        void *privdata[2];
         /* We set the max number of iterations to ten times the specified
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
@@ -940,10 +952,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* We pass two pointers to the callback: the list to which it will
          * add new elements, and the object containing the dictionary so that
          * it is possible to fetch more data in a type-dependent way. */
-        privdata[0] = keys;
-        privdata[1] = o;
+        scanData data = {
+            .keys = keys,
+            .o = o,
+            .typename = typename,
+        };
         do {
-            cursor = dictScan(ht, cursor, scanCallback, privdata);
+            cursor = dictScan(ht, cursor, scanCallback, &data);
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
@@ -1001,17 +1016,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             }
         }
 
-        /* Filter an element if it isn't the type we want. */
-        if (!filter && o == NULL && typename){
-            robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            char* type = getObjectTypeName(typecheck);
-            if (strcasecmp((char*) typename, type)) filter = 1;
-        }
-
-        /* Filter element if it is an expired key. And when the key's type have been checked before,
-         * which means expire time have been checked in lookupKey* function, we could avoid double
-         * checking expire time in this step */
-        if (!filter && o == NULL && !typename && expireIfNeeded(c->db, kobj, 0)) filter = 1;
+        /* Filter element if it is an expired key. */
+        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) filter = 1;
 
         /* Remove the element and its associated value if needed. */
         if (filter) {
