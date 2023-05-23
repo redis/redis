@@ -5093,7 +5093,6 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int use_pport) {
     if (sdslen(node->hostname) == 0) {
         ci = sdscatfmt(ci,",", 1);
     }
-    
     /* Don't expose aux fields to any clients yet but do allow them
      * to be persisted to nodes.conf */
     if (c == NULL) {
