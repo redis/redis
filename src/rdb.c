@@ -1565,7 +1565,8 @@ void sendReplicationOffsetToReplicas(int req) {
         client *replica = ln->value;
         if ((replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) &&
             (replica->slave_req == req) &&
-            isReplicaRdbChannel(replica)) {
+            isReplicaRdbChannel(replica)) 
+        {
                 sendCurentOffsetToReplica(replica);            
         }
     }
@@ -3524,7 +3525,7 @@ int sendCurentOffsetToReplica(client* replica) {
     int buflen;
     buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d\r\n", server.master_repl_offset, server.replid, server.db->id);
     serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld", replicationGetSlaveName(replica), server.master_repl_offset);    
-    if (connWrite(replica->conn, buf, buflen) != buflen) {
+    if (connSyncWrite(replica->conn, buf, buflen, server.repl_syncio_timeout*1000) != buflen) {
         freeClientAsync(replica);
         return C_ERR;
     }

@@ -1215,7 +1215,7 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
-        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
+        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {        
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
              * internal only command that normal clients should never use. */
@@ -1245,6 +1245,10 @@ void replconfCommand(client *c) {
                 checkChildrenDone();
             if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 replicaStartCommandStream(c);
+            if (c->replstate == SLAVE_STATE_BACKGROUND_RDB_LOAD) {
+                c->flags &= ~CLIENT_RDB_CHANNEL_PSYNCCHAN;
+                replicaPutOnline(c);
+            }
             /* Note: this command does not reply anything! */
             return;
         } else if (!strcasecmp(c->argv[j]->ptr,"getack")) {
@@ -1325,18 +1329,6 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
             } else {
                 c->flags &= ~CLIENT_RDB_CHANNEL_PSYNCCHAN;
-            }
-        } else if (!strcasecmp(c->argv[j]->ptr, "connected")) {
-            /* REPLCONF connected is used by rdb-channel-sync replica, to announce that the replica has done loading rdb */
-            long connected = 0;
-            if (getRangeLongFromObjectOrReply(c, c->argv[j +1],
-                    0, 1, &connected, NULL) != C_OK) {
-                return;
-            } 
-            if (connected && c->replstate == SLAVE_STATE_BACKGROUND_RDB_LOAD) {
-                c->flags &= ~CLIENT_RDB_CHANNEL_PSYNCCHAN;
-                replicaPutOnline(c);
-                return;
             }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
@@ -1799,6 +1791,14 @@ int slaveIsInHandshakeState(void) {
            server.repl_state <= REPL_SEC_CONN_RECEIVE_PSYNC_REPLY);
 }
 
+/* Returns 1 if the given replication state is a rdb transfer state,
+ * 0 otherwise. */
+int slaveIsInTransferState(void) {
+    return server.repl_state == REPL_STATE_TRANSFER ||
+           (server.repl_state >= REPL_SEC_CONN_SEND_PSYNC &&
+           server.repl_state <= REPL_SEC_CONN_RECEIVE_PSYNC_REPLY);
+}
+
 /* Avoid the master to detect the slave is timing out while loading the
  * RDB file in initial synchronization. We send a single newline character
  * that is valid protocol but is guaranteed to either be sent entirely or
@@ -1828,22 +1828,22 @@ void replicationEmptyDbCallback(dict *d) {
 /* Once we have a link with the master and the synchronization was
  * performed, this function materializes the master client we store
  * at server.master, starting from the specified file descriptor. */
-client* replicationCreateMasterClient(connection *conn, int dbid) {
+client *replicationCreateMasterClient(connection *conn, int dbid) {
     client* master_client = createClient(conn);
     if (conn)
         connSetReadHandler(master_client->conn, readQueryFromClient);
 
     /**
-     * Important note:
-     * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
-     * For commands like BLPOP, it makes no sense to block the master
-     * connection, and such blocking attempt will probably cause deadlock and
-     * break the replication. We consider such a thing as a bug because
-     * commands as BLPOP should never be sent on the replication link.
-     * A possible use-case for blocking the replication link is if a module wants
-     * to pass the execution to a background thread and unblock after the
-     * execution is done. This is the reason why we allow blocking the replication
-     * connection. */
+    * Important note:
+    * The CLIENT_DENY_BLOCKING flag is not, and should not, be set here.
+    * For commands like BLPOP, it makes no sense to block the master
+    * connection, and such blocking attempt will probably cause deadlock and
+    * break the replication. We consider such a thing as a bug because
+    * commands as BLPOP should never be sent on the replication link.
+    * A possible use-case for blocking the replication link is if a module wants
+    * to pass the execution to a background thread and unblock after the
+    * execution is done. This is the reason why we allow blocking the replication
+    * connection. */
     master_client->flags |= CLIENT_MASTER;
 
     master_client->authenticated = 1;
@@ -2740,7 +2740,7 @@ void bufferReplData(connection *conn) {
             }
             /* Create a new node */
             tail = zmalloc(sizeof(replDataBufBlock));
-            tail->size = PRIMARY_REPL_BUF_BLOCK_SIZE;
+            tail->size = PROTO_IOBUF_LEN;
             tail->used = 0;
             listAddNodeTail(server.pending_repl_data.blocks, tail);
             server.pending_repl_data.len += tail->size;
@@ -2767,7 +2767,7 @@ void streamReplDataBufToDb(client *c) {
     size_t offset = 0;
     listNode *cur = NULL;
 
-    while ((cur = listRemoveAndGetNext(server.pending_repl_data.blocks, cur))) {
+    while ((cur = listFirst(server.pending_repl_data.blocks))) {
         /* Read and process repl data block */
         replDataBufBlock *o = listNodeValue(cur);
         c->querybuf = sdscatlen(c->querybuf, o->buf, o->used);
@@ -2775,6 +2775,8 @@ void streamReplDataBufToDb(client *c) {
         processInputBuffer(c);
         offset += o->used;
         replStreamProgressCallback(offset, o->used);
+
+        listDelNode(server.pending_repl_data.blocks, cur);
     } 
 
     blockingOperationEnds();
@@ -2823,7 +2825,7 @@ void updateReplicationStateActive(connection *conn) {
     removeFromServerCientList(server.psync_master);
     replicationResurrectMaster(server.repl_transfer_s, &server.psync_master);
     replicationSteadyStateInit(server.master);
-    sendCommand(server.repl_transfer_s, "REPLCONF", "CONNECTED", "1", NULL);
+    replicationSendAck(); /* Send ACK to notify primary that replica is synced */
 }
 
 /* Try a partial resynchronization with the master if we are about to reconnect.
@@ -3489,7 +3491,7 @@ void undoConnectWithMaster(void) {
  * Never call this function directly, use cancelReplicationHandshake() instead.
  */
 void replicationAbortSyncTransfer(void) {
-    serverAssert(server.repl_state == REPL_STATE_TRANSFER);
+    serverAssert(slaveIsInTransferState());
     undoConnectWithMaster();
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
@@ -3509,19 +3511,13 @@ void replicationAbortSyncTransfer(void) {
  *
  * Otherwise zero is returned and no operation is performed at all. */
 int cancelReplicationHandshake(int reconnect) {
-    if (server.repl_state == REPL_STATE_TRANSFER) {
+    if (slaveIsInTransferState()) {
         replicationAbortSyncTransfer();
         server.repl_state = REPL_STATE_CONNECT;
     } else if (server.repl_state == REPL_STATE_CONNECTING ||
                slaveIsInHandshakeState())
     {
         undoConnectWithMaster();
-        server.repl_state = REPL_STATE_CONNECT;
-    } else if (server.repl_state == REPL_SEC_CONN_RECEIVE_PSYNC_REPLY || 
-               server.repl_state == REPL_SEC_CONN_SEND_PSYNC){
-        /* As we cancel the sync, the rdb connection state is no longer relevant */
-        server.repl_state = REPL_STATE_TRANSFER;
-        replicationAbortSyncTransfer();
         server.repl_state = REPL_STATE_CONNECT;
     } else {
         return 0;

@@ -138,7 +138,6 @@ struct hdr_histogram;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
-#define PRIMARY_REPL_BUF_BLOCK_SIZE (1024*16) /* Primary replbuf block used while rdb-channel sync */
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -400,9 +399,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 
-#define CLIENT_RDB_CHANNEL_PSYNCCHAN (1ULL<<46) /* RDB Channel: track a connection
+#define CLIENT_RDB_CHANNEL_PSYNCCHAN (1ULL<<50) /* RDB Channel: track a connection
                                                    which used for PSYNC only */
-#define CLIENT_RDB_CHANNEL_RDBCHAN (1ULL<<47) /* RDB Channel: track a connection
+#define CLIENT_RDB_CHANNEL_RDBCHAN (1ULL<<51) /* RDB Channel: track a connection
                                                  which used for RDB only */
 
 /* Client block type (btype field in client structure)
@@ -974,7 +973,7 @@ typedef struct replBufBlock {
  * replication data */
 typedef struct replDataBufBlock {
     size_t size, used;
-    char buf[PRIMARY_REPL_BUF_BLOCK_SIZE];
+    char buf[PROTO_IOBUF_LEN];
 } replDataBufBlock;
 
 /* Opaque type for the Slot to Key API. */
