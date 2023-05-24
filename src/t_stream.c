@@ -835,10 +835,10 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
             /* Mark the entry as deleted. */
             if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
-	        delete_entry_id.ms = master_id.ms + ms_delta;
-	        delete_entry_id.seq = master_id.seq + seq_delta;
-		if (streamCompareID(&delete_entry_id,&s->max_deleted_entry_id) > 0) {
-                  s->max_deleted_entry_id = delete_entry_id;
+                delete_entry_id.ms = master_id.ms + ms_delta;
+                delete_entry_id.seq = master_id.seq + seq_delta;
+                if (streamCompareID(&delete_entry_id,&s->max_deleted_entry_id) > 0) {
+                    s->max_deleted_entry_id = delete_entry_id;
                 }
                 intptr_t delta = p - lp;
                 flags |= STREAM_ITEM_FLAG_DELETED;
