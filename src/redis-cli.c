@@ -981,7 +981,7 @@ static void cliOutputGenericHelp(void) {
         "To set redis-cli preferences:\n"
         "      \":set hints\" enable online hints\n"
         "      \":set nohints\" disable online hints\n"
-        "      \":set hints-keys-values\" enable online hints of actual keys' values\n"
+        "      \":set hints-keys-values\" enable online hints of actual keys' values (by default it's OFF)\n"
         "      \":set nohints-keys-values\" enable online hints of actual keys' values\n"
         "      \":set hints-keys-value-counts X\" set online hints of actual keys' values to X items (default: 5, max: 20)\n"
         "Set your preferences in ~/.redisclirc\n",
@@ -1506,7 +1506,8 @@ static helpEntry* findHelpEntry(int argc, char **argv) {
  * This method depends on:
  * 1) The hint value to be "key"
  * 2) SCAN command(since: v2.8.0) with pattern[PREFIX*]
- *  
+ * 
+ * The default hints_keys_values is '0' (OFF).
  * The default hints_keys_values_count is 5 keys.
  */
 static void addActualKeysValuesHint(const sds* secondArgv, hisds* hint) {
@@ -1563,7 +1564,8 @@ static sds getHintForInput(const char *charinput) {
        hint = makeHint(inputargv, matchargc, entry->argc, entry->docs);
     }
     
-    if (pref.hints_keys_values == HINTS_ON && !endspace && *secondArgv) {
+    if (pref.hints_keys_values == HINTS_ON && !endspace && *secondArgv
+        && *inputargv && strcasecmp((*inputargv), "get") == 0) {
         addActualKeysValuesHint(secondArgv, &hint);
     }
 
@@ -3288,13 +3290,10 @@ void cliSetPreferences(char **argv, int argc, int interactive) {
         else if (!strcasecmp(argv[1],"hints-keys-values")) pref.hints_keys_values = HINTS_ON;
         else if (!strcasecmp(argv[1],"hints-keys-values-count")){
             if (argc >= 3) {
-                int hints_keys_values_count_value = atoi(argv[2]);
-                if (hints_keys_values_count_value < 1 || hints_keys_values_count_value > HINTS_KEYS_VALUES_COUNT_MAX) {
-                    hints_keys_values_count_value = HINTS_KEYS_VALUES_COUNT;
+                unsigned int hints_keys_values_count_value = (unsigned int)atoi(argv[2]);
+                if (hints_keys_values_count_value >= 1 && hints_keys_values_count_value <= HINTS_KEYS_VALUES_COUNT_MAX) {
+                    pref.hints_keys_values_count = hints_keys_values_count_value;
                 }
-                pref.hints_keys_values_count = hints_keys_values_count_value;
-            } else {
-                pref.hints_keys_values_count = HINTS_KEYS_VALUES_COUNT;
             }
         }
         else if (!strcasecmp(argv[1],"nohints-keys-values")) pref.hints_keys_values = HINTS_OFF;
@@ -9898,7 +9897,7 @@ int main(int argc, char **argv) {
         CLUSTER_MANAGER_REBALANCE_THRESHOLD;
     config.cluster_manager_command.backup_dir = NULL;
     pref.hints = HINTS_ON;
-    pref.hints_keys_values = HINTS_ON;
+    pref.hints_keys_values = HINTS_OFF;
     pref.hints_keys_values_count = HINTS_KEYS_VALUES_COUNT;
 
     spectrum_palette = spectrum_palette_color;
