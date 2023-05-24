@@ -2686,6 +2686,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
     }
 
+    /* We need a temp zset object to store our union/inter/diff. If the dstkey
+     * is not NULL (that is, we are inside an ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE operation) then
+     * this zset object will be the resulting object to zset into the target key */
     dstobj = createZsetObject();
     dstzset = dstobj->ptr;
     memset(&zval, 0, sizeof(zval));
@@ -2826,8 +2829,10 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+        decrRefCount(dstobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
+        decrRefCount(dstobj);
     } else {
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
@@ -2846,8 +2851,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             if (withscores) addReplyDouble(c,zn->score);
             zn = zn->level[0].forward;
         }
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstobj, -1) :
+                                          decrRefCount(dstobj);
     }
-    decrRefCount(dstobj);
     zfree(src);
 }
 

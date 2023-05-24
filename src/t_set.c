@@ -1540,8 +1540,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-    /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
+    /* We need a temp set object to store our union/diff. If the dstkey
+     * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
     dstset = createIntsetObject();
 
