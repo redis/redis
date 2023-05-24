@@ -641,17 +641,17 @@ static void pubsubReplySubscribersClientInfo(client *c, list *clients) {
     }
 }
 
-static void pubsubReplySubscribers(client *c, pubsubSubscribersCmdArgs args) {
+static void pubsubReplySubscribers(client *c, const pubsubSubscribersCmdArgs *args) {
     void *dl = addReplyDeferredLen(c);
     long long channel_count = 0;
     long long subscription_count = 0;
 
-    dictIterator *di = dictGetIterator(args.subscription_dict);
+    dictIterator *di = dictGetIterator(args->subscription_dict);
     dictEntry *de;
-    while((de = dictNext(di)) != NULL && subscription_count < args.count) {
+    while((de = dictNext(di)) != NULL && subscription_count < args->count) {
         /* Filter the channels/subscriptions. */
         sds channel = ((robj *)dictGetKey(de))->ptr;
-        if (args.pat && !stringmatchlen(args.pat, sdslen(args.pat), channel, sdslen(channel), 0)) {
+        if (args->pat && !stringmatchlen(args->pat, sdslen(args->pat), channel, sdslen(channel), 0)) {
             continue;
         }
         list *clients = dictGetVal(de);
@@ -779,7 +779,7 @@ NULL
         if (parseArgsPubSubSubscribersCmdOrReply(c, &args) != C_OK) {
             return;
         }
-        pubsubReplySubscribers(c, args);
+        pubsubReplySubscribers(c, &args);
     } else {
         addReplySubcommandSyntaxError(c);
     }
