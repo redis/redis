@@ -192,6 +192,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     dictEntry *de = dictAddRaw(db->dict, copy, NULL);
     serverAssertWithInfo(NULL, key, de != NULL);
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
@@ -212,6 +213,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     dictEntry *de = dictAddRaw(db->dict, key, NULL);
     if (de == NULL) return 0;
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     return 1;
@@ -232,9 +234,9 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
 
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        val->lru = old->lru;
-    }
+
+    val->lru = old->lru;
+
     if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */

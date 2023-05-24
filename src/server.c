@@ -1324,8 +1324,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    unsigned int lruclock = getLRUClock();
-    atomicSet(server.lruclock,lruclock);
+    server.lruclock = getLRUClock();
 
     cronUpdateMemoryStats();
 
@@ -1985,6 +1984,7 @@ void createSharedObjects(void) {
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
+        initObjectLRUOrLFU(shared.integers[j]);
         shared.integers[j]->encoding = OBJ_ENCODING_INT;
     }
     for (j = 0; j < OBJ_SHARED_BULKHDR_LEN; j++) {
@@ -2089,8 +2089,7 @@ void initServerConfig(void) {
     server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
     server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
 
-    unsigned int lruclock = getLRUClock();
-    atomicSet(server.lruclock,lruclock);
+    server.lruclock = getLRUClock();
     resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -5496,8 +5495,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             call_uname = 0;
         }
 
-        unsigned int lruclock;
-        atomicGet(server.lruclock,lruclock);
         info = sdscatfmt(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
@@ -5548,7 +5545,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             (int64_t)(uptime/(3600*24)),
             server.hz,
             server.config_hz,
-            lruclock,
+            server.lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "",
             server.io_threads_active);
