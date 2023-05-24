@@ -10730,8 +10730,7 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 }
 
 /* Get Client ID for client that issued the command we are filtering */
-unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx)
-{
+unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
     return fctx->c->id;
 }
 
