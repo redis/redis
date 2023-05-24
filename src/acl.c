@@ -3178,31 +3178,19 @@ void authCommand(client *c) {
     }
 
     static int auth_fail = 1;
-    static time_t delay_end = 0;
     robj *err = NULL;
     int result = ACLAuthenticateUser(c, username, password, &err);
     if (result == AUTH_OK) {
         addReply(c, shared.ok);
     } else if (result == AUTH_ERR) {
-        if (server.auth_threshold == 0) {
-            addAuthErrReply(c, err);
-        }else{
-            if (delay_end != 0) {
-                if (server.unixtime < delay_end) {
-                    serverLog(LL_VERBOSE, "Closing idle client");
-                    freeClientAsync(c);
-                } else {
-                    auth_fail = 1;
-                    delay_end = 0;
-                    addAuthErrReply(c, err);
-                }
+        addAuthErrReply(c, err);
+        if (server.auth_threshold > 0) {
+            if (auth_fail == server.auth_threshold) {
+                serverLog(LL_WARNING, "Too many auth failures, maybe under attacked from %s.", getClientPeerId(c));
+                blockClientDelay(c, commandTimeSnapshot() + server.auth_delay * 1000);
+                auth_fail = 1;
             } else {
-                if (auth_fail == server.auth_threshold) {
-                    delay_end = server.unixtime + server.auth_delay;
-                } else {
-                    auth_fail++;
-                }
-                addAuthErrReply(c, err);
+                auth_fail++;
             }
         }
     }

@@ -194,7 +194,7 @@ void unblockClient(client *c, int queue_for_reprocessing) {
     } else if (c->bstate.btype == BLOCKED_POSTPONE) {
         listDelNode(server.postponed_clients,c->postponed_list_node);
         c->postponed_list_node = NULL;
-    } else if (c->bstate.btype == BLOCKED_SHUTDOWN) {
+    } else if (c->bstate.btype == BLOCKED_SHUTDOWN || c->bstate.btype == BLOCKED_DEALY) {
         /* No special cleanup. */
     } else {
         serverPanic("Unknown btype in unblockClient().");
@@ -240,6 +240,8 @@ void replyToBlockedClientTimedOut(client *c) {
         addReplyLongLong(c,replicationCountAOFAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         moduleBlockedClientTimedOut(c);
+    } else if(c->bstate.btype == BLOCKED_DEALY){
+        c->duration = 0;
     } else {
         serverPanic("Unknown btype in replyToBlockedClientTimedOut().");
     }
@@ -627,6 +629,12 @@ void blockPostponeClient(client *c) {
 /* Block client due to shutdown command */
 void blockClientShutdown(client *c) {
     blockClient(c, BLOCKED_SHUTDOWN);
+}
+
+/* Block client due to auth failed */
+void blockClientDelay(client *c,mstime_t timeout) {
+    c->bstate.timeout = timeout;
+    blockClient(c,BLOCKED_DEALY);
 }
 
 /* Unblock a client once a specific key became available for it.
