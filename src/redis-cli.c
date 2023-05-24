@@ -9642,8 +9642,8 @@ static void intrinsicLatencyMode(void) {
         }
 
         if (force_cancel_loop || end > test_end) {
-           double avg_ns = (double)run_time/runs;
-           printf("\n%lld total runs "
+            double avg_ns = (double)run_time/runs;
+            printf("\n%lld total runs "
                 "(avg latency: "
                 "%.4f microseconds / %.2f nanoseconds per run).\n",
                 runs, (avg_ns/1e3), avg_ns);
