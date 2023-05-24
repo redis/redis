@@ -82,6 +82,12 @@
 #define REDIS_CLI_RCFILE_DEFAULT ".redisclirc"
 #define REDIS_CLI_AUTH_ENV "REDISCLI_AUTH"
 #define REDIS_CLI_CLUSTER_YES_ENV "REDISCLI_CLUSTER_YES"
+#define REDIS_CLI_TLS_CACERT_ENV "REDISCLI_TLS_CACERT"
+#define REDIS_CLI_TLS_CACERTDIR_ENV "REDISCLI_TLS_CACERTDIR"
+#define REDIS_CLI_TLS_CERT_ENV "REDISCLI_TLS_CERT"
+#define REDIS_CLIT_TLS_KEY_ENV "REDISCLIT_TLS_KEY"
+#define REDIS_CLI_TLS_KEYFILE_PASS_ENV "REDISCLI_TLS_KEYFILE_PASS"
+
 
 #define CLUSTER_MANAGER_SLOTS               16384
 #define CLUSTER_MANAGER_PORT_INCR           10000 /* same as CLUSTER_PORT_INCR */
@@ -2883,6 +2889,8 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.cert = argv[++i];
         } else if (!strcmp(argv[i],"--key") && !lastarg) {
             config.sslconfig.key = argv[++i];
+        } else if (!strcmp(argv[i],"--keyfile-pass") && !lastarg) {
+            config.sslconfig.keyfile_pass = argv[++i];
         } else if (!strcmp(argv[i],"--tls-ciphers") && !lastarg) {
             config.sslconfig.ciphers = argv[++i];
         } else if (!strcmp(argv[i],"--insecure")) {
@@ -2979,6 +2987,32 @@ static void parseEnv(void) {
     if (cluster_yes != NULL && !strcmp(cluster_yes, "1")) {
         config.cluster_manager_command.flags |= CLUSTER_MANAGER_CMD_FLAG_YES;
     }
+
+    char *tls_cacert = getenv(REDIS_CLI_TLS_CACERT_ENV);
+    char *tls_cacertdir = getenv(REDIS_CLI_TLS_CACERTDIR_ENV);
+    char *tls_cert = getenv(REDIS_CLI_TLS_CERT_ENV);
+    char *tls_key = getenv(REDIS_CLIT_TLS_KEY_ENV);
+    char *tls_keyfile_pass = getenv(REDIS_CLI_TLS_KEYFILE_PASS_ENV);
+    if (tls_cacert != NULL && config.sslconfig.cacert == NULL) {
+        config.sslconfig.cacert = tls_cacert;
+    }
+
+    if (tls_cacertdir != NULL && config.sslconfig.cacertdir == NULL) {
+        config.sslconfig.cacertdir = tls_cacertdir;
+    }
+
+    if (tls_cert != NULL && config.sslconfig.cert == NULL) {
+        config.sslconfig.cert = tls_cert;
+    }
+
+    if (tls_key != NULL && config.sslconfig.key == NULL) {
+        config.sslconfig.key = tls_key;
+    }
+
+    if (tls_keyfile_pass != NULL && config.sslconfig.keyfile_pass == NULL) {
+        config.sslconfig.keyfile_pass = tls_keyfile_pass;
+    }
+
 }
 
 static void usage(int err) {
@@ -2989,12 +3023,24 @@ static void usage(int err) {
 "  --tls              Establish a secure TLS connection.\n"
 "  --sni <host>       Server name indication for TLS.\n"
 "  --cacert <file>    CA Certificate file to verify with.\n"
+"                     You can also use the " REDIS_CLI_TLS_CACERT_ENV " environment\n"
+"                     (if both are used, this argument takes precedence).\n"
 "  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                     If neither cacert nor cacertdir are specified, the default\n"
 "                     system-wide trusted root certs configuration will apply.\n"
+"                     You can also use the " REDIS_CLI_TLS_CACERTDIR_ENV " environment\n"
+"                     (if both are used, this argument takes precedence).\n"
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
+"                     You can also use the " REDIS_CLI_TLS_CERT_ENV " environment\n"
+"                     (if both are used, this argument takes precedence).\n"
 "  --key <file>       Private key file to authenticate with.\n"
+"                     You can also use the " REDIS_CLIT_TLS_KEY_ENV " environment\n"
+"                     (if both are used, this argument takes precedence).\n"
+"  --keyfile-pass     Keypass of Private key file to authenticate with.\n"
+"                     You can also use the " REDIS_CLI_TLS_KEYFILE_PASS_ENV " environment\n"
+"                     variable to pass this password more safely\n"
+"                     (if both are used, this argument takes precedence).\n"
 "  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
