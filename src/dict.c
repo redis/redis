@@ -1521,8 +1521,9 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx, int full) 
             htidx, (htidx == 0) ? "main hash table" : "rehashing target",
             DICTHT_SIZE(d->ht_size_exp[htidx]), d->ht_used[htidx]);
 
+        /* Make sure there is a NULL term at the end. */
+        buf[bufsize-1] = '\0';
         /* Unlike snprintf(), return the number of characters actually written. */
-        if (bufsize) buf[bufsize-1] = '\0';
         return strlen(buf);
     }
 
@@ -1570,8 +1571,9 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx, int full) 
             i, clvector[i], ((float)clvector[i]/DICTHT_SIZE(d->ht_size_exp[htidx]))*100);
     }
 
+    /* Make sure there is a NULL term at the end. */
+    buf[bufsize-1] = '\0';
     /* Unlike snprintf(), return the number of characters actually written. */
-    if (bufsize) buf[bufsize-1] = '\0';
     return strlen(buf);
 }
 
@@ -1581,13 +1583,13 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     size_t orig_bufsize = bufsize;
 
     l = _dictGetStatsHt(buf,bufsize,d,0,full);
-    buf += l;
-    bufsize -= l;
-    if (dictIsRehashing(d) && bufsize > 0) {
+    if (dictIsRehashing(d) && bufsize > l) {
+        buf += l;
+        bufsize -= l;
         _dictGetStatsHt(buf,bufsize,d,1,full);
     }
     /* Make sure there is a NULL term at the end. */
-    if (orig_bufsize) orig_buf[orig_bufsize-1] = '\0';
+    orig_buf[orig_bufsize-1] = '\0';
 }
 
 /* ------------------------------- Benchmark ---------------------------------*/
