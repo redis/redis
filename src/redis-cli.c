@@ -2676,6 +2676,8 @@ static int parseOptions(int argc, char **argv) {
                    && !lastarg)
         {
             config.conn_info.auth = sdsnew(argv[++i]);
+            /* Hide Password */
+            memset(argv[i], 'x', strlen(argv[i]));
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
