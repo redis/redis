@@ -78,6 +78,7 @@ static connection *connCreateSocket(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
+    conn->iovcnt = IOV_MAX;
 
     return conn;
 }

@@ -118,6 +118,7 @@ struct connection {
     int fd;
     short int flags;
     short int refs;
+    unsigned short int iovcnt;
     void *private_data;
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
