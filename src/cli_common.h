@@ -17,8 +17,6 @@ typedef struct cliSSLconfig {
     char *cert;
     /* Private key file to authenticate with, or NULL */
     char *key;
-    /* Keypass of Private key file to authenticate with, or NULL */
-    char *keyfile_pass;
     /* Preferred cipher list, or NULL (applies only to <= TLSv1.2) */
     char* ciphers;
     /* Preferred ciphersuites list, or NULL (applies only to TLSv1.3) */
