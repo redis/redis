@@ -114,14 +114,14 @@ typedef struct ConnectionType {
 struct connection {
     ConnectionType *type;
     ConnectionState state;
+    int last_errno;
+    int fd;
     short int flags;
     short int refs;
-    int last_errno;
     void *private_data;
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
-    int fd;
 };
 
 #define CONFIG_BINDADDR_MAX 16
