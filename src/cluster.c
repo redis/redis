@@ -92,6 +92,12 @@ int auxShardIdPresent(clusterNode *n);
 int auxHumanNodenameSetter(clusterNode *n, void *value, int length);
 sds auxHumanNodenameGetter(clusterNode *n, sds s);
 int auxHumanNodenamePresent(clusterNode *n);
+int auxTcpPortSetter(clusterNode *n, void *value, int length);
+sds auxTcpPortGetter(clusterNode *n, sds s);
+int auxTcpPortPresent(clusterNode *n);
+int auxTlsPortSetter(clusterNode *n, void *value, int length);
+sds auxTlsPortGetter(clusterNode *n, sds s);
+int auxTlsPortPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 
 /* Links to the next and previous entries for keys in the same slot are stored
@@ -100,6 +106,9 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
     (((clusterDictEntryMetadata *)dictEntryMetadata(de))->next)
 #define dictEntryPrevInSlot(de) \
     (((clusterDictEntryMetadata *)dictEntryMetadata(de))->prev)
+
+#define isTLSClient(c) (c->conn && (c->conn->type == connectionTypeTls()))
+#define usePort(c) ((!!server.tls_cluster) == isTLSClient(c))
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -176,6 +185,9 @@ typedef struct {
 typedef enum {
     af_shard_id,
     af_human_nodename,
+    af_shard_id,
+    af_tcp_port,
+    af_tls_port,
     af_count,
 } auxFieldIndex;
 
@@ -186,6 +198,8 @@ typedef enum {
 auxFieldHandler auxFieldHandlers[] = {
     {"shard-id", auxShardIdSetter, auxShardIdGetter, auxShardIdPresent},
     {"nodename", auxHumanNodenameSetter, auxHumanNodenameGetter, auxHumanNodenamePresent},
+    {"tcp-port", auxTcpPortSetter, auxTcpPortGetter, auxTcpPortPresent},
+    {"tls-port", auxTlsPortSetter, auxTlsPortGetter, auxTlsPortPresent},
 };
 
 int isValidAuxChar(int c) {
@@ -245,6 +259,56 @@ sds auxHumanNodenameGetter(clusterNode *n, sds s) {
 
 int auxHumanNodenamePresent(clusterNode *n) {
     return strlen(n->human_nodename);
+}
+
+int auxTcpPortSetter(clusterNode *n, void *value, int length) {
+    if (length > 5 || length < 1) {
+        return C_ERR;
+    }
+    char buf[length + 1];
+    memcpy(buf, (char*)value, length);
+    buf[length] = '\0';
+    int port = atoi(buf);
+    if (server.tls_cluster) {
+        n->pport = port;
+    } else {
+        n->port = port;
+    }
+    return (port <= 0 || port >= 65536) ? C_ERR : C_OK;
+}
+
+sds auxTcpPortGetter(clusterNode *n, sds s) {
+    return sdscatprintf(s, "%d", server.tls_cluster ? n->pport : n->port);
+}
+
+int auxTcpPortPresent(clusterNode *n) {
+    int port = server.tls_cluster ? n->pport : n->port;
+    return port > 0 && port < 65536;
+}
+
+int auxTlsPortSetter(clusterNode *n, void *value, int length) {
+    if (length > 5 || length < 1) {
+        return C_ERR;
+    }
+    char buf[length + 1];
+    memcpy(buf, (char*)value, length);
+    buf[length] = '\0';
+    int port = atoi(buf);
+    if (server.tls_cluster) {
+        n->port = port;
+    } else {
+        n->pport = port;
+    }
+    return (port <= 0 || port >= 65536) ? C_ERR : C_OK;
+}
+
+sds auxTlsPortGetter(clusterNode *n, sds s) {
+    return sdscatprintf(s, "%d", server.tls_cluster ? n->port : n->pport);
+}
+
+int auxTlsPortPresent(clusterNode *n) {
+    int port = server.tls_cluster ? n->port : n->pport;
+    return port > 0 && port < 65536;
 }
 
 /* clusterLink send queue blocks */
@@ -376,7 +440,8 @@ int clusterLoadConfig(char *filename) {
          * the format of "aux=val" where both aux and val can contain
          * characters that pass the isValidAuxChar check only. The order
          * of the aux fields is insignificant. */
-
+        int aux_tcp_port = 0;
+        int aux_tls_port = 0;
         for (int i = 2; i < aux_argc; i++) {
             int field_argc;
             sds *field_argv;
@@ -407,6 +472,8 @@ int clusterLoadConfig(char *filename) {
                     continue;
                 }
                 field_found = 1;
+                aux_tcp_port |= j == af_tcp_port;
+                aux_tls_port |= j == af_tls_port;
                 if (auxFieldHandlers[j].setter(n, field_argv[1], sdslen(field_argv[1])) != C_OK) {
                     /* Invalid aux field format */
                     sdsfreesplitres(field_argv, field_argc);
@@ -438,7 +505,13 @@ int clusterLoadConfig(char *filename) {
             *busp = '\0';
             busp++;
         }
-        n->port = atoi(port);
+        /* aux_tcp_port and aux_tls_port can't both be 1, as we always skip one of them when
+         * saving config. */
+        if (aux_tcp_port == aux_tls_port || aux_tcp_port == server.tls_cluster) {
+            n->port = atoi(port);
+        } else {
+            n->pport = atoi(port);
+        }
         /* In older versions of nodes.conf the "@busport" part is missing.
          * In this case we set it to the default offset of 10000 from the
          * base port. */
@@ -749,21 +822,24 @@ int clusterLockConfig(char *filename) {
 /* Derives our ports to be announced in the cluster bus. */
 void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
                           int *announced_cport) {
-    int port = server.tls_cluster ? server.tls_port : server.port;
-    /* Default announced ports. */
-    *announced_port = port;
-    *announced_pport = server.tls_cluster ? server.port : 0;
-    *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
-    
     /* Config overriding announced ports. */
-    if (server.tls_cluster && server.cluster_announce_tls_port) {
-        *announced_port = server.cluster_announce_tls_port;
-        *announced_pport = server.cluster_announce_port;
-    } else if (server.cluster_announce_port) {
-        *announced_port = server.cluster_announce_port;
+    int port = server.cluster_announce_port ? server.cluster_announce_port : server.port;
+    int tls_port = server.cluster_announce_tls_port ? server.cluster_announce_tls_port : server.tls_port;
+    /* Default announced client ports. */
+    if (server.tls_cluster) {
+        *announced_port = tls_port;
+        *announced_pport = port;
+    } else {
+        *announced_port = port;
+        *announced_pport = tls_port;
     }
+    /* Derive cluster bus port. */
     if (server.cluster_announce_bus_port) {
         *announced_cport = server.cluster_announce_bus_port;
+    } else if (server.cluster_port) {
+        *announced_cport = server.cluster_port;
+    } else {
+        *announced_cport = (server.tls_cluster ? server.tls_port : server.port) + CLUSTER_PORT_INCR;
     }
 }
 
@@ -5079,7 +5155,8 @@ sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_cou
 sds clusterGenNodeDescription(client *c, clusterNode *node, int use_pport) {
     int j, start;
     sds ci;
-    int port = use_pport && node->pport ? node->pport : node->port;
+    int port = use_pport ? node->pport : node->port;
+    int tls_primary = (!!server.tls_cluster) ^ (!!use_pport);
 
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
@@ -5097,6 +5174,9 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int use_pport) {
      * to be persisted to nodes.conf */
     if (c == NULL) {
         for (int i = af_count-1; i >=0; i--) {
+            if ((tls_primary && i == af_tls_port) || (!tls_primary && i == af_tcp_port)) {
+                continue;
+            }
             if (auxFieldHandlers[i].isPresent(node)) {
                 ci = sdscatprintf(ci, ",%s=", auxFieldHandlers[i].field);
                 ci = auxFieldHandlers[i].getter(node, ci);
@@ -5220,7 +5300,7 @@ void clusterFreeNodesSlotsInfo(clusterNode *n) {
  * the HANDSHAKE state.
  *
  * Setting use_pport to 1 in a TLS cluster makes the result contain the
- * plaintext client port rather then the TLS client port of each node.
+ * secondary client port rather then the primary client port of each node.
  *
  * The representation obtained using this function is used for the output
  * of the CLUSTER NODES function, and as format for the cluster
@@ -5426,10 +5506,8 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
         serverPanic("Unrecognized preferred endpoint type");
     }
 
-    /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
-    int use_pport = (server.tls_cluster &&
-                     c->conn && (c->conn->type != connectionTypeTls()));
-    addReplyLongLong(c, use_pport && node->pport ? node->pport : node->port);
+    /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
+    addReplyLongLong(c, usePort(c) ? node->port : node->pport);
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
@@ -5495,7 +5573,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     /* We use server.tls_cluster as a proxy for whether or not
      * the remote port is the tls port or not */
     int plaintext_port = server.tls_cluster ? node->pport : node->port;
-    int tls_port = server.tls_cluster ? node->port : 0;
+    int tls_port = server.tls_cluster ? node->port : node->pport;
     if (plaintext_port) {
         addReplyBulkCString(c, "port");
         addReplyLongLong(c, plaintext_port);
@@ -5808,11 +5886,8 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
-        /* Report plaintext ports, only if cluster is TLS but client is known to
-         * be non-TLS). */
-        int use_pport = (server.tls_cluster &&
-                        c->conn && (c->conn->type != connectionTypeTls()));
-        sds nodes = clusterGenNodesDescription(c, 0, use_pport);
+        /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
+        sds nodes = clusterGenNodesDescription(c, 0, !usePort(c));
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -6174,12 +6249,10 @@ NULL
             return;
         }
 
-        /* Use plaintext port if cluster is TLS but client is non-TLS. */
-        int use_pport = (server.tls_cluster &&
-                         c->conn && (c->conn->type != connectionTypeTls()));
+        /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
-            sds ni = clusterGenNodeDescription(c, n->slaves[j], use_pport);
+            sds ni = clusterGenNodeDescription(c, n->slaves[j], !usePort(c));
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
@@ -7304,11 +7377,8 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
-        /* Redirect to IP:port. Include plaintext port if cluster is TLS but
-         * client is non-TLS. */
-        int use_pport = (server.tls_cluster &&
-                        c->conn && (c->conn->type != connectionTypeTls()));
-        int port = use_pport && n->pport ? n->pport : n->port;
+        /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
+        int port = usePort(c) ? n->port : n->pport;
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",

@@ -142,9 +142,9 @@ typedef struct clusterNode {
     char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
     sds hostname;               /* The known hostname for this node */
     sds human_nodename;         /* The known human readable nodename for this node */
-    int port;                   /* Latest known clients port (TLS or plain). */
-    int pport;                  /* Latest known clients plaintext port. Only used
-                                   if the main clients port is for TLS. */
+    int port;                   /* Latest known clients primary port (TLS or plain). */
+    int pport;                  /* Latest known clients secondary port, if primary port is
+                                   plain, this is TLS, if primary port is TLS, this is plain. */
     int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link established toward this node */
     clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
