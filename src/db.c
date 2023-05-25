@@ -192,6 +192,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     dictEntry *de = dictAddRaw(db->dict, copy, NULL);
     serverAssertWithInfo(NULL, key, de != NULL);
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
@@ -212,6 +213,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     dictEntry *de = dictAddRaw(db->dict, key, NULL);
     if (de == NULL) return 0;
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     return 1;
@@ -232,9 +234,9 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
 
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        val->lru = old->lru;
-    }
+
+    val->lru = old->lru;
+
     if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
@@ -562,7 +564,7 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
-long long dbTotalServerKeyCount() {
+long long dbTotalServerKeyCount(void) {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
@@ -774,17 +776,16 @@ void keysCommand(client *c) {
 
     di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && plen == 1);
+    robj keyobj;
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
-        robj *keyobj;
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            keyobj = createStringObject(key,sdslen(key));
-            if (!keyIsExpired(c->db,keyobj)) {
-                addReplyBulk(c,keyobj);
+            initStaticStringObject(keyobj, key);
+            if (!keyIsExpired(c->db, &keyobj)) {
+                addReplyBulkCBuffer(c, key, sdslen(key));
                 numkeys++;
             }
-            decrRefCount(keyobj);
         }
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
@@ -2111,7 +2112,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
  * 
- * The commands using this functoin have a fully defined keyspec, so returning flags isn't needed. */
+ * The commands using this function have a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
     int i, num;
@@ -2316,7 +2317,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
 
 /* Helper function to extract keys from following commands:
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
- *                             [COUNT count] [STORE key] [STOREDIST key]
+ *                             [COUNT count] [STORE key|STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
  * 
  * This command has a fully defined keyspec, so returning flags isn't needed. */

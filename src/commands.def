@@ -2864,6 +2864,12 @@ struct COMMAND_ARG GEORADIUS_order_Subargs[] = {
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* GEORADIUS store argument table */
+struct COMMAND_ARG GEORADIUS_store_Subargs[] = {
+{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+};
+
 /* GEORADIUS argument table */
 struct COMMAND_ARG GEORADIUS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -2876,8 +2882,7 @@ struct COMMAND_ARG GEORADIUS_Args[] = {
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_order_Subargs},
-{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
-{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
+{MAKE_ARG("store",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_store_Subargs},
 };
 
 /********** GEORADIUSBYMEMBER ********************/
@@ -2921,6 +2926,12 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_order_Subargs[] = {
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* GEORADIUSBYMEMBER store argument table */
+struct COMMAND_ARG GEORADIUSBYMEMBER_store_Subargs[] = {
+{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+};
+
 /* GEORADIUSBYMEMBER argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -2932,8 +2943,7 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_order_Subargs},
-{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
-{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
+{MAKE_ARG("store",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_store_Subargs},
 };
 
 /********** GEORADIUSBYMEMBER_RO ********************/
@@ -5349,7 +5359,9 @@ struct COMMAND_ARG SENTINEL_CKQUORUM_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL CONFIG history */
-#define SENTINEL_CONFIG_History NULL
+commandHistory SENTINEL_CONFIG_History[] = {
+{"7.2.0","Added the ability to set and get multiple parameters in one call."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -5370,8 +5382,8 @@ struct COMMAND_ARG SENTINEL_CONFIG_action_set_Subargs[] = {
 
 /* SENTINEL CONFIG action argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_action_Subargs[] = {
-{MAKE_ARG("set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SENTINEL_CONFIG_action_set_Subargs},
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_CONFIG_action_set_Subargs},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /* SENTINEL CONFIG argument table */
@@ -5801,7 +5813,7 @@ struct COMMAND_ARG SENTINEL_SLAVES_Args[] = {
 /* SENTINEL command table */
 struct COMMAND_STRUCT SENTINEL_Subcommands[] = {
 {MAKE_CMD("ckquorum","Checks for a Redis Sentinel quorum.",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,0,SENTINEL_CKQUORUM_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_CKQUORUM_Keyspecs,0,NULL,1),.args=SENTINEL_CKQUORUM_Args},
-{MAKE_CMD("config","Configures Redis Sentinel.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,0,SENTINEL_CONFIG_Tips,0,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_CONFIG_Keyspecs,0,NULL,1),.args=SENTINEL_CONFIG_Args},
+{MAKE_CMD("config","Configures Redis Sentinel.","O(N) when N is the number of configuration parameters provided","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,1,SENTINEL_CONFIG_Tips,0,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_CONFIG_Keyspecs,0,NULL,1),.args=SENTINEL_CONFIG_Args},
 {MAKE_CMD("debug","Lists or updates the current configurable parameters of Redis Sentinel.","O(N) where N is the number of configurable parameters","7.0.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,0,SENTINEL_DEBUG_Tips,0,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_DEBUG_Keyspecs,0,NULL,1),.args=SENTINEL_DEBUG_Args},
 {MAKE_CMD("failover","Forces a Redis Sentinel failover.",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,0,SENTINEL_FAILOVER_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_FAILOVER_Keyspecs,0,NULL,1),.args=SENTINEL_FAILOVER_Args},
 {MAKE_CMD("flushconfig","Rewrites the Redis Sentinel configuration file.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,0,SENTINEL_FLUSHCONFIG_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_FLUSHCONFIG_Keyspecs,0,NULL,0)},
@@ -6354,7 +6366,7 @@ struct COMMAND_ARG COMMAND_LIST_Args[] = {
 /* COMMAND command table */
 struct COMMAND_STRUCT COMMAND_Subcommands[] = {
 {MAKE_CMD("count","Returns a count of commands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_COUNT_History,0,COMMAND_COUNT_Tips,0,commandCountCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_COUNT_Keyspecs,0,NULL,0)},
-{MAKE_CMD("docs","Returns documentary information about a command.","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_DOCS_History,0,COMMAND_DOCS_Tips,1,commandDocsCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_DOCS_Keyspecs,0,NULL,1),.args=COMMAND_DOCS_Args},
+{MAKE_CMD("docs","Returns documentary information about one, multiple or all commands.","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_DOCS_History,0,COMMAND_DOCS_Tips,1,commandDocsCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_DOCS_Keyspecs,0,NULL,1),.args=COMMAND_DOCS_Args},
 {MAKE_CMD("getkeys","Extracts the key names from an arbitrary command.","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,0,COMMAND_GETKEYS_Tips,0,commandGetKeysCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_GETKEYS_Keyspecs,0,NULL,2),.args=COMMAND_GETKEYS_Args},
 {MAKE_CMD("getkeysandflags","Extracts the key names and access flags for an arbitrary command.","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,0,COMMAND_GETKEYSANDFLAGS_Tips,0,commandGetKeysAndFlagsCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_GETKEYSANDFLAGS_Keyspecs,0,NULL,2),.args=COMMAND_GETKEYSANDFLAGS_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_HELP_History,0,COMMAND_HELP_Tips,0,commandHelpCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_HELP_Keyspecs,0,NULL,0)},
@@ -10627,8 +10639,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("geodist","Returns the distance between two members of a geospatial index.","O(log(N))","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args},
 {MAKE_CMD("geohash","Returns members from a geospatial index as geohash strings.","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOHASH_History,0,GEOHASH_Tips,0,geohashCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOHASH_Keyspecs,1,NULL,2),.args=GEOHASH_Args},
 {MAKE_CMD("geopos","Returns the longitude and latitude of members from a geospatial index.","O(N) where N is the number of members requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOPOS_History,0,GEOPOS_Tips,0,geoposCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOPOS_Keyspecs,1,NULL,2),.args=GEOPOS_Args},
-{MAKE_CMD("georadius","Queries a geospatial index for members within a distance from a coordinate, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,2,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,12),.args=GEORADIUS_Args},
-{MAKE_CMD("georadiusbymember","Queries a geospatial index for members within a distance from a member, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,1,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUSBYMEMBER_Args},
+{MAKE_CMD("georadius","Queries a geospatial index for members within a distance from a coordinate, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,2,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUS_Args},
+{MAKE_CMD("georadiusbymember","Queries a geospatial index for members within a distance from a member, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,1,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,10),.args=GEORADIUSBYMEMBER_Args},
 {MAKE_CMD("georadiusbymember_ro","Returns members from a geospatial index that are within a distance from a member.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_History,0,GEORADIUSBYMEMBER_RO_Tips,0,georadiusbymemberroCommand,-5,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_RO_Keyspecs,1,NULL,9),.args=GEORADIUSBYMEMBER_RO_Args},
 {MAKE_CMD("georadius_ro","Returns members from a geospatial index that are within a distance from a coordinate.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_RO_History,1,GEORADIUS_RO_Tips,0,georadiusroCommand,-6,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUS_RO_Keyspecs,1,NULL,10),.args=GEORADIUS_RO_Args},
 {MAKE_CMD("geosearch","Queries a geospatial index for members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCH_History,1,GEOSEARCH_Tips,0,geosearchCommand,-7,CMD_READONLY,ACL_CATEGORY_GEO,GEOSEARCH_Keyspecs,1,NULL,8),.args=GEOSEARCH_Args},
@@ -10675,8 +10687,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lrem","Removes elements from a list. Deletes the list if the last element was removed.","O(N+M) where N is the length of the list and M is the number of elements removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LREM_History,0,LREM_Tips,0,lremCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,LREM_Keyspecs,1,NULL,3),.args=LREM_Args},
 {MAKE_CMD("lset","Sets the value of an element in a list by its index.","O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LSET_History,0,LSET_Tips,0,lsetCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LSET_Keyspecs,1,NULL,3),.args=LSET_Args},
 {MAKE_CMD("ltrim","Removes elements from both ends a list. Deletes the list if all elements were trimmed.","O(N) where N is the number of elements to be removed by the operation.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LTRIM_History,0,LTRIM_Tips,0,ltrimCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,LTRIM_Keyspecs,1,NULL,3),.args=LTRIM_Args},
-{MAKE_CMD("rpop","Returns and removes the last elements of a list. Deletes the list if the lst element was popped.","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPOP_History,1,RPOP_Tips,0,rpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,RPOP_Keyspecs,1,NULL,2),.args=RPOP_Args},
-{MAKE_CMD("rpoplpush","Returns the last element of a list after removing and pushing it to another list. Deletes the list if the lst element was popped.","O(1)","1.2.0",CMD_DOC_DEPRECATED,"`LMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0","list",COMMAND_GROUP_LIST,RPOPLPUSH_History,0,RPOPLPUSH_Tips,0,rpoplpushCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,RPOPLPUSH_Keyspecs,2,NULL,2),.args=RPOPLPUSH_Args},
+{MAKE_CMD("rpop","Returns and removes the last elements of a list. Deletes the list if the last element was popped.","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPOP_History,1,RPOP_Tips,0,rpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,RPOP_Keyspecs,1,NULL,2),.args=RPOP_Args},
+{MAKE_CMD("rpoplpush","Returns the last element of a list after removing and pushing it to another list. Deletes the list if the last element was popped.","O(1)","1.2.0",CMD_DOC_DEPRECATED,"`LMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0","list",COMMAND_GROUP_LIST,RPOPLPUSH_History,0,RPOPLPUSH_Tips,0,rpoplpushCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,RPOPLPUSH_Keyspecs,2,NULL,2),.args=RPOPLPUSH_Args},
 {MAKE_CMD("rpush","Appends one or more elements to a list. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSH_History,1,RPUSH_Tips,0,rpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSH_Keyspecs,1,NULL,2),.args=RPUSH_Args},
 {MAKE_CMD("rpushx","Appends an element to a list only when the list exists.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSHX_History,1,RPUSHX_Tips,0,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSHX_Keyspecs,1,NULL,2),.args=RPUSHX_Args},
 /* pubsub */
@@ -10796,7 +10808,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xpending","Returns the information and entries from a stream consumer group's pending entries list.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XPENDING_History,1,XPENDING_Tips,1,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XPENDING_Keyspecs,1,NULL,3),.args=XPENDING_Args},
 {MAKE_CMD("xrange","Returns the messages from a stream within a range of IDs.","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XRANGE_History,1,XRANGE_Tips,0,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XRANGE_Keyspecs,1,NULL,4),.args=XRANGE_Args},
 {MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,0,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY|CMD_BLOCKING,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,3),.args=XREAD_Args},
-{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in agroup. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,5),.args=XREADGROUP_Args},
+{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,5),.args=XREADGROUP_Args},
 {MAKE_CMD("xrevrange","Returns the messages from a stream within a range of IDs in reverse order.","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREVRANGE_History,1,XREVRANGE_Tips,0,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XREVRANGE_Keyspecs,1,NULL,4),.args=XREVRANGE_Args},
 {MAKE_CMD("xsetid","An internal command for replicating stream values.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSETID_History,1,XSETID_Tips,0,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XSETID_Keyspecs,1,NULL,4),.args=XSETID_Args},
 {MAKE_CMD("xtrim","Deletes messages from the beginning of a stream.","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XTRIM_History,1,XTRIM_Tips,1,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,XTRIM_Keyspecs,1,NULL,2),.args=XTRIM_Args},

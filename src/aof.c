@@ -164,12 +164,12 @@ void aofManifestFree(aofManifest *am) {
     zfree(am);
 }
 
-sds getAofManifestFileName() {
+sds getAofManifestFileName(void) {
     return sdscatprintf(sdsempty(), "%s%s", server.aof_filename,
                 MANIFEST_NAME_SUFFIX);
 }
 
-sds getTempAofManifestFileName() {
+sds getTempAofManifestFileName(void) {
     return sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX,
                 server.aof_filename, MANIFEST_NAME_SUFFIX);
 }
@@ -464,7 +464,7 @@ sds getNewIncrAofName(aofManifest *am) {
 }
 
 /* Get temp INCR type AOF name. */
-sds getTempIncrAofName() {
+sds getTempIncrAofName(void) {
     return sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
         INCR_FILE_SUFFIX);
 }
@@ -692,7 +692,7 @@ int aofDelHistoryFiles(void) {
 }
 
 /* Used to clean up temp INCR AOF when AOFRW fails. */
-void aofDelTempIncrAofFile() {
+void aofDelTempIncrAofFile(void) {
     sds aof_filename = getTempIncrAofName();
     sds aof_filepath = makePath(server.aof_dirname, aof_filename);
     serverLog(LL_NOTICE, "Removing the temp incr aof file %s in the background", aof_filename);

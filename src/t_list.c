@@ -971,7 +971,7 @@ void lposCommand(client *c) {
 
         if (!strcasecmp(opt,"RANK") && moreargs) {
             j++;
-            if (getLongFromObjectOrReply(c, c->argv[j], &rank, NULL) != C_OK)
+            if (getRangeLongFromObjectOrReply(c, c->argv[j], -LONG_MAX, LONG_MAX, &rank, NULL) != C_OK)
                 return;
             if (rank == 0) {
                 addReplyError(c,"RANK can't be zero: use 1 to start from "

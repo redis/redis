@@ -86,17 +86,17 @@
 # Incorrect type for EX 'seconds' parameter - stop hinting.
 "SET key value EX sec " ""
 
-# Reordering partially-matched optional argument: GEORADIUS key longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]
-"GEORADIUS key " "longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]"
-"GEORADIUS key 1 2 3 M " "[WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key] [STOREDIST key]"
-"GEORADIUS key 1 2 3 M COUNT " "count [ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
-"GEORADIUS key 1 2 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
-"GEORADIUS key 1 2 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"
-"GEORADIUS key 1 -2.345 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key] [STOREDIST key]"" ""
+# Reordering partially-matched optional argument: GEORADIUS key longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key|STOREDIST key]
+"GEORADIUS key " "longitude latitude radius M|KM|FT|MI [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key|STOREDIST key]"
+"GEORADIUS key 1 2 3 M " "[WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count [ANY]] [ASC|DESC] [STORE key|STOREDIST key]"
+"GEORADIUS key 1 2 3 M COUNT " "count [ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key|STOREDIST key]"
+"GEORADIUS key 1 2 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key|STOREDIST key]"
+"GEORADIUS key 1 2 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key|STOREDIST key]"
+"GEORADIUS key 1 -2.345 3 M COUNT 12 " "[ANY] [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [STORE key|STOREDIST key]"" ""
 # Wrong data type: latitude must be a double. Hinting fails.
 "GEORADIUS key 1 X " ""
 # Once the next optional argument is started, the [ANY] hint completing the COUNT argument disappears.
-"GEORADIUS key 1 2 3 M COUNT 12 ASC " "[WITHCOORD] [WITHDIST] [WITHHASH] [STORE key] [STOREDIST key]"
+"GEORADIUS key 1 2 3 M COUNT 12 ASC " "[WITHCOORD] [WITHDIST] [WITHHASH] [STORE key|STOREDIST key]"
 
 # Incorrect argument type for double-valued token parameter.
 "GEOSEARCH k FROMLONLAT " "longitude latitude BYRADIUS radius M|KM|FT|MI|BYBOX width height M|KM|FT|MI [ASC|DESC] [COUNT count [ANY]] [WITHCOORD] [WITHDIST] [WITHHASH]"

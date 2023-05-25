@@ -13,6 +13,12 @@ start_server {tags {"incr"}} {
         r decr novar
     } {1}
 
+    test {DECR against key is not exist and incr} {
+        r del novar_not_exist
+        assert_equal {-1} [r decr novar_not_exist]
+        assert_equal {0} [r incr novar_not_exist]
+    }
+
     test {INCR against key originally set with SET} {
         r set novar 100
         r incr novar
@@ -63,6 +69,11 @@ start_server {tags {"incr"}} {
         r set novar 17179869184
         r decrby novar 17179869185
     } {-1}
+
+    test {DECRBY against key is not exist} {
+        r del key_not_exist
+        assert_equal {-1} [r decrby key_not_exist 1]
+    }
 
     test {INCR uses shared objects in the 0-9999 range} {
         r set foo -1

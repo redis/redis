@@ -41,6 +41,7 @@
             }
         ],
         "reply_schema": {
+            "description": "The number of fields that were added",
             "type": "integer"
         },
         "arguments": [

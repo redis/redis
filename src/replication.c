@@ -55,7 +55,7 @@ int cancelReplicationHandshake(int reconnect);
 int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
-static ConnectionType *connTypeOfReplication() {
+static ConnectionType *connTypeOfReplication(void) {
     if (server.tls_replication) {
         return connectionTypeTls();
     }
@@ -418,13 +418,13 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
         if (add_new_block) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
+
+            /* It is important to trim after adding replication data to keep the backlog size close to
+             * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
+             * unnecessary trimming attempts when small amounts of data are added. See comments in
+             * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
+            incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
         }
-        /* Try to trim replication backlog since replication backlog may exceed
-         * our setting when we add replication stream. Note that it is important to
-         * try to trim at least one node since in the common case this is where one
-         * new backlog node is added and one should be removed. See also comments
-         * in freeMemoryGetNotCountedMemory for details. */
-        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
 }
 
@@ -1796,7 +1796,7 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
  * master-replica synchronization: if it fails after multiple attempts
  * the replica cannot be considered reliable and exists with an
  * error. */
-void restartAOFAfterSYNC() {
+void restartAOFAfterSYNC(void) {
     unsigned int tries, max_tries = 10;
     for (tries = 0; tries < max_tries; ++tries) {
         if (startAppendOnly() == C_OK) break;
@@ -1813,7 +1813,7 @@ void restartAOFAfterSYNC() {
     }
 }
 
-static int useDisklessLoad() {
+static int useDisklessLoad(void) {
     /* compute boolean decision to use diskless load */
     int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
@@ -1852,7 +1852,7 @@ void disklessLoadDiscardTempDb(redisDb *tempDb) {
  * we have no way to incrementally feed our replicas after that.
  * We want our replicas to resync with us as well, if we have any sub-replicas.
  * This is useful on readSyncBulkPayload in places where we just finished transferring db. */
-void replicationAttachToNewMaster() { 
+void replicationAttachToNewMaster(void) { 
     /* Replica starts to apply data from new master, we must discard the cached
      * master structure. */
     serverAssert(server.master == NULL);
