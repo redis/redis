@@ -8929,7 +8929,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         else
             memset(master_id,0,REDISMODULE_NODE_ID_LEN);
     }
-    if (port) *port = node->port;
+    if (port) *port = getNodeDefaultClientPort(node);
 
     /* As usually we have to remap flags for modules, in order to ensure
      * we can provide binary compatibility. */

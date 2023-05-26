@@ -142,9 +142,8 @@ typedef struct clusterNode {
     char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
     sds hostname;               /* The known hostname for this node */
     sds human_nodename;         /* The known human readable nodename for this node */
-    int port;                   /* Latest known clients primary port (TLS or plain). */
-    int pport;                  /* Latest known clients secondary port, if primary port is
-                                   plain, this is TLS, if primary port is TLS, this is plain. */
+    int tcp_port;               /* Latest known clients TCP port. */
+    int tls_port;               /* Latest known clients TLS port */
     int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link established toward this node */
     clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
@@ -338,7 +337,7 @@ typedef struct {
     char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
     uint16_t ver;       /* Protocol version, currently set to 1. */
-    uint16_t port;      /* TCP base port number. */
+    uint16_t port;      /* Base port number (TCP or TLS). */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
@@ -400,6 +399,8 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 #define CLUSTERMSG_FLAG0_FORCEACK (1<<1) /* Give ACK to AUTH_REQUEST even if
                                             master is up. */
 #define CLUSTERMSG_FLAG0_EXT_DATA (1<<2) /* Message contains extension data */
+#define CLUSTERMSG_FLAG0_FIXED_PORT (1<<3) /* The port and pport are fixedly set to 
+                                              TLS port and TCP port respectively. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 void clusterInit(void);
@@ -429,9 +430,11 @@ void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
-sds clusterGenNodesDescription(client *c, int filter, int use_pport);
+sds clusterGenNodesDescription(client *c, int filter, int tls_primary);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
 void clusterUpdateMyselfHumanNodename(void);
 int isValidAuxString(char *s, unsigned int length);
+int getNodeDefaultClientPort(clusterNode *n);
+
 #endif /* __CLUSTER_H */
