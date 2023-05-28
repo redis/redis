@@ -642,6 +642,20 @@ proc process_is_alive pid {
     }
 }
 
+proc pause_process pid {
+    exec kill -SIGSTOP $pid
+    wait_for_condition 50 100 {
+        [string match {*T*} [lindex [exec ps j $pid] 16]]
+    } else {
+        puts [exec ps j $pid]
+        fail "process didn't stop"
+    }
+}
+
+proc resume_process pid {
+    exec kill -SIGCONT $pid
+}
+
 proc cmdrstat {cmd r} {
     if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
         set _ $value
@@ -877,17 +891,17 @@ proc debug_digest {{level 0}} {
     r $level debug digest
 }
 
-proc wait_for_blocked_client {} {
+proc wait_for_blocked_client {{idx 0}} {
     wait_for_condition 50 100 {
-        [s blocked_clients] ne 0
+        [s $idx blocked_clients] ne 0
     } else {
         fail "no blocked clients"
     }
 }
 
-proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
     wait_for_condition $maxtries $delay  {
-        [s blocked_clients] == $count
+        [s $idx blocked_clients] == $count
     } else {
         fail "Timeout waiting for blocked clients"
     }
