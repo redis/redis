@@ -1,6 +1,6 @@
 {
     "RPUSH": {
-        "summary": "Append one or multiple elements to a list",
+        "summary": "Appends one or more elements to a list. Creates the key if it doesn't exist.",
         "complexity": "O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.",
         "group": "list",
         "since": "1.0.0",

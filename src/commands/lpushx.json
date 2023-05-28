@@ -1,6 +1,6 @@
 {
     "LPUSHX": {
-        "summary": "Prepend an element to a list, only if the list exists",
+        "summary": "Prepends one or more elements to a list only when the list exists.",
         "complexity": "O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.",
         "group": "list",
         "since": "2.2.0",

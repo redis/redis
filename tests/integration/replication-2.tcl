@@ -42,7 +42,7 @@ start_server {tags {"repl external:skip"}} {
         test {No write if min-slaves-max-lag is > of the slave lag} {
             r config set min-slaves-to-write 1
             r config set min-slaves-max-lag 2
-            exec kill -SIGSTOP [srv -1 pid]
+            pause_process [srv -1 pid]
             assert {[r set foo 12345] eq {OK}}
             wait_for_condition 100 100 {
                 [catch {r set foo 12345}] != 0
@@ -52,7 +52,7 @@ start_server {tags {"repl external:skip"}} {
             catch {r set foo 12345} err
             assert_match {NOREPLICAS*} $err
         }
-        exec kill -SIGCONT [srv -1 pid]
+        resume_process [srv -1 pid]
 
         test {min-slaves-to-write is ignored by slaves} {
             r config set min-slaves-to-write 1

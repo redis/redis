@@ -1,6 +1,6 @@
 {
     "XCLAIM": {
-        "summary": "Changes (or acquires) ownership of a message in a consumer group, as if the message was delivered to the specified consumer.",
+        "summary": "Changes, or acquires, ownership of a message in a consumer group, as if the message was delivered a consumer group member.",
         "complexity": "O(log N) with N being the number of messages in the PEL of the consumer group.",
         "group": "stream",
         "since": "5.0.0",

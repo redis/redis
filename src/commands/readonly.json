@@ -1,6 +1,6 @@
 {
     "READONLY": {
-        "summary": "Enables read queries for a connection to a cluster replica node",
+        "summary": "Enables read-only queries for a connection to a Redis Cluster replica node.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

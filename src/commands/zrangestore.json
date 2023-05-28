@@ -1,6 +1,6 @@
 {
     "ZRANGESTORE": {
-        "summary": "Store a range of members from sorted set into another key",
+        "summary": "Stores a range of members from sorted set in a key.",
         "complexity": "O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements stored into the destination key.",
         "group": "sorted_set",
         "since": "6.2.0",

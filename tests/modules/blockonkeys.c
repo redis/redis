@@ -21,7 +21,7 @@ typedef struct {
 
 static RedisModuleType *fsltype = NULL;
 
-fsl_t *fsl_type_create() {
+fsl_t *fsl_type_create(void) {
     fsl_t *o;
     o = RedisModule_Alloc(sizeof(*o));
     o->length = 0;
@@ -131,6 +131,8 @@ int fsl_push(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     fsl->list[fsl->length++] = ele;
     RedisModule_SignalKeyAsReady(ctx, argv[1]);
 
+    RedisModule_ReplicateVerbatim(ctx);
+
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -145,6 +147,9 @@ int bpop_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RedisModule_Assert(fsl->length);
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+
+    /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+    RedisModule_ReplicateVerbatim(ctx);
     return REDISMODULE_OK;
 }
 
@@ -181,6 +186,8 @@ int fsl_bpop(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
         RedisModule_Assert(fsl->length);
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     }
 
     return REDISMODULE_OK;
@@ -201,6 +208,8 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     RedisModule_Assert(fsl->length);
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+    /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+    RedisModule_ReplicateVerbatim(ctx);
     return REDISMODULE_OK;
 }
 
@@ -247,6 +256,8 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else {
         RedisModule_Assert(fsl->length);
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     }
 
     return REDISMODULE_OK;
@@ -270,6 +281,8 @@ int bpoppush_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     long long ele = src->list[--src->length];
     dst->list[dst->length++] = ele;
     RedisModule_SignalKeyAsReady(ctx, dst_keyname);
+    /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+    RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithLongLong(ctx, ele);
 }
 
@@ -314,6 +327,8 @@ int fsl_bpoppush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         dst->list[dst->length++] = ele;
         RedisModule_SignalKeyAsReady(ctx, argv[2]);
         RedisModule_ReplyWithLongLong(ctx, ele);
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     }
 
     return REDISMODULE_OK;
@@ -350,6 +365,8 @@ int blockonkeys_popall_reply_callback(RedisModuleCtx *ctx, RedisModuleString **a
             RedisModule_ReplyWithString(ctx, elem);
             RedisModule_FreeString(ctx, elem);
         }
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
         RedisModule_ReplySetArrayLength(ctx, len);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Not a list");
@@ -415,6 +432,7 @@ int blockonkeys_lpush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!strncasecmp(str, "blockonkeys.lpush_unblock", len)) {
         RedisModule_SignalKeyAsReady(ctx, argv[1]);
     }
+    RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -433,6 +451,8 @@ int blockonkeys_blpopn_reply_callback(RedisModuleCtx *ctx, RedisModuleString **a
             RedisModule_ReplyWithString(ctx, elem);
             RedisModule_FreeString(ctx, elem);
         }
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
         result = REDISMODULE_OK;
     } else if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_LIST ||
                RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
@@ -491,6 +511,8 @@ int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             RedisModule_ReplyWithString(ctx, elem);
             RedisModule_FreeString(ctx, elem);
         }
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     } else {
         RedisModule_BlockClientOnKeys(ctx, blockonkeys_blpopn_reply_callback,
                                       timeout ? blockonkeys_blpopn_timeout_callback : blockonkeys_blpopn_abort_callback,

@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/misc.so]
 
-start_server {tags {"modules"}} {
+start_server {overrides {save {900 1}} tags {"modules"}} {
     r module load $testmodule
 
     test {test RM_Call} {

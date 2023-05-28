@@ -43,6 +43,16 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
 
     if (o->encoding != OBJ_ENCODING_LISTPACK) return;
 
+    /* We guess that most of the values in the input are unique, so
+     * if there are enough arguments we create a pre-sized hash, which
+     * might over allocate memory if there are duplicates. */
+    size_t new_fields = (end - start + 1) / 2;
+    if (new_fields > server.hash_max_listpack_entries) {
+        hashTypeConvert(o, OBJ_ENCODING_HT);
+        dictExpand(o->ptr, new_fields);
+        return;
+    }
+
     for (i = start; i <= end; i++) {
         if (!sdsEncodedObject(argv[i]))
             continue;
@@ -1004,6 +1014,26 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         return;
     }
 
+    /* CASE 2.5 listpack only. Sampling unique elements, in non-random order.
+     * Listpack encoded hashes are meant to be relatively small, so
+     * HRANDFIELD_SUB_STRATEGY_MUL isn't necessary and we rather not make
+     * copies of the entries. Instead, we emit them directly to the output
+     * buffer.
+     *
+     * And it is inefficient to repeatedly pick one random element from a
+     * listpack in CASE 4. So we use this instead. */
+    if (hash->encoding == OBJ_ENCODING_LISTPACK) {
+        listpackEntry *keys, *vals = NULL;
+        keys = zmalloc(sizeof(listpackEntry)*count);
+        if (withvalues)
+            vals = zmalloc(sizeof(listpackEntry)*count);
+        serverAssert(lpRandomPairsUnique(hash->ptr, count, keys, vals) == count);
+        hrandfieldReplyWithListpack(c, count, keys, vals);
+        zfree(keys);
+        zfree(vals);
+        return;
+    }
+
     /* CASE 3:
      * The number of elements inside the hash is not greater than
      * HRANDFIELD_SUB_STRATEGY_MUL times the number of requested elements.
@@ -1014,6 +1044,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * a bit less than the number of elements in the hash, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
+        /* Hashtable encoding (generic implementation) */
         dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         hashTypeIterator *hi = hashTypeInitIterator(hash);
@@ -1067,20 +1098,6 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to the temporary hash, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
-        if (hash->encoding == OBJ_ENCODING_LISTPACK) {
-            /* it is inefficient to repeatedly pick one random element from a
-             * listpack. so we use this instead: */
-            listpackEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(listpackEntry)*count);
-            if (withvalues)
-                vals = zmalloc(sizeof(listpackEntry)*count);
-            serverAssert(lpRandomPairsUnique(hash->ptr, count, keys, vals) == count);
-            hrandfieldReplyWithListpack(c, count, keys, vals);
-            zfree(keys);
-            zfree(vals);
-            return;
-        }
-
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         listpackEntry key, value;

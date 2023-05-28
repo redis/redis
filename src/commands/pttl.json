@@ -1,6 +1,6 @@
 {
     "PTTL": {
-        "summary": "Get the time to live for a key in milliseconds",
+        "summary": "Returns the expiration time in milliseconds of a key.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "2.6.0",

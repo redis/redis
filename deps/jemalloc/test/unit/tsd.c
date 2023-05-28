@@ -10,7 +10,7 @@ static int data_cleanup_count;
 void
 data_cleanup(int *data) {
 	if (data_cleanup_count == 0) {
-		assert_x_eq(*data, MALLOC_TSD_TEST_DATA_INIT,
+		expect_x_eq(*data, MALLOC_TSD_TEST_DATA_INIT,
 		    "Argument passed into cleanup function should match tsd "
 		    "value");
 	}
@@ -38,7 +38,7 @@ data_cleanup(int *data) {
 
 	if (reincarnate) {
 		void *p = mallocx(1, 0);
-		assert_ptr_not_null(p, "Unexpeced mallocx() failure");
+		expect_ptr_not_null(p, "Unexpeced mallocx() failure");
 		dallocx(p, 0);
 	}
 }
@@ -48,19 +48,26 @@ thd_start(void *arg) {
 	int d = (int)(uintptr_t)arg;
 	void *p;
 
+	/*
+	 * Test free before tsd init -- the free fast path (which does not
+	 * explicitly check for NULL) has to tolerate this case, and fall back
+	 * to free_default.
+	 */
+	free(NULL);
+
 	tsd_t *tsd = tsd_fetch();
-	assert_x_eq(tsd_test_data_get(tsd), MALLOC_TSD_TEST_DATA_INIT,
+	expect_x_eq(tsd_test_data_get(tsd), MALLOC_TSD_TEST_DATA_INIT,
 	    "Initial tsd get should return initialization value");
 
 	p = malloc(1);
-	assert_ptr_not_null(p, "Unexpected malloc() failure");
+	expect_ptr_not_null(p, "Unexpected malloc() failure");
 
 	tsd_test_data_set(tsd, d);
-	assert_x_eq(tsd_test_data_get(tsd), d,
+	expect_x_eq(tsd_test_data_get(tsd), d,
 	    "After tsd set, tsd get should return value that was set");
 
 	d = 0;
-	assert_x_eq(tsd_test_data_get(tsd), (int)(uintptr_t)arg,
+	expect_x_eq(tsd_test_data_get(tsd), (int)(uintptr_t)arg,
 	    "Resetting local data should have no effect on tsd");
 
 	tsd_test_callback_set(tsd, &data_cleanup);
@@ -84,7 +91,7 @@ TEST_BEGIN(test_tsd_sub_thread) {
 	 * We reincarnate twice in the data cleanup, so it should execute at
 	 * least 3 times.
 	 */
-	assert_x_ge(data_cleanup_count, 3,
+	expect_x_ge(data_cleanup_count, 3,
 	    "Cleanup function should have executed multiple times.");
 }
 TEST_END
@@ -95,28 +102,28 @@ thd_start_reincarnated(void *arg) {
 	assert(tsd);
 
 	void *p = malloc(1);
-	assert_ptr_not_null(p, "Unexpected malloc() failure");
+	expect_ptr_not_null(p, "Unexpected malloc() failure");
 
 	/* Manually trigger reincarnation. */
-	assert_ptr_not_null(tsd_arena_get(tsd),
+	expect_ptr_not_null(tsd_arena_get(tsd),
 	    "Should have tsd arena set.");
 	tsd_cleanup((void *)tsd);
-	assert_ptr_null(*tsd_arenap_get_unsafe(tsd),
+	expect_ptr_null(*tsd_arenap_get_unsafe(tsd),
 	    "TSD arena should have been cleared.");
-	assert_u_eq(tsd_state_get(tsd), tsd_state_purgatory,
+	expect_u_eq(tsd_state_get(tsd), tsd_state_purgatory,
 	    "TSD state should be purgatory\n");
 
 	free(p);
-	assert_u_eq(tsd_state_get(tsd), tsd_state_reincarnated,
+	expect_u_eq(tsd_state_get(tsd), tsd_state_reincarnated,
 	    "TSD state should be reincarnated\n");
 	p = mallocx(1, MALLOCX_TCACHE_NONE);
-	assert_ptr_not_null(p, "Unexpected malloc() failure");
-	assert_ptr_null(*tsd_arenap_get_unsafe(tsd),
+	expect_ptr_not_null(p, "Unexpected malloc() failure");
+	expect_ptr_null(*tsd_arenap_get_unsafe(tsd),
 	    "Should not have tsd arena set after reincarnation.");
 
 	free(p);
 	tsd_cleanup((void *)tsd);
-	assert_ptr_null(*tsd_arenap_get_unsafe(tsd),
+	expect_ptr_null(*tsd_arenap_get_unsafe(tsd),
 	    "TSD arena should have been cleared after 2nd cleanup.");
 
 	return NULL;
@@ -206,46 +213,46 @@ TEST_BEGIN(test_tsd_global_slow) {
 		 * Spin-wait.
 		 */
 	}
-	assert_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
+	expect_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
 	tsd_global_slow_inc(tsd_tsdn(tsd));
 	free(mallocx(1, 0));
-	assert_false(tsd_fast(tsd), "");
+	expect_false(tsd_fast(tsd), "");
 	atomic_store_u32(&data.phase, 2, ATOMIC_SEQ_CST);
 
 	/* PHASE 3 */
 	while (atomic_load_u32(&data.phase, ATOMIC_SEQ_CST) != 3) {
 	}
-	assert_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
+	expect_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
 	/* Increase again, so that we can test multiple fast/slow changes. */
 	tsd_global_slow_inc(tsd_tsdn(tsd));
 	atomic_store_u32(&data.phase, 4, ATOMIC_SEQ_CST);
 	free(mallocx(1, 0));
-	assert_false(tsd_fast(tsd), "");
+	expect_false(tsd_fast(tsd), "");
 
 	/* PHASE 5 */
 	while (atomic_load_u32(&data.phase, ATOMIC_SEQ_CST) != 5) {
 	}
-	assert_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
+	expect_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
 	tsd_global_slow_dec(tsd_tsdn(tsd));
 	atomic_store_u32(&data.phase, 6, ATOMIC_SEQ_CST);
 	/* We only decreased once; things should still be slow. */
 	free(mallocx(1, 0));
-	assert_false(tsd_fast(tsd), "");
+	expect_false(tsd_fast(tsd), "");
 
 	/* PHASE 7 */
 	while (atomic_load_u32(&data.phase, ATOMIC_SEQ_CST) != 7) {
 	}
-	assert_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
+	expect_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
 	tsd_global_slow_dec(tsd_tsdn(tsd));
 	atomic_store_u32(&data.phase, 8, ATOMIC_SEQ_CST);
 	/* We incremented and then decremented twice; we should be fast now. */
 	free(mallocx(1, 0));
-	assert_true(!originally_fast || tsd_fast(tsd), "");
+	expect_true(!originally_fast || tsd_fast(tsd), "");
 
 	/* PHASE 9 */
 	while (atomic_load_u32(&data.phase, ATOMIC_SEQ_CST) != 9) {
 	}
-	assert_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
+	expect_false(atomic_load_b(&data.error, ATOMIC_SEQ_CST), "");
 
 	thd_join(thd, NULL);
 }

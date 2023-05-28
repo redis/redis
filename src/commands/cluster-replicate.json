@@ -1,6 +1,6 @@
 {
     "REPLICATE": {
-        "summary": "Reconfigure a node as a replica of the specified master node",
+        "summary": "Configure a node as replica of a master node.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

@@ -38,9 +38,9 @@ extern "C" {
 
 /******************************************************************************/
 /*
- * For unit tests, expose all public and private interfaces.
+ * For unit tests and analytics tests, expose all public and private interfaces.
  */
-#ifdef JEMALLOC_UNIT_TEST
+#if defined(JEMALLOC_UNIT_TEST) || defined (JEMALLOC_ANALYZE_TEST)
 #  define JEMALLOC_JET
 #  define JEMALLOC_MANGLE
 #  include "jemalloc/internal/jemalloc_preamble.h"
@@ -124,12 +124,19 @@ static const bool config_debug =
 #include "test/math.h"
 #include "test/mtx.h"
 #include "test/mq.h"
+#include "test/sleep.h"
 #include "test/test.h"
 #include "test/timer.h"
 #include "test/thd.h"
+#include "test/bgthd.h"
 #define MEXP 19937
 #include "test/SFMT.h"
 
+#ifndef JEMALLOC_HAVE_MALLOC_SIZE
+#define TEST_MALLOC_SIZE malloc_usable_size
+#else
+#define TEST_MALLOC_SIZE malloc_size
+#endif
 /******************************************************************************/
 /*
  * Define always-enabled assertion macros, so that test assertions execute even
@@ -138,7 +145,7 @@ static const bool config_debug =
 #undef assert
 #undef not_reached
 #undef not_implemented
-#undef assert_not_implemented
+#undef expect_not_implemented
 
 #define assert(e) do {							\
 	if (!(e)) {							\
@@ -162,7 +169,7 @@ static const bool config_debug =
 	abort();							\
 } while (0)
 
-#define assert_not_implemented(e) do {					\
+#define expect_not_implemented(e) do {					\
 	if (!(e)) {							\
 		not_implemented();					\
 	}								\

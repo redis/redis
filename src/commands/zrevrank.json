@@ -1,6 +1,6 @@
 {
     "ZREVRANK": {
-        "summary": "Determine the index of a member in a sorted set, with scores ordered from high to low",
+        "summary": "Returns the index of a member in a sorted set ordered by descending scores.",
         "complexity": "O(log(N))",
         "group": "sorted_set",
         "since": "2.0.0",

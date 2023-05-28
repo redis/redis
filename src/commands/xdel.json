@@ -1,6 +1,6 @@
 {
     "XDEL": {
-        "summary": "Removes the specified entries from the stream. Returns the number of items actually deleted, that may be different from the number of IDs passed in case certain IDs do not exist.",
+        "summary": "Returns the number of messages after removing them from a stream.",
         "complexity": "O(1) for each single item to delete in the stream, regardless of the stream size.",
         "group": "stream",
         "since": "5.0.0",

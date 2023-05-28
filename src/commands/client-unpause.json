@@ -1,6 +1,6 @@
 {
     "UNPAUSE": {
-        "summary": "Resume processing of clients that were paused",
+        "summary": "Resumes processing commands from paused clients.",
         "complexity": "O(N) Where N is the number of paused clients",
         "group": "connection",
         "since": "6.2.0",

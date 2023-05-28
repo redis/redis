@@ -1,6 +1,6 @@
 {
     "STRLEN": {
-        "summary": "Get the length of the value stored in a key",
+        "summary": "Returns the length of a string value.",
         "complexity": "O(1)",
         "group": "string",
         "since": "2.2.0",

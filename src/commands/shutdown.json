@@ -1,6 +1,6 @@
 {
     "SHUTDOWN": {
-        "summary": "Synchronously save the dataset to disk and then shut down the server",
+        "summary": "Synchronously saves the database(s) to disk and shuts down the Redis server.",
         "complexity": "O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)",
         "group": "server",
         "since": "1.0.0",

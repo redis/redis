@@ -210,7 +210,7 @@ void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 dictEntry *dictGetFairRandomKey(dict *d);
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
-void dictGetStats(char *buf, size_t bufsize, dict *d);
+void dictGetStats(char *buf, size_t bufsize, dict *d, int full);
 uint64_t dictGenHashFunction(const void *key, size_t len);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len);
 void dictEmpty(dict *d, void(callback)(dict*));

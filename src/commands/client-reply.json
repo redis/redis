@@ -1,6 +1,6 @@
 {
     "REPLY": {
-        "summary": "Instruct the server whether to reply to commands",
+        "summary": "Instructs the server whether to reply to commands.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "3.2.0",

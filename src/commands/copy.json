@@ -1,6 +1,6 @@
 {
     "COPY": {
-        "summary": "Copy a key",
+        "summary": "Copies the value of a key to a new key.",
         "complexity": "O(N) worst case for collections, where N is the number of nested items. O(1) for string values.",
         "group": "generic",
         "since": "6.2.0",

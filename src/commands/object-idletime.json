@@ -1,6 +1,6 @@
 {
     "IDLETIME": {
-        "summary": "Get the time since a Redis object was last accessed",
+        "summary": "Returns the time since the last access to a Redis object.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "2.2.3",

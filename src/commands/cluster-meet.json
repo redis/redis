@@ -1,6 +1,6 @@
 {
     "MEET": {
-        "summary": "Force a node cluster to handshake with another node",
+        "summary": "Forces a node to handshake with another node.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

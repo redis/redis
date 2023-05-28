@@ -1,6 +1,6 @@
 {
     "SIMULATE-FAILURE": {
-        "summary": "Simulate failover scenarios",
+        "summary": "Simulates failover scenarios.",
         "group": "sentinel",
         "since": "3.2.0",
         "arity": -3,
@@ -11,6 +11,21 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The simulated flag was set.",
+                    "const": "OK"
+                },
+                {
+                    "description": "Supported simulates flags. Returned in case `HELP` was used.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "mode",

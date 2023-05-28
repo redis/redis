@@ -1,6 +1,6 @@
 {
     "BITFIELD_RO": {
-        "summary": "Perform arbitrary bitfield integer operations on strings. Read-only variant of BITFIELD",
+        "summary": "Performs arbitrary read-only bitfield integer operations on strings.",
         "complexity": "O(1) for each subcommand specified",
         "group": "bitmap",
         "since": "6.0.0",

@@ -1,6 +1,6 @@
 {
     "EXEC": {
-        "summary": "Execute all commands issued after MULTI",
+        "summary": "Executes all commands in a transaction.",
         "complexity": "Depends on commands in the transaction",
         "group": "transactions",
         "since": "1.2.0",

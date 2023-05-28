@@ -1,6 +1,6 @@
 {
     "XPENDING": {
-        "summary": "Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.",
+        "summary": "Returns the information and entries from a stream consumer group's pending entries list.",
         "complexity": "O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.",
         "group": "stream",
         "since": "5.0.0",

@@ -53,14 +53,18 @@ start_server {
         assert_equal {16 17} [lsort [r smembers myset]]
     }
 
-    test {SMISMEMBER against non set} {
+    test {SMISMEMBER SMEMBERS SCARD against non set} {
         r lpush mylist foo
         assert_error WRONGTYPE* {r smismember mylist bar}
+        assert_error WRONGTYPE* {r smembers mylist}
+        assert_error WRONGTYPE* {r scard mylist}
     }
 
-    test {SMISMEMBER non existing key} {
+    test {SMISMEMBER SMEMBERS SCARD against non existing key} {
         assert_equal {0} [r smismember myset1 foo]
         assert_equal {0 0} [r smismember myset1 foo bar]
+        assert_equal {} [r smembers myset1]
+        assert_equal {0} [r scard myset1]
     }
 
     test {SMISMEMBER requires one or more members} {
@@ -109,13 +113,60 @@ start_server {
         assert_equal {1} [r smismember myset 213244124402402314402033402]
     }
 
-    test "SADD overflows the maximum allowed integers in an intset" {
+foreach type {single multiple single_multiple} {
+    test "SADD overflows the maximum allowed integers in an intset - $type" {
         r del myset
-        for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+
+        if {$type == "single"} {
+            # All are single sadd commands.
+            for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+        } elseif {$type == "multiple"} {
+            # One sadd command to add all elements.
+            set args {}
+            for {set i 0} {$i < 512} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        } elseif {$type == "single_multiple"} {
+            # First one sadd adds an element (creates a key) and then one sadd adds all elements.
+            r sadd myset 1
+            set args {}
+            for {set i 0} {$i < 512} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        }
+
         assert_encoding intset myset
+        assert_equal 512 [r scard myset]
         assert_equal 1 [r sadd myset 512]
         assert_encoding hashtable myset
     }
+
+    test "SADD overflows the maximum allowed elements in a listpack - $type" {
+        r del myset
+
+        if {$type == "single"} {
+            # All are single sadd commands.
+            r sadd myset a
+            for {set i 0} {$i < 127} {incr i} { r sadd myset $i }
+        } elseif {$type == "multiple"} {
+            # One sadd command to add all elements.
+            set args {}
+            lappend args a
+            for {set i 0} {$i < 127} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        } elseif {$type == "single_multiple"} {
+            # First one sadd adds an element (creates a key) and then one sadd adds all elements.
+            r sadd myset a
+            set args {}
+            lappend args a
+            for {set i 0} {$i < 127} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        }
+
+        assert_encoding listpack myset
+        assert_equal 128 [r scard myset]
+        assert_equal 1 [r sadd myset b]
+        assert_encoding hashtable myset
+    }
+}
 
     test {Variadic SADD} {
         r del myset

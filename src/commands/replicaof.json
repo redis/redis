@@ -1,6 +1,6 @@
 {
     "REPLICAOF": {
-        "summary": "Make the server a replica of another instance, or promote it as master.",
+        "summary": "Configures a server as replica of another, or promotes it to a master.",
         "complexity": "O(1)",
         "group": "server",
         "since": "5.0.0",

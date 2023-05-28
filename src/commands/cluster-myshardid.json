@@ -1,6 +1,6 @@
 {
     "MYSHARDID": {
-        "summary": "Return the node shard id",
+        "summary": "Returns the shard ID of a node.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "7.2.0",

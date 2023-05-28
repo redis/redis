@@ -1,6 +1,6 @@
 {
     "RESET": {
-        "summary": "Reset a Redis Cluster node",
+        "summary": "Resets a node.",
         "complexity": "O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.",
         "group": "cluster",
         "since": "3.0.0",

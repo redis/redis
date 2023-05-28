@@ -23,7 +23,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandInfo info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .arity = -5,
-        .summary = "Appends a new entry to a stream",
+        .summary = "Appends a new message to a stream. Creates the key if it doesn't exist.",
         .since = "5.0.0",
         .complexity = "O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.",
         .tips = "nondeterministic_output",

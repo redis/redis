@@ -1,6 +1,6 @@
 {
     "STATS": {
-        "summary": "Return information about the function currently running (name, description, duration)",
+        "summary": "Returns information about a function during execution.",
         "complexity": "O(1)",
         "group": "scripting",
         "since": "7.0.0",

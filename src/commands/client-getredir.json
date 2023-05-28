@@ -1,6 +1,6 @@
 {
     "GETREDIR": {
-        "summary": "Get tracking notifications redirection client ID if any",
+        "summary": "Returns the client ID to which the connection's tracking notifications are redirected.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "6.0.0",

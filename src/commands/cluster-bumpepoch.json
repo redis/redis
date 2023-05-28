@@ -1,6 +1,6 @@
 {
     "BUMPEPOCH": {
-        "summary": "Advance the cluster config epoch",
+        "summary": "Advances the cluster config epoch.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",

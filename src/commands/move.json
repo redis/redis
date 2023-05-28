@@ -1,6 +1,6 @@
 {
     "MOVE": {
-        "summary": "Move a key to another database",
+        "summary": "Moves a key to another database.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",

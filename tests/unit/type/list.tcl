@@ -464,6 +464,7 @@ foreach {type large} [array get largevalue] {
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
         assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
+        assert_error "*value is out of range*" {r LPOS mylist c RANK -9223372036854775808}
     }
 
     test {LPOS COUNT option} {
@@ -1415,6 +1416,15 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         catch {[r linsert xlist aft3r aa 42]} e
         set e
     } {*ERR*syntax*error*}
+
+    test {LINSERT against non-list value error} {
+        r set k1 v1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r linsert k1 after 0 0}
+    }
+
+    test {LINSERT against non existing key} {
+        assert_equal 0 [r linsert not-a-key before 0 0]
+    }
 
 foreach type {listpack quicklist} {
     foreach {num} {250 500} {

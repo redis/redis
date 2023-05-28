@@ -1,6 +1,6 @@
 {
     "FLUSH": {
-        "summary": "Remove all the scripts from the script cache.",
+        "summary": "Removes all server-side Lua scripts from the script cache.",
         "complexity": "O(N) with N being the number of scripts in cache",
         "group": "scripting",
         "since": "2.6.0",

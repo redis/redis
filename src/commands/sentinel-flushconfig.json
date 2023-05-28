@@ -1,6 +1,6 @@
 {
     "FLUSHCONFIG": {
-        "summary": "Rewrite configuration file",
+        "summary": "Rewrites the Redis Sentinel configuration file.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "2.8.4",

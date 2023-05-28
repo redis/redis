@@ -1,6 +1,6 @@
 {
     "GEOHASH": {
-        "summary": "Returns members of a geospatial index as standard geohash strings",
+        "summary": "Returns members from a geospatial index as geohash strings.",
         "complexity": "O(log(N)) for each member requested, where N is the number of elements in the sorted set.",
         "group": "geo",
         "since": "3.2.0",

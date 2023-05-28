@@ -1,6 +1,6 @@
 {
     "INCRBYFLOAT": {
-        "summary": "Increment the float value of a key by the given amount",
+        "summary": "Increment the floating point value of a key by a number. Uses 0 as initial value if the key doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "2.6.0",

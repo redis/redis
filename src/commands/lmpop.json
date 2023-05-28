@@ -1,6 +1,6 @@
 {
     "LMPOP": {
-        "summary": "Pop elements from a list",
+        "summary": "Returns multiple elements from a list after removing them. Deletes the list if the last element was popped.",
         "complexity": "O(N+M) where N is the number of provided keys and M is the number of elements returned.",
         "group": "list",
         "since": "7.0.0",
