@@ -2066,23 +2066,23 @@ int clusterStartHandshake(char *ip, int port, int cport) {
     return 1;
 }
 
-static void getClientPortFromClusterMsg(clusterMsg* hdr, int gossip, int* tls_port, int* tcp_port) {
-    uint16_t port;
-    uint16_t pport;
-    if (gossip) {
-        clusterMsgDataGossip* g = (clusterMsgDataGossip*)hdr->data.ping.gossip;
-        port = g->port;
-        pport = g->pport;
-    } else {
-        port = hdr->port;
-        pport = hdr->pport;
-    }
+static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp_port) {
     if ((hdr->mflags[0] & CLUSTERMSG_FLAG0_FIXED_PORT) || server.tls_cluster) {
-        *tls_port = ntohs(port);
-        *tcp_port = ntohs(pport);
+        *tls_port = ntohs(hdr->port);
+        *tcp_port = ntohs(hdr->pport);
     } else {
-        *tls_port = ntohs(pport);
-        *tcp_port = ntohs(port);
+        *tls_port = ntohs(hdr->pport);
+        *tcp_port = ntohs(hdr->port);
+    }
+}
+
+static void getClientPortFromGossip(clusterMsg *hdr, clusterMsgDataGossip *g, int *tls_port, int *tcp_port) {
+    if ((hdr->mflags[0] & CLUSTERMSG_FLAG0_FIXED_PORT) || server.tls_cluster) {
+        *tls_port = ntohs(g->port);
+        *tcp_port = ntohs(g->pport);
+    } else {
+        *tls_port = ntohs(g->pport);
+        *tcp_port = ntohs(g->port);
     }
 }
 
@@ -2114,7 +2114,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 
         /* Convert port and pport into TCP port and TLS port. */
         int msg_tls_port, msg_tcp_port;
-        getClientPortFromClusterMsg(hdr, 1, &msg_tls_port, &msg_tcp_port);
+        getClientPortFromGossip(hdr, g, &msg_tls_port, &msg_tcp_port);
 
         /* Update our state accordingly to the gossip sections */
         node = clusterLookupNode(g->nodename, CLUSTER_NAMELEN);
@@ -2245,7 +2245,7 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     char ip[NET_IP_STR_LEN] = {0};
     int cport = ntohs(hdr->cport);
     int tcp_port, tls_port;
-    getClientPortFromClusterMsg(hdr, 0, &tls_port, &tcp_port);
+    getClientPortFromClusterMsg(hdr, &tls_port, &tcp_port);
 
     /* We don't proceed if the link is the same as the sender link, as this
      * function is designed to see if the node link is consistent with the
@@ -2838,7 +2838,7 @@ int clusterProcessPacket(clusterLink *link) {
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
             serverAssert(nodeIp2String(node->ip,link,hdr->myip) == C_OK);
-            getClientPortFromClusterMsg(hdr, 0, &node->tls_port, &node->tcp_port);
+            getClientPortFromClusterMsg(hdr, &node->tls_port, &node->tcp_port);
             node->cport = ntohs(hdr->cport);
             clusterAddNode(node);
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
