@@ -2575,8 +2575,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zsetopval zval;
     sds tmp;
     size_t maxelelen = 0, totelelen = 0;
-    robj *dstobj;
-    zset *dstzset;
+    robj *dstobj = NULL;
+    zset *dstzset = NULL;
     zskiplistNode *znode;
     int withscores = 0;
     unsigned long cardinality = 0;
@@ -2688,9 +2688,12 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
     /* We need a temp zset object to store our union/inter/diff. If the dstkey
      * is not NULL (that is, we are inside an ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE operation) then
-     * this zset object will be the resulting object to zset into the target key */
-    dstobj = createZsetObject();
-    dstzset = dstobj->ptr;
+     * this zset object will be the resulting object to zset into the target key.
+     * In SINTERCARD case, we don't need the temp obj, so we can avoid creating it. */
+    if (!cardinality_only) {
+        dstobj = createZsetObject();
+        dstzset = dstobj->ptr;
+    }
     memset(&zval, 0, sizeof(zval));
 
     if (op == SET_OP_INTER) {
@@ -2832,7 +2835,6 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         decrRefCount(dstobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
-        decrRefCount(dstobj);
     } else {
         unsigned long length = dstzset->zsl->length;
         zskiplist *zsl = dstzset->zsl;
