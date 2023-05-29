@@ -47,6 +47,7 @@
 
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
+static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -187,15 +188,26 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
  *
- * The program is aborted if the key already exists. */
-void dbAdd(redisDb *db, robj *key, robj *val) {
-    sds copy = sdsdup(key->ptr);
-    dictEntry *de = dictAddRaw(db->dict, copy, NULL);
+ * If the update_if_existing argument is false, the the program is aborted
+ * if the key already exists, otherwise, it can fall back to dbOverwite. */
+static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
+    dictEntry *existing;
+    dictEntry *de = dictAddRaw(db->dict, key->ptr, &existing);
+    if (update_if_existing && existing) {
+        dbSetValue(db, key, val, 1, existing);
+        return;
+    }
     serverAssertWithInfo(NULL, key, de != NULL);
+    dictSetKey(db->dict, de, sdsdup(key->ptr));
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
+}
+
+void dbAdd(redisDb *db, robj *key, robj *val) {
+    dbAddInternal(db, key, val, 0);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -212,6 +224,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     dictEntry *de = dictAddRaw(db->dict, key, NULL);
     if (de == NULL) return 0;
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     return 1;
@@ -226,15 +239,16 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * replacement (in which case we need to emit deletion signals), or just an
  * update of a value of an existing key (when false).
  *
+ * The dictEntry input is optional, can be used if we already have one.
+ *
  * The program is aborted if the key was not already present. */
-static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
-    dictEntry *de = dictFind(db->dict,key->ptr);
-
+static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de) {
+    if (!de) de = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        val->lru = old->lru;
-    }
+
+    val->lru = old->lru;
+
     if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
@@ -262,7 +276,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
 void dbReplaceValue(redisDb *db, robj *key, robj *val) {
-    dbSetValue(db, key, val, 0);
+    dbSetValue(db, key, val, 0, NULL);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -283,13 +297,17 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 
     if (flags & SETKEY_ALREADY_EXIST)
         keyfound = 1;
+    else if (flags & SETKEY_ADD_OR_UPDATE)
+        keyfound = -1;
     else if (!(flags & SETKEY_DOESNT_EXIST))
         keyfound = (lookupKeyWrite(db,key) != NULL);
 
     if (!keyfound) {
         dbAdd(db,key,val);
+    } else if (keyfound<0) {
+        dbAddInternal(db,key,val,1);
     } else {
-        dbSetValue(db,key,val,1);
+        dbSetValue(db,key,val,1,NULL);
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
@@ -562,7 +580,7 @@ int selectDb(client *c, int id) {
     return C_OK;
 }
 
-long long dbTotalServerKeyCount() {
+long long dbTotalServerKeyCount(void) {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
@@ -774,17 +792,16 @@ void keysCommand(client *c) {
 
     di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && plen == 1);
+    robj keyobj;
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
-        robj *keyobj;
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            keyobj = createStringObject(key,sdslen(key));
-            if (!keyIsExpired(c->db,keyobj)) {
-                addReplyBulk(c,keyobj);
+            initStaticStringObject(keyobj, key);
+            if (!keyIsExpired(c->db, &keyobj)) {
+                addReplyBulkCBuffer(c, key, sdslen(key));
                 numkeys++;
             }
-            decrRefCount(keyobj);
         }
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
@@ -2111,7 +2128,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
  * 
- * The commands using this functoin have a fully defined keyspec, so returning flags isn't needed. */
+ * The commands using this function have a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
     int i, num;
@@ -2316,7 +2333,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
 
 /* Helper function to extract keys from following commands:
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
- *                             [COUNT count] [STORE key] [STOREDIST key]
+ *                             [COUNT count] [STORE key|STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
  * 
  * This command has a fully defined keyspec, so returning flags isn't needed. */

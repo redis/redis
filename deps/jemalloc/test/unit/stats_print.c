@@ -136,7 +136,7 @@ parser_tokenize(parser_t *parser) {
 	size_t token_line JEMALLOC_CC_SILENCE_INIT(1);
 	size_t token_col JEMALLOC_CC_SILENCE_INIT(0);
 
-	assert_zu_le(parser->pos, parser->len,
+	expect_zu_le(parser->pos, parser->len,
 	    "Position is past end of buffer");
 
 	while (state != STATE_ACCEPT) {
@@ -686,7 +686,7 @@ parser_parse_value(parser_t *parser) {
 
 static bool
 parser_parse_pair(parser_t *parser) {
-	assert_d_eq(parser->token.token_type, TOKEN_TYPE_STRING,
+	expect_d_eq(parser->token.token_type, TOKEN_TYPE_STRING,
 	    "Pair should start with string");
 	if (parser_tokenize(parser)) {
 		return true;
@@ -731,7 +731,7 @@ parser_parse_values(parser_t *parser) {
 
 static bool
 parser_parse_array(parser_t *parser) {
-	assert_d_eq(parser->token.token_type, TOKEN_TYPE_LBRACKET,
+	expect_d_eq(parser->token.token_type, TOKEN_TYPE_LBRACKET,
 	    "Array should start with [");
 	if (parser_tokenize(parser)) {
 		return true;
@@ -747,7 +747,7 @@ parser_parse_array(parser_t *parser) {
 
 static bool
 parser_parse_pairs(parser_t *parser) {
-	assert_d_eq(parser->token.token_type, TOKEN_TYPE_STRING,
+	expect_d_eq(parser->token.token_type, TOKEN_TYPE_STRING,
 	    "Object should start with string");
 	if (parser_parse_pair(parser)) {
 		return true;
@@ -782,7 +782,7 @@ parser_parse_pairs(parser_t *parser) {
 
 static bool
 parser_parse_object(parser_t *parser) {
-	assert_d_eq(parser->token.token_type, TOKEN_TYPE_LBRACE,
+	expect_d_eq(parser->token.token_type, TOKEN_TYPE_LBRACE,
 	    "Object should start with {");
 	if (parser_tokenize(parser)) {
 		return true;
@@ -899,9 +899,9 @@ TEST_BEGIN(test_json_parser) {
 		const char *input = invalid_inputs[i];
 		parser_t parser;
 		parser_init(&parser, false);
-		assert_false(parser_append(&parser, input),
+		expect_false(parser_append(&parser, input),
 		    "Unexpected input appending failure");
-		assert_true(parser_parse(&parser),
+		expect_true(parser_parse(&parser),
 		    "Unexpected parse success for input: %s", input);
 		parser_fini(&parser);
 	}
@@ -910,9 +910,9 @@ TEST_BEGIN(test_json_parser) {
 		const char *input = valid_inputs[i];
 		parser_t parser;
 		parser_init(&parser, true);
-		assert_false(parser_append(&parser, input),
+		expect_false(parser_append(&parser, input),
 		    "Unexpected input appending failure");
-		assert_false(parser_parse(&parser),
+		expect_false(parser_parse(&parser),
 		    "Unexpected parse error for input: %s", input);
 		parser_fini(&parser);
 	}
@@ -961,17 +961,17 @@ TEST_BEGIN(test_stats_print_json) {
 			break;
 		case 1: {
 			size_t sz = sizeof(arena_ind);
-			assert_d_eq(mallctl("arenas.create", (void *)&arena_ind,
+			expect_d_eq(mallctl("arenas.create", (void *)&arena_ind,
 			    &sz, NULL, 0), 0, "Unexpected mallctl failure");
 			break;
 		} case 2: {
 			size_t mib[3];
 			size_t miblen = sizeof(mib)/sizeof(size_t);
-			assert_d_eq(mallctlnametomib("arena.0.destroy",
+			expect_d_eq(mallctlnametomib("arena.0.destroy",
 			    mib, &miblen), 0,
 			    "Unexpected mallctlnametomib failure");
 			mib[1] = arena_ind;
-			assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL,
+			expect_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL,
 			    0), 0, "Unexpected mallctlbymib failure");
 			break;
 		} default:
@@ -983,7 +983,7 @@ TEST_BEGIN(test_stats_print_json) {
 
 			parser_init(&parser, true);
 			malloc_stats_print(write_cb, (void *)&parser, opts[j]);
-			assert_false(parser_parse(&parser),
+			expect_false(parser_parse(&parser),
 			    "Unexpected parse error, opts=\"%s\"", opts[j]);
 			parser_fini(&parser);
 		}

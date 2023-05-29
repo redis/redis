@@ -422,8 +422,8 @@ void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
-sds clusterGenNodesDescription(int filter, int use_pport);
-sds genClusterInfoString();
+sds clusterGenNodesDescription(client *c, int filter, int use_pport);
+sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
 
 #endif /* __CLUSTER_H */

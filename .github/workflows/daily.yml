@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,reply-schema'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -43,7 +43,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-        echo "skipping: ${{github.event.inputs.skipjobs}} and ${{github.event.inputs.skiptests}}"
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -52,6 +55,50 @@ jobs:
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: module api test
+      if: true && !contains(github.event.inputs.skiptests, 'modules')
+      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
+      run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
+    - name: cluster tests
+      if: true && !contains(github.event.inputs.skiptests, 'cluster')
+      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
+    - name: unittest
+      if: true && !contains(github.event.inputs.skiptests, 'unittest')
+      run: ./src/redis-server test all --accurate
+
+  test-ubuntu-jemalloc-fortify:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'fortify')
+    container: ubuntu:lunar
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v3
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: |
+        apt-get update && apt-get install -y make gcc-13
+        update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+        make CC=gcc REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
+    - name: testprep
+      run: apt-get install -y tcl8.6 tclx procps
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
@@ -80,6 +127,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -113,6 +164,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -146,6 +201,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -186,6 +245,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -226,6 +289,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -266,6 +333,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -294,6 +365,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -323,10 +398,10 @@ jobs:
         ./src/redis-cli -p 8080 save > /dev/null
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
 
         echo "test replication doesn't increase cache"
         ./src/redis-cli -p 8081 REPLICAOF 127.0.0.1 8080 > /dev/null
@@ -334,13 +409,13 @@ jobs:
         sleep 1 # wait for the completion of cache reclaim bio
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         VMOUT=$(vmtouch -v /tmp/slave/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT 
+        grep -q " 0%" <<< $VMOUT 
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
         
         echo "test reboot doesn't increase cache"
         PID=$(cat /tmp/master/redis.pid)
@@ -351,10 +426,10 @@ jobs:
         sleep 1 # wait for the completion of cache reclaim bio
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
-        grep -q "0%" <<< $VMOUT
+        grep -q " 0%" <<< $VMOUT
         CACHE=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE"
-        if [ "$(( $CACHE-$CACHE0 ))" -gt "500000" ]; then exit 1; fi
+        if [ "$(( $CACHE-$CACHE0 ))" -gt "8000000" ]; then exit 1; fi
 
   test-valgrind-test:
     runs-on: ubuntu-latest
@@ -368,6 +443,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -394,6 +473,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -425,6 +508,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -451,6 +538,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -487,6 +578,10 @@ jobs:
         run: |
           echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
           echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v3
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -530,6 +625,10 @@ jobs:
         run: |
           echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
           echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+          echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+          echo "skiptests: ${{github.event.inputs.skiptests}}"
+          echo "test_args: ${{github.event.inputs.test_args}}"
+          echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
       - uses: actions/checkout@v3
         with:
           repository: ${{ env.GITHUB_REPOSITORY }}
@@ -569,6 +668,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -605,6 +708,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -648,6 +755,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -690,6 +801,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -698,10 +813,10 @@ jobs:
       run: make REDIS_CFLAGS='-Werror'
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --no-latency --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest-moduleapi --verbose --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
 
   test-macos-latest-sentinel:
     runs-on: macos-latest
@@ -715,6 +830,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -737,6 +856,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -759,6 +882,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -787,6 +914,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -814,6 +945,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -841,6 +976,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -876,6 +1015,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -911,7 +1054,10 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-        echo "skipping: ${{github.event.inputs.skipjobs}} and ${{github.event.inputs.skiptests}}"
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
@@ -937,5 +1083,5 @@ jobs:
       with:
         path: "./utils/req-res-validator/requirements.txt"
     - name: validator
-      run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas --fail-commands-not-all-hit
+      run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
 

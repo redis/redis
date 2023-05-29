@@ -151,6 +151,14 @@ start_server {tags {"string"}} {
         set ex
     } {*syntax*}
 
+    test "GETEX and GET expired key or not exist" {
+        r del foo
+        r set foo bar px 1
+        after 2
+        assert_equal {} [r getex foo]
+        assert_equal {} [r get foo]
+    }
+
     test "GETEX no arguments" {
          set ex {}
          catch {r getex} ex
@@ -225,6 +233,11 @@ start_server {tags {"string"}} {
         assert_error {*wrong number of arguments for 'mset' command} {r mset x{t} 10 y{t} "foo bar" z{t}}
         assert_error {*wrong number of arguments for 'msetnx' command} {r msetnx x{t} 20 y{t} "foo bar" z{t}}
     }
+
+    test {MSET with already existing - same key twice} {
+        r set x{t} x
+        list [r mset x{t} xxx x{t} yyy] [r get x{t}]
+    } {OK yyy}
 
     test {MSETNX with already existent key} {
         list [r msetnx x1{t} xxx y2{t} yyy x{t} 20] [r exists x1{t}] [r exists y2{t}]
@@ -438,6 +451,11 @@ start_server {tags {"string"}} {
         assert_equal "" [r getrange mykey 0 -1]
     }
 
+    test "GETRANGE against wrong key type" {
+        r lpush lkey1 "list"
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r getrange lkey1 0 -1}
+    }
+
     test "GETRANGE against string value" {
         r set mykey "Hello World"
         assert_equal "Hell" [r getrange mykey 0 3]
@@ -474,6 +492,9 @@ start_server {tags {"string"}} {
         assert_equal "a" [r substr key 0 0]
         assert_equal "abcd" [r substr key 0 3]
         assert_equal "bcde" [r substr key -4 -1]
+        assert_equal "" [r substr key -1 -3]
+        assert_equal "" [r substr key 7 8]
+        assert_equal "" [r substr nokey 0 1]
     }
     
 if {[string match {*jemalloc*} [s mem_allocator]]} {

@@ -18,6 +18,12 @@ jobs:
         ./runtest --verbose --tags -slow --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose --dump-logs
+    - name: validate commands.def up to date
+      run: |
+        touch src/commands/ping.json
+        make commands.def
+        dirty=$(git diff)
+        if [[ ! -z  $dirty ]]; then echo $dirty; exit 1; fi
 
   test-sanitizer-address:
     runs-on: ubuntu-latest
@@ -35,7 +41,7 @@ jobs:
 
   build-debian-old:
     runs-on: ubuntu-latest
-    container: debian:oldoldstable
+    container: debian:buster
     steps:
     - uses: actions/checkout@v3
     - name: make

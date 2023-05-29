@@ -72,7 +72,7 @@ tsd_boot0(void) {
 	if (tsd_tsd == TLS_OUT_OF_INDEXES) {
 		return true;
 	}
-	malloc_tsd_cleanup_register(&tsd_cleanup_wrapper);
+	_malloc_tsd_cleanup_register(&tsd_cleanup_wrapper);
 	tsd_wrapper_set(&tsd_boot_wrapper);
 	tsd_booted = true;
 	return false;

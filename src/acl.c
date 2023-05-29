@@ -642,7 +642,7 @@ void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector,
 /* This function is responsible for recomputing the command bits for all selectors of the existing users.
  * It uses the 'command_rules', a string representation of the ordered categories and commands, 
  * to recompute the command bits. */
-void ACLRecomputeCommandBitsFromCommandRulesAllUsers() {
+void ACLRecomputeCommandBitsFromCommandRulesAllUsers(void) {
     raxIterator ri;
     raxStart(&ri,Users);
     raxSeek(&ri,"^",NULL,0);
@@ -1891,6 +1891,13 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     listRewind(original->selectors,&li);
     while((ln = listNext(&li)) && match) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
+        /* If any of the original selectors has the all-channels permission, but
+         * the new ones don't (this is checked earlier in this function), then the
+         * new list is not a strict superset of the original.  */
+        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) {
+            match = 0;
+            break;
+        }
         listRewind(s->channels, &lpi);
         while((lpn = listNext(&lpi)) && match) {
             if (!listSearchKey(upcoming, listNodeValue(lpn))) {

@@ -526,6 +526,7 @@ proc signal_idle_client fd {
         incr ::next_test
         if {$::loop && $::next_test == [llength $::all_tests]} {
             set ::next_test 0
+            incr ::loop -1
         }
     } elseif {[llength $::run_solo_tests] != 0 && [llength $::active_clients] == 0} {
         if {!$::quiet} {
@@ -620,6 +621,7 @@ proc print_help_screen {} {
         "--no-latency       Skip latency measurements and validation by some tests."
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
+        "--loops <count>    Execute the specified set of tests several times."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
         "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
@@ -721,7 +723,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         }
         exit 0
     } elseif {$opt eq {--verbose}} {
-        set ::verbose 1
+        incr ::verbose
     } elseif {$opt eq {--client}} {
         set ::client 1
         set ::test_server_port $arg
@@ -744,7 +746,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--stop}} {
         set ::stop_on_failure 1
     } elseif {$opt eq {--loop}} {
-        set ::loop 1
+        set ::loop 2147483647
+    } elseif {$opt eq {--loops}} {
+        set ::loop $arg
+        incr j
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
         incr j

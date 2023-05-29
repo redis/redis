@@ -66,6 +66,7 @@
 
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
+void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
@@ -1165,7 +1166,45 @@ unsigned long zsetLength(const robj *zobj) {
     return length;
 }
 
+/* Factory method to return a zset.
+ *
+ * The size hint indicates approximately how many items will be added,
+ * and the value len hint indicates the approximate individual size of the added elements,
+ * they are used to determine the initial representation.
+ *
+ * If the hints are not known, and underestimation or 0 is suitable. */
+robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
+    if (size_hint <= server.zset_max_listpack_entries &&
+        val_len_hint <= server.zset_max_listpack_value)
+    {
+        return createZsetListpackObject();
+    }
+
+    robj *zobj = createZsetObject();
+    zset *zs = zobj->ptr;
+    dictExpand(zs->dict, size_hint);
+    return zobj;
+}
+
+/* Check if the existing zset should be converted to another encoding based off the
+ * the size hint. */
+void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
+        size_hint > server.zset_max_listpack_entries)
+    {
+        zsetConvertAndExpand(zobj, OBJ_ENCODING_SKIPLIST, size_hint);
+    }
+}
+
+/* Convert the zset to specified encoding. The zset dict (when converting
+ * to a skiplist) is presized to hold the number of elements in the original
+ * zset. */
 void zsetConvert(robj *zobj, int encoding) {
+    zsetConvertAndExpand(zobj, encoding, zsetLength(zobj));
+}
+
+/* Converts a zset to the specified encoding, pre-sizing it for 'cap' elements. */
+void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
     zset *zs;
     zskiplistNode *node, *next;
     sds ele;
@@ -1185,6 +1224,9 @@ void zsetConvert(robj *zobj, int encoding) {
         zs = zmalloc(sizeof(*zs));
         zs->dict = dictCreate(&zsetDictType);
         zs->zsl = zslCreate();
+
+        /* Presize the dict to avoid rehashing */
+        dictExpand(zs->dict, cap);
 
         eptr = lpSeek(zl,0);
         if (eptr != NULL) {
@@ -1375,7 +1417,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 sdslen(ele) > server.zset_max_listpack_value ||
                 !lpSafeToAdd(zobj->ptr, sdslen(ele)))
             {
-                zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
+                zsetConvertAndExpand(zobj, OBJ_ENCODING_SKIPLIST, zsetLength(zobj) + 1);
             } else {
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
                 if (newscore) *newscore = score;
@@ -1749,14 +1791,10 @@ void zaddGenericCommand(client *c, int flags) {
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
-        if (server.zset_max_listpack_entries == 0 ||
-            server.zset_max_listpack_value < sdslen(c->argv[scoreidx+1]->ptr))
-        {
-            zobj = createZsetObject();
-        } else {
-            zobj = createZsetListpackObject();
-        }
+        zobj = zsetTypeCreate(elements, sdslen(c->argv[scoreidx+1]->ptr));
         dbAdd(c->db,key,zobj);
+    } else {
+        zsetTypeMaybeConvert(zobj, elements);
     }
 
     for (j = 0; j < elements; j++) {
@@ -2537,8 +2575,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zsetopval zval;
     sds tmp;
     size_t maxelelen = 0, totelelen = 0;
-    robj *dstobj;
-    zset *dstzset;
+    robj *dstobj = NULL;
+    zset *dstzset = NULL;
     zskiplistNode *znode;
     int withscores = 0;
     unsigned long cardinality = 0;
@@ -2648,8 +2686,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
     }
 
-    dstobj = createZsetObject();
-    dstzset = dstobj->ptr;
+    /* We need a temp zset object to store our union/inter/diff. If the dstkey
+     * is not NULL (that is, we are inside an ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE operation) then
+     * this zset object will be the resulting object to zset into the target key.
+     * In SINTERCARD case, we don't need the temp obj, so we can avoid creating it. */
+    if (!cardinality_only) {
+        dstobj = createZsetObject();
+        dstzset = dstobj->ptr;
+    }
     memset(&zval, 0, sizeof(zval));
 
     if (op == SET_OP_INTER) {
@@ -2788,6 +2832,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+        decrRefCount(dstobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
     } else {
@@ -2808,8 +2853,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             if (withscores) addReplyDouble(c,zn->score);
             zn = zn->level[0].forward;
         }
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstobj, -1) :
+                                          decrRefCount(dstobj);
     }
-    decrRefCount(dstobj);
     zfree(src);
 }
 
@@ -2955,10 +3001,7 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
-    if (length > (long)server.zset_max_listpack_entries)
-        handler->dstobj = createZsetObject();
-    else
-        handler->dstobj = createZsetListpackObject();
+    handler->dstobj = zsetTypeCreate(length, 0);
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
@@ -3563,7 +3606,7 @@ void zrevrangebylexCommand(client *c) {
 
 /**
  * This function handles ZRANGE and ZRANGESTORE, and also the deprecated
- * Z[REV]RANGE[BYPOS|BYLEX] commands.
+ * Z[REV]RANGE[BYSCORE|BYLEX] commands.
  *
  * The simple ZRANGE and ZRANGESTORE can take _AUTO in rangetype and direction,
  * other command pass explicit value.
@@ -4208,6 +4251,27 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         return;
     }
 
+    /* CASE 2.5 listpack only. Sampling unique elements, in non-random order.
+     * Listpack encoded zsets are meant to be relatively small, so
+     * ZRANDMEMBER_SUB_STRATEGY_MUL isn't necessary and we rather not make
+     * copies of the entries. Instead, we emit them directly to the output
+     * buffer.
+     *
+     * And it is inefficient to repeatedly pick one random element from a
+     * listpack in CASE 4. So we use this instead. */
+    if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
+        listpackEntry *keys, *vals = NULL;
+        keys = zmalloc(sizeof(listpackEntry)*count);
+        if (withscores)
+            vals = zmalloc(sizeof(listpackEntry)*count);
+        serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
+        zrandmemberReplyWithListpack(c, count, keys, vals);
+        zfree(keys);
+        zfree(vals);
+        zuiClearIterator(&src);
+        return;
+    }
+
     /* CASE 3:
      * The number of elements inside the zset is not greater than
      * ZRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
@@ -4218,6 +4282,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
+        /* Hashtable encoding (generic implementation) */
         dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
@@ -4261,21 +4326,6 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * to the temporary set, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
-        if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
-            /* it is inefficient to repeatedly pick one random element from a
-             * listpack. so we use this instead: */
-            listpackEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(listpackEntry)*count);
-            if (withscores)
-                vals = zmalloc(sizeof(listpackEntry)*count);
-            serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
-            zrandmemberReplyWithListpack(c, count, keys, vals);
-            zfree(keys);
-            zfree(vals);
-            zuiClearIterator(&src);
-            return;
-        }
-
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         dict *d = dictCreate(&hashDictType);

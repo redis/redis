@@ -289,6 +289,20 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
+    test {Subscribers are killed when revoked of allchannels permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser allchannels
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd PSUBSCRIBE foo
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
     test {Subscribers are pardoned if literal permissions are retained and/or gaining allchannels} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &foo:1 &bar:* &orders

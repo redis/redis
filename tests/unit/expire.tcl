@@ -76,20 +76,22 @@ start_server {tags {"expire"}} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more
         # chances.
-        for {set j 0} {$j < 10} {incr j} {
+        for {set j 0} {$j < 30} {incr j} {
             r del x
             r setex x 1 somevalue
-            after 900
+            after 800
             set a [r get x]
-            after 1100
+            if {$a ne {somevalue}} continue
+            after 300
             set b [r get x]
-            if {$a eq {somevalue} && $b eq {}} break
+            if {$b eq {}} break
         }
         if {$::verbose} {
             puts "millisecond expire test attempts: $j"
         }
-        list $a $b
-    } {somevalue {}}
+        assert_equal $a {somevalue}
+        assert_equal $b {}
+    }
 
     test "PSETEX can set sub-second expires" {
         # This test is very likely to do a false positive if the server is

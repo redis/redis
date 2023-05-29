@@ -59,12 +59,13 @@
 #include "adlist.h"
 #include "zmalloc.h"
 #include "linenoise.h"
-#include "help.h" /* Used for backwards-compatibility with pre-7.0 servers that don't support COMMAND DOCS. */
 #include "anet.h"
 #include "ae.h"
 #include "connection.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
+
+#include "cli_commands.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -183,15 +184,6 @@ static int dictSdsKeyCompare(dict *d, const void *key1,
 static void dictSdsDestructor(dict *d, void *val);
 static void dictListDestructor(dict *d, void *val);
 
-/* Command documentation info used for help output */
-struct commandDocs {
-    char *name;
-    char *params; /* A string describing the syntax of the command arguments. */
-    char *summary;
-    char *group;
-    char *since;
-};
-
 /* Cluster Manager Command Info */
 typedef struct clusterManagerCommand {
     char *name;
@@ -247,6 +239,7 @@ static struct config {
     int get_functions_rdb_mode;
     int stat_mode;
     int scan_mode;
+    int count;
     int intrinsic_latency_mode;
     int intrinsic_latency_duration;
     sds pattern;
@@ -281,6 +274,9 @@ static struct config {
     int current_resp3; /* 1 if we have RESP3 right now in the current connection. */
     int in_multi;
     int pre_multi_dbnum;
+    char *server_version;
+    char *test_hint;
+    char *test_hint_file;
 } config;
 
 /* User preferences. */
@@ -422,7 +418,7 @@ typedef struct {
     sds full;
 
     /* Only used for help on commands */
-    struct commandDocs org;
+    struct commandDocs docs;
 } helpEntry;
 
 static helpEntry *helpEntries = NULL;
@@ -442,50 +438,13 @@ static sds cliVersion(void) {
     return version;
 }
 
-/* For backwards compatibility with pre-7.0 servers. Initializes command help. */
-static void cliOldInitHelp(void) {
-    int commandslen = sizeof(commandHelp)/sizeof(struct commandHelp);
-    int groupslen = sizeof(commandGroups)/sizeof(char*);
-    int i, len, pos = 0;
-    helpEntry tmp;
-
-    helpEntriesLen = len = commandslen+groupslen;
-    helpEntries = zmalloc(sizeof(helpEntry)*len);
-
-    for (i = 0; i < groupslen; i++) {
-        tmp.argc = 1;
-        tmp.argv = zmalloc(sizeof(sds));
-        tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
-        tmp.full = tmp.argv[0];
-        tmp.type = CLI_HELP_GROUP;
-        tmp.org.name = NULL;
-        tmp.org.params = NULL;
-        tmp.org.summary = NULL;
-        tmp.org.since = NULL;
-        tmp.org.group = NULL;
-        helpEntries[pos++] = tmp;
-    }
-
-    for (i = 0; i < commandslen; i++) {
-        tmp.argv = sdssplitargs(commandHelp[i].name,&tmp.argc);
-        tmp.full = sdsnew(commandHelp[i].name);
-        tmp.type = CLI_HELP_COMMAND;
-        tmp.org.name = commandHelp[i].name;
-        tmp.org.params = commandHelp[i].params;
-        tmp.org.summary = commandHelp[i].summary;
-        tmp.org.since = commandHelp[i].since;
-        tmp.org.group = commandGroups[commandHelp[i].group];
-        helpEntries[pos++] = tmp;
-    }
-}
-
 /* For backwards compatibility with pre-7.0 servers.
- * cliOldInitHelp() setups the helpEntries array with the command and group
- * names from the help.h file. However the Redis instance we are connecting
+ * cliLegacyInitHelp() sets up the helpEntries array with the command and group
+ * names from the commands.c file. However the Redis instance we are connecting
  * to may support more commands, so this function integrates the previous
  * entries with additional entries obtained using the COMMAND command
  * available in recent versions of Redis. */
-static void cliOldIntegrateHelp(void) {
+static void cliLegacyIntegrateHelp(void) {
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
@@ -520,75 +479,88 @@ static void cliOldIntegrateHelp(void) {
         new->type = CLI_HELP_COMMAND;
         sdstoupper(new->argv[0]);
 
-        new->org.name = new->argv[0];
-        new->org.params = sdsempty();
+        new->docs.name = new->argv[0];
+        new->docs.args = NULL;
+        new->docs.numargs = 0;
+        new->docs.params = sdsempty();
         int args = llabs(entry->element[1]->integer);
         args--; /* Remove the command name itself. */
         if (entry->element[3]->integer == 1) {
-            new->org.params = sdscat(new->org.params,"key ");
+            new->docs.params = sdscat(new->docs.params,"key ");
             args--;
         }
-        while(args-- > 0) new->org.params = sdscat(new->org.params,"arg ");
+        while(args-- > 0) new->docs.params = sdscat(new->docs.params,"arg ");
         if (entry->element[1]->integer < 0)
-            new->org.params = sdscat(new->org.params,"...options...");
-        new->org.summary = "Help not available";
-        new->org.since = "Not known";
-        new->org.group = commandGroups[0];
+            new->docs.params = sdscat(new->docs.params,"...options...");
+        new->docs.summary = "Help not available";
+        new->docs.since = "Not known";
+        new->docs.group = "generic";
     }
     freeReplyObject(reply);
 }
 
 /* Concatenate a string to an sds string, but if it's empty substitute double quote marks. */
-static sds sdscat_orempty(sds params, char *value) {
+static sds sdscat_orempty(sds params, const char *value) {
     if (value[0] == '\0') {
         return sdscat(params, "\"\"");
     }
     return sdscat(params, value);
 }
 
-static sds cliAddArgument(sds params, redisReply *argMap);
+static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandDocs docs);
 
-/* Concatenate a list of arguments to the parameter string, separated by a separator string. */
-static sds cliConcatArguments(sds params, redisReply *arguments, char *separator) {
+static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap);
+
+static void cliMakeCommandDocArgs(redisReply *arguments, cliCommandArg *result) {
     for (size_t j = 0; j < arguments->elements; j++) {
-        params = cliAddArgument(params, arguments->element[j]);
-        if (j != arguments->elements - 1) {
-            params = sdscat(params, separator);
-        }
+        cliAddCommandDocArg(&result[j], arguments->element[j]);
     }
-    return params;
 }
 
-/* Add an argument to the parameter string. */
-static sds cliAddArgument(sds params, redisReply *argMap) {
-    char *name = NULL;
-    char *type = NULL;
-    int optional = 0;
-    int multiple = 0;
-    int multipleToken = 0;
-    redisReply *arguments = NULL;
-    sds tokenPart = sdsempty();
-    sds repeatPart = sdsempty();
-
-    /* First read the fields describing the argument. */
+static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
     if (argMap->type != REDIS_REPLY_MAP && argMap->type != REDIS_REPLY_ARRAY) {
-        return params;
+        return;
     }
+
     for (size_t i = 0; i < argMap->elements; i += 2) {
         assert(argMap->element[i]->type == REDIS_REPLY_STRING);
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
-            name = argMap->element[i + 1]->str;
+            cmdArg->name = sdsnew(argMap->element[i + 1]->str);
+        } else if (!strcmp(key, "display_text")) {
+            assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
+            cmdArg->display_text = sdsnew(argMap->element[i + 1]->str);
         } else if (!strcmp(key, "token")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
-            char *token = argMap->element[i + 1]->str;
-            tokenPart = sdscat_orempty(tokenPart, token);
+            cmdArg->token = sdsnew(argMap->element[i + 1]->str);
         } else if (!strcmp(key, "type")) {
             assert(argMap->element[i + 1]->type == REDIS_REPLY_STRING);
-            type = argMap->element[i + 1]->str;
+            char *type = argMap->element[i + 1]->str;
+            if (!strcmp(type, "string")) {
+                cmdArg->type = ARG_TYPE_STRING;
+            } else if (!strcmp(type, "integer")) {
+                cmdArg->type = ARG_TYPE_INTEGER;
+            } else if (!strcmp(type, "double")) {
+                cmdArg->type = ARG_TYPE_DOUBLE;
+            } else if (!strcmp(type, "key")) {
+                cmdArg->type = ARG_TYPE_KEY;
+            } else if (!strcmp(type, "pattern")) {
+                cmdArg->type = ARG_TYPE_PATTERN;
+            } else if (!strcmp(type, "unix-time")) {
+                cmdArg->type = ARG_TYPE_UNIX_TIME;
+            } else if (!strcmp(type, "pure-token")) {
+                cmdArg->type = ARG_TYPE_PURE_TOKEN;
+            } else if (!strcmp(type, "oneof")) {
+                cmdArg->type = ARG_TYPE_ONEOF;
+            } else if (!strcmp(type, "block")) {
+                cmdArg->type = ARG_TYPE_BLOCK;
+            }
         } else if (!strcmp(key, "arguments")) {
-            arguments = argMap->element[i + 1];
+            redisReply *arguments = argMap->element[i + 1];
+            cmdArg->subargs = zcalloc(arguments->elements * sizeof(cliCommandArg));
+            cmdArg->numsubargs = arguments->elements;
+            cliMakeCommandDocArgs(arguments, cmdArg->subargs);
         } else if (!strcmp(key, "flags")) {
             redisReply *flags = argMap->element[i + 1];
             assert(flags->type == REDIS_REPLY_SET || flags->type == REDIS_REPLY_ARRAY);
@@ -596,57 +568,15 @@ static sds cliAddArgument(sds params, redisReply *argMap) {
                 assert(flags->element[j]->type == REDIS_REPLY_STATUS);
                 char *flag = flags->element[j]->str;
                 if (!strcmp(flag, "optional")) {
-                    optional = 1;
+                    cmdArg->flags |= CMD_ARG_OPTIONAL;
                 } else if (!strcmp(flag, "multiple")) {
-                    multiple = 1;
+                    cmdArg->flags |= CMD_ARG_MULTIPLE;
                 } else if (!strcmp(flag, "multiple_token")) {
-                    multipleToken = 1;
+                    cmdArg->flags |= CMD_ARG_MULTIPLE_TOKEN;
                 }
             }
         }
     }
-
-    /* Then build the "repeating part" of the argument string. */
-    if (!strcmp(type, "key") ||
-        !strcmp(type, "string") ||
-        !strcmp(type, "integer") ||
-        !strcmp(type, "double") ||
-        !strcmp(type, "pattern") ||
-        !strcmp(type, "unix-time") ||
-        !strcmp(type, "token"))
-    {
-        repeatPart = sdscat_orempty(repeatPart, name);
-    } else if (!strcmp(type, "oneof")) {
-        repeatPart = cliConcatArguments(repeatPart, arguments, "|");
-    } else if (!strcmp(type, "block")) {
-        repeatPart = cliConcatArguments(repeatPart, arguments, " ");
-    } else if (strcmp(type, "pure-token") != 0) {
-        fprintf(stderr, "Unknown type '%s' set for argument '%s'\n", type, name);
-    }
-
-    /* Finally, build the parameter string. */
-    if (tokenPart[0] != '\0' && strcmp(type, "pure-token") != 0) {
-        tokenPart = sdscat(tokenPart, " ");
-    }
-    if (optional) {
-        params = sdscat(params, "[");
-    }
-    params = sdscat(params, tokenPart);
-    params = sdscat(params, repeatPart);
-    if (multiple) {
-        params = sdscat(params, " [");
-        if (multipleToken) {
-            params = sdscat(params, tokenPart);
-        }
-        params = sdscat(params, repeatPart);
-        params = sdscat(params, " ...]");
-    }
-    if (optional) {
-        params = sdscat(params, "]");
-    }
-    sdsfree(tokenPart);
-    sdsfree(repeatPart);
-    return params;
 }
 
 /* Fill in the fields of a help entry for the command/subcommand name. */
@@ -656,8 +586,13 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
     help->argv[0] = sdsnew(cmdname);
     sdstoupper(help->argv[0]);
     if (subcommandname) {
-        /* Subcommand name is two words separated by a pipe character. */
-        help->argv[1] = sdsnew(strchr(subcommandname, '|') + 1);
+        /* Subcommand name may be two words separated by a pipe character. */
+        char *pipe = strchr(subcommandname, '|');
+        if (pipe != NULL) {
+            help->argv[1] = sdsnew(pipe + 1);
+        } else {
+            help->argv[1] = sdsnew(subcommandname);
+        }
         sdstoupper(help->argv[1]);
     }
     sds fullname = sdsnew(help->argv[0]);
@@ -668,9 +603,11 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
     help->full = fullname;
     help->type = CLI_HELP_COMMAND;
 
-    help->org.name = help->full;
-    help->org.params = sdsempty();
-    help->org.since = NULL;
+    help->docs.name = help->full;
+    help->docs.params = NULL;
+    help->docs.args = NULL;
+    help->docs.numargs = 0;
+    help->docs.since = NULL;
 }
 
 /* Initialize a command help entry for the command/subcommand described in 'specs'.
@@ -692,23 +629,26 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
         if (!strcmp(key, "summary")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org.summary = sdsnew(reply->str);
+            help->docs.summary = sdsnew(reply->str);
         } else if (!strcmp(key, "since")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org.since = sdsnew(reply->str);
+            help->docs.since = sdsnew(reply->str);
         } else if (!strcmp(key, "group")) {
             redisReply *reply = specs->element[j + 1];
             assert(reply->type == REDIS_REPLY_STRING);
-            help->org.group = sdsnew(reply->str);
-            sds group = sdsdup(help->org.group);
+            help->docs.group = sdsnew(reply->str);
+            sds group = sdsdup(help->docs.group);
             if (dictAdd(groups, group, NULL) != DICT_OK) {
                 sdsfree(group);
             }
         } else if (!strcmp(key, "arguments")) {
-            redisReply *args = specs->element[j + 1];
-            assert(args->type == REDIS_REPLY_ARRAY);
-            help->org.params = cliConcatArguments(help->org.params, args, " ");
+            redisReply *arguments = specs->element[j + 1];
+            assert(arguments->type == REDIS_REPLY_ARRAY);
+            help->docs.args = zcalloc(arguments->elements * sizeof(cliCommandArg));
+            help->docs.numargs = arguments->elements;
+            cliMakeCommandDocArgs(arguments, help->docs.args);
+            help->docs.params = makeHint(NULL, 0, 0, help->docs);
         } else if (!strcmp(key, "subcommands")) {
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
@@ -774,11 +714,13 @@ void cliInitGroupHelpEntries(dict *groups) {
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)dictGetKey(entry));
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
-        tmp.org.name = NULL;
-        tmp.org.params = NULL;
-        tmp.org.summary = NULL;
-        tmp.org.since = NULL;
-        tmp.org.group = NULL;
+        tmp.docs.name = NULL;
+        tmp.docs.params = NULL;
+        tmp.docs.args = NULL;
+        tmp.docs.numargs = 0;
+        tmp.docs.summary = NULL;
+        tmp.docs.since = NULL;
+        tmp.docs.group = NULL;
         helpEntries[pos++] = tmp;
     }
     dictReleaseIterator(iter);
@@ -796,6 +738,164 @@ void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
         redisReply *cmdspecs = commandTable->element[i + 1];
         next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs, groups);
     }
+}
+
+/* Does the server version support a command/argument only available "since" some version?
+ * Returns 1 when supported, or 0 when the "since" version is newer than "version". */
+static int versionIsSupported(sds version, sds since) {
+    int i;
+    char *versionPos = version;
+    char *sincePos = since;
+    if (!since) {
+        return 1;
+    }
+
+    for (i = 0; i != 3; i++) {
+        int versionPart = atoi(versionPos);
+        int sincePart = atoi(sincePos);
+        if (versionPart > sincePart) {
+            return 1;
+        } else if (sincePart > versionPart) {
+            return 0;
+        }
+        versionPos = strchr(versionPos, '.');
+        sincePos = strchr(sincePos, '.');
+        if (!versionPos || !sincePos)
+            return 0;
+        versionPos++;
+        sincePos++;
+    }
+    return 0;
+}
+
+static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds version) {
+    int i = 0, j;
+    while (i != *numargs) {
+        if (versionIsSupported(version, args[i].since)) {
+            if (args[i].subargs) {
+                removeUnsupportedArgs(args[i].subargs, &args[i].numsubargs, version);
+            }
+            i++;
+            continue;
+        }
+        for (j = i; j != *numargs; j++) {
+            args[j] = args[j + 1];
+        }
+        (*numargs)--;
+    }
+}
+
+static helpEntry *cliLegacyInitCommandHelpEntry(char *cmdname, char *subcommandname,
+                                                helpEntry *next, struct commandDocs *command,
+                                                dict *groups, sds version) {
+    helpEntry *help = next++;
+    cliFillInCommandHelpEntry(help, cmdname, subcommandname);
+    
+    help->docs.summary = sdsnew(command->summary);
+    help->docs.since = sdsnew(command->since);
+    help->docs.group = sdsnew(command->group);
+    sds group = sdsdup(help->docs.group);
+    if (dictAdd(groups, group, NULL) != DICT_OK) {
+        sdsfree(group);
+    }
+
+    if (command->args != NULL) {
+        help->docs.args = command->args;
+        help->docs.numargs = command->numargs;
+        if (version)
+            removeUnsupportedArgs(help->docs.args, &help->docs.numargs, version);
+        help->docs.params = makeHint(NULL, 0, 0, help->docs);
+    }
+
+    if (command->subcommands != NULL) {
+        for (size_t i = 0; command->subcommands[i].name != NULL; i++) {
+            if (!version || versionIsSupported(version, command->subcommands[i].since)) {
+                char *subcommandname = command->subcommands[i].name;
+                next = cliLegacyInitCommandHelpEntry(
+                    cmdname, subcommandname, next, &command->subcommands[i], groups, version);
+            }
+        }
+    }
+    return next;
+}
+
+int cliLegacyInitCommandHelpEntries(struct commandDocs *commands, dict *groups, sds version) {
+    helpEntry *next = helpEntries;
+    for (size_t i = 0; commands[i].name != NULL; i++) {
+        if (!version || versionIsSupported(version, commands[i].since)) {
+            next = cliLegacyInitCommandHelpEntry(commands[i].name, NULL, next, &commands[i], groups, version);
+        }
+    }
+    return next - helpEntries;
+}
+
+/* Returns the total number of commands and subcommands in the command docs table,
+ * filtered by server version (if provided).
+ */
+static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) {
+    int numCommands = 0;
+    for (size_t i = 0; commands[i].name != NULL; i++) {
+        if (version && !versionIsSupported(version, commands[i].since)) {
+            continue;
+        }
+        numCommands++;
+        if (commands[i].subcommands != NULL) {
+            numCommands += cliLegacyCountCommands(commands[i].subcommands, version);
+        }
+    }
+    return numCommands;
+}
+
+/* Gets the server version string by calling INFO SERVER.
+ * Stores the result in config.server_version.
+ * When not connected, or not possible, returns NULL. */
+static sds cliGetServerVersion(void) {
+    static const char *key = "\nredis_version:";
+    redisReply *serverInfo = NULL;
+    char *pos;
+
+    if (config.server_version != NULL) {
+        return config.server_version;
+    }
+
+    if (!context) return NULL;
+    serverInfo = redisCommand(context, "INFO SERVER");
+    if (serverInfo == NULL || serverInfo->type == REDIS_REPLY_ERROR) {
+        freeReplyObject(serverInfo);
+        return sdsempty();
+    }
+
+    assert(serverInfo->type == REDIS_REPLY_STRING || serverInfo->type == REDIS_REPLY_VERB);
+    sds info = serverInfo->str;
+
+    /* Finds the first appearance of "redis_version" in the INFO SERVER reply. */
+    pos = strstr(info, key);
+    if (pos) {
+        pos += strlen(key);
+        char *end = strchr(pos, '\r');
+        if (end) {
+            sds version = sdsnewlen(pos, end - pos);
+            freeReplyObject(serverInfo);
+            config.server_version = version;
+            return version;
+        }
+    }
+    freeReplyObject(serverInfo);
+    return NULL;
+}
+
+static void cliLegacyInitHelp(dict *groups) {
+    sds serverVersion = cliGetServerVersion();
+    
+    /* Scan the commandDocs array and fill in the entries */
+    helpEntriesLen = cliLegacyCountCommands(redisCommandTable, serverVersion);
+    helpEntries = zmalloc(sizeof(helpEntry)*helpEntriesLen);
+
+    helpEntriesLen = cliLegacyInitCommandHelpEntries(redisCommandTable, groups, serverVersion);
+    cliInitGroupHelpEntries(groups);
+
+    qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
+    dictRelease(groups);
 }
 
 /* cliInitHelp() sets up the helpEntries array with the command and group
@@ -817,16 +917,20 @@ static void cliInitHelp(void) {
 
     if (cliConnect(CC_QUIET) == REDIS_ERR) {
         /* Can not connect to the server, but we still want to provide
-         * help, generate it only from the old help.h data instead. */
-        cliOldInitHelp();
+         * help, generate it only from the static cli_commands.c data instead. */
+        groups = dictCreate(&groupsdt);
+        cliLegacyInitHelp(groups);
         return;
     }
     commandTable = redisCommand(context, "COMMAND DOCS");
     if (commandTable == NULL || commandTable->type == REDIS_REPLY_ERROR) {
-        /* New COMMAND DOCS subcommand not supported - generate help from old help.h data instead. */
+        /* New COMMAND DOCS subcommand not supported - generate help from
+         * static cli_commands.c data instead. */
         freeReplyObject(commandTable);
-        cliOldInitHelp();
-        cliOldIntegrateHelp();
+
+        groups = dictCreate(&groupsdt);
+        cliLegacyInitHelp(groups);
+        cliLegacyIntegrateHelp();
         return;
     };
     if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
@@ -901,7 +1005,7 @@ static void cliOutputHelp(int argc, char **argv) {
         entry = &helpEntries[i];
         if (entry->type != CLI_HELP_COMMAND) continue;
 
-        help = &entry->org;
+        help = &entry->docs;
         if (group == NULL) {
             /* Compare all arguments */
             if (argc <= entry->argc) {
@@ -948,36 +1052,429 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     }
 }
 
-/* Linenoise hints callback. */
-static char *hintsCallback(const char *buf, int *color, int *bold) {
-    if (!pref.hints) return NULL;
+static sds addHintForArgument(sds hint, cliCommandArg *arg);
 
-    int i, rawargc, argc, buflen = strlen(buf), matchlen = 0, shift = 0;
-    sds *rawargv, *argv = sdssplitargs(buf,&argc);
-    int endspace = buflen && isspace(buf[buflen-1]);
+/* Adds a separator character between words of a string under construction.
+ * A separator is added if the string length is greater than its previously-recorded
+ * length (*len), which is then updated, and it's not the last word to be added.
+ */
+static sds addSeparator(sds str, size_t *len, char *separator, int is_last) {
+    if (sdslen(str) > *len && !is_last) {
+        str = sdscat(str, separator);
+        *len = sdslen(str);
+    }
+    return str;
+}
+
+/* Recursively zeros the matched* fields of all arguments. */
+static void clearMatchedArgs(cliCommandArg *args, int numargs) {
+    for (int i = 0; i != numargs; ++i) {
+        args[i].matched = 0;
+        args[i].matched_token = 0;
+        args[i].matched_name = 0;
+        args[i].matched_all = 0;
+        if (args[i].subargs) {
+            clearMatchedArgs(args[i].subargs, args[i].numsubargs);
+        }
+    }
+}
+
+/* Builds a completion hint string describing the arguments, skipping parts already matched.
+ * Hints for all arguments are added to the input 'hint' parameter, separated by 'separator'.
+ */
+static sds addHintForArguments(sds hint, cliCommandArg *args, int numargs, char *separator) {
+    int i, j, incomplete;
+    size_t len=sdslen(hint);
+    for (i = 0; i < numargs; i++) {
+        if (!(args[i].flags & CMD_ARG_OPTIONAL)) {
+            hint = addHintForArgument(hint, &args[i]);
+            hint = addSeparator(hint, &len, separator, i == numargs-1);
+            continue;
+        }
+
+        /* The rule is that successive "optional" arguments can appear in any order.
+         * But if they are followed by a required argument, no more of those optional arguments
+         * can appear after that.
+         * 
+         * This code handles all successive optional args together. This lets us show the
+         * completion of the currently-incomplete optional arg first, if there is one.
+         */
+        for (j = i, incomplete = -1; j < numargs; j++) {
+            if (!(args[j].flags & CMD_ARG_OPTIONAL)) break;
+            if (args[j].matched != 0 && args[j].matched_all == 0) {
+                /* User has started typing this arg; show its completion first. */
+                hint = addHintForArgument(hint, &args[j]);
+                hint = addSeparator(hint, &len, separator, i == numargs-1);
+                incomplete = j;
+            }
+        }
+
+        /* If the following non-optional arg has not been matched, add hints for
+         * any remaining optional args in this group. 
+         */
+        if (j == numargs || args[j].matched == 0) {
+            for (; i < j; i++) {
+                if (incomplete != i) {
+                    hint = addHintForArgument(hint, &args[i]);
+                    hint = addSeparator(hint, &len, separator, i == numargs-1);
+                }
+            }
+        }
+
+        i = j - 1;
+    }
+    return hint;
+}
+
+/* Adds the "repeating" section of the hint string for a multiple-typed argument: [ABC def ...]
+ * The repeating part is a fixed unit; we don't filter matched elements from it.
+ */
+static sds addHintForRepeatedArgument(sds hint, cliCommandArg *arg) {
+    if (!(arg->flags & CMD_ARG_MULTIPLE)) {
+        return hint;
+    }
+
+    /* The repeating part is always shown at the end of the argument's hint,
+     * so we can safely clear its matched flags before printing it.
+     */
+    clearMatchedArgs(arg, 1);
+        
+    if (hint[0] != '\0') {
+        hint = sdscat(hint, " ");
+    }
+    hint = sdscat(hint, "[");
+
+    if (arg->flags & CMD_ARG_MULTIPLE_TOKEN) {
+        hint = sdscat_orempty(hint, arg->token);
+        if (arg->type != ARG_TYPE_PURE_TOKEN) {
+            hint = sdscat(hint, " ");
+        }
+    }
+
+    switch (arg->type) {
+     case ARG_TYPE_ONEOF:
+        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, "|");
+        break;
+
+    case ARG_TYPE_BLOCK:
+        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, " ");
+        break;
+
+    case ARG_TYPE_PURE_TOKEN:
+        break;
+
+    default:
+        hint = sdscat_orempty(hint, arg->display_text ? arg->display_text : arg->name);
+        break;
+    }
+
+    hint = sdscat(hint, " ...]");
+    return hint;
+}
+
+/* Adds hint string for one argument, if not already matched. */
+static sds addHintForArgument(sds hint, cliCommandArg *arg) {
+    if (arg->matched_all) {
+        return hint;
+    }
+
+    /* Surround an optional arg with brackets, unless it's partially matched. */
+    if ((arg->flags & CMD_ARG_OPTIONAL) && !arg->matched) {
+        hint = sdscat(hint, "[");
+    }
+
+    /* Start with the token, if present and not matched. */
+    if (arg->token != NULL && !arg->matched_token) {
+        hint = sdscat_orempty(hint, arg->token);
+        if (arg->type != ARG_TYPE_PURE_TOKEN) {
+            hint = sdscat(hint, " ");
+        }
+    }
+
+    /* Add the body of the syntax string. */
+    switch (arg->type) {
+     case ARG_TYPE_ONEOF:
+        if (arg->matched == 0) {
+            hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, "|");
+        } else {
+            int i;
+            for (i = 0; i < arg->numsubargs; i++) {
+                if (arg->subargs[i].matched != 0) {
+                    hint = addHintForArgument(hint, &arg->subargs[i]);
+                }
+            }
+        }
+        break;
+
+    case ARG_TYPE_BLOCK:
+        hint = addHintForArguments(hint, arg->subargs, arg->numsubargs, " ");
+        break;
+
+    case ARG_TYPE_PURE_TOKEN:
+        break;
+
+    default:
+        if (!arg->matched_name) {
+            hint = sdscat_orempty(hint, arg->display_text ? arg->display_text : arg->name);
+        }
+        break;
+    }
+
+    hint = addHintForRepeatedArgument(hint, arg);
+
+    if ((arg->flags & CMD_ARG_OPTIONAL) && !arg->matched) {
+        hint = sdscat(hint, "]");
+    }
+
+    return hint;
+}
+
+static int matchArg(char **nextword, int numwords, cliCommandArg *arg);
+static int matchArgs(char **words, int numwords, cliCommandArg *args, int numargs);
+
+/* Tries to match the next words of the input against an argument. */
+static int matchNoTokenArg(char **nextword, int numwords, cliCommandArg *arg) {
+    int i;
+    switch (arg->type) {
+    case ARG_TYPE_BLOCK: {
+        arg->matched += matchArgs(nextword, numwords, arg->subargs, arg->numsubargs);
+
+        /* All the subargs must be matched for the block to match. */
+        arg->matched_all = 1;
+        for (i = 0; i < arg->numsubargs; i++) {
+            if (arg->subargs[i].matched_all == 0) {
+                arg->matched_all = 0;
+            }
+        }
+        break;
+    }
+    case ARG_TYPE_ONEOF: {
+        for (i = 0; i < arg->numsubargs; i++) {
+            if (matchArg(nextword, numwords, &arg->subargs[i])) {
+                arg->matched += arg->subargs[i].matched;
+                arg->matched_all = arg->subargs[i].matched_all;
+                break;
+            }
+        }
+        break;
+    }
+
+    case ARG_TYPE_INTEGER:
+    case ARG_TYPE_UNIX_TIME: {
+        long long value;
+        if (sscanf(*nextword, "%lld", &value)) {
+            arg->matched += 1;
+            arg->matched_name = 1;
+            arg->matched_all = 1;
+        } else {
+            /* Matching failed due to incorrect arg type. */
+            arg->matched = 0;
+            arg->matched_name = 0;
+        }
+        break;
+    }
+
+    case ARG_TYPE_DOUBLE: {
+        double value;
+        if (sscanf(*nextword, "%lf", &value)) {
+            arg->matched += 1;
+            arg->matched_name = 1;
+            arg->matched_all = 1;
+        } else {
+            /* Matching failed due to incorrect arg type. */
+            arg->matched = 0;
+            arg->matched_name = 0;
+        }
+        break;
+    }
+
+    default:
+        arg->matched += 1;
+        arg->matched_name = 1;
+        arg->matched_all = 1;
+        break;
+    }
+    return arg->matched;
+}
+
+/* Tries to match the next word of the input against a token literal. */
+static int matchToken(char **nextword, cliCommandArg *arg) {
+    if (strcasecmp(arg->token, nextword[0]) != 0) {
+        return 0;
+    }
+    arg->matched_token = 1;
+    arg->matched = 1;
+    return 1;
+}
+
+/* Tries to match the next words of the input against the next argument.
+ * If the arg is repeated ("multiple"), it will be matched only once.
+ * If the next input word(s) can't be matched, returns 0 for failure.
+ */
+static int matchArgOnce(char **nextword, int numwords, cliCommandArg *arg) {
+    /* First match the token, if present. */
+    if (arg->token != NULL) {
+        if (!matchToken(nextword, arg)) {
+            return 0;
+        }
+        if (arg->type == ARG_TYPE_PURE_TOKEN) {
+            arg->matched_all = 1;
+            return 1;
+        }
+        if (numwords == 1) {
+            return 1;
+        }
+        nextword++;
+        numwords--;
+    }
+
+    /* Then match the rest of the argument. */
+    if (!matchNoTokenArg(nextword, numwords, arg)) {
+        return 0;
+    }
+    return arg->matched;
+}
+
+/* Tries to match the next words of the input against the next argument.
+ * If the arg is repeated ("multiple"), it will be matched as many times as possible.
+ */
+static int matchArg(char **nextword, int numwords, cliCommandArg *arg) {
+    int matchedWords = 0;
+    int matchedOnce = matchArgOnce(nextword, numwords, arg);
+    if (!(arg->flags & CMD_ARG_MULTIPLE)) {
+        return matchedOnce;
+    }
+
+    /* Found one match; now match a "multiple" argument as many times as possible. */
+    matchedWords += matchedOnce;
+    while (arg->matched_all && matchedWords < numwords) {
+        clearMatchedArgs(arg, 1);
+        if (arg->token != NULL && !(arg->flags & CMD_ARG_MULTIPLE_TOKEN)) {
+            /* The token only appears the first time; the rest of the times,
+             * pretend we saw it so we don't hint it.
+             */
+            matchedOnce = matchNoTokenArg(nextword + matchedWords, numwords - matchedWords, arg);
+            if (arg->matched) {
+                arg->matched_token = 1;
+            }
+        } else {
+            matchedOnce = matchArgOnce(nextword + matchedWords, numwords - matchedWords, arg);
+        }
+        matchedWords += matchedOnce;
+    }
+    arg->matched_all = 0;  /* Because more repetitions are still possible. */
+    return matchedWords;
+}
+
+/* Tries to match the next words of the input against
+ * any one of a consecutive set of optional arguments.
+ */
+static int matchOneOptionalArg(char **words, int numwords, cliCommandArg *args, int numargs, int *matchedarg) {
+    for (int nextword = 0, nextarg = 0; nextword != numwords && nextarg != numargs; ++nextarg) {
+        if (args[nextarg].matched) {
+            /* Already matched this arg. */
+            continue;
+        }
+
+        int matchedWords = matchArg(&words[nextword], numwords - nextword, &args[nextarg]);
+        if (matchedWords != 0) {
+            *matchedarg = nextarg;
+            return matchedWords;
+        }
+    }
+    return 0;
+}
+
+/* Matches as many input words as possible against a set of consecutive optional arguments. */
+static int matchOptionalArgs(char **words, int numwords, cliCommandArg *args, int numargs) {
+    int nextword = 0;
+    int matchedarg = -1, lastmatchedarg = -1;
+    while (nextword != numwords) {
+        int matchedWords = matchOneOptionalArg(&words[nextword], numwords - nextword, args, numargs, &matchedarg);
+        if (matchedWords == 0) {
+            break;
+        }
+        /* Successfully matched an optional arg; mark any previous match as completed
+         * so it won't be partially hinted.
+         */
+        if (lastmatchedarg != -1) {
+            args[lastmatchedarg].matched_all = 1;
+        }
+        lastmatchedarg = matchedarg;
+        nextword += matchedWords;
+    }
+    return nextword;
+}
+
+/* Matches as many input words as possible against command arguments. */
+static int matchArgs(char **words, int numwords, cliCommandArg *args, int numargs) {
+    int nextword, nextarg, matchedWords;
+    for (nextword = 0, nextarg = 0; nextword != numwords && nextarg != numargs; ++nextarg) {
+        /* Optional args can occur in any order. Collect a range of consecutive optional args
+         * and try to match them as a group against the next input words.
+         */
+        if (args[nextarg].flags & CMD_ARG_OPTIONAL) {
+            int lastoptional;
+            for (lastoptional = nextarg; lastoptional < numargs; lastoptional++) {
+                if (!(args[lastoptional].flags & CMD_ARG_OPTIONAL)) break;
+            }
+            matchedWords = matchOptionalArgs(&words[nextword], numwords - nextword, &args[nextarg], lastoptional - nextarg);
+            nextarg = lastoptional - 1;
+        } else {
+            matchedWords = matchArg(&words[nextword], numwords - nextword, &args[nextarg]);
+            if (matchedWords == 0) {
+                /* Couldn't match a required word - matching fails! */
+                return 0;
+            }
+        }
+
+        nextword += matchedWords;
+    }
+    return nextword;
+}
+
+/* Compute the linenoise hint for the input prefix in inputargv/inputargc.
+ * cmdlen is the number of words from the start of the input that make up the command.
+ * If docs.args exists, dynamically creates a hint string by matching the arg specs
+ * against the input words.
+ */
+static sds makeHint(char **inputargv, int inputargc, int cmdlen, struct commandDocs docs) {
+    sds hint;
+
+    if (docs.args) {
+        /* Remove arguments from the returned hint to show only the
+         * ones the user did not yet type. */
+        clearMatchedArgs(docs.args, docs.numargs);
+        hint = sdsempty();
+        int matchedWords = 0;
+        if (inputargv && inputargc)
+            matchedWords = matchArgs(inputargv + cmdlen, inputargc - cmdlen, docs.args, docs.numargs);
+        if (matchedWords == inputargc - cmdlen) {
+            hint = addHintForArguments(hint, docs.args, docs.numargs, " ");
+        }
+        return hint;
+    }
+
+    /* If arg specs are not available, show the hint string until the user types something. */
+    if (inputargc <= cmdlen) {
+        hint = sdsnew(docs.params);
+    } else {
+        hint = sdsempty();
+    }
+    return hint;
+}
+
+/* Search for a command matching the longest possible prefix of input words. */
+static helpEntry* findHelpEntry(int argc, char **argv) {
     helpEntry *entry = NULL;
+    int i, rawargc, matchlen = 0;
+    sds *rawargv;
 
-    /* Check if the argument list is empty and return ASAP. */
-    if (argc == 0) {
-        sdsfreesplitres(argv,argc);
-        return NULL;
-    }
-
-    if (argc > 3 && (!strcasecmp(argv[0], "acl") && !strcasecmp(argv[1], "dryrun"))) {
-        shift = 3;
-    } else if (argc > 2 && (!strcasecmp(argv[0], "command") &&
-        (!strcasecmp(argv[1], "getkeys") || !strcasecmp(argv[1], "getkeysandflags"))))
-    {
-        shift = 2;
-    }
-    argc -= shift;
-    argv += shift;
-
-    /* Search longest matching prefix command */
     for (i = 0; i < helpEntriesLen; i++) {
         if (!(helpEntries[i].type & CLI_HELP_COMMAND)) continue;
 
-        rawargv = sdssplitargs(helpEntries[i].full,&rawargc);
+        rawargv = helpEntries[i].argv;
+        rawargc = helpEntries[i].argc;
         if (rawargc <= argc) {
             int j;
             for (j = 0; j < rawargc; j++) {
@@ -990,35 +1487,51 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
                 entry = &helpEntries[i];
             }
         }
-        sdsfreesplitres(rawargv,rawargc);
     }
-    sdsfreesplitres(argv - shift,argc + shift);
+    return entry;
+}
 
+/* Returns the command-line hint string for a given partial input. */
+static sds getHintForInput(const char *charinput) {
+    sds hint = NULL;
+    int inputargc, inputlen = strlen(charinput);
+    sds *inputargv = sdssplitargs(charinput, &inputargc);
+    int endspace = inputlen && isspace(charinput[inputlen-1]);
+
+    /* Don't match the last word until the user has typed a space after it. */
+    int matchargc = endspace ? inputargc : inputargc - 1;
+
+    helpEntry *entry = findHelpEntry(matchargc, inputargv);
     if (entry) {
-        *color = 90;
-        *bold = 0;
-        sds hint = sdsnew(entry->org.params);
-
-        /* Remove arguments from the returned hint to show only the
-            * ones the user did not yet type. */
-        int toremove = argc-matchlen;
-        while(toremove > 0 && sdslen(hint)) {
-            if (hint[0] == '[') break;
-            if (hint[0] == ' ') toremove--;
-            sdsrange(hint,1,-1);
-        }
-
-        /* Add an initial space if needed. */
-        if (!endspace) {
-            sds newhint = sdsnewlen(" ",1);
-            newhint = sdscatsds(newhint,hint);
-            sdsfree(hint);
-            hint = newhint;
-        }
-
-        return hint;
+       hint = makeHint(inputargv, matchargc, entry->argc, entry->docs);
     }
-    return NULL;
+    sdsfreesplitres(inputargv, inputargc);
+    return hint;
+}
+
+/* Linenoise hints callback. */
+static char *hintsCallback(const char *buf, int *color, int *bold) {
+    if (!pref.hints) return NULL;
+
+    sds hint = getHintForInput(buf);
+    if (hint == NULL) {
+        return NULL;
+    }
+
+    *color = 90;
+    *bold = 0;
+
+    /* Add an initial space if needed. */
+    int len = strlen(buf);
+    int endspace = len && isspace(buf[len-1]);
+    if (!endspace) {
+        sds newhint = sdsnewlen(" ",1);
+        newhint = sdscatsds(newhint,hint);
+        sdsfree(hint);
+        hint = newhint;
+    }
+
+    return hint;
 }
 
 static void freeHintsCallback(void *ptr) {
@@ -1119,6 +1632,16 @@ static int cliSwitchProto(void) {
             result = REDIS_OK;
         }
     }
+
+    /* Retrieve server version string for later use. */
+    for (size_t i = 0; i < reply->elements; i += 2) {
+        assert(reply->element[i]->type == REDIS_REPLY_STRING);
+        char *key = reply->element[i]->str;
+        if (!strcmp(key, "version")) {
+            assert(reply->element[i + 1]->type == REDIS_REPLY_STRING);
+            config.server_version = sdsnew(reply->element[i + 1]->str);
+        }
+    }
     freeReplyObject(reply);
     config.current_resp3 = 1;
     return result;
@@ -1202,7 +1725,7 @@ static int cliConnect(int flags) {
 
 /* In cluster, if server replies ASK, we will redirect to a different node.
  * Before sending the real command, we need to send ASKING command first. */
-static int cliSendAsking() {
+static int cliSendAsking(void) {
     redisReply *reply;
 
     config.cluster_send_asking = 0;
@@ -1797,7 +2320,7 @@ static int cliReadReply(int output_raw_strings) {
 }
 
 /* Simultaneously wait for pubsub messages from redis and input on stdin. */
-static void cliWaitForMessagesOrStdin() {
+static void cliWaitForMessagesOrStdin(void) {
     int show_info = config.output != OUTPUT_RAW && (isatty(STDOUT_FILENO) ||
                                                     getenv("FAKETTY"));
     int use_color = show_info && isColorTerm();
@@ -2205,6 +2728,8 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--pattern") && !lastarg) {
             sdsfree(config.pattern);
             config.pattern = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--count") && !lastarg) {
+            config.count = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--quoted-pattern") && !lastarg) {
             sdsfree(config.pattern);
             config.pattern = unquoteCString(argv[++i]);
@@ -2341,6 +2866,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-fix-with-unreachable-masters")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS;
+        } else if (!strcmp(argv[i],"--test_hint") && !lastarg) {
+            config.test_hint = argv[++i];
+        } else if (!strcmp(argv[i],"--test_hint_file") && !lastarg) {
+            config.test_hint_file = argv[++i];
 #ifdef USE_OPENSSL
         } else if (!strcmp(argv[i],"--tls")) {
             config.tls = 1;
@@ -2439,7 +2968,7 @@ static int parseOptions(int argc, char **argv) {
     return i;
 }
 
-static void parseEnv() {
+static void parseEnv(void) {
     /* Set auth from env, but do not overwrite CLI arguments if passed */
     char *auth = getenv(REDIS_CLI_AUTH_ENV);
     if (auth != NULL && config.conn_info.auth == NULL) {
@@ -2455,6 +2984,29 @@ static void parseEnv() {
 static void usage(int err) {
     sds version = cliVersion();
     FILE *target = err ? stderr: stdout;
+    const char *tls_usage =
+#ifdef USE_OPENSSL
+"  --tls              Establish a secure TLS connection.\n"
+"  --sni <host>       Server name indication for TLS.\n"
+"  --cacert <file>    CA Certificate file to verify with.\n"
+"  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
+"                     If neither cacert nor cacertdir are specified, the default\n"
+"                     system-wide trusted root certs configuration will apply.\n"
+"  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+"  --cert <file>      Client certificate to authenticate with.\n"
+"  --key <file>       Private key file to authenticate with.\n"
+"  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
+#ifdef TLS1_3_VERSION
+"  --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
+"                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
+"                     and specifically for TLSv1.3 ciphersuites.\n"
+#endif
+#endif
+"";
+
     fprintf(target,
 "redis-cli %s\n"
 "\n"
@@ -2486,26 +3038,7 @@ static void usage(int err) {
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 "  -e                 Return exit error code when command execution fails.\n"
-#ifdef USE_OPENSSL
-"  --tls              Establish a secure TLS connection.\n"
-"  --sni <host>       Server name indication for TLS.\n"
-"  --cacert <file>    CA Certificate file to verify with.\n"
-"  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
-"                     If neither cacert nor cacertdir are specified, the default\n"
-"                     system-wide trusted root certs configuration will apply.\n"
-"  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
-"  --cert <file>      Client certificate to authenticate with.\n"
-"  --key <file>       Private key file to authenticate with.\n"
-"  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
-"                     in order of preference from highest to lowest separated by colon (\":\").\n"
-"                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
-#ifdef TLS1_3_VERSION
-"  --tls-ciphersuites <list> Sets the list of preferred ciphersuites (TLSv1.3)\n"
-"                     in order of preference from highest to lowest separated by colon (\":\").\n"
-"                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
-"                     and specifically for TLSv1.3 ciphersuites.\n"
-#endif
-#endif
+"%s"
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
@@ -2515,7 +3048,8 @@ static void usage(int err) {
 "  --quoted-json      Same as --json, but produce ASCII-safe quoted strings, not Unicode.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
-"  --stat             Print rolling stats about server: mem, clients, ...\n",version);
+"  --stat             Print rolling stats about server: mem, clients, ...\n",
+version,tls_usage);
 
     fprintf(target,
 "  --latency          Enter a special mode continuously sampling latency.\n"
@@ -2550,6 +3084,7 @@ static void usage(int err) {
 "  --scan             List all keys using the SCAN command.\n"
 "  --pattern <pat>    Keys pattern when using the --scan, --bigkeys or --hotkeys\n"
 "                     options (default: *).\n"
+"  --count <count>    Count option when using the --scan, --bigkeys or --hotkeys (default: 10).\n"
 "  --quoted-pattern <pat> Same as --pattern, but the specified string can be\n"
 "                         quoted, in order to pass an otherwise non binary-safe string.\n"
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
@@ -2580,6 +3115,7 @@ static void usage(int err) {
 "  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
 "  redis-cli --eval myscript.lua key1 key2 , arg1 arg2 arg3\n"
 "  redis-cli --scan --pattern '*:12345*'\n"
+"  redis-cli --scan --pattern '*:12345*' --count 100\n"
 "\n"
 "  (Note: when using --eval the comma separates KEYS[] from ARGV[] items)\n"
 "\n"
@@ -2735,12 +3271,15 @@ static int isSensitiveCommand(int argc, char **argv) {
         return 1;
     } else if (argc > 2 &&
         !strcasecmp(argv[0],"config") &&
-        !strcasecmp(argv[1],"set") && (
-            !strcasecmp(argv[2],"masterauth") ||
-            !strcasecmp(argv[2],"masteruser") ||
-            !strcasecmp(argv[2],"requirepass")))
-    {
-        return 1;
+        !strcasecmp(argv[1],"set")) {
+            for (int j = 2; j < argc; j = j+2) {
+                if (!strcasecmp(argv[j],"masterauth") ||
+		    !strcasecmp(argv[j],"masteruser") ||
+		    !strcasecmp(argv[j],"requirepass")) {
+                    return 1;
+                }
+            }
+            return 0;
     /* HELLO [protover [AUTH username password] [SETNAME clientname]] */
     } else if (argc > 4 && !strcasecmp(argv[0],"hello")) {
         for (int j = 2; j < argc; j++) {
@@ -5336,7 +5875,7 @@ static clusterManagerNode * clusterManagerGetNodeWithMostKeysInSlot(list *nodes,
  * in the cluster. If there are multiple masters with the same smaller
  * number of replicas, one at random is returned. */
 
-static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
+static clusterManagerNode *clusterManagerNodeWithLeastReplicas(void) {
     clusterManagerNode *node = NULL;
     int lowest_count = 0;
     listIter li;
@@ -5355,7 +5894,7 @@ static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
 
 /* This function returns a random master node, return NULL if none */
 
-static clusterManagerNode *clusterManagerNodeMasterRandom() {
+static clusterManagerNode *clusterManagerNodeMasterRandom(void) {
     int master_count = 0;
     int idx;
     listIter li;
@@ -7857,7 +8396,7 @@ int sendReplconf(const char* arg1, const char* arg2) {
     return res;
 }
 
-void sendCapa() {
+void sendCapa(void) {
     sendReplconf("capa", "eof");
 }
 
@@ -8292,8 +8831,8 @@ static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply;
 
     if (config.pattern)
-        reply = redisCommand(context, "SCAN %llu MATCH %b",
-            *it, config.pattern, sdslen(config.pattern));
+        reply = redisCommand(context, "SCAN %llu MATCH %b COUNT %d",
+            *it, config.pattern, sdslen(config.pattern), config.count);
     else
         reply = redisCommand(context,"SCAN %llu",*it);
 
@@ -9119,6 +9658,90 @@ static sds askPassword(const char *msg) {
     return auth;
 }
 
+/* Prints out the hint completion string for a given input prefix string. */
+void testHint(const char *input) {
+    cliInitHelp();
+
+    sds hint = getHintForInput(input);
+    printf("%s\n", hint);
+    exit(0);
+}
+
+sds readHintSuiteLine(char buf[], size_t size, FILE *fp) {
+    while (fgets(buf, size, fp) != NULL) {
+        if (buf[0] != '#') {
+            sds input = sdsnew(buf);
+
+            /* Strip newline. */
+            input = sdstrim(input, "\n");
+            return input;
+        }
+    }
+    return NULL;
+}
+
+/* Runs a suite of hint completion tests contained in a file. */
+void testHintSuite(char *filename) {
+    FILE *fp;
+    char buf[256];
+    sds line, input, expected, hint;
+    int pass=0, fail=0;
+    int argc;
+    char **argv;
+
+    fp = fopen(filename, "r");
+    if (!fp) {
+        fprintf(stderr,
+            "Can't open file '%s': %s\n", filename, strerror(errno));
+        exit(-1);
+    }
+
+    cliInitHelp();
+
+    while (1) {
+        line = readHintSuiteLine(buf, sizeof(buf), fp);
+        if (line == NULL) break;
+        argv = sdssplitargs(line, &argc);
+        sdsfree(line);
+        if (argc == 0) {
+            sdsfreesplitres(argv, argc);
+            continue;
+        }
+
+        if (argc == 1) {
+            fprintf(stderr,
+                "Missing expected hint for input '%s'\n", argv[0]);
+            exit(-1);
+        }
+        input = argv[0];
+        expected = argv[1];
+        hint = getHintForInput(input);
+        if (config.verbose) {
+            printf("Input: '%s', Expected: '%s', Hint: '%s'\n", input, expected, hint);
+        }
+
+        /* Strip trailing spaces from hint - they don't matter. */
+        while (hint != NULL && sdslen(hint) > 0 && hint[sdslen(hint) - 1] == ' ') {            
+            sdssetlen(hint, sdslen(hint) - 1);
+            hint[sdslen(hint)] = '\0';
+        }
+
+        if (hint == NULL || strcmp(hint, expected) != 0) {
+            fprintf(stderr, "Test case '%s' FAILED: expected '%s', got '%s'\n", input, expected, hint);
+            ++fail;
+        }
+        else {
+            ++pass;
+        }
+        sdsfreesplitres(argv, argc);
+        sdsfree(hint);
+    }
+    fclose(fp);
+    
+    printf("%s: %d/%d passed\n", fail == 0 ? "SUCCESS" : "FAILURE", pass, pass + fail);
+    exit(fail);
+}
+
 /*------------------------------------------------------------------------------
  * Program main()
  *--------------------------------------------------------------------------- */
@@ -9152,6 +9775,7 @@ int main(int argc, char **argv) {
     config.get_functions_rdb_mode = 0;
     config.stat_mode = 0;
     config.scan_mode = 0;
+    config.count = 10;
     config.intrinsic_latency_mode = 0;
     config.pattern = NULL;
     config.rdb_filename = NULL;
@@ -9176,6 +9800,7 @@ int main(int argc, char **argv) {
     config.set_errcode = 0;
     config.no_auth_warning = 0;
     config.in_multi = 0;
+    config.server_version = NULL;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;
@@ -9320,6 +9945,15 @@ int main(int argc, char **argv) {
 
     /* Intrinsic latency mode */
     if (config.intrinsic_latency_mode) intrinsicLatencyMode();
+
+    /* Print command-line hint for an input prefix string */
+    if (config.test_hint) {
+        testHint(config.test_hint);
+    }
+    /* Run test suite for command-line hints */
+    if (config.test_hint_file) {
+        testHintSuite(config.test_hint_file);
+    }
 
     /* Start interactive mode when no command is provided */
     if (argc == 0 && !config.eval) {

@@ -284,6 +284,30 @@ foreach call_type {nested normal} {
         $rd close
     }
 
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+
+        # Start the replication process...
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+
+        test {WAIT command on module blocked client} {
+            pause_process [srv 0 pid]
+
+            $master do_bg_rm_call_format ! hset bk1 foo bar
+
+            assert_equal [$master wait 1 1000] 0
+            resume_process [srv 0 pid]
+            assert_equal [$master wait 1 1000] 1
+            assert_equal [$replica hget bk1 foo] bar
+        }
+    }
+    
     test "Unload the module - blockedclient" {
         assert_equal {OK} [r module unload blockedclient]
     }

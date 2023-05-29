@@ -191,7 +191,7 @@ ssize_t cliWriteConn(redisContext *c, const char *buf, size_t buf_len)
 
 /* Wrapper around OpenSSL (libssl and libcrypto) initialisation
  */
-int cliSecureInit()
+int cliSecureInit(void)
 {
 #ifdef USE_OPENSSL
     ERR_load_crypto_strings();
