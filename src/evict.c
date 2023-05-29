@@ -249,36 +249,34 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  *
  * We split the 24 bits into two fields:
  *
- *          16 bits      8 bits
- *     +----------------+--------+
- *     + Last decr time | LOG_C  |
- *     +----------------+--------+
+ *            16 bits       8 bits
+ *     +------------------+--------+
+ *     + Last access time | LOG_C  |
+ *     +------------------+--------+
  *
  * LOG_C is a logarithmic counter that provides an indication of the access
  * frequency. However this field must also be decremented otherwise what used
  * to be a frequently accessed key in the past, will remain ranked like that
  * forever, while we want the algorithm to adapt to access pattern changes.
  *
- * So the remaining 16 bits are used in order to store the "decrement time",
+ * So the remaining 16 bits are used in order to store the "access time",
  * a reduced-precision Unix time (we take 16 bits of the time converted
  * in minutes since we don't care about wrapping around) where the LOG_C
- * counter is halved if it has an high value, or just decremented if it
- * has a low value.
+ * counter decays every minute by default (depends on lfu-decay-time).
  *
  * New keys don't start at zero, in order to have the ability to collect
  * some accesses before being trashed away, so they start at LFU_INIT_VAL.
  * The logarithmic increment performed on LOG_C takes care of LFU_INIT_VAL
  * when incrementing the key, so that keys starting at LFU_INIT_VAL
  * (or having a smaller value) have a very high chance of being incremented
- * on access.
+ * on access (the chance depends on counter and lfu_log_factor).
  *
- * During decrement, the value of the logarithmic counter is halved if
- * its current value is greater than two times the LFU_INIT_VAL, otherwise
- * it is just decremented by one.
+ * During decrement, the value of the logarithmic counter is decremented by
+ * one when lfu-decay-time minutes elapsed.
  * --------------------------------------------------------------------------*/
 
 /* Return the current time in minutes, just taking the least significant
- * 16 bits. The returned time is suitable to be stored as LDT (last decrement
+ * 16 bits. The returned time is suitable to be stored as LDT (last access
  * time) for the LFU implementation. */
 unsigned long LFUGetTimeInMinutes(void) {
     return (server.unixtime/60) & 65535;
@@ -306,10 +304,10 @@ uint8_t LFULogIncr(uint8_t counter) {
     return counter;
 }
 
-/* If the object decrement time is reached decrement the LFU counter but
+/* If the object access time is reached decrement the LFU counter but
  * do not update LFU fields of the object, we update the access time
  * and counter in an explicit way when the object is really accessed.
- * And we will times halve the counter according to the times of
+ * And we will times decrement the counter according to the times of
  * elapsed time than server.lfu_decay_time.
  * Return the object frequency counter.
  *
