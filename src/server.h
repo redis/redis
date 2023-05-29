@@ -2738,6 +2738,7 @@ robj *dupStringObject(const robj *o);
 int isSdsRepresentableAsLongLong(sds s, long long *llval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
+robj *tryObjectEncodingEx(robj *o, int try_trim);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
 robj *createStringObjectFromLongLong(long long value);
