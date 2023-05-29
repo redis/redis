@@ -269,7 +269,7 @@ int auxTcpPortSetter(clusterNode *n, void *value, int length) {
     memcpy(buf, (char*)value, length);
     buf[length] = '\0';
     n->tcp_port = atoi(buf);
-    return (n->tcp_port <= 0 || n->tcp_port >= 65536) ? C_ERR : C_OK;
+    return (n->tcp_port < 0 || n->tcp_port >= 65536) ? C_ERR : C_OK;
 }
 
 sds auxTcpPortGetter(clusterNode *n, sds s) {
@@ -288,7 +288,7 @@ int auxTlsPortSetter(clusterNode *n, void *value, int length) {
     memcpy(buf, (char*)value, length);
     buf[length] = '\0';
     n->tls_port = atoi(buf);
-    return (n->tls_port <= 0 || n->tls_port >= 65536) ? C_ERR : C_OK;
+    return (n->tls_port < 0 || n->tls_port >= 65536) ? C_ERR : C_OK;
 }
 
 sds auxTlsPortGetter(clusterNode *n, sds s) {
