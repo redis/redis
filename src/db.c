@@ -798,6 +798,7 @@ typedef struct {
     robj *o;      /* o must be a hash/set/zset object, NULL means current db*/
     sds typename; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
+    long sampled; /* cumulative number of keys sampled */
 } scanData;
 
 /* This callback is used by scanGenericCommand in order to collect elements
@@ -807,6 +808,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     list *keys = data->keys;
     robj *o = data->o;
     robj *val = NULL;
+    data->sampled++;
 
     /* typename is only meaningful when o is NULL*/
     serverAssert(!data->typename || !o);
@@ -953,28 +955,26 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * of returning no or very few elements. */
         long maxiterations = count*10;
 
-        /* We return key / value for these type.*/
-        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
-            count *= 2;
-        }
-
         /* We pass scanData which have three pointers to the callback:
          * 1. data.keys: the list to which it will add new elements;
          * 2. data.o: the object containing the dictionary so that
          * it is possible to fetch more data in a type-dependent way;
          * 3. data.typename: the specified type scan in the db;
-         * 4. data.pattern: the pattern string */
+         * 4. data.pattern: the pattern string
+         * 5. data.sampled: the maxiteration limit is there in case we're
+         * working on an empty dict, one with a lot of empty buckets, and
+         * for the buckets are not empty, we need to limit the spampled number
+         * to prevent a long hang time caused by filtering too many keys*/
         scanData data = {
             .keys = keys,
             .o = o,
             .typename = typename,
             .pattern = use_pattern ? pat : NULL,
+            .sampled = 0,
         };
         do {
             cursor = dictScan(ht, cursor, scanCallback, &data);
-        } while (cursor &&
-              maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
+        } while (cursor && maxiterations-- && data.sampled < count);
     } else if (o->type == OBJ_SET) {
         char *str;
         size_t len;
