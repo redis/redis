@@ -1557,6 +1557,8 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--key")) {
             if (lastarg) goto invalid;
             config.sslconfig.key = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"--keyfile-pass") && !lastarg) {
+            config.sslconfig.keyfile_pass = argv[++i];
         } else if (!strcmp(argv[i],"--tls-ciphers")) {
             if (lastarg) goto invalid;
             config.sslconfig.ciphers = strdup(argv[++i]);

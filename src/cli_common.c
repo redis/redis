@@ -81,6 +81,10 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             goto error;
         }
 
+        if (config.keyfile_pass) {
+            SSL_CTX_set_default_passwd_cb_userdata(ssl_ctx, (void *)config.keyfile_pass);
+        }
+
         if (config.key && !SSL_CTX_use_PrivateKey_file(ssl_ctx, config.key, SSL_FILETYPE_PEM)) {
             *err = "Invalid private key";
             goto error;

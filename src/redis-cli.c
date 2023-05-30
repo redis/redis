@@ -2883,6 +2883,8 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.cert = argv[++i];
         } else if (!strcmp(argv[i],"--key") && !lastarg) {
             config.sslconfig.key = argv[++i];
+        } else if (!strcmp(argv[i],"--keyfile-pass") && !lastarg) {
+            config.sslconfig.keyfile_pass = argv[++i];
         } else if (!strcmp(argv[i],"--tls-ciphers") && !lastarg) {
             config.sslconfig.ciphers = argv[++i];
         } else if (!strcmp(argv[i],"--insecure")) {
@@ -2950,8 +2952,8 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
-    if (!config.no_auth_warning && config.conn_info.auth != NULL) {
-        fputs("Warning: Using a password with '-a' or '-u' option on the command"
+    if (!config.no_auth_warning && (config.conn_info.auth != NULL || config.sslconfig.keyfile_pass != NULL)) {
+        fputs("Warning: Using a password with '-a', '-u' or '--keyfile-pass' option on the command"
               " line interface may not be safe.\n", stderr);
     }
 
@@ -2995,6 +2997,7 @@ static void usage(int err) {
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
+"  --keyfile-pass     Keypass of Private key file to authenticate with.\n"
 "  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
