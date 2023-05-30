@@ -12,7 +12,7 @@
 int main(int argc, char **argv) {
     unsigned int j;
     redisSSLContext *ssl;
-    redisSSLContextError ssl_error;
+    redisSSLContextError ssl_error = REDIS_SSL_CTX_NONE;
     redisContext *c;
     redisReply *reply;
     if (argc < 4) {
@@ -27,9 +27,8 @@ int main(int argc, char **argv) {
 
     redisInitOpenSSL();
     ssl = redisCreateSSLContext(ca, NULL, cert, key, NULL, &ssl_error);
-    if (!ssl) {
-        printf("SSL Context error: %s\n",
-                redisSSLContextGetError(ssl_error));
+    if (!ssl || ssl_error != REDIS_SSL_CTX_NONE) {
+        printf("SSL Context error: %s\n", redisSSLContextGetError(ssl_error));
         exit(1);
     }
 

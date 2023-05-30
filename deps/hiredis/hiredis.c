@@ -48,6 +48,7 @@ extern int redisContextUpdateConnectTimeout(redisContext *c, const struct timeva
 extern int redisContextUpdateCommandTimeout(redisContext *c, const struct timeval *timeout);
 
 static redisContextFuncs redisContextDefaultFuncs = {
+    .close = redisNetClose,
     .free_privctx = NULL,
     .async_read = redisAsyncRead,
     .async_write = redisAsyncWrite,
@@ -220,6 +221,9 @@ static void *createIntegerObject(const redisReadTask *task, long long value) {
 
 static void *createDoubleObject(const redisReadTask *task, double value, char *str, size_t len) {
     redisReply *r, *parent;
+
+    if (len == SIZE_MAX) // Prevents hi_malloc(0) if len equals to SIZE_MAX
+        return NULL;
 
     r = createReplyObject(REDIS_REPLY_DOUBLE);
     if (r == NULL)
@@ -399,6 +403,11 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     /* Copy va_list before consuming with va_arg */
                     va_copy(_cpy,ap);
 
+                    /* Make sure we have more characters otherwise strchr() accepts
+                     * '\0' as an integer specifier. This is checked after above
+                     * va_copy() to avoid UB in fmt_invalid's call to va_end(). */
+                    if (*_p == '\0') goto fmt_invalid;
+
                     /* Integer conversion (without modifiers) */
                     if (strchr(intfmts,*_p) != NULL) {
                         va_arg(ap,int);
@@ -477,6 +486,8 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
 
             touched = 1;
             c++;
+            if (*c == '\0')
+                break;
         }
         c++;
     }
@@ -719,7 +730,10 @@ static redisContext *redisContextInit(void) {
 void redisFree(redisContext *c) {
     if (c == NULL)
         return;
-    redisNetClose(c);
+
+    if (c->funcs && c->funcs->close) {
+        c->funcs->close(c);
+    }
 
     hi_sdsfree(c->obuf);
     redisReaderFree(c->reader);
@@ -733,7 +747,7 @@ void redisFree(redisContext *c) {
     if (c->privdata && c->free_privdata)
         c->free_privdata(c->privdata);
 
-    if (c->funcs->free_privctx)
+    if (c->funcs && c->funcs->free_privctx)
         c->funcs->free_privctx(c->privctx);
 
     memset(c, 0xff, sizeof(*c));
@@ -756,7 +770,9 @@ int redisReconnect(redisContext *c) {
         c->privctx = NULL;
     }
 
-    redisNetClose(c);
+    if (c->funcs && c->funcs->close) {
+        c->funcs->close(c);
+    }
 
     hi_sdsfree(c->obuf);
     redisReaderFree(c->reader);
@@ -806,6 +822,12 @@ redisContext *redisConnectWithOptions(const redisOptions *options) {
     if (options->options & REDIS_OPT_NOAUTOFREEREPLIES) {
         c->flags |= REDIS_NO_AUTO_FREE_REPLIES;
     }
+    if (options->options & REDIS_OPT_PREFER_IPV4) {
+        c->flags |= REDIS_PREFER_IPV4;
+    }
+    if (options->options & REDIS_OPT_PREFER_IPV6) {
+        c->flags |= REDIS_PREFER_IPV6;
+    }
 
     /* Set any user supplied RESP3 PUSH handler or use freeReplyObject
      * as a default unless specifically flagged that we don't want one. */
@@ -838,7 +860,9 @@ redisContext *redisConnectWithOptions(const redisOptions *options) {
         return NULL;
     }
 
-    if (options->command_timeout != NULL && (c->flags & REDIS_BLOCK) && c->fd != REDIS_INVALID_FD) {
+    if (c->err == 0 && c->fd != REDIS_INVALID_FD &&
+        options->command_timeout != NULL && (c->flags & REDIS_BLOCK))
+    {
         redisContextSetTimeout(c, *options->command_timeout);
     }
 
@@ -920,11 +944,18 @@ int redisSetTimeout(redisContext *c, const struct timeval tv) {
     return REDIS_ERR;
 }
 
+int redisEnableKeepAliveWithInterval(redisContext *c, int interval) {
+    return redisKeepAlive(c, interval);
+}
+
 /* Enable connection KeepAlive. */
 int redisEnableKeepAlive(redisContext *c) {
-    if (redisKeepAlive(c, REDIS_KEEPALIVE_INTERVAL) != REDIS_OK)
-        return REDIS_ERR;
-    return REDIS_OK;
+    return redisKeepAlive(c, REDIS_KEEPALIVE_INTERVAL);
+}
+
+/* Set the socket option TCP_USER_TIMEOUT. */
+int redisSetTcpUserTimeout(redisContext *c, unsigned int timeout) {
+    return redisContextSetTcpUserTimeout(c, timeout);
 }
 
 /* Set a user provided RESP3 PUSH handler and return any old one set. */
@@ -964,8 +995,8 @@ int redisBufferRead(redisContext *c) {
  * successfully written to the socket. When the buffer is empty after the
  * write operation, "done" is set to 1 (if given).
  *
- * Returns REDIS_ERR if an error occurred trying to write and sets
- * c->errstr to hold the appropriate error string.
+ * Returns REDIS_ERR if an unrecoverable error occurred in the underlying
+ * c->funcs->write function.
  */
 int redisBufferWrite(redisContext *c, int *done) {
 
