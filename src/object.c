@@ -629,7 +629,7 @@ void trimStringObjectIfNeeded(robj *o, int trim_small_values) {
 }
 
 /* Try to encode a string object in order to save space */
-robj *tryObjectEncoding(robj *o) {
+robj *tryObjectEncodingEx(robj *o, int try_trim) {
     long value;
     sds s = o->ptr;
     size_t len;
@@ -694,10 +694,15 @@ robj *tryObjectEncoding(robj *o) {
 
     /* We can't encode the object...
      * Do the last try, and at least optimize the SDS string inside */
-    trimStringObjectIfNeeded(o, 0);
+    if (try_trim)
+        trimStringObjectIfNeeded(o, 0);
 
     /* Return the original object. */
     return o;
+}
+
+robj *tryObjectEncoding(robj *o) {
+    return tryObjectEncodingEx(o, 1);
 }
 
 /* Get a decoded version of an encoded object (returned as a new object).
