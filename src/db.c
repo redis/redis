@@ -797,6 +797,7 @@ typedef struct {
     list *keys;   /* elements that collect from dict*/
     robj *o;      /* o must be a hash/set/zset object, NULL means current db*/
     sds typename; /* the particular type when scan the db */
+    sds pattern;  /* pattern string, NULL means no pattern */
 } scanData;
 
 /* This callback is used by scanGenericCommand in order to collect elements
@@ -805,37 +806,37 @@ void scanCallback(void *privdata, const dictEntry *de) {
     scanData *data = (scanData *)privdata;
     list *keys = data->keys;
     robj *o = data->o;
-    robj *key, *val = NULL;
+    robj *val = NULL;
 
     /* typename is only meaningful when o is NULL*/
     serverAssert(!data->typename || !o);
 
+    /* Filter element if it does not match the pattern. */
+    sds keysds = dictGetKey(de);
+    if (data->pattern) {
+        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keysds, sdslen(keysds), 0)) {
+            return;
+        }
+    }
+
     if (o == NULL) {
-        sds sdskey = dictGetKey(de);
         robj *val = dictGetVal(de);
         /* Filter an element if it isn't the type we want. */
         if (data->typename) {
             char *type = getObjectTypeName(val);
             if (strcasecmp((char *)data->typename, type)) return;
         }
-        key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == OBJ_SET) {
-        sds keysds = dictGetKey(de);
-        key = createStringObject(keysds,sdslen(keysds));
     } else if (o->type == OBJ_HASH) {
-        sds sdskey = dictGetKey(de);
-        sds sdsval = dictGetVal(de);
-        key = createStringObject(sdskey,sdslen(sdskey));
-        val = createStringObject(sdsval,sdslen(sdsval));
+        sds valsds = dictGetVal(de);
+        val = createStringObject(valsds, sdslen(valsds));
     } else if (o->type == OBJ_ZSET) {
-        sds sdskey = dictGetKey(de);
-        key = createStringObject(sdskey,sdslen(sdskey));
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
 
-    listAddNodeTail(keys, key);
+    listAddNodeTail(keys, createStringObject(keysds, sdslen(keysds)));
     if (val) listAddNodeTail(keys, val);
 }
 
@@ -871,8 +872,7 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     int i, j;
-    list *keys = listCreate();
-    listNode *node, *nextnode;
+    listNode *node;
     long count = 10;
     sds pat = NULL;
     sds typename = NULL;
@@ -894,12 +894,12 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
                 != C_OK)
             {
-                goto cleanup;
+                return;
             }
 
             if (count < 1) {
                 addReplyErrorObject(c,shared.syntaxerr);
-                goto cleanup;
+                return;
             }
 
             i += 2;
@@ -918,7 +918,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             i+= 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
-            goto cleanup;
+            return;
         }
     }
 
@@ -938,12 +938,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
-        count *= 2; /* We return key / value for this type. */
     } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
         ht = zs->dict;
-        count *= 2; /* We return key / value for this type. */
     }
+
+    list *keys = listCreate();
+    listSetFreeMethod(keys, decrRefCountVoid);
 
     if (ht) {
         /* We set the max number of iterations to ten times the specified
@@ -952,15 +953,22 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * of returning no or very few elements. */
         long maxiterations = count*10;
 
+        /* We return key / value for these type.*/
+        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
+            count *= 2;
+        }
+
         /* We pass scanData which have three pointers to the callback:
          * 1. data.keys: the list to which it will add new elements;
          * 2. data.o: the object containing the dictionary so that
-         * it is possible to fetch more data in a type-dependent way.
-         * 3. data.typename: the specified type scan in the db */
+         * it is possible to fetch more data in a type-dependent way;
+         * 3. data.typename: the specified type scan in the db;
+         * 4. data.pattern: the pattern string */
         scanData data = {
             .keys = keys,
             .o = o,
             .typename = typename,
+            .pattern = use_pattern ? pat : NULL,
         };
         do {
             cursor = dictScan(ht, cursor, scanCallback, &data);
@@ -973,10 +981,20 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         int64_t llele;
         setTypeIterator *si = setTypeInitIterator(o);
         while (setTypeNext(si, &str, &len, &llele) != -1) {
+            sds keysds = NULL;
             if (str == NULL) {
-                listAddNodeTail(keys, createStringObjectFromLongLong(llele));
-            } else {
+                keysds = sdsfromlonglong(llele);
+                len = sdslen(keysds);
+            }
+            char *key = str ? str : keysds;
+            if (use_pattern && !stringmatchlen(pat, sdslen(pat), key, len, 0)) {
+                sdsfree(keysds);
+                continue;
+            }
+            if (str) {
                 listAddNodeTail(keys, createStringObject(str, len));
+            } else {
+                listAddNodeTail(keys, createObject(OBJ_STRING, keysds));
             }
         }
         setTypeReleaseIterator(si);
@@ -991,59 +1009,38 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
         while(p) {
             vstr = lpGet(p,&vlen,intbuf);
-            listAddNodeTail(keys, createStringObject((char*)vstr,vlen));
-            p = lpNext(o->ptr,p);
+            robj *keyobj = createStringObject((char *)vstr, vlen);
+            /* point to the value */
+            p = lpNext(o->ptr, p);
+            if (use_pattern && !stringmatchlen(pat, sdslen(pat), keyobj->ptr, sdslen(keyobj->ptr), 0)) {
+                decrRefCount(keyobj);
+                /* jump the value */
+                p = lpNext(o->ptr, p);
+                continue;
+            }
+            listAddNodeTail(keys, keyobj);
+            /* add value object*/
+            vstr = lpGet(p, &vlen, intbuf);
+            listAddNodeTail(keys, createStringObject((char *)vstr, vlen));
+            p = lpNext(o->ptr, p);
         }
         cursor = 0;
     } else {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter elements. */
-    node = listFirst(keys);
-    while (node) {
-        robj *kobj = listNodeValue(node);
-        nextnode = listNextNode(node);
-        int filter = 0;
+    /* Step 3: Filter the expired keys */
+    if (o == NULL && listLength(keys)) {
+        listIter li;
+        listNode *ln;
+        listRewind(keys, &li);
+        while ((ln = listNext(&li))) {
+            robj *kobj = listNodeValue(ln);
 
-        /* Filter element if it does not match the pattern. */
-        if (use_pattern) {
-            if (sdsEncodedObject(kobj)) {
-                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
-                    filter = 1;
-            } else {
-                char buf[LONG_STR_SIZE];
-                int len;
-
-                serverAssert(kobj->encoding == OBJ_ENCODING_INT);
-                len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
-                if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
+            if (expireIfNeeded(c->db, kobj, 0)) {
+                listDelNode(keys, ln);
             }
         }
-
-        /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) filter = 1;
-
-        /* Remove the element and its associated value if needed. */
-        if (filter) {
-            decrRefCount(kobj);
-            listDelNode(keys, node);
-        }
-
-        /* If this is a hash or a sorted set, we have a flat list of
-         * key-value elements, so if this element was filtered, remove the
-         * value, or skip it if it was not filtered: we only match keys. */
-        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
-            node = nextnode;
-            serverAssert(node); /* assertion for valgrind (avoid NPD) */
-            nextnode = listNextNode(node);
-            if (filter) {
-                kobj = listNodeValue(node);
-                decrRefCount(kobj);
-                listDelNode(keys, node);
-            }
-        }
-        node = nextnode;
     }
 
     /* Step 4: Reply to the client. */
@@ -1054,12 +1051,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     while ((node = listFirst(keys)) != NULL) {
         robj *kobj = listNodeValue(node);
         addReplyBulk(c, kobj);
-        decrRefCount(kobj);
         listDelNode(keys, node);
     }
 
-cleanup:
-    listSetFreeMethod(keys,decrRefCountVoid);
     listRelease(keys);
 }
 
