@@ -106,6 +106,9 @@ static void clientSetDefaultAuth(client *c) {
     c->user = DefaultUser;
     c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
                        !(c->user->flags & USER_FLAG_DISABLED);
+    if (c->authenticated) {
+        listAddNodeTail(DefaultUser->clients, c);
+    }
 }
 
 int authRequired(client *c) {
@@ -1511,6 +1514,12 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
+    if (c->user) {
+        ln = listSearchKey(c->user->clients, c);
+        if (ln) {
+            listDelNode(c->user->clients, ln);
+        }
+    }
     /* Clear the tracking status. */
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
@@ -2895,6 +2904,21 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
+sds getUserClientsInfoString(user *user) {
+    listNode *ln;
+    listIter li;
+    client *client;
+    sds o = sdsnewlen(SDS_NOINIT, 200 * listLength(server.clients));
+    sdsclear(o);
+    listRewind(user->clients, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        client = listNodeValue(ln);
+        o = catClientInfoString(o, client);
+        o = sdscatlen(o, "\n", 1);
+    }
+    return o;
+}
+
 /* Check validity of an attribute that's gonna be shown in CLIENT LIST. */
 int validateClientAttr(const char *val) {
     /* Check if the charset is ok. We need to do this otherwise
@@ -3017,6 +3041,7 @@ void clientCommand(client *c) {
     listNode *ln;
     listIter li;
 
+    user *user = NULL;
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "CACHING (YES|NO)",
@@ -3155,7 +3180,6 @@ NULL
          * CLIENT KILL <option> [value] ... <option> [value] */
         char *addr = NULL;
         char *laddr = NULL;
-        user *user = NULL;
         int type = -1;
         uint64_t id = 0;
         long long max_age = 0;
@@ -3265,6 +3289,27 @@ NULL
         /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    } else if (!strcasecmp(c->argv[1]->ptr, "count")) {
+        sds o = NULL;
+        if (c->argc > 3 && !strcasecmp(c->argv[2]->ptr, "user")) {
+            long long j;
+            for (j = 3; j < c->argc; j++) {
+                user = ACLGetUserByName(c->argv[j]->ptr,
+                                        sdslen(c->argv[j]->ptr));
+                if (user == NULL) {
+                    addReplyErrorFormat(c, "No such user '%s'",
+                                        (char *) c->argv[j]->ptr);
+                    return;
+                }
+                o = getUserClientsInfoString(user);
+                o = sdscatlen(o, "\n", 1);
+            }
+            addReplyVerbatim(c, o, sdslen(o), "txt");
+            sdsfree(o);
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"unblock") && (c->argc == 3 ||
                                                           c->argc == 4))
     {

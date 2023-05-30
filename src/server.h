@@ -1102,6 +1102,7 @@ typedef struct {
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
     robj *acl_string; /* cached string represent of ACLs */
+    list *clients;
 } user;
 
 /* With multiplexing we need to take per-client state.

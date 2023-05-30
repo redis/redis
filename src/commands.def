@@ -1080,6 +1080,28 @@ struct COMMAND_ARG CLIENT_CACHING_Args[] = {
 {MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLIENT_CACHING_mode_Subargs},
 };
 
+/********** CLIENT COUNT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CLIENT COUNT history */
+#define CLIENT_COUNT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CLIENT COUNT tips */
+#define CLIENT_COUNT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CLIENT COUNT key specs */
+#define CLIENT_COUNT_Keyspecs NULL
+#endif
+
+/* CLIENT COUNT argument table */
+struct COMMAND_ARG CLIENT_COUNT_Args[] = {
+{MAKE_ARG("user",ARG_TYPE_STRING,-1,NULL,NULL,"7.2.0",CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /********** CLIENT GETNAME ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -1540,6 +1562,7 @@ struct COMMAND_ARG CLIENT_UNBLOCK_Args[] = {
 /* CLIENT command table */
 struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 {MAKE_CMD("caching","Instructs the server whether to track the keys in the next request.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_CACHING_History,0,CLIENT_CACHING_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_CACHING_Keyspecs,0,NULL,1),.args=CLIENT_CACHING_Args},
+{MAKE_CMD("count","Returns client num among the user.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_COUNT_History,0,CLIENT_COUNT_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_COUNT_Keyspecs,0,NULL,1),.args=CLIENT_COUNT_Args},
 {MAKE_CMD("getname","Returns the name of the connection.","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_GETNAME_History,0,CLIENT_GETNAME_Tips,0,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_GETNAME_Keyspecs,0,NULL,0)},
 {MAKE_CMD("getredir","Returns the client ID to which the connection's tracking notifications are redirected.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_GETREDIR_History,0,CLIENT_GETREDIR_Tips,0,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_GETREDIR_Keyspecs,0,NULL,0)},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_HELP_History,0,CLIENT_HELP_Tips,0,clientCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_HELP_Keyspecs,0,NULL,0)},

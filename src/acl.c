@@ -451,7 +451,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->selectors = listCreate();
     listSetFreeMethod(u->selectors,ACLListFreeSelector);
     listSetDupMethod(u->selectors,ACLListDuplicateSelector);
-
+    u->clients = listCreate();
     /* Add the initial root selector */
     aclSelector *s = ACLCreateSelector(SELECTOR_FLAG_ROOT);
     listAddNodeHead(u->selectors, s);
@@ -487,6 +487,7 @@ void ACLFreeUser(user *u) {
     }
     listRelease(u->passwords);
     listRelease(u->selectors);
+    listRelease(u->clients);
     zfree(u);
 }
 
@@ -1511,6 +1512,7 @@ int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
         c->authenticated = 1;
         c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
         moduleNotifyUserChanged(c);
+        listAddNodeTail(c->user->clients, c);
         return AUTH_OK;
     } else {
         addACLLogEntry(c,ACL_DENIED_AUTH,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,0,username->ptr,NULL);
