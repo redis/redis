@@ -2997,7 +2997,7 @@ static void usage(int err) {
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
-"  --keyfile-pass     Keypass of Private key file to authenticate with.\n"
+"  --keyfile-pass <password> Keypass of Private key file to authenticate with.\n"
 "  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string.\n"
