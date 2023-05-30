@@ -51,7 +51,7 @@
 #define _EL_CLEANUP(ctx) do { \
         if ((ctx)->ev.cleanup) (ctx)->ev.cleanup((ctx)->ev.data); \
         ctx->ev.cleanup = NULL; \
-    } while(0);
+    } while(0)
 
 static inline void refreshTimeout(redisAsyncContext *ctx) {
     #define REDIS_TIMER_ISSET(tvp) \

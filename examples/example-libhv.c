@@ -4,9 +4,8 @@
 #include <signal.h>
 
 #include <hiredis.h>
-#include <hiredis_ssl.h>
 #include <async.h>
-#include <adapters/libevent.h>
+#include <adapters/libhv.h>
 
 void getCallback(redisAsyncContext *c, void *r, void *privdata) {
     redisReply *reply = r;
@@ -14,6 +13,18 @@ void getCallback(redisAsyncContext *c, void *r, void *privdata) {
     printf("argv[%s]: %s\n", (char*)privdata, reply->str);
 
     /* Disconnect after receiving the reply to GET */
+    redisAsyncDisconnect(c);
+}
+
+void debugCallback(redisAsyncContext *c, void *r, void *privdata) {
+    (void)privdata;
+    redisReply *reply = r;
+
+    if (reply == NULL) {
+        printf("`DEBUG SLEEP` error: %s\n", c->errstr ? c->errstr : "unknown error");
+        return;
+    }
+
     redisAsyncDisconnect(c);
 }
 
@@ -38,53 +49,22 @@ int main (int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 #endif
 
-    struct event_base *base = event_base_new();
-    if (argc < 5) {
-        fprintf(stderr,
-                "Usage: %s <key> <host> <port> <cert> <certKey> [ca]\n", argv[0]);
-        exit(1);
-    }
-
-    const char *value = argv[1];
-    size_t nvalue = strlen(value);
-
-    const char *hostname = argv[2];
-    int port = atoi(argv[3]);
-
-    const char *cert = argv[4];
-    const char *certKey = argv[5];
-    const char *caCert = argc > 5 ? argv[6] : NULL;
-
-    redisSSLContext *ssl;
-    redisSSLContextError ssl_error = REDIS_SSL_CTX_NONE;
-
-    redisInitOpenSSL();
-
-    ssl = redisCreateSSLContext(caCert, NULL,
-            cert, certKey, NULL, &ssl_error);
-    if (!ssl) {
-        printf("Error: %s\n", redisSSLContextGetError(ssl_error));
-        return 1;
-    }
-
-    redisAsyncContext *c = redisAsyncConnect(hostname, port);
+    redisAsyncContext *c = redisAsyncConnect("127.0.0.1", 6379);
     if (c->err) {
         /* Let *c leak for now... */
         printf("Error: %s\n", c->errstr);
         return 1;
     }
-    if (redisInitiateSSLWithContext(&c->c, ssl) != REDIS_OK) {
-        printf("SSL Error!\n");
-        exit(1);
-    }
 
-    redisLibeventAttach(c,base);
+    hloop_t* loop = hloop_new(HLOOP_FLAG_QUIT_WHEN_NO_ACTIVE_EVENTS);
+    redisLibhvAttach(c, loop);
+    redisAsyncSetTimeout(c, (struct timeval){.tv_sec = 0, .tv_usec = 500000});
     redisAsyncSetConnectCallback(c,connectCallback);
     redisAsyncSetDisconnectCallback(c,disconnectCallback);
-    redisAsyncCommand(c, NULL, NULL, "SET key %b", value, nvalue);
+    redisAsyncCommand(c, NULL, NULL, "SET key %b", argv[argc-1], strlen(argv[argc-1]));
     redisAsyncCommand(c, getCallback, (char*)"end-1", "GET key");
-    event_base_dispatch(base);
-
-    redisFreeSSLContext(ssl);
+    redisAsyncCommand(c, debugCallback, NULL, "DEBUG SLEEP %d", 1);
+    hloop_run(loop);
+    hloop_free(&loop);
     return 0;
 }
