@@ -399,8 +399,6 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 #define CLUSTERMSG_FLAG0_FORCEACK (1<<1) /* Give ACK to AUTH_REQUEST even if
                                             master is up. */
 #define CLUSTERMSG_FLAG0_EXT_DATA (1<<2) /* Message contains extension data */
-#define CLUSTERMSG_FLAG0_FIXED_PORT (1<<3) /* The port and pport are fixedly set to 
-                                              TLS port and TCP port respectively. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 void clusterInit(void);

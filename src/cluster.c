@@ -100,15 +100,22 @@ sds auxTlsPortGetter(clusterNode *n, sds s);
 int auxTlsPortPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 
+static inline int getNodeDefaultReplicationPort(clusterNode *n) {
+    return server.tls_replication ? n->tls_port : n->tcp_port;
+}
+static inline int defaultClientPort(void) {
+    return server.tls_cluster ? server.tls_port : server.port;
+}
+static inline int isTLSClient(client *c) {
+    return c->conn && c->conn->type == connectionTypeTls();
+}
+
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
 #define dictEntryNextInSlot(de) \
     (((clusterDictEntryMetadata *)dictEntryMetadata(de))->next)
 #define dictEntryPrevInSlot(de) \
     (((clusterDictEntryMetadata *)dictEntryMetadata(de))->prev)
-
-#define isTLSClient(c) (c->conn && (c->conn->type == connectionTypeTls()))
-#define defaultClientPort() (server.tls_cluster ? server.tls_port : server.port)
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -1683,7 +1690,7 @@ void clusterRemoveNodeFromShard(clusterNode *node) {
     sdsfree(s);
 }
 
-int getNodeDefaultClientPort(clusterNode *n) {
+inline int getNodeDefaultClientPort(clusterNode *n) {
     return server.tls_cluster ? n->tls_port : n->tcp_port;
 }
 
@@ -2067,7 +2074,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
 }
 
 static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp_port) {
-    if ((hdr->mflags[0] & CLUSTERMSG_FLAG0_FIXED_PORT) || server.tls_cluster) {
+    if (server.tls_cluster) {
         *tls_port = ntohs(hdr->port);
         *tcp_port = ntohs(hdr->pport);
     } else {
@@ -2076,8 +2083,8 @@ static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp
     }
 }
 
-static void getClientPortFromGossip(clusterMsg *hdr, clusterMsgDataGossip *g, int *tls_port, int *tcp_port) {
-    if ((hdr->mflags[0] & CLUSTERMSG_FLAG0_FIXED_PORT) || server.tls_cluster) {
+static void getClientPortFromGossip(clusterMsgDataGossip *g, int *tls_port, int *tcp_port) {
+    if (server.tls_cluster) {
         *tls_port = ntohs(g->port);
         *tcp_port = ntohs(g->pport);
     } else {
@@ -2094,7 +2101,6 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     uint16_t count = ntohs(hdr->count);
     clusterMsgDataGossip *g = (clusterMsgDataGossip*) hdr->data.ping.gossip;
     clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
-    int use_pport = (hdr->mflags[0] & CLUSTERMSG_FLAG0_FIXED_PORT) ? !server.tls_cluster : 0;
 
     while(count--) {
         uint16_t flags = ntohs(g->flags);
@@ -2106,7 +2112,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
             serverLog(LL_DEBUG,"GOSSIP %.40s %s:%d@%d %s",
                 g->nodename,
                 g->ip,
-                ntohs(use_pport ? g->pport : g->port),
+                ntohs(g->port),
                 ntohs(g->cport),
                 ci);
             sdsfree(ci);
@@ -2114,7 +2120,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 
         /* Convert port and pport into TCP port and TLS port. */
         int msg_tls_port, msg_tcp_port;
-        getClientPortFromGossip(hdr, g, &msg_tls_port, &msg_tcp_port);
+        getClientPortFromGossip(g, &msg_tls_port, &msg_tcp_port);
 
         /* Update our state accordingly to the gossip sections */
         node = clusterLookupNode(g->nodename, CLUSTER_NAMELEN);
@@ -2165,12 +2171,11 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
              * can talk with this other node, update the address, disconnect
              * the old link if any, so that we'll attempt to connect with the
              * new address. */
-            int node_port = getNodeDefaultClientPort(node);
             if (node->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL) &&
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
                 (strcasecmp(node->ip,g->ip) ||
-                 node_port != ntohs(use_pport ? g->pport : g->port) ||
+                 getNodeDefaultClientPort(node) != ntohs(g->port) ||
                  node->cport != ntohs(g->cport)))
             {
                 if (node->link) freeClusterLink(node->link);
@@ -2270,14 +2275,13 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     node->cport = cport;
     if (node->link) freeClusterLink(node->link);
     node->flags &= ~CLUSTER_NODE_NOADDR;
-    int port = getNodeDefaultClientPort(node);
     serverLog(LL_NOTICE,"Address updated for node %.40s (%s), now %s:%d",
-        node->name, node->human_nodename, node->ip, port); 
+        node->name, node->human_nodename, node->ip, getNodeDefaultClientPort(node)); 
 
     /* Check if this is our master and we have to change the
      * replication target as well. */
     if (nodeIsSlave(myself) && myself->slaveof == node)
-        replicationSetMaster(node->ip, port);
+        replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
     return 1;
 }
 
@@ -3456,8 +3460,13 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
     if (myself->slaveof != NULL)
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
-    hdr->port = htons(announced_tls_port);
-    hdr->pport = htons(announced_tcp_port);
+    if (server.tls_cluster) {
+        hdr->port = htons(announced_tls_port);
+        hdr->pport = htons(announced_tcp_port);
+    } else {
+        hdr->port = htons(announced_tcp_port);
+        hdr->pport = htons(announced_tls_port);
+    }
     hdr->cport = htons(announced_cport);
     hdr->flags = htons(myself->flags);
     hdr->state = server.cluster->state;
@@ -3474,7 +3483,6 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     hdr->offset = htonu64(offset);
 
     /* Set the message flags. */
-    hdr->mflags[0] |= CLUSTERMSG_FLAG0_FIXED_PORT;
     if (nodeIsMaster(myself) && server.cluster->mf_end)
         hdr->mflags[0] |= CLUSTERMSG_FLAG0_PAUSED;
 
@@ -3490,10 +3498,15 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
     gossip->ping_sent = htonl(n->ping_sent/1000);
     gossip->pong_received = htonl(n->pong_received/1000);
     memcpy(gossip->ip,n->ip,sizeof(n->ip));
-    gossip->pport = htons(n->tcp_port);
+    if (server.tls_cluster) {
+        gossip->port = htons(n->tls_port);
+        gossip->pport = htons(n->tcp_port);
+    } else {
+        gossip->port = htons(n->tcp_port);
+        gossip->pport = htons(n->tls_port);
+    }
     gossip->cport = htons(n->cport);
     gossip->flags = htons(n->flags);
-    gossip->port = htons(n->tls_port);
     gossip->notused1 = 0;
 }
 
@@ -4713,7 +4726,7 @@ void clusterCron(void) {
         myself->slaveof &&
         nodeHasAddr(myself->slaveof))
     {
-        replicationSetMaster(myself->slaveof->ip, getNodeDefaultClientPort(myself->slaveof));
+        replicationSetMaster(myself->slaveof->ip, getNodeDefaultReplicationPort(myself->slaveof));
     }
 
     /* Abort a manual failover if the timeout is reached. */
@@ -5116,7 +5129,7 @@ void clusterSetMaster(clusterNode *n) {
     myself->slaveof = n;
     updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
-    replicationSetMaster(n->ip, getNodeDefaultClientPort(n));
+    replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
     resetManualFailover();
 }
 
