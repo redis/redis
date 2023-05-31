@@ -168,7 +168,9 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
-            o = createObject(OBJ_STRING,sdsfromlonglong(value));
+            char buf[LONG_STR_SIZE];
+            int len = ll2string(buf, sizeof(buf), value);
+            o = createStringObject(buf, len);
         }
     }
     return o;
