@@ -997,25 +997,24 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
                o->encoding == OBJ_ENCODING_LISTPACK)
     {
         unsigned char *p = lpFirst(o->ptr);
-        unsigned char *vstr;
-        int64_t vlen;
+        unsigned char *str;
+        int64_t len;
         unsigned char intbuf[LP_INTBUF_SIZE];
 
         while(p) {
-            vstr = lpGet(p,&vlen,intbuf);
-            robj *keyobj = createStringObject((char *)vstr, vlen);
+            str = lpGet(p, &len, intbuf);
             /* point to the value */
             p = lpNext(o->ptr, p);
-            if (use_pattern && !stringmatchlen(pat, sdslen(pat), keyobj->ptr, sdslen(keyobj->ptr), 0)) {
-                decrRefCount(keyobj);
-                /* jump the value */
+            if (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)) {
+                /* jump to the next key/val pair */
                 p = lpNext(o->ptr, p);
                 continue;
             }
-            listAddNodeTail(keys, keyobj);
-            /* add value object*/
-            vstr = lpGet(p, &vlen, intbuf);
-            listAddNodeTail(keys, createStringObject((char *)vstr, vlen));
+            /* add key object */
+            listAddNodeTail(keys, createStringObject((char *)str, len));
+            /* add value object */
+            str = lpGet(p, &len, intbuf);
+            listAddNodeTail(keys, createStringObject((char *)str, len));
             p = lpNext(o->ptr, p);
         }
         cursor = 0;
