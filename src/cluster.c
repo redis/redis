@@ -5334,8 +5334,8 @@ void clusterFreeNodesSlotsInfo(clusterNode *n) {
  * include all the known nodes in the representation, including nodes in
  * the HANDSHAKE state.
  *
- * Setting use_pport to 1 in a TLS cluster makes the result contain the
- * secondary client port rather then the primary client port of each node.
+ * Setting tls_primary to 1 to put TLS port in the main <ip>:<port> 
+ * field and put TCP port in aux field, instead of the opposite way.
  *
  * The representation obtained using this function is used for the output
  * of the CLUSTER NODES function, and as format for the cluster

@@ -225,10 +225,10 @@ typedef struct {
     uint32_t ping_sent;
     uint32_t pong_received;
     char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
-    uint16_t port;              /* base port last time it was seen */
+    uint16_t port;              /* primary port last time it was seen */
     uint16_t cport;             /* cluster port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint16_t pport;             /* plaintext-port, when base port is TLS */
+    uint16_t pport;             /* secondary port last time it was seen */
     uint16_t notused1;
 } clusterMsgDataGossip;
 
@@ -337,7 +337,7 @@ typedef struct {
     char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
     uint16_t ver;       /* Protocol version, currently set to 1. */
-    uint16_t port;      /* Base port number (TCP or TLS). */
+    uint16_t port;      /* Primary port number (TCP or TLS). */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
@@ -352,7 +352,8 @@ typedef struct {
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
     uint16_t extensions; /* Number of extensions sent along with this packet. */
     char notused1[30];   /* 30 bytes reserved for future usage. */
-    uint16_t pport;      /* Sender TCP plaintext port, if base port is TLS */
+    uint16_t pport;      /* Secondary port number: if primary port is TCP port, this is 
+                            TLS port, and if primary port is TLS port, this is TCP port.*/
     uint16_t cport;      /* Sender TCP cluster bus port */
     uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
