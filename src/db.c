@@ -977,25 +977,19 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } while (cursor && maxiterations-- && data.sampled < count);
     } else if (o->type == OBJ_SET) {
         char *str;
+        char buf[LONG_STR_SIZE];
         size_t len;
         int64_t llele;
         setTypeIterator *si = setTypeInitIterator(o);
         while (setTypeNext(si, &str, &len, &llele) != -1) {
-            sds keysds = NULL;
             if (str == NULL) {
-                keysds = sdsfromlonglong(llele);
-                len = sdslen(keysds);
+                len = ll2string(buf, sizeof(buf), llele);
             }
-            char *key = str ? str : keysds;
+            char *key = str ? str : buf;
             if (use_pattern && !stringmatchlen(pat, sdslen(pat), key, len, 0)) {
-                sdsfree(keysds);
                 continue;
             }
-            if (str) {
-                listAddNodeTail(keys, createStringObject(str, len));
-            } else {
-                listAddNodeTail(keys, createObject(OBJ_STRING, keysds));
-            }
+            listAddNodeTail(keys, createStringObject(key, len));
         }
         setTypeReleaseIterator(si);
         cursor = 0;
