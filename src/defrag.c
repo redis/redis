@@ -228,7 +228,7 @@ void activeDefragZsetEntry(zset *zs, dictEntry *de) {
         dictSetKey(zs->dict, de, newsds);
     newscore = zslDefrag(zs->zsl, *(double*)dictGetVal(de), sdsele, newsds);
     if (newscore) {
-        dictSetVal(zs->dict, de, newscore);
+        dictSetVal(zs->dict, &de, newscore);
     }
 }
 
@@ -416,7 +416,7 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
         .defragKey = (dictDefragAllocFunction *)activeDefragSds,
-        .defragVal = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = (dictDefragAllocFunction *)activeDefragSds
     };
     *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
 }
@@ -671,18 +671,17 @@ void defragModule(redisDb *db, dictEntry *kde) {
  * all the various pointers it has. Returns a stat of how many pointers were
  * moved. */
 void defragValue(redisDb *db, dictEntry *de) {
-    robj *newob, *ob;
+    robj *ob;
     unsigned char *newzl;
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
-    if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[calculateKeySlot(dictGetKey(de))], de, newob);
-        ob = newob;
-    }
 
-    if (ob->type == OBJ_STRING) {
-        /* Already handled in activeDefragStringOb. */
+    if (ob->type == OBJ_STRING && ob->encoding == OBJ_ENCODING_RAW) {
+        sds newsds = activeDefragSds(ob->ptr);
+        if (newsds) {
+            ob->ptr = newsds;
+        }
     } else if (ob->type == OBJ_LIST) {
         if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragQuicklist(db, de);

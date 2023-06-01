@@ -3315,15 +3315,19 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
-            int added = dbAddRDBLoad(db,key,val);
+            dictEntry *de = dbAddRDBLoad(db,key,val);
+            decrRefCount(val);
+            val = dictGetVal(de);
             server.rdb_last_load_keys_loaded++;
-            if (!added) {
+            if (!de) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
                     /* This flag is useful for DEBUG RELOAD special modes.
-                     * When it's set we allow new keys to replace the current
-                     * keys with the same name. */
+                        * When it's set we allow new keys to replace the current
+                        * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
                     dbAddRDBLoad(db,key,val);
+                    decrRefCount(val);
+                    val = dictGetVal(de);
                 } else {
                     serverLog(LL_WARNING,
                         "RDB has duplicated key '%s' in DB %d",key,db->id);

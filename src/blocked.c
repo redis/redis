@@ -381,13 +381,13 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         /* In case key[j] did not have blocking clients yet, we need to create a new list */
         if (db_blocked_entry != NULL) {
             l = listCreate();
-            dictSetVal(c->db->blocking_keys, db_blocked_entry, l);
+            dictSetVal(c->db->blocking_keys, &db_blocked_entry, l);
             incrRefCount(keys[j]);
         } else {
             l = dictGetVal(db_blocked_existing_entry);
         }
         listAddNodeTail(l,c);
-        dictSetVal(c->bstate.keys,client_blocked_entry,listLast(l));
+        dictSetVal(c->bstate.keys,&client_blocked_entry,listLast(l));
 
 
         /* We need to add the key to blocking_keys_unblock_on_nokey, if the client

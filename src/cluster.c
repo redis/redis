@@ -6447,7 +6447,10 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    dbAdd(c->db,key,obj);
+    dictEntry *de = dbAdd(c->db, key, obj);
+    decrRefCount(obj);
+    obj = dictGetVal(de);
+
     if (ttl) {
         setExpire(c,c->db,key,ttl);
         if (!absttl) {

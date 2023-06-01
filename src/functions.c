@@ -291,7 +291,7 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     }
     dictReleaseIterator(iter);
     entry = dictUnlink(lib_ctx->libraries, li->name);
-    dictSetVal(lib_ctx->libraries, entry, NULL);
+    dictSetVal(lib_ctx->libraries, &entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
     lib_ctx->cache_memory -= libraryMallocSize(li);
 
@@ -374,7 +374,7 @@ static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *
     while ((entry = dictNext(iter))) {
         functionLibInfo *li = dictGetVal(entry);
         libraryLink(functions_lib_ctx_dst, li);
-        dictSetVal(functions_lib_ctx_src->libraries, entry, NULL);
+        dictSetVal(functions_lib_ctx_src->libraries, &entry, NULL);
     }
     dictReleaseIterator(iter);
     iter = NULL;

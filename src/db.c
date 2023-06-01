@@ -226,16 +226,16 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * counter of the value if needed.
  *
  * The program is aborted if the key already exists. */
-void dbAdd(redisDb *db, robj *key, robj *val) {
+dictEntry *dbAdd(redisDb *db, robj *key, robj *val) {
     int slot = getKeySlot(key->ptr);
     dict *d = db->dict[slot];
-    dictEntry *de = dictAddRaw(d, key->ptr, NULL);
-    serverAssertWithInfo(NULL, key, de != NULL);
-    dictSetVal(d, de, val);
+    dictEntry *de = dictAddWithValue(d, key->ptr, val);
+    serverAssert(de != NULL);
     db->key_count++;
     cumulativeKeyCountAdd(db, slot, 1);
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
+    return de;
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -268,15 +268,14 @@ int getKeySlot(sds key) {
  * The function returns 1 if the key was added to the database, taking
  * ownership of the SDS string, otherwise 0 is returned, and is up to the
  * caller to free the SDS string. */
-int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
+dictEntry *dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     int slot = getKeySlot(key);
     dict *d = db->dict[slot];
-    dictEntry *de = dictAddRaw(d, key, NULL);
-    if (de == NULL) return 0;
-    dictSetVal(d, de, val);
+    dictEntry *de = dictAddWithValue(d, key, val);
+    serverAssert(de != NULL);
     db->key_count++;
     cumulativeKeyCountAdd(db, slot, 1);
-    return 1;
+    return de;
 }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -289,11 +288,17 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * update of a value of an existing key (when false).
  *
  * The program is aborted if the key was not already present. */
-static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
+static dictEntry* dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
     dict *d = db->dict[getKeySlot(key->ptr)];
     dictEntry *de = dictFind(d, key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
+    /* Both key->ptr and dictEntry key point to equal sds strings.
+     * Using sds from the dictEntry instead of key object helps us avoid byte by byte key comparison in the expires dictionary,
+     * since main and expiry dictionaries share the same sds pointer, while key contains sds object that was newly allocated during processing of this call. */
+    robj keyobj;
+    initStaticStringObject(keyobj, dictGetKey(de));
+    long long expire = getExpire(db, &keyobj); // TODO consider adding a bit into dictEntry to see if expiry exists or not, which should help avoid unnecessary searches.
     robj *old = dictGetVal(de);
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
@@ -312,20 +317,28 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
     }
-    dictSetVal(d, de, val);
-
-    if (server.lazyfree_lazy_server_del) {
-        freeObjAsync(key,old,db->id);
-    } else {
-        /* This is just decrRefCount(old); */
-        d->type->valDestructor(d, old);
+    robj *valobj = createObject(old->type, old->ptr);
+    valobj->encoding = old->encoding;
+    if (expire != -1) removeExpire(db, &keyobj);
+    int updated = dictSetVal(d, &de, val);
+    if (expire != -1) {
+        initStaticStringObject(keyobj, dictGetKey(de));
+        setExpire(NULL, db, &keyobj, expire);
     }
+
+    if (updated && server.lazyfree_lazy_server_del) {
+        freeObjAsync(key, valobj, db->id);
+    } else {
+        /* old obj/ptr might still be available (as part of client argv). */
+        zfree(valobj);
+    }
+    return de;
 }
 
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
-void dbReplaceValue(redisDb *db, robj *key, robj *val) {
-    dbSetValue(db, key, val, 0);
+dictEntry* dbReplaceValue(redisDb *db, robj *key, robj *val) {
+    return dbSetValue(db, key, val, 0);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -341,7 +354,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj *val) {
  * All the new keys in the database should be created via this interface.
  * The client 'c' argument may be set to NULL if the operation is performed
  * in a context where there is no clear client performing the operation. */
-void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
+dictEntry* setKey(client *c, redisDb *db, robj *key, robj **val, int flags) {
     int keyfound = 0;
 
     if (flags & SETKEY_ALREADY_EXIST)
@@ -349,14 +362,18 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
     else if (!(flags & SETKEY_DOESNT_EXIST))
         keyfound = (lookupKeyWrite(db,key) != NULL);
 
+    dictEntry *de;
     if (!keyfound) {
-        dbAdd(db,key,val);
+        de = dbAdd(db,key,*val);
     } else {
-        dbSetValue(db,key,val,1);
+        de = dbSetValue(db,key,*val,1);
     }
-    incrRefCount(val);
+    decrRefCount(*val);
+    *val = dictGetVal(de);
+    incrRefCount(*val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
     if (!(flags & SETKEY_NO_SIGNAL)) signalModifiedKey(c,db,key);
+    return de;
 }
 
 /* Return a random key, in form of a Redis object.
@@ -482,12 +499,23 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,val->type);
         /* We should call decr before freeObjAsync. If not, the refcount may be
-         * greater than 1, so freeObjAsync doesn't work */
-        decrRefCount(val);
+         * greater than 1, so freeObjAsync doesn't work .
+         *
+         * With value-embedding, if the val undergoes dbUnshareStringValue operation, the provided object
+         * would replaced from the dictionary and a new entry would be created. Hence, the refcount might
+         * have been reduced already as well as the OBJ_STATE_PROTECTED would have been removed. Hence,
+         * we make the val object refcount/state ideal for dictTwoPhaseUnlinkFree to clean the val */
+        if (val->refcount > 1) {
+            decrRefCount(val);
+        } else {
+            val->state |= OBJ_STATE_PROTECTED;
+        }
         if (async) {
+            robj *valobj = createObject(val->type, val->ptr);
+            valobj->encoding = val->encoding;
             /* Because of dbUnshareStringValue, the val in de may change. */
-            freeObjAsync(key, dictGetVal(de), db->id);
-            dictSetVal(d, de, NULL);
+            freeObjAsync(key, valobj, db->id);
+            val->state |= OBJ_STATE_REFERENCE;
         }
         /* Deleting an entry from the expires dict will not free the sds of
         * the key, because it is shared with the main dictionary. */
@@ -551,7 +579,9 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
-        dbReplaceValue(db,key,o);
+        dictEntry *de = dbReplaceValue(db,key,o);
+        decrRefCount(o);
+        return dictGetVal(de);
     }
     return o;
 }
@@ -963,7 +993,7 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
     /* Use strtouq() because we need an *unsigned* long long, so
      * getLongLongFromObject() does not cover the whole cursor space. */
     errno = 0;
-    *cursor = strtouq(o->ptr, &eptr, 10);
+    *cursor = strtoull(o->ptr, &eptr, 10);
     if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE)
     {
         addReplyError(c, "invalid cursor");
@@ -1343,11 +1373,9 @@ void renameGenericCommand(client *c, int nx) {
         return;
     }
 
-    incrRefCount(o);
     expire = getExpire(c->db,c->argv[1]);
     if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
         if (nx) {
-            decrRefCount(o);
             addReply(c,shared.czero);
             return;
         }
@@ -1421,9 +1449,8 @@ void moveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    dbAdd(dst,c->argv[1],o);
+    dbAdd(dst, c->argv[1], o);
     if (expire != -1) setExpire(c,dst,c->argv[1],expire);
-    incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
     dbDelete(src,c->argv[1]);
@@ -1529,7 +1556,9 @@ void copyCommand(client *c) {
         dbDelete(dst,newkey);
     }
 
-    dbAdd(dst,newkey,newobj);
+    dictEntry *de = dbAdd(dst, newkey, newobj);
+    decrRefCount(newobj);
+    newobj = dictGetVal(de);
     if (expire != -1) setExpire(c, dst, newkey, expire);
 
     /* OK! key copied */

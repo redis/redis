@@ -828,7 +828,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
         if (returned_items) {
             zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
-            setKey(c,c->db,storekey,zobj,0);
+            setKey(c,c->db,storekey,&zobj,0);
             decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);

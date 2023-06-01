@@ -39,7 +39,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
 
@@ -47,6 +46,7 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 #include "monotonic.h"
+#include "object.h"
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to disable
  * resizing and rehashing of the hash table as needed. This is very important
@@ -71,13 +71,11 @@ struct dictEntry {
     struct dictEntry *next;     /* Next entry in the same hash bucket. */
 };
 
+/* Embedded entry contains redis object's fields in the same order and can be cast directly to robj.
+ * Sds key is embedded into data array, as well as values that use embedded string encoding.
+ * Using this structure saves 2 pointers (16 bytes) comparing to the normal dictEntry. */
 typedef struct {
-    union {
-        void *val;
-        uint64_t u64;
-        int64_t s64;
-        double d;
-    } v;
+    struct redisObject robj;
     struct dictEntry *next;     /* Next entry in the same hash bucket. */
     unsigned char data[];
 } embeddedDictEntry;
@@ -164,11 +162,13 @@ static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
     return (dictEntry *)(void *)((uintptr_t)(void *)entry | ENTRY_PTR_NO_VALUE);
 }
 
-static inline dictEntry *createEmbeddedEntry(void *key, dictEntry *next, dictType *dt) {
+static inline dictEntry *createEmbeddedEntry(void *key, void *val, dictEntry *next, dictType *dt) {
     size_t keyLen = dt->keyLen(key);
-    embeddedDictEntry *entry = zmalloc(sizeof(*entry) + keyLen + ENTRY_METADATA_BYTES);
+    size_t valLen = dt->valLen(val);
+    embeddedDictEntry *entry = zmalloc(sizeof(*entry) + keyLen + valLen + ENTRY_METADATA_BYTES);
     size_t bytes_written = dt->keyToBytes(entry->data + ENTRY_METADATA_BYTES, key, &entry->data[0]);
     assert(bytes_written == keyLen);
+    dt->valToBytes(entry, val, &entry->data[ENTRY_METADATA_BYTES + keyLen]);
     entry->next = next;
     return (dictEntry *)(void *)((uintptr_t)(void *)entry | ENTRY_PTR_EMBEDDED);
 }
@@ -457,9 +457,18 @@ int dictAdd(dict *d, void *key, void *val)
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
     if (!entry) return DICT_ERR;
-    if (!d->type->no_value) dictSetVal(d, entry, val);
+    if (!d->type->no_value) dictSetVal(d, &entry, val);
     return DICT_OK;
 }
+
+dictEntry *dictAddWithValue(dict *d, void *key, void *val) {
+    assert(d->type->embedded_entry);
+    void *position = dictFindPositionForInsert(d, key, NULL);
+    assert(position);
+
+    return dictInsertAtPosition(d, key, val, position);
+}
+
 
 /* Low level add or find:
  * This function adds the entry but instead of setting a value returns the
@@ -488,14 +497,14 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     /* Dup the key if necessary. */
     if (d->type->keyDup) key = d->type->keyDup(d, key);
 
-    return dictInsertAtPosition(d, key, position);
+    return dictInsertAtPosition(d, key, NULL, position);
 }
 
 /* Adds a key in the dict's hashtable at the position returned by a preceding
  * call to dictFindPositionForInsert. This is a low level function which allows
  * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
  * used instead. */
-dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
+dictEntry *dictInsertAtPosition(dict *d, void *key, void *val, void *position) {
     dictEntry **bucket = position; /* It's a bucket, but the API hides that. */
     dictEntry *entry;
     /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
@@ -519,7 +528,8 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
             entry = createEntryNoValue(key, *bucket);
         }
     } else if (d->type->embedded_entry){
-        entry = createEmbeddedEntry(key, *bucket, d->type);
+        assert(val);
+        entry = createEmbeddedEntry(key, val, *bucket, d->type);
     } else {
         /* Allocate the memory and store the new entry.
          * Insert the element in top, with the assumption that in a database
@@ -549,7 +559,7 @@ int dictReplace(dict *d, void *key, void *val)
      * does not exists dictAdd will succeed. */
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
-        dictSetVal(d, entry, val);
+        dictSetVal(d, &entry, val);
         return 1;
     }
 
@@ -559,7 +569,7 @@ int dictReplace(dict *d, void *key, void *val)
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
     void *oldval = dictGetVal(existing);
-    dictSetVal(d, existing, val);
+    dictSetVal(d, &existing, val);
     if (d->type->valDestructor)
         d->type->valDestructor(d, oldval);
     return 0;
@@ -655,10 +665,8 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);
     dictFreeVal(d, he);
-    /* Clear the embedded data */
-    if (entryIsEmbedded(he)) zfree(decodeEmbeddedEntry(he)->data);
-    /* Clear the dictEntry */
-    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+    /* Clear the dictEntry, if entry is key or embedded then key/val destructor would free it. */
+    if (!entryIsKey(he) && !entryIsEmbedded(he)) zfree(decodeMaskedPtr(he));
 }
 
 /* Destroy an entire dictionary */
@@ -676,7 +684,7 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
             nextHe = dictGetNext(he);
             dictFreeKey(d, he);
             dictFreeVal(d, he);
-            if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+            if (!entryIsKey(he) && !entryIsEmbedded(he)) zfree(decodeMaskedPtr(he));
             d->ht_used[htidx]--;
             he = nextHe;
         }
@@ -772,7 +780,7 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table
     *plink = dictGetNext(he);
     dictFreeKey(d, he);
     dictFreeVal(d, he);
-    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+    if (!entryIsKey(he) && !entryIsEmbedded(he)) zfree(decodeMaskedPtr(he));
     dictResumeRehashing(d);
 }
 
@@ -784,14 +792,19 @@ void dictSetKey(dict *d, dictEntry* de, void *key) {
         de->key = key;
 }
 
-void dictSetVal(dict *d, dictEntry *de, void *val) {
-    assert(entryHasValue(de));
+int dictSetVal(dict *d, dictEntry **de, void *val) {
+    assert(entryHasValue(*de));
     void *v = d->type->valDup ? d->type->valDup(d, val) : val;
-    if (entryIsEmbedded(de)) {
-        decodeEmbeddedEntry(de)->v.val = v;
+    if (entryIsEmbedded(*de)) {
+        void *key = dictGetKey(*de);
+        dictEntry *unlinked = dictUnlink(d, key);
+        *de = dictAddWithValue(d, key, val);
+        dictFreeUnlinkedEntry(d, unlinked);
+        return 1;
     } else {
-        de->v.val = v;
+        (*de)->v.val = v;
     }
+    return 0;
 }
 
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val) {
@@ -834,7 +847,7 @@ void *dictGetKey(const dictEntry *de) {
 void *dictGetVal(const dictEntry *de) {
     assert(entryHasValue(de));
     if (entryIsEmbedded(de)) {
-        return decodeEmbeddedEntry(de)->v.val;
+        return decodeEmbeddedEntry(de);
     }
     return de->v.val;
 }
@@ -892,12 +905,20 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    return dictSize(d) * sizeof(dictEntry) +
+    return dictSize(d) * dictEntryMemUsage(d) +
         dictSlots(d) * sizeof(dictEntry*);
 }
 
-size_t dictEntryMemUsage(void) {
+size_t dictEntryMemUsage(const dict *d) {
+    if (d->type->embedded_entry)
+        return sizeof(embeddedDictEntry);
+    if (d->type->no_value)
+        return sizeof(dictEntryNoValue);
     return sizeof(dictEntry);
+}
+
+size_t dictEntryZmallocSize(const dictEntry *de) {
+    return zmalloc_size(decodeMaskedPtr(de));
 }
 
 /* A fingerprint is a 64 bit number that represents the state of the dictionary
@@ -1173,11 +1194,21 @@ static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragf
             if (newkey) entry->key = newkey;
         } else if (entryIsEmbedded(de)) {
             embeddedDictEntry *entry = decodeEmbeddedEntry(de), *newentry;
+
+            /* The sds is embedded in the object allocation, calculate the
+             * offset and update the pointer in the new allocation. */
+            long ofs = -1;
+            if (entry->robj.encoding==OBJ_ENCODING_EMBSTR) {
+                ofs = (intptr_t)entry->robj.ptr - (intptr_t)entry;
+            }
+
             if ((newentry = defragalloc(entry))) {
                 newde = encodeMaskedPtr(newentry, ENTRY_PTR_EMBEDDED);
+                if (ofs > 0) {
+                    newentry->robj.ptr = (void*)((intptr_t)newde + ofs);
+                }
                 entry = newentry;
             }
-            if (newval) entry->v.val = newval;
         } else {
             assert(entryIsNormal(de));
             newde = defragalloc(de);

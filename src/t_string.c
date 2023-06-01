@@ -81,7 +81,7 @@ static int checkStringLength(client *c, long long size, long long append) {
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
 
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand(client *c, int flags, robj *key, robj **val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
     int found = 0;
     int setkey_flags = 0;
@@ -108,7 +108,6 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     /* When expire is not NULL, we avoid deleting the TTL so it can be updated later instead of being deleted and then created again. */
     setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
-
     setKey(c,c->db,key,val,setkey_flags);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
@@ -118,7 +117,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
          * EX/PX/EXAT/PXAT flag. */
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
+        rewriteClientCommandVector(c, 5, shared.set, key, *val, shared.pxat, milliseconds_obj);
         decrRefCount(milliseconds_obj);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     }
@@ -300,22 +299,22 @@ void setCommand(client *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+    setGenericCommand(c,flags,c->argv[1],&c->argv[2],expire,unit,NULL,NULL);
 }
 
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
+    setGenericCommand(c,OBJ_SET_NX,c->argv[1],&c->argv[2],NULL,0,shared.cone,shared.czero);
 }
 
 void setexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_EX,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_EX,c->argv[1],&c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
 }
 
 void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_PX,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_PX,c->argv[1],&c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
 int getGenericCommand(client *c) {
@@ -430,7 +429,7 @@ void getdelCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2],0);
+    setKey(c, c->db, c->argv[1], &c->argv[2], 0);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -464,7 +463,9 @@ void setrangeCommand(client *c) {
             return;
 
         o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
-        dbAdd(c->db,c->argv[1],o);
+        dictEntry *de = dbAdd(c->db, c->argv[1], o);
+        decrRefCount(o);
+        o = dictGetVal(de);
     } else {
         size_t olen;
 
@@ -578,7 +579,7 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c, c->db, c->argv[j], c->argv[j + 1], 0);
+        setKey(c, c->db, c->argv[j], &c->argv[j+1], 0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -622,6 +623,7 @@ void incrDecrCommand(client *c, long long incr) {
         } else {
             dbAdd(c->db,c->argv[1],new);
         }
+        decrRefCount(new);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
@@ -672,10 +674,13 @@ void incrbyfloatCommand(client *c) {
         return;
     }
     new = createStringObjectFromLongDouble(value,1);
+    dictEntry *de;
     if (o)
-        dbReplaceValue(c->db,c->argv[1],new);
+        de = dbReplaceValue(c->db, c->argv[1], new);
     else
-        dbAdd(c->db,c->argv[1],new);
+        de = dbAdd(c->db,c->argv[1],new);
+    decrRefCount(new);
+    new = dictGetVal(de);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
@@ -698,7 +703,6 @@ void appendCommand(client *c) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
         dbAdd(c->db,c->argv[1],c->argv[2]);
-        incrRefCount(c->argv[2]);
         totlen = stringObjectLen(c->argv[2]);
     } else {
         /* Key exists, check type */

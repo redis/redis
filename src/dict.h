@@ -57,7 +57,11 @@ typedef struct dictType {
     int (*expandAllowed)(size_t moreMem, double usedRatio);
     void (*rehashingStarted)(dict *d);
     size_t (*keyLen)(const void *key);
-    size_t (*keyToBytes)(unsigned char *buf, const void *key, unsigned char *header_size);
+    size_t (*keyToBytes)(unsigned char *buf, const void *key, uint8_t *header_size);
+    size_t (*valLen)(const void *val);
+    void (*valToBytes)(void *de, const void *val, unsigned char *buf);
+    int (*trySetVal)(void *de, const void *val);
+
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -170,8 +174,9 @@ int dictTryExpand(dict *d, unsigned long size);
 void *dictMetadata(dict *d);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
+dictEntry *dictAddWithValue(dict *d, void *key, void *val);
 void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing);
-dictEntry *dictInsertAtPosition(dict *d, void *key, void *position);
+dictEntry *dictInsertAtPosition(dict *d, void *key, void *val, void *position);
 dictEntry *dictAddOrFind(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);
@@ -184,7 +189,7 @@ dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);
 int dictResize(dict *d);
 void dictSetKey(dict *d, dictEntry* de, void *key);
-void dictSetVal(dict *d, dictEntry *de, void *val);
+int dictSetVal(dict *d, dictEntry **de, void *val);
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);
 void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val);
 void dictSetDoubleVal(dictEntry *de, double val);
@@ -199,7 +204,8 @@ uint64_t dictGetUnsignedIntegerVal(const dictEntry *de);
 double dictGetDoubleVal(const dictEntry *de);
 double *dictGetDoubleValPtr(dictEntry *de);
 size_t dictMemUsage(const dict *d);
-size_t dictEntryMemUsage(void);
+size_t dictEntryMemUsage(const dict *d);
+size_t dictEntryZmallocSize(const dictEntry *de);
 dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
 void dictInitIterator(dictIterator *iter, dict *d);
