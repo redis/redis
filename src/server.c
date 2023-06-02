@@ -5625,114 +5625,73 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         bytesToHuman(maxmemory_hmem,sizeof(maxmemory_hmem),server.maxmemory);
 
         if (sections++) info = sdscat(info,"\r\n");
+
+        /* Format and args, written as format-argument pairs. */
+        #define FMTARGS                                                 \
+            FMT("# Memory\r\n")                                         \
+            FMTARG("used_memory:%zu\r\n", zmalloc_used)                 \
+            FMTARG("used_memory_human:%s\r\n", hmem)                    \
+            FMTARG("used_memory_rss:%zu\r\n", server.cron_malloc_stats.process_rss) \
+            FMTARG("used_memory_rss_human:%s\r\n", used_memory_rss_hmem) \
+            FMTARG("used_memory_peak:%zu\r\n", server.stat_peak_memory) \
+            FMTARG("used_memory_peak_human:%s\r\n", peak_hmem)          \
+            FMTARG("used_memory_peak_perc:%.2f%%\r\n", mh->peak_perc)   \
+            FMTARG("used_memory_overhead:%zu\r\n", mh->overhead_total)  \
+            FMTARG("used_memory_startup:%zu\r\n", mh->startup_allocated) \
+            FMTARG("used_memory_dataset:%zu\r\n", mh->dataset)          \
+            FMTARG("used_memory_dataset_perc:%.2f%%\r\n", mh->dataset_perc) \
+            FMTARG("allocator_allocated:%zu\r\n", server.cron_malloc_stats.allocator_allocated) \
+            FMTARG("allocator_active:%zu\r\n", server.cron_malloc_stats.allocator_active) \
+            FMTARG("allocator_resident:%zu\r\n", server.cron_malloc_stats.allocator_resident) \
+            FMTARG("total_system_memory:%lu\r\n", (unsigned long)total_system_mem) \
+            FMTARG("total_system_memory_human:%s\r\n", total_system_hmem) \
+            FMTARG("used_memory_lua:%lld\r\n", memory_lua) /* deprecated, renamed to used_memory_vm_eval */ \
+            FMTARG("used_memory_vm_eval:%lld\r\n", memory_lua)          \
+            FMTARG("used_memory_lua_human:%s\r\n", used_memory_lua_hmem) /* deprecated */ \
+            FMTARG("used_memory_scripts_eval:%lld\r\n", (long long) mh->lua_caches) \
+            FMTARG("number_of_cached_scripts:%lu\r\n", dictSize(evalScriptsDict())) \
+            FMTARG("number_of_functions:%lu\r\n", functionsNum())       \
+            FMTARG("number_of_libraries:%lu\r\n", functionsLibNum())    \
+            FMTARG("used_memory_vm_functions:%lld\r\n", memory_functions) \
+            FMTARG("used_memory_vm_total:%lld\r\n", memory_functions + memory_lua) \
+            FMTARG("used_memory_vm_total_human:%s\r\n", used_memory_vm_total_hmem) \
+            FMTARG("used_memory_functions:%lld\r\n", (long long) mh->functions_caches) \
+            FMTARG("used_memory_scripts:%lld\r\n", (long long) mh->lua_caches + (long long) mh->functions_caches) \
+            FMTARG("used_memory_scripts_human:%s\r\n", used_memory_scripts_hmem) \
+            FMTARG("maxmemory:%lld\r\n", server.maxmemory)              \
+            FMTARG("maxmemory_human:%s\r\n", maxmemory_hmem)            \
+            FMTARG("maxmemory_policy:%s\r\n", evict_policy)             \
+            FMTARG("allocator_frag_ratio:%.2f\r\n", mh->allocator_frag) \
+            FMTARG("allocator_frag_bytes:%zu\r\n", mh->allocator_frag_bytes) \
+            FMTARG("allocator_rss_ratio:%.2f\r\n", mh->allocator_rss)   \
+            FMTARG("allocator_rss_bytes:%zd\r\n", mh->allocator_rss_bytes) \
+            FMTARG("rss_overhead_ratio:%.2f\r\n", mh->rss_extra)        \
+            FMTARG("rss_overhead_bytes:%zd\r\n", mh->rss_extra_bytes)   \
+            FMTARG("mem_fragmentation_ratio:%.2f\r\n",                  \
+                   mh->total_frag                                       \
+                   /* This is the total RSS overhead, including         \
+                    * fragmentation, but not just it. This field        \
+                    * (and the next one) is named like that just        \
+                    * for backward compatibility. */)                   \
+            FMTARG("mem_fragmentation_bytes:%zd\r\n", mh->total_frag_bytes) \
+            FMTARG("mem_not_counted_for_evict:%zu\r\n", freeMemoryGetNotCountedMemory()) \
+            FMTARG("mem_replication_backlog:%zu\r\n", mh->repl_backlog) \
+            FMTARG("mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem) \
+            FMTARG("mem_clients_slaves:%zu\r\n", mh->clients_slaves)    \
+            FMTARG("mem_clients_normal:%zu\r\n", mh->clients_normal)    \
+            FMTARG("mem_cluster_links:%zu\r\n", mh->cluster_links)      \
+            FMTARG("mem_aof_buffer:%zu\r\n", mh->aof_buffer)            \
+            FMTARG("mem_allocator:%s\r\n", ZMALLOC_LIB)                 \
+            FMTARG("active_defrag_running:%d\r\n", server.active_defrag_running) \
+            FMTARG("lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount()) \
+            FMTARG("lazyfreed_objects:%zu\r\n", lazyfreeGetFreedObjectsCount())
+
         info = sdscatprintf(info,
-            "# Memory\r\n"
-            "used_memory:%zu\r\n"
-            "used_memory_human:%s\r\n"
-            "used_memory_rss:%zu\r\n"
-            "used_memory_rss_human:%s\r\n"
-            "used_memory_peak:%zu\r\n"
-            "used_memory_peak_human:%s\r\n"
-            "used_memory_peak_perc:%.2f%%\r\n"
-            "used_memory_overhead:%zu\r\n"
-            "used_memory_startup:%zu\r\n"
-            "used_memory_dataset:%zu\r\n"
-            "used_memory_dataset_perc:%.2f%%\r\n"
-            "allocator_allocated:%zu\r\n"
-            "allocator_active:%zu\r\n"
-            "allocator_resident:%zu\r\n"
-            "total_system_memory:%lu\r\n"
-            "total_system_memory_human:%s\r\n"
-            "used_memory_lua:%lld\r\n" /* deprecated, renamed to used_memory_vm_eval */
-            "used_memory_vm_eval:%lld\r\n"
-            "used_memory_lua_human:%s\r\n" /* deprecated */
-            "used_memory_scripts_eval:%lld\r\n"
-            "number_of_cached_scripts:%lu\r\n"
-            "number_of_functions:%lu\r\n"
-            "number_of_libraries:%lu\r\n"
-            "used_memory_vm_functions:%lld\r\n"
-            "used_memory_vm_total:%lld\r\n"
-            "used_memory_vm_total_human:%s\r\n"
-            "used_memory_functions:%lld\r\n"
-            "used_memory_scripts:%lld\r\n"
-            "used_memory_scripts_human:%s\r\n"
-            "maxmemory:%lld\r\n"
-            "maxmemory_human:%s\r\n"
-            "maxmemory_policy:%s\r\n"
-            "allocator_frag_ratio:%.2f\r\n"
-            "allocator_frag_bytes:%zu\r\n"
-            "allocator_rss_ratio:%.2f\r\n"
-            "allocator_rss_bytes:%zd\r\n"
-            "rss_overhead_ratio:%.2f\r\n"
-            "rss_overhead_bytes:%zd\r\n"
-            "mem_fragmentation_ratio:%.2f\r\n"
-            "mem_fragmentation_bytes:%zd\r\n"
-            "mem_not_counted_for_evict:%zu\r\n"
-            "mem_replication_backlog:%zu\r\n"
-            "mem_total_replication_buffers:%zu\r\n"
-            "mem_clients_slaves:%zu\r\n"
-            "mem_clients_normal:%zu\r\n"
-            "mem_cluster_links:%zu\r\n"
-            "mem_aof_buffer:%zu\r\n"
-            "mem_allocator:%s\r\n"
-            "active_defrag_running:%d\r\n"
-            "lazyfree_pending_objects:%zu\r\n"
-            "lazyfreed_objects:%zu\r\n",
-            zmalloc_used,
-            hmem,
-            server.cron_malloc_stats.process_rss,
-            used_memory_rss_hmem,
-            server.stat_peak_memory,
-            peak_hmem,
-            mh->peak_perc,
-            mh->overhead_total,
-            mh->startup_allocated,
-            mh->dataset,
-            mh->dataset_perc,
-            server.cron_malloc_stats.allocator_allocated,
-            server.cron_malloc_stats.allocator_active,
-            server.cron_malloc_stats.allocator_resident,
-            (unsigned long)total_system_mem,
-            total_system_hmem,
-            memory_lua,
-            memory_lua,
-            used_memory_lua_hmem,
-            (long long) mh->lua_caches,
-            dictSize(evalScriptsDict()),
-            functionsNum(),
-            functionsLibNum(),
-            memory_functions,
-            memory_functions + memory_lua,
-            used_memory_vm_total_hmem,
-            (long long) mh->functions_caches,
-            (long long) mh->lua_caches + (long long) mh->functions_caches,
-            used_memory_scripts_hmem,
-            server.maxmemory,
-            maxmemory_hmem,
-            evict_policy,
-            mh->allocator_frag,
-            mh->allocator_frag_bytes,
-            mh->allocator_rss,
-            mh->allocator_rss_bytes,
-            mh->rss_extra,
-            mh->rss_extra_bytes,
-            mh->total_frag,       /* This is the total RSS overhead, including
-                                     fragmentation, but not just it. This field
-                                     (and the next one) is named like that just
-                                     for backward compatibility. */
-            mh->total_frag_bytes,
-            freeMemoryGetNotCountedMemory(),
-            mh->repl_backlog,
-            server.repl_buffer_mem,
-            mh->clients_slaves,
-            mh->clients_normal,
-            mh->cluster_links,
-            mh->aof_buffer,
-            ZMALLOC_LIB,
-            server.active_defrag_running,
-            lazyfreeGetPendingObjectsCount(),
-            lazyfreeGetFreedObjectsCount()
-        );
+                            /* The include file expands FMTARGS */
+                            #include "fmtargs.h"
+                            );
+        #undef FMTARGS
+
         freeMemoryOverheadData(mh);
     }
 
