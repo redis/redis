@@ -100,8 +100,15 @@ sds auxTlsPortGetter(clusterNode *n, sds s);
 int auxTlsPortPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 
+/* Inline functions for convenience. */
+inline int getNodeDefaultClientPort(clusterNode *n) {
+    return server.tls_cluster ? n->tls_port : n->tcp_port;
+}
 static inline int getNodeDefaultReplicationPort(clusterNode *n) {
     return server.tls_replication ? n->tls_port : n->tcp_port;
+}
+static inline int getNodeClientPort(clusterNode *n, int use_tls) {
+    return use_tls ? n->tls_port : n->tcp_port;
 }
 static inline int defaultClientPort(void) {
     return server.tls_cluster ? server.tls_port : server.port;
@@ -1688,10 +1695,6 @@ void clusterRemoveNodeFromShard(clusterNode *node) {
         }
     }
     sdsfree(s);
-}
-
-inline int getNodeDefaultClientPort(clusterNode *n) {
-    return server.tls_cluster ? n->tls_port : n->tcp_port;
 }
 
 /* -----------------------------------------------------------------------------
@@ -5191,7 +5194,7 @@ sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_cou
 sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary) {
     int j, start;
     sds ci;
-    int port = tls_primary ? node->tls_port : node->tcp_port;
+    int port = getNodeClientPort(node, tls_primary);
 
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
@@ -5542,7 +5545,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     }
 
     /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-    addReplyLongLong(c, isTLSClient(c) ? node->tls_port : node->tcp_port);
+    addReplyLongLong(c, getNodeClientPort(node, isTLSClient(c)));
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
@@ -7413,7 +7416,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
                error_code == CLUSTER_REDIR_ASK)
     {
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-        int port = isTLSClient(c) ? n->tls_port : n->tcp_port;
+        int port = getNodeClientPort(n, isTLSClient(c));
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
