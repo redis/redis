@@ -122,7 +122,8 @@ start_server {tags {"scan network"}} {
 
         #make sure that expired key have been removed by scan command
         assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
-    } {} {needs:debug}
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
 
     foreach enc {intset listpack hashtable} {
         test "SSCAN with encoding $enc" {
