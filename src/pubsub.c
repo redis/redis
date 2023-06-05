@@ -465,12 +465,15 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
 /*
  * Publish a message to all the subscribers.
  */
-int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) {
+static
+int pubsubPublishMessageInternal(robj *channel, robj *const *messages, int count, pubsubtype type) {
     int receivers = 0;
     dictEntry *de;
     dictIterator *di;
     listNode *ln;
     listIter li;
+    robj *message;
+    int i;
 
     /* Send to clients listening for that channel */
     de = dictFind(*type.serverPubSubChannels, channel);
@@ -482,7 +485,10 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         listRewind(list,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
-            addReplyPubsubMessage(c,channel,message,*type.messageBulk);
+            for (i = 0; i < count; ++i) {
+                message = messages[i];
+                addReplyPubsubMessage(c,channel,message,*type.messageBulk);
+            }
             updateClientMemUsageAndBucket(c);
             receivers++;
         }
@@ -508,7 +514,10 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
             listRewind(clients,&li);
             while ((ln = listNext(&li)) != NULL) {
                 client *c = listNodeValue(ln);
-                addReplyPubsubPatMessage(c,pattern,channel,message);
+                for (i = 0; i < count; ++i) {
+                    message = messages[i];
+                    addReplyPubsubPatMessage(c,pattern,channel,message);
+                }
                 updateClientMemUsageAndBucket(c);
                 receivers++;
             }
@@ -521,7 +530,11 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
 
 /* Publish a message to all the subscribers. */
 int pubsubPublishMessage(robj *channel, robj *message, int sharded) {
-    return pubsubPublishMessageInternal(channel, message, sharded? pubSubShardType : pubSubType);
+    return pubsubPublishMessageInternal(channel, &message, 1, sharded? pubSubShardType : pubSubType);
+}
+
+int pubsubPublishMessages(robj *channel, robj **messages, int count, int sharded) {
+    return pubsubPublishMessageInternal(channel, messages, count, sharded? pubSubShardType : pubSubType);
 }
 
 /*-----------------------------------------------------------------------------
@@ -595,11 +608,18 @@ void punsubscribeCommand(client *c) {
 
 /* This function wraps pubsubPublishMessage and also propagates the message to cluster.
  * Used by the commands PUBLISH/SPUBLISH and their respective module APIs.*/
-int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded) {
-    int receivers = pubsubPublishMessage(channel, message, sharded);
+static
+int pubsubPublishMessagesAndPropagateToCluster(robj *channel, robj **messages, int count, int sharded) {
+    int i;
+    int receivers = pubsubPublishMessages(channel, messages, count, sharded);
     if (server.cluster_enabled)
-        clusterPropagatePublish(channel, message, sharded);
+        for (i = 0; i < count; ++i)
+            clusterPropagatePublish(channel, messages[i], sharded);
     return receivers;
+}
+
+int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded) {
+    return pubsubPublishMessagesAndPropagateToCluster(channel, &message, 1, sharded);
 }
 
 /* PUBLISH <channel> <message> */
@@ -622,11 +642,7 @@ void mpublishCommand(client *c) {
         return;
     }
 
-    int receivers = 0;
-    int j;
-    for (j = 2; j < c->argc; j++) {
-        receivers += pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[j],0);
-    }
+    int receivers = pubsubPublishMessagesAndPropagateToCluster(c->argv[1],&c->argv[2],c->argc-2,0);
     if (!server.cluster_enabled)
         forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);
