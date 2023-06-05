@@ -3600,6 +3600,7 @@ void unsubscribeCommand(client *c);
 void psubscribeCommand(client *c);
 void punsubscribeCommand(client *c);
 void publishCommand(client *c);
+void mpublishCommand(client *c);
 void pubsubCommand(client *c);
 void spublishCommand(client *c);
 void ssubscribeCommand(client *c);

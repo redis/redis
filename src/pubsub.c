@@ -615,6 +615,23 @@ void publishCommand(client *c) {
     addReplyLongLong(c,receivers);
 }
 
+/* MPUBLISH <channel> <message> <message> ... */
+void mpublishCommand(client *c) {
+    if (server.sentinel_mode) {
+        sentinelPublishCommand(c);
+        return;
+    }
+
+    int receivers = 0;
+    int j;
+    for (j = 2; j < c->argc; j++) {
+        receivers += pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[j],0);
+    }
+    if (!server.cluster_enabled)
+        forceCommandPropagation(c,PROPAGATE_REPL);
+    addReplyLongLong(c,receivers);
+}
+
 /* PUBSUB command for Pub/Sub introspection. */
 void pubsubCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
