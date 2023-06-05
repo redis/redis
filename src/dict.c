@@ -1412,38 +1412,18 @@ static int _dictExpandIfNeeded(dict *d)
     return DICT_OK;
 }
 
+/* TODO: clz optimization */
 /* Our hash table capability is a power of two */
 static signed char _dictNextExp(unsigned long size)
 {
-    if (size >= LONG_MAX) return (8*sizeof(long)-1);
-    if (size <= DICT_HT_INITIAL_SIZE) return DICT_HT_INITIAL_EXP;
-#if defined(__GNUC__) || defined(__clang__)
-    return 8 * sizeof(long) - __builtin_clzl(size);
-#elif ULONG_MAX == 0xFFFFFFFFFFFFFFFFul
-    int n = 0;
-    if (size <= 0x00000000FFFFFFFFul) { n += 32; size <<= 32; }
-    if (size <= 0x0000FFFFFFFFFFFFul) { n += 16; size <<= 16; }
-    if (size <= 0x00FFFFFFFFFFFFFFul) { n +=  8; size <<=  8; }
-    if (size <= 0x0FFFFFFFFFFFFFFFul) { n +=  4; size <<=  4; }
-    if (size <= 0x3FFFFFFFFFFFFFFFul) { n +=  2; size <<=  2; }
-    if (size <= 0x7FFFFFFFFFFFFFFFul) { n +=  1; size <<=  1; }
-    return 8 * sizeof(long) - n;
-#elif ULONG_MAX == 0xFFFFFFFFul
-    int n = 0;
-    if (size <= 0x0000FFFFul) { n += 16; size <<= 16; }
-    if (size <= 0x00FFFFFFul) { n +=  8; size <<=  8; }
-    if (size <= 0x0FFFFFFFul) { n +=  4; size <<=  4; }
-    if (size <= 0x3FFFFFFFul) { n +=  2; size <<=  2; }
-    if (size <= 0x7FFFFFFFul) { n +=  1; size <<=  1; }
-    return 8 * sizeof(long) - n;
-#else
     unsigned char e = DICT_HT_INITIAL_EXP;
+
+    if (size >= LONG_MAX) return (8*sizeof(long)-1);
     while(1) {
         if (((unsigned long)1<<e) >= size)
             return e;
         e++;
     }
-#endif
 }
 
 /* Finds and returns the position within the dict where the provided key should
