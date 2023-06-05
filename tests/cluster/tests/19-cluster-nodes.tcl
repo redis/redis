@@ -48,3 +48,25 @@ test "Discontinuous slots distribution" {
     assert_match "* 8192-12283 12285 12287 12289-16379 16381*" [$master2 CLUSTER NODES]
     assert_match "*8192 12283*12285 12285*12287 12287*12289 16379*16381 16381*" [$master2 CLUSTER SLOTS]
 }
+
+proc get_port_form_node_info {line} {
+    set fields [split $line " "]
+    set addr [lindex $fields 1]
+    set ip_port [lindex [split $addr "@"] 0]
+    return [lindex [split $ip_port ":"] 1]
+}
+
+test "Cluster nodes return port according to connection type" {
+    set nodes [R 0 cluster nodes]
+    set port1 [get_port_form_node_info [lindex [split $nodes "\r\n"] 0]]
+    set pport [get_instance_attrib redis 0 pport]
+    if {$::tls} {
+        set cluster_client [redis_cluster 127.0.0.1:$pport 0]
+    } else {
+        set cluster_client [redis_cluster 127.0.0.1:$pport 1]
+    }
+    set nodes [$cluster_client cluster slots]
+    set port2 [get_port_form_node_info [lindex [split $nodes "\r\n"] 0]]
+    $cluster_client close
+    assert_not_equal $port1 $port2
+}

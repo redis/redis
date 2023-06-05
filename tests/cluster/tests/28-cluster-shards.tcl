@@ -84,9 +84,10 @@ test "Verify information about the shards" {
             assert_equal "127.0.0.1"  [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] endpoint]
 
             if {$::tls} {
-                assert_equal [get_instance_attrib redis $i plaintext-port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
+                assert_equal [get_instance_attrib redis $i pport] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
                 assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] tls-port]
             } else {
+                assert_equal [get_instance_attrib redis $i pport] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] tls-port]
                 assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
             }
 

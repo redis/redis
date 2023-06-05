@@ -77,15 +77,16 @@ test "slot migration is invalid from primary to replica" {
     assert_match "*Target node is not a master" $err
 }
 
-if {$::tls} {
-    test {CLUSTER SLOTS from non-TLS client in TLS cluster} {
-        set slots_tls [R 0 cluster slots]
-        set host [get_instance_attrib redis 0 host]
-        set plaintext_port [get_instance_attrib redis 0 plaintext-port]
-        set client_plain [redis $host $plaintext_port 0 0]
-        set slots_plain [$client_plain cluster slots]
-        $client_plain close
-        # Compare the ports in the first row
-        assert_no_match [lindex $slots_tls 0 3 1] [lindex $slots_plain 0 3 1]
+test {CLUSTER SLOTS using different protocol} {
+    set slots1 [R 0 cluster slots]
+    set pport [get_instance_attrib redis 0 pport]
+    if {$::tls} {
+        set cluster_client [redis_cluster 127.0.0.1:$pport 0]
+    } else {
+        set cluster_client [redis_cluster 127.0.0.1:$pport 1]
     }
+    set slots2 [$cluster_client cluster slots]
+    $cluster_client close
+    # Compare the ports in the first row
+    assert_no_match [lindex $slots1 0 3 1] [lindex $slots2 0 3 1]
 }
