@@ -35,6 +35,11 @@ proc get_port_form_error {e} {
     return [lindex [split $ip_port ":"] 1]
 }
 
+proc get_pport_by_port {port} {
+    set id [get_instance_id_by_port redis $port]
+    return [get_instance_attrib redis $id pport]
+}
+
 test "Test cluster responses during migration of slot x" {
 
     set slot 10
@@ -70,14 +75,18 @@ test "Test cluster responses during migration of slot x" {
     catch {$nodefrom_pport(link) set "abc{$key}" "newVal"} e_ask2
     assert_error "*ASK*" $e_ask2
 
-    # Compare MOVED and ASK error's port 
+    # Compare MOVED and ASK error's port
     set port1 [get_port_form_error $e_moved1]
     set port2 [get_port_form_error $e_moved2]
     assert_not_equal $port1 $port2
+    assert_equal $port1 $nodefrom(port)
+    assert_equal $port2 [get_pport_by_port $nodefrom(port)]
 
     set port1 [get_port_form_error $e_ask1]
     set port2 [get_port_form_error $e_ask2]
     assert_not_equal $port1 $port2
+    assert_equal $port1 $nodeto(port)
+    assert_equal $port2 [get_pport_by_port $nodeto(port)]
 }
 
 config_set_all_nodes cluster-allow-replica-migration yes
