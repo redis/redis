@@ -1412,7 +1412,6 @@ static int _dictExpandIfNeeded(dict *d)
     return DICT_OK;
 }
 
-/* TODO: clz optimization */
 /* Our hash table capability is a power of two */
 static signed char _dictNextExp(unsigned long size)
 {
