@@ -2291,8 +2291,13 @@ static int cliReadReply(int output_raw_strings) {
         slot = atoi(s+1);
         s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
-        sdsfree(config.conn_info.hostip);
-        config.conn_info.hostip = sdsnew(p+1);
+        if (p+1 != s) {         
+            /* Do not update hostip if target host is empty. See #12266
+             * MOVE 3999[P][S]6381 
+             */
+            sdsfree(config.conn_info.hostip);
+            config.conn_info.hostip = sdsnew(p+1);
+        }
         config.conn_info.hostport = atoi(s+1);
         if (config.interactive)
             printf("-> Redirected to slot [%d] located at %s:%d\n",
