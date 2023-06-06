@@ -161,6 +161,12 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
         if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
             conn->state = CONN_STATE_ERROR;
     }
+    FILE *f;
+    f = fopen("./readDump.txt", "a+");
+    int i = 0;
+    while (i < data_len)
+        fprintf(f, "\t\t%s\n", data[i++]);
+    fclose(f);
 
     return ret;
 }

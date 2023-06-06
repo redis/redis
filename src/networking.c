@@ -2668,6 +2668,10 @@ void readQueryFromClient(connection *conn) {
         goto done;
     }
 
+    FILE *f;
+    f = fopen("./readDump.txt", "a+");
+    fprintf(f, "%s\n", c->querybuf);
+    fclose(f);
     sdsIncrLen(c->querybuf,nread);
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
