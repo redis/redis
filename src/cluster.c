@@ -5608,19 +5608,15 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
     reply_count++;
 
-    /* We use server.tls_cluster as a proxy for whether or not
-     * the remote port is the tls port or not */
-    int plaintext_port = node->tcp_port;
-    int tls_port = node->tls_port;
-    if (plaintext_port) {
+    if (node->tcp_port) {
         addReplyBulkCString(c, "port");
-        addReplyLongLong(c, plaintext_port);
+        addReplyLongLong(c, node->tcp_port);
         reply_count++;
     }
 
-    if (tls_port) {
+    if (node->tls_port) {
         addReplyBulkCString(c, "tls-port");
-        addReplyLongLong(c, tls_port);
+        addReplyLongLong(c, node->tls_port);
         reply_count++;
     }
 
