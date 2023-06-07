@@ -3309,24 +3309,28 @@ void sentinelConfigSetCommand(client *c) {
             sdsfree(server.tls_ctx_config.cert_file);
             server.tls_ctx_config.cert_file = sdslen(val->ptr) == 0 ?
                                           NULL : sdsdup(val->ptr);
-            if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
-                addReplyErrorFormat(c, "Failed to configure TLS certificate file. Check logs for more info.");
-                goto exit;
-            }
             drop_conns = 1;
         } else if (!strcasecmp(option, "tls-key-file") && moreargs > 0) {
             val = c->argv[++i];
             sdsfree(server.tls_ctx_config.key_file);
             server.tls_ctx_config.key_file = sdslen(val->ptr) == 0 ?
                                               NULL : sdsdup(val->ptr);
-            if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
-                addReplyErrorFormat(c, "Failed to configure TLS key file. Check logs for more info.");
-                goto exit;
-            }
             drop_conns = 1;
         } else {
             /* Should never reach here */
             serverAssert(0);
+        }
+    }
+
+    /* TLS certificate and key file were updated,  */
+    for (int i = 3; i < c->argc; i++) {
+        option = c->argv[i]->ptr;
+        if (!strcasecmp(option, "tls-key-file") || !strcasecmp(option, "tls-cert-file")) {
+            if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
+                addReplyErrorFormat(c, "Failed to configure TLS. Check logs for more info.");
+                goto exit;
+            }
+            break;
         }
     }
 
