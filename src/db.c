@@ -829,6 +829,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
             if (strcasecmp((char *)data->typename, type)) return;
         }
     } else if (o->type == OBJ_SET) {
+        /* Do nothing. */
     } else if (o->type == OBJ_HASH) {
         sds valsds = dictGetVal(de);
         val = createStringObject(valsds, sdslen(valsds));
