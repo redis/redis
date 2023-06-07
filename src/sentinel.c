@@ -3211,6 +3211,8 @@ void sentinelConfigSetCommand(client *c) {
         "announce-port",
         "announce-hostnames",
         "loglevel",
+        "tls-cert-file",
+        "tls-key-file",
         NULL};
     static dict *options_dict = NULL;
     if (!options_dict) {
@@ -3302,6 +3304,26 @@ void sentinelConfigSetCommand(client *c) {
             sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
                 NULL : sdsdup(val->ptr);
             drop_conns = 1;
+        } else if (!strcasecmp(option, "tls-cert-file") && moreargs > 0) {
+            val = c->argv[++i];
+            sdsfree(server.tls_ctx_config.cert_file);
+            server.tls_ctx_config.cert_file = sdslen(val->ptr) == 0 ?
+                                          NULL : sdsdup(val->ptr);
+            if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
+                addReplyErrorFormat(c, "Failed to configure TLS certificate file. Check logs for more info.");
+                goto exit;
+            }
+            drop_conns = 1;
+        } else if (!strcasecmp(option, "tls-key-file") && moreargs > 0) {
+            val = c->argv[++i];
+            sdsfree(server.tls_ctx_config.key_file);
+            server.tls_ctx_config.key_file = sdslen(val->ptr) == 0 ?
+                                              NULL : sdsdup(val->ptr);
+            if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
+                addReplyErrorFormat(c, "Failed to configure TLS key file. Check logs for more info.");
+                goto exit;
+            }
+            drop_conns = 1;
         } else {
             /* Should never reach here */
             serverAssert(0);
@@ -3376,6 +3398,18 @@ void sentinelConfigGetCommand(client *c) {
             addReplyBulkCString(c, "loglevel");
             addReplyBulkCString(c, getLogLevel());
             dictAdd(d, "loglevel", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "tls-cert-file", 1) && !dictFind(d, "tls-cert-file")) {
+            addReplyBulkCString(c, "tls-cert-file");
+            addReplyBulkCString(c, server.tls_ctx_config.cert_file);
+            dictAdd(d, "tls-cert-file", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "tls-key-file", 1) && !dictFind(d, "tls-key-file")) {
+            addReplyBulkCString(c, "tls-key-file");
+            addReplyBulkCString(c, server.tls_ctx_config.key_file);
+            dictAdd(d, "tls-key-file", NULL);
             matches++;
         }
     }

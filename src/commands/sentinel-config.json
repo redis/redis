@@ -77,6 +77,12 @@
                                     "const": "unknown"
                                 }
                             ]
+                        },
+                        "tls-cert-file": {
+                            "type": "string"
+                        },
+                        "tls-key-file": {
+                            "type": "string"
                         }
                     },
                     "additionalProperties": false
