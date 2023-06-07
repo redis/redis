@@ -8885,6 +8885,28 @@ static int getDbSize(void) {
     return size;
 }
 
+static int getDatabases(void) {
+    redisReply *reply;
+    int dbnum;
+
+    reply = redisCommand(context, "CONFIG GET databases");
+
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        dbnum = 16;
+        fprintf(stderr, "CONFIG GET databases fails: %s, use default value 16 instead\n", reply->str);
+    } else {
+        assert(reply->type == (config.current_resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+        assert(reply->elements == 2);
+        dbnum = atoi(reply->element[1]->str);
+    }
+
+    freeReplyObject(reply);
+    return dbnum;
+}
+
 typedef struct {
     char *name;
     char *sizecmd;
@@ -9367,6 +9389,7 @@ void bytesToHuman(char *s, size_t size, long long n) {
 static void statMode(void) {
     redisReply *reply;
     long aux, requests = 0;
+    int dbnum = getDatabases();
     int i = 0;
 
     while(1) {
@@ -9390,7 +9413,7 @@ static void statMode(void) {
 
         /* Keys */
         aux = 0;
-        for (j = 0; j < 20; j++) {
+        for (j = 0; j < dbnum; j++) {
             long k;
 
             snprintf(buf,sizeof(buf),"db%d:keys",j);
