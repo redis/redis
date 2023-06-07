@@ -2292,9 +2292,7 @@ static int cliReadReply(int output_raw_strings) {
         s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
         if (p+1 != s) {         
-            /* Do not update hostip if target host is empty. See #12266
-             * MOVE 3999[P][S]6381 
-             */
+            /* Update hostip if target host is non-empty. See #12266. */
             sdsfree(config.conn_info.hostip);
             config.conn_info.hostip = sdsnew(p+1);
         }
