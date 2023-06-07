@@ -810,7 +810,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     robj *val = NULL;
     data->sampled++;
 
-    /* typename is only meaningful when o is NULL*/
+    /* typename is only meaningful when o is NULL. */
     serverAssert(!data->typename || !o);
 
     /* Filter element if it does not match the pattern. */
