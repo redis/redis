@@ -1095,19 +1095,30 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             } else {
                 emptylen = 0;
                 while (he) {
-                    /* Collect all the elements of the buckets found non
-                     * empty while iterating. */
-                    *des = he;
-                    des++;
+                    /* Collect all the elements of the buckets found non empty while iterating.
+                     * To avoid the issue of being unable to sample the end of a long chain,
+                     * we utilize the Reservoir Sampling algorithm to optimize the sampling process.
+                     * This means that even when the maximum number of samples has been reached,
+                     * we continue sampling until we reach the end of the chain.
+                     * See https://en.wikipedia.org/wiki/Reservoir_sampling. */
+                    if (stored < count) {
+                        des[stored] = he;
+                    } else {
+                        unsigned long r = randomULong() % (stored + 1);
+                        if (r < count) des[r] = he;
+                    }
+
                     he = dictGetNext(he);
                     stored++;
-                    if (stored == count) return stored;
                 }
+                if (stored >= count) goto end;
             }
         }
         i = (i+1) & maxsizemask;
     }
-    return stored;
+
+end:
+    return stored > count ? count : stored;
 }
 
 
