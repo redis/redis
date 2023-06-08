@@ -812,8 +812,8 @@ void keysCommand(client *c) {
 
 /* Data used by the dict scan callback. */
 typedef struct {
-    list *keys;   /* elements that collect from dict*/
-    robj *o;      /* o must be a hash/set/zset object, NULL means current db*/
+    list *keys;   /* elements that collect from dict */
+    robj *o;      /* o must be a hash/set/zset object, NULL means current db */
     sds typename; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
     long sampled; /* cumulative number of keys sampled */
@@ -828,7 +828,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     robj *val = NULL;
     data->sampled++;
 
-    /* typename is only meaningful when o is NULL*/
+    /* typename is only meaningful when o is NULL. */
     serverAssert(!data->typename || !o);
 
     /* Filter element if it does not match the pattern. */
@@ -847,6 +847,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
             if (strcasecmp((char *)data->typename, type)) return;
         }
     } else if (o->type == OBJ_SET) {
+        /* Do nothing. */
     } else if (o->type == OBJ_HASH) {
         sds valsds = dictGetVal(de);
         val = createStringObject(valsds, sdslen(valsds));
