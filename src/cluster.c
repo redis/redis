@@ -3491,7 +3491,11 @@ void clusterBroadcastPong(int target) {
     dictReleaseIterator(di);
 }
 
-/* Create a PUBLISH message block.
+/* Create a PUBLISH or SPUBLISH message block.
+ *
+ * XXX TODO This function is no longer used by the server code.  Nevertheless,
+ * we need to test the decoding mechanism so that the server is backward-
+ * compatible.  This needs to go into tests somewhere.
  *
  * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
  * As all the struct is used as a buffer, when more than 8 bytes are copied into
@@ -3521,6 +3525,64 @@ clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, 
     decrRefCount(channel);
     decrRefCount(message);
     
+    return msgblock;
+}
+
+/* Create a MPUBLISH or MSPUBLISH message block.
+ *
+ * Sanitizer suppression: In clusterMsgDataMPublish, sizeof(bulk_data) is 8.
+ * As all the struct is used as a buffer, when more than 8 bytes are copied into
+ * the 'bulk_data', sanitizer generates an out-of-bounds error which is a false
+ * positive in this context. */
+REDIS_NO_SANITIZE("bounds")
+clusterMsgSendBlock *clusterCreateMPublishMsgBlock(robj *channel,
+                                    robj **messages, int count, uint16_t type)
+{
+    uint32_t channel_len, msglen, len;
+    struct {
+        robj  *decoded;
+        size_t len;
+    } *objects;
+    uint8_t *dst;
+    int i;
+
+    channel = getDecodedObject(channel);
+    channel_len = sdslen(channel->ptr);
+
+    msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    msglen += sizeof(clusterMsgDataMPublish) - 8 + channel_len;
+
+    objects = zmalloc(sizeof(objects[0]) * count);
+    for (i = 0; i < count; ++i)
+    {
+        objects[i].decoded = getDecodedObject(messages[i]);
+        objects[i].len = sdslen(objects[i].decoded->ptr);
+        msglen += 4 + objects[i].len;
+    }
+
+    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, msglen);
+
+    clusterMsg *hdr = &msgblock->msg;
+    hdr->data.mpublish.msg.msg_count = htonl(count);
+    hdr->data.mpublish.msg.channel_len = htonl(channel_len);
+    memcpy(hdr->data.mpublish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
+
+    dst = hdr->data.mpublish.msg.bulk_data + sdslen(channel->ptr);
+    for (i = 0; i < count; ++i)
+    {
+        len = htonl(objects[i].len);
+        memcpy(dst, &len, sizeof(len));
+        dst += sizeof(len);
+        memcpy(dst, objects[i].decoded->ptr, objects[i].len);
+        dst += objects[i].len;
+    }
+    serverAssert(dst - (uint8_t *) msgblock == msglen);
+
+    decrRefCount(channel);
+    for (i = 0; i < count; ++i)
+        decrRefCount(objects[i].decoded);
+    zfree(objects);
+
     return msgblock;
 }
 
@@ -3602,6 +3664,59 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
     return C_OK;
 }
 
+/* Returns true if messages could be attached to last message on the queue */
+int clusterAttachToPrevious(clusterLink *link, robj **messages, int count) {
+    return 0;   /* TODO */
+}
+
+/* All messages must be destined for the same channel */
+void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count) {
+    clusterMsgSendBlock *msgblock;
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+            continue;
+        if (clusterAttachToPrevious(node->link, messages, count))
+            continue;
+        msgblock = clusterCreateMPublishMsgBlock(channel, messages,
+                                                    count, CLUSTERMSG_TYPE_PUBLISH);
+        clusterBroadcastMessage(msgblock);
+        clusterMsgSendBlockDecrRefCount(msgblock);
+    }
+    dictReleaseIterator(di);
+}
+
+void clusterPropagatePublishSharded(robj *channel, robj **messages, int count) {
+    clusterMsgSendBlock *msgblock;
+    listIter li;
+    listNode *ln;
+    list *nodes_for_slot;
+    robj *message;
+    int i;
+
+    // assert(count == 1);  TODO
+
+    for (i = 0; i < count; ++i) {
+        message = messages[i];
+        nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
+        serverAssert(nodes_for_slot != NULL);
+        listRewind(nodes_for_slot, &li);
+        msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
+        while((ln = listNext(&li))) {
+            clusterNode *node = listNodeValue(ln);
+            if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+                continue;
+            clusterSendMessage(node->link,msgblock);
+        }
+        clusterMsgSendBlockDecrRefCount(msgblock);
+    }
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER Pub/Sub support
  *
@@ -3612,29 +3727,11 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
  * Otherwise:
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
-void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
-    clusterMsgSendBlock *msgblock;
-
-    if (!sharded) {
-        msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISH);
-        clusterBroadcastMessage(msgblock);
-        clusterMsgSendBlockDecrRefCount(msgblock);
-        return;
-    }
-
-    listIter li;
-    listNode *ln;
-    list *nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
-    serverAssert(nodes_for_slot != NULL);
-    listRewind(nodes_for_slot, &li);
-    msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
-    while((ln = listNext(&li))) {
-        clusterNode *node = listNodeValue(ln);
-        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
-            continue;
-        clusterSendMessage(node->link,msgblock);
-    }
-    clusterMsgSendBlockDecrRefCount(msgblock);
+void clusterPropagatePublish(robj *channel, robj **messages, int count, int sharded) {
+    if (sharded)
+        clusterPropagatePublishSharded(channel, messages, count);
+    else
+        clusterPropagatePublishNonSharded(channel, messages, count);
 }
 
 /* -----------------------------------------------------------------------------
