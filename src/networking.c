@@ -4302,7 +4302,7 @@ int updateThreadedIO(void) {
         current_threads++;
 
         /* Return ASAP when trying to decrease the number of threads */
-        if(current_threads > server.io_threads_num - 1) return C_ERR;
+        if (current_threads > server.io_threads_num - 1) return C_ERR;
     }
 
     /* Create the list of clients for the main thread if not created already */
@@ -4312,11 +4312,11 @@ int updateThreadedIO(void) {
     for (int i = current_threads + 1; i < server.io_threads_num; i++) {
         io_threads_list[i] = listCreate();
         pthread_t tid;
-        pthread_mutex_init(&io_threads_mutex[i],NULL);
+        pthread_mutex_init(&io_threads_mutex[i], NULL);
         setIOPendingCount(i, 0);
         pthread_mutex_lock(&io_threads_mutex[i]);
-        if (pthread_create(&tid,NULL,IOThreadMain,(void*)(long)i) != 0) {
-            serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
+        if (pthread_create(&tid, NULL, IOThreadMain, (void*)(long)i) != 0) {
+            serverLog(LL_WARNING, "Fatal: Can't initialize IO thread.");
             exit(1);
         }
         io_threads[i] = tid;
