@@ -828,8 +828,8 @@ void scanCallback(void *privdata, const dictEntry *de) {
     robj *val = NULL;
     data->sampled++;
 
-    /* typename is only meaningful when o is NULL. */
-    serverAssert(!data->typename || !o);
+    /* o and typename can not have values at the same time. */
+    serverAssert(!(data->typename && o));
 
     /* Filter element if it does not match the pattern. */
     sds keysds = dictGetKey(de);
