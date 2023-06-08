@@ -46,15 +46,21 @@ robj *createObject(int type, void *ptr) {
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
+    o->lru = 0;
+    return o;
+}
 
+void initObjectLRUOrLFU(robj *o) {
+    if (o->refcount == OBJ_SHARED_REFCOUNT)
+        return;
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
+        o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
     } else {
         o->lru = LRU_CLOCK();
     }
-    return o;
+    return;
 }
 
 /* Set a special refcount in the object to make it "shared":
@@ -91,11 +97,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
-    } else {
-        o->lru = LRU_CLOCK();
-    }
+    o->lru = 0;
 
     sh->len = len;
     sh->alloc = len;
@@ -627,7 +629,7 @@ void trimStringObjectIfNeeded(robj *o, int trim_small_values) {
 }
 
 /* Try to encode a string object in order to save space */
-robj *tryObjectEncoding(robj *o) {
+robj *tryObjectEncodingEx(robj *o, int try_trim) {
     long value;
     sds s = o->ptr;
     size_t len;
@@ -692,10 +694,15 @@ robj *tryObjectEncoding(robj *o) {
 
     /* We can't encode the object...
      * Do the last try, and at least optimize the SDS string inside */
-    trimStringObjectIfNeeded(o, 0);
+    if (try_trim)
+        trimStringObjectIfNeeded(o, 0);
 
     /* Return the original object. */
     return o;
+}
+
+robj *tryObjectEncoding(robj *o) {
+    return tryObjectEncodingEx(o, 1);
 }
 
 /* Get a decoded version of an encoded object (returned as a new object).

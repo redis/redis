@@ -79,6 +79,7 @@ configEnum loglevel_enum[] = {
     {"verbose", LL_VERBOSE},
     {"notice", LL_NOTICE},
     {"warning", LL_WARNING},
+    {"nothing", LL_NOTHING},
     {NULL,0}
 };
 
@@ -1684,7 +1685,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         return retval;
     }
 
-#ifdef _GNU_SOURCE
+#if defined(_GNU_SOURCE) && !defined(__HAIKU__)
     fd = mkostemp(tmp_conffile, O_CLOEXEC);
 #else
     /* There's a theoretical chance here to leak the FD if a module thread forks & execv in the middle */

@@ -227,26 +227,6 @@ test "CLUSTER MYSHARDID reports same id for both primary and replica" {
     }
 }
 
-test "CLUSTER NODES reports correct shard id" {
-    for {set i 0} {$i < 8} {incr i} {
-        set nodes [get_cluster_nodes $i]
-        set node_id_to_shardid_mapping []
-        foreach n $nodes {
-            set node_shard_id [dict get $n shard-id]
-            set node_id [dict get $n id]
-            assert_equal [string length $node_shard_id] 40
-            if {[dict exists $node_id_to_shardid_mapping $node_id]} {
-                assert_equal [dict get $node_id_to_shardid_mapping $node_id] $node_shard_id
-            } else {
-                dict set node_id_to_shardid_mapping $node_id $node_shard_id
-            }
-            if {[lindex [dict get $n flags] 0] eq "myself"} {
-                assert_equal [R $i cluster myshardid] [dict get $n shard-id]
-            }
-        }
-    }
-}
-
 test "New replica receives primary's shard id" {
     #find a primary
     set id 0

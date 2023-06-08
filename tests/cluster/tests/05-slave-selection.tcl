@@ -16,9 +16,18 @@ test "Cluster is up" {
 test "The first master has actually two slaves" {
     wait_for_condition 1000 50 {
         [llength [lindex [R 0 role] 2]] == 2
+        && [llength [R 0 cluster replicas [R 0 CLUSTER MYID]]] == 2
     } else {
         fail "replicas didn't connect"
     }
+}
+
+test "CLUSTER SLAVES and CLUSTER REPLICAS output is consistent" {
+    # Because we already have command output that cover CLUSTER REPLICAS elsewhere,
+    # here we simply judge whether their output is consistent to cover CLUSTER SLAVES.
+    set res [R 0 cluster slaves [R 0 CLUSTER MYID]]
+    set res2 [R 0 cluster replicas [R 0 CLUSTER MYID]]
+    assert_equal $res $res2
 }
 
 test {Slaves of #0 are instance #5 and #10 as expected} {

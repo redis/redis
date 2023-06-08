@@ -2575,8 +2575,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zsetopval zval;
     sds tmp;
     size_t maxelelen = 0, totelelen = 0;
-    robj *dstobj;
-    zset *dstzset;
+    robj *dstobj = NULL;
+    zset *dstzset = NULL;
     zskiplistNode *znode;
     int withscores = 0;
     unsigned long cardinality = 0;
@@ -2686,8 +2686,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
     }
 
-    dstobj = createZsetObject();
-    dstzset = dstobj->ptr;
+    /* We need a temp zset object to store our union/inter/diff. If the dstkey
+     * is not NULL (that is, we are inside an ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE operation) then
+     * this zset object will be the resulting object to zset into the target key.
+     * In SINTERCARD case, we don't need the temp obj, so we can avoid creating it. */
+    if (!cardinality_only) {
+        dstobj = createZsetObject();
+        dstzset = dstobj->ptr;
+    }
     memset(&zval, 0, sizeof(zval));
 
     if (op == SET_OP_INTER) {
@@ -2826,6 +2832,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+        decrRefCount(dstobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
     } else {
@@ -2846,8 +2853,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             if (withscores) addReplyDouble(c,zn->score);
             zn = zn->level[0].forward;
         }
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstobj, -1) :
+                                          decrRefCount(dstobj);
     }
-    decrRefCount(dstobj);
     zfree(src);
 }
 
@@ -4243,6 +4251,27 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         return;
     }
 
+    /* CASE 2.5 listpack only. Sampling unique elements, in non-random order.
+     * Listpack encoded zsets are meant to be relatively small, so
+     * ZRANDMEMBER_SUB_STRATEGY_MUL isn't necessary and we rather not make
+     * copies of the entries. Instead, we emit them directly to the output
+     * buffer.
+     *
+     * And it is inefficient to repeatedly pick one random element from a
+     * listpack in CASE 4. So we use this instead. */
+    if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
+        listpackEntry *keys, *vals = NULL;
+        keys = zmalloc(sizeof(listpackEntry)*count);
+        if (withscores)
+            vals = zmalloc(sizeof(listpackEntry)*count);
+        serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
+        zrandmemberReplyWithListpack(c, count, keys, vals);
+        zfree(keys);
+        zfree(vals);
+        zuiClearIterator(&src);
+        return;
+    }
+
     /* CASE 3:
      * The number of elements inside the zset is not greater than
      * ZRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
@@ -4253,6 +4282,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*ZRANDMEMBER_SUB_STRATEGY_MUL > size) {
+        /* Hashtable encoding (generic implementation) */
         dict *d = dictCreate(&sdsReplyDictType);
         dictExpand(d, size);
         /* Add all the elements into the temporary dictionary. */
@@ -4296,21 +4326,6 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      * to the temporary set, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
-        if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
-            /* it is inefficient to repeatedly pick one random element from a
-             * listpack. so we use this instead: */
-            listpackEntry *keys, *vals = NULL;
-            keys = zmalloc(sizeof(listpackEntry)*count);
-            if (withscores)
-                vals = zmalloc(sizeof(listpackEntry)*count);
-            serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
-            zrandmemberReplyWithListpack(c, count, keys, vals);
-            zfree(keys);
-            zfree(vals);
-            zuiClearIterator(&src);
-            return;
-        }
-
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
         dict *d = dictCreate(&hashDictType);

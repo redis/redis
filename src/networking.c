@@ -1787,8 +1787,9 @@ client *lookupClientByID(uint64_t id) {
  * and 'nwritten' is an output parameter, it means how many bytes server write
  * to client. */
 static int _writevToClient(client *c, ssize_t *nwritten) {
-    struct iovec iov[IOV_MAX];
     int iovcnt = 0;
+    int iovmax = min(IOV_MAX, c->conn->iovcnt);
+    struct iovec iov[iovmax];
     size_t iov_bytes_len = 0;
     /* If the static reply buffer is not empty, 
      * add it to the iov array for writev() as well. */
@@ -1804,7 +1805,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     listNode *next;
     clientReplyBlock *o;
     listRewind(c->reply, &iter);
-    while ((next = listNext(&iter)) && iovcnt < IOV_MAX && iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
+    while ((next = listNext(&iter)) && iovcnt < iovmax && iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
         o = listNodeValue(next);
         if (o->used == 0) { /* empty node, just release it and skip. */
             c->reply_bytes -= o->size;

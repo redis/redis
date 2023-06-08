@@ -413,9 +413,9 @@ void debugCommand(client *c) {
 "    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
-"HTSTATS <dbid>",
+"HTSTATS <dbid> [full]",
 "    Return hash table statistics of the specified Redis database.",
-"HTSTATS-KEY <key>",
+"HTSTATS-KEY <key> [full]",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
@@ -883,10 +883,11 @@ NULL
         sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
-    } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {
         long dbid;
         sds stats = sdsempty();
         char buf[4096];
+        int full = 0;
 
         if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK) {
             sdsfree(stats);
@@ -897,20 +898,26 @@ NULL
             addReplyError(c,"Out of range database");
             return;
         }
+        if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
+            full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].dict);
+        dictGetStats(buf,sizeof(buf),server.db[dbid].dict,full);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
+        dictGetStats(buf,sizeof(buf),server.db[dbid].expires,full);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
-    } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc >= 3) {
         robj *o;
         dict *ht = NULL;
+        int full = 0;
+
+        if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
+            full = 1;
 
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
@@ -933,7 +940,7 @@ NULL
                             "represented using an hash table");
         } else {
             char buf[4096];
-            dictGetStats(buf,sizeof(buf),ht);
+            dictGetStats(buf,sizeof(buf),ht,full);
             addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
@@ -1803,7 +1810,7 @@ sds genClusterDebugString(sds infostring) {
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
     infostring = sdscatsds(infostring, genClusterInfoString()); 
     infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
-    infostring = sdscatsds(infostring, clusterGenNodesDescription(0, 0));
+    infostring = sdscatsds(infostring, clusterGenNodesDescription(NULL, 0, 0));
     
     return infostring;
 }

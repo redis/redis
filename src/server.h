@@ -507,6 +507,7 @@ typedef enum {
 #define LL_VERBOSE 1
 #define LL_NOTICE 2
 #define LL_WARNING 3
+#define LL_NOTHING 4
 #define LL_RAW (1<<10) /* Modifier to log without timestamp */
 
 /* Supervision options */
@@ -1548,7 +1549,7 @@ struct redisServer {
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
     rax *errors;                /* Errors table */
-    redisAtomic unsigned int lruclock; /* Clock for LRU eviction */
+    unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
     mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
     int last_sig_received;      /* Indicates the last SIGNAL received, if any (e.g., SIGINT or SIGTERM). */
@@ -2727,6 +2728,7 @@ void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
 void dismissObject(robj *o, size_t dump_size);
 robj *createObject(int type, void *ptr);
+void initObjectLRUOrLFU(robj *o);
 robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
 robj *createEmbeddedStringObject(const char *ptr, size_t len);
@@ -2736,6 +2738,7 @@ robj *dupStringObject(const robj *o);
 int isSdsRepresentableAsLongLong(sds s, long long *llval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
+robj *tryObjectEncodingEx(robj *o, int try_trim);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
 robj *createStringObjectFromLongLong(long long value);
@@ -3092,7 +3095,6 @@ void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
-unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
@@ -3246,6 +3248,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj *val);
 #define SETKEY_NO_SIGNAL 2
 #define SETKEY_ALREADY_EXIST 4
 #define SETKEY_DOESNT_EXIST 8
+#define SETKEY_ADD_OR_UPDATE 16 /* Key most likely doesn't exists */
 void setKey(client *c, redisDb *db, robj *key, robj *val, int flags);
 robj *dbRandomKey(redisDb *db);
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags);

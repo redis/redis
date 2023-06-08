@@ -303,4 +303,39 @@ start_server {tags {"modules"}} {
         assert_equal {someval} [$rd read]
         $rd close
     }
+
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+
+        # Start the replication process...
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+
+        test {WAIT command on module blocked client on keys} {
+            set rd [redis_deferring_client -1]
+            $rd set x y
+            $rd read
+
+            pause_process [srv 0 pid]
+
+            $master del k
+            $rd fsl.bpop k 0
+            wait_for_blocked_client -1
+            $master fsl.push k 34
+            $master fsl.push k 35
+            assert_equal {34} [$rd read]
+
+            assert_equal [$master wait 1 1000] 0
+            resume_process [srv 0 pid]
+            assert_equal [$master wait 1 1000] 1
+            $rd close
+            assert_equal {35} [$replica fsl.getall k]
+        }
+    }
+
 }

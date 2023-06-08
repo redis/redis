@@ -3192,6 +3192,7 @@ const char* getLogLevel(void) {
     case LL_VERBOSE: return "verbose";
     case LL_NOTICE: return "notice";
     case LL_WARNING: return "warning";
+    case LL_NOTHING: return "nothing";
     }
     return "unknown";
 }
@@ -3252,7 +3253,8 @@ void sentinelConfigSetCommand(client *c) {
                 numval < 0 || numval > 65535) goto badfmt;
         } else if (!strcasecmp(option, "loglevel")) {
             if (!(!strcasecmp(val->ptr, "debug") || !strcasecmp(val->ptr, "verbose") ||
-                !strcasecmp(val->ptr, "notice") || !strcasecmp(val->ptr, "warning"))) goto badfmt;
+                !strcasecmp(val->ptr, "notice") || !strcasecmp(val->ptr, "warning") ||
+                !strcasecmp(val->ptr, "nothing"))) goto badfmt;
         }
     }
 
@@ -3270,6 +3272,8 @@ void sentinelConfigSetCommand(client *c) {
                 server.verbosity = LL_NOTICE;
             else if (!strcasecmp(val->ptr, "warning"))
                 server.verbosity = LL_WARNING;
+            else if (!strcasecmp(val->ptr, "nothing"))
+                server.verbosity = LL_NOTHING;
         } else if (!strcasecmp(option, "resolve-hostnames") && moreargs > 0) {
             val = c->argv[++i];
             numval = yesnotoi(val->ptr);
