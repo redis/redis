@@ -4928,9 +4928,9 @@ int verifyClusterConfigWithData(void) {
  * If this node is currently a master, it is turned into a slave. */
 void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
-    serverAssert(myself->numslots == 0);
 
     if (nodeIsMaster(myself)) {
+        serverAssert(myself->numslots == 0);
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
         clusterCloseAllSlots();
