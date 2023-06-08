@@ -49,16 +49,13 @@ test "Continuous slots distribution" {
 }
 
 test "ADDSLOTS command with several boundary conditions test suite" {
-    # Add multiple slots with invalid input slot
     assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTS 3001 aaa}
     assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTS 3001 -1000}
     assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTS 3001 30003}
-
-    # Add multiple slots with busy slot
+    
     assert_error "ERR Slot 3200 is already busy" {R 0 cluster ADDSLOTS 3200}
     assert_error "ERR Slot 8501 is already busy" {R 0 cluster ADDSLOTS 8501}
 
-    # Add multiple slots with assigned multiple times
     assert_error "ERR Slot 3001 specified multiple times" {R 0 cluster ADDSLOTS 3001 3002 3001}
 }
 
