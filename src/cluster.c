@@ -3511,12 +3511,11 @@ void clusterBroadcastPong(int target) {
     dictReleaseIterator(di);
 }
 
-struct rvec {
-    robj   *obj;
-    size_t  len;
-};
-
-/* Create a PUBLISH or SPUBLISH message block.
+/* Create a PUBLISH, SPUBLISH, MPUBLISH, or MSPUBLISH message block.
+ *
+ * Returns the message block.  `dst' is set to point to memory inside the
+ * message block of size `message_len', where the caller is to write the
+ * data.
  *
  * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
  * As all the struct is used as a buffer, when more than 8 bytes are copied into
@@ -3524,33 +3523,22 @@ struct rvec {
  * positive in this context. */
 REDIS_NO_SANITIZE("bounds")
 clusterMsgSendBlock *clusterCreatePublishMsgBlockInternal(robj *channel,
-    struct rvec *bulk_data, unsigned nvecs, size_t bulk_data_sz, uint16_t type)
+                        size_t message_len, uint16_t type, unsigned char **dst)
 {
     uint32_t channel_len;
-    unsigned i;
-    unsigned char *dst;
 
     channel = getDecodedObject(channel);
     channel_len = sdslen(channel->ptr);
 
     size_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + bulk_data_sz;
+    msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, msglen);
 
     clusterMsg *hdr = &msgblock->msg;
     hdr->data.publish.msg.channel_len = htonl(channel_len);
-    hdr->data.publish.msg.message_len = htonl(bulk_data_sz);
+    hdr->data.publish.msg.message_len = htonl(message_len);
     memcpy(hdr->data.publish.msg.bulk_data, channel->ptr, channel_len);
-
-    dst = hdr->data.publish.msg.bulk_data + channel_len;
-    for (i = 0; i < nvecs; ++i)
-    {
-        memcpy(dst, bulk_data[i].obj->ptr, bulk_data[i].len);
-        dst += bulk_data[i].len;
-        *dst++ = '\0';
-    }
-    serverAssert((intptr_t) bulk_data_sz ==
-                        dst - hdr->data.publish.msg.bulk_data - channel_len);
+    *dst = hdr->data.publish.msg.bulk_data + channel_len;
 
     decrRefCount(channel);
 
@@ -3560,13 +3548,14 @@ clusterMsgSendBlock *clusterCreatePublishMsgBlockInternal(robj *channel,
 clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
 
     clusterMsgSendBlock *msgblock;
-    struct rvec vec[1];
+    size_t message_len;
+    unsigned char *dst;
 
     message = getDecodedObject(message);
-    vec[0].obj = message;
-    vec[0].len = sdslen(message->ptr);
+    message_len = sdslen(message->ptr);
 
-    msgblock = clusterCreatePublishMsgBlockInternal(channel, vec, 1, vec[0].len + 1, type);
+    msgblock = clusterCreatePublishMsgBlockInternal(channel, message_len, type, &dst);
+    memcpy(dst, message, message_len);
 
     decrRefCount(message);
 
@@ -3577,21 +3566,31 @@ clusterMsgSendBlock *clusterCreateMPublishMsgBlock(robj *channel,
                         robj **messages, unsigned int count, uint16_t type)
 {
     clusterMsgSendBlock *msgblock;
-    struct rvec *vec;
-    size_t bulk_data_sz;
+    struct {
+        robj   *obj;
+        size_t  len;
+    } *vec;
+    size_t message_len;
     unsigned i;
+    unsigned char *dst;
 
     vec = zmalloc(sizeof(vec[0]) * count);
-    bulk_data_sz = 0;
+    message_len = 0;
     for (i = 0; i < count; ++i)
     {
         vec[i].obj = getDecodedObject(messages[i]);
         vec[i].len = sdslen(vec[i].obj->ptr);
-        bulk_data_sz += vec[i].len + 1;
+        message_len += vec[i].len + 1;
     }
 
-    msgblock = clusterCreatePublishMsgBlockInternal(channel, vec, count,
-                                                        bulk_data_sz, type);
+    msgblock = clusterCreatePublishMsgBlockInternal(channel, message_len,
+                                                                type, &dst);
+    for (i = 0; i < count; ++i)
+    {
+        memcpy(dst, vec[i].obj->ptr, vec[i].len);
+        dst += vec[i].len;
+        *dst++ = '\0';
+    }
 
     for (i = 0; i < count; ++i)
         decrRefCount(vec[i].obj);
