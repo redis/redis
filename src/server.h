@@ -1231,6 +1231,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
+    listNode *user_client_node; /* list node in user->client */
     listNode *postponed_list_node; /* list node within the postponed list */
     listNode *pending_read_list_node; /* list node in clients pending read list */
     void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this

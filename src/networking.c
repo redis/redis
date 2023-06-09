@@ -106,9 +106,6 @@ static void clientSetDefaultAuth(client *c) {
     c->user = DefaultUser;
     c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
                        !(c->user->flags & USER_FLAG_DISABLED);
-    if (c->authenticated) {
-        listAddNodeTail(DefaultUser->clients, c);
-    }
 }
 
 int authRequired(client *c) {
@@ -202,6 +199,7 @@ client *createClient(connection *conn) {
     c->peerid = NULL;
     c->sockname = NULL;
     c->client_list_node = NULL;
+    c->user_client_node = NULL;
     c->postponed_list_node = NULL;
     c->pending_read_list_node = NULL;
     c->client_tracking_redirection = 0;
@@ -1514,10 +1512,10 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
-    if (c->user) {
-        ln = listSearchKey(c->user->clients, c);
-        if (ln) {
-            listDelNode(c->user->clients, ln);
+    if (c->user && c->user != DefaultUser) {
+        if(c->user_client_node) {
+            listDelNode(c->user->clients, c->user_client_node);
+            c->user_client_node = NULL;
         }
     }
     /* Clear the tracking status. */
@@ -1549,6 +1547,12 @@ void clearClientConnectionState(client *c) {
     c->resp = 2;
 #endif
 
+    if(c->user && c->user != DefaultUser){
+        if(c->user_client_node){
+            listDelNode(c->user->clients,c->user_client_node);
+            c->user_client_node = NULL;
+        }
+    }
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
     discardTransaction(c);
@@ -3291,19 +3295,15 @@ NULL
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr, "count")) {
         sds o = NULL;
-        if (c->argc > 3 && !strcasecmp(c->argv[2]->ptr, "user")) {
-            long long j;
-            for (j = 3; j < c->argc; j++) {
-                user = ACLGetUserByName(c->argv[j]->ptr,
-                                        sdslen(c->argv[j]->ptr));
-                if (user == NULL) {
-                    addReplyErrorFormat(c, "No such user '%s'",
-                                        (char *) c->argv[j]->ptr);
-                    return;
-                }
-                o = getUserClientsInfoString(user);
-                o = sdscatlen(o, "\n", 1);
+        if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr, "user")) {
+            user = ACLGetUserByName(c->argv[3]->ptr,
+                                    sdslen(c->argv[3]->ptr));
+            if (user == NULL) {
+                addReplyErrorFormat(c, "No such user '%s'",
+                                    (char *) c->argv[3]->ptr);
+                return;
             }
+            o = getUserClientsInfoString(user);
             addReplyVerbatim(c, o, sdslen(o), "txt");
             sdsfree(o);
         } else {
