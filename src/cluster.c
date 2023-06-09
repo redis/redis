@@ -2556,7 +2556,10 @@ int clusterProcessPacket(clusterLink *link) {
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataFail);
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH ||
+               type == CLUSTERMSG_TYPE_PUBLISHSHARD ||
+               type == CLUSTERMSG_TYPE_MPUBLISH)
+    {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataPublish) -
                 8 +
@@ -2941,6 +2944,23 @@ int clusterProcessPacket(clusterLink *link) {
             decrRefCount(channel);
             decrRefCount(message);
         }
+#if 0
+    } else if (type == CLUSTERMSG_TYPE_MPUBLISH) {
+        if (!sender) return 1;  /* We don't know that node. */
+
+        const uint8_t *src;
+        robj *channel, **messages;
+        uint32_t channel_len, msg_count, len;
+        unsigned i;
+
+        /* Don't bother creating useless objects if there are no
+         * Pub/Sub subscribers. */
+        if ((type == CLUSTERMSG_TYPE_MPUBLISH
+            && serverPubsubSubscriptionCount() > 0))
+        {
+            /* TODO */
+        }
+#endif
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
         if (!sender) return 1;  /* We don't know that node. */
         clusterSendFailoverAuthIfNeeded(sender,hdr);
@@ -3491,97 +3511,91 @@ void clusterBroadcastPong(int target) {
     dictReleaseIterator(di);
 }
 
+struct rvec {
+    robj   *obj;
+    size_t  len;
+};
+
 /* Create a PUBLISH or SPUBLISH message block.
- *
- * XXX TODO This function is no longer used by the server code.  Nevertheless,
- * we need to test the decoding mechanism so that the server is backward-
- * compatible.  This needs to go into tests somewhere.
  *
  * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
  * As all the struct is used as a buffer, when more than 8 bytes are copied into
  * the 'bulk_data', sanitizer generates an out-of-bounds error which is a false
  * positive in this context. */
 REDIS_NO_SANITIZE("bounds")
-clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
-
-    uint32_t channel_len, message_len;
+clusterMsgSendBlock *clusterCreatePublishMsgBlockInternal(robj *channel,
+    struct rvec *bulk_data, unsigned nvecs, size_t bulk_data_sz, uint16_t type)
+{
+    uint32_t channel_len;
+    unsigned i;
+    unsigned char *dst;
 
     channel = getDecodedObject(channel);
-    message = getDecodedObject(message);
     channel_len = sdslen(channel->ptr);
-    message_len = sdslen(message->ptr);
 
     size_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
+    msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + bulk_data_sz;
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, msglen);
 
     clusterMsg *hdr = &msgblock->msg;
     hdr->data.publish.msg.channel_len = htonl(channel_len);
-    hdr->data.publish.msg.message_len = htonl(message_len);
-    memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
-    memcpy(hdr->data.publish.msg.bulk_data+sdslen(channel->ptr),
-        message->ptr,sdslen(message->ptr));
+    hdr->data.publish.msg.message_len = htonl(bulk_data_sz);
+    memcpy(hdr->data.publish.msg.bulk_data, channel->ptr, channel_len);
+
+    dst = hdr->data.publish.msg.bulk_data + channel_len;
+    for (i = 0; i < nvecs; ++i)
+    {
+        memcpy(dst, bulk_data[i].obj->ptr, bulk_data[i].len);
+        dst += bulk_data[i].len;
+        *dst++ = '\0';
+    }
+    serverAssert((intptr_t) bulk_data_sz ==
+                        dst - hdr->data.publish.msg.bulk_data - channel_len);
 
     decrRefCount(channel);
-    decrRefCount(message);
-    
+
     return msgblock;
 }
 
-/* Create a MPUBLISH or MSPUBLISH message block.
- *
- * Sanitizer suppression: In clusterMsgDataMPublish, sizeof(bulk_data) is 8.
- * As all the struct is used as a buffer, when more than 8 bytes are copied into
- * the 'bulk_data', sanitizer generates an out-of-bounds error which is a false
- * positive in this context. */
-REDIS_NO_SANITIZE("bounds")
+clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
+
+    clusterMsgSendBlock *msgblock;
+    struct rvec vec[1];
+
+    message = getDecodedObject(message);
+    vec[0].obj = message;
+    vec[0].len = sdslen(message->ptr);
+
+    msgblock = clusterCreatePublishMsgBlockInternal(channel, vec, 1, vec[0].len + 1, type);
+
+    decrRefCount(message);
+
+    return msgblock;
+}
+
 clusterMsgSendBlock *clusterCreateMPublishMsgBlock(robj *channel,
-                                    robj **messages, int count, uint16_t type)
+                        robj **messages, unsigned int count, uint16_t type)
 {
-    uint32_t channel_len, msglen, len;
-    struct {
-        robj  *decoded;
-        size_t len;
-    } *objects;
-    uint8_t *dst;
-    int i;
+    clusterMsgSendBlock *msgblock;
+    struct rvec *vec;
+    size_t bulk_data_sz;
+    unsigned i;
 
-    channel = getDecodedObject(channel);
-    channel_len = sdslen(channel->ptr);
-
-    msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    msglen += sizeof(clusterMsgDataMPublish) - 8 + channel_len;
-
-    objects = zmalloc(sizeof(objects[0]) * count);
+    vec = zmalloc(sizeof(vec[0]) * count);
+    bulk_data_sz = 0;
     for (i = 0; i < count; ++i)
     {
-        objects[i].decoded = getDecodedObject(messages[i]);
-        objects[i].len = sdslen(objects[i].decoded->ptr);
-        msglen += 4 + objects[i].len;
+        vec[i].obj = getDecodedObject(messages[i]);
+        vec[i].len = sdslen(vec[i].obj->ptr);
+        bulk_data_sz += vec[i].len + 1;
     }
 
-    clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, msglen);
+    msgblock = clusterCreatePublishMsgBlockInternal(channel, vec, count,
+                                                        bulk_data_sz, type);
 
-    clusterMsg *hdr = &msgblock->msg;
-    hdr->data.mpublish.msg.msg_count = htonl(count);
-    hdr->data.mpublish.msg.channel_len = htonl(channel_len);
-    memcpy(hdr->data.mpublish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
-
-    dst = hdr->data.mpublish.msg.bulk_data + sdslen(channel->ptr);
     for (i = 0; i < count; ++i)
-    {
-        len = htonl(objects[i].len);
-        memcpy(dst, &len, sizeof(len));
-        dst += sizeof(len);
-        memcpy(dst, objects[i].decoded->ptr, objects[i].len);
-        dst += objects[i].len;
-    }
-    serverAssert(dst - (uint8_t *) hdr == msglen);
-
-    decrRefCount(channel);
-    for (i = 0; i < count; ++i)
-        decrRefCount(objects[i].decoded);
-    zfree(objects);
+        decrRefCount(vec[i].obj);
+    zfree(vec);
 
     return msgblock;
 }

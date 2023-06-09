@@ -245,12 +245,6 @@ typedef struct {
 } clusterMsgDataPublish;
 
 typedef struct {
-    uint32_t msg_count;
-    uint32_t channel_len;
-    unsigned char bulk_data[8]; /* 8 bytes just as placeholder. */
-} clusterMsgDataMPublish;
-
-typedef struct {
     uint64_t configEpoch; /* Config epoch of the specified instance. */
     char nodename[CLUSTER_NAMELEN]; /* Name of the slots owner. */
     unsigned char slots[CLUSTER_SLOTS/8]; /* Slots bitmap. */
@@ -317,15 +311,10 @@ union clusterMsgData {
         clusterMsgDataFail about;
     } fail;
 
-    /* PUBLISH */
+    /* PUBLISH, SPUBLISH, MPUBLISH, and MSPUBLISH */
     struct {
         clusterMsgDataPublish msg;
     } publish;
-
-    /* MPUBLISH and MSPUBLISH */
-    struct {
-        clusterMsgDataMPublish msg;
-    } mpublish;
 
     /* UPDATE */
     struct {
