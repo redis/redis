@@ -3576,7 +3576,7 @@ clusterMsgSendBlock *clusterCreateMPublishMsgBlock(robj *channel,
         memcpy(dst, objects[i].decoded->ptr, objects[i].len);
         dst += objects[i].len;
     }
-    serverAssert(dst - (uint8_t *) msgblock == msglen);
+    serverAssert(dst - (uint8_t *) hdr == msglen);
 
     decrRefCount(channel);
     for (i = 0; i < count; ++i)
@@ -3684,7 +3684,7 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
         if (clusterAttachToPrevious(node->link, messages, count))
             continue;
         msgblock = clusterCreateMPublishMsgBlock(channel, messages,
-                                                    count, CLUSTERMSG_TYPE_PUBLISH);
+                                                    count, CLUSTERMSG_TYPE_MPUBLISH);
         clusterBroadcastMessage(msgblock);
         clusterMsgSendBlockDecrRefCount(msgblock);
     }
