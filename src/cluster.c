@@ -2944,23 +2944,43 @@ int clusterProcessPacket(clusterLink *link) {
             decrRefCount(channel);
             decrRefCount(message);
         }
-#if 0
     } else if (type == CLUSTERMSG_TYPE_MPUBLISH) {
         if (!sender) return 1;  /* We don't know that node. */
 
-        const uint8_t *src;
+        const uint8_t *src, *end;
         robj *channel, **messages;
-        uint32_t channel_len, msg_count, len;
-        unsigned i;
+        uint32_t channel_len, message_len;
+        unsigned i, msg_count;
 
         /* Don't bother creating useless objects if there are no
          * Pub/Sub subscribers. */
         if ((type == CLUSTERMSG_TYPE_MPUBLISH
             && serverPubsubSubscriptionCount() > 0))
         {
-            /* TODO */
+            channel_len = ntohl(hdr->data.publish.msg.channel_len);
+            channel = createStringObject(
+                        (char*)hdr->data.publish.msg.bulk_data,channel_len);
+            message_len = ntohl(hdr->data.publish.msg.message_len);
+            /* Count messages */
+            src = hdr->data.publish.msg.bulk_data + channel_len;
+            end = src + message_len;
+            msg_count = 0;
+            while (src < end)
+                msg_count += '\0' == *src++;
+            /* Parse them out */
+            messages = zmalloc(sizeof(messages[0]) * msg_count);
+            src = hdr->data.publish.msg.bulk_data + channel_len;
+            for (i = 0; src < end; ++i) {
+                const size_t len = strnlen((char *) src, end - src);
+                messages[i] = createStringObject((char *) src, len);
+                src += len + 1;
+            }
+            serverAssert(msg_count == i);
+            pubsubPublishMessages(channel, messages, (int) msg_count, 0);
+            decrRefCount(channel);
+            for (i = 0; i < msg_count; ++i)
+                decrRefCount(messages[i]);
         }
-#endif
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
         if (!sender) return 1;  /* We don't know that node. */
         clusterSendFailoverAuthIfNeeded(sender,hdr);
