@@ -85,7 +85,7 @@ void freeClientReplyValue(void *o) {
     zfree(o);
 }
 
-int listMatchObjects(void *a, void *b) {
+int listMatchStringObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
@@ -215,7 +215,7 @@ client *createClient(connection *conn) {
     c->auth_module = NULL;
     listInitNode(&c->clients_pending_write_node, c);
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
-    listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
+    listSetMatchMethod(c->pubsub_patterns,listMatchStringObjects);
     c->mem_usage_bucket = NULL;
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);

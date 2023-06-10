@@ -2439,6 +2439,7 @@ extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
+extern dictType keylistDictType;
 extern dictType BenchmarkDictType;
 extern dictType zsetDictType;
 extern dictType dbDictType;
@@ -2484,6 +2485,7 @@ int moduleTryAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void firePostExecutionUnitJobs(void);
+void moduleSendMessageSubscriber(robj *channel, robj *message, int sharded);
 void moduleCallCommandFilters(client *c);
 void modulePostExecutionUnitOperations(void);
 void ModuleForkDoneHandler(int exitcode, int bysignal);
@@ -2702,6 +2704,7 @@ typedef enum {
 typedef void (*beforeConvertCB)(void *data);
 void listTypeTryConversion(robj *o, list_conv_type lct, beforeConvertCB fn, void *data);
 void listTypeTryConversionAppend(robj *o, robj **argv, int start, int end, beforeConvertCB fn, void *data);
+int listMatchStringObjects(void *a, void *b);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);

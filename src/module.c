@@ -3725,6 +3725,280 @@ int RM_PublishMessageShard(RedisModuleCtx *ctx, RedisModuleString *channel, Redi
     return pubsubPublishMessageAndPropagateToCluster(channel, message, 1);
 }
 
+/* Function pointer type for subscription from modules. */
+typedef void (*RedisModuleSubscribeFunc) (RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleString *message);
+
+/**
+ * Channel subscriber information.
+ */
+typedef struct RedisModuleChannelSubscriber {
+    /* Notification callback in the module. */
+    RedisModuleSubscribeFunc subscribe_callback;
+
+    /* set to 1, if subscribed to all channel. */
+    int all_channels;
+
+    /* The channel subscriptions list. */
+    list *subscriptions;
+} RedisModuleChannelSubscriber;
+
+
+typedef struct RedisModulePubSubMeta {
+    /* The channel to module subscribers dict. */
+    dict *channelModuleSubscribers;
+
+    /* The RedisModuleChannelSubscriber list. */
+    dict *moduleChannelSubscribers;
+} RedisModulePubSubMeta;
+
+static RedisModulePubSubMeta *channelMeta;
+static RedisModulePubSubMeta *shardchannelMeta;
+
+static inline RedisModulePubSubMeta *getPubSubMeta(int sharded) {
+    return sharded ? shardchannelMeta : channelMeta;
+}
+
+void cleanupModuleChannelSubscriber(RedisModule *module, RedisModuleChannelSubscriber *moduleChannelSubscriber, RedisModulePubSubMeta *pubSubMeta) {
+    if (moduleChannelSubscriber->subscriptions) {
+        listRelease(moduleChannelSubscriber->subscriptions);
+        moduleChannelSubscriber->subscriptions = NULL;
+    }
+    zfree(moduleChannelSubscriber);
+    dictDelete(pubSubMeta->moduleChannelSubscribers, module);
+}
+
+/**
+ * This method removes a module from the channel to module(s) subscription list.
+ * This method is only invoked if there is a valid module subscription for the provided
+ * channel.
+ */
+static void removeModuleFromChannelSubscription(RedisModule *module, robj *channel, RedisModulePubSubMeta *pubSubMeta) {
+    /* Clean up module from channelModuleSubscribers dict. */
+    dictEntry *de = dictFind(pubSubMeta->channelModuleSubscribers, channel);
+    serverAssert(de);
+    list *subscribers = dictGetVal(de);
+    listNode *ln = listSearchKey(subscribers, module);
+    serverAssert(ln);
+    listDelNode(subscribers, ln);
+    if (listLength(subscribers) == 0) {
+        dictDelete(pubSubMeta->channelModuleSubscribers, channel);
+    }
+    serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.",
+        module->name, (char *)channel->ptr);
+}
+
+/**
+ * Unsubscribe all the channel(s) this module had subscribed to.
+ *
+ */
+static void moduleUnsubscribeAllChannels(RedisModule *module, RedisModulePubSubMeta *pubSubMeta) {
+    listNode *ln;
+    listIter li;
+    if (dictSize(pubSubMeta->moduleChannelSubscribers) == 0) {
+        return;
+    }
+    dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, module);
+    if (de == NULL) {
+        return;
+    }
+    RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
+
+    if (moduleChannelSubscriber->all_channels) {
+        cleanupModuleChannelSubscriber(module, moduleChannelSubscriber, pubSubMeta);
+        return;
+    }
+
+    serverAssert(listLength(moduleChannelSubscriber->subscriptions));
+
+    listRewind(moduleChannelSubscriber->subscriptions, &li);
+    while ((ln = listNext(&li))) {
+        removeModuleFromChannelSubscription(module, ln->value, pubSubMeta);
+        listDelNode(moduleChannelSubscriber->subscriptions, ln);
+    }
+
+    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
+        cleanupModuleChannelSubscriber(module, moduleChannelSubscriber, pubSubMeta);
+    }
+}
+
+/**
+ * Subscribe the module to a channel with a callback. The API is idempotent based on the channel name, a
+ * module has subscribed to. Hence, if the callback needs to be updated then the client needs to unsubscribe
+ * from the channel and subscribe.
+ * 
+ * The callback registered would be invoked on each message published to a given channel.
+ */
+int RM_SubscribeToChannel(RedisModuleCtx *ctx, RedisModuleString *channel, RedisModuleSubscribeFunc callback, int sharded) {
+    RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(sharded);
+
+    if (sharded && server.cluster_enabled) {
+        const char *cmdname = "SSUBSCRIBE";
+        int argc = 2;
+        int error_code;
+        robj **argv = zmalloc(argc * sizeof(robj*));
+        argv[0] = shared.ssubscribebulk;
+        argv[1] = channel;
+        client *c = moduleAllocTempClient(NULL);
+        c->cmd = c->lastcmd = c->realcmd = lookupCommandByCString((char*)cmdname);
+        if (getNodeByQuery(c, c->cmd, c->argv, c->argc, NULL, &error_code) != server.cluster->myself) {
+            errno = EPERM;
+            return REDISMODULE_ERR;
+        }
+    }
+
+    dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, ctx->module);
+    RedisModuleChannelSubscriber *moduleChannelSubscriber;
+    if (de == NULL) {
+        moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
+        moduleChannelSubscriber->subscribe_callback = callback;
+        moduleChannelSubscriber->all_channels = 0;
+        moduleChannelSubscriber->subscriptions = listCreate();
+        listSetMatchMethod(moduleChannelSubscriber->subscriptions, listMatchStringObjects);
+        listSetFreeMethod(moduleChannelSubscriber->subscriptions, decrRefCountVoid);
+        dictAdd(pubSubMeta->moduleChannelSubscribers, ctx->module, moduleChannelSubscriber);
+    } else {
+        moduleChannelSubscriber = dictGetVal(de);
+    }
+
+    if (moduleChannelSubscriber->all_channels || listSearchKey(moduleChannelSubscriber->subscriptions, channel)) {
+        moduleChannelSubscriber->subscribe_callback = callback;
+        return REDISMODULE_OK;
+    }
+
+    /* Add the channel to the list of subscriptions. */
+    robj *channelToAdd = dupStringObject(channel);
+    listAddNodeTail(moduleChannelSubscriber->subscriptions, channelToAdd);
+
+    /* Add the module to the (channel -> list of module subscribers hash table). */
+    list *subscribers = NULL;
+    de = dictFind(pubSubMeta->channelModuleSubscribers, channelToAdd);
+    if (de == NULL) {
+        subscribers = listCreate();
+        dictAdd(pubSubMeta->channelModuleSubscribers, channelToAdd, subscribers);
+        incrRefCount(channelToAdd);
+    } else {
+        subscribers = dictGetVal(de);
+    }
+    listAddNodeTail(subscribers, ctx->module);
+
+    serverLog(LL_DEBUG,"Module %s subscribed to channel %s.", ctx->module->name, (char *)channelToAdd->ptr);
+
+    return REDISMODULE_OK;
+}
+
+/**
+ * This API unsubscribe(s) the module from the given channel.
+ * 
+ */
+void RM_UnsubscribeFromChannel(RedisModuleCtx *ctx, RedisModuleString *channel, int sharded) {
+    RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(sharded);
+
+    dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, ctx->module);
+    if (de == NULL) {
+        return;
+    }
+
+    RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
+
+    /* No subscription found for module. */
+    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
+        return;
+    }
+
+    listNode *ln = listSearchKey(moduleChannelSubscriber->subscriptions, channel);
+
+    /* module not subscribed to the provided channel. */
+    if (ln == NULL) {
+        return;
+    }
+
+    /* Find and remove the module subscriber to the channel. */
+    removeModuleFromChannelSubscription(ctx->module, ln->value, pubSubMeta);
+    listDelNode(moduleChannelSubscriber->subscriptions, ln);
+    if (listLength(moduleChannelSubscriber->subscriptions) == 0) {
+        cleanupModuleChannelSubscriber(ctx->module, moduleChannelSubscriber, pubSubMeta);
+    }
+    serverLog(LL_DEBUG,"Module %s unsubscribed from channel %s.", ctx->module->name, (char *)channel->ptr);
+}
+
+void RM_SubscribeToAllChannels(RedisModuleCtx *ctx, RedisModuleSubscribeFunc callback) {
+    RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(0);
+    dictEntry *de = dictFind(pubSubMeta->moduleChannelSubscribers, ctx->module);
+    RedisModuleChannelSubscriber *moduleChannelSubscriber;
+    if (de) {
+        moduleChannelSubscriber = dictGetVal(de);
+        if (!moduleChannelSubscriber->all_channels) {
+            moduleUnsubscribeAllChannels(ctx->module, pubSubMeta);
+        }
+    }
+    moduleChannelSubscriber = zmalloc(sizeof(*moduleChannelSubscriber));
+    moduleChannelSubscriber->subscribe_callback = callback;
+    moduleChannelSubscriber->all_channels = 1;
+    moduleChannelSubscriber->subscriptions = NULL;
+    dictAdd(pubSubMeta->moduleChannelSubscribers, ctx->module, moduleChannelSubscriber);
+}
+
+void RM_UnsubscribeFromAllChannels(RedisModuleCtx *ctx) {
+    moduleUnsubscribeAllChannels(ctx->module, getPubSubMeta(0));
+}
+
+/**
+ * Invoke the callback of each module subscribed to the channel and provide the message.
+ * 
+ * @param channel 
+ * @param message 
+ */
+void moduleSendMessageSubscriber(robj *channel, robj *message, int sharded) {
+    RedisModulePubSubMeta *pubSubMeta = getPubSubMeta(sharded);
+
+    /* Invoke callback where a module is subscribed to all channels */
+    if (sharded == 0) {
+        dictIterator *di = dictGetIterator(pubSubMeta->moduleChannelSubscribers);
+        dictEntry *de;
+        while ((de = dictNext(di)) != NULL) {
+            RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
+            if (moduleChannelSubscriber->all_channels) {
+                /* Invoke the callback registered for this module. */
+                RedisModuleCtx ctx;
+                moduleCreateContext(&ctx, dictGetKey(de), REDISMODULE_CTX_TEMP_CLIENT);
+                moduleChannelSubscriber->subscribe_callback(&ctx, channel, message);
+                moduleFreeContext(&ctx);
+            }
+        }
+        dictReleaseIterator(di);
+    }
+
+
+    /* Return if there are no subscribers. */
+    if (dictSize(pubSubMeta->channelModuleSubscribers) == 0) return;
+
+    dictEntry *de;
+    de = dictFind(pubSubMeta->channelModuleSubscribers, channel);
+    if (de == NULL) return;
+
+    list *subscribed_modules = dictGetVal(de);
+    listNode *ln;
+    listIter li;
+
+    listRewind(subscribed_modules, &li);
+    while ((ln = listNext(&li)) != NULL) {
+
+        /* Retrieve the module. */
+        RedisModule *module = listNodeValue(ln);
+
+        /* Retrieve the moduleChannelSubscriber. */
+        de = dictFind(pubSubMeta->moduleChannelSubscribers, module);
+        RedisModuleChannelSubscriber *moduleChannelSubscriber = dictGetVal(de);
+
+        /* Invoke the callback registered for this module. */
+        RedisModuleCtx ctx;
+        moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
+        moduleChannelSubscriber->subscribe_callback(&ctx, channel, message);
+        moduleFreeContext(&ctx);
+    }
+}
+
+
 /* Return the currently selected DB. */
 int RM_GetSelectedDb(RedisModuleCtx *ctx) {
     return ctx->client->db->id;
@@ -11768,6 +12042,18 @@ int dictCStringKeyCompare(dict *d, const void *key1, const void *key2) {
     return strcmp(key1,key2) == 0;
 }
 
+uint64_t dictEncModuleObjectHash(const void *key) {
+    RedisModule *module = (RedisModule *) key;
+    return dictGenHashFunction((unsigned char*)module->name, strlen((char*)module->name));
+}
+
+int dictModuleObjectKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    RedisModule *o1 = (RedisModule *)key1;
+    RedisModule *o2 = (RedisModule *)key2;
+    return strcmp(o1->name,o2->name) == 0;
+}
+
 dictType moduleAPIDictType = {
     dictCStringKeyHash,        /* hash function */
     NULL,                      /* key dup */
@@ -11806,6 +12092,24 @@ dictType sdsKeyValueHashDictType = {
     NULL                        /* allow to expand */
 };
 
+uint64_t dictModuleObjHash(const void *key) {
+    const RedisModule *o = key;
+    return dictGenHashFunction(o->name, sdslen((sds)o->name));
+}
+
+/* Generic hash table type where keys are Redis Module Objects, values
+ * are list of channel name (sds). */
+dictType moduleObjectKeyDictType = {
+        dictModuleObjHash,         /* hash function */
+        NULL,                      /* key dup */
+        NULL,                      /* val dup */
+        NULL,                      /* key compare */
+        NULL,                      /* key destructor */
+        NULL,                      /* val destructor */
+        NULL                       /* allow to expand */
+};
+
+
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
@@ -11817,6 +12121,14 @@ void moduleInitModulesSystem(void) {
     moduleKeyspaceSubscribers = listCreate();
 
     modulePostExecUnitJobs = listCreate();
+
+    channelMeta = zmalloc(sizeof(struct RedisModulePubSubMeta));
+    channelMeta->channelModuleSubscribers = dictCreate(&keylistDictType);
+    channelMeta->moduleChannelSubscribers = dictCreate(&moduleObjectKeyDictType);
+
+    shardchannelMeta = zmalloc(sizeof(struct RedisModulePubSubMeta));
+    shardchannelMeta->channelModuleSubscribers = dictCreate(&keylistDictType);
+    shardchannelMeta->moduleChannelSubscribers = dictCreate(&moduleObjectKeyDictType);
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
@@ -12226,6 +12538,8 @@ int moduleUnload(sds name, const char **errmsg) {
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
     moduleUnsubscribeAllServerEvents(module);
+    moduleUnsubscribeAllChannels(module, channelMeta);
+    moduleUnsubscribeAllChannels(module, shardchannelMeta);
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {
@@ -13741,6 +14055,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetClientNameById);
     REGISTER_API(PublishMessage);
     REGISTER_API(PublishMessageShard);
+    REGISTER_API(SubscribeToChannel);
+    REGISTER_API(SubscribeToAllChannels);
+    REGISTER_API(UnsubscribeFromChannel);
+    REGISTER_API(UnsubscribeFromAllChannels);
     REGISTER_API(SubscribeToServerEvent);
     REGISTER_API(SetLRU);
     REGISTER_API(GetLRU);

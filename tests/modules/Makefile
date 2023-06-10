@@ -62,7 +62,8 @@ TEST_MODULES = \
     usercall.so \
     postnotifications.so \
     moduleauthtwo.so \
-    rdbloadsave.so
+    rdbloadsave.so \
+	subscribe_channel.so
 
 .PHONY: all
 
