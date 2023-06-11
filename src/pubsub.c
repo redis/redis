@@ -456,6 +456,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
             robj *pattern = dictGetKey(de);
             count += pubsubUnsubscribePattern(c, pattern, notify);
         }
+        dictReleaseIterator(di);
     }
 
     /* We were subscribed to nothing? Still reply to the client. */
