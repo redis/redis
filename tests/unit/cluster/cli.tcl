@@ -81,15 +81,15 @@ start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1_rd [redis_deferring_client 0]
 
-    test "use previous hostip at \"cluster-preferred-endpoint-type unknown-endpoint\" mode" {
+    test "use previous hostip in \"cluster-preferred-endpoint-type unknown-endpoint\" mode" {
         
-        # save and set cluster-preferred-endpoint-type unknown-endpoint
+        # backup and set cluster-preferred-endpoint-type unknown-endpoint
         $node1_rd CONFIG GET cluster-preferred-endpoint-type
         set endpoint_type_before_set [lindex [split [$node1_rd read] " "] 1]
         $node1_rd CONFIG SET cluster-preferred-endpoint-type unknown-endpoint
         $node1_rd read
 
-        # when not in cluster mode, returns MOVE with empty host
+        # when redis-cli not in cluster mode, return MOVE with empty host
         set slot_for_foo [exec src/redis-cli -c -p [srv 0 port] CLUSTER KEYSLOT foo]
         set set_foo_bar_result "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] set foo bar]"
         assert_match "MOVED $slot_for_foo :*" $set_foo_bar_result
