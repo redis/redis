@@ -32,6 +32,10 @@ start_server {tags {"introspection"}} {
         assert_error "ERR No such user*" {r client kill user wrong_user}
 
         assert_error "ERR syntax error*" {r client kill skipme yes_or_no}
+
+        assert_error "ERR *not an integer or out of range*" {r client kill age str}
+        assert_error "ERR *not an integer or out of range*" {r client kill age 9999999999999999999}
+        assert_error "ERR *greater than 0*" {r client kill age -1}
     }
 
     test {CLIENT KILL SKIPME YES/NO will kill all clients} {
@@ -60,6 +64,26 @@ start_server {tags {"introspection"}} {
         $rd3 close
         $rd4 close
     }
+
+tags {"needs:debug"} {
+    test {CLIENT KILL AGE will kill old clients} {
+            set rd1 [redis_deferring_client]
+            r debug sleep 2
+            set rd2 [redis_deferring_client]
+            set connected_clients [s connected_clients]
+            assert {$connected_clients >= 3}
+            # Should kill everything except r and rd2
+            set res [r client kill age 1]
+            assert {$res == $connected_clients - 2}
+
+            # rd2 should still be connected
+            $rd2 ping
+            assert_equal "PONG" [$rd2 read]
+
+            $rd1 close
+            $rd2 close
+        }
+} ;# tag
 
     test "CLIENT KILL close the client connection during bgsave" {
         # Start a slow bgsave, trigger an active fork.

@@ -27,6 +27,10 @@
             [
                 "6.2.0",
                 "`LADDR` option."
+            ],
+            [
+                "8.0.0",
+                "`AGE` option."
             ]
         ],
         "command_flags": [
@@ -136,6 +140,13 @@
                                         "token": "NO"
                                     }
                                 ]
+                            },
+                            {
+                                "token": "AGE",
+                                "name": "client-age",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "8.0.0"
                             }
                         ]
                     }
