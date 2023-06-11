@@ -1922,23 +1922,22 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         kill = 0;
 
         if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
-            /* Check for pattern violations. */
-            listRewind(c->pubsub_patterns,&lpi);
-            while (!kill && ((lpn = listNext(&lpi)) != NULL)) {
-
-                o = lpn->value;
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            /* Check for channel violations. */
             if (!kill) {
                 /* Check for global channels violation. */
                 dictIterator *di = dictGetIterator(c->pubsub_channels);
-
                 dictEntry *de;                
                 while (!kill && ((de = dictNext(di)) != NULL)) {
                     o = dictGetKey(de);
                     int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+                    kill = (res == ACL_DENIED_CHANNEL);
+                }
+                dictReleaseIterator(di);
+
+                /* Check for pattern violations. */
+                di = dictGetIterator(c->pubsub_patterns);
+                while (!kill && ((de = dictNext(di)) != NULL)) {
+                    o = dictGetKey(de);
+                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
                     kill = (res == ACL_DENIED_CHANNEL);
                 }
                 dictReleaseIterator(di);
@@ -1950,7 +1949,6 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
                     int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
                     kill = (res == ACL_DENIED_CHANNEL);
                 }
-
                 dictReleaseIterator(di);
             }
 
