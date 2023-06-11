@@ -2112,10 +2112,6 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
         return C_ERR; 
     }
 
-    /* Try to apply the user rules in a fake user to see if they
-     * are actually valid. */
-    user *fakeuser = ACLCreateUnlinkedUser();
-
     /* Merged selectors before trying to process */
     int merged_argc;
     sds *acl_args = ACLMergeSelectorArguments(argv + 2, argc - 2, &merged_argc, argc_err);
@@ -2123,6 +2119,10 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
     if (!acl_args) {
         return C_ERR;
     }
+
+    /* Try to apply the user rules in a fake user to see if they
+     * are actually valid. */
+    user *fakeuser = ACLCreateUnlinkedUser();
 
     for (int j = 0; j < merged_argc; j++) {
         if (ACLSetUser(fakeuser,acl_args[j],sdslen(acl_args[j])) == C_ERR) {
