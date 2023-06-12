@@ -8614,8 +8614,13 @@ void firePostExecutionUnitJobs(void) {
  * infinite loops by halting the execution could result in violation of the feature correctness
  * and so Redis will make no attempt to protect the module from infinite loops.
  *
- * 'free_pd' can be NULL and in such case will not be used. */
+ * 'free_pd' can be NULL and in such case will not be used.
+ *
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) */
 int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+    if (server.loading) {
+        return REDISMODULE_ERR;
+    }
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
