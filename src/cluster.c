@@ -31,6 +31,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "endianconv.h"
+#include "connection.h"
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -100,21 +101,20 @@ sds auxTlsPortGetter(clusterNode *n, sds s);
 int auxTlsPortPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 
-/* Inline functions for convenience. */
-inline int getNodeDefaultClientPort(clusterNode *n) {
+int getNodeDefaultClientPort(clusterNode *n) {
     return server.tls_cluster ? n->tls_port : n->tcp_port;
 }
+
 static inline int getNodeDefaultReplicationPort(clusterNode *n) {
     return server.tls_replication ? n->tls_port : n->tcp_port;
 }
+
 static inline int getNodeClientPort(clusterNode *n, int use_tls) {
     return use_tls ? n->tls_port : n->tcp_port;
 }
+
 static inline int defaultClientPort(void) {
     return server.tls_cluster ? server.tls_port : server.port;
-}
-static inline int isTLSClient(client *c) {
-    return c->conn && c->conn->type == connectionTypeTls();
 }
 
 /* Links to the next and previous entries for keys in the same slot are stored
@@ -199,7 +199,6 @@ typedef struct {
 typedef enum {
     af_shard_id,
     af_human_nodename,
-    af_shard_id,
     af_tcp_port,
     af_tls_port,
     af_count,
@@ -2005,7 +2004,7 @@ int clusterHandshakeInProgress(char *ip, int port, int cport) {
 
         if (!nodeInHandshake(node)) continue;
         if (!strcasecmp(node->ip,ip) &&
-            (node->tcp_port == port || node->tls_port == port) &&
+            getNodeDefaultClientPort(node) == port &&
             node->cport == cport) break;
     }
     dictReleaseIterator(di);
@@ -2178,7 +2177,8 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
                 (strcasecmp(node->ip,g->ip) ||
-                 getNodeDefaultClientPort(node) != ntohs(g->port) ||
+                 node->tls_port != (server.tls_cluster ? ntohs(g->port) : ntohs(g->pport)) ||
+                 node->tcp_port != (server.tls_cluster ? ntohs(g->pport) : ntohs(g->port)) ||
                  node->cport != ntohs(g->cport)))
             {
                 if (node->link) freeClusterLink(node->link);
@@ -5545,7 +5545,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     }
 
     /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-    addReplyLongLong(c, getNodeClientPort(node, isTLSClient(c)));
+    addReplyLongLong(c, getNodeClientPort(node, connIsTLS(c->conn)));
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
@@ -5921,7 +5921,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-        sds nodes = clusterGenNodesDescription(c, 0, isTLSClient(c));
+        sds nodes = clusterGenNodesDescription(c, 0, connIsTLS(c->conn));
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -6286,7 +6286,7 @@ NULL
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
-            sds ni = clusterGenNodeDescription(c, n->slaves[j], isTLSClient(c));
+            sds ni = clusterGenNodeDescription(c, n->slaves[j], connIsTLS(c->conn));
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
@@ -7412,7 +7412,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
                error_code == CLUSTER_REDIR_ASK)
     {
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-        int port = getNodeClientPort(n, isTLSClient(c));
+        int port = getNodeClientPort(n, connIsTLS(c->conn));
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",

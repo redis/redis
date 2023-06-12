@@ -65,7 +65,7 @@ test "Cluster nodes return port according to connection type" {
     } else {
         set cluster_client [redis_cluster 127.0.0.1:$pport 1]
     }
-    set nodes [$cluster_client cluster slots]
+    set nodes [$cluster_client cluster nodes]
     set port2 [get_port_form_node_info [lindex [split $nodes "\r\n"] 0]]
     $cluster_client close
     assert_not_equal $port1 $port2
