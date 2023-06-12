@@ -4296,31 +4296,27 @@ int stopThreadedIOIfNeeded(void) {
  * It returns C_OK when the update is successful, otherwise it returns
  * C_ERR when trying to decrease the number of threads. */
 int updateThreadedIO(void) {
-    int current_threads = 0;
-
-    for (int i = 1; i <= IO_THREADS_MAX_NUM && io_threads[i]; i++) {
-        current_threads++;
-
-        /* Return ASAP when trying to decrease the number of threads */
-        if (current_threads > server.io_threads_num - 1) return C_ERR;
-    }
+    /* Return when trying to decrease the number of threads */
+    if (server.io_threads_num > server.config_io_threads_num) return C_ERR;
 
     /* Create the list of clients for the main thread if not created already */
     if (!io_threads_list[0]) io_threads_list[0] = listCreate();
 
     /* Create new threads */
-    for (int i = current_threads + 1; i < server.io_threads_num; i++) {
+    for (int i = server.io_threads_num; i < server.config_io_threads_num; i++) {
         io_threads_list[i] = listCreate();
         pthread_t tid;
         pthread_mutex_init(&io_threads_mutex[i], NULL);
         setIOPendingCount(i, 0);
-        pthread_mutex_lock(&io_threads_mutex[i]);
+        if (!server.io_threads_active)
+            pthread_mutex_lock(&io_threads_mutex[i]);
         if (pthread_create(&tid, NULL, IOThreadMain, (void*)(long)i) != 0) {
             serverLog(LL_WARNING, "Fatal: Can't initialize IO thread.");
             exit(1);
         }
         io_threads[i] = tid;
     }
+    server.io_threads_num = server.config_io_threads_num;
     return C_OK;
 }
 
