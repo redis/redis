@@ -599,6 +599,29 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
+# Execute a background process doing xadd for the specified number.
+proc start_bg_xadd {host port db ops} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_xadd.tcl $host $port $db $ops $::tls &
+}
+
+# Stop a process executed with start_bg_xadd.
+proc stop_bg_xadd {handle} {
+    catch {exec /bin/kill -9 $handle}
+}
+
+# Execute a background process doing xreadgroup block for the specified number.
+proc start_bg_block_xreadgroup {host port db ops} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_block_xreadgroup.tcl $host $port $db $ops $::tls &
+}
+
+# Stop a process executed with start_bg_block_xreadgroup.
+proc stop_bg_block_xreadgroup {handle} {
+    catch {exec /bin/kill -9 $handle}
+}
+
+
 # Write num keys with the given key prefix and value size (in bytes). If idx is
 # given, it's the index (AKA level) used with the srv procedure and it specifies
 # to which Redis instance to write the keys.
