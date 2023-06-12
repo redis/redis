@@ -8616,9 +8616,10 @@ void firePostExecutionUnitJobs(void) {
  *
  * 'free_pd' can be NULL and in such case will not be used.
  *
- * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) */
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) or
+ * if the instance is a readonly replica. */
 int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
-    if (server.loading) {
+    if (server.loading|| (server.masterhost && server.repl_slave_ro)) {
         return REDISMODULE_ERR;
     }
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
