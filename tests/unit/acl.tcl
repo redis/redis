@@ -1036,6 +1036,17 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         r ACL deluser harry
         set e
     } {*NOPERM*channel*}
+
+    test "ACL restriction on composite notification channel" {
+        reconnect
+        r AUTH alice alice
+        r ACL setuser subread on nopass resetchannels &__keynotification@*__:get:* +psubscribe ~*
+        r config set notification-event-type composite
+        r config set notify-keyspace-events A
+        r AUTH subread anything
+        assert_error {*NOPERM*channel*} {r psubscribe __keynotification@9__:*}
+        r psubscribe __keynotification@*__:get:*
+    }
 }
 
 set server_path [tmpdir "resetchannels.acl"]

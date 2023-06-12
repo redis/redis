@@ -460,6 +460,11 @@ typedef enum {
                              * PSYNC FAILOVER request. */
 } failover_state;
 
+typedef enum {
+    NOTIFICATION_TYPE_CLASSIC = 0,
+    NOTIFICATION_TYPE_COMPOSITE
+} notificationType;
+
 /* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE states instead the server is waiting
@@ -1962,6 +1967,7 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
+    int notification_event_type; /* Event notification on channel type i.e. classic/composite type. */
     dict *pubsubshard_channels;  /* Map shard channels to list of subscribed clients */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */

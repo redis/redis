@@ -451,4 +451,71 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyevent@${db}__:new bar" [$rd1 read]
         $rd1 close
     }
+
+    test "Keyspace notifications composite/classic type" {
+        r config set notify-keyspace-events KEA
+        r config set notification-event-type composite
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r set foo bar
+
+        assert_equal "pmessage * __keynotification@${db}__:set:foo set:foo" [$rd1 read]
+
+        # Switch back to classic type
+        r config set notification-event-type classic
+        r set foo bar
+        assert_equal "pmessage * __keyspace@${db}__:foo set" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set foo" [$rd1 read]
+        $rd1 close
+    }
+
+    test "No affect of KA flag in notify-keyspace-events for composite type" {
+        r config set notify-keyspace-events A
+        r config set notification-event-type composite
+
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r set foo bar
+        assert_equal "pmessage * __keynotification@${db}__:set:foo set:foo" [$rd1 read]
+
+        r config set notify-keyspace-events EA
+        r set foo bar
+        assert_equal "pmessage * __keynotification@${db}__:set:foo set:foo" [$rd1 read]
+
+        r config set notify-keyspace-events KA
+        r set foo bar
+        assert_equal "pmessage * __keynotification@${db}__:set:foo set:foo" [$rd1 read]
+        $rd1 close
+    }
+
+    test "Validate notify-keyspace-events flags for composite notification type" {
+        r config set notification-event-type composite
+        r config set notify-keyspace-events A
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        # ZSET events
+        r zadd myzset 1 a 2 b
+        assert_equal "pmessage * __keynotification@${db}__:zadd:myzset zadd:myzset" [$rd1 read]
+
+        # Hash events
+        r hmset myhash yes 1 no 0
+        r hincrby myhash yes 10
+        assert_equal "pmessage * __keynotification@${db}__:hset:myhash hset:myhash" [$rd1 read]
+        assert_equal "pmessage * __keynotification@${db}__:hincrby:myhash hincrby:myhash" [$rd1 read]
+
+        # Stream events
+        r xgroup create mystream mygroup $ mkstream
+        r xgroup createconsumer mystream mygroup charles
+        set id [r xadd mystream 1 field1 A]
+        r xreadgroup group mygroup charles STREAMS mystream >
+        r xgroup delconsumer mystream mygroup charles
+
+        assert_equal "pmessage * __keynotification@${db}__:xgroup-create:mystream xgroup-create:mystream" [$rd1 read]
+        assert_equal "pmessage * __keynotification@${db}__:xgroup-createconsumer:mystream xgroup-createconsumer:mystream" [$rd1 read]
+        assert_equal "pmessage * __keynotification@${db}__:xadd:mystream xadd:mystream" [$rd1 read]
+        assert_equal "pmessage * __keynotification@${db}__:xgroup-delconsumer:mystream xgroup-delconsumer:mystream" [$rd1 read]
+
+        $rd1 close
+    }
 }
