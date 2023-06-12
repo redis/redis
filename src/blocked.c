@@ -325,7 +325,6 @@ void handleClientsBlockedOnKeys(void) {
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
 
-    /* Avoid loops that constantly access the global server.ready_keys. */
     if (listLength(server.ready_keys) != 0) {
         list *l;
 
@@ -565,8 +564,8 @@ static void handleClientsBlockedOnKey(readyList *rl) {
         listIter li;
         listRewind(clients,&li);
 
-        /* Only do count loops to avoid getting stuck in an endless loop. Because
-         * XREADGROUP with ">" may repeatedly reprocess command and blockForKeys. */
+        /* Avoid processing more than the initial count so that we're not stuck
+         * in an endless loop in case the reprocessing of the command blocks again. */
         long count = listLength(clients);
         while ((ln = listNext(&li)) && count--) {
             client *receiver = listNodeValue(ln);

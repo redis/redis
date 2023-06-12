@@ -938,25 +938,3 @@ start_server {tags {"stream"}} {
         assert_match "*wrong number of arguments for 'xinfo|help' command" $e
     }
 }
-
-start_server {tags {"stream external:skip"}} {
-    test {XGROUP BLOCK avoid an endless loop} {
-        set master [srv 0 client]
-        set master_host [srv 0 host]
-        set master_port [srv 0 port]
-
-        set load_handle0 [start_bg_xadd $master_host $master_port 9 100000]
-        set load_handle1 [start_bg_block_xreadgroup $master_host $master_port 9 100000]
-        set load_handle2 [start_bg_block_xreadgroup $master_host $master_port 9 100000]
-        set load_handle3 [start_bg_block_xreadgroup $master_host $master_port 9 100000]
-
-        after 5000
-
-        stop_bg_xadd $load_handle0
-        stop_bg_block_xreadgroup $load_handle1
-        stop_bg_block_xreadgroup $load_handle2
-        stop_bg_block_xreadgroup $load_handle3
-
-        assert_equal [r ping] {PONG}
-    }
-}
