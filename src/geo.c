@@ -490,7 +490,7 @@ void geoaddCommand(client *c) {
         GeoHashBits hash;
         geohashEncodeWGS84(xy[0], xy[1], GEO_STEP_MAX, &hash);
         GeoHashFix52Bits bits = geohashAlign52Bits(hash);
-        robj *score = createObject(OBJ_STRING, sdsfromlonglong(bits));
+        robj *score = createll2StringObject(bits);
         robj *val = c->argv[longidx + i * 3 + 2];
         argv[longidx+i*2] = score;
         argv[longidx+1+i*2] = val;
