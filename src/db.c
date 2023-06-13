@@ -814,7 +814,7 @@ void keysCommand(client *c) {
 typedef struct {
     list *keys;   /* elements that collect from dict */
     robj *o;      /* o must be a hash/set/zset object, NULL means current db */
-    sds typename; /* the particular type when scan the db */
+    long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
     long sampled; /* cumulative number of keys sampled */
 } scanData;
@@ -825,11 +825,22 @@ void scanCallback(void *privdata, const dictEntry *de) {
     scanData *data = (scanData *)privdata;
     list *keys = data->keys;
     robj *o = data->o;
-    robj *val = NULL;
+    sds val = NULL;
     data->sampled++;
 
     /* o and typename can not have values at the same time. */
-    serverAssert(!(data->typename && o));
+    serverAssert(!((data->type != LLONG_MAX) && o));
+
+    /* Filter an element if it isn't the type we want. */
+    if (!o && data->type != LLONG_MAX) {
+        robj *rval = dictGetVal(de);
+        if (rval->type != OBJ_MODULE) {
+            if (data->type != rval->type) return;
+        } else {
+            long long mt = (long long)REDISMODULE_TYPE_SIGN(((moduleValue *)rval->ptr)->type->id);
+            if (data->type != -mt) return;
+        }
+    }
 
     /* Filter element if it does not match the pattern. */
     sds keysds = dictGetKey(de);
@@ -840,24 +851,21 @@ void scanCallback(void *privdata, const dictEntry *de) {
     }
 
     if (o == NULL) {
-        robj *val = dictGetVal(de);
-        /* Filter an element if it isn't the type we want. */
-        if (data->typename) {
-            char *type = getObjectTypeName(val);
-            if (strcasecmp((char *)data->typename, type)) return;
-        }
+        listAddNodeTail(keys, createStringObject(keysds, sdslen(keysds)));
+        return;
     } else if (o->type == OBJ_SET) {
         /* Do nothing. */
     } else if (o->type == OBJ_HASH) {
-        sds valsds = dictGetVal(de);
-        val = createStringObject(valsds, sdslen(valsds));
+        val = sdsdup(dictGetVal(de));
     } else if (o->type == OBJ_ZSET) {
-        val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
+        char buf[MAX_LONG_DOUBLE_CHARS];
+        int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);
+        val = sdsnewlen(buf, len);
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
 
-    listAddNodeTail(keys, createStringObject(keysds, sdslen(keysds)));
+    listAddNodeTail(keys, sdsdup(keysds));
     if (val) listAddNodeTail(keys, val);
 }
 
@@ -880,6 +888,46 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
     return C_OK;
 }
 
+char *obj_type_name[OBJ_TYPE_MAX] = {
+    "string", 
+    "list", 
+    "set", 
+    "zset", 
+    "hash", 
+    "", /* module type is special */
+    "stream"
+};
+
+long long getObjectTypeByName(char *name) {
+    for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
+        if (!strcasecmp(name, obj_type_name[i])) {
+            return i;
+        }
+    }
+
+    moduleType *mt = moduleTypeLookupModuleByName(name);
+    if (mt != NULL) return -(REDISMODULE_TYPE_SIGN(mt->id));
+
+    return LLONG_MAX;
+}
+
+char *getObjectTypeName(robj *o) {
+    if (o == NULL) {
+        return "none";
+    }
+
+    if (o->type == OBJ_MODULE) {
+        moduleValue *mv = o->ptr;
+        return mv->type->name;
+    }
+
+    if (o->type < 0 || o->type > OBJ_TYPE_MAX) {
+        return "unkown";
+    } else {
+        return obj_type_name[o->type];
+    }
+}
+
 /* This command implements SCAN, HSCAN and SSCAN commands.
  * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
@@ -896,7 +944,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     listNode *node;
     long count = 10;
     sds pat = NULL;
-    sds typename = NULL;
+    long long type = LLONG_MAX;
     int patlen = 0, use_pattern = 0;
     dict *ht;
 
@@ -935,7 +983,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
             /* SCAN for a particular type only applies to the db dict */
-            typename = c->argv[i+1]->ptr;
+            sds typename = c->argv[i + 1]->ptr;
+            if (sdslen(typename) == 0) {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return;
+            }
+            type = getObjectTypeByName(typename);
+            if (type == LLONG_MAX) {
+                addReplyErrorFormat(c, "unknown type name '%s'", typename);
+                return;
+            }
             i+= 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -965,7 +1022,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     list *keys = listCreate();
-    listSetFreeMethod(keys, decrRefCountVoid);
+    if (!o) {
+        listSetFreeMethod(keys, decrRefCountVoid);
+    }
 
     if (ht) {
         /* We set the max number of iterations to ten times the specified
@@ -978,7 +1037,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * 1. data.keys: the list to which it will add new elements;
          * 2. data.o: the object containing the dictionary so that
          * it is possible to fetch more data in a type-dependent way;
-         * 3. data.typename: the specified type scan in the db;
+         * 3. data.type: the specified type scan in the db, LLONG_MAX means
+         * type matching is no needed;
          * 4. data.pattern: the pattern string
          * 5. data.sampled: the maxiteration limit is there in case we're
          * working on an empty dict, one with a lot of empty buckets, and
@@ -987,7 +1047,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         scanData data = {
             .keys = keys,
             .o = o,
-            .typename = typename,
+            .type = type,
             .pattern = use_pattern ? pat : NULL,
             .sampled = 0,
         };
@@ -1008,7 +1068,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             if (use_pattern && !stringmatchlen(pat, sdslen(pat), key, len, 0)) {
                 continue;
             }
-            listAddNodeTail(keys, createStringObject(key, len));
+            listAddNodeTail(keys, sdsnewlen(key, len));
         }
         setTypeReleaseIterator(si);
         cursor = 0;
@@ -1030,10 +1090,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
                 continue;
             }
             /* add key object */
-            listAddNodeTail(keys, createStringObject((char *)str, len));
+            listAddNodeTail(keys, sdsnewlen(str, len));
             /* add value object */
             str = lpGet(p, &len, intbuf);
-            listAddNodeTail(keys, createStringObject((char *)str, len));
+            listAddNodeTail(keys, sdsnewlen(str, len));
             p = lpNext(o->ptr, p);
         }
         cursor = 0;
@@ -1061,8 +1121,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
-        robj *kobj = listNodeValue(node);
-        addReplyBulk(c, kobj);
+        if (o == NULL) {
+            addReplyBulk(c, listNodeValue(node));
+        } else {
+            addReplyBulkSds(c, listNodeValue(node));
+        }
         listDelNode(keys, node);
     }
 
@@ -1082,28 +1145,6 @@ void dbsizeCommand(client *c) {
 
 void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
-}
-
-char* getObjectTypeName(robj *o) {
-    char* type;
-    if (o == NULL) {
-        type = "none";
-    } else {
-        switch(o->type) {
-        case OBJ_STRING: type = "string"; break;
-        case OBJ_LIST: type = "list"; break;
-        case OBJ_SET: type = "set"; break;
-        case OBJ_ZSET: type = "zset"; break;
-        case OBJ_HASH: type = "hash"; break;
-        case OBJ_STREAM: type = "stream"; break;
-        case OBJ_MODULE: {
-            moduleValue *mv = o->ptr;
-            type = mv->type->name;
-        }; break;
-        default: type = "unknown"; break;
-        }
-    }
-    return type;
 }
 
 void typeCommand(client *c) {

@@ -97,6 +97,11 @@ start_server {tags {"scan network"}} {
 
         assert_equal 1000 [llength $keys]
     }
+
+    test "SCAN unkown type" {
+        assert_error "*unknown type name*" {r scan 0 type "string1"}
+    }
+
     test "SCAN with expired keys" {
         r flushdb
         #make sure that passive expiration is triggered by the scan

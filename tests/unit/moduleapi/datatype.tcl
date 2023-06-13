@@ -89,4 +89,20 @@ start_server {tags {"modules"}} {
         $rd read
         $rd close
     }
+    test "SCAN module datatype" {
+        r flushdb
+        r datatype.set foo 111 bar
+        set type [r type foo]
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type $type]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1 [llength $keys]    
+    }
 }
