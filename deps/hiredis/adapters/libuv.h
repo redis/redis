@@ -30,6 +30,10 @@ static void redisLibuvPoll(uv_poll_t* handle, int status, int events) {
 static void redisLibuvAddRead(void *privdata) {
     redisLibuvEvents* p = (redisLibuvEvents*)privdata;
 
+    if (p->events & UV_READABLE) {
+        return;
+    }
+
     p->events |= UV_READABLE;
 
     uv_poll_start(&p->handle, p->events, redisLibuvPoll);
@@ -51,6 +55,10 @@ static void redisLibuvDelRead(void *privdata) {
 
 static void redisLibuvAddWrite(void *privdata) {
     redisLibuvEvents* p = (redisLibuvEvents*)privdata;
+
+    if (p->events & UV_WRITABLE) {
+        return;
+    }
 
     p->events |= UV_WRITABLE;
 

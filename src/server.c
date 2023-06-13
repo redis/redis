@@ -3714,9 +3714,11 @@ void call(client *c, int flags) {
  * various pre-execution checks. it returns the appropriate error to the client.
  * If there's a transaction is flags it as dirty, and if the command is EXEC,
  * it aborts the transaction.
+ * The duration is reset, since we reject the command, and it did not record.
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
+    c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
@@ -3728,6 +3730,7 @@ void rejectCommand(client *c, robj *reply) {
 
 void rejectCommandSds(client *c, sds s) {
     flagTransaction(c);
+    c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);

@@ -323,6 +323,23 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
+    test {blocked command gets rejected when reprocessed after permission change} {
+        r auth default ""
+        r config resetstat
+        set rd [redis_deferring_client]
+        r ACL setuser psuser reset on nopass +@all allkeys
+        $rd AUTH psuser pspass
+        $rd read
+        $rd BLPOP list1 0
+        wait_for_blocked_client
+        r ACL setuser psuser resetkeys
+        r LPUSH list1 foo
+        assert_error {*NOPERM No permissions to access a key*} {$rd read}
+        $rd ping
+        $rd close
+        assert_match {*calls=0,usec=0,*,rejected_calls=1,failed_calls=0} [cmdrstat blpop r]
+    }
+
     test {Users can be configured to authenticate with any password} {
         r ACL setuser newuser nopass
         r AUTH newuser zipzapblabla

@@ -48,6 +48,17 @@ test "Continuous slots distribution" {
     assert_match "*13105 13500*14001 15000*16001 16383*" [$master5 CLUSTER SLOTS]
 }
 
+test "ADDSLOTS command with several boundary conditions test suite" {
+    assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTS 3001 aaa}
+    assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTS 3001 -1000}
+    assert_error "ERR Invalid or out of range slot" {R 0 cluster ADDSLOTS 3001 30003}
+    
+    assert_error "ERR Slot 3200 is already busy" {R 0 cluster ADDSLOTS 3200}
+    assert_error "ERR Slot 8501 is already busy" {R 0 cluster ADDSLOTS 8501}
+
+    assert_error "ERR Slot 3001 specified multiple times" {R 0 cluster ADDSLOTS 3001 3002 3001}
+}
+
 test "ADDSLOTSRANGE command with several boundary conditions test suite" {
     # Add multiple slots with incorrect argument number
     assert_error "ERR wrong number of arguments for 'cluster|addslotsrange' command" {R 0 cluster ADDSLOTSRANGE 3001 3020 3030}
