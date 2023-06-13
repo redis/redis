@@ -413,7 +413,7 @@ typedef enum blocking_type {
     BLOCKED_ZSET,    /* BZPOP et al. */
     BLOCKED_POSTPONE, /* Blocked by processCommand, re-try processing later. */
     BLOCKED_SHUTDOWN, /* SHUTDOWN. */
-    BLOCKED_DEALY,    /* Delay by auth failed. */
+    BLOCKED_DEALY,    /* Delay client, e.g. after failed auth. */
     BLOCKED_NUM,      /* Number of blocked states. */
     BLOCKED_END       /* End of enumeration */
 } blocking_type;
@@ -2053,8 +2053,8 @@ struct redisServer {
     /* Local environment */
     char *locale_collate;
     /* Auth control */
-    int auth_threshold;
-    int auth_delay;
+    int auth_fail_threshold;
+    int auth_fail_delay;
 };
 
 #define MAX_KEYS_BUFFER 256

@@ -3184,10 +3184,10 @@ void authCommand(client *c) {
         addReply(c, shared.ok);
     } else if (result == AUTH_ERR) {
         addAuthErrReply(c, err);
-        if (server.auth_threshold > 0) {
-            if (auth_fail == server.auth_threshold) {
+        if (server.auth_fail_threshold > 0) {
+            if (auth_fail == server.auth_fail_threshold) {
                 serverLog(LL_WARNING, "Too many auth failures, maybe under attacked from %s.", getClientPeerId(c));
-                blockClientDelay(c, commandTimeSnapshot() + server.auth_delay * 1000);
+                blockClientDelay(c, commandTimeSnapshot() + server.auth_fail_delay * 1000);
                 auth_fail = 1;
             } else {
                 auth_fail++;
