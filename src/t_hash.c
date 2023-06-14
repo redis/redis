@@ -223,6 +223,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 
                 /* Replace value */
                 zl = lpReplace(zl, &vptr, (unsigned char*)value, sdslen(value));
+                o->ptr = zl;
             }
         }
 
@@ -230,12 +231,12 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
             /* Push new field/value pair onto the tail of the listpack */
             zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
             zl = lpAppend(zl, (unsigned char*)value, sdslen(value));
+            o->ptr = zl;
 
             /* Check if the listpack needs to be converted to a hash table */
             if (hashTypeLength(o) > server.hash_max_listpack_entries)
                 hashTypeConvert(o, OBJ_ENCODING_HT);
         }
-        o->ptr = zl;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dict *ht = o->ptr;
         dictEntry *de, *existing;
