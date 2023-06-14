@@ -6028,7 +6028,7 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
 /* Returns an object that provides a client that can be attached to a
  * RedisModuleContet object to provide a persistent client usage
  * between multiple RM_Calls.  This simulates a network connected
- * client and enables modules to use WATCH/MULTI/Exec transaction
+ * client and enables modules to use WATCH/MULTI/EXEC transaction
  */
 RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
     UNUSED(ctx);
