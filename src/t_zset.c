@@ -1758,6 +1758,12 @@ void zaddGenericCommand(client *c, int flags) {
     elements /= 2; /* Now this holds the number of score-element pairs. */
 
     /* Check for incompatible options. */
+    if(ch && incr){
+        addReplyError(c,
+            "CH and INCR options at the same time are not compatible");
+        return;
+    }
+
     if (nx && xx) {
         addReplyError(c,
             "XX and NX options at the same time are not compatible");

@@ -250,6 +250,12 @@ start_server {tags {"zset"}} {
             set err
         } {ERR*}
 
+        test "ZADD CH and INCR are not compatible - $encoding" {
+            r del ztmp
+            catch {r zadd ztmp CH INCR 10 x} err
+            set err
+        } {ERR*}
+
         test "ZADD INCR LT/GT replies with nill if score not updated - $encoding" {
             r del ztmp
             r zadd ztmp 28 x
