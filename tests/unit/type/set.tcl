@@ -998,7 +998,7 @@ foreach type {single multiple single_multiple} {
                     break
                 }
             }
-            if {$enough} {
+            if {$enough || $cursor == 0} {
                 break
             }
         }
