@@ -3721,9 +3721,186 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
     return C_OK;
 }
 
+struct ptrs {
+    void     **arr;
+    unsigned   count;
+};
+
+static int seenPtr (struct ptrs *seen, void *ptr)
+{
+    void **p;
+
+    if (!seen->arr)
+        return 0;
+
+    seen->arr[ seen->count ] = ptr;
+    for (p = seen->arr; *p != ptr; ++p)
+        ;
+    return p < seen->arr + seen->count;
+}
+
+clusterMsgSendBlock *cloneMsgSendBock(clusterMsgSendBlock *msgblock)
+{
+    clusterMsgSendBlock *clone;
+    clone = zmalloc(sizeof(*clone));
+    memcpy(clone, msgblock, sizeof(*clone));
+    return clone;
+}
+
+listNode *findNode(clusterLink *link, clusterMsgSendBlock *msgblock)
+{
+    listNode *node;
+    for (node = listFirst(link->send_msg_queue); node; node = listNextNode(node))
+        if (node->value == msgblock)
+            return node;
+    return NULL;
+}
+
+int isAttachable(clusterLink *link, listNode *node)
+{
+    listNode *first, *last;
+
+    last = listLast(link->send_msg_queue);
+    if (last != node)
+        return 0;
+
+    first = listFirst(link->send_msg_queue);
+    if (first == last && link->head_msg_send_offset)
+        return 0;
+
+    return 1;
+}
+
 /* Returns true if messages could be attached to last message on the queue */
-int clusterAttachToPrevious(clusterLink *link, robj **messages, int count) {
-    return 0;   /* TODO */
+int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
+                                                    int count, struct ptrs *seen)
+{
+    clusterMsgSendBlock *msgblock;
+    clusterMsg *hdr;
+    listNode *first, *last;
+    struct {
+        robj   *obj;
+        size_t  len;
+    } *vec;
+    size_t addl_sz;
+    unsigned char *dst;
+    uint32_t len;
+    struct {
+        uint32_t totlen, channel_len, message_len;
+    } decoded;
+    int i;
+
+    last = listLast(link->send_msg_queue);
+    if (!last)
+        return 0;
+
+    first = listFirst(link->send_msg_queue);
+    if (first == last && link->head_msg_send_offset)
+        return 0;
+
+    msgblock = (clusterMsgSendBlock*)last->value;
+    hdr = &msgblock->msg;
+    if (hdr->type != htons(CLUSTERMSG_TYPE_MPUBLISH))
+        return 0;
+
+    if (seenPtr(seen, msgblock))
+        return 0;
+
+    decoded.totlen = ntohl(hdr->totlen);
+    decoded.channel_len = ntohl(hdr->data.publish.msg.channel_len);
+    decoded.message_len = ntohl(hdr->data.publish.msg.message_len);
+
+    channel = getDecodedObject(channel);
+    const size_t channel_len = sdslen(channel->ptr);
+    const int isSameChannel = decoded.channel_len == channel_len
+         && 0 == memcmp(hdr->data.publish.msg.bulk_data, channel->ptr, channel_len);
+    decrRefCount(channel);
+
+    if (!isSameChannel)
+        return 0;
+
+    /* Find all references to this message on other links and separate
+     * them into those that can be attached to ("OK" refs) and those that
+     * cannot be attached to ("NA," or "not applicable" refs).
+     */
+    const int link_count = msgblock->refcount;
+    listNode *ok_refs[ link_count ],
+             *na_refs[ link_count ];
+    int ok_refs_count = 0, na_refs_count = 0;
+    {
+        dictIterator *di;
+        dictEntry *de;
+        di = dictGetSafeIterator(server.cluster->nodes);
+        while((de = dictNext(di)) != NULL) {
+            clusterNode *cnode = dictGetVal(de);
+            clusterLink *clink = cnode->link;
+            listNode *node;
+            if (!clink)
+                continue;
+            if (clink == link)
+                ok_refs[ ok_refs_count++ ] = last;
+            else if (node = findNode(clink, msgblock), node != NULL)
+            {
+                if (isAttachable(clink, node))
+                    ok_refs[ ok_refs_count++ ] = node;
+                else
+                    na_refs[ na_refs_count++ ] = node;
+            }
+        }
+        dictReleaseIterator(di);
+    }
+    serverAssert(link_count == ok_refs_count + na_refs_count);
+
+    /* Clone the message and point "NA" refs to it. */
+    if (na_refs_count > 0) {
+        clusterMsgSendBlock *na_block = cloneMsgSendBock(msgblock);
+        for (i = 0; i < na_refs_count; ++i)
+            na_refs[i]->value = na_block;
+        na_block->refcount = na_refs_count;
+        msgblock->refcount -= na_refs_count;
+    }
+
+    /* Calculate how much more memory is needed for enlarged message block */
+    addl_sz = 0;
+    vec = zmalloc(sizeof(vec[0]) * count);
+    for (i = 0; i < count; ++i)
+    {
+        vec[i].obj = getDecodedObject(messages[i]);
+        vec[i].len = sdslen(vec[i].obj->ptr);
+        addl_sz += 4 + vec[i].len;
+    }
+
+    /* Modify the message block: attach more messages to it */
+    msgblock = zrealloc(msgblock, msgblock->totlen * 2);
+    hdr = &msgblock->msg;
+    msgblock->totlen                 += addl_sz;
+    hdr->totlen                       = htonl(decoded.totlen + addl_sz);
+    hdr->data.publish.msg.message_len = htonl(decoded.message_len + addl_sz);
+    dst = hdr->data.publish.msg.bulk_data + decoded.channel_len + decoded.message_len;
+    for (i = 0; i < count; ++i)
+    {
+        len = htonl(vec[i].len);
+        memcpy(dst, &len, sizeof(len));
+        dst += sizeof(len);
+        memcpy(dst, vec[i].obj->ptr, vec[i].len);
+        dst += vec[i].len;
+    }
+
+    /* Point references to the new message block */
+    for (i = 0; i < ok_refs_count; ++i)
+        ok_refs[i]->value = msgblock;
+
+    /* Cleanup */
+    for (i = 0; i < count; ++i)
+        decrRefCount(vec[i].obj);
+    zfree(vec);
+
+    /* Record that this message has already been modified */
+    if (!seen->arr)
+        seen->arr = zmalloc(sizeof(seen->arr[0]) * (dictSize(server.cluster->nodes) + 1));
+    seen->arr[ seen->count++ ] = msgblock;
+
+    return 1;
 }
 
 /* All messages must be destined for the same channel */
@@ -3731,6 +3908,7 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
     clusterMsgSendBlock *msgblock;
     dictIterator *di;
     dictEntry *de;
+    struct ptrs seen = { NULL, 0 };
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -3738,7 +3916,8 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
 
         if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
             continue;
-        if (clusterAttachToPrevious(node->link, messages, count))
+        if (node->link && clusterAttachToPrevious(node->link, channel,
+                                                    messages, count, &seen))
             continue;
         msgblock = clusterCreateMPublishMsgBlock(channel, messages,
                                                     count, CLUSTERMSG_TYPE_MPUBLISH);
@@ -3746,6 +3925,8 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
         clusterMsgSendBlockDecrRefCount(msgblock);
     }
     dictReleaseIterator(di);
+    if (seen.arr)
+        zfree(seen.arr);
 }
 
 void clusterPropagatePublishSharded(robj *channel, robj **messages, int count) {
