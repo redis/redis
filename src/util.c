@@ -420,6 +420,17 @@ err:
     return 0;
 }
 
+/* Create an sds string from a long long value. It is much faster than:
+ *
+ * sdscatprintf(sdsempty(),"%lld\n", value);
+ */
+sds sdsfromlonglong(long long value) {
+    char buf[LONG_STR_SIZE];
+    int len = ll2string(buf, sizeof(buf), value);
+
+    return sdsnewlen(buf, len);
+}
+
 /* Convert a string into a long long. Returns 1 if the string could be parsed
  * into a (non-overflowing) long long, 0 otherwise. The value will be set to
  * the parsed value when appropriate.

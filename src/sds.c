@@ -603,17 +603,6 @@ int sdsull2str(char *s, unsigned long long v) {
     return l;
 }
 
-/* Create an sds string from a long long value. It is much faster than:
- *
- * sdscatprintf(sdsempty(),"%lld\n", value);
- */
-sds sdsfromlonglong(long long value) {
-    char buf[SDS_LLSTR_SIZE];
-    int len = sdsll2str(buf,value);
-
-    return sdsnewlen(buf,len);
-}
-
 /* Like sdscatprintf() but gets va_list instead of being variadic. */
 sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     va_list cpy;
