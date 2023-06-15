@@ -1,43 +1,30 @@
-# Check if cluster's view of human announced nodename is consistent
-#Exclude aux fields from "cluster nodes" We may decide to re-introduce them in some form or another in the #future, but not in v7.2
-proc are_nodenames_propagated {match_string} {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        foreach n [get_cluster_nodes $j] {
-            if { ![string match $match_string [dict get $n nodename]] } {
-		    return 0
-	    }
-        }
-    }
-    return 1
-}
-
-# Start a cluster with 3 masters.
+# Check if cluster's view of human announced nodename is reported in logs
 start_cluster 3 0 {tags {external:skip cluster}} {
-    test "Set cluster human announced nodename and verify they are excluded from cluster node" {
+    test "Set cluster human announced nodename and let it propagate" {
         for {set j 0} {$j < [llength $::servers]} {incr j} {
-            R $j config set cluster-announce-human-nodename "nodename-$j.com"
-        }
-        wait_for_condition 50 100 {
-            [are_nodenames_propagated "nodename-*.com"] eq 0
-        } else {
-            fail "cluster human announced nodename were propagated"
+            R $j config set cluster-announce-human-nodename "nodename-$j"
         }
 
-        # Now that everything is propagated, assert everyone agrees
-        wait_for_cluster_propagation
+        # We wait for everyone to agree on the epoch bump, which means everyone
+        # has exchanged messages so they know about the nodenames.
+        R 0 CLUSTER BUMPEPOCH
+        wait_for_condition 1000 50 {
+            [CI 0 cluster_current_epoch] == [CI 1 cluster_current_epoch] &&
+            [CI 0 cluster_current_epoch] == [CI 2 cluster_current_epoch]
+        } else {
+            fail "Cluster did not converge"
+        }
     }
 
-    test "Update human announced nodename and make sure they are excluded from cluster node" {
-        for {set j 0} {$j < [llength $::servers]} {incr j} {
-            R $j config set cluster-announce-human-nodename "nodename-updated-$j.com"
-        }
-        wait_for_condition 50 100 {
-            [are_nodenames_propagated "nodename-updated-*.com"] eq 0
-        } else {
-            fail "cluster human announced nodename were propagated"
-        }
+    test "Human nodenames are visible in log messages" {
+        # Pause instance 0, so everyone thinks it is dead
+        pause_process [srv 0 pid]
 
-        # Now that everything is propagated, assert everyone agrees
-        wait_for_cluster_propagation
+        # We're going to use a message we will know will be sent, node unreachable,
+        # since it includes the other node gossiping.
+        wait_for_log_messages -1 {"*Node * (nodename-2) reported node * (nodename-0) as not reachable*"} 0 10 500
+        wait_for_log_messages -2 {"*Node * (nodename-1) reported node * (nodename-0) as not reachable*"} 0 10 500
+        
+        resume_process [srv 0 pid]
     }
 }

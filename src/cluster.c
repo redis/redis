@@ -2302,7 +2302,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
              sender_slots == migrated_our_slots)) {
         serverLog(LL_NOTICE,
             "Configuration change detected. Reconfiguring myself "
-            "as a replica of %.40s", sender->name);
+            "as a replica of %.40s (%s)", sender->name, sender->human_nodename);
         clusterSetMaster(sender);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
@@ -2318,8 +2318,8 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
          * into a replica if its last slot is removed. If no other node takes
          * over the slot, there is nothing else to trigger replica migration. */
         serverLog(LL_NOTICE,
-                  "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s",
-                  myself->slaveof->slaveof->name);
+                  "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s (%s)",
+                  myself->slaveof->slaveof->name, myself->slaveof->slaveof->human_nodename);
         clusterSetMaster(myself->slaveof->slaveof);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
@@ -2981,8 +2981,8 @@ int clusterProcessPacket(clusterLink *link) {
                 !(failing->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_MYSELF)))
             {
                 serverLog(LL_NOTICE,
-                    "FAIL message received from %.40s about %.40s",
-                    hdr->sender, hdr->data.fail.about.nodename);
+                    "FAIL message received from %.40s (%s) about %.40s (%s)",
+                    hdr->sender, sender->human_nodename, hdr->data.fail.about.nodename, failing->human_nodename);
                 failing->flags |= CLUSTER_NODE_FAIL;
                 failing->fail_time = now;
                 failing->flags &= ~CLUSTER_NODE_PFAIL;
@@ -3046,8 +3046,8 @@ int clusterProcessPacket(clusterLink *link) {
         pauseActions(PAUSE_DURING_FAILOVER,
                      now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT),
                      PAUSE_ACTIONS_CLIENT_WRITE_SET);
-        serverLog(LL_NOTICE,"Manual failover requested by replica %.40s.",
-            sender->name);
+        serverLog(LL_NOTICE,"Manual failover requested by replica %.40s (%s).",
+            sender->name, sender->human_nodename);
         /* We need to send a ping message to the replica, as it would carry
          * `server.cluster->mf_master_offset`, which means the master paused clients
          * at offset `server.cluster->mf_master_offset`, so that the replica would
@@ -3779,8 +3779,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
      * request, if the request epoch was greater. */
     if (requestCurrentEpoch < server.cluster->currentEpoch) {
         serverLog(LL_WARNING,
-            "Failover auth denied to %.40s: reqEpoch (%llu) < curEpoch(%llu)",
-            node->name,
+            "Failover auth denied to %.40s (%s): reqEpoch (%llu) < curEpoch(%llu)",
+            node->name, node->human_nodename,
             (unsigned long long) requestCurrentEpoch,
             (unsigned long long) server.cluster->currentEpoch);
         return;
@@ -3789,8 +3789,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     /* I already voted for this epoch? Return ASAP. */
     if (server.cluster->lastVoteEpoch == server.cluster->currentEpoch) {
         serverLog(LL_WARNING,
-                "Failover auth denied to %.40s: already voted for epoch %llu",
-                node->name,
+                "Failover auth denied to %.40s (%s): already voted for epoch %llu",
+                node->name, node->human_nodename,
                 (unsigned long long) server.cluster->currentEpoch);
         return;
     }
@@ -3803,16 +3803,16 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     {
         if (nodeIsMaster(node)) {
             serverLog(LL_WARNING,
-                    "Failover auth denied to %.40s: it is a master node",
-                    node->name);
+                    "Failover auth denied to %.40s (%s): it is a master node",
+                    node->name, node->human_nodename);
         } else if (master == NULL) {
             serverLog(LL_WARNING,
-                    "Failover auth denied to %.40s: I don't know its master",
-                    node->name);
+                    "Failover auth denied to %.40s (%s): I don't know its master",
+                    node->name, node->human_nodename);
         } else if (!nodeFailed(master)) {
             serverLog(LL_WARNING,
-                    "Failover auth denied to %.40s: its master is up",
-                    node->name);
+                    "Failover auth denied to %.40s (%s): its master is up",
+                    node->name, node->human_nodename);
         }
         return;
     }
@@ -3823,9 +3823,9 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     if (mstime() - node->slaveof->voted_time < server.cluster_node_timeout * 2)
     {
         serverLog(LL_WARNING,
-                "Failover auth denied to %.40s: "
+                "Failover auth denied to %.40s %s: "
                 "can't vote about this master before %lld milliseconds",
-                node->name,
+                node->name, node->human_nodename,
                 (long long) ((server.cluster_node_timeout*2)-
                              (mstime() - node->slaveof->voted_time)));
         return;
@@ -3845,9 +3845,9 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
          * is served by a master with a greater configEpoch than the one claimed
          * by the slave requesting our vote. Refuse to vote for this slave. */
         serverLog(LL_WARNING,
-                "Failover auth denied to %.40s: "
+                "Failover auth denied to %.40s (%s): "
                 "slot %d epoch (%llu) > reqEpoch (%llu)",
-                node->name, j,
+                node->name, node->human_nodename, j,
                 (unsigned long long) server.cluster->slots[j]->configEpoch,
                 (unsigned long long) requestConfigEpoch);
         return;
@@ -3858,8 +3858,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     node->slaveof->voted_time = mstime();
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
     clusterSendFailoverAuth(node);
-    serverLog(LL_NOTICE, "Failover auth granted to %.40s for epoch %llu",
-        node->name, (unsigned long long) server.cluster->currentEpoch);
+    serverLog(LL_NOTICE, "Failover auth granted to %.40s (%s) for epoch %llu",
+        node->name, node->human_nodename, (unsigned long long) server.cluster->currentEpoch);
 }
 
 /* This function returns the "rank" of this instance, a slave, in the context
@@ -5998,7 +5998,7 @@ NULL
             {
                 serverLog(LL_NOTICE,
                           "Configuration change detected. Reconfiguring myself "
-                          "as a replica of %.40s", n->name);
+                          "as a replica of %.40s (%s)", n->name, n->human_nodename);
                 clusterSetMaster(n);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
                                      CLUSTER_TODO_UPDATE_STATE |
