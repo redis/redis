@@ -3596,7 +3596,7 @@ clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, 
     message_len = sdslen(message->ptr);
 
     msgblock = clusterCreatePublishMsgBlockInternal(channel, message_len, type, &dst);
-    memcpy(dst, message, message_len);
+    memcpy(dst, message->ptr, message_len);
 
     decrRefCount(message);
 
@@ -3903,9 +3903,13 @@ int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
     return 1;
 }
 
+int clusterUsePublishInsteadOfMPublish(void) {
+    return 0;   /* TODO */
+}
+
 /* All messages must be destined for the same channel */
 void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count) {
-    clusterMsgSendBlock *msgblock;
+    clusterMsgSendBlock *msgblock = NULL;
     dictIterator *di;
     dictEntry *de;
     struct ptrs seen = { NULL, 0 };
@@ -3919,11 +3923,19 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
         if (node->link && clusterAttachToPrevious(node->link, channel,
                                                     messages, count, &seen))
             continue;
-        msgblock = clusterCreateMPublishMsgBlock(channel, messages,
-                                                    count, CLUSTERMSG_TYPE_MPUBLISH);
-        clusterBroadcastMessage(msgblock);
-        clusterMsgSendBlockDecrRefCount(msgblock);
+
+        if (!msgblock) {
+            if (count == 1 && clusterUsePublishInsteadOfMPublish())
+                msgblock = clusterCreatePublishMsgBlock(channel, messages[0],
+                                                    CLUSTERMSG_TYPE_PUBLISH);
+            else
+                msgblock = clusterCreateMPublishMsgBlock(channel, messages,
+                                            count, CLUSTERMSG_TYPE_MPUBLISH);
+        }
+        clusterSendMessage(node->link, msgblock);
     }
+    if (msgblock)
+        clusterMsgSendBlockDecrRefCount(msgblock);
     dictReleaseIterator(di);
     if (seen.arr)
         zfree(seen.arr);
