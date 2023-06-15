@@ -788,6 +788,28 @@ foreach type {single multiple single_multiple} {
     }
     }
 
+    test "SPOP new implementation: code path #1 propagate as DEL or UNLINK" {
+        r del myset1{t} myset2{t}
+        r sadd 1 2 3 4 5
+        r sadd 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65
+
+        set repl [attach_to_replication_stream]
+
+        r config set lazyfree-lazy-server-del no
+        r spop myset1{t} [r scard myset1{t}]
+        r config set lazyfree-lazy-server-del yes
+        r spop myset2{t} [r scard myset2{t}]
+
+        # Verify the propagate of DEL and UNLINK.
+        assert_replication_stream $repl {
+            {select *}
+            {del myset1{t}}
+            {unlink myset2{t}}
+        }
+
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test "SRANDMEMBER count of 0 is handled correctly" {
         r srandmember myset 0
     } {}
