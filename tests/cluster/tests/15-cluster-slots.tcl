@@ -49,6 +49,13 @@ test "client can handle keys with hash tag" {
     $cluster close
 }
 
+test "replica in cluster should not process any slots" {
+    assert_error {ERR Please use addslots only with masters.} {R 5 cluster addslots 0 1 2}
+    assert_error {ERR Please use delslots only with masters.} {R 5 cluster delslots 0 1 2}
+    assert_error {ERR Please use addslotsrange only with masters.} {R 5 cluster addslotsrange 0 100}
+    assert_error {ERR Please use delslotsrange only with masters.} {R 5 cluster delslotsrange 0 100}
+}
+
 test "slot migration is valid from primary to another primary" {
     set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
     set key order1
@@ -68,10 +75,8 @@ test "slot migration is invalid from primary to replica" {
 
     # Get replica node serving slot.
     set replicanodeinfo [$cluster cluster replicas $nodefrom(id)]
-    puts $replicanodeinfo
     set args [split $replicanodeinfo " "]
     set replicaid [lindex [split [lindex $args 0] \{] 1]
-    puts $replicaid
 
     catch {[$nodefrom(link) cluster setslot $slot node $replicaid]} err
     assert_match "*Target node is not a master" $err

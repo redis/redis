@@ -4928,9 +4928,9 @@ int verifyClusterConfigWithData(void) {
  * If this node is currently a master, it is turned into a slave. */
 void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
+    serverAssert(myself->numslots == 0);
 
     if (nodeIsMaster(myself)) {
-        serverAssert(myself->numslots == 0);
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
         clusterCloseAllSlots();
@@ -5769,12 +5769,17 @@ NULL
     {
         /* CLUSTER ADDSLOTS <slot> [slot] ... */
         /* CLUSTER DELSLOTS <slot> [slot] ... */
+        if (nodeIsSlave(myself)) {
+            addReplyErrorFormat(c, "Please use %s only with masters.", (char *)c->argv[1]->ptr);
+            return;
+        }
+
         int j, slot;
         unsigned char *slots = zmalloc(CLUSTER_SLOTS);
         int del = !strcasecmp(c->argv[1]->ptr,"delslots");
 
         memset(slots,0,CLUSTER_SLOTS);
-        /* Check that all the arguments are parseable.*/
+        /* Check that all the arguments are parsable.*/
         for (j = 2; j < c->argc; j++) {
             if ((slot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
@@ -5801,12 +5806,17 @@ NULL
         }
         /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
         /* CLUSTER DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
+        if (nodeIsSlave(myself)) {
+            addReplyErrorFormat(c, "Please use %s only with masters.", (char *)c->argv[1]->ptr);
+            return;
+        }
+
         int j, startslot, endslot;
         unsigned char *slots = zmalloc(CLUSTER_SLOTS);
         int del = !strcasecmp(c->argv[1]->ptr,"delslotsrange");
 
         memset(slots,0,CLUSTER_SLOTS);
-        /* Check that all the arguments are parseable and that all the
+        /* Check that all the arguments are parsable and that all the
          * slots are not already busy. */
         for (j = 2; j < c->argc; j += 2) {
             if ((startslot = getSlotOrReply(c,c->argv[j])) == C_ERR) {

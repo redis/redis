@@ -171,7 +171,7 @@ tags {"aof external:skip"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        test "Fixed AOF: Keyspace should contain values that were parseable" {
+        test "Fixed AOF: Keyspace should contain values that were parsable" {
             set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
             wait_done_loading $client
             assert_equal "hello" [$client get foo]
