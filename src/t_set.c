@@ -1462,7 +1462,7 @@ void sinterCardCommand(client *c) {
         if (!strcasecmp(opt, "LIMIT") && moreargs) {
             j++;
             if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
-                                                 "LIMIT can't be negative") != C_OK)
+                                                 "LIMIT is not a positive integer or out of range") != C_OK)
                 return;
         } else {
             addReplyErrorObject(c, shared.syntaxerr);

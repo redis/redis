@@ -2666,7 +2666,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             {
                 j++; remaining--;
                 if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
-                                                     "LIMIT can't be negative") != C_OK)
+                                                     "LIMIT is not a positive integer or out of range") != C_OK)
                 {
                     zfree(src);
                     return;
