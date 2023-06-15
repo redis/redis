@@ -6036,7 +6036,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(buf,len);
         } else if (*p == 'l') {
             long long ll = va_arg(ap,long long);
-            argv[argc++] = createll2StringObject(ll);
+            argv[argc++] = createStringObjectFromLongLongWithSds(ll);
         } else if (*p == 'v') {
              /* A vector of strings */
              robj **v = va_arg(ap, void*);
@@ -11034,10 +11034,12 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         long long vll;
         while(p) {
             vstr = lpGetValue(p,&vlen,&vll);
-            robj *field = (vstr != NULL) ? createStringObject((char *)vstr, vlen) : createll2StringObject(vll);
+            robj *field =
+                (vstr != NULL) ? createStringObject((char *)vstr, vlen) : createStringObjectFromLongLongWithSds(vll);
             p = lpNext(o->ptr,p);
             vstr = lpGetValue(p,&vlen,&vll);
-            robj *value = (vstr != NULL) ? createStringObject((char *)vstr, vlen) : createll2StringObject(vll);
+            robj *value =
+                (vstr != NULL) ? createStringObject((char *)vstr, vlen) : createStringObjectFromLongLongWithSds(vll);
             fn(key, field, value, privdata);
             p = lpNext(o->ptr,p);
             decrRefCount(field);

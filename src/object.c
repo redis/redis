@@ -142,31 +142,17 @@ robj *tryCreateStringObject(const char *ptr, size_t len) {
         return tryCreateRawStringObject(ptr,len);
 }
 
-/* Create a string object from a long long value. When possible returns a
- * shared integer object, or at least an integer encoded one.
- *
- * If valueobj is non zero, the function avoids returning a shared
- * integer, because the object is going to be used as value in the Redis key
- * space (for instance when the INCR command is used), so we want LFU/LRU
- * values specific for each key. */
-#define LL2STROBJ_AUTO 0
-#define LL2STROBJ_VALUE 1
-#define LL2STROBJ_EMB 2
+/* Create a string object from a long long value according to the specified flag. */
+#define LL2STROBJ_AUTO 0       /* automatically create the optimal string object */
+#define LL2STROBJ_NO_SHARED 1  /* disallow shared objects */
+#define LL2STROBJ_NO_INT_ENC 2 /* disallow integer encoded objects. */
 robj *createStringObjectFromLongLongWithOptions(long long value, int flag) {
     robj *o;
-
-    if (server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) {
-        if (flag == LL2STROBJ_VALUE) {
-            /* If the maxmemory policy permits, we can still return shared integers
-             * even if valueobj is true. */
-            flag = LL2STROBJ_AUTO;
-        }
-    }
 
     if (value >= 0 && value < OBJ_SHARED_INTEGERS && flag == LL2STROBJ_AUTO) {
         o = shared.integers[value];
     } else {
-        if ((value >= LONG_MIN && value <= LONG_MAX) && flag != LL2STROBJ_EMB) {
+        if ((value >= LONG_MIN && value <= LONG_MAX) && flag != LL2STROBJ_NO_INT_ENC) {
             o = createObject(OBJ_STRING, NULL);
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
@@ -185,15 +171,23 @@ robj *createStringObjectFromLongLong(long long value) {
     return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
 }
 
-/* Wrapper for createStringObjectFromLongLongWithOptions() avoiding a shared
- * object when LFU/LRU info are needed, that is, when the object is used
- * as a value in the key space, and Redis is configured to evict based on
- * LFU/LRU. */
+/* The function avoids returning a shared integer when LFU/LRU info
+ * are needed, that is, when the object is used as a value in the key
+ * space(for instance when the INCR command is used), and Redis is
+ * configured to evict based on LFU/LRU, so we want LFU/LRU values
+ * specific for each key. */
 robj *createStringObjectFromLongLongForValue(long long value) {
-    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_VALUE);
+    if (server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) {
+        /* If the maxmemory policy permits, we can still return shared integers */
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
+    } else {
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_SHARED);
+    }
 }
-robj *createll2StringObject(long long value) {
-    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_EMB);
+
+/* */
+robj *createStringObjectFromLongLongWithSds(long long value) {
+    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_INT_ENC);
 }
 
 /* Create a string object from a long double. If humanfriendly is non-zero
