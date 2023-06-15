@@ -652,6 +652,10 @@ start_server {tags {"introspection"}} {
     }
 
     test {redis-server command line arguments - error cases} {
+        # Take '--invalid' as the option.
+        catch {exec src/redis-server --invalid} err
+        assert_match {*Bad directive or wrong number of arguments*} $err
+
         catch {exec src/redis-server --port} err
         assert_match {*'port'*wrong number of arguments*} $err
 

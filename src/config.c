@@ -489,6 +489,7 @@ void loadServerConfigFromString(char *config) {
              * Note that MULTI_ARG_CONFIGs need to validate arg count on their own */
             if (!(config->flags & MULTI_ARG_CONFIG) && argc != 2) {
                 err = "wrong number of arguments";
+                sdsfreesplitres(argv,argc);
                 goto loaderr;
             }
 
@@ -588,7 +589,9 @@ void loadServerConfigFromString(char *config) {
                 queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
         } else {
-            err = "Bad directive or wrong number of arguments"; goto loaderr;
+            err = "Bad directive or wrong number of arguments";
+            sdsfreesplitres(argv,argc);
+            goto loaderr;
         }
         sdsfreesplitres(argv,argc);
     }
