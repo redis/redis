@@ -2997,15 +2997,15 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
 
 /* Reply with the error create from a printf format and arguments.
  *
- * If the error code is already passed in the string 'fmt', the error
- * code provided is used, otherwise the string "-ERR " for the generic
- * error code is automatically added.
+ * Note that 'err' must contain all the error, including
+ * the initial error code. The function only provides the initial "-", so
+ * the usage is, for example:
  *
- * The usage is, for example:
+ *     RedisModule_ReplyWithErrorFormat(ctx,"ERR Wrong Type: %s",type);
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "An error: %s", "foo");
+ * and not just:
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "-WRONGTYPE Wrong Type: %s", "foo");
+ *     RedisModule_ReplyWithErrorFormat(ctx,"Wrong Type: %s",type);
  *
  * The function always returns REDISMODULE_OK.
  */
@@ -3013,10 +3013,16 @@ int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
 
+    int len = strlen(fmt) + 2; /* 1 for the \n and 1 for the hyphen */
+    char *hyphenfmt = zmalloc(len);
+    snprintf(hyphenfmt, len, "-%s", fmt);
+
     va_list ap;
     va_start(ap, fmt);
-    addReplyErrorFormatInternal(c, 0, fmt, ap);
+    addReplyErrorFormatInternal(c, 0, hyphenfmt, ap);
     va_end(ap);
+
+    zfree(hyphenfmt);
 
     return REDISMODULE_OK;
 }
