@@ -13,31 +13,31 @@ proc are_nodenames_propagated {match_string} {
 
 # Start a cluster with 3 masters.
 start_cluster 3 0 {tags {external:skip cluster}} {
-test "Set cluster human announced nodename and verify they are excluded from cluster node" {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        R $j config set cluster-announce-human-nodename "nodename-$j.com"
-    }
-    wait_for_condition 50 100 {
-        [are_nodenames_propagated "nodename-*.com"] eq 0
-    } else {
-        fail "cluster human announced nodename were propagated"
+    test "Set cluster human announced nodename and verify they are excluded from cluster node" {
+        for {set j 0} {$j < [llength $::servers]} {incr j} {
+            R $j config set cluster-announce-human-nodename "nodename-$j.com"
+        }
+        wait_for_condition 50 100 {
+            [are_nodenames_propagated "nodename-*.com"] eq 0
+        } else {
+            fail "cluster human announced nodename were propagated"
+        }
+
+        # Now that everything is propagated, assert everyone agrees
+        wait_for_cluster_propagation
     }
 
-    # Now that everything is propagated, assert everyone agrees
-    wait_for_cluster_propagation
-}
+    test "Update human announced nodename and make sure they are excluded from cluster node" {
+        for {set j 0} {$j < [llength $::servers]} {incr j} {
+            R $j config set cluster-announce-human-nodename "nodename-updated-$j.com"
+        }
+        wait_for_condition 50 100 {
+            [are_nodenames_propagated "nodename-updated-*.com"] eq 0
+        } else {
+            fail "cluster human announced nodename were propagated"
+        }
 
-test "Update human announced nodename and make sure they are excluded from cluster node" {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        R $j config set cluster-announce-human-nodename "nodename-updated-$j.com"
+        # Now that everything is propagated, assert everyone agrees
+        wait_for_cluster_propagation
     }
-    wait_for_condition 50 100 {
-        [are_nodenames_propagated "nodename-updated-*.com"] eq 0
-    } else {
-        fail "cluster human announced nodename were propagated"
-    }
-
-    # Now that everything is propagated, assert everyone agrees
-    wait_for_cluster_propagation
-}
 }
