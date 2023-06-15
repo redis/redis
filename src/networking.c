@@ -4056,6 +4056,8 @@ int io_threads_op;      /* IO_THREADS_OP_IDLE, IO_THREADS_OP_READ or IO_THREADS_
  * used. We spawn io_threads_num-1 threads, since one is the main thread
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
+pthread_mutex_t io_threads_cond_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t io_threads_cond_var = PTHREAD_COND_INITIALIZER;
 
 static inline unsigned long getIOPendingCount(int i) {
     unsigned long count = 0;
@@ -4080,16 +4082,26 @@ void *IOThreadMain(void *myid) {
 
     while(1) {
         /* Wait for start */
-        for (int j = 0; j < 1000000; j++) {
-            if (getIOPendingCount(id) != 0) break;
-        }
-
         /* Give the main thread a chance to stop this thread. */
         if (getIOPendingCount(id) == 0) {
             pthread_mutex_lock(&io_threads_mutex[id]);
             pthread_mutex_unlock(&io_threads_mutex[id]);
-            continue;
         }
+
+        struct timeval now;
+        struct timespec outtime;
+        pthread_mutex_lock(&io_threads_cond_mutex);   /* Wait for IO threads signal */
+        while (getIOPendingCount(id) == 0) {
+            gettimeofday(&now, NULL);
+            outtime.tv_sec = now.tv_sec;
+            outtime.tv_nsec = (now.tv_usec+1000) * 1000;
+            pthread_cond_timedwait(&io_threads_cond_var, &io_threads_cond_mutex, &outtime);
+        }
+        pthread_mutex_unlock(&io_threads_cond_mutex);
+
+        // for (int j = 0; j < 1000000; j++) {
+        //     if (getIOPendingCount(id) != 0) break;
+        // }
 
         serverAssert(getIOPendingCount(id) != 0);
 
@@ -4262,6 +4274,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         int count = listLength(io_threads_list[j]);
         setIOPendingCount(j, count);
     }
+    pthread_mutex_lock(&io_threads_cond_mutex);
+    pthread_cond_broadcast(&io_threads_cond_var);
+    pthread_mutex_unlock(&io_threads_cond_mutex);
 
     /* Also use the main thread to process a slice of clients. */
     listRewind(io_threads_list[0],&li);
@@ -4359,6 +4374,9 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         int count = listLength(io_threads_list[j]);
         setIOPendingCount(j, count);
     }
+    pthread_mutex_lock(&io_threads_cond_mutex);
+    pthread_cond_broadcast(&io_threads_cond_var);
+    pthread_mutex_unlock(&io_threads_cond_mutex);
 
     /* Also use the main thread to process a slice of clients. */
     listRewind(io_threads_list[0],&li);
