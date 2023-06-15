@@ -321,7 +321,7 @@ start_server {tags {"expire"}} {
             r set foo1 bar ex 100
             r set foo2 bar px 100000
             r set foo3 bar exat [expr [clock seconds]+100]
-            r set foo4 bar pxat [expr [clock milliseconds]+100000]
+            r set foo4 bar PXAT [expr [clock milliseconds]+100000]
             r setex foo5 100 bar
             r psetex foo6 100000 bar
             # EXPIRE-family commands
@@ -491,7 +491,7 @@ start_server {tags {"expire"}} {
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
-            {set foo1 bar PXAT *}
+            {set foo1 bar pxat *}
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
             {set foo2 bar}
