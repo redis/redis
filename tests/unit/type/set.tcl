@@ -1036,7 +1036,8 @@ foreach type {single multiple single_multiple} {
         r spop myset 1
         assert [is_rehashing myset]
 
-        # 6) Verify that when rdb saving is in progress, rehashing will still be performed.
+        # 6) Verify that when rdb saving is in progress, rehashing will still be performed (because
+        # the ratio is extreme) by waiting for it to finish during an active bgsave.
         r bgsave
 
         while {[is_rehashing myset]} {
