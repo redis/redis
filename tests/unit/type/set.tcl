@@ -1087,7 +1087,7 @@ foreach type {single multiple single_multiple} {
                 lappend allkey $ele
             }
         }
-        # df = 29, 73 means 0.00001 probability
+        # validate even distribution of random sampling (df = 29, 73 means 0.00001 probability)
         assert_lessthan [chi_square_value $allkey] 73
 
         r config set save $origin_save
