@@ -454,14 +454,13 @@ void loadServerConfigFromString(char *config) {
     const char *err = NULL;
     int linenum = 0, totlines, i;
     sds *lines;
+    sds *argv = NULL;
+    int argc;
 
     reading_config_file = 1;
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
-        sds *argv;
-        int argc;
-
         linenum = i+1;
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
@@ -489,7 +488,6 @@ void loadServerConfigFromString(char *config) {
              * Note that MULTI_ARG_CONFIGs need to validate arg count on their own */
             if (!(config->flags & MULTI_ARG_CONFIG) && argc != 2) {
                 err = "wrong number of arguments";
-                if (argv) sdsfreesplitres(argv,argc);
                 goto loaderr;
             }
 
@@ -501,14 +499,12 @@ void loadServerConfigFromString(char *config) {
                 int new_argc;
                 new_argv = sdssplitargs(argv[1], &new_argc);
                 if (!config->interface.set(config, new_argv, new_argc, &err)) {
-                    if (argv) sdsfreesplitres(argv,argc);
                     goto loaderr;
                 }
                 sdsfreesplitres(new_argv, new_argc);
             } else {
                 /* Set config using all arguments that follows */
                 if (!config->interface.set(config, &argv[1], argc-1, &err)) {
-                    if (argv) sdsfreesplitres(argv,argc);
                     goto loaderr;
                 }
             }
@@ -541,7 +537,6 @@ void loadServerConfigFromString(char *config) {
 
             if (!cmd) {
                 err = "No such command in rename-command";
-                if (argv) sdsfreesplitres(argv,argc);
                 goto loaderr;
             }
 
@@ -558,7 +553,6 @@ void loadServerConfigFromString(char *config) {
                 if (retval != DICT_OK) {
                     sdsfree(copy);
                     err = "Target command name already exists";
-                    if (argv) sdsfreesplitres(argv,argc);
                     goto loaderr;
                 }
             }
@@ -569,7 +563,6 @@ void loadServerConfigFromString(char *config) {
                 snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
                     argv[argc_err],errmsg);
                 err = buf;
-                if (argv) sdsfreesplitres(argv,argc);
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
@@ -591,15 +584,12 @@ void loadServerConfigFromString(char *config) {
             if (argc != 1) {
                 if (!server.sentinel_mode) {
                     err = "sentinel directive while not in sentinel mode";
-                    if (argv) sdsfreesplitres(argv,argc);
                     goto loaderr;
                 }
                 queueSentinelConfig(argv+1,argc-1,linenum,lines[i]);
             }
         } else {
-            err = "Bad directive or wrong number of arguments";
-            if (argv) sdsfreesplitres(argv,argc);
-            goto loaderr;
+            err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
     }
@@ -639,6 +629,7 @@ void loadServerConfigFromString(char *config) {
     return;
 
 loaderr:
+    if (argv) sdsfreesplitres(argv,argc);
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
         REDIS_VERSION);
     if (i < totlines) {
