@@ -552,8 +552,7 @@ void loadServerConfigFromString(char *config) {
                 retval = dictAdd(server.commands, copy, cmd);
                 if (retval != DICT_OK) {
                     sdsfree(copy);
-                    err = "Target command name already exists";
-                    goto loaderr;
+                    err = "Target command name already exists"; goto loaderr;
                 }
             }
         } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
@@ -570,7 +569,6 @@ void loadServerConfigFromString(char *config) {
         } else if (strchr(argv[0], '.')) {
             if (argc < 2) {
                 err = "Module config specified without value";
-                if (argv) sdsfreesplitres(argv,argc);
                 goto loaderr;
             }
             sds name = sdsdup(argv[0]);
