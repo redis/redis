@@ -541,3 +541,34 @@ proc get_child_pid {idx} {
 
     return $child_pid
 }
+
+proc config_set {param value {options {}}} {
+    set mayfail 0
+    foreach option $options {
+        switch $option {
+            "mayfail" {
+                set mayfail 1
+            }
+            default {
+                error "Unknown option $option"
+            }
+        }
+    }
+
+    if {[catch {r config set $param $value} err]} {
+        if {!$mayfail} {
+            error $err
+        } else {
+            if {$::verbose} {
+                puts "Ignoring CONFIG SET $param $value failure: $err"
+            }
+        }
+    }
+}
+
+proc config_get_set {param value {options {}}} {
+    set config [lindex [r config get $param] 1]
+    config_set $param $value $options
+    return $config
+}
+
