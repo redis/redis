@@ -1052,9 +1052,9 @@ foreach type {single multiple single_multiple} {
         waitForBgsave r
 
         # 7) Check that eventually, SRANDMEMBER returns all elements.
-        array set myset {}
+        array set allmyset {}
         foreach ele [r smembers myset] {
-            set myset($ele) 1
+            set allmyset($ele) 1
         }
         unset -nocomplain auxset
         set iterations 1000
@@ -1064,7 +1064,7 @@ foreach type {single multiple single_multiple} {
             foreach ele $res {
                 set auxset($ele) 1
             }
-            if {[lsort [array names myset]] eq
+            if {[lsort [array names allmyset]] eq
                 [lsort [array names auxset]]} {
                 break;
             }
