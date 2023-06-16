@@ -3934,37 +3934,11 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
         }
         clusterSendMessage(node->link, msgblock);
     }
+    dictReleaseIterator(di);
     if (msgblock)
         clusterMsgSendBlockDecrRefCount(msgblock);
-    dictReleaseIterator(di);
     if (seen.arr)
         zfree(seen.arr);
-}
-
-void clusterPropagatePublishSharded(robj *channel, robj **messages, int count) {
-    clusterMsgSendBlock *msgblock;
-    listIter li;
-    listNode *ln;
-    list *nodes_for_slot;
-    robj *message;
-    int i;
-
-    // assert(count == 1);  TODO
-
-    for (i = 0; i < count; ++i) {
-        message = messages[i];
-        nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
-        serverAssert(nodes_for_slot != NULL);
-        listRewind(nodes_for_slot, &li);
-        msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
-        while((ln = listNext(&li))) {
-            clusterNode *node = listNodeValue(ln);
-            if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
-                continue;
-            clusterSendMessage(node->link,msgblock);
-        }
-        clusterMsgSendBlockDecrRefCount(msgblock);
-    }
 }
 
 /* -----------------------------------------------------------------------------
@@ -3977,11 +3951,23 @@ void clusterPropagatePublishSharded(robj *channel, robj **messages, int count) {
  * Otherwise:
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
-void clusterPropagatePublish(robj *channel, robj **messages, int count, int sharded) {
-    if (sharded)
-        clusterPropagatePublishSharded(channel, messages, count);
-    else
-        clusterPropagatePublishNonSharded(channel, messages, count);
+void clusterPropagatePublishSharded(robj *channel, robj *message) {
+    clusterMsgSendBlock *msgblock;
+    listIter li;
+    listNode *ln;
+    list *nodes_for_slot;
+
+    nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
+    serverAssert(nodes_for_slot != NULL);
+    listRewind(nodes_for_slot, &li);
+    msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
+    while((ln = listNext(&li))) {
+        clusterNode *node = listNodeValue(ln);
+        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+            continue;
+        clusterSendMessage(node->link,msgblock);
+    }
+    clusterMsgSendBlockDecrRefCount(msgblock);
 }
 
 /* -----------------------------------------------------------------------------
