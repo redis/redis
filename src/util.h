@@ -67,7 +67,6 @@ uint32_t digits10(uint64_t v);
 uint32_t sdigits10(int64_t v);
 int ll2string(char *s, size_t len, long long value);
 int ull2string(char *s, size_t len, unsigned long long value);
-sds sdsfromlonglong(long long value);
 int string2ll(const char *s, size_t slen, long long *value);
 int string2ull(const char *s, unsigned long long *value);
 int string2l(const char *s, size_t slen, long *value);
