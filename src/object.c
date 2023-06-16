@@ -185,7 +185,8 @@ robj *createStringObjectFromLongLongForValue(long long value) {
     }
 }
 
-/* */
+/* Create a string object that contains an sds inside it. That means it can't be
+ * integer encoded (OBJ_ENCODING_INT), and it'll always be an EMBSTR type. */
 robj *createStringObjectFromLongLongWithSds(long long value) {
     return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_INT_ENC);
 }
