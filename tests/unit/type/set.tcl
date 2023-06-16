@@ -1022,7 +1022,7 @@ foreach type {single multiple single_multiple} {
             r srandmember myset 100
         }
 
-        # 3) Turn off the rehashing of this set, and remove the members to 1000.
+        # 3) Turn off the rehashing of this set, and remove the members to 500.
         r bgsave
         rem_hash_set_top_N myset [expr {[r scard myset] - 500}]
         assert_equal [r scard myset] 500
