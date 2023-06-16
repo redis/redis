@@ -90,7 +90,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
         $node1_rd read
 
         # when redis-cli not in cluster mode, return MOVE with empty host
-        set slot_for_foo [exec src/redis-cli -c -p [srv 0 port] CLUSTER KEYSLOT foo]
+        set slot_for_foo [$node1 CLUSTER KEYSLOT foo]
         set set_foo_bar_result "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] set foo bar]"
         assert_match "MOVED $slot_for_foo :*" $set_foo_bar_result
 
