@@ -210,9 +210,12 @@ int dictTryExpand(dict *d, unsigned long size) {
  * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    unsigned long s0 = d->ht[0].size;
+    unsigned long s1 = d->ht[1].size;
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
     if (dict_can_resize == DICT_RESIZE_AVOID && 
-        (d->ht[1].size / d->ht[0].size < dict_force_resize_ratio))
+        ((s1 > s0 && s1 / s0 < dict_force_resize_ratio) ||
+         (s1 < s0 && s0 / s1 < dict_force_resize_ratio)))
     {
         return 0;
     }
@@ -1108,7 +1111,9 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
 
     if (ht->used == 0) {
         return snprintf(buf,bufsize,
-            "No stats available for empty dictionaries\n");
+            "Hash table %d stats (%s):\n"
+            "No stats available for empty dictionaries\n",
+            tableid, (tableid == 0) ? "main hash table" : "rehashing target");
     }
 
     /* Compute stats. */
