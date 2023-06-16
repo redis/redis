@@ -1077,6 +1077,12 @@ foreach type {single multiple single_multiple} {
         assert_equal [r scard myset] 30
         assert {[is_rehashing myset]}
 
+        # Now that we have a hash set with only one long chain bucket.
+        set htstats [r debug HTSTATS-KEY myset full]
+        assert {[regexp {different slots: ([0-9]+)} $htstats - different_slots]}
+        assert {[regexp {max chain length: ([0-9]+)} $htstats - max_chain_length]}
+        assert {$different_slots == 1 && $max_chain_length == 30}
+
         # 9) Use positive count (PATH 4) to get 10 elements (out of 30) each time.
         unset -nocomplain allkey
         set iterations 1000
