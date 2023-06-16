@@ -1051,7 +1051,7 @@ foreach type {single multiple single_multiple} {
         catch {exec kill -9 $pid1}
         waitForBgsave r
 
-        # 7) Check that eventually all the elements are returned.
+        # 7) Check that eventually, SRANDMEMBER returns all elements.
         array set myset {}
         foreach ele [r smembers myset] {
             set myset($ele) 1
