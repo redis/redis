@@ -3955,9 +3955,8 @@ void clusterPropagatePublishSharded(robj *channel, robj *message) {
     clusterMsgSendBlock *msgblock;
     listIter li;
     listNode *ln;
-    list *nodes_for_slot;
+    list *nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
 
-    nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
     serverAssert(nodes_for_slot != NULL);
     listRewind(nodes_for_slot, &li);
     msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
