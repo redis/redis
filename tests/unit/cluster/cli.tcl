@@ -95,8 +95,7 @@ start_multiple_servers 3 [list overrides $base_conf] {
         assert_equal "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] -c set foo bar]" {OK}
         assert_match "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] -c get foo]" {bar}
 
-        $node1_rd CONFIG SET cluster-preferred-endpoint-type "$endpoint_type_before_set"
-        assert_equal [$node1_rd read]  {OK}
+        assert_equal [$node1 CONFIG SET cluster-preferred-endpoint-type "$endpoint_type_before_set"]  {OK}
     }
 
     test "Sanity test push cmd after resharding" {
