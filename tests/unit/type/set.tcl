@@ -753,6 +753,85 @@ start_server {
         }
     }
 
+    proc is_rehashing {myset} {
+        set htstats [r debug HTSTATS-KEY $myset]
+        return [string match {*rehashing target*} $htstats]
+    }
+
+    proc rem_hash_set_top_N {myset n} {
+        set cursor 0
+        set members {}
+        set enough 0
+        while 1 {
+            set res [r sscan $myset $cursor]
+            set cursor [lindex $res 0]
+            set k [lindex $res 1]
+            foreach m $k {
+                lappend members $m
+                if {[llength $members] >= $n} {
+                    set enough 1
+                    break
+                }
+            }
+            if {$enough || $cursor == 0} {
+                break
+            }
+        }
+        r srem $myset {*}$members
+    }
+
+    test "SRANDMEMBER with a dict containing long chain" {
+        set origin_save [config_get_set save ""]
+        set origin_max_is [config_get_set set-max-intset-entries 0]
+        set origin_save_delay [config_get_set rdb-key-save-delay 2147483647]
+
+        # 1) Create a hash set with 100000 members.
+        set members {}
+        for {set i 0} {$i < 100000} {incr i} {
+            lappend members [format "m:%d" $i]
+        }
+        create_set myset $members
+
+        # 2) Wait for the hash set rehashing to finish.
+        while {[is_rehashing myset]} {
+            r srandmember myset 100
+        }
+
+        # 3) Turn off the rehashing of this set, and remove the members to 500.
+        r bgsave
+        rem_hash_set_top_N myset [expr {[r scard myset] - 500}]
+        assert_equal [r scard myset] 500
+
+        # 4) Kill RDB child process to restart rehashing.
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # 5) Let the set hash to start rehashing
+        r spop myset 1
+        assert [is_rehashing myset]
+
+        # 6) Verify that when rdb saving is in progress, rehashing will still be performed (because
+        # the ratio is extreme) by waiting for it to finish during an active bgsave.
+        r bgsave
+
+        while {[is_rehashing myset]} {
+            r srandmember myset 1
+        }
+        if {$::verbose} {
+            puts [r debug HTSTATS-KEY myset]
+        }
+
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        r config set save $origin_save
+        r config set set-max-intset-entries $origin_max_is
+        r config set rdb-key-save-delay $origin_save_delay
+        r save
+    } {OK}
+
     proc setup_move {} {
         r del myset3 myset4
         create_set myset1 {1 a b}
