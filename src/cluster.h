@@ -99,7 +99,9 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
 #define CLUSTERMSG_TYPE_PUBLISHSHARD 10 /* Pub/Sub Publish shard propagation */
-#define CLUSTERMSG_TYPE_COUNT 11        /* Total number of message types. */
+#define CLUSTERMSG_TYPE_MPUBLISH 11     /* Pub/Sub Mpublish propagation */
+//#define CLUSTERMSG_TYPE_MSPUBLISHSHARD 12       /* Pub/Sub Mpublish shard propagation */
+#define CLUSTERMSG_TYPE_COUNT 12        /* Total number of message types. */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
@@ -309,7 +311,7 @@ union clusterMsgData {
         clusterMsgDataFail about;
     } fail;
 
-    /* PUBLISH */
+    /* PUBLISH, SPUBLISH, MPUBLISH, and MSPUBLISH */
     struct {
         clusterMsgDataPublish msg;
     } publish;
@@ -408,7 +410,8 @@ void migrateCloseTimedoutSockets(void);
 int verifyClusterConfigWithData(void);
 unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
-void clusterPropagatePublish(robj *channel, robj *message, int sharded);
+void clusterPropagatePublishSharded(robj *channel, robj *message);
+void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count);
 unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);

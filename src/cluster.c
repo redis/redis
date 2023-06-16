@@ -2556,7 +2556,10 @@ int clusterProcessPacket(clusterLink *link) {
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataFail);
-    } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
+    } else if (type == CLUSTERMSG_TYPE_PUBLISH ||
+               type == CLUSTERMSG_TYPE_PUBLISHSHARD ||
+               type == CLUSTERMSG_TYPE_MPUBLISH)
+    {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataPublish) -
                 8 +
@@ -2940,6 +2943,64 @@ int clusterProcessPacket(clusterLink *link) {
             pubsubPublishMessage(channel, message, type == CLUSTERMSG_TYPE_PUBLISHSHARD);
             decrRefCount(channel);
             decrRefCount(message);
+        }
+    } else if (type == CLUSTERMSG_TYPE_MPUBLISH) {
+        if (!sender) return 1;  /* We don't know that node. */
+
+        const uint8_t *src, *end;
+        robj *channel, **messages;
+        uint32_t channel_len, message_len, len;
+        unsigned i, msg_count;
+
+        /* Don't bother creating useless objects if there are no
+         * Pub/Sub subscribers. */
+        if ((type == CLUSTERMSG_TYPE_MPUBLISH
+            && serverPubsubSubscriptionCount() > 0))
+        {
+            channel_len = ntohl(hdr->data.publish.msg.channel_len);
+            message_len = ntohl(hdr->data.publish.msg.message_len);
+            /* Count messages */
+            src = hdr->data.publish.msg.bulk_data + channel_len;
+            end = src + message_len;
+            msg_count = 0;
+            while (src + 4 <= end) {
+                memcpy(&len, src, sizeof(len));
+                len = ntohl(len);
+                src += 4;
+                if (src + len > end) {
+                    serverLog(LL_WARNING,
+                        "Received %s packet with malformed messages",
+                        clusterGetMessageTypeString(type));
+                    return 1;
+                }
+                src += len;
+                ++msg_count;
+            }
+            serverAssert(src <= end);
+            if (src != end) {
+                serverLog(LL_WARNING,
+                    "Received %s packet with malformed messages (short)",
+                    clusterGetMessageTypeString(type));
+                return 1;
+            }
+            channel = createStringObject(
+                        (char*)hdr->data.publish.msg.bulk_data,channel_len);
+            /* Parse them out */
+            messages = zmalloc(sizeof(messages[0]) * msg_count);
+            src = hdr->data.publish.msg.bulk_data + channel_len;
+            for (i = 0; src < end; ++i) {
+                memcpy(&len, src, sizeof(len));
+                len = ntohl(len);
+                src += 4;
+                messages[i] = createStringObject((char *) src, len);
+                src += len;
+            }
+            serverAssert(msg_count == i);
+            pubsubPublishMessages(channel, messages, (int) msg_count, 0);
+            decrRefCount(channel);
+            for (i = 0; i < msg_count; ++i)
+                decrRefCount(messages[i]);
+            zfree(messages);
         }
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
         if (!sender) return 1;  /* We don't know that node. */
@@ -3491,21 +3552,24 @@ void clusterBroadcastPong(int target) {
     dictReleaseIterator(di);
 }
 
-/* Create a PUBLISH message block.
+/* Create a PUBLISH, SPUBLISH, MPUBLISH, or MSPUBLISH message block.
+ *
+ * Returns the message block.  `dst' is set to point to memory inside the
+ * message block of size `message_len', where the caller is to write the
+ * data.
  *
  * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
  * As all the struct is used as a buffer, when more than 8 bytes are copied into
  * the 'bulk_data', sanitizer generates an out-of-bounds error which is a false
  * positive in this context. */
 REDIS_NO_SANITIZE("bounds")
-clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
-
-    uint32_t channel_len, message_len;
+clusterMsgSendBlock *clusterCreatePublishMsgBlockInternal(robj *channel,
+                        size_t message_len, uint16_t type, unsigned char **dst)
+{
+    uint32_t channel_len;
 
     channel = getDecodedObject(channel);
-    message = getDecodedObject(message);
     channel_len = sdslen(channel->ptr);
-    message_len = sdslen(message->ptr);
 
     size_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
@@ -3514,13 +3578,68 @@ clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, 
     clusterMsg *hdr = &msgblock->msg;
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
-    memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
-    memcpy(hdr->data.publish.msg.bulk_data+sdslen(channel->ptr),
-        message->ptr,sdslen(message->ptr));
+    memcpy(hdr->data.publish.msg.bulk_data, channel->ptr, channel_len);
+    *dst = hdr->data.publish.msg.bulk_data + channel_len;
 
     decrRefCount(channel);
+
+    return msgblock;
+}
+
+clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
+
+    clusterMsgSendBlock *msgblock;
+    size_t message_len;
+    unsigned char *dst;
+
+    message = getDecodedObject(message);
+    message_len = sdslen(message->ptr);
+
+    msgblock = clusterCreatePublishMsgBlockInternal(channel, message_len, type, &dst);
+    memcpy(dst, message->ptr, message_len);
+
     decrRefCount(message);
-    
+
+    return msgblock;
+}
+
+clusterMsgSendBlock *clusterCreateMPublishMsgBlock(robj *channel,
+                        robj **messages, unsigned int count, uint16_t type)
+{
+    clusterMsgSendBlock *msgblock;
+    struct {
+        robj   *obj;
+        size_t  len;
+    } *vec;
+    size_t message_len;
+    unsigned i;
+    unsigned char *dst;
+    uint32_t len;
+
+    vec = zmalloc(sizeof(vec[0]) * count);
+    message_len = 0;
+    for (i = 0; i < count; ++i)
+    {
+        vec[i].obj = getDecodedObject(messages[i]);
+        vec[i].len = sdslen(vec[i].obj->ptr);
+        message_len += 4 + vec[i].len;
+    }
+
+    msgblock = clusterCreatePublishMsgBlockInternal(channel, message_len,
+                                                                type, &dst);
+    for (i = 0; i < count; ++i)
+    {
+        len = htonl(vec[i].len);
+        memcpy(dst, &len, sizeof(len));
+        dst += sizeof(len);
+        memcpy(dst, vec[i].obj->ptr, vec[i].len);
+        dst += vec[i].len;
+    }
+
+    for (i = 0; i < count; ++i)
+        decrRefCount(vec[i].obj);
+    zfree(vec);
+
     return msgblock;
 }
 
@@ -3602,6 +3721,226 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
     return C_OK;
 }
 
+struct ptrs {
+    void     **arr;
+    unsigned   count;
+};
+
+static int seenPtr (struct ptrs *seen, void *ptr)
+{
+    void **p;
+
+    if (!seen->arr)
+        return 0;
+
+    seen->arr[ seen->count ] = ptr;
+    for (p = seen->arr; *p != ptr; ++p)
+        ;
+    return p < seen->arr + seen->count;
+}
+
+clusterMsgSendBlock *cloneMsgSendBock(clusterMsgSendBlock *msgblock)
+{
+    clusterMsgSendBlock *clone;
+    clone = zmalloc(sizeof(*clone));
+    memcpy(clone, msgblock, sizeof(*clone));
+    return clone;
+}
+
+listNode *findNode(clusterLink *link, clusterMsgSendBlock *msgblock)
+{
+    listNode *node;
+    for (node = listFirst(link->send_msg_queue); node; node = listNextNode(node))
+        if (node->value == msgblock)
+            return node;
+    return NULL;
+}
+
+int isAttachable(clusterLink *link, listNode *node)
+{
+    listNode *first, *last;
+
+    last = listLast(link->send_msg_queue);
+    if (last != node)
+        return 0;
+
+    first = listFirst(link->send_msg_queue);
+    if (first == last && link->head_msg_send_offset)
+        return 0;
+
+    return 1;
+}
+
+/* Returns true if messages could be attached to last message on the queue */
+int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
+                                                    int count, struct ptrs *seen)
+{
+    clusterMsgSendBlock *msgblock;
+    clusterMsg *hdr;
+    listNode *first, *last;
+    struct {
+        robj   *obj;
+        size_t  len;
+    } *vec;
+    size_t addl_sz;
+    unsigned char *dst;
+    uint32_t len;
+    struct {
+        uint32_t totlen, channel_len, message_len;
+    } decoded;
+    int i;
+
+    last = listLast(link->send_msg_queue);
+    if (!last)
+        return 0;
+
+    first = listFirst(link->send_msg_queue);
+    if (first == last && link->head_msg_send_offset)
+        return 0;
+
+    msgblock = (clusterMsgSendBlock*)last->value;
+    hdr = &msgblock->msg;
+    if (hdr->type != htons(CLUSTERMSG_TYPE_MPUBLISH))
+        return 0;
+
+    if (seenPtr(seen, msgblock))
+        return 0;
+
+    decoded.totlen = ntohl(hdr->totlen);
+    decoded.channel_len = ntohl(hdr->data.publish.msg.channel_len);
+    decoded.message_len = ntohl(hdr->data.publish.msg.message_len);
+
+    channel = getDecodedObject(channel);
+    const size_t channel_len = sdslen(channel->ptr);
+    const int isSameChannel = decoded.channel_len == channel_len
+         && 0 == memcmp(hdr->data.publish.msg.bulk_data, channel->ptr, channel_len);
+    decrRefCount(channel);
+
+    if (!isSameChannel)
+        return 0;
+
+    /* Find all references to this message on other links and separate
+     * them into those that can be attached to ("OK" refs) and those that
+     * cannot be attached to ("NA," or "not applicable" refs).
+     */
+    const int link_count = msgblock->refcount;
+    listNode *ok_refs[ link_count ],
+             *na_refs[ link_count ];
+    int ok_refs_count = 0, na_refs_count = 0;
+    {
+        dictIterator *di;
+        dictEntry *de;
+        di = dictGetSafeIterator(server.cluster->nodes);
+        while((de = dictNext(di)) != NULL) {
+            clusterNode *cnode = dictGetVal(de);
+            clusterLink *clink = cnode->link;
+            listNode *node;
+            if (!clink)
+                continue;
+            if (clink == link)
+                ok_refs[ ok_refs_count++ ] = last;
+            else if (node = findNode(clink, msgblock), node != NULL)
+            {
+                if (isAttachable(clink, node))
+                    ok_refs[ ok_refs_count++ ] = node;
+                else
+                    na_refs[ na_refs_count++ ] = node;
+            }
+        }
+        dictReleaseIterator(di);
+    }
+    serverAssert(link_count == ok_refs_count + na_refs_count);
+
+    /* Clone the message and point "NA" refs to it. */
+    if (na_refs_count > 0) {
+        clusterMsgSendBlock *na_block = cloneMsgSendBock(msgblock);
+        for (i = 0; i < na_refs_count; ++i)
+            na_refs[i]->value = na_block;
+        na_block->refcount = na_refs_count;
+        msgblock->refcount -= na_refs_count;
+    }
+
+    /* Calculate how much more memory is needed for enlarged message block */
+    addl_sz = 0;
+    vec = zmalloc(sizeof(vec[0]) * count);
+    for (i = 0; i < count; ++i)
+    {
+        vec[i].obj = getDecodedObject(messages[i]);
+        vec[i].len = sdslen(vec[i].obj->ptr);
+        addl_sz += 4 + vec[i].len;
+    }
+
+    /* Modify the message block: attach more messages to it */
+    msgblock = zrealloc(msgblock, msgblock->totlen * 2);
+    hdr = &msgblock->msg;
+    msgblock->totlen                 += addl_sz;
+    hdr->totlen                       = htonl(decoded.totlen + addl_sz);
+    hdr->data.publish.msg.message_len = htonl(decoded.message_len + addl_sz);
+    dst = hdr->data.publish.msg.bulk_data + decoded.channel_len + decoded.message_len;
+    for (i = 0; i < count; ++i)
+    {
+        len = htonl(vec[i].len);
+        memcpy(dst, &len, sizeof(len));
+        dst += sizeof(len);
+        memcpy(dst, vec[i].obj->ptr, vec[i].len);
+        dst += vec[i].len;
+    }
+
+    /* Point references to the new message block */
+    for (i = 0; i < ok_refs_count; ++i)
+        ok_refs[i]->value = msgblock;
+
+    /* Cleanup */
+    for (i = 0; i < count; ++i)
+        decrRefCount(vec[i].obj);
+    zfree(vec);
+
+    /* Record that this message has already been modified */
+    if (!seen->arr)
+        seen->arr = zmalloc(sizeof(seen->arr[0]) * (dictSize(server.cluster->nodes) + 1));
+    seen->arr[ seen->count++ ] = msgblock;
+
+    return 1;
+}
+
+int clusterUsePublishInsteadOfMPublish(void) {
+    return 0;   /* TODO */
+}
+
+/* All messages must be destined for the same channel */
+void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count) {
+    clusterMsgSendBlock *msgblock = NULL;
+    dictIterator *di;
+    dictEntry *de;
+    struct ptrs seen = { NULL, 0 };
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
+            continue;
+        if (node->link && clusterAttachToPrevious(node->link, channel,
+                                                    messages, count, &seen))
+            continue;
+
+        if (!msgblock) {
+            if (count == 1 && clusterUsePublishInsteadOfMPublish())
+                msgblock = clusterCreatePublishMsgBlock(channel, messages[0],
+                                                    CLUSTERMSG_TYPE_PUBLISH);
+            else
+                msgblock = clusterCreateMPublishMsgBlock(channel, messages,
+                                            count, CLUSTERMSG_TYPE_MPUBLISH);
+        }
+        clusterSendMessage(node->link, msgblock);
+    }
+    dictReleaseIterator(di);
+    if (msgblock)
+        clusterMsgSendBlockDecrRefCount(msgblock);
+    if (seen.arr)
+        zfree(seen.arr);
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER Pub/Sub support
  *
@@ -3612,19 +3951,12 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
  * Otherwise:
  * Publish this message across the slot (primary/replica).
  * -------------------------------------------------------------------------- */
-void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
+void clusterPropagatePublishSharded(robj *channel, robj *message) {
     clusterMsgSendBlock *msgblock;
-
-    if (!sharded) {
-        msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISH);
-        clusterBroadcastMessage(msgblock);
-        clusterMsgSendBlockDecrRefCount(msgblock);
-        return;
-    }
-
     listIter li;
     listNode *ln;
     list *nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
+
     serverAssert(nodes_for_slot != NULL);
     listRewind(nodes_for_slot, &li);
     msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
@@ -5268,6 +5600,7 @@ const char *clusterGetMessageTypeString(int type) {
     case CLUSTERMSG_TYPE_UPDATE: return "update";
     case CLUSTERMSG_TYPE_MFSTART: return "mfstart";
     case CLUSTERMSG_TYPE_MODULE: return "module";
+    case CLUSTERMSG_TYPE_MPUBLISH: return "mpublish";
     }
     return "unknown";
 }
