@@ -1077,7 +1077,7 @@ foreach type {single multiple single_multiple} {
         assert_equal [r scard myset] 30
         assert {[is_rehashing myset]}
 
-        # 9) Use positive count (PATH 4).
+        # 9) Use positive count (PATH 4) to get 10 elements (out of 30) each time.
         unset -nocomplain allkey
         set iterations 1000
         while {$iterations != 0} {
