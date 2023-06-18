@@ -188,7 +188,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal {0} [punsubscribe $rd ch*]
 
         $rd close
-    }
+    } {0} {resp3}
 
     test "PUNSUBSCRIBE from non-subscribed channels" {
         set rd1 [redis_deferring_client]
@@ -463,7 +463,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal [r exec] {abc 1 1 def}
         assert_equal [r read] {message foo bar}
         assert_equal [r read] {message foo vaz}
-    }
+    } {} {resp3}
 
     test "publish inside script" {
         r hello 3
@@ -477,7 +477,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal $res {bla}
         assert_equal [r read] {message foo bar}
         assert_equal [r read] {message foo vaz}
-    }
+    } {} {resp3}
 
     test "unsubscribe inside multi" {
         r hello 3
@@ -498,9 +498,9 @@ start_server {tags {"pubsub network"}} {
         r ping def
         assert_equal [r exec] {abc {unsubscribe bar 2} {unsubscribe baz 1} def}
 
-        # published message comes before the publish command's response
-        assert_equal [r publish foo vaz] {message foo vaz}
-        assert_equal [r read] {1}
-    }
+        # published message comes after the publish command's response.
+        assert_equal [r publish foo vaz] {1}
+        assert_equal [r read] {message foo vaz}
+    } {} {resp3}
 
 }

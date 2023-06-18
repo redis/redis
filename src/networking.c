@@ -387,7 +387,7 @@ void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len
     }
 }
 
-/* The subscribe / unsubscribe command faimly has a push as a reply,
+/* The subscribe / unsubscribe command family has a push as a reply,
  * or in other words, it responds with a push (or several of them
  * depending on how many arguments it got), and has no reply. */
 int cmdHasPushAsReply(struct redisCommand *cmd) {
@@ -418,9 +418,10 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
     /* If we're processing a push message into the current client (i.e. executing PUBLISH
      * to a channel which we are subscribed to, then we wanna postpone that message to be added
      * after the command's reply (specifically important during multi-exec). the exception are
-     * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply. */
+     * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
+     * The check for executing_client also avoids affecting push messages that are part of eviction. */
     if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&
-        server.execution_nesting > 1 && !cmdHasPushAsReply(c->cmd))
+        server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
     {
         _addReplyProtoToList(c,server.pending_push_messages,s,len);
         return;
