@@ -451,4 +451,56 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyevent@${db}__:new bar" [$rd1 read]
         $rd1 close
     }
+
+    test "publish inside multi" {
+        r hello 3
+        r subscribe foo
+        r multi
+        r ping abc
+        r publish foo bar
+        r publish foo vaz
+        r ping def
+        assert_equal [r exec] {abc 1 1 def}
+        assert_equal [r read] {message foo bar}
+        assert_equal [r read] {message foo vaz}
+    }
+
+    test "publish inside script" {
+        r hello 3
+        r subscribe foo
+        set res [r eval {
+                redis.call("ping","abc")
+                redis.call("publish","foo","bar")
+                redis.call("publish","foo","vaz")
+                redis.call("ping","def")
+                return "bla"} 0]
+        assert_equal $res {bla}
+        assert_equal [r read] {message foo bar}
+        assert_equal [r read] {message foo vaz}
+    }
+
+    test "unsubscribe inside multi" {
+        r hello 3
+
+        # Note: SUBSCRIBE and UNSUBSCRIBE with multiple channels in the same command,
+        # breaks the multi response, see https://github.com/redis/redis/issues/12207
+        # this is just a temporary sanity test to detect unintended breakage.
+
+        # subscribe for 3 channels actually emits 3 "responses"
+        assert_equal "subscribe foo 1" [r subscribe foo bar baz]
+        assert_equal "subscribe bar 2" [r read]
+        assert_equal "subscribe baz 3" [r read]
+
+        r multi
+        r ping abc
+        r unsubscribe bar
+        r unsubscribe baz
+        r ping def
+        assert_equal [r exec] {abc {unsubscribe bar 2} {unsubscribe baz 1} def}
+
+        # published message comes before the publish command's response
+        assert_equal [r publish foo vaz] {message foo vaz}
+        assert_equal [r read] {1}
+    }
+
 }

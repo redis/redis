@@ -351,8 +351,8 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
 
 /* Adds the reply to the reply linked list.
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
-void _addReplyProtoToList(client *c, const char *s, size_t len) {
-    listNode *ln = listLast(c->reply);
+void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len) {
+    listNode *ln = listLast(reply_list);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
@@ -380,11 +380,21 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         tail->size = usable_size - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
-        listAddNodeTail(c->reply, tail);
+        listAddNodeTail(reply_list, tail);
         c->reply_bytes += tail->size;
 
         closeClientOnOutputBufferLimitReached(c, 1);
     }
+}
+
+/* The subscribe / unsubscribe command faimly has a push as a reply,
+ * or in other words, it responds with a push (or several of them
+ * depending on how many arguments it got), and has no reply. */
+int cmdHasPushAsReply(struct redisCommand *cmd) {
+    if (!cmd) return 0;
+    return cmd->proc == subscribeCommand  || cmd->proc == unsubscribeCommand ||
+           cmd->proc == psubscribeCommand || cmd->proc == punsubscribeCommand ||
+           cmd->proc == ssubscribeCommand || cmd->proc == sunsubscribeCommand;
 }
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
@@ -405,8 +415,19 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * buffer offset (see function comment) */
     reqresSaveClientReplyOffset(c);
 
+    /* If we're processing a push message into the current client (i.e. executing PUBLISH
+     * to a channel which we are subscribed to, then we wanna postpone that message to be added
+     * after the command's reply (specifically important during multi-exec). the exception are
+     * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply. */
+    if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&
+        server.execution_nesting > 1 && !cmdHasPushAsReply(c->cmd))
+    {
+        _addReplyProtoToList(c,server.pending_push_messages,s,len);
+        return;
+    }
+
     size_t reply_len = _addReplyToBuffer(c,s,len);
-    if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
+    if (len > reply_len) _addReplyProtoToList(c,c->reply,s+reply_len,len-reply_len);
 }
 
 /* -----------------------------------------------------------------------------
