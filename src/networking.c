@@ -2805,7 +2805,7 @@ sds catClientInfoString(sds s, client *client) {
         getClientSockname(client),
         connGetInfo(client->conn, conninfo, sizeof(conninfo)),
         client->name ? (char*)client->name->ptr : "",
-        (long long)(server.unixtime - client->ctime),
+        (long long)(commandTimeSnapshot() / 1000 - client->ctime),
         (long long)(server.unixtime - client->lastinteraction),
         flags,
         client->db->id,
@@ -3196,7 +3196,7 @@ NULL
             if (id != 0 && client->id != id) continue;
             if (user && client->user != user) continue;
             if (c == client && skipme) continue;
-            if (max_age != 0 && (long long)(server.unixtime - client->ctime) < max_age) continue;
+            if (max_age != 0 && (long long)(commandTimeSnapshot() / 1000 - client->ctime) < max_age) continue;
 
             /* Kill it. */
             if (c == client) {

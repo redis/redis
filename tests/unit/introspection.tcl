@@ -38,6 +38,29 @@ start_server {tags {"introspection"}} {
         assert_error "ERR *greater than 0*" {r client kill age -1}
     }
 
+    test {CLIENT KILL AGE will kill old clients} {
+        set rd1 [redis_deferring_client]
+        r debug sleep 2
+        set rd2 [redis_deferring_client]
+
+        r acl setuser dummy on nopass +ping
+        $rd1 auth dummy ""
+        $rd1 read
+        $rd2 auth dummy ""
+        $rd2 read
+
+        # Should kill rd1 but not rd2
+        set res [r client kill user dummy age 1]
+        assert {$res == 1}
+
+        # rd2 should still be connected
+        $rd2 ping
+        assert_equal "PONG" [$rd2 read]
+
+        $rd1 close
+        $rd2 close
+    } {0} {"needs:debug"}
+
     test {CLIENT KILL SKIPME YES/NO will kill all clients} {
         # Kill all clients except `me`
         set rd1 [redis_deferring_client]
@@ -64,26 +87,6 @@ start_server {tags {"introspection"}} {
         $rd3 close
         $rd4 close
     }
-
-tags {"needs:debug"} {
-    test {CLIENT KILL AGE will kill old clients} {
-            set rd1 [redis_deferring_client]
-            r debug sleep 2
-            set rd2 [redis_deferring_client]
-            set connected_clients [s connected_clients]
-            assert {$connected_clients >= 3}
-            # Should kill everything except r and rd2
-            set res [r client kill age 1]
-            assert {$res == $connected_clients - 2}
-
-            # rd2 should still be connected
-            $rd2 ping
-            assert_equal "PONG" [$rd2 read]
-
-            $rd1 close
-            $rd2 close
-        }
-} ;# tag
 
     test "CLIENT KILL close the client connection during bgsave" {
         # Start a slow bgsave, trigger an active fork.
