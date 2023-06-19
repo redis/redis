@@ -1,7 +1,7 @@
 {
     "PUNSUBSCRIBE": {
         "summary": "Stops listening to messages published to channels that match one or more patterns.",
-        "complexity": "O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).",
+        "complexity": "O(N) where N is the number of patterns to unsubscribe.",
         "group": "pubsub",
         "since": "2.0.0",
         "arity": -1,
