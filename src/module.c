@@ -2997,7 +2997,7 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
 
 /* Reply with the error create from a printf format and arguments.
  *
- * Note that 'err' must contain all the error, including
+ * Note that 'fmt' must contain all the error, including
  * the initial error code. The function only provides the initial "-", so
  * the usage is, for example:
  *
@@ -3013,7 +3013,7 @@ int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
 
-    int len = strlen(fmt) + 2; /* 1 for the \n and 1 for the hyphen */
+    int len = strlen(fmt) + 2; /* 1 for the \0 and 1 for the hyphen */
     char *hyphenfmt = zmalloc(len);
     snprintf(hyphenfmt, len, "-%s", fmt);
 
