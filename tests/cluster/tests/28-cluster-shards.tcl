@@ -182,6 +182,10 @@ test "Test the replica reports a loading state while it's loading" {
         fail "Replica never transitioned to loading"
     }
 
+    # Verify cluster shards and cluster slots (deprecated) API responds while the node is loading data.
+    R $replica_id CLUSTER SHARDS
+    R $replica_id CLUSTER SLOTS
+
     # Speed up the key loading and verify everything resumes
     R $replica_id config set key-load-delay 0
 

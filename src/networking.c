@@ -3941,6 +3941,7 @@ void flushSlavesOutputBuffers(void) {
          * 3. Obviously if the slave is not ONLINE.
          */
         if (slave->replstate == SLAVE_STATE_ONLINE &&
+            !(slave->flags & CLIENT_CLOSE_ASAP) &&
             can_receive_writes &&
             !slave->repl_start_cmd_stream_on_ack &&
             clientHasPendingReplies(slave))

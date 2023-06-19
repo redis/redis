@@ -132,7 +132,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSET element can't be set to NaN with ZINCRBY - $encoding" {
-            assert_error "*not*float*" {r zadd myzset nan abc}
+            assert_error "*not*float*" {r zincrby myzset nan abc}
         }
 
         test "ZADD with options syntax error with incomplete pair - $encoding" {

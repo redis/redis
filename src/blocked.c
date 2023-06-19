@@ -325,6 +325,9 @@ void handleClientsBlockedOnKeys(void) {
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
 
+    /* If a command being unblocked causes another command to get unblocked,
+     * like a BLMOVE would do, then the new unblocked command will get processed
+     * right away rather than wait for later. */
     while(listLength(server.ready_keys) != 0) {
         list *l;
 
@@ -564,7 +567,10 @@ static void handleClientsBlockedOnKey(readyList *rl) {
         listIter li;
         listRewind(clients,&li);
 
-        while((ln = listNext(&li))) {
+        /* Avoid processing more than the initial count so that we're not stuck
+         * in an endless loop in case the reprocessing of the command blocks again. */
+        long count = listLength(clients);
+        while ((ln = listNext(&li)) && count--) {
             client *receiver = listNodeValue(ln);
             robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
