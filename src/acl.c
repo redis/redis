@@ -1922,17 +1922,15 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         kill = 0;
 
         if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
-            if (!kill) {
-                /* Check for pattern violations. */
-                dictIterator *di = dictGetIterator(c->pubsub_patterns);
-                dictEntry *de;
-                while (!kill && ((de = dictNext(di)) != NULL)) {
-                    o = dictGetKey(de);
-                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-                    kill = (res == ACL_DENIED_CHANNEL);
-                }
-                dictReleaseIterator(di);
+            /* Check for pattern violations. */
+            dictIterator *di = dictGetIterator(c->pubsub_patterns);
+            dictEntry *de;
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
+                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
+                kill = (res == ACL_DENIED_CHANNEL);
             }
+            dictReleaseIterator(di);
 
             if (!kill) {
                 /* Check for global channels violation. */
