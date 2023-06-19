@@ -1124,11 +1124,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
-        if (o == NULL) {
-            sds key = listNodeValue(node);
-            addReplyBulkCBuffer(c, key, sdslen(key));
-            listDelNode(keys, node);
-        }
+        sds key = listNodeValue(node);
+        addReplyBulkCBuffer(c, key, sdslen(key));
+        listDelNode(keys, node);
     }
 
     listRelease(keys);
