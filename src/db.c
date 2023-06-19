@@ -922,7 +922,7 @@ char *getObjectTypeName(robj *o) {
     }
 
     if (o->type < 0 || o->type > OBJ_TYPE_MAX) {
-        return "unkown";
+        return "unknown";
     } else {
         return obj_type_name[o->type];
     }
