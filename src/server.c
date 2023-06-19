@@ -3971,7 +3971,7 @@ int processCommand(client *c) {
     if (!server.cluster_enabled &&
         server.masterhost &&
         !mustObeyClient(c) &&
-        server.repl_replica_redirect_rw &&
+        server.repl_replica_enable_redirect &&
         (is_write_command ||
          (is_read_command && !(c->flags & CLIENT_READONLY)))) {
         addReplyErrorSds(c,sdscatprintf(sdsempty(), "-MOVED -1 %s:%d",
