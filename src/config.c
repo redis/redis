@@ -477,6 +477,7 @@ void loadServerConfigFromString(char *config) {
         /* Skip this line if the resulting command vector is empty. */
         if (argc == 0) {
             sdsfreesplitres(argv,argc);
+            argv = NULL;
             continue;
         }
         sdstolower(argv[0]);
@@ -499,6 +500,7 @@ void loadServerConfigFromString(char *config) {
                 int new_argc;
                 new_argv = sdssplitargs(argv[1], &new_argc);
                 if (!config->interface.set(config, new_argv, new_argc, &err)) {
+                    if(new_argv) sdsfreesplitres(new_argv, new_argc);
                     goto loaderr;
                 }
                 sdsfreesplitres(new_argv, new_argc);
@@ -510,6 +512,7 @@ void loadServerConfigFromString(char *config) {
             }
 
             sdsfreesplitres(argv,argc);
+            argv = NULL;
             continue;
         } else {
             int match = 0;
@@ -524,6 +527,7 @@ void loadServerConfigFromString(char *config) {
             }
             if (match) {
                 sdsfreesplitres(argv,argc);
+                argv = NULL;
                 continue;
             }
         }
@@ -590,6 +594,7 @@ void loadServerConfigFromString(char *config) {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
+        argv = NULL;
     }
 
     if (server.logfile[0] != '\0') {
