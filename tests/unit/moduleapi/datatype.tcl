@@ -89,8 +89,16 @@ start_server {tags {"modules"}} {
         $rd read
         $rd close
     }
-    test "SCAN module datatype" {
+
+    test {DataType: check the type name} {
         r flushdb
+        r datatype.set foo 111 bar
+        assert_type test___dt foo
+    }
+
+    test {SCAN module datatype} {
+        r flushdb
+        populate 1000
         r datatype.set foo 111 bar
         set type [r type foo]
         set cur 0

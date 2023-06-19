@@ -826,6 +826,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     list *keys = data->keys;
     robj *o = data->o;
     sds val = NULL;
+    sds key = NULL;
     data->sampled++;
 
     /* o and typename can not have values at the same time. */
@@ -851,21 +852,22 @@ void scanCallback(void *privdata, const dictEntry *de) {
     }
 
     if (o == NULL) {
-        listAddNodeTail(keys, createStringObject(keysds, sdslen(keysds)));
-        return;
+        key = keysds;
     } else if (o->type == OBJ_SET) {
-        /* Do nothing. */
+        key = keysds;
     } else if (o->type == OBJ_HASH) {
-        val = sdsdup(dictGetVal(de));
+        key = keysds;
+        val = dictGetVal(de);
     } else if (o->type == OBJ_ZSET) {
         char buf[MAX_LONG_DOUBLE_CHARS];
         int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);
+        key = sdsdup(keysds);
         val = sdsnewlen(buf, len);
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
 
-    listAddNodeTail(keys, sdsdup(keysds));
+    listAddNodeTail(keys, key);
     if (val) listAddNodeTail(keys, val);
 }
 
@@ -899,6 +901,9 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
 };
 
 long long getObjectTypeByName(char *name) {
+    /* empty string as a unknown type */
+    if(strlen(name) == 0) return LLONG_MAX;
+
     for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
         if (!strcasecmp(name, obj_type_name[i])) {
             return i;
@@ -916,13 +921,11 @@ char *getObjectTypeName(robj *o) {
         return "none";
     }
 
+    serverAssert(o->type>= 0 && o->type < OBJ_TYPE_MAX);
+
     if (o->type == OBJ_MODULE) {
         moduleValue *mv = o->ptr;
         return mv->type->name;
-    }
-
-    if (o->type < 0 || o->type > OBJ_TYPE_MAX) {
-        return "unknown";
     } else {
         return obj_type_name[o->type];
     }
@@ -984,10 +987,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
             /* SCAN for a particular type only applies to the db dict */
             sds typename = c->argv[i + 1]->ptr;
-            if (sdslen(typename) == 0) {
-                addReplyErrorObject(c, shared.syntaxerr);
-                return;
-            }
             type = getObjectTypeByName(typename);
             if (type == LLONG_MAX) {
                 addReplyErrorFormat(c, "unknown type name '%s'", typename);
@@ -1022,8 +1021,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     list *keys = listCreate();
-    if (!o) {
-        listSetFreeMethod(keys, decrRefCountVoid);
+    /* For the key or set/hash type with the OBJ_ENCODING_HT
+     * encoding, we don't need to define free method because it
+     * just is a shallow copy from the pointer in the dictEntry */
+    if(o && (!ht || o->type == OBJ_ZSET)) {
+        listSetFreeMethod(keys, (void (*)(void*))sdsfree);
     }
 
     if (ht) {
@@ -1103,13 +1105,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     /* Step 3: Filter the expired keys */
     if (o == NULL && listLength(keys)) {
+        robj kobj;
         listIter li;
         listNode *ln;
         listRewind(keys, &li);
         while ((ln = listNext(&li))) {
-            robj *kobj = listNodeValue(ln);
-
-            if (expireIfNeeded(c->db, kobj, 0)) {
+            sds key = listNodeValue(ln);
+            initStaticStringObject(kobj, key);
+            if (expireIfNeeded(c->db, &kobj, 0)) {
                 listDelNode(keys, ln);
             }
         }
@@ -1122,11 +1125,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         if (o == NULL) {
-            addReplyBulk(c, listNodeValue(node));
-        } else {
-            addReplyBulkSds(c, listNodeValue(node));
+            sds key = listNodeValue(node);
+            addReplyBulkCBuffer(c, key, sdslen(key));
+            listDelNode(keys, node);
         }
-        listDelNode(keys, node);
     }
 
     listRelease(keys);
@@ -1784,6 +1786,10 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
 
+    /* The key needs to be converted from static to heap before deleted */
+    if(key->refcount == OBJ_STATIC_REFCOUNT) {
+        key = createStringObject(key->ptr, sdslen(key->ptr));
+    }
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);
     return 1;

@@ -98,7 +98,7 @@ start_server {tags {"scan network"}} {
         assert_equal 1000 [llength $keys]
     }
 
-    test "SCAN unkown type" {
+    test "SCAN unknown type" {
         assert_error "*unknown type name*" {r scan 0 type "string1"}
     }
 
