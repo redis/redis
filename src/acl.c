@@ -1932,10 +1932,10 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
             }
             dictReleaseIterator(di);
 
+            /* Check for channel violations. */
             if (!kill) {
                 /* Check for global channels violation. */
-                dictIterator *di = dictGetIterator(c->pubsub_channels);
-                dictEntry *de;
+                di = dictGetIterator(c->pubsub_channels);
                 while (!kill && ((de = dictNext(di)) != NULL)) {
                     o = dictGetKey(de);
                     int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
@@ -1946,8 +1946,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
 
             if (!kill) {
                 /* Check for shard channels violation. */
-                dictIterator *di = dictGetIterator(c->pubsubshard_channels);
-                dictEntry *de;
+                di = dictGetIterator(c->pubsubshard_channels);
                 while (!kill && ((de = dictNext(di)) != NULL)) {
                     o = dictGetKey(de);
                     int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
