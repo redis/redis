@@ -6050,7 +6050,7 @@ RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
  *
  * Note that the client must not be released if it has an outstanding command running.
  * A blocked RM_Call (using the 'K' flag), requires calling RM_CallReplyPromiseAbort
- * first, and wait for the unblock handler to be called. */
+ * successfully or wait for the unblock handler to be called. */
 int RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client) {
     UNUSED(ctx);
 
