@@ -19,7 +19,7 @@ proc get_port_form_node_info {line} {
 
 proc tls_service_tests {} {
 
-    test "CLUSTER SLOTS with different connnection type" {
+    test "CLUSTER SLOTS with different connection type" {
         set slots1 [R 0 cluster slots]
         set pport [get_instance_attrib redis 0 pport]
         set cluster_client [redis_cluster 127.0.0.1:$pport 0]
@@ -116,7 +116,7 @@ if {$::tls} {
     tls_service_tests
 
     # Clean up all nodes and spawn new instances for TLS tests
-    # in a cluster with "tls-cluster" is disbled
+    # in a cluster with "tls-cluster" disabled
     cleanup
     set ::redis_instances {}
     spawn_instance redis $::redis_base_port 6 0 {
