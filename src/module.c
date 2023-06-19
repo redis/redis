@@ -512,6 +512,7 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
+void moduleReleaseTempClient(client *c);
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
  *
@@ -651,6 +652,14 @@ static void freeRedisModuleAsyncRMCallPromise(RedisModuleAsyncRMCallPromise *pro
      * Either releasing the client or RM_CallReplyPromiseAbort would have removed it. */
     serverAssert(!promise->c);
     zfree(promise);
+}
+
+static void freeTempClientAndCallPromise(client *c) {
+    RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
+    promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
+    freeRedisModuleAsyncRMCallPromise(promise);
+    c->bstate.async_rm_call_handle = NULL;
+    moduleReleaseTempClient(c);
 }
 
 static void moduleFreeArgv(robj **argv, int argc) {
@@ -893,11 +902,7 @@ void moduleCallCommandUnblockedHandler(client *c) {
     moduleFreeContext(&ctx);
 
 out:
-    promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
-    freeRedisModuleAsyncRMCallPromise(promise);
-    c->bstate.async_rm_call_handle = NULL;
-
-    moduleReleaseTempClient(c);
+    freeTempClientAndCallPromise(c);
 }
 
 /* Create a module ctx and keep track of the nesting level.
@@ -5985,10 +5990,7 @@ int RM_CallReplyPromiseAbort(RedisModuleCallReply *reply, void **private_data) {
     promise->on_unblocked = NULL;
     unblockClient(promise->c, 0);
 
-    promise->c->bstate.async_rm_call_handle = NULL;
-    freeRedisModuleAsyncRMCallPromise(promise);
-    moduleReleaseTempClient(promise->c);
-    promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
+    freeTempClientAndCallPromise(promise->c);
     return REDISMODULE_OK;
 }
 
@@ -6027,8 +6029,9 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
 
 /* Returns an object that provides a client that can be attached to a
  * RedisModuleContet object to provide a persistent client usage
- * between multiple RM_Calls.  This simulates a network connected
- * client and enables modules to use WATCH/MULTI/EXEC transaction
+ * between multiple RM_Calls. This simulates a network connected
+ * client and enables modules to use WATCH/MULTI/EXEC transaction.
+ * The object must be released with RM_FreeModuleClient.
  */
 RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
     UNUSED(ctx);
@@ -6043,6 +6046,11 @@ RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
     return rmc;
 }
 
+/* Releases a RedisModuleClient.
+ *
+ * Note that the client must not be released if it has an outstanding command running.
+ * A blocked RM_Call (using the 'K' flag), requires calling RM_CallReplyPromiseAbort
+ * first, and wait for the unblock handler to be called. */
 int RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client) {
     UNUSED(ctx);
 
