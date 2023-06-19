@@ -12,7 +12,7 @@ set ::tlsdir "../../tls"
 
 proc main {} {
     parse_options
-    spawn_instance redis $::redis_base_port $::instances_count {
+    spawn_instance redis $::redis_base_port $::instances_count $::tls {
         "cluster-enabled yes"
         "appendonly yes"
         "enable-protected-configs yes"

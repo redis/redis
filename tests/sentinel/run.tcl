@@ -13,13 +13,13 @@ proc main {} {
     if {$::leaked_fds_file != ""} {
         set ::env(LEAKED_FDS_FILE) $::leaked_fds_file
     }
-    spawn_instance sentinel $::sentinel_base_port $::instances_count {
+    spawn_instance sentinel $::sentinel_base_port $::instances_count $::tls {
         "sentinel deny-scripts-reconfig no"
         "enable-protected-configs yes"
         "enable-debug-command yes"
     } "../tests/includes/sentinel.conf"
 
-    spawn_instance redis $::redis_base_port $::instances_count {
+    spawn_instance redis $::redis_base_port $::instances_count $::tls {
         "enable-protected-configs yes"
         "enable-debug-command yes"
         "save ''"

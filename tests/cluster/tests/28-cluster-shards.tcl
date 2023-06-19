@@ -87,7 +87,6 @@ test "Verify information about the shards" {
                 assert_equal [get_instance_attrib redis $i pport] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
                 assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] tls-port]
             } else {
-                assert_equal [get_instance_attrib redis $i pport] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] tls-port]
                 assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
             }
 
