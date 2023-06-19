@@ -417,7 +417,7 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
 
     /* If we're processing a push message into the current client (i.e. executing PUBLISH
      * to a channel which we are subscribed to, then we wanna postpone that message to be added
-     * after the command's reply (specifically important during multi-exec). the exception are
+     * after the command's reply (specifically important during multi-exec). the exception is
      * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
      * The check for executing_client also avoids affecting push messages that are part of eviction. */
     if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&

@@ -148,7 +148,7 @@ start_server {overrides {save {900 1}} tags {"modules"}} {
         $rd_trk close
     }
 
-    test {publish inside rm_call} {
+    test {publish to self inside rm_call} {
         r hello 3
         r subscribe foo
 

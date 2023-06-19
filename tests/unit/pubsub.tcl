@@ -452,7 +452,7 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
-    test "publish inside multi" {
+    test "publish to self inside multi" {
         r hello 3
         r subscribe foo
         r multi
@@ -465,7 +465,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal [r read] {message foo vaz}
     } {} {resp3}
 
-    test "publish inside script" {
+    test "publish to self inside script" {
         r hello 3
         r subscribe foo
         set res [r eval {
@@ -479,7 +479,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal [r read] {message foo vaz}
     } {} {resp3}
 
-    test "unsubscribe inside multi" {
+    test "unsubscribe inside multi, and publish to self" {
         r hello 3
 
         # Note: SUBSCRIBE and UNSUBSCRIBE with multiple channels in the same command,

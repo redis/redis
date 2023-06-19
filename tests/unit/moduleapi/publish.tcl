@@ -17,7 +17,7 @@ start_server {tags {"modules"}} {
         $rd2 close
     }
 
-    test {module publish to self} {
+    test {module publish to self with multi message} {
         r hello 3
         r subscribe foo
 
