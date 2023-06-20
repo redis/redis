@@ -240,11 +240,11 @@ int auxHumanNodenameSetter(clusterNode *n, void *value, int length) {
 }
 
 sds auxHumanNodenameGetter(clusterNode *n, sds s) {
-    return sdscatprintf(s, "%.40s", n->human_nodename);
+    return sdscatprintf(s, "%s", n->human_nodename);
 }
 
 int auxHumanNodenamePresent(clusterNode *n) {
-    return strlen(n->human_nodename);
+    return sdslen(n->human_nodename);
 }
 
 /* clusterLink send queue blocks */
