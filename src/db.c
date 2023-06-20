@@ -1786,7 +1786,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
 
     /* The key needs to be converted from static to heap before deleted */
     int static_key = key->refcount == OBJ_STATIC_REFCOUNT;
-    if(static_key) {
+    if (static_key) {
         key = createStringObject(key->ptr, sdslen(key->ptr));
     }
     /* Delete the key */
