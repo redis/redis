@@ -455,14 +455,13 @@ void loadServerConfigFromString(char *config) {
     const char *err = NULL;
     int linenum = 0, totlines, i;
     sds *lines;
+    sds *argv = NULL;
+    int argc;
 
     reading_config_file = 1;
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
-        sds *argv;
-        int argc;
-
         linenum = i+1;
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
@@ -479,6 +478,7 @@ void loadServerConfigFromString(char *config) {
         /* Skip this line if the resulting command vector is empty. */
         if (argc == 0) {
             sdsfreesplitres(argv,argc);
+            argv = NULL;
             continue;
         }
         sdstolower(argv[0]);
@@ -501,6 +501,7 @@ void loadServerConfigFromString(char *config) {
                 int new_argc;
                 new_argv = sdssplitargs(argv[1], &new_argc);
                 if (!config->interface.set(config, new_argv, new_argc, &err)) {
+                    if(new_argv) sdsfreesplitres(new_argv, new_argc);
                     goto loaderr;
                 }
                 sdsfreesplitres(new_argv, new_argc);
@@ -512,6 +513,7 @@ void loadServerConfigFromString(char *config) {
             }
 
             sdsfreesplitres(argv,argc);
+            argv = NULL;
             continue;
         } else {
             int match = 0;
@@ -526,6 +528,7 @@ void loadServerConfigFromString(char *config) {
             }
             if (match) {
                 sdsfreesplitres(argv,argc);
+                argv = NULL;
                 continue;
             }
         }
@@ -592,6 +595,7 @@ void loadServerConfigFromString(char *config) {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
+        argv = NULL;
     }
 
     if (server.logfile[0] != '\0') {
@@ -629,6 +633,7 @@ void loadServerConfigFromString(char *config) {
     return;
 
 loaderr:
+    if (argv) sdsfreesplitres(argv,argc);
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
         REDIS_VERSION);
     if (i < totlines) {
