@@ -450,7 +450,7 @@ start_server {tags {"zset"}} {
             assert_equal $nullres [r zrevrank zranktmp foo]
             r readraw 0
 
-            # withscores
+            # withscore
             set nullres {*-1}
             if {$::force_resp3} {
                 set nullres {_}
