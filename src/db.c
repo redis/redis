@@ -921,7 +921,7 @@ char *getObjectTypeName(robj *o) {
         return "none";
     }
 
-    serverAssert(o->type>= 0 && o->type < OBJ_TYPE_MAX);
+    serverAssert(o->type >= 0 && o->type < OBJ_TYPE_MAX);
 
     if (o->type == OBJ_MODULE) {
         moduleValue *mv = o->ptr;
