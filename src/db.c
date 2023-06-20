@@ -1024,7 +1024,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* For the key or set/hash type with the OBJ_ENCODING_HT
      * encoding, we don't need to define free method because it
      * just is a shallow copy from the pointer in the dictEntry */
-    if(o && (!ht || o->type == OBJ_ZSET)) {
+    if (o && (!ht || o->type == OBJ_ZSET)) {
         listSetFreeMethod(keys, (void (*)(void*))sdsfree);
     }
 
