@@ -356,6 +356,7 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
+    client *c;
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -10645,7 +10646,8 @@ void moduleCallCommandFilters(client *c) {
     RedisModuleCommandFilterCtx filter = {
         .argv = c->argv,
         .argv_len = c->argv_len,
-        .argc = c->argc
+        .argc = c->argc,
+        .c = c
     };
 
     while((ln = listNext(&li))) {
@@ -10736,6 +10738,11 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     fctx->argc--;
 
     return REDISMODULE_OK;
+}
+
+/* Get Client ID for client that issued the command we are filtering */
+unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->c->id;
 }
 
 /* For a given pointer allocated via RedisModule_Alloc() or
@@ -13722,6 +13729,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgInsert);
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
+    REGISTER_API(CommandFilterGetClientId);
     REGISTER_API(Fork);
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);
