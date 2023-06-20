@@ -1791,7 +1791,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     }
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);
-    if(static_key) {
+    if (static_key) {
         decrRefCount(key);
     }
     return 1;
