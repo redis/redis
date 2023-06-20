@@ -902,7 +902,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
 
 long long getObjectTypeByName(char *name) {
     /* empty string as a unknown type */
-    if(strlen(name) == 0) return LLONG_MAX;
+    if (strlen(name) == 0) return LLONG_MAX;
 
     for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
         if (!strcasecmp(name, obj_type_name[i])) {
