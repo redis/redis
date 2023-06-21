@@ -1,18 +1,3 @@
-# Check if cluster's view of hostnames is consistent
-proc are_hostnames_propagated {match_string} {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        set cfg [R $j cluster slots]
-        foreach node $cfg {
-            for {set i 2} {$i < [llength $node]} {incr i} {
-                if {! [string match $match_string [lindex [lindex [lindex $node $i] 3] 1]] } {
-                    return 0
-                }
-            }
-        }
-    }
-    return 1
-}
-
 proc get_slot_field {slot_output shard_id node_id attrib_id} {
     return [lindex [lindex [lindex $slot_output $shard_id] $node_id] $attrib_id]
 }
