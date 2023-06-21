@@ -136,6 +136,56 @@ int fsl_push(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+static void timer_callback(RedisModuleCtx *ctx, void *data)
+{
+    long long ele = 9000;
+    RedisModuleString *keyname = data;
+
+    fsl_t *fsl;
+    if (!get_fsl(ctx, keyname, REDISMODULE_WRITE, 1, &fsl, 1))
+        return;
+
+    if (fsl->length == LIST_SIZE)
+        return; /* list is full */
+
+    if (fsl->length != 0 && fsl->list[fsl->length-1] >= ele)
+        return; /* new element has to be greater than the head element */
+
+    fsl->list[fsl->length++] = ele;
+    RedisModule_SignalKeyAsReady(ctx, keyname);
+
+    RedisModule_Replicate(ctx, "FSL.LPUSH", "sl", keyname, ele);
+
+    RedisModule_FreeString(ctx, keyname);
+}
+
+/* FSL.PUSHTIMER9000 <key> <period-in-ms> - Push the number 9000 to the fixed-size list (to the right).
+ * It must be greater than the element in the head of the list. */
+int fsl_pushtimer9000(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 3)
+        return RedisModule_WrongArity(ctx);
+
+    long long period;
+    if (RedisModule_StringToLongLong(argv[2],&period) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx,"ERR invalid period");
+
+    fsl_t *fsl;
+    if (!get_fsl(ctx, argv[1], REDISMODULE_WRITE, 1, &fsl, 1))
+        return REDISMODULE_OK;
+
+    if (fsl->length == LIST_SIZE)
+        return RedisModule_ReplyWithError(ctx,"ERR list is full");
+
+    RedisModuleString *keyname = argv[1];
+    RedisModule_RetainString(ctx, keyname);
+
+    RedisModuleTimerID id = RedisModule_CreateTimer(ctx, period, timer_callback, keyname);
+    RedisModule_ReplyWithLongLong(ctx, id);
+
+    return REDISMODULE_OK;
+}
+
 int bpop_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -544,6 +594,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"write",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"fsl.pushtimer9000",fsl_pushtimer9000,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"write",1,1,1) == REDISMODULE_ERR)

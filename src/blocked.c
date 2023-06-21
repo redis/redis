@@ -734,3 +734,30 @@ void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *blok
     if (bloking_keys_on_nokey)
         *bloking_keys_on_nokey = bkeys_on_nokey;
 }
+
+void blockedBeforeSleep(void) {
+    /* Handle precise timeouts of blocked clients. */
+    handleBlockedClientsTimeout();
+
+    /* Unblock all the clients blocked for synchronous replication
+     * in WAIT or WAITAOF. */
+    if (listLength(server.clients_waiting_acks))
+        processClientsWaitingReplicas();
+
+    /* Try to process blocked clients every once in while.
+     *
+     * Example: A module calls RM_SignalKeyAsReady from within a timer callback
+     * (So we don't visit processCommand() at all).
+     *
+     * This may unblock clients, so must be done before processUnblockedClients */
+    handleClientsBlockedOnKeys();
+
+    /* Check if there are clients unblocked by modules that implement
+     * blocking commands. */
+    if (moduleCount())
+        moduleHandleBlockedClients();
+
+    /* Try to process pending commands for clients that were just unblocked. */
+    if (listLength(server.unblocked_clients))
+        processUnblockedClients();
+}
