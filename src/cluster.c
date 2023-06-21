@@ -2676,12 +2676,6 @@ int clusterProcessPacket(clusterLink *link) {
         senderConfigEpoch = ntohu64(hdr->configEpoch);
         if (senderCurrentEpoch > server.cluster->currentEpoch)
             server.cluster->currentEpoch = senderCurrentEpoch;
-        /* Update the sender configEpoch if it is publishing a newer one. */
-        if (senderConfigEpoch > sender->configEpoch) {
-            sender->configEpoch = senderConfigEpoch;
-            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                 CLUSTER_TODO_FSYNC_CONFIG);
-        }
         /* Update the replication offset info for this node. */
         sender->repl_offset = ntohu64(hdr->offset);
         sender->repl_offset_time = now;
@@ -2908,10 +2902,44 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
+        /* If there is a migrated slot of the sender in POV pending claim 
+         * by a new master, the sender's config epoch in POV cannot be 
+         * updated separately. So is the sender's slots.
+         * 
+         * Otherwise, the slot will be guarded by a new config epoch of 
+         * the previous master. This config epoch maybe has been increased 
+         * after this slot was assigned to another master. 
+         * 
+         * The new master will fail to claim the slot because 
+         * senderConfigEpoch is smaller than server.cluster->slots[j]->configEpoch. 
+         * 
+         * Let's skip updating the sender's configEpoch and Slots before the migrated slot is claimed in POV. 
+         */
+        
+        int migrated_slots = 0;
+        if (sender && !nodeInHandshake(sender)  // senderConfigEpoch is not 0
+            && nodeIsMaster(sender) && dirty_slots) { // sender is master and has dirty_slots
+            for (int j = 0; j < CLUSTER_SLOTS; j++) {
+                if (!bitmapTestBit(hdr->myslots,j) && server.cluster->slots[j] == sender) {
+                    migrated_slots = 1;
+                    break;
+                }
+            }
+        }
+
+         if (sender && !nodeInHandshake(sender) 
+          && senderConfigEpoch > sender->configEpoch && !migrated_slots) {
+            /* Update the sender configEpoch if it is publishing a newer one and has no migrated slots pending claim. */
+                sender->configEpoch = senderConfigEpoch;
+
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                    CLUSTER_TODO_FSYNC_CONFIG);
+         }
+
         /* 1) If the sender of the message is a master, and we detected that
          *    the set of slots it claims changed, scan the slots to see if we
          *    need to update our configuration. */
-        if (sender && nodeIsMaster(sender) && dirty_slots)
+        if (sender && nodeIsMaster(sender) && dirty_slots && !migrated_slots)
             clusterUpdateSlotsConfigWith(sender,senderConfigEpoch,hdr->myslots);
 
         /* 2) We also check for the reverse condition, that is, the sender
