@@ -2917,8 +2917,8 @@ int clusterProcessPacket(clusterLink *link) {
          */
         
         int migrated_slots = 0;
-        if (sender && !nodeInHandshake(sender)  // senderConfigEpoch is not 0
-            && nodeIsMaster(sender) && dirty_slots) { // sender is master and has dirty_slots
+        if (sender && !nodeInHandshake(sender) &&
+            nodeIsMaster(sender) && dirty_slots) {
             for (int j = 0; j < CLUSTER_SLOTS; j++) {
                 if (!bitmapTestBit(hdr->myslots,j) && server.cluster->slots[j] == sender) {
                     migrated_slots = 1;
@@ -2927,19 +2927,19 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
-         if (sender && !nodeInHandshake(sender) 
-          && senderConfigEpoch > sender->configEpoch && !migrated_slots) {
+         if (sender && !nodeInHandshake(sender) && !migrated_slots &&
+            senderConfigEpoch > sender->configEpoch) {
             /* Update the sender configEpoch if it is publishing a newer one and has no migrated slots pending claim. */
-                sender->configEpoch = senderConfigEpoch;
+            sender->configEpoch = senderConfigEpoch;
 
-                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                    CLUSTER_TODO_FSYNC_CONFIG);
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                CLUSTER_TODO_FSYNC_CONFIG);
          }
 
         /* 1) If the sender of the message is a master, and we detected that
          *    the set of slots it claims changed, scan the slots to see if we
          *    need to update our configuration. */
-        if (sender && nodeIsMaster(sender) && dirty_slots && !migrated_slots)
+        if (sender && nodeIsMaster(sender) && !migrated_slots && dirty_slots)
             clusterUpdateSlotsConfigWith(sender,senderConfigEpoch,hdr->myslots);
 
         /* 2) We also check for the reverse condition, that is, the sender
