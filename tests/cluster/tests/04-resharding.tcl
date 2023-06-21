@@ -58,7 +58,7 @@ set start_node_port [get_instance_attrib redis 0 port]
 set cluster [redis_cluster 127.0.0.1:$start_node_port]
 if {$::tls} {
     # setup a non-TLS cluster client to the TLS cluster
-    set plaintext_port [get_instance_attrib redis 0 pport]
+    set plaintext_port [get_instance_attrib redis 0 plaintext-port]
     set cluster_plaintext [redis_cluster 127.0.0.1:$plaintext_port 0]
     puts "Testing TLS cluster on start node 127.0.0.1:$start_node_port, plaintext port $plaintext_port"
 } else {

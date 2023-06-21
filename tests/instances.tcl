@@ -65,14 +65,11 @@ proc exec_instance {type dirname cfgfile} {
 }
 
 # Spawn a redis or sentinel instance, depending on 'type'.
-proc spawn_instance {type base_port count tls_cluster {conf {}} {base_conf_file ""}} {
+proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port $::redis_port_count]
-        if {$::tls} {
-            set pport [find_available_port $base_port $::redis_port_count]
-        } else {
-            set pport 0
-        }
+        # plaintext port (only used for TLS cluster)
+        set pport 0
         # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
@@ -92,18 +89,19 @@ proc spawn_instance {type base_port count tls_cluster {conf {}} {base_conf_file 
             if {$::tls_module} {
                 puts $cfg [format "loadmodule %s/../../../src/redis-tls.so" [pwd]]
             }
+
+            puts $cfg "tls-port $port"
+            puts $cfg "tls-replication yes"
+            puts $cfg "tls-cluster yes"
+            # plaintext port, only used by plaintext clients in a TLS cluster
+            set pport [find_available_port $base_port $::redis_port_count]
+            puts $cfg "port $pport"
             puts $cfg [format "tls-cert-file %s/../../tls/server.crt" [pwd]]
             puts $cfg [format "tls-key-file %s/../../tls/server.key" [pwd]]
             puts $cfg [format "tls-client-cert-file %s/../../tls/client.crt" [pwd]]
             puts $cfg [format "tls-client-key-file %s/../../tls/client.key" [pwd]]
             puts $cfg [format "tls-dh-params-file %s/../../tls/redis.dh" [pwd]]
             puts $cfg [format "tls-ca-cert-file %s/../../tls/ca.crt" [pwd]]
-            if {$tls_cluster} {
-                puts $cfg "tls-replication yes"
-                puts $cfg "tls-cluster yes"
-            }   
-            puts $cfg "port $pport"
-            puts $cfg "tls-port $port"
         } else {
             puts $cfg "port $port"
         }
@@ -138,12 +136,10 @@ proc spawn_instance {type base_port count tls_cluster {conf {}} {base_conf_file 
                 puts "Starting $type #$j at port $port failed, try another"
                 incr retry -1
                 set port [find_available_port $base_port $::redis_port_count]
-                if {$::tls} {
-                    set pport [find_available_port $base_port $::redis_port_count]
-                }  
                 set cfg [open $cfgfile a+]
                 if {$::tls} {
                     puts $cfg "tls-port $port"
+                    set pport [find_available_port $base_port $::redis_port_count]
                     puts $cfg "port $pport"
                 } else {
                     puts $cfg "port $port"
@@ -170,7 +166,7 @@ proc spawn_instance {type base_port count tls_cluster {conf {}} {base_conf_file 
             pid $pid \
             host $::host \
             port $port \
-            pport $pport \
+            plaintext-port $pport \
             link $link \
         ]
     }

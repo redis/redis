@@ -50,7 +50,7 @@ test "Cluster nodes hard reset" {
 
 # Helper function to attempt to have each node in a cluster
 # meet each other.
-proc join_nodes_in_cluster {{use_pport 0}} {
+proc join_nodes_in_cluster {} {
     # Join node 0 with 1, 1 with 2, ... and so forth.
     # If auto-discovery works all nodes will know every other node
     # eventually.
@@ -59,11 +59,7 @@ proc join_nodes_in_cluster {{use_pport 0}} {
     for {set j 0} {$j < [expr [llength $ids]-1]} {incr j} {
         set a [lindex $ids $j]
         set b [lindex $ids [expr $j+1]]
-        if {$use_pport} {
-            set b_port [get_instance_attrib redis $b pport]
-        } else {
-            set b_port [get_instance_attrib redis $b port]
-        }  
+        set b_port [get_instance_attrib redis $b port]
         R $a cluster meet 127.0.0.1 $b_port
     }
 
