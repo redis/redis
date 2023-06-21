@@ -2908,7 +2908,7 @@ int clusterProcessPacket(clusterLink *link) {
          * 
          * Otherwise, the slot will be guarded by a new config epoch of 
          * the previous master. This config epoch maybe has been increased 
-         * after this slot was assigned to another master. 
+         * after this slot was assigned to new master. 
          * 
          * The new master will fail to claim the slot because 
          * senderConfigEpoch is smaller than server.cluster->slots[j]->configEpoch. 
