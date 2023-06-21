@@ -541,6 +541,67 @@ static int set_slow_bg_operation(RedisModuleCtx *ctx, RedisModuleString **argv, 
     return REDISMODULE_OK;
 }
 
+static int multiple_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int flush) {
+    if (argc < 2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    int *index = RedisModule_Calloc(argc, sizeof(int));
+
+    int count = 1;
+    int last = 0;
+    for (int i = 1; i < argc; i++) {
+        size_t str_len;
+        const char *str = RedisModule_StringPtrLen(argv[i], &str_len);
+
+        if (str_len == 1 && *str == ';') {
+            if (i-1 == last) {
+                RedisModule_ReplyWithError(ctx, "Invalid command set, doesn't support empty commands");
+                goto out;
+            }
+            if (i == argc) {
+                RedisModule_ReplyWithError(ctx, "Invalid command set, final command shouldn't end with a ';'");
+                goto out;
+            }
+
+            index[count] = i;
+            count++;
+            last = i;
+        }
+    }
+
+    index[count] = argc;
+
+    if (count > 1) {
+        RedisModule_ReplyWithArray(ctx, count);
+    }
+
+    for(int i = 1; i <= count; i++) {
+        int pos = index[i-1] + 1;
+        const char *cmd = RedisModule_StringPtrLen(argv[pos], NULL);
+        pos++;
+        RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, "Ev", &argv[pos], index[i]-index[i-1] - 2);
+        RedisModule_ReplyWithCallReply(ctx, rep);
+        RedisModule_FreeCallReply(rep);
+        if (flush) {
+            RedisModule_FlushExecutionUnit(ctx, REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT);
+        }
+    }
+
+out:
+    RedisModule_Free(index);
+    return REDISMODULE_OK;
+}
+
+static int do_multiple_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return multiple_rm_call(ctx, argv, argc, 0);
+}
+
+static int do_multiple_rm_call_with_flush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return multiple_rm_call(ctx, argv, argc, 1);
+}
+
 /* used to test if we reached the slow operation in do_bg_rm_call */
 static int is_in_slow_bg_operation(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
@@ -610,6 +671,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "is_in_slow_bg_operation", is_in_slow_bg_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_multiple_rm_call", do_multiple_rm_call, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "do_multiple_rm_call_with_flush", do_multiple_rm_call_with_flush, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

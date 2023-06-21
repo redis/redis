@@ -6514,6 +6514,49 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
     return callReplyGetProto(reply, len);
 }
 
+/* Redis only exposes "side effects" of command execution at the end of an execution unit.
+ *
+ * Side effects currently handled are
+ * - propagating replication/AOF operations
+ * - executing the commands of clients blocked on keys modified by commands
+ *
+ * In general, for modules, execution unit start and end with the taking/release of the GIL.  For module code executed
+ * on the Redis main thread, this is done implicitly by Redis itself, while for module code executed on a separate
+ * thread, this is done explicitly by the module itself.
+ *
+ * This function enables modules to flush the execution unit within the middle of an execution unit, thereby having
+ * side effects become visible and impact future operations that occur within the execution unit.
+ *
+ * Usage Example: a module runs multiple commands via RM_Call within a single execution unit, but wants
+ * processCommand() like semantics, where blocked clients that could be unblocked by a previous RM_Call operation will
+ * be executed before the next RM_Call is made.  By calling RM_FlushExecutionUnit between RM_Call operations, the
+ * module will get those semantics.
+ *
+ * The flags is a bit mask of these:
+ *
+ * - `REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT`: We propagate pending command operations (AOF/Replication) and unblock
+ *                                               clients
+ */
+int RM_FlushExecutionUnit(RedisModuleCtx *ctx, unsigned int flags) {
+    if (server.execution_nesting != 1)
+        return REDISMODULE_ERR;
+
+    if (ctx == NULL) {
+        return REDISMODULE_ERR;
+    }
+
+    if (flags == REDISMODULE_FLUSH_EXEC_UNIT_FLAG_DEFAULT) {
+        propagatePendingCommands();
+
+        if (listLength(server.ready_keys))
+            handleClientsBlockedOnKeys();
+    } else {
+        return REDISMODULE_ERR;
+    }
+
+    return REDISMODULE_OK;
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules data types
  *
@@ -8486,6 +8529,9 @@ void moduleGILBeforeUnlock(void) {
      * released we have to propagate here). */
     exitExecutionUnit();
     postExecutionUnitOperations();
+
+    if (listLength(server.ready_keys))
+        handleClientsBlockedOnKeys();
 }
 
 /* Release the server lock after a thread safe API call was executed. */
@@ -13542,6 +13588,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringToDouble);
     REGISTER_API(StringToLongDouble);
     REGISTER_API(StringToStreamID);
+    REGISTER_API(FlushExecutionUnit);
     REGISTER_API(Call);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);

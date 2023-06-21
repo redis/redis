@@ -3064,6 +3064,7 @@ void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(int update_daylight_info);
 void enterExecutionUnit(int update_cached_time, long long us);
 void exitExecutionUnit(void);
+void propagatePendingCommands(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 unsigned int getLRUClock(void);
