@@ -1,0 +1,4 @@
+#ifndef CLUSTER_LEGACY_H
+#define CLUSTER_LEGACY_H
+
+#endif //CLUSTER_LEGACY_H
