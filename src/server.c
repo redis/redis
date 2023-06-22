@@ -1657,6 +1657,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData());
 
+    /* Handle blocked clients.
+     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
+     * since the unblocked clients may write data. */
+    blockedBeforeSleep();
+
     /* Record cron time in beforeSleep, which is the sum of active-expire, active-defrag and all other
      * tasks done by cron and beforeSleep, but excluding read, write and AOF, that are counted by other
      * sets of metrics. */
@@ -1666,11 +1671,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                               REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
                               NULL);
-
-    /* Handle blocked clients.
-     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
-     * since the unblocked clients may write data. */
-    blockedBeforeSleep();
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
