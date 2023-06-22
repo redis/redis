@@ -1648,9 +1648,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         return;
     }
 
-    /* Handle precise timeouts of blocked clients. */
-    handleBlockedClientsTimeout();
-
     /* We should handle pending reads clients ASAP after event loop. */
     handleClientsWithPendingReadsUsingThreads();
 
@@ -1659,6 +1656,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData());
+
+    /* Handle blocked clients.
+     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
+     * since the unblocked clients may write data. */
+    blockedBeforeSleep();
 
     /* Record cron time in beforeSleep, which is the sum of active-expire, active-defrag and all other
      * tasks done by cron and beforeSleep, but excluding read, write and AOF, that are counted by other
@@ -1676,23 +1678,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.active_expire_enabled && iAmMaster())
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
-    /* Unblock all the clients blocked for synchronous replication
-     * in WAIT or WAITAOF. */
-    if (listLength(server.clients_waiting_acks))
-        processClientsWaitingReplicas();
-
-    /* Check if there are clients unblocked by modules that implement
-     * blocking commands. */
     if (moduleCount()) {
         moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                               REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
                               NULL);
-        moduleHandleBlockedClients();
     }
-
-    /* Try to process pending commands for clients that were just unblocked. */
-    if (listLength(server.unblocked_clients))
-        processUnblockedClients();
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. Note that we do this after
@@ -1722,15 +1712,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages();
-
-    /* Try to process blocked clients every once in while.
-     *
-     * Example: A module calls RM_SignalKeyAsReady from within a timer callback
-     * (So we don't visit processCommand() at all).
-     *
-     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
-     * since the unblocked clients may write data. */
-    handleClientsBlockedOnKeys();
 
     /* Record time consumption of AOF writing. */
     monotime aof_start_time = getMonotonicUs();

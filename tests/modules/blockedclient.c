@@ -553,6 +553,39 @@ static int is_in_slow_bg_operation(RedisModuleCtx *ctx, RedisModuleString **argv
     return REDISMODULE_OK;
 }
 
+static void timer_callback(RedisModuleCtx *ctx, void *data)
+{
+    UNUSED(ctx);
+
+    RedisModuleBlockedClient *bc = data;
+
+    // Get Redis module context
+    RedisModuleCtx *reply_ctx = RedisModule_GetThreadSafeContext(bc);
+
+    // Reply to client
+    RedisModule_ReplyWithSimpleString(reply_ctx, "OK");
+
+    // Unblock client
+    RedisModule_UnblockClient(bc, NULL);
+
+    // Free the Redis module context
+    RedisModule_FreeThreadSafeContext(reply_ctx);
+}
+
+int unblock_by_timer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    long long period;
+    if (RedisModule_StringToLongLong(argv[1],&period) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx,"ERR invalid period");
+
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    RedisModule_CreateTimer(ctx, period, timer_callback, bc);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -610,6 +643,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "is_in_slow_bg_operation", is_in_slow_bg_operation, "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "unblock_by_timer", unblock_by_timer, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

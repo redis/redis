@@ -34,6 +34,31 @@ start_server {tags {"modules"}} {
         assert_equal {42} [r fsl.getall src]
     }
 
+    test "Module client blocked on keys: BPOPPUSH unblocked by timer" {
+        set rd1 [redis_deferring_client]
+
+        r del src dst
+
+        set repl [attach_to_replication_stream]
+
+        $rd1 fsl.bpoppush src dst 0
+        wait_for_blocked_clients_count 1
+
+        r fsl.pushtimer src 9000 10
+        wait_for_blocked_clients_count 0
+
+        assert_equal {9000} [r fsl.getall dst]
+        assert_equal {} [r fsl.getall src]
+
+        assert_replication_stream $repl {
+            {select *}
+            {fsl.push src 9000}
+            {fsl.bpoppush src dst 0}
+        }
+
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test {Module client blocked on keys (no metadata): No block} {
         r del k
         r fsl.push k 33
