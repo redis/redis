@@ -1667,11 +1667,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * sets of metrics. */
     monotime cron_start_time_before_aof = getMonotonicUs();
 
-    if (moduleCount())
-        moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
-                              REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
-                              NULL);
-
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
@@ -1682,6 +1677,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && iAmMaster())
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
+
+    if (moduleCount()) {
+        moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                              REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
+                              NULL);
+    }
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. Note that we do this after
