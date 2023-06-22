@@ -461,7 +461,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     }
 
     /* Avoid overflow when trying to add an element to the stream (listpack
-     * can only host up to 32bit length sttrings, and also a total listpack size
+     * can only host up to 32bit length strings, and also a total listpack size
      * can't be bigger than 32bit length. */
     size_t totelelen = 0;
     for (int64_t i = 0; i < numfields*2; i++) {
