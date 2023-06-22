@@ -90,46 +90,11 @@ typedef struct clusterLink {
 #define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
 #define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
 
-/* This structure represent elements of node->fail_reports. */
-typedef struct clusterNodeFailReport {
-    struct clusterNode *node;  /* Node reporting the failure condition. */
-    mstime_t time;             /* Time of the last report from this node. */
-} clusterNodeFailReport;
-
 typedef struct clusterNode {
-    mstime_t ctime; /* Node object creation time. */
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
     int flags;      /* CLUSTER_NODE_... */
-    uint64_t configEpoch; /* Last configEpoch observed for this node */
-    unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
-    uint16_t *slot_info_pairs; /* Slots info represented as (start/end) pair (consecutive index). */
-    int slot_info_pairs_count; /* Used number of slots in slot_info_pairs */
-    int numslots;   /* Number of slots handled by this node */
-    int numslaves;  /* Number of slave nodes, if this is a master */
-    struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node. Note that it
-                                    may be NULL even if the node is a slave
-                                    if we don't have the master node in our
-                                    tables. */
-    unsigned long long last_in_ping_gossip; /* The number of the last carried in the ping gossip section */
-    mstime_t ping_sent;      /* Unix time we sent latest ping */
-    mstime_t pong_received;  /* Unix time we received the pong */
-    mstime_t data_received;  /* Unix time we received any data */
-    mstime_t fail_time;      /* Unix time when FAIL flag was set */
-    mstime_t voted_time;     /* Last time we voted for a slave of this master */
-    mstime_t repl_offset_time;  /* Unix time we received offset for this node */
-    mstime_t orphaned_time;     /* Starting time of orphaned master condition */
-    long long repl_offset;      /* Last known repl offset for this node. */
-    char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
-    sds hostname;               /* The known hostname for this node */
-    int port;                   /* Latest known clients port (TLS or plain). */
-    int pport;                  /* Latest known clients plaintext port. Only used
-                                   if the main clients port is for TLS. */
-    int cport;                  /* Latest known cluster port of this node. */
-    clusterLink *link;          /* TCP/IP link established toward this node */
-    clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
-    list *fail_reports;         /* List of nodes signaling this as failing */
+    void* data;
 } clusterNode;
 
 /* Slot to keys for a single slot. The keys in the same slot are linked together
@@ -229,5 +194,10 @@ void clusterUpdateMyselfAnnouncedPorts(void);
 sds clusterGenNodesDescription(client *c, int filter, int use_pport);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
+char* clusterNodeLastKnownIp(clusterNode *node);
+int clusterNodePort(clusterNode *node);
+void freeThisNodesLink(clusterNode *node);
+void freeNodeInboundLink(clusterNode *node);
+clusterNode* clusterNodeGetSlaveof(clusterNode *node);
 
 #endif /* __CLUSTER_H */

@@ -8912,18 +8912,18 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         return REDISMODULE_ERR;
     }
 
-    if (ip) redis_strlcpy(ip,node->ip,NET_IP_STR_LEN);
+    if (ip) redis_strlcpy(ip, clusterNodeLastKnownIp(node),NET_IP_STR_LEN);
 
     if (master_id) {
         /* If the information is not available, the function will set the
          * field to zero bytes, so that when the field can't be populated the
          * function kinda remains predictable. */
-        if (node->flags & CLUSTER_NODE_SLAVE && node->slaveof)
-            memcpy(master_id,node->slaveof->name,REDISMODULE_NODE_ID_LEN);
+        if (node->flags & CLUSTER_NODE_SLAVE && clusterNodeGetSlaveof(node))
+            memcpy(master_id, clusterNodeGetSlaveof(node)->name,REDISMODULE_NODE_ID_LEN);
         else
             memset(master_id,0,REDISMODULE_NODE_ID_LEN);
     }
-    if (port) *port = node->port;
+    if (port) *port = clusterNodePort(node);
 
     /* As usually we have to remap flags for modules, in order to ensure
      * we can provide binary compatibility. */
