@@ -30,6 +30,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_legacy.h"
 #include "endianconv.h"
 
 #include <sys/types.h>
