@@ -3552,7 +3552,7 @@ void clusterBroadcastPong(int target) {
     dictReleaseIterator(di);
 }
 
-/* Create a PUBLISH, SPUBLISH, MPUBLISH, or MSPUBLISH message block.
+/* Create a PUBLISH, SPUBLISH, or MPUBLISH message block.
  *
  * Returns the message block.  `dst' is set to point to memory inside the
  * message block of size `message_len', where the caller is to write the
@@ -3894,7 +3894,12 @@ int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
 }
 
 int clusterUsePublishInsteadOfMPublish(void) {
-    return 0;   /* TODO */
+    return 0;   /* TODO:  We should prefer to create only MPUBLISH blocks, as
+                   they can be attached to.  Nevertheless, to keep the PUBLISH-
+                   handling code from atrophying, we should create a PUBLISH
+                   messages once in a while -- perhaps based on a simple
+                   counter.
+                   */
 }
 
 /* All messages must be destined for the same channel */
