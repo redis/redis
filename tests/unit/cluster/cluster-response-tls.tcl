@@ -102,9 +102,9 @@ proc cluster_response_tls {tls_cluster} {
     }
 }
 
-start_cluster 3 3 {tags {external:skip cluster tls} overrides {tls-cluster yes tls-replication yes}} {
-    if {$::tls} {
-        package require tls
+if {$::tls} {
+    package require tls
+    start_cluster 3 3 {tags {external:skip cluster tls} overrides {tls-cluster yes tls-replication yes}} {      
         cluster_response_tls yes
     }
 }
