@@ -3085,14 +3085,6 @@ void handleLinkIOError(clusterLink *link) {
     freeClusterLink(link);
 }
 
-int linkPort(clusterLink *link) {
-    int port;
-    if (connAddr(link->conn, NULL, 0, &port, 1) == 0)
-        return port;
-    else
-        return -1;
-}
-
 /* Send the messages queued for the link. */
 void clusterWriteHandler(connection *conn) {
     clusterLink *link = connGetPrivateData(conn);
