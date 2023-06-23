@@ -3085,6 +3085,14 @@ void handleLinkIOError(clusterLink *link) {
     freeClusterLink(link);
 }
 
+int linkPort(clusterLink *link) {
+    int port;
+    if (connAddr(link->conn, NULL, 0, &port, 1) == 0)
+        return port;
+    else
+        return -1;
+}
+
 /* Send the messages queued for the link. */
 void clusterWriteHandler(connection *conn) {
     clusterLink *link = connGetPrivateData(conn);
@@ -3721,24 +3729,6 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
     return C_OK;
 }
 
-struct ptrs {
-    void     **arr;
-    unsigned   count;
-};
-
-static int seenPtr (struct ptrs *seen, void *ptr)
-{
-    void **p;
-
-    if (!seen->arr)
-        return 0;
-
-    seen->arr[ seen->count ] = ptr;
-    for (p = seen->arr; *p != ptr; ++p)
-        ;
-    return p < seen->arr + seen->count;
-}
-
 clusterMsgSendBlock *cloneMsgSendBock(clusterMsgSendBlock *msgblock)
 {
     clusterMsgSendBlock *clone;
@@ -3773,7 +3763,7 @@ int isAttachable(clusterLink *link, listNode *node)
 
 /* Returns true if messages could be attached to last message on the queue */
 int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
-                                                    int count, struct ptrs *seen)
+                        int count, void **seenMsgBlocks, unsigned *seenCount)
 {
     clusterMsgSendBlock *msgblock;
     clusterMsg *hdr;
@@ -3803,8 +3793,17 @@ int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
     if (hdr->type != htons(CLUSTERMSG_TYPE_MPUBLISH))
         return 0;
 
-    if (seenPtr(seen, msgblock))
-        return 0;
+    /* If the last message on the queue has been already modified, return
+     * true: the message has been "attached"
+     */
+    {
+        void **p;
+        seenMsgBlocks[*seenCount] = msgblock;
+        for (p = seenMsgBlocks; *p != msgblock; ++p)
+            ;
+        if (p < seenMsgBlocks + *seenCount)
+            return 1;
+    }
 
     decoded.totlen = ntohl(hdr->totlen);
     decoded.channel_len = ntohl(hdr->data.publish.msg.channel_len);
@@ -3849,6 +3848,7 @@ int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
         }
         dictReleaseIterator(di);
     }
+    serverAssert(ok_refs_count > 0);
     serverAssert(link_count == ok_refs_count + na_refs_count);
 
     /* Clone the message and point "NA" refs to it. */
@@ -3871,7 +3871,7 @@ int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
     }
 
     /* Modify the message block: attach more messages to it */
-    msgblock = zrealloc(msgblock, msgblock->totlen * 2);
+    msgblock = zrealloc(msgblock, msgblock->totlen + addl_sz);
     hdr = &msgblock->msg;
     msgblock->totlen                 += addl_sz;
     hdr->totlen                       = htonl(decoded.totlen + addl_sz);
@@ -3896,9 +3896,7 @@ int clusterAttachToPrevious(clusterLink *link, robj *channel, robj **messages,
     zfree(vec);
 
     /* Record that this message has already been modified */
-    if (!seen->arr)
-        seen->arr = zmalloc(sizeof(seen->arr[0]) * (dictSize(server.cluster->nodes) + 1));
-    seen->arr[ seen->count++ ] = msgblock;
+    seenMsgBlocks[ (*seenCount)++ ] = msgblock;
 
     return 1;
 }
@@ -3912,7 +3910,13 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
     clusterMsgSendBlock *msgblock = NULL;
     dictIterator *di;
     dictEntry *de;
-    struct ptrs seen = { NULL, 0 };
+
+    /* Here we make an assumption that the size of the server.cluster->nodes
+     * dictionary does not change.
+     */
+    const unsigned long nodeCount = dictSize(server.cluster->nodes);
+    void *seenMsgBlocks[nodeCount + 1];
+    unsigned seenCount = 0;
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -3920,8 +3924,9 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
 
         if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
             continue;
+
         if (node->link && clusterAttachToPrevious(node->link, channel,
-                                                    messages, count, &seen))
+                                messages, count, seenMsgBlocks, &seenCount))
             continue;
 
         if (!msgblock) {
@@ -3937,8 +3942,6 @@ void clusterPropagatePublishNonSharded(robj *channel, robj **messages, int count
     dictReleaseIterator(di);
     if (msgblock)
         clusterMsgSendBlockDecrRefCount(msgblock);
-    if (seen.arr)
-        zfree(seen.arr);
 }
 
 /* -----------------------------------------------------------------------------
