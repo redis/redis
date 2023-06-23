@@ -100,7 +100,6 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
 #define CLUSTERMSG_TYPE_PUBLISHSHARD 10 /* Pub/Sub Publish shard propagation */
 #define CLUSTERMSG_TYPE_MPUBLISH 11     /* Pub/Sub Mpublish propagation */
-//#define CLUSTERMSG_TYPE_MSPUBLISHSHARD 12       /* Pub/Sub Mpublish shard propagation */
 #define CLUSTERMSG_TYPE_COUNT 12        /* Total number of message types. */
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
@@ -311,7 +310,7 @@ union clusterMsgData {
         clusterMsgDataFail about;
     } fail;
 
-    /* PUBLISH, SPUBLISH, MPUBLISH, and MSPUBLISH */
+    /* PUBLISH, SPUBLISH, and MPUBLISH */
     struct {
         clusterMsgDataPublish msg;
     } publish;
