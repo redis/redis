@@ -70,9 +70,18 @@ proc continuous_slot_allocation {masters} {
 # tests run.
 proc cluster_setup {masters node_count slot_allocator code} {
     # Have all nodes meet
-    for {set i 1} {$i < $node_count} {incr i} {
-        R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
+    if {$::tls} {
+        set tls_cluster [lindex [R 0 CONFIG GET tls-cluster] 1]
     }
+    if {$::tls && !$tls_cluster} {
+        for {set i 1} {$i < $node_count} {incr i} {
+            R 0 CLUSTER MEET [srv -$i host] [srv -$i pport]
+        }         
+    } else {
+        for {set i 1} {$i < $node_count} {incr i} {
+            R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
+        }
+    }  
 
     $slot_allocator $masters
 
