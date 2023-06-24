@@ -15,7 +15,7 @@ proc get_pport_by_port {port} {
     return 0
 }
 
-proc get_port_form_node_info {line} {
+proc get_port_from_node_info {line} {
     set fields [split $line " "]
     set addr [lindex $fields 1]
     set ip_port [lindex [split $addr "@"] 0]
@@ -36,11 +36,11 @@ proc cluster_response_tls {tls_cluster} {
 
     test "CLUSTER NODES return port according to connection type -- tls-cluster $tls_cluster" {
         set nodes [R 0 cluster nodes]
-        set port1 [get_port_form_node_info [lindex [split $nodes "\r\n"] 0]]
+        set port1 [get_port_from_node_info [lindex [split $nodes "\r\n"] 0]]
         set pport [srv 0 pport]
         set cluster_client [redis_cluster 127.0.0.1:$pport 0]
         set nodes [$cluster_client cluster nodes]
-        set port2 [get_port_form_node_info [lindex [split $nodes "\r\n"] 0]]
+        set port2 [get_port_from_node_info [lindex [split $nodes "\r\n"] 0]]
         $cluster_client close
         assert_not_equal $port1 $port2
     }
