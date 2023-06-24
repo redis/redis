@@ -47,8 +47,6 @@ proc cluster_response_tls {tls_cluster} {
 
     set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
     set cluster_pport [redis_cluster 127.0.0.1:[srv 0 pport] 0]
-    catch {unset nodefrom}
-    catch {unset nodeto}
     $cluster refresh_nodes_map
 
     test "Set many keys in the cluster -- tls-cluster $tls_cluster" {
