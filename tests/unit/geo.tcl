@@ -99,6 +99,18 @@ proc verify_geo_edge_response_bymember {expected_response expected_store_respons
     assert_match $expected_store_response $response
 }
 
+proc verify_geo_edge_response_generic {expected_response} {
+    catch {r geodist src{t} member 1 km} response
+    assert_match $expected_response $response
+
+    catch {r geohash src{t} member} response
+    assert_match $expected_response $response
+
+    catch {r geopos src{t} member} response
+    assert_match $expected_response $response
+}
+
+
 # The following list represents sets of random seed, search position
 # and radius that caused bugs in the past. It is used by the randomized
 # test later as a starting point. When the regression vectors are scanned
@@ -128,6 +140,7 @@ start_server {tags {"geo"}} {
 
         verify_geo_edge_response_bylonlat "WRONGTYPE*" "WRONGTYPE*"
         verify_geo_edge_response_bymember "WRONGTYPE*" "WRONGTYPE*"
+        verify_geo_edge_response_generic "WRONGTYPE*"
     }
 
     test {GEO with non existing src key} {

@@ -1648,9 +1648,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         return;
     }
 
-    /* Handle precise timeouts of blocked clients. */
-    handleBlockedClientsTimeout();
-
     /* We should handle pending reads clients ASAP after event loop. */
     handleClientsWithPendingReadsUsingThreads();
 
@@ -1659,6 +1656,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData());
+
+    /* Handle blocked clients.
+     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
+     * since the unblocked clients may write data. */
+    blockedBeforeSleep();
 
     /* Record cron time in beforeSleep, which is the sum of active-expire, active-defrag and all other
      * tasks done by cron and beforeSleep, but excluding read, write and AOF, that are counted by other
@@ -1676,23 +1678,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.active_expire_enabled && iAmMaster())
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
-    /* Unblock all the clients blocked for synchronous replication
-     * in WAIT or WAITAOF. */
-    if (listLength(server.clients_waiting_acks))
-        processClientsWaitingReplicas();
-
-    /* Check if there are clients unblocked by modules that implement
-     * blocking commands. */
     if (moduleCount()) {
         moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                               REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
                               NULL);
-        moduleHandleBlockedClients();
     }
-
-    /* Try to process pending commands for clients that were just unblocked. */
-    if (listLength(server.unblocked_clients))
-        processUnblockedClients();
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. Note that we do this after
@@ -1717,19 +1707,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * we have to flush them after each command, so when we get here, the list
      * must be empty. */
     serverAssert(listLength(server.tracking_pending_keys) == 0);
+    serverAssert(listLength(server.pending_push_messages) == 0);
 
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages();
-
-    /* Try to process blocked clients every once in while.
-     *
-     * Example: A module calls RM_SignalKeyAsReady from within a timer callback
-     * (So we don't visit processCommand() at all).
-     *
-     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
-     * since the unblocked clients may write data. */
-    handleClientsBlockedOnKeys();
 
     /* Record time consumption of AOF writing. */
     monotime aof_start_time = getMonotonicUs();
@@ -2611,6 +2593,7 @@ void initServer(void) {
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
     server.tracking_pending_keys = listCreate();
+    server.pending_push_messages = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.paused_actions = 0;
@@ -3714,9 +3697,11 @@ void call(client *c, int flags) {
  * various pre-execution checks. it returns the appropriate error to the client.
  * If there's a transaction is flags it as dirty, and if the command is EXEC,
  * it aborts the transaction.
+ * The duration is reset, since we reject the command, and it did not record.
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
+    c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
@@ -3728,6 +3713,7 @@ void rejectCommand(client *c, robj *reply) {
 
 void rejectCommandSds(client *c, sds s) {
     flagTransaction(c);
+    c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
@@ -3755,7 +3741,14 @@ void afterCommand(client *c) {
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperations();
+
+    /* Flush pending tracking invalidations. */
     trackingHandlePendingKeyInvalidations();
+
+    /* Flush other pending push messages. only when we are not in nested call.
+     * So the messages are not interleaved with transaction response. */
+    if (!server.execution_nesting)
+        listJoin(c->reply, server.pending_push_messages);
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.

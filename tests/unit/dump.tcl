@@ -96,6 +96,34 @@ start_server {tags {"dump"}} {
         set e
     } {*syntax*}
 
+    test {RESTORE should not store key that are already expired, with REPLACE will propagate it as DEL or UNLINK} {
+        r del key1{t} key2{t}
+        r set key1{t} value2
+        r lpush key2{t} 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65
+
+        r set key{t} value
+        set encoded [r dump key{t}]
+        set now [clock milliseconds]
+
+        set repl [attach_to_replication_stream]
+
+        # Keys that have expired will not be stored.
+        r config set lazyfree-lazy-server-del no
+        assert_equal {OK} [r restore key1{t} [expr $now-5000] $encoded replace absttl]
+        r config set lazyfree-lazy-server-del yes
+        assert_equal {OK} [r restore key2{t} [expr $now-5000] $encoded replace absttl]
+        assert_equal {0} [r exists key1{t} key2{t}]
+
+        # Verify the propagate of DEL and UNLINK.
+        assert_replication_stream $repl {
+            {select *}
+            {del key1{t}}
+            {unlink key2{t}}
+        }
+
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test {DUMP of non existing key returns nil} {
         r dump nonexisting_key
     } {}
