@@ -66,6 +66,8 @@ void clusterSetMaster(clusterNode *n);
 void clusterHandleSlaveFailover(void);
 void clusterHandleSlaveMigration(int max_slaves);
 int bitmapTestBit(unsigned char *bitmap, int pos);
+void bitmapSetBit(unsigned char *bitmap, int pos);
+void bitmapClearBit(unsigned char *bitmap, int pos);
 void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
 void resetManualFailover(void);
@@ -2246,7 +2248,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             sender_slots++;
 
             /* The slot is already bound to the sender of this message. */
-            if (server.cluster->slots[j] == sender) continue;
+            if (server.cluster->slots[j] == sender) {
+                bitmapClearBit(server.cluster->owner_not_owning_slot, j);
+                continue;
+            }
 
             /* The slot is in importing state, it should be modified only
              * manually via redis-cli (example: a resharding is in progress
@@ -2255,10 +2260,11 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (server.cluster->importing_slots_from[j]) continue;
 
             /* We rebind the slot to the new node claiming it if:
-             * 1) The slot was unassigned or the new node claims it with a
-             *    greater configEpoch.
+             * 1) The slot was unassigned or the previous owner no longer owns the slot or
+             *    the new node claims it with a greater configEpoch.
              * 2) We are not currently importing the slot. */
             if (server.cluster->slots[j] == NULL ||
+                bitmapTestBit(server.cluster->owner_not_owning_slot, j) ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
                 /* Was this slot mine, and still contains keys? Mark it as
@@ -2277,10 +2283,18 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 }
                 clusterDelSlot(j);
                 clusterAddSlot(sender,j);
+                bitmapClearBit(server.cluster->owner_not_owning_slot, j);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                      CLUSTER_TODO_UPDATE_STATE|
                                      CLUSTER_TODO_FSYNC_CONFIG);
             }
+        } else if (server.cluster->slots[j] == sender) {
+            /* The slot is currently bound to the sender but the sender is no longer claiming it.
+            We don't want to unbind the slot yet as it can cause cluster to move to FAIL state and also throw client error.
+            Keeping the slot bound to the previous owner will cause a few client side redirects, but won't throw any errors.
+            We will keep track of the uncertainty in ownership to avoid propagating misinformation about this
+            slot's ownership using UPDATE messages. */
+            bitmapSetBit(server.cluster->owner_not_owning_slot, j);
         }
     }
 
@@ -2938,7 +2952,8 @@ int clusterProcessPacket(clusterLink *link) {
             for (j = 0; j < CLUSTER_SLOTS; j++) {
                 if (bitmapTestBit(hdr->myslots,j)) {
                     if (server.cluster->slots[j] == sender ||
-                        server.cluster->slots[j] == NULL) continue;
+                        server.cluster->slots[j] == NULL ||
+                        bitmapTestBit(server.cluster->owner_not_owning_slot, j)) continue;
                     if (server.cluster->slots[j]->configEpoch >
                         senderConfigEpoch)
                     {
@@ -3631,6 +3646,10 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
     memcpy(hdr->data.update.nodecfg.nodename,node->name,CLUSTER_NAMELEN);
     hdr->data.update.nodecfg.configEpoch = htonu64(node->configEpoch);
     memcpy(hdr->data.update.nodecfg.slots,node->slots,sizeof(node->slots));
+    for (unsigned int i = 0; i < sizeof(node->slots); i++) {
+        // Don't advertise slots that the node stopped owning
+        hdr->data.update.nodecfg.slots[i] = hdr->data.update.nodecfg.slots[i] & (~server.cluster->owner_not_owning_slot[i]);
+    }
 
     clusterSendMessage(link,msgblock);
     clusterMsgSendBlockDecrRefCount(msgblock);
