@@ -819,6 +819,21 @@ typedef struct {
     long sampled; /* cumulative number of keys sampled */
 } scanData;
 
+/* Helper function to compare key type in scan commands */
+int objectTypeCompare(robj *o, long long target) {
+    if (o->type != OBJ_MODULE) {
+        if (o->type != target) 
+            return 0;
+        else 
+            return 1;
+    }
+    /* module type compare */
+    long long mt = (long long)REDISMODULE_TYPE_SIGN(((moduleValue *)o->ptr)->type->id);
+    if (target != -mt)
+        return 0;
+    else 
+        return 1;
+}
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de) {
@@ -836,12 +851,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     /*
     if (!o && data->type != LLONG_MAX) {
         robj *rval = dictGetVal(de);
-        if (rval->type != OBJ_MODULE) {
-            if (data->type != rval->type) return;
-        } else {
-            long long mt = (long long)REDISMODULE_TYPE_SIGN(((moduleValue *)rval->ptr)->type->id);
-            if (data->type != -mt) return;
-        }
+        if (!objectTypeCompare(rval, data->type)) return;
     }*/
 
     /* Filter element if it does not match the pattern. */
@@ -900,7 +910,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     NULL, /* module type is special */
     "stream"
 };
-
+/* Helper function to get type from a string in scan commands */
 long long getObjectTypeByName(char *name) {
 
     for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
@@ -987,13 +997,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
             /* SCAN for a particular type only applies to the db dict */
             typename = c->argv[i+1]->ptr;
-            /* 
             sds typename = c->argv[i + 1]->ptr;
             type = getObjectTypeByName(typename);
             if (type == LLONG_MAX) {
+                /* Temporarily comment out these codes to avoid breaking changes
                 addReplyErrorFormat(c, "unknown type name '%s'", typename);
-                return;
-            } */
+                return; */
+            }
             i+= 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -1117,8 +1127,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             /* Filter an element if it isn't the type we want. */
             if (typename) {
                 robj* typecheck = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
-                char* type = getObjectTypeName(typecheck);
-                if (strcasecmp((char*) typename, type)) {
+                if (!typecheck || !objectTypeCompare(typecheck, type)) {
                     listDelNode(keys, ln);
                 }
             } else {
