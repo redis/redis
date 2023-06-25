@@ -23,6 +23,7 @@ start_server {tags {"modules"}} {
         r lpush l a
         assert_equal [$rd read] {l a}
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     foreach cmd {do_rm_call_async do_rm_call_async_script_mode } {

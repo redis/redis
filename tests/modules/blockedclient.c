@@ -362,7 +362,6 @@ int do_rm_call_async_on_thread(RedisModuleCtx *ctx, RedisModuleString **argv, in
         return RedisModule_WrongArity(ctx);
     }
 
-
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
     RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "KEv", argv + 2, argc - 2);
