@@ -833,6 +833,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     serverAssert(!((data->type != LLONG_MAX) && o));
 
     /* Filter an element if it isn't the type we want. */
+    /*
     if (!o && data->type != LLONG_MAX) {
         robj *rval = dictGetVal(de);
         if (rval->type != OBJ_MODULE) {
@@ -841,7 +842,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
             long long mt = (long long)REDISMODULE_TYPE_SIGN(((moduleValue *)rval->ptr)->type->id);
             if (data->type != -mt) return;
         }
-    }
+    }*/
 
     /* Filter element if it does not match the pattern. */
     sds keysds = dictGetKey(de);
@@ -896,16 +897,14 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "set", 
     "zset", 
     "hash", 
-    "", /* module type is special */
+    NULL, /* module type is special */
     "stream"
 };
 
 long long getObjectTypeByName(char *name) {
-    /* empty string as a unknown type */
-    if (strlen(name) == 0) return LLONG_MAX;
 
     for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
-        if (!strcasecmp(name, obj_type_name[i])) {
+        if (obj_type_name[i] && !strcasecmp(name, obj_type_name[i])) {
             return i;
         }
     }
@@ -947,6 +946,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     listNode *node;
     long count = 10;
     sds pat = NULL;
+    sds typename = NULL;
     long long type = LLONG_MAX;
     int patlen = 0, use_pattern = 0;
     dict *ht;
@@ -986,12 +986,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
             /* SCAN for a particular type only applies to the db dict */
+            typename = c->argv[i+1]->ptr;
+            /* 
             sds typename = c->argv[i + 1]->ptr;
             type = getObjectTypeByName(typename);
             if (type == LLONG_MAX) {
                 addReplyErrorFormat(c, "unknown type name '%s'", typename);
                 return;
-            }
+            } */
             i+= 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -1112,8 +1114,17 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         while ((ln = listNext(&li))) {
             sds key = listNodeValue(ln);
             initStaticStringObject(kobj, key);
-            if (expireIfNeeded(c->db, &kobj, 0)) {
-                listDelNode(keys, ln);
+            /* Filter an element if it isn't the type we want. */
+            if (typename) {
+                robj* typecheck = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
+                char* type = getObjectTypeName(typecheck);
+                if (strcasecmp((char*) typename, type)) {
+                    listDelNode(keys, ln);
+                }
+            } else {
+                if (expireIfNeeded(c->db, &kobj, 0)) {
+                    listDelNode(keys, ln);
+                }
             }
         }
     }
