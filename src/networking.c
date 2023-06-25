@@ -35,6 +35,7 @@
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
+#include <sys/time.h>
 
 static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
@@ -4082,26 +4083,32 @@ void *IOThreadMain(void *myid) {
 
     while(1) {
         /* Wait for start */
-        /* Give the main thread a chance to stop this thread. */
         if (getIOPendingCount(id) == 0) {
-            pthread_mutex_lock(&io_threads_mutex[id]);
-            pthread_mutex_unlock(&io_threads_mutex[id]);
+            // struct timeval now;
+            // struct timespec outtime;
+            pthread_mutex_lock(&io_threads_cond_mutex);
+            if (getIOPendingCount(id) == 0) {
+                // long usec = random() % 10;
+                // usec += 10;
+                // gettimeofday(&now, NULL);
+                // outtime.tv_sec = now.tv_sec;
+                // outtime.tv_nsec = (now.tv_usec+usec) * 1000;
+                // pthread_cond_timedwait(&io_threads_cond_var, &io_threads_cond_mutex, &outtime);
+                pthread_cond_wait(&io_threads_cond_var, &io_threads_cond_mutex);
+            }
+            pthread_mutex_unlock(&io_threads_cond_mutex);
         }
-
-        struct timeval now;
-        struct timespec outtime;
-        pthread_mutex_lock(&io_threads_cond_mutex);   /* Wait for IO threads signal */
-        while (getIOPendingCount(id) == 0) {
-            gettimeofday(&now, NULL);
-            outtime.tv_sec = now.tv_sec;
-            outtime.tv_nsec = (now.tv_usec+1000) * 1000;
-            pthread_cond_timedwait(&io_threads_cond_var, &io_threads_cond_mutex, &outtime);
-        }
-        pthread_mutex_unlock(&io_threads_cond_mutex);
 
         // for (int j = 0; j < 1000000; j++) {
         //     if (getIOPendingCount(id) != 0) break;
         // }
+
+        /* Give the main thread a chance to stop this thread. */
+        if (getIOPendingCount(id) == 0) {
+            pthread_mutex_lock(&io_threads_mutex[id]);
+            pthread_mutex_unlock(&io_threads_mutex[id]);
+            continue;
+        }
 
         serverAssert(getIOPendingCount(id) != 0);
 
