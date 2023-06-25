@@ -857,7 +857,7 @@ void moduleCallCommandUnblockedHandler(client *c) {
     moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
     selectDb(ctx.client, c->db->id);
 
-    CallReply *reply = moduleParseReply(c, &ctx);
+    CallReply *reply = moduleParseReply(c, NULL);
     module->in_call++;
     promise->on_unblocked(&ctx, reply, promise->private_data);
     module->in_call--;

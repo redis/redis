@@ -15,7 +15,17 @@ start_server {tags {"modules"}} {
         assert_equal {0} [r llen l]
     }
 
-    foreach cmd {do_rm_call_async do_rm_call_async_script_mode} {
+    test "Blpop on threaded async RM_Call" {
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async_on_thread blpop l 0
+        wait_for_blocked_clients_count 1
+        r lpush l a
+        assert_equal [$rd read] {l a}
+        wait_for_blocked_clients_count 0
+    }
+
+    foreach cmd {do_rm_call_async do_rm_call_async_script_mode } {
 
         test "Blpop on async RM_Call using $cmd" {
             set rd [redis_deferring_client]
