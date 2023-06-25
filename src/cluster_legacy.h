@@ -8,6 +8,14 @@
 #define CLUSTER_FAIL 1          /* The cluster can't work */
 #define CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
 
+/* The following defines are amount of time, sometimes expressed as
+ * multiplicators of the node timeout value (when ending with MULT). */
+#define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
+#define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
+#define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
+#define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
+#define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
+
 /* Reasons why a slave is not able to failover. */
 #define CLUSTER_CANT_FAILOVER_NONE 0
 #define CLUSTER_CANT_FAILOVER_DATA_AGE 1
@@ -22,6 +30,20 @@
 #define CLUSTER_TODO_SAVE_CONFIG (1<<2)
 #define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
 #define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4)
+
+/* clusterLink encapsulates everything needed to talk with a remote node. */
+typedef struct clusterLink {
+    mstime_t ctime;             /* Link creation time */
+    connection *conn;           /* Connection to remote node */
+    list *send_msg_queue;        /* List of messages to be sent */
+    size_t head_msg_send_offset; /* Number of bytes already sent of message at head of queue */
+    unsigned long long send_msg_queue_mem; /* Memory in bytes used by message queue */
+    char *rcvbuf;               /* Packet reception buffer */
+    size_t rcvbuf_len;          /* Used size of rcvbuf */
+    size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
+    struct clusterNode *node;   /* Node related to this link. Initialized to NULL when unknown */
+    int inbound;                /* 1 if this link is an inbound link accepted from the related node */
+} clusterLink;
 
 /* Message types.
  *
@@ -80,6 +102,25 @@ typedef struct clusterStateInternal {
 } clusterStateInternal;
 
 #define stateInternal(state) ((clusterStateInternal*)state->internal)
+
+/* Message types.
+ *
+ * Note that the PING, PONG and MEET messages are actually the same exact
+ * kind of packet. PONG is the reply to ping, in the exact format as a PING,
+ * while MEET is a special PING that forces the receiver to add the sender
+ * as a node (if it is not already in the list). */
+#define CLUSTERMSG_TYPE_PING 0          /* Ping */
+#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
+#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
+#define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
+#define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
+#define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
+#define CLUSTERMSG_TYPE_PUBLISHSHARD 10 /* Pub/Sub Publish shard propagation */
+#define CLUSTERMSG_TYPE_COUNT 11        /* Total number of message types. */
 
 /* Redis cluster messages header */
 
@@ -260,6 +301,27 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
                                             master is up. */
 #define CLUSTERMSG_FLAG0_EXT_DATA (1<<2) /* Message contains extension data */
 
+/* Cluster node flags and macros. */
+#define CLUSTER_NODE_MASTER 1     /* The node is a master */
+#define CLUSTER_NODE_SLAVE 2      /* The node is a slave */
+#define CLUSTER_NODE_PFAIL 4      /* Failure? Need acknowledge */
+#define CLUSTER_NODE_FAIL 8       /* The node is believed to be malfunctioning */
+#define CLUSTER_NODE_MYSELF 16    /* This node is myself */
+#define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
+#define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
+#define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
+#define CLUSTER_NODE_MIGRATE_TO 256 /* Master eligible for replica migration. */
+#define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
+#define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+
+#define nodeIsMaster(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_MASTER)
+#define nodeIsSlave(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_SLAVE)
+#define nodeInHandshake(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_HANDSHAKE)
+#define nodeHasAddr(n) (!(((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_NOADDR))
+#define nodeTimedOut(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_PFAIL)
+#define nodeFailed(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_FAIL)
+#define nodeCantFailover(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_NOFAILOVER)
+
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
     struct clusterNode *node;  /* Node reporting the failure condition. */
@@ -271,6 +333,7 @@ typedef struct clusterNodeFailReport {
  */
 typedef struct clusterNodeInternal {
     mstime_t ctime; /* Node object creation time. */
+    int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
     uint16_t *slot_info_pairs; /* Slots info represented as (start/end) pair (consecutive index). */
