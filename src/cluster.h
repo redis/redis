@@ -25,12 +25,9 @@
 #define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
 #define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
 
-typedef struct clusterNode {
-    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
-    char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
-    void* data;
-} clusterNode;
-
+/*-----------------------------------------------------------------------------
+ * Slot to Keys mapping structures
+ *----------------------------------------------------------------------------*/
 /* Slot to keys for a single slot. The keys in the same slot are linked together
  * using dictEntry metadata. */
 typedef struct slotToKeys {
@@ -53,6 +50,16 @@ typedef struct clusterDictEntryMetadata {
 typedef struct {
     redisDb *db;                /* A link back to the db this dict belongs to */
 } clusterDictMetadata;
+
+/*-----------------------------------------------------------------------------
+ * Cluster public structs
+ *----------------------------------------------------------------------------*/
+
+typedef struct clusterNode {
+    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
+    void* data;
+} clusterNode;
 
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
