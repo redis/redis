@@ -1660,7 +1660,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
-     * later in this function. */
+     * later in this function, must be done before blockedBeforeSleep. */
     if (server.cluster_enabled) clusterBeforeSleep();
 
     /* Handle blocked clients.
