@@ -30,9 +30,9 @@ proc wait_for_role {srv_idx role} {
         fail "R $srv_idx didn't assume the replication $role in time"
     }
     wait_for_condition 100 100 {
-            [get_cluster_role $srv_idx] eq $role
+        [get_cluster_role $srv_idx] eq $role
     } else {
-            fail "R $srv_idx didn't assume the cluster $role in time"
+        fail "R $srv_idx didn't assume the cluster $role in time"
     }
 }
 
