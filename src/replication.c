@@ -3680,7 +3680,7 @@ void processClientsWaitingReplicas(void) {
             addReplyLongLong(c, numlocal);
             addReplyLongLong(c, numreplicas);
         } else {
-            addReplyLongLong(c,numreplicas);
+            addReplyLongLong(c, numreplicas);
         }
 
         unblockClient(c, 1);
