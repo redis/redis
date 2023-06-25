@@ -36,6 +36,7 @@ start_server {tags {"modules"}} {
             r lpush l a
             assert_equal [$rd read] {l a}
             wait_for_blocked_clients_count 0
+            $rd close
         }
 
         test "Brpop on async RM_Call using $cmd" {
@@ -46,6 +47,7 @@ start_server {tags {"modules"}} {
             r lpush l a
             assert_equal [$rd read] {l a}
             wait_for_blocked_clients_count 0
+            $rd close
         }
 
         test "Brpoplpush on async RM_Call using $cmd" {
@@ -57,6 +59,7 @@ start_server {tags {"modules"}} {
             assert_equal [$rd read] {a}
             wait_for_blocked_clients_count 0
             r lpop l2
+            $rd close
         } {a}
 
         test "Blmove on async RM_Call using $cmd" {
@@ -68,6 +71,7 @@ start_server {tags {"modules"}} {
             assert_equal [$rd read] {a}
             wait_for_blocked_clients_count 0
             r lpop l2
+            $rd close
         } {a}
 
         test "Bzpopmin on async RM_Call using $cmd" {
@@ -78,6 +82,7 @@ start_server {tags {"modules"}} {
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
             wait_for_blocked_clients_count 0
+            $rd close
         }
 
         test "Bzpopmax on async RM_Call using $cmd" {
@@ -88,6 +93,7 @@ start_server {tags {"modules"}} {
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
             wait_for_blocked_clients_count 0
+            $rd close
         }
     }
 
@@ -99,6 +105,7 @@ start_server {tags {"modules"}} {
         r lpush l a
         assert_equal [$rd read] {l a}
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test multiple async RM_Call waiting on the same event} {
@@ -112,6 +119,8 @@ start_server {tags {"modules"}} {
         assert_equal [$rd1 read] {l element}
         assert_equal [$rd2 read] {l element}
         wait_for_blocked_clients_count 0
+        $rd1 close
+        $rd2 close
     }
 
     test {async RM_Call calls RM_Call} {
@@ -147,6 +156,7 @@ start_server {tags {"modules"}} {
         }
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Become replica while having async RM_Call running} {
@@ -167,6 +177,7 @@ start_server {tags {"modules"}} {
         r lpush l 1
         # make sure the async rm_call was aborted
         assert_equal [r llen l] {1}
+        $rd close
     }
 
     test {Pipeline with blocking RM_Call} {
@@ -186,6 +197,7 @@ start_server {tags {"modules"}} {
         assert_equal [$rd read] {PONG}
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {blocking RM_Call abort} {
@@ -206,6 +218,7 @@ start_server {tags {"modules"}} {
         r lpush l 1
         # make sure the async rm_call was aborted
         assert_equal [r llen l] {1}
+        $rd close
     }
 }
 
@@ -231,6 +244,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test unblock handler are executed as a unit} {
@@ -256,6 +270,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test no propagation of blocking command} {
@@ -280,6 +295,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 }
 
@@ -314,6 +330,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test unblock handler are executed as a unit with lazy expire} {
@@ -366,9 +383,10 @@ start_server {tags {"modules"}} {
         }
         close_replication_stream $repl
         r DEBUG SET-ACTIVE-EXPIRE 1
+        
+        wait_for_blocked_clients_count 0
+        $rd close
     }
-
-    wait_for_blocked_clients_count 0
 }
 
 start_server {tags {"modules"}} {
@@ -387,5 +405,6 @@ start_server {tags {"modules"}} {
         assert_equal [$rd read] {4}
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 }
