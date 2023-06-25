@@ -300,7 +300,7 @@ test {Migrate the last slot away from a node using redis-cli} {
         catch { $newnode_r get foo } e
         assert_equal "MOVED $slot $owner_host:$owner_port" $e
 
-        # Check that the now empty primary node doesn't turned itself into
+        # Check that the now empty primary node doesn't turn itself into
         # a replica of any other nodes
         after 5000
         assert_match *master* [$owner_r role]
