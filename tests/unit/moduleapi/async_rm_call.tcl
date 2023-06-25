@@ -58,8 +58,8 @@ start_server {tags {"modules"}} {
             r lpush l1 a
             assert_equal [$rd read] {a}
             wait_for_blocked_clients_count 0
-            r lpop l2
             $rd close
+            r lpop l2
         } {a}
 
         test "Blmove on async RM_Call using $cmd" {
@@ -70,8 +70,8 @@ start_server {tags {"modules"}} {
             r lpush l1 a
             assert_equal [$rd read] {a}
             wait_for_blocked_clients_count 0
-            r lpop l2
             $rd close
+            r lpop l2
         } {a}
 
         test "Bzpopmin on async RM_Call using $cmd" {
