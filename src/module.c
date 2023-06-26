@@ -6586,7 +6586,8 @@ moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_ca
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
             if ((!ignore_case && memcmp(name,mt->name,sizeof(mt->name)) == 0)
-                || (ignore_case && !strcasecmp(name, mt->name))) {
+                || (ignore_case && !strcasecmp(name, mt->name)))
+            {
                 dictReleaseIterator(di);
                 return mt;
             }
