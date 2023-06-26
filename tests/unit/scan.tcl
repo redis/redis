@@ -126,6 +126,7 @@ start_server {tags {"scan network"}} {
 
         # TODO: uncomment in redis 8.0
         #assert_error "*unknown type name*" {r scan 0 type "string1"}
+        # expired key will be no touched by scan command
         #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         r debug set-active-expire 1
     } {OK} {needs:debug}
@@ -160,6 +161,7 @@ start_server {tags {"scan network"}} {
         # make sure that expired key have been removed by scan command
         assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         # TODO: uncomment in redis 8.0
+        # make sure that only the expired key in the type match will been removed by scan command
         #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
 
         r debug set-active-expire 1
