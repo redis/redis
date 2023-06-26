@@ -6573,7 +6573,7 @@ uint64_t moduleTypeEncodeId(const char *name, int encver) {
 /* Search, in the list of exported data types of all the modules registered,
  * a type with the same name as the one given. Returns the moduleType
  * structure pointer if such a module is found, or NULL otherwise. */
-moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int case_flag) {
+moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_case) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -6585,8 +6585,8 @@ moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int case_flag
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
-            if ((!case_flag && memcmp(name,mt->name,sizeof(mt->name)) == 0)
-                ||(case_flag && !strcasecmp(name, mt->name))) {
+            if ((!ignore_case && memcmp(name,mt->name,sizeof(mt->name)) == 0)
+                || (ignore_case && !strcasecmp(name, mt->name))) {
                 dictReleaseIterator(di);
                 return mt;
             }
