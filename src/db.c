@@ -848,7 +848,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     serverAssert(!((data->type != LLONG_MAX) && o));
 
     /* Filter an element if it isn't the type we want. */
-    /*
+    /* TODO: uncomment in redis 8.0
     if (!o && data->type != LLONG_MAX) {
         robj *rval = dictGetVal(de);
         if (!objectTypeCompare(rval, data->type)) return;
@@ -910,6 +910,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     NULL, /* module type is special */
     "stream"
 };
+
 /* Helper function to get type from a string in scan commands */
 long long getObjectTypeByName(char *name) {
 
@@ -997,10 +998,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
             /* SCAN for a particular type only applies to the db dict */
             typename = c->argv[i+1]->ptr;
-            sds typename = c->argv[i + 1]->ptr;
             type = getObjectTypeByName(typename);
             if (type == LLONG_MAX) {
-                /* Temporarily comment out these codes to avoid breaking changes
+                /* TODO: uncomment in redis 8.0
                 addReplyErrorFormat(c, "unknown type name '%s'", typename);
                 return; */
             }
@@ -1125,15 +1125,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             sds key = listNodeValue(ln);
             initStaticStringObject(kobj, key);
             /* Filter an element if it isn't the type we want. */
+            /* TODO: remove this in redis 8.0 */
             if (typename) {
                 robj* typecheck = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
                 if (!typecheck || !objectTypeCompare(typecheck, type)) {
                     listDelNode(keys, ln);
                 }
-            } else {
-                if (expireIfNeeded(c->db, &kobj, 0)) {
-                    listDelNode(keys, ln);
-                }
+                continue;
+            }
+            if (expireIfNeeded(c->db, &kobj, 0)) {
+                listDelNode(keys, ln);
             }
         }
     }

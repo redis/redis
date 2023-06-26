@@ -99,6 +99,7 @@ start_server {tags {"scan network"}} {
     }
 
     test "SCAN unknown type" {
+        # TODO: uncomment in 8.0
         #assert_error "*unknown type name*" {r scan 0 type "string1"}
     }
 
