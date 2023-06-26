@@ -920,7 +920,8 @@ long long getObjectTypeByName(char *name) {
         }
     }
 
-    moduleType *mt = moduleTypeLookupModuleByName(name);
+    /* TODO: use moduleTypeLookupModuleByName instead in redis 8.0 */
+    moduleType *mt = moduleTypeLookupModuleByNameIgnoreCase(name);
     if (mt != NULL) return -(REDISMODULE_TYPE_SIGN(mt->id));
 
     return LLONG_MAX;

@@ -113,4 +113,26 @@ start_server {tags {"modules"}} {
 
         assert_equal 1 [llength $keys]    
     }
+    test {SCAN module datatype with case sensitive} {
+        r flushdb
+        populate 1000
+        r datatype.set foo 111 bar
+        # TODO: remove this in redis 8.0
+        set type "TEST___DT"
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type $type]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1 [llength $keys]
+
+        # TODO: uncomment in redis 8.0
+        # assert_error "*unknown type name*" {r scan 0 type "TEST___DT"}
+    }
+
 }
