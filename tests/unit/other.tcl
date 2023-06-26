@@ -404,13 +404,14 @@ start_server {tags {"other external:skip"}} {
             assert_match "*/redis-server" [lindex $cmdline 1]
             
             if {$::tls} {
-                set expect_port 0
+                set expect_port [srv 0 pport]
                 set expect_tls_port [srv 0 port]
+                set port [srv 0 pport]
             } else {
                 set expect_port [srv 0 port]
                 set expect_tls_port 0
+                set port [srv 0 port]
             }
-            set port [srv 0 port]
 
             assert_equal "$::host:$port" [lindex $cmdline 2]
             assert_equal $expect_port [lindex $cmdline 3]

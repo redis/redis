@@ -446,4 +446,9 @@ int RedisRegisterConnectionTypeSocket(void);
 int RedisRegisterConnectionTypeUnix(void);
 int RedisRegisterConnectionTypeTLS(void);
 
+/* Return 1 if connection is using TLS protocol, 0 if otherwise. */
+static inline int connIsTLS(connection *conn) {
+    return conn && conn->type == connectionTypeTls();
+}
+
 #endif  /* __REDIS_CONNECTION_H */
