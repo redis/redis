@@ -2293,10 +2293,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             }
         } else if (server.cluster->slots[j] == sender) {
             /* The slot is currently bound to the sender but the sender is no longer claiming it.
-            We don't want to unbind the slot yet as it can cause cluster to move to FAIL state and also throw client error.
-            Keeping the slot bound to the previous owner will cause a few client side redirects, but won't throw any errors.
-            We will keep track of the uncertainty in ownership to avoid propagating misinformation about this
-            slot's ownership using UPDATE messages. */
+             * We don't want to unbind the slot yet as it can cause cluster to move to FAIL state and also throw client error.
+             * Keeping the slot bound to the previous owner will cause a few client side redirects, but won't throw any errors.
+             * We will keep track of the uncertainty in ownership to avoid propagating misinformation about this
+             * slot's ownership using UPDATE messages. */
             bitmapSetBit(server.cluster->owner_not_owning_slot, j);
         }
     }
