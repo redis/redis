@@ -610,11 +610,13 @@ void punsubscribeCommand(client *c) {
  * Used by the commands PUBLISH/SPUBLISH and their respective module APIs.*/
 int pubsubPublishMessagesAndPropagateToCluster(robj *channel, robj **messages, int count, int sharded) {
     int receivers = pubsubPublishMessages(channel, messages, count, sharded);
-    if (sharded) {
-        serverAssert(count == 1);
-        clusterPropagatePublishSharded(channel, messages[0]);
-    } else {
-        clusterPropagatePublishNonSharded(channel, messages, count);
+    if (server.cluster_enabled) {
+        if (sharded) {
+            serverAssert(count == 1);
+            clusterPropagatePublishSharded(channel, messages[0]);
+        } else {
+            clusterPropagatePublishNonSharded(channel, messages, count);
+        }
     }
     return receivers;
 }
