@@ -1663,8 +1663,11 @@ void clusterRenameNode(clusterNode *node, char *newname) {
     int retval;
     sds s = sdsnewlen(node->name, CLUSTER_NAMELEN);
 
-    serverLog(LL_DEBUG,"Renaming node %.40s into %.40s",
-        node->name, newname);
+    serverLog(LL_DEBUG,
+              "Renaming node %.40s (%s) into %.40s",
+              node->name,
+              node->human_nodename,
+              newname);
     retval = dictDelete(server.cluster->nodes, s);
     sdsfree(s);
     serverAssert(retval == DICT_OK);
@@ -2469,9 +2472,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 server.cluster->importing_slots_from[j] == sender)
             {
                 serverLog(LL_NOTICE,
-                          "Node %.40s is no longer the owner of slot %d;"
+                          "Node %.40s (%s) is no longer the owner of slot %d;"
                           "Clear my importing source for the slot.",
                           sender->name,
+                          sender->human_nodename,
                           j);
                 server.cluster->importing_slots_from[j] = NULL;
                 /* Take over the slot ownership if I am not the owner yet*/
@@ -3035,10 +3039,12 @@ int clusterProcessPacket(clusterLink *link) {
                 /* If the reply has a non matching node ID we
                  * disconnect this node and set it as not having an associated
                  * address. */
-                serverLog(LL_DEBUG,"PONG contains mismatching sender ID. About node %.40s added %d ms ago, having flags %d",
-                    link->node->name,
-                    (int)(now-(link->node->ctime)),
-                    link->node->flags);
+                serverLog(LL_DEBUG,
+                          "PONG contains mismatching sender ID. About node %.40s (%s) added %d ms ago, having flags %d",
+                          link->node->name,
+                          link->node->human_nodename,
+                          (int)(now-(link->node->ctime)),
+                          link->node->flags);
                 link->node->flags |= CLUSTER_NODE_NOADDR;
                 link->node->ip[0] = '\0';
                 link->node->tcp_port = 0;
@@ -5292,11 +5298,13 @@ int verifyClusterConfigWithData(void) {
                 serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
                                       "assigned to another node. Deleting keys in the slot.", j);
             } else {
-                serverLog(LL_WARNING, "I am importing keys from node %.40s to slot %d, "
-                                      "but the slot is now owned by node %.40s. Deleting keys in the slot",
+                serverLog(LL_WARNING, "I am importing keys from node %.40s (%s) to slot %d, "
+                                      "but the slot is now owned by node %.40s (%s). Deleting keys in the slot",
                                       server.cluster->importing_slots_from[j]->name,
+                                      server.cluster->importing_slots_from[j]->human_nodename,
                                       j,
-                                      server.cluster->slots[j]->name);
+                                      server.cluster->slots[j]->name,
+                                      server.cluster->slots[j]->human_nodename);
             }
             delKeysInSlot(j);
         }
@@ -6206,7 +6214,6 @@ NULL
         /* SETSLOT 10 NODE <node ID> */
         int slot;
         clusterNode *n;
-        int reply = 1;
 
         /* Allow primaries to replicate "CLUSTER SETSLOT" */
         if (!(c->flags & CLIENT_MASTER) && nodeIsSlave(myself)) {
@@ -6405,9 +6412,7 @@ NULL
              * can be applied as the real "SETSLOT" command on the
              * replicas. */
             serverAssert(c->argc == 6);
-            c->argc--;
-            decrRefCount(c->argv[5]);
-            c->argv[5] = NULL;
+            rewriteClientCommandVector(c, 5, c->argv[0], c->argv[1], c->argv[2], c->argv[3], c->argv[4]);
         } else {
             addReplyError(c,
                 "Invalid CLUSTER SETSLOT action or number of arguments. Try CLUSTER HELP");
@@ -6418,7 +6423,7 @@ NULL
         if (nodeIsMaster(myself)) forceCommandPropagation(c, PROPAGATE_REPL);
 
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
-        if (reply) addReply(c,shared.ok);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"bumpepoch") && c->argc == 2) {
         /* CLUSTER BUMPEPOCH */
         int retval = clusterBumpConfigEpochWithoutConsensus();
@@ -7934,9 +7939,6 @@ void replicateOpenSlots(client *c)
 {
     if (!server.cluster_enabled) return;
 
-    list *replicas = listCreate();
-    listAddNodeHead(replicas, c);
-
     int argc = 5;
     robj **argv = zmalloc(sizeof(robj*)*argc);
 
@@ -7969,7 +7971,7 @@ void replicateOpenSlots(client *c)
             sds name = sdsnewlen(nodes_ptr[j]->name, sizeof(nodes_ptr[j]->name));
             argv[4] = createObject(OBJ_STRING, name);
 
-            replicationFeedSlaves(replicas, 0, argv, argc);
+            replicationFeedSlaves(0, argv, argc);
 
             decrRefCount(argv[2]);
             decrRefCount(argv[4]);
@@ -7981,5 +7983,4 @@ void replicateOpenSlots(client *c)
     decrRefCount(subcmd_obj);
     decrRefCount(cmd_obj);
     zfree(argv);
-    listRelease(replicas);
 }

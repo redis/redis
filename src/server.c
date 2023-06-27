@@ -1605,7 +1605,7 @@ static void sendGetackToReplicas(void) {
     argv[0] = shared.replconf;
     argv[1] = shared.getack;
     argv[2] = shared.special_asterick; /* Not used argument. */
-    replicationFeedSlaves(server.slaves, -1, argv, 3);
+    replicationFeedSlaves(-1, argv, 3);
 }
 
 extern int ProcessingEventsWhileBlocked;
@@ -3255,7 +3255,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
     if (target & PROPAGATE_REPL)
-        replicationFeedSlaves(server.slaves,dbid,argv,argc);
+        replicationFeedSlaves(dbid,argv,argc);
 }
 
 /* Used inside commands to schedule the propagation of additional commands

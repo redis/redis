@@ -29,7 +29,6 @@
  */
 
 #include "fmacros.h"
-#include "read.h"
 #include "version.h"
 
 #include <stdio.h>
@@ -4718,21 +4717,16 @@ static clusterManagerNode *clusterManagerGetSlotOwner(clusterManagerNode *n,
 static void clusterManagerSetSlotNodeReplicaOnly(clusterManagerNode *node1,
                                                  clusterManagerNode *node2,
                                                  int slot) {
-    /* A new CLUSTER SETSLOT variant that finalizes slot
-     * ownership on replicas only (CLUSTER SETSLOT s 
-     * NODE n REPLICAONLY) is introduced in Redis 7.2+
-     * to help mitigate the single-point-of-failure
-     * issue related to the slot ownership finalization on
-     * HA clusters. We make a best-effort attempt below to
-     * utilize this enhanced reliability. Regardless of the
-     * result, we continue with finalizing slot ownership
-     * on the primary nodes. Note that this command is not
-     * essential. Redis 7.2+ will attempt to recover from
-     * failed slot ownership finalizations if they occur,
-     * although there may be a brief period where slots
-     * caught in this transition stage are unavailable.
-     * Including this additional step ensures no downtime
-     * for these slots if any failures arise. */
+    /* A new CLUSTER SETSLOT variant that finalizes slot ownership on replicas
+     * only (CLUSTER SETSLOT s NODE n REPLICAONLY) is introduced in Redis 7.2+
+     * to help mitigate the single-point-of-failure issue related to the slot
+     * ownership finalization on HA clusters. We make a best-effort attempt below
+     * to utilize this enhanced reliability. Regardless of the result, we continue
+     * with finalizing slot ownership on the primary nodes. Note that this command
+     * is not essential. Redis 7.2+ will attempt to recover from failed slot
+     * ownership finalizations if they occur, although there may be a brief period
+     * where slots caught in this transition stage are unavailable. Including this
+     * additional step ensures no downtime for these slots if any failures arise. */
     redisReply *reply = CLUSTER_MANAGER_COMMAND(node1, "CLUSTER SETSLOT %d NODE %s REPLICAONLY",
                                                 slot, (char *) node2->name);
     if (reply->type == REDIS_REPLY_ERROR) {
