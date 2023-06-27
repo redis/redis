@@ -1033,9 +1033,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     list *keys = listCreate();
-    /* For the key or set/hash type with the OBJ_ENCODING_HT
-     * encoding, we don't need to define free method because it
-     * just is a shallow copy from the pointer in the dictEntry */
+    /* Set a free callback for the contents of the collected keys list.
+     * For the main keyspace dict, and when we scan a key that's dict encoded
+     * (we have 'ht'), we don't need to define free method because the strings
+     * in the list are just a shallow copy from the pointer in the dictEntry.
+     * When scanning a key with other encodings (e.g. listpack), we need to
+     * free the temporary strings we add to that list.
+     * The exception to the above is ZSET, were we do allocate temporary
+     * strings even when scanning a dict. */
     if (o && (!ht || o->type == OBJ_ZSET)) {
         listSetFreeMethod(keys, (void (*)(void*))sdsfree);
     }
