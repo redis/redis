@@ -509,6 +509,19 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     }
     return 0;
 }
+
+/* Cluster node sanity check. Returns C_OK if the node id
+ * is valid and C_ERR otherwise. */
+int verifyClusterNodeId(const char *name, int length) {
+    if (length != CLUSTER_NAMELEN) return C_ERR;
+    for (int i = 0; i < length; i++) {
+        if (name[i] >= 'a' && name[i] <= 'z') continue;
+        if (name[i] >= '0' && name[i] <= '9') continue;
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 #ifdef REDIS_CLUSTER_FLOTILLA
 #include "cluster_flotilla.c"
 #else
