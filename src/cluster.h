@@ -429,7 +429,7 @@ void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
-void replicateOpenSlots(client *slave);
+void replicateOpenSlots(void);
 sds clusterGenNodesDescription(client *c, int filter, int tls_primary);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);

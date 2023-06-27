@@ -7935,7 +7935,7 @@ unsigned int countChannelsInSlot(unsigned int hashslot) {
 
 /* Replicate all migrating and importing slot states to a
  * a given replica client. */
-void replicateOpenSlots(client *c)
+void replicateOpenSlots(void)
 {
     if (!server.cluster_enabled) return;
 

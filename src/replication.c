@@ -1310,7 +1310,7 @@ int replicaPutOnline(client *slave) {
         replicationGetSlaveName(slave));
 
     /* Replicate slot being migrated/imported to the new replica */
-    replicateOpenSlots(slave);
+    replicateOpenSlots();
     return 1;
 }
 
