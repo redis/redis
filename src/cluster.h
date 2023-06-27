@@ -216,9 +216,9 @@ typedef struct clusterState {
     unsigned long long stat_cluster_links_buffer_limit_exceeded;  /* Total number of cluster links freed due to exceeding buffer limit */
 
     /* Bit map for slots that are no longer claimed by the owner in cluster PING messages.
-    During slot migration, the owner will stop claiming the slot after the ownership transfer.
-    Set the bit corresponding to the slot when a node stops claiming the slot. This prevents
-    spreading incorrect information (that source still owns the slot) using UPDATE messages. */
+     * During slot migration, the owner will stop claiming the slot after the ownership transfer.
+     * Set the bit corresponding to the slot when a node stops claiming the slot. This prevents
+     * spreading incorrect information (that source still owns the slot) using UPDATE messages. */
     unsigned char owner_not_owning_slot[CLUSTER_SLOTS/8];
 } clusterState;
 

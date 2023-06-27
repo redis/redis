@@ -103,6 +103,10 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 #define dictEntryPrevInSlot(de) \
     (((clusterDictEntryMetadata *)dictEntryMetadata(de))->prev)
 
+#define isSlotOwnershipSpeculative(slot) \
+    (server.cluster->slots[slot] == NULL || \
+        bitmapTestBit(server.cluster->owner_not_owning_slot, slot))
+
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
 
@@ -2263,8 +2267,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
              * 1) The slot was unassigned or the previous owner no longer owns the slot or
              *    the new node claims it with a greater configEpoch.
              * 2) We are not currently importing the slot. */
-            if (server.cluster->slots[j] == NULL ||
-                bitmapTestBit(server.cluster->owner_not_owning_slot, j) ||
+            if (isSlotOwnershipSpeculative(j) ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
                 /* Was this slot mine, and still contains keys? Mark it as
@@ -2952,8 +2955,7 @@ int clusterProcessPacket(clusterLink *link) {
             for (j = 0; j < CLUSTER_SLOTS; j++) {
                 if (bitmapTestBit(hdr->myslots,j)) {
                     if (server.cluster->slots[j] == sender ||
-                        server.cluster->slots[j] == NULL ||
-                        bitmapTestBit(server.cluster->owner_not_owning_slot, j)) continue;
+                        isSlotOwnershipSpeculative(j)) continue;
                     if (server.cluster->slots[j]->configEpoch >
                         senderConfigEpoch)
                     {
@@ -3647,7 +3649,7 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
     hdr->data.update.nodecfg.configEpoch = htonu64(node->configEpoch);
     memcpy(hdr->data.update.nodecfg.slots,node->slots,sizeof(node->slots));
     for (unsigned int i = 0; i < sizeof(node->slots); i++) {
-        // Don't advertise slots that the node stopped owning
+        /* Don't advertise slots that the node stopped owning */
         hdr->data.update.nodecfg.slots[i] = hdr->data.update.nodecfg.slots[i] & (~server.cluster->owner_not_owning_slot[i]);
     }
 
@@ -3855,7 +3857,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
      * slots in the current configuration. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(claimed_slots, j) == 0) continue;
-        if (server.cluster->slots[j] == NULL ||
+        if (isSlotOwnershipSpeculative(j) ||
             server.cluster->slots[j]->configEpoch <= requestConfigEpoch)
         {
             continue;
