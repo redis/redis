@@ -3207,8 +3207,8 @@ int clusterProcessPacket(clusterLink *link) {
             myself->slaveof->slaveof &&
             myself->slaveof->slaveof != myself) {
             /* Safeguard against sub-replicas. A replica's master can turn itself
-            * into a replica if its last slot is removed. If no other node takes
-            * over the slot, there is nothing else to trigger replica migration. */
+             * into a replica if its last slot is removed. If no other node takes
+             * over the slot, there is nothing else to trigger replica migration. */
             serverLog(LL_NOTICE,
                       "I'm a sub-replica! Reconfiguring myself as a replica of %.40s from %.40s",
                       myself->slaveof->slaveof->name,
@@ -6324,21 +6324,21 @@ NULL
                 /* Only primary broadcasts the updates */
                 if (n == myself) {
                     /* This slot was manually migrated, set this node configEpoch
-                    * to a new epoch so that the new version can be propagated
-                    * by the cluster.
-                    *
-                    * Note that if this ever results in a collision with another
-                    * node getting the same configEpoch, for example because a
-                    * failover happens at the same time we close the slot, the
-                    * configEpoch collision resolution will fix it assigning
-                    * a different epoch to each node. */
+                     * to a new epoch so that the new version can be propagated
+                     * by the cluster.
+                     *
+                     * Note that if this ever results in a collision with another
+                     * node getting the same configEpoch, for example because a
+                     * failover happens at the same time we close the slot, the
+                     * configEpoch collision resolution will fix it assigning
+                     * a different epoch to each node. */
                     if (clusterBumpConfigEpochWithoutConsensus() == C_OK) {
                         serverLog(LL_NOTICE,
                                   "ConfigEpoch updated after importing slot %d",
                                   slot);
                     }
                     /* After importing this slot, let the other nodes know as
-                    * soon as possible. */
+                     * soon as possible. */
                     clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
                 }
             }
