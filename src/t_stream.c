@@ -461,7 +461,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     }
 
     /* Avoid overflow when trying to add an element to the stream (listpack
-     * can only host up to 32bit length sttrings, and also a total listpack size
+     * can only host up to 32bit length strings, and also a total listpack size
      * can't be bigger than 32bit length. */
     size_t totelelen = 0;
     for (int64_t i = 0; i < numfields*2; i++) {
@@ -2208,9 +2208,10 @@ void xreadCommand(client *c) {
             streams_arg = i+1;
             streams_count = (c->argc-streams_arg);
             if ((streams_count % 2) != 0) {
+                char symbol = xreadgroup ? '>' : '$';
                 addReplyErrorFormat(c,"Unbalanced '%s' list of streams: "
-                                      "for each stream key an ID or '>' must be "
-                                      "specified.", c->cmd->fullname);
+                                      "for each stream key an ID or '%c' must be "
+                                      "specified.", c->cmd->fullname,symbol);
                 return;
             }
             streams_count /= 2; /* We have two arguments for each stream. */

@@ -356,6 +356,7 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
+    client *c;
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -856,7 +857,7 @@ void moduleCallCommandUnblockedHandler(client *c) {
     moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
     selectDb(ctx.client, c->db->id);
 
-    CallReply *reply = moduleParseReply(c, &ctx);
+    CallReply *reply = moduleParseReply(c, NULL);
     module->in_call++;
     promise->on_unblocked(&ctx, reply, promise->private_data);
     module->in_call--;
@@ -2997,15 +2998,15 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
 
 /* Reply with the error create from a printf format and arguments.
  *
- * If the error code is already passed in the string 'fmt', the error
- * code provided is used, otherwise the string "-ERR " for the generic
- * error code is automatically added.
+ * Note that 'fmt' must contain all the error, including
+ * the initial error code. The function only provides the initial "-", so
+ * the usage is, for example:
  *
- * The usage is, for example:
+ *     RedisModule_ReplyWithErrorFormat(ctx,"ERR Wrong Type: %s",type);
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "An error: %s", "foo");
+ * and not just:
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "-WRONGTYPE Wrong Type: %s", "foo");
+ *     RedisModule_ReplyWithErrorFormat(ctx,"Wrong Type: %s",type);
  *
  * The function always returns REDISMODULE_OK.
  */
@@ -3013,10 +3014,16 @@ int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
 
+    int len = strlen(fmt) + 2; /* 1 for the \0 and 1 for the hyphen */
+    char *hyphenfmt = zmalloc(len);
+    snprintf(hyphenfmt, len, "-%s", fmt);
+
     va_list ap;
     va_start(ap, fmt);
-    addReplyErrorFormatInternal(c, 0, fmt, ap);
+    addReplyErrorFormatInternal(c, 0, hyphenfmt, ap);
     va_end(ap);
+
+    zfree(hyphenfmt);
 
     return REDISMODULE_OK;
 }
@@ -6036,7 +6043,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(buf,len);
         } else if (*p == 'l') {
             long long ll = va_arg(ap,long long);
-            argv[argc++] = createObject(OBJ_STRING,sdsfromlonglong(ll));
+            argv[argc++] = createStringObjectFromLongLongWithSds(ll);
         } else if (*p == 'v') {
              /* A vector of strings */
              robj **v = va_arg(ap, void*);
@@ -7670,7 +7677,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
      * commands from Lua or MULTI. We actually create an already aborted
      * (client set to NULL) blocked client handle, and actually reply with
      * an error. */
-    mstime_t timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
@@ -7688,7 +7694,17 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
-    c->bstate.timeout = timeout;
+
+    c->bstate.timeout = 0;
+    if (timeout_ms) {
+        mstime_t now = mstime();
+        if  (timeout_ms > LLONG_MAX - now) {
+            c->bstate.module_blocked_handle = NULL;
+            addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
+            return bc;
+        }
+        c->bstate.timeout = timeout_ms + now;
+    }
 
     if (islua || ismulti) {
         c->bstate.module_blocked_handle = NULL;
@@ -7698,13 +7714,12 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Blocking module command called from a Reply callback context");
-    }
-    else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
+    } else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,c->bstate.timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -8241,6 +8256,11 @@ void moduleHandleBlockedClients(void) {
              * properly unblocked by the module. */
             bc->disconnect_callback = NULL;
             unblockClient(c, 1);
+
+            /* Update the wait offset, we don't know if this blocked client propagated anything,
+             * currently we rather not add any API for that, so we just assume it did. */
+            c->woff = server.master_repl_offset;
+
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
@@ -8609,8 +8629,14 @@ void firePostExecutionUnitJobs(void) {
  * infinite loops by halting the execution could result in violation of the feature correctness
  * and so Redis will make no attempt to protect the module from infinite loops.
  *
- * 'free_pd' can be NULL and in such case will not be used. */
+ * 'free_pd' can be NULL and in such case will not be used.
+ *
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) or
+ * if the instance is a readonly replica. */
 int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+    if (server.loading|| (server.masterhost && server.repl_slave_ro)) {
+        return REDISMODULE_ERR;
+    }
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
@@ -8918,7 +8944,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         else
             memset(master_id,0,REDISMODULE_NODE_ID_LEN);
     }
-    if (port) *port = node->port;
+    if (port) *port = getNodeDefaultClientPort(node);
 
     /* As usually we have to remap flags for modules, in order to ensure
      * we can provide binary compatibility. */
@@ -10634,7 +10660,8 @@ void moduleCallCommandFilters(client *c) {
     RedisModuleCommandFilterCtx filter = {
         .argv = c->argv,
         .argv_len = c->argv_len,
-        .argc = c->argc
+        .argc = c->argc,
+        .c = c
     };
 
     while((ln = listNext(&li))) {
@@ -10725,6 +10752,11 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     fctx->argc--;
 
     return REDISMODULE_OK;
+}
+
+/* Get Client ID for client that issued the command we are filtering */
+unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->c->id;
 }
 
 /* For a given pointer allocated via RedisModule_Alloc() or
@@ -11031,12 +11063,12 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             vstr = lpGetValue(p,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createObject(OBJ_STRING,sdsfromlonglong(vll));
+                createStringObjectFromLongLongWithSds(vll);
             p = lpNext(o->ptr,p);
             vstr = lpGetValue(p,&vlen,&vll);
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createObject(OBJ_STRING,sdsfromlonglong(vll));
+                createStringObjectFromLongLongWithSds(vll);
             fn(key, field, value, privdata);
             p = lpNext(o->ptr,p);
             decrRefCount(field);
@@ -13711,6 +13743,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgInsert);
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
+    REGISTER_API(CommandFilterGetClientId);
     REGISTER_API(Fork);
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);

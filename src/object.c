@@ -142,33 +142,24 @@ robj *tryCreateStringObject(const char *ptr, size_t len) {
         return tryCreateRawStringObject(ptr,len);
 }
 
-/* Create a string object from a long long value. When possible returns a
- * shared integer object, or at least an integer encoded one.
- *
- * If valueobj is non zero, the function avoids returning a shared
- * integer, because the object is going to be used as value in the Redis key
- * space (for instance when the INCR command is used), so we want LFU/LRU
- * values specific for each key. */
-robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
+/* Create a string object from a long long value according to the specified flag. */
+#define LL2STROBJ_AUTO 0       /* automatically create the optimal string object */
+#define LL2STROBJ_NO_SHARED 1  /* disallow shared objects */
+#define LL2STROBJ_NO_INT_ENC 2 /* disallow integer encoded objects. */
+robj *createStringObjectFromLongLongWithOptions(long long value, int flag) {
     robj *o;
 
-    if (server.maxmemory == 0 ||
-        !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS))
-    {
-        /* If the maxmemory policy permits, we can still return shared integers
-         * even if valueobj is true. */
-        valueobj = 0;
-    }
-
-    if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
+    if (value >= 0 && value < OBJ_SHARED_INTEGERS && flag == LL2STROBJ_AUTO) {
         o = shared.integers[value];
     } else {
-        if (value >= LONG_MIN && value <= LONG_MAX) {
+        if ((value >= LONG_MIN && value <= LONG_MAX) && flag != LL2STROBJ_NO_INT_ENC) {
             o = createObject(OBJ_STRING, NULL);
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
-            o = createObject(OBJ_STRING,sdsfromlonglong(value));
+            char buf[LONG_STR_SIZE];
+            int len = ll2string(buf, sizeof(buf), value);
+            o = createStringObject(buf, len);
         }
     }
     return o;
@@ -177,15 +168,27 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
 /* Wrapper for createStringObjectFromLongLongWithOptions() always demanding
  * to create a shared object if possible. */
 robj *createStringObjectFromLongLong(long long value) {
-    return createStringObjectFromLongLongWithOptions(value,0);
+    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
 }
 
-/* Wrapper for createStringObjectFromLongLongWithOptions() avoiding a shared
- * object when LFU/LRU info are needed, that is, when the object is used
- * as a value in the key space, and Redis is configured to evict based on
- * LFU/LRU. */
+/* The function avoids returning a shared integer when LFU/LRU info
+ * are needed, that is, when the object is used as a value in the key
+ * space(for instance when the INCR command is used), and Redis is
+ * configured to evict based on LFU/LRU, so we want LFU/LRU values
+ * specific for each key. */
 robj *createStringObjectFromLongLongForValue(long long value) {
-    return createStringObjectFromLongLongWithOptions(value,1);
+    if (server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) {
+        /* If the maxmemory policy permits, we can still return shared integers */
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
+    } else {
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_SHARED);
+    }
+}
+
+/* Create a string object that contains an sds inside it. That means it can't be
+ * integer encoded (OBJ_ENCODING_INT), and it'll always be an EMBSTR type. */
+robj *createStringObjectFromLongLongWithSds(long long value) {
+    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_INT_ENC);
 }
 
 /* Create a string object from a long double. If humanfriendly is non-zero
@@ -629,7 +632,7 @@ void trimStringObjectIfNeeded(robj *o, int trim_small_values) {
 }
 
 /* Try to encode a string object in order to save space */
-robj *tryObjectEncoding(robj *o) {
+robj *tryObjectEncodingEx(robj *o, int try_trim) {
     long value;
     sds s = o->ptr;
     size_t len;
@@ -694,10 +697,15 @@ robj *tryObjectEncoding(robj *o) {
 
     /* We can't encode the object...
      * Do the last try, and at least optimize the SDS string inside */
-    trimStringObjectIfNeeded(o, 0);
+    if (try_trim)
+        trimStringObjectIfNeeded(o, 0);
 
     /* Return the original object. */
     return o;
+}
+
+robj *tryObjectEncoding(robj *o) {
+    return tryObjectEncodingEx(o, 1);
 }
 
 /* Get a decoded version of an encoded object (returned as a new object).

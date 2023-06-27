@@ -128,13 +128,19 @@ start_server {tags {"modules"}} {
 
         test "RESP$proto: RM_ReplyWithErrorFormat: error format reply" {
             catch {r rw.error_format "An error: %s" foo} e
-            assert_match "ERR An error: foo" $e
+            assert_match "An error: foo" $e  ;# Should not be used by a user, but compatible with RM_ReplyError
 
             catch {r rw.error_format "-ERR An error: %s" foo2} e
-            assert_match "ERR An error: foo2" $e
+            assert_match "-ERR An error: foo2" $e  ;# Should not be used by a user, but compatible with RM_ReplyError (There are two hyphens, TCL removes the first one)
 
             catch {r rw.error_format "-WRONGTYPE A type error: %s" foo3} e
-            assert_match "WRONGTYPE A type error: foo3" $e
+            assert_match "-WRONGTYPE A type error: foo3" $e  ;# Should not be used by a user, but compatible with RM_ReplyError (There are two hyphens, TCL removes the first one)
+
+            catch {r rw.error_format "ERR An error: %s" foo4} e
+            assert_match "ERR An error: foo4" $e
+
+            catch {r rw.error_format "WRONGTYPE A type error: %s" foo5} e
+            assert_match "WRONGTYPE A type error: foo5" $e
         }
 
         r hello 2

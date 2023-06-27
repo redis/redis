@@ -2575,8 +2575,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zsetopval zval;
     sds tmp;
     size_t maxelelen = 0, totelelen = 0;
-    robj *dstobj;
-    zset *dstzset;
+    robj *dstobj = NULL;
+    zset *dstzset = NULL;
     zskiplistNode *znode;
     int withscores = 0;
     unsigned long cardinality = 0;
@@ -2686,8 +2686,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
     }
 
-    dstobj = createZsetObject();
-    dstzset = dstobj->ptr;
+    /* We need a temp zset object to store our union/inter/diff. If the dstkey
+     * is not NULL (that is, we are inside an ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE operation) then
+     * this zset object will be the resulting object to zset into the target key.
+     * In SINTERCARD case, we don't need the temp obj, so we can avoid creating it. */
+    if (!cardinality_only) {
+        dstobj = createZsetObject();
+        dstzset = dstobj->ptr;
+    }
     memset(&zval, 0, sizeof(zval));
 
     if (op == SET_OP_INTER) {
@@ -2826,6 +2832,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
         }
+        decrRefCount(dstobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
     } else {
@@ -2846,8 +2853,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             if (withscores) addReplyDouble(c,zn->score);
             zn = zn->level[0].forward;
         }
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstobj, -1) :
+                                          decrRefCount(dstobj);
     }
-    decrRefCount(dstobj);
     zfree(src);
 }
 
@@ -3622,7 +3630,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     long opt_end = 0;
     int opt_withscores = 0;
     long opt_offset = 0;
-    long opt_limit = -1;
+    long opt_limit = -1; /* A negative limit returns all elements from the offset. */
 
     /* Step 1: Skip the <src> <min> <max> args and parse remaining optional arguments. */
     for (int j=argc_start + 3; j < c->argc; j++) {
@@ -3630,11 +3638,12 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         if (!store && !strcasecmp(c->argv[j]->ptr,"withscores")) {
             opt_withscores = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"limit") && leftargs >= 2) {
-            if ((getLongFromObjectOrReply(c, c->argv[j+1], &opt_offset, NULL) != C_OK) ||
-                (getLongFromObjectOrReply(c, c->argv[j+2], &opt_limit, NULL) != C_OK))
-            {
+            if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 0, LONG_MAX,
+                                              &opt_offset, "offset should be greater than or equal to 0") != C_OK)
                 return;
-            }
+
+            if (getLongFromObjectOrReply(c, c->argv[j+2], &opt_limit, NULL) != C_OK)
+                return;
             j += 2;
         } else if (direction == ZRANGE_DIRECTION_AUTO &&
                    !strcasecmp(c->argv[j]->ptr,"rev"))

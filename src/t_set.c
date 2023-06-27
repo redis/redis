@@ -798,8 +798,9 @@ void spopWithCountCommand(client *c) {
 
         /* todo: Move the spop notification to be executed after the command logic. */
 
-        /* Propagate this command as a DEL operation */
-        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
+        /* Propagate this command as a DEL or UNLINK operation */
+        robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c, 2, aux, c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
         return;
     }
@@ -1540,8 +1541,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-    /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
+    /* We need a temp set object to store our union/diff. If the dstkey
+     * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
     dstset = createIntsetObject();
 

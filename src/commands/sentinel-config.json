@@ -71,6 +71,9 @@
                                     "const": "warning"
                                 },
                                 {
+                                    "const": "nothing"
+                                },
+                                {
                                     "const": "unknown"
                                 }
                             ]

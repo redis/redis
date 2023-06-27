@@ -765,6 +765,7 @@ foreach type {single multiple single_multiple} {
         assert_encoding $type myset
         set res [r spop myset 30]
         assert {[lsort $content] eq [lsort $res]}
+        assert_equal {0} [r exists myset]
     }
 
     test "SPOP new implementation: code path #2 $type" {
@@ -787,6 +788,29 @@ foreach type {single multiple single_multiple} {
         assert {[lsort $union] eq [lsort $content]}
     }
     }
+
+    test "SPOP new implementation: code path #1 propagate as DEL or UNLINK" {
+        r del myset1{t} myset2{t}
+        r sadd myset1{t} 1 2 3 4 5
+        r sadd myset2{t} 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65
+
+        set repl [attach_to_replication_stream]
+
+        r config set lazyfree-lazy-server-del no
+        r spop myset1{t} [r scard myset1{t}]
+        r config set lazyfree-lazy-server-del yes
+        r spop myset2{t} [r scard myset2{t}]
+        assert_equal {0} [r exists myset1{t} myset2{t}]
+
+        # Verify the propagate of DEL and UNLINK.
+        assert_replication_stream $repl {
+            {select *}
+            {del myset1{t}}
+            {unlink myset2{t}}
+        }
+
+        close_replication_stream $repl
+    } {} {needs:repl}
 
     test "SRANDMEMBER count of 0 is handled correctly" {
         r srandmember myset 0
@@ -977,6 +1001,129 @@ foreach type {single multiple single_multiple} {
             }
         }
     }
+
+    proc is_rehashing {myset} {
+        set htstats [r debug HTSTATS-KEY $myset]
+        return [string match {*rehashing target*} $htstats]
+    }
+
+    proc rem_hash_set_top_N {myset n} {
+        set cursor 0
+        set members {}
+        set enough 0
+        while 1 {
+            set res [r sscan $myset $cursor]
+            set cursor [lindex $res 0]
+            set k [lindex $res 1]
+            foreach m $k {
+                lappend members $m
+                if {[llength $members] >= $n} {
+                    set enough 1
+                    break
+                }
+            }
+            if {$enough || $cursor == 0} {
+                break
+            }
+        }
+        r srem $myset {*}$members
+    }
+
+    test "SRANDMEMBER with a dict containing long chain" {
+        set origin_save [config_get_set save ""]
+        set origin_max_lp [config_get_set set-max-listpack-entries 0]
+        set origin_save_delay [config_get_set rdb-key-save-delay 2147483647]
+
+        # 1) Create a hash set with 100000 members.
+        set members {}
+        for {set i 0} {$i < 100000} {incr i} {
+            lappend members [format "m:%d" $i]
+        }
+        create_set myset $members
+
+        # 2) Wait for the hash set rehashing to finish.
+        while {[is_rehashing myset]} {
+            r srandmember myset 100
+        }
+
+        # 3) Turn off the rehashing of this set, and remove the members to 500.
+        r bgsave
+        rem_hash_set_top_N myset [expr {[r scard myset] - 500}]
+        assert_equal [r scard myset] 500
+
+        # 4) Kill RDB child process to restart rehashing.
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # 5) Let the set hash to start rehashing
+        r spop myset 1
+        assert [is_rehashing myset]
+
+        # 6) Verify that when rdb saving is in progress, rehashing will still be performed (because
+        # the ratio is extreme) by waiting for it to finish during an active bgsave.
+        r bgsave
+
+        while {[is_rehashing myset]} {
+            r srandmember myset 1
+        }
+        if {$::verbose} {
+            puts [r debug HTSTATS-KEY myset full]
+        }
+
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # 7) Check that eventually, SRANDMEMBER returns all elements.
+        array set allmyset {}
+        foreach ele [r smembers myset] {
+            set allmyset($ele) 1
+        }
+        unset -nocomplain auxset
+        set iterations 1000
+        while {$iterations != 0} {
+            incr iterations -1
+            set res [r srandmember myset -10]
+            foreach ele $res {
+                set auxset($ele) 1
+            }
+            if {[lsort [array names allmyset]] eq
+                [lsort [array names auxset]]} {
+                break;
+            }
+        }
+        assert {$iterations != 0}
+
+        # 8) Remove the members to 30 in order to calculate the value of Chi-Square Distribution,
+        #    otherwise we would need more iterations.
+        rem_hash_set_top_N myset [expr {[r scard myset] - 30}]
+        assert_equal [r scard myset] 30
+        assert {[is_rehashing myset]}
+
+        # Now that we have a hash set with only one long chain bucket.
+        set htstats [r debug HTSTATS-KEY myset full]
+        assert {[regexp {different slots: ([0-9]+)} $htstats - different_slots]}
+        assert {[regexp {max chain length: ([0-9]+)} $htstats - max_chain_length]}
+        assert {$different_slots == 1 && $max_chain_length == 30}
+
+        # 9) Use positive count (PATH 4) to get 10 elements (out of 30) each time.
+        unset -nocomplain allkey
+        set iterations 1000
+        while {$iterations != 0} {
+            incr iterations -1
+            set res [r srandmember myset 10]
+            foreach ele $res {
+                lappend allkey $ele
+            }
+        }
+        # validate even distribution of random sampling (df = 29, 73 means 0.00001 probability)
+        assert_lessthan [chi_square_value $allkey] 73
+
+        r config set save $origin_save
+        r config set set-max-listpack-entries $origin_max_lp
+        r config set rdb-key-save-delay $origin_save_delay
+    } {OK} {needs:debug slow}
 
     proc setup_move {} {
         r del myset3{t} myset4{t}
