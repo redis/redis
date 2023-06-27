@@ -710,6 +710,7 @@ typedef enum {
  * encoding version. */
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
+#define OBJ_TYPE_MAX 7  /* Maximum number of object types */
 
 /* Extract encver / signature from a module type ID. */
 #define REDISMODULE_TYPE_ENCVER_BITS 10
@@ -2471,6 +2472,8 @@ void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
+moduleType *moduleTypeLookupModuleByName(const char *name);
+moduleType *moduleTypeLookupModuleByNameIgnoreCase(const char *name);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
 const char *moduleTypeModuleName(moduleType *mt);
 const char *moduleNameFromCommand(struct redisCommand *cmd);

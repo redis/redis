@@ -6573,7 +6573,7 @@ uint64_t moduleTypeEncodeId(const char *name, int encver) {
 /* Search, in the list of exported data types of all the modules registered,
  * a type with the same name as the one given. Returns the moduleType
  * structure pointer if such a module is found, or NULL otherwise. */
-moduleType *moduleTypeLookupModuleByName(const char *name) {
+moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_case) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -6585,7 +6585,9 @@ moduleType *moduleTypeLookupModuleByName(const char *name) {
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
-            if (memcmp(name,mt->name,sizeof(mt->name)) == 0) {
+            if ((!ignore_case && memcmp(name,mt->name,sizeof(mt->name)) == 0)
+                || (ignore_case && !strcasecmp(name, mt->name)))
+            {
                 dictReleaseIterator(di);
                 return mt;
             }
@@ -6593,6 +6595,15 @@ moduleType *moduleTypeLookupModuleByName(const char *name) {
     }
     dictReleaseIterator(di);
     return NULL;
+}
+/* Search all registered modules by name, and name is case sensitive */
+moduleType *moduleTypeLookupModuleByName(const char *name) {
+    return moduleTypeLookupModuleByNameInternal(name, 0);
+}
+
+/* Search all registered modules by name, but case insensitive */
+moduleType *moduleTypeLookupModuleByNameIgnoreCase(const char *name) {
+    return moduleTypeLookupModuleByNameInternal(name, 1);
 }
 
 /* Lookup a module by ID, with caching. This function is used during RDB
