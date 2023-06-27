@@ -112,4 +112,11 @@ int clusterNodeIsFailing(clusterNode* node);
 int clusterNodeTimedOut(clusterNode* node);
 int clusterNodeIsMyself(clusterNode* node);
 int clusterNodeIsNoFailover(clusterNode* node);
+clusterNode* getMyClusterNode(void);
+clusterNode* getNodeBySlot(int slot);
+clusterNode* getMigratingSlotDest(int slot);
+clusterNode* getImportingSlotSource(int slot);
+int isClusterHealthy(void);
+uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport);
+const char *getPreferredEndpoint(clusterNode *n);
 #endif /* __CLUSTER_H */

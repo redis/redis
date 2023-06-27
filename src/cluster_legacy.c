@@ -7117,3 +7117,28 @@ int clusterNodeIsMyself(clusterNode* node) {
 int clusterNodeIsNoFailover(clusterNode* node) {
     return nodeData(node)->flags & CLUSTER_NODE_NOFAILOVER;
 }
+
+clusterNode* getMyClusterNode(void) {
+    return myself;
+}
+
+clusterNode* getNodeBySlot(int slot) {
+    return stateInternal(server.cluster)->slots[slot];
+}
+
+clusterNode* getMigratingSlotDest(int slot) {
+    return stateInternal(server.cluster)->migrating_slots_to[slot];
+}
+
+clusterNode* getImportingSlotSource(int slot) {
+    return stateInternal(server.cluster)->importing_slots_from[slot];
+}
+
+int isClusterHealthy(void) {
+    return stateInternal(server.cluster)->state == CLUSTER_OK;
+}
+
+uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport) {
+    clusterNodeInternal *node_data = nodeData(node);
+    return use_pport && node_data->pport ? node_data->pport : node_data->port;
+}

@@ -187,7 +187,7 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
-    clusterStateInternal *state_internal = stateInternal(server.cluster);
+    clusterNode *myself = getMyClusterNode();
     clusterNode *n = NULL;
     robj *firstkey = NULL;
     int multiple_keys = 0;
@@ -256,7 +256,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * and node. */
                 firstkey = thiskey;
                 slot = thisslot;
-                n = state_internal->slots[slot];
+                n = getNodeBySlot(slot);
 
                 /* Error: If a slot is not served, we are in "cluster down"
                  * state. However the state is yet to be updated, so this was
@@ -275,10 +275,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * error). To do so we set the importing/migrating state and
                  * increment a counter for every missing key. */
                 if (n == myself &&
-                    state_internal->migrating_slots_to[slot] != NULL)
+                        getMigratingSlotDest(slot) != NULL)
                 {
                     migrating_slot = 1;
-                } else if (state_internal->importing_slots_from[slot] != NULL) {
+                } else if (getImportingSlotSource(slot) != NULL) {
                     importing_slot = 1;
                 }
             } else {
@@ -321,7 +321,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     uint64_t cmd_flags = getCommandFlags(c);
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
-    if (state_internal->state != CLUSTER_OK) {
+    if (!isClusterHealthy()) {
         if (is_pubsubshard) {
             if (!server.cluster_allow_pubsubshard_when_down) {
                 if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
@@ -361,7 +361,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             return NULL;
         } else {
             if (error_code) *error_code = CLUSTER_REDIR_ASK;
-            return state_internal->migrating_slots_to[slot];
+            return getMigratingSlotDest(slot);
         }
     }
 
@@ -387,8 +387,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
     if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
         !is_write_command &&
-        nodeIsSlave(myself) &&
-        nodeData(myself)->slaveof == n)
+        clusterNodeIsSlave(myself) && clusterNodeGetSlaveof(myself) == n)
     {
         return myself;
     }
@@ -423,12 +422,11 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
-        clusterNodeInternal *n_data = nodeData(n);
         /* Redirect to IP:port. Include plaintext port if cluster is TLS but
          * client is non-TLS. */
         int use_pport = (server.tls_cluster &&
                          c->conn && (c->conn->type != connectionTypeTls()));
-        int port = use_pport && n_data->pport ? n_data->pport : n_data->port;
+        int port = getClusterNodeRedirectPort(n, use_pport);
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
                                         "-%s %d %s:%d",
                                         (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
@@ -450,13 +448,13 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * longer handles, the client is sent a redirection error, and the function
  * returns 1. Otherwise 0 is returned and no operation is performed. */
 int clusterRedirectBlockedClientIfNeeded(client *c) {
-    clusterStateInternal *state_internal = stateInternal(server.cluster);
     if (c->flags & CLIENT_BLOCKED &&
         (c->bstate.btype == BLOCKED_LIST ||
          c->bstate.btype == BLOCKED_ZSET ||
          c->bstate.btype == BLOCKED_STREAM ||
          c->bstate.btype == BLOCKED_MODULE))
     {
+        clusterNode *myself = getMyClusterNode();
         dictEntry *de;
         dictIterator *di;
 
@@ -464,7 +462,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
          * If the cluster is configured to allow reads on cluster down, we
          * still want to emit this error since a write will be required
          * to unblock them which may never come.  */
-        if (state_internal->state == CLUSTER_FAIL) {
+        if (!isClusterHealthy()) {
             clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
             return 1;
         }
@@ -479,13 +477,13 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         if ((de = dictNext(di)) != NULL) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
-            clusterNode *node = state_internal->slots[slot];
+            clusterNode *node = getNodeBySlot(slot);
 
             /* if the client is read-only and attempting to access key that our
              * replica can handle, allow it. */
             if ((c->flags & CLIENT_READONLY) &&
                 !(c->lastcmd->flags & CMD_WRITE) &&
-                nodeIsSlave(myself) && nodeData(myself)->slaveof == node)
+                clusterNodeIsSlave(myself) && clusterNodeGetSlaveof(myself) == node)
             {
                 node = myself;
             }
@@ -494,7 +492,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
              * 1) The slot is unassigned, emitting a cluster down error.
              * 2) The slot is not handled by this node, nor being imported. */
             if (node != myself &&
-                state_internal->importing_slots_from[slot] == NULL)
+                    getImportingSlotSource(slot) == NULL)
             {
                 if (node == NULL) {
                     clusterRedirectClient(c,NULL,0,
