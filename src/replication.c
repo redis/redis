@@ -3133,7 +3133,7 @@ void replicationHandleMasterDisconnection(void) {
 }
 
 void replicaofCommand(client *c) {
-    /* SLAVEOF is not allowed in cluster mode as replication is automatically
+    /* REPLICAOF is not allowed in cluster mode as replication is automatically
      * configured using the current address of the master node. */
     if (server.cluster_enabled) {
         addReplyError(c,"REPLICAOF not allowed in cluster mode.");
