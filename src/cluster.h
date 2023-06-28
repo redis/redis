@@ -78,13 +78,17 @@ void clusterInit(void);
 void clusterInitListeners(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
-void migrateCloseTimedoutSockets(void);
 int verifyClusterConfigWithData(void);
 void clusterUpdateMyselfFlags(void);
 unsigned long getClusterConnectionsCount(void);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
 void clusterUpdateMyselfIp(void);
+
+/*
+ * Functions requiring per-clustering mechanism implementation: cluster commands
+ */
+void clusterCommand(client *c);
 
 /*
  * Functions requiring per-clustering mechanism implementation: Pub/Sub and module messages
@@ -132,6 +136,7 @@ int verifyClusterNodeId(const char *name, int length);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+void migrateCloseTimedoutSockets(void);
 unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
 void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
