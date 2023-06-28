@@ -4159,6 +4159,8 @@ int io_threads_op;      /* IO_THREADS_OP_IDLE, IO_THREADS_OP_READ or IO_THREADS_
  * used. We spawn io_threads_num-1 threads, since one is the main thread
  * itself. */
 list *io_threads_list[IO_THREADS_MAX_NUM];
+pthread_mutex_t io_threads_cond_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t io_threads_cond_var = PTHREAD_COND_INITIALIZER;
 
 static inline unsigned long getIOPendingCount(int i) {
     unsigned long count = 0;
@@ -4183,8 +4185,12 @@ void *IOThreadMain(void *myid) {
 
     while(1) {
         /* Wait for start */
-        for (int j = 0; j < 1000000; j++) {
-            if (getIOPendingCount(id) != 0) break;
+        if (getIOPendingCount(id) == 0) {
+            pthread_mutex_lock(&io_threads_cond_mutex);
+            if (getIOPendingCount(id) == 0) {
+                pthread_cond_wait(&io_threads_cond_var, &io_threads_cond_mutex);
+            }
+            pthread_mutex_unlock(&io_threads_cond_mutex);
         }
 
         /* Give the main thread a chance to stop this thread. */
@@ -4365,6 +4371,9 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         int count = listLength(io_threads_list[j]);
         setIOPendingCount(j, count);
     }
+    pthread_mutex_lock(&io_threads_cond_mutex);
+    pthread_cond_broadcast(&io_threads_cond_var);
+    pthread_mutex_unlock(&io_threads_cond_mutex);
 
     /* Also use the main thread to process a slice of clients. */
     listRewind(io_threads_list[0],&li);
@@ -4464,6 +4473,9 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         int count = listLength(io_threads_list[j]);
         setIOPendingCount(j, count);
     }
+    pthread_mutex_lock(&io_threads_cond_mutex);
+    pthread_cond_broadcast(&io_threads_cond_var);
+    pthread_mutex_unlock(&io_threads_cond_mutex);
 
     /* Also use the main thread to process a slice of clients. */
     listRewind(io_threads_list[0],&li);
