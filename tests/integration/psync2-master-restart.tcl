@@ -11,12 +11,19 @@ start_server {} {
 
     set sub_replica [srv -2 client]
 
+    # Make sure the server saves an RDB on shutdown
+    $master config set save "3600 1"
+
     # Because we will test partial resync later, we don’t want a timeout to cause
     # the master-replica disconnect, then the extra reconnections will break the
     # sync_partial_ok stat test
     $master config set repl-timeout 3600
     $replica config set repl-timeout 3600
     $sub_replica config set repl-timeout 3600
+
+    # Avoid PINGs
+    $master config set repl-ping-replica-period 3600
+    $master config rewrite
 
     # Build replication chain
     $replica replicaof $master_host $master_port
@@ -29,14 +36,43 @@ start_server {} {
         fail "Replication not started."
     }
 
-    # Avoid PINGs
-    $master config set repl-ping-replica-period 3600
-    $master config rewrite
+    test "PSYNC2: Partial resync after Master restart using RDB aux fields when offset is 0" {
+        assert {[status $master master_repl_offset] == 0}
+
+        set replid [status $master master_replid]
+        $replica config resetstat
+
+        catch {
+            restart_server 0 true false true now
+            set master [srv 0 client]
+        }
+        wait_for_condition 50 1000 {
+            [status $replica master_link_status] eq {up} &&
+            [status $sub_replica master_link_status] eq {up}
+        } else {
+            fail "Replicas didn't sync after master restart"
+        }
+
+        # Make sure master restore replication info correctly
+        assert {[status $master master_replid] != $replid}
+        assert {[status $master master_repl_offset] == 0}
+        assert {[status $master master_replid2] eq $replid}
+        assert {[status $master second_repl_offset] == 1}
+
+        # Make sure master set replication backlog correctly
+        assert {[status $master repl_backlog_active] == 1}
+        assert {[status $master repl_backlog_first_byte_offset] == 1}
+        assert {[status $master repl_backlog_histlen] == 0}
+
+        # Partial resync after Master restart
+        assert {[status $master sync_partial_ok] == 1}
+        assert {[status $replica sync_partial_ok] == 1}
+    }
 
     # Generate some data
     createComplexDataset $master 1000
 
-    test "PSYNC2: Partial resync after Master restart using RDB aux fields" {
+    test "PSYNC2: Partial resync after Master restart using RDB aux fields with data" {
         wait_for_condition 500 100 {
             [status $master master_repl_offset] == [status $replica master_repl_offset] &&
             [status $master master_repl_offset] == [status $sub_replica master_repl_offset]

@@ -2,6 +2,7 @@
 import glob
 import json
 import os
+import argparse
 
 ARG_TYPES = {
     "string": "ARG_TYPE_STRING",
@@ -33,29 +34,6 @@ GROUPS = {
     "geo": "COMMAND_GROUP_GEO",
     "stream": "COMMAND_GROUP_STREAM",
     "bitmap": "COMMAND_GROUP_BITMAP",
-}
-
-RESP2_TYPES = {
-    "simple-string": "RESP2_SIMPLE_STRING",
-    "error": "RESP2_ERROR",
-    "integer": "RESP2_INTEGER",
-    "bulk-string": "RESP2_BULK_STRING",
-    "null-bulk-string": "RESP2_NULL_BULK_STRING",
-    "array": "RESP2_ARRAY",
-    "null-array": "RESP2_NULL_ARRAY",
-}
-
-RESP3_TYPES = {
-    "simple-string": "RESP3_SIMPLE_STRING",
-    "error": "RESP3_ERROR",
-    "integer": "RESP3_INTEGER",
-    "double": "RESP3_DOUBLE",
-    "bulk-string": "RESP3_BULK_STRING",
-    "array": "RESP3_ARRAY",
-    "map": "RESP3_MAP",
-    "set": "RESP3_SET",
-    "bool": "RESP3_BOOL",
-    "null": "RESP3_NULL",
 }
 
 
@@ -194,7 +172,6 @@ class Argument(object):
         self.type = self.desc["type"]
         self.key_spec_index = self.desc.get("key_spec_index", None)
         self.subargs = []
-        self.subargs_name = None
         if self.type in ["oneof", "block"]:
             self.display = None
             for subdesc in self.desc["arguments"]:
@@ -219,7 +196,7 @@ class Argument(object):
     def struct_code(self):
         """
         Output example:
-        "expiration",ARG_TYPE_ONEOF,NULL,NULL,NULL,CMD_ARG_OPTIONAL,.value.subargs=SET_expiration_Subargs
+        MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=GETEX_expiration_Subargs
         """
 
         def _flags_code():
@@ -233,7 +210,7 @@ class Argument(object):
                 s += "CMD_ARG_MULTIPLE_TOKEN|"
             return s[:-1] if s else "CMD_ARG_NONE"
 
-        s = "\"%s\",%s,%d,%s,%s,%s,%s" % (
+        s = "MAKE_ARG(\"%s\",%s,%d,%s,%s,%s,%s,%d,%s)" % (
             self.name,
             ARG_TYPES[self.type],
             self.desc.get("key_spec_index", -1),
@@ -241,9 +218,9 @@ class Argument(object):
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "since"),
             _flags_code(),
+            len(self.subargs),
+            get_optional_desc_string(self.desc, "deprecated_since"),
         )
-        if "deprecated_since" in self.desc:
-            s += ",.deprecated_since=\"%s\"" % self.desc["deprecated_since"]
         if "display" in self.desc:
             s += ",.display_text=\"%s\"" % self.desc["display"].lower()
         if self.subargs:
@@ -257,11 +234,79 @@ class Argument(object):
                 subarg.write_internal_structs(f)
 
             f.write("/* %s argument table */\n" % self.fullname())
-            f.write("struct redisCommandArg %s[] = {\n" % self.subarg_table_name())
+            f.write("struct COMMAND_ARG %s[] = {\n" % self.subarg_table_name())
             for subarg in self.subargs:
                 f.write("{%s},\n" % subarg.struct_code())
-            f.write("{0}\n")
             f.write("};\n\n")
+
+
+def to_c_name(str):
+    return str.replace(":", "").replace(".", "_").replace("$", "_")\
+        .replace("^", "_").replace("*", "_").replace("-", "_")
+
+
+class ReplySchema(object):
+    def __init__(self, name, desc):
+        self.name = to_c_name(name)
+        self.schema = {}
+        if desc.get("type") == "object":
+            if desc.get("properties") and desc.get("additionalProperties") is None:
+                print("%s: Any object that has properties should have the additionalProperties field" % self.name)
+                exit(1)
+        elif desc.get("type") == "array":
+            if desc.get("items") and isinstance(desc["items"], list) and any([desc.get(k) is None for k in ["minItems", "maxItems"]]):
+                print("%s: Any array that has items should have the minItems and maxItems fields" % self.name)
+                exit(1)
+        for k, v in desc.items():
+            if isinstance(v, dict):
+                self.schema[k] = ReplySchema("%s_%s" % (self.name, k), v)
+            elif isinstance(v, list):
+                self.schema[k] = []
+                for i, subdesc in enumerate(v):
+                    self.schema[k].append(ReplySchema("%s_%s_%i" % (self.name, k,i), subdesc))
+            else:
+                self.schema[k] = v
+    
+    def write(self, f):
+        def struct_code(name, k, v):
+            if isinstance(v, ReplySchema):
+                t = "JSON_TYPE_OBJECT"
+                vstr = ".value.object=&%s" % name
+            elif isinstance(v, list):
+                t = "JSON_TYPE_ARRAY"
+                vstr = ".value.array={.objects=%s,.length=%d}" % (name, len(v))
+            elif isinstance(v, bool):
+                t = "JSON_TYPE_BOOLEAN"
+                vstr = ".value.boolean=%d" % int(v)
+            elif isinstance(v, str):
+                t = "JSON_TYPE_STRING"
+                vstr = ".value.string=\"%s\"" % v
+            elif isinstance(v, int):
+                t = "JSON_TYPE_INTEGER"
+                vstr = ".value.integer=%d" % v
+            
+            return "%s,\"%s\",%s" % (t, k, vstr)
+
+        for k, v in self.schema.items():
+            if isinstance(v, ReplySchema):
+                v.write(f)
+            elif isinstance(v, list):
+                for i, schema in enumerate(v):
+                    schema.write(f)
+                name = to_c_name("%s_%s" % (self.name, k))
+                f.write("/* %s array reply schema */\n" % name)
+                f.write("struct jsonObject *%s[] = {\n" % name)
+                for i, schema in enumerate(v):
+                    f.write("&%s,\n" % schema.name)
+                f.write("};\n\n")
+            
+        f.write("/* %s reply schema */\n" % self.name)
+        f.write("struct jsonObjectElement %s_elements[] = {\n" % self.name)
+        for k, v in self.schema.items():
+            name = to_c_name("%s_%s" % (self.name, k))
+            f.write("{%s},\n" % struct_code(name, k, v))
+        f.write("};\n\n")
+        f.write("struct jsonObject %s = {%s_elements,.length=%d};\n\n" % (self.name, self.name, len(self.schema)))
 
 
 class Command(object):
@@ -273,9 +318,11 @@ class Command(object):
         self.subcommands = []
         self.args = []
         for arg_desc in self.desc.get("arguments", []):
-            arg = Argument(self.fullname(), arg_desc)
-            self.args.append(arg)
+            self.args.append(Argument(self.fullname(), arg_desc))
         verify_no_dup_names(self.fullname(), self.args)
+        self.reply_schema = None
+        if "reply_schema" in self.desc:
+            self.reply_schema = ReplySchema(self.reply_schema_name(), self.desc["reply_schema"])
 
     def fullname(self):
         return self.name.replace("-", "_").replace(":", "")
@@ -291,10 +338,16 @@ class Command(object):
         return "%s_History" % (self.fullname().replace(" ", "_"))
 
     def tips_table_name(self):
-        return "%s_tips" % (self.fullname().replace(" ", "_"))
+        return "%s_Tips" % (self.fullname().replace(" ", "_"))
 
     def arg_table_name(self):
         return "%s_Args" % (self.fullname().replace(" ", "_"))
+
+    def key_specs_table_name(self):
+        return "%s_Keyspecs" % (self.fullname().replace(" ", "_"))
+
+    def reply_schema_name(self):
+        return "%s_ReplySchema" % (self.fullname().replace(" ", "_"))
 
     def struct_name(self):
         return "%s_Command" % (self.fullname().replace(" ", "_"))
@@ -305,8 +358,12 @@ class Command(object):
         s = ""
         for tupl in self.desc["history"]:
             s += "{\"%s\",\"%s\"},\n" % (tupl[0], tupl[1])
-        s += "{0}"
         return s
+
+    def num_history(self):
+        if not self.desc.get("history"):
+            return 0
+        return len(self.desc["history"])
 
     def tips_code(self):
         if not self.desc.get("command_tips"):
@@ -314,13 +371,24 @@ class Command(object):
         s = ""
         for hint in self.desc["command_tips"]:
             s += "\"%s\",\n" % hint.lower()
-        s += "NULL"
         return s
+
+    def num_tips(self):
+        if not self.desc.get("command_tips"):
+            return 0
+        return len(self.desc["command_tips"])
+
+    def key_specs_code(self):
+        s = ""
+        for spec in self.key_specs:
+            s += "{%s}," % KeySpec(spec).struct_code()
+        return s[:-1]
+
 
     def struct_code(self):
         """
         Output example:
-        "set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_STRING,SET_History,SET_tips,setCommand,-3,"write denyoom @string",{{"write read",KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}},.args=SET_Args
+        MAKE_CMD("set","Set the string value of a key","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args
         """
 
         def _flags_code():
@@ -341,13 +409,7 @@ class Command(object):
                 s += "CMD_DOC_%s|" % flag
             return s[:-1] if s else "CMD_DOC_NONE"
 
-        def _key_specs_code():
-            s = ""
-            for spec in self.key_specs:
-                s += "{%s}," % KeySpec(spec).struct_code()
-            return s[:-1]
-
-        s = "\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%s," % (
+        s = "MAKE_CMD(\"%s\",%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%s,%d,%s,%d,%s,%s,%s,%d,%s,%d)," % (
             self.name.lower(),
             get_optional_desc_string(self.desc, "summary"),
             get_optional_desc_string(self.desc, "complexity"),
@@ -355,27 +417,30 @@ class Command(object):
             _doc_flags_code(),
             get_optional_desc_string(self.desc, "replaced_by"),
             get_optional_desc_string(self.desc, "deprecated_since"),
+            "\"%s\"" % self.group,
             GROUPS[self.group],
             self.history_table_name(),
+            self.num_history(),
             self.tips_table_name(),
+            self.num_tips(),
             self.desc.get("function", "NULL"),
             self.desc["arity"],
             _flags_code(),
-            _acl_categories_code()
+            _acl_categories_code(),
+            self.key_specs_table_name(),
+            len(self.key_specs),
+            self.desc.get("get_keys_function", "NULL"),
+            len(self.args),
         )
-
-        specs = _key_specs_code()
-        if specs:
-            s += "{%s}," % specs
-
-        if self.desc.get("get_keys_function"):
-            s += "%s," % self.desc["get_keys_function"]
 
         if self.subcommands:
             s += ".subcommands=%s," % self.subcommand_table_name()
 
         if self.args:
             s += ".args=%s," % self.arg_table_name()
+
+        if self.reply_schema and args.with_reply_schema:
+            s += ".reply_schema=&%s," % self.reply_schema_name()
 
         return s[:-1]
 
@@ -386,7 +451,7 @@ class Command(object):
                 subcommand.write_internal_structs(f)
 
             f.write("/* %s command table */\n" % self.fullname())
-            f.write("struct redisCommand %s[] = {\n" % self.subcommand_table_name())
+            f.write("struct COMMAND_STRUCT %s[] = {\n" % self.subcommand_table_name())
             for subcommand in subcommand_list:
                 f.write("{%s},\n" % subcommand.struct_code())
             f.write("{0}\n")
@@ -394,34 +459,51 @@ class Command(object):
 
         f.write("/********** %s ********************/\n\n" % self.fullname())
 
+        f.write("#ifndef SKIP_CMD_HISTORY_TABLE\n")
         f.write("/* %s history */\n" % self.fullname())
         code = self.history_code()
         if code:
             f.write("commandHistory %s[] = {\n" % self.history_table_name())
-            f.write("%s\n" % code)
-            f.write("};\n\n")
+            f.write("%s" % code)
+            f.write("};\n")
         else:
-            f.write("#define %s NULL\n\n" % self.history_table_name())
+            f.write("#define %s NULL\n" % self.history_table_name())
+        f.write("#endif\n\n")
 
+        f.write("#ifndef SKIP_CMD_TIPS_TABLE\n")
         f.write("/* %s tips */\n" % self.fullname())
         code = self.tips_code()
         if code:
             f.write("const char *%s[] = {\n" % self.tips_table_name())
-            f.write("%s\n" % code)
-            f.write("};\n\n")
+            f.write("%s" % code)
+            f.write("};\n")
         else:
-            f.write("#define %s NULL\n\n" % self.tips_table_name())
+            f.write("#define %s NULL\n" % self.tips_table_name())
+        f.write("#endif\n\n")
+
+        f.write("#ifndef SKIP_CMD_KEY_SPECS_TABLE\n")
+        f.write("/* %s key specs */\n" % self.fullname())
+        code = self.key_specs_code()
+        if code:
+            f.write("keySpec %s[%d] = {\n" % (self.key_specs_table_name(), len(self.key_specs)))
+            f.write("%s\n" % code)
+            f.write("};\n")
+        else:
+            f.write("#define %s NULL\n" % self.key_specs_table_name())
+        f.write("#endif\n\n")
 
         if self.args:
             for arg in self.args:
                 arg.write_internal_structs(f)
 
             f.write("/* %s argument table */\n" % self.fullname())
-            f.write("struct redisCommandArg %s[] = {\n" % self.arg_table_name())
+            f.write("struct COMMAND_ARG %s[] = {\n" % self.arg_table_name())
             for arg in self.args:
                 f.write("{%s},\n" % arg.struct_code())
-            f.write("{0}\n")
             f.write("};\n\n")
+
+        if self.reply_schema and args.with_reply_schema:
+            self.reply_schema.write(f)
 
 
 class Subcommand(Command):
@@ -446,6 +528,10 @@ def create_command(name, desc):
 
 # Figure out where the sources are
 srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--with-reply-schema', action='store_true')
+args = parser.parse_args()
 
 # Create all command objects
 print("Processing json files...")
@@ -481,15 +567,41 @@ if check_command_error_counter != 0:
     print("Error: There are errors in the commands check, please check the above logs.")
     exit(1)
 
-print("Generating commands.c...")
-with open("%s/commands.c" % srcdir, "w") as f:
+commands_filename = "commands_with_reply_schema" if args.with_reply_schema else "commands"
+print("Generating %s.def..." % commands_filename)
+with open("%s/%s.def" % (srcdir, commands_filename), "w") as f:
     f.write("/* Automatically generated by %s, do not edit. */\n\n" % os.path.basename(__file__))
-    f.write("#include \"server.h\"\n")
     f.write(
 """
 /* We have fabulous commands from
  * the fantastic
- * Redis Command Table! */\n
+ * Redis Command Table! */
+
+/* Must match redisCommandGroup */
+const char *COMMAND_GROUP_STR[] = {
+    "generic",
+    "string",
+    "list",
+    "set",
+    "sorted-set",
+    "hash",
+    "pubsub",
+    "transactions",
+    "connection",
+    "server",
+    "scripting",
+    "hyperloglog",
+    "cluster",
+    "sentinel",
+    "geo",
+    "stream",
+    "bitmap",
+    "module"
+};
+
+const char *commandGroupStr(int index) {
+    return COMMAND_GROUP_STR[index];
+}
 """
     )
 
@@ -498,7 +610,7 @@ with open("%s/commands.c" % srcdir, "w") as f:
         command.write_internal_structs(f)
 
     f.write("/* Main command table */\n")
-    f.write("struct redisCommand redisCommandTable[] = {\n")
+    f.write("struct COMMAND_STRUCT redisCommandTable[] = {\n")
     curr_group = None
     for command in command_list:
         if curr_group != command.group:

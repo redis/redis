@@ -144,7 +144,7 @@
  * In the example the sparse representation used just 7 bytes instead
  * of 12k in order to represent the HLL registers. In general for low
  * cardinality there is a big win in terms of space efficiency, traded
- * with CPU time since the sparse representation is slower to access:
+ * with CPU time since the sparse representation is slower to access.
  *
  * The following table shows average cardinality vs bytes used, 100
  * samples per cardinality (when the set was not representable because

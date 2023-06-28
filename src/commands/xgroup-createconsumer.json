@@ -1,6 +1,6 @@
 {
     "CREATECONSUMER": {
-        "summary": "Create a consumer in a consumer group.",
+        "summary": "Creates a consumer in a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "6.2.0",
@@ -48,6 +48,17 @@
                 "name": "consumer",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The number of created consumers (0 or 1)",
+            "oneOf": [
+                {
+                    "const": 1
+                },
+                {
+                    "const": 0
+                }
+            ]
+        }
     }
 }

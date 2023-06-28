@@ -131,7 +131,7 @@
 #endif
 #endif
 
-#if __GNUC__ >= 4
+#if __GNUC__ >= 5 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #define redis_unreachable __builtin_unreachable
 #else
 #define redis_unreachable abort
@@ -307,16 +307,6 @@ int pthread_setname_np(const char *name);
 #if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
 void setcpuaffinity(const char *cpulist);
-#endif
-
-/* deprecate unsafe functions
- *
- * NOTE: We do not use the poison pragma since it
- * will error on stdlib definitions in files as well*/
-#if (__GNUC__ && __GNUC__ >= 4) && !defined __APPLE__
-int sprintf(char *str, const char *format, ...) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of snprintf instead")));
-char *strcpy(char *restrict dest, const char *src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcpy instead")));
-char *strcat(char *restrict dest, const char *restrict src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcat instead")));
 #endif
 
 /* Test for posix_fadvise() */

@@ -827,7 +827,7 @@ test {corrupt payload: fuzzer findings - set with duplicate elements causes sdif
         assert_equal {0 2 4 6 8 _1 _3 _3 _5 _9} [lsort [r smembers _key]]
         assert_equal {0 2 4 6 8 _1 _3 _5 _9} [lsort [r sdiff _key]]
     }
-}
+} {} {logreqres:skip} ;# This test violates {"uniqueItems": true}
 
 } ;# tags
 

@@ -76,20 +76,22 @@ start_server {tags {"expire"}} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more
         # chances.
-        for {set j 0} {$j < 10} {incr j} {
+        for {set j 0} {$j < 30} {incr j} {
             r del x
             r setex x 1 somevalue
-            after 900
+            after 800
             set a [r get x]
-            after 1100
+            if {$a ne {somevalue}} continue
+            after 300
             set b [r get x]
-            if {$a eq {somevalue} && $b eq {}} break
+            if {$b eq {}} break
         }
         if {$::verbose} {
             puts "millisecond expire test attempts: $j"
         }
-        list $a $b
-    } {somevalue {}}
+        assert_equal $a {somevalue}
+        assert_equal $b {}
+    }
 
     test "PSETEX can set sub-second expires" {
         # This test is very likely to do a false positive if the server is
@@ -319,7 +321,7 @@ start_server {tags {"expire"}} {
             r set foo1 bar ex 100
             r set foo2 bar px 100000
             r set foo3 bar exat [expr [clock seconds]+100]
-            r set foo4 bar pxat [expr [clock milliseconds]+100000]
+            r set foo4 bar PXAT [expr [clock milliseconds]+100000]
             r setex foo5 100 bar
             r psetex foo6 100000 bar
             # EXPIRE-family commands
@@ -489,7 +491,7 @@ start_server {tags {"expire"}} {
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
-            {set foo1 bar PXAT *}
+            {set foo1 bar pxat *}
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
             {set foo2 bar}
@@ -628,6 +630,9 @@ start_server {tags {"expire"}} {
     } {-1} {needs:debug}
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
+        # In the above tests, many keys with random expiration times are set, flush
+        # the DBs to avoid active expiry kicking in and messing the replication streams.
+        r flushall
        set repl [attach_to_replication_stream]
        r set foo bar EX 100
        r getex foo PERSIST

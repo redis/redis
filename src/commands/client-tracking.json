@@ -1,6 +1,6 @@
 {
     "TRACKING": {
-        "summary": "Enable or disable server assisted client side caching support",
+        "summary": "Controls server-assisted client-side caching for the connection.",
         "complexity": "O(1). Some options may introduce additional complexity.",
         "group": "connection",
         "since": "6.0.0",
@@ -71,6 +71,10 @@
                 "type": "pure-token",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "if the client was successfully put into or taken out of tracking mode",
+            "const": "OK"
+        }
     }
 }

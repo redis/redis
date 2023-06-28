@@ -1,6 +1,6 @@
 {
     "SETNAME": {
-        "summary": "Set the current connection name",
+        "summary": "Sets the connection name.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "2.6.9",
@@ -21,6 +21,9 @@
                 "name": "connection-name",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

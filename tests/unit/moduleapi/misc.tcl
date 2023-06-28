@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/misc.so]
 
-start_server {tags {"modules"}} {
+start_server {overrides {save {900 1}} tags {"modules"}} {
     r module load $testmodule
 
     test {test RM_Call} {
@@ -147,6 +147,19 @@ start_server {tags {"modules"}} {
         assert_equal "PONG" [$rd_trk ping]
         $rd_trk close
     }
+
+    test {publish to self inside rm_call} {
+        r hello 3
+        r subscribe foo
+
+        # published message comes after the response of the command that issued it.
+        assert_equal [r test.rm_call publish foo bar] {1}
+        assert_equal [r read] {message foo bar}
+
+        r unsubscribe foo
+        r hello 2
+        set _ ""
+    } {} {resp3}
 
     test {test module get/set client name by id api} {
         catch { r test.getname } e
@@ -524,6 +537,17 @@ start_server {tags {"modules"}} {
         assert_error {key not found} {r test.silent_open_key x}
         assert_equal {0} [r test.get_n_events]
     }
+
+if {[string match {*jemalloc*} [s mem_allocator]]} {
+    test {test RM_Call with large arg for SET command} {
+        # set a big value to trigger increasing the query buf
+        r set foo [string repeat A 100000]
+        # set a smaller value but > PROTO_MBULK_BIG_ARG (32*1024) Redis will try to save the query buf itself on the DB.
+        r test.call_generic set bar [string repeat A 33000]
+        # asset the value was trimmed
+        assert {[r memory usage bar] < 42000}; # 42K to count for Jemalloc's additional memory overhead.
+    }
+} ;# if jemalloc
 
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]

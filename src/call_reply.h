@@ -33,6 +33,7 @@
 #include "resp_parser.h"
 
 typedef struct CallReply CallReply;
+typedef void (*RedisModuleOnUnblocked)(void *ctx, CallReply *reply, void *private_data);
 
 CallReply *callReplyCreate(sds reply, list *deferred_error_list, void *private_data);
 CallReply *callReplyCreateError(sds reply, void *private_data);
@@ -54,5 +55,6 @@ void *callReplyGetPrivateData(CallReply *rep);
 int callReplyIsResp3(CallReply *rep);
 list *callReplyDeferredErrorList(CallReply *rep);
 void freeCallReply(CallReply *rep);
+CallReply *callReplyCreatePromise(void *private_data);
 
 #endif /* SRC_CALL_REPLY_H_ */

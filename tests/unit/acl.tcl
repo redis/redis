@@ -7,6 +7,10 @@ start_server {tags {"acl external:skip"}} {
         r ACL setuser newuser
     }
 
+    test {Coverage: ACL USERS} {
+        r ACL USERS
+    } {default newuser}
+
     test {Usernames can not contain spaces or null characters} {
         catch {r ACL setuser "a a"} err
         set err
@@ -285,6 +289,20 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
+    test {Subscribers are killed when revoked of allchannels permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser allchannels
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd PSUBSCRIBE foo
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
     test {Subscribers are pardoned if literal permissions are retained and/or gaining allchannels} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &foo:1 &bar:* &orders
@@ -304,6 +322,23 @@ start_server {tags {"acl external:skip"}} {
         assert_match {*pardoned*} [r CLIENT LIST]
         $rd close
     } {0}
+
+    test {blocked command gets rejected when reprocessed after permission change} {
+        r auth default ""
+        r config resetstat
+        set rd [redis_deferring_client]
+        r ACL setuser psuser reset on nopass +@all allkeys
+        $rd AUTH psuser pspass
+        $rd read
+        $rd BLPOP list1 0
+        wait_for_blocked_client
+        r ACL setuser psuser resetkeys
+        r LPUSH list1 foo
+        assert_error {*NOPERM No permissions to access a key*} {$rd read}
+        $rd ping
+        $rd close
+        assert_match {*calls=0,usec=0,*,rejected_calls=1,failed_calls=0} [cmdrstat blpop r]
+    }
 
     test {Users can be configured to authenticate with any password} {
         r ACL setuser newuser nopass
@@ -787,6 +822,31 @@ start_server {tags {"acl external:skip"}} {
         r HELLO 2 AUTH secure-user supass
         r ACL setuser default nopass +@all
         r AUTH default ""
+    }
+
+    test {When an authentication chain is used in the HELLO cmd, the last auth cmd has precedence} {
+        r ACL setuser secure-user1 >supass on +@all
+        r ACL setuser secure-user2 >supass on +@all
+        r HELLO 2 AUTH secure-user pass AUTH secure-user2 supass AUTH secure-user1 supass
+        assert {[r ACL whoami] eq {secure-user1}}
+        catch {r HELLO 2 AUTH secure-user supass AUTH secure-user2 supass AUTH secure-user pass} e
+        assert_match "WRONGPASS invalid username-password pair or user is disabled." $e
+        assert {[r ACL whoami] eq {secure-user1}}
+    }
+
+    test {When a setname chain is used in the HELLO cmd, the last setname cmd has precedence} {
+        r HELLO 2 setname client1 setname client2 setname client3 setname client4
+        assert {[r client getname] eq {client4}}
+        catch {r HELLO 2 setname client5 setname client6 setname "client name"} e
+        assert_match "ERR Client names cannot contain spaces, newlines or special characters." $e
+        assert {[r client getname] eq {client4}}
+    }
+
+    test {When authentication fails in the HELLO cmd, the client setname should not be applied} {
+        r client setname client0
+        catch {r HELLO 2 AUTH user pass setname client1} e
+        assert_match "WRONGPASS invalid username-password pair or user is disabled." $e
+        assert {[r client getname] eq {client0}}
     }
 
     test {ACL HELP should not have unexpected options} {

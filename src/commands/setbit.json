@@ -1,6 +1,6 @@
 {
     "SETBIT": {
-        "summary": "Sets or clears the bit at offset in the string value stored at key",
+        "summary": "Sets or clears the bit at offset of the string value. Creates the key if it doesn't exist.",
         "complexity": "O(1)",
         "group": "bitmap",
         "since": "2.2.0",
@@ -34,6 +34,17 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The original bit value stored at offset.",
+            "oneOf": [
+                {
+                    "const": 0
+                },
+                {
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

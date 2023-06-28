@@ -34,6 +34,31 @@ start_server {tags {"modules"}} {
         assert_equal {42} [r fsl.getall src]
     }
 
+    test "Module client blocked on keys: BPOPPUSH unblocked by timer" {
+        set rd1 [redis_deferring_client]
+
+        r del src dst
+
+        set repl [attach_to_replication_stream]
+
+        $rd1 fsl.bpoppush src dst 0
+        wait_for_blocked_clients_count 1
+
+        r fsl.pushtimer src 9000 10
+        wait_for_blocked_clients_count 0
+
+        assert_equal {9000} [r fsl.getall dst]
+        assert_equal {} [r fsl.getall src]
+
+        assert_replication_stream $repl {
+            {select *}
+            {fsl.push src 9000}
+            {fsl.bpoppush src dst 0}
+        }
+
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test {Module client blocked on keys (no metadata): No block} {
         r del k
         r fsl.push k 33
@@ -286,4 +311,56 @@ start_server {tags {"modules"}} {
         assert_equal {gg ff ee dd cc} [$rd read]
         $rd close
     }
+    
+    test {Module explicit unblock when blocked on keys} {
+        r del k
+        r set somekey someval
+        # Module client blocks to pop 5 elements from list
+        set rd [redis_deferring_client]
+        $rd blockonkeys.blpopn_or_unblock k 5 0
+        wait_for_blocked_clients_count 1
+        # will now cause the module to trigger pop but instead will unblock the client from the reply_callback
+        r lpush k dd
+        # we should still get unblocked as the command should not reprocess
+        wait_for_blocked_clients_count 0
+        assert_equal {Action aborted} [$rd read]
+        $rd get somekey
+        assert_equal {someval} [$rd read]
+        $rd close
+    }
+
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+
+        # Start the replication process...
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+
+        test {WAIT command on module blocked client on keys} {
+            set rd [redis_deferring_client -1]
+            $rd set x y
+            $rd read
+
+            pause_process [srv 0 pid]
+
+            $master del k
+            $rd fsl.bpop k 0
+            wait_for_blocked_client -1
+            $master fsl.push k 34
+            $master fsl.push k 35
+            assert_equal {34} [$rd read]
+
+            assert_equal [$master wait 1 1000] 0
+            resume_process [srv 0 pid]
+            assert_equal [$master wait 1 1000] 1
+            $rd close
+            assert_equal {35} [$replica fsl.getall k]
+        }
+    }
+
 }

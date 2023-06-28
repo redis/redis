@@ -1,6 +1,6 @@
 {
     "HGETALL": {
-        "summary": "Get all the fields and values in a hash",
+        "summary": "Returns all fields and values in a hash.",
         "complexity": "O(N) where N is the size of the hash.",
         "group": "hash",
         "since": "2.0.0",
@@ -35,6 +35,13 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "object",
+            "description": "Map of fields and their values stored in the hash, or an empty list when key does not exist. In RESP2 this is returned as a flat array.",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "key",

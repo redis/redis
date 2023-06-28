@@ -99,31 +99,60 @@ C_SRCS := $(srcroot)src/jemalloc.c \
 	$(srcroot)src/background_thread.c \
 	$(srcroot)src/base.c \
 	$(srcroot)src/bin.c \
+	$(srcroot)src/bin_info.c \
 	$(srcroot)src/bitmap.c \
+	$(srcroot)src/buf_writer.c \
+	$(srcroot)src/cache_bin.c \
 	$(srcroot)src/ckh.c \
+	$(srcroot)src/counter.c \
 	$(srcroot)src/ctl.c \
+	$(srcroot)src/decay.c \
 	$(srcroot)src/div.c \
+	$(srcroot)src/ecache.c \
+	$(srcroot)src/edata.c \
+	$(srcroot)src/edata_cache.c \
+	$(srcroot)src/ehooks.c \
+	$(srcroot)src/emap.c \
+	$(srcroot)src/eset.c \
+	$(srcroot)src/exp_grow.c \
 	$(srcroot)src/extent.c \
 	$(srcroot)src/extent_dss.c \
 	$(srcroot)src/extent_mmap.c \
-	$(srcroot)src/hash.c \
+	$(srcroot)src/fxp.c \
+	$(srcroot)src/san.c \
+	$(srcroot)src/san_bump.c \
 	$(srcroot)src/hook.c \
+	$(srcroot)src/hpa.c \
+	$(srcroot)src/hpa_hooks.c \
+	$(srcroot)src/hpdata.c \
+	$(srcroot)src/inspect.c \
 	$(srcroot)src/large.c \
 	$(srcroot)src/log.c \
 	$(srcroot)src/malloc_io.c \
 	$(srcroot)src/mutex.c \
-	$(srcroot)src/mutex_pool.c \
 	$(srcroot)src/nstime.c \
+	$(srcroot)src/pa.c \
+	$(srcroot)src/pa_extra.c \
+	$(srcroot)src/pai.c \
+	$(srcroot)src/pac.c \
 	$(srcroot)src/pages.c \
-	$(srcroot)src/prng.c \
+	$(srcroot)src/peak_event.c \
 	$(srcroot)src/prof.c \
+	$(srcroot)src/prof_data.c \
+	$(srcroot)src/prof_log.c \
+	$(srcroot)src/prof_recent.c \
+	$(srcroot)src/prof_stats.c \
+	$(srcroot)src/prof_sys.c \
+	$(srcroot)src/psset.c \
 	$(srcroot)src/rtree.c \
 	$(srcroot)src/safety_check.c \
-	$(srcroot)src/stats.c \
 	$(srcroot)src/sc.c \
+	$(srcroot)src/sec.c \
+	$(srcroot)src/stats.c \
 	$(srcroot)src/sz.c \
 	$(srcroot)src/tcache.c \
 	$(srcroot)src/test_hooks.c \
+	$(srcroot)src/thread_event.c \
 	$(srcroot)src/ticker.c \
 	$(srcroot)src/tsd.c \
 	$(srcroot)src/witness.c
@@ -148,88 +177,124 @@ else
 LJEMALLOC := $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB)
 endif
 PC := $(objroot)jemalloc.pc
-MAN3 := $(objroot)doc/jemalloc$(install_suffix).3
 DOCS_XML := $(objroot)doc/jemalloc$(install_suffix).xml
 DOCS_HTML := $(DOCS_XML:$(objroot)%.xml=$(objroot)%.html)
 DOCS_MAN3 := $(DOCS_XML:$(objroot)%.xml=$(objroot)%.3)
 DOCS := $(DOCS_HTML) $(DOCS_MAN3)
 C_TESTLIB_SRCS := $(srcroot)test/src/btalloc.c $(srcroot)test/src/btalloc_0.c \
 	$(srcroot)test/src/btalloc_1.c $(srcroot)test/src/math.c \
-	$(srcroot)test/src/mtx.c $(srcroot)test/src/mq.c \
+	$(srcroot)test/src/mtx.c $(srcroot)test/src/sleep.c \
 	$(srcroot)test/src/SFMT.c $(srcroot)test/src/test.c \
 	$(srcroot)test/src/thd.c $(srcroot)test/src/timer.c
 ifeq (1, $(link_whole_archive))
 C_UTIL_INTEGRATION_SRCS :=
 C_UTIL_CPP_SRCS :=
 else
-C_UTIL_INTEGRATION_SRCS := $(srcroot)src/nstime.c $(srcroot)src/malloc_io.c
+C_UTIL_INTEGRATION_SRCS := $(srcroot)src/nstime.c $(srcroot)src/malloc_io.c \
+	$(srcroot)src/ticker.c
 C_UTIL_CPP_SRCS := $(srcroot)src/nstime.c $(srcroot)src/malloc_io.c
 endif
 TESTS_UNIT := \
 	$(srcroot)test/unit/a0.c \
+	$(srcroot)test/unit/arena_decay.c \
 	$(srcroot)test/unit/arena_reset.c \
 	$(srcroot)test/unit/atomic.c \
 	$(srcroot)test/unit/background_thread.c \
 	$(srcroot)test/unit/background_thread_enable.c \
 	$(srcroot)test/unit/base.c \
+	$(srcroot)test/unit/batch_alloc.c \
+	$(srcroot)test/unit/binshard.c \
 	$(srcroot)test/unit/bitmap.c \
 	$(srcroot)test/unit/bit_util.c \
-	$(srcroot)test/unit/binshard.c \
+	$(srcroot)test/unit/buf_writer.c \
+	$(srcroot)test/unit/cache_bin.c \
 	$(srcroot)test/unit/ckh.c \
+	$(srcroot)test/unit/counter.c \
 	$(srcroot)test/unit/decay.c \
 	$(srcroot)test/unit/div.c \
+	$(srcroot)test/unit/double_free.c \
+	$(srcroot)test/unit/edata_cache.c \
 	$(srcroot)test/unit/emitter.c \
 	$(srcroot)test/unit/extent_quantize.c \
-	$(srcroot)test/unit/extent_util.c \
+	${srcroot}test/unit/fb.c \
 	$(srcroot)test/unit/fork.c \
+	${srcroot}test/unit/fxp.c \
+	${srcroot}test/unit/san.c \
+	${srcroot}test/unit/san_bump.c \
 	$(srcroot)test/unit/hash.c \
 	$(srcroot)test/unit/hook.c \
+	$(srcroot)test/unit/hpa.c \
+	$(srcroot)test/unit/hpa_background_thread.c \
+	$(srcroot)test/unit/hpdata.c \
 	$(srcroot)test/unit/huge.c \
+	$(srcroot)test/unit/inspect.c \
 	$(srcroot)test/unit/junk.c \
 	$(srcroot)test/unit/junk_alloc.c \
 	$(srcroot)test/unit/junk_free.c \
 	$(srcroot)test/unit/log.c \
 	$(srcroot)test/unit/mallctl.c \
+	$(srcroot)test/unit/malloc_conf_2.c \
 	$(srcroot)test/unit/malloc_io.c \
 	$(srcroot)test/unit/math.c \
+	$(srcroot)test/unit/mpsc_queue.c \
 	$(srcroot)test/unit/mq.c \
 	$(srcroot)test/unit/mtx.c \
+	$(srcroot)test/unit/nstime.c \
+	$(srcroot)test/unit/oversize_threshold.c \
+	$(srcroot)test/unit/pa.c \
 	$(srcroot)test/unit/pack.c \
 	$(srcroot)test/unit/pages.c \
+	$(srcroot)test/unit/peak.c \
 	$(srcroot)test/unit/ph.c \
 	$(srcroot)test/unit/prng.c \
 	$(srcroot)test/unit/prof_accum.c \
 	$(srcroot)test/unit/prof_active.c \
 	$(srcroot)test/unit/prof_gdump.c \
+	$(srcroot)test/unit/prof_hook.c \
 	$(srcroot)test/unit/prof_idump.c \
 	$(srcroot)test/unit/prof_log.c \
+	$(srcroot)test/unit/prof_mdump.c \
+	$(srcroot)test/unit/prof_recent.c \
 	$(srcroot)test/unit/prof_reset.c \
+	$(srcroot)test/unit/prof_stats.c \
 	$(srcroot)test/unit/prof_tctx.c \
 	$(srcroot)test/unit/prof_thread_name.c \
+	$(srcroot)test/unit/prof_sys_thread_name.c \
+	$(srcroot)test/unit/psset.c \
 	$(srcroot)test/unit/ql.c \
 	$(srcroot)test/unit/qr.c \
 	$(srcroot)test/unit/rb.c \
 	$(srcroot)test/unit/retained.c \
 	$(srcroot)test/unit/rtree.c \
 	$(srcroot)test/unit/safety_check.c \
+	$(srcroot)test/unit/sc.c \
+	$(srcroot)test/unit/sec.c \
 	$(srcroot)test/unit/seq.c \
 	$(srcroot)test/unit/SFMT.c \
-	$(srcroot)test/unit/sc.c \
+	$(srcroot)test/unit/size_check.c \
 	$(srcroot)test/unit/size_classes.c \
 	$(srcroot)test/unit/slab.c \
 	$(srcroot)test/unit/smoothstep.c \
 	$(srcroot)test/unit/spin.c \
 	$(srcroot)test/unit/stats.c \
 	$(srcroot)test/unit/stats_print.c \
+	$(srcroot)test/unit/sz.c \
+	$(srcroot)test/unit/tcache_max.c \
 	$(srcroot)test/unit/test_hooks.c \
+	$(srcroot)test/unit/thread_event.c \
 	$(srcroot)test/unit/ticker.c \
-	$(srcroot)test/unit/nstime.c \
 	$(srcroot)test/unit/tsd.c \
+	$(srcroot)test/unit/uaf.c \
 	$(srcroot)test/unit/witness.c \
-	$(srcroot)test/unit/zero.c
+	$(srcroot)test/unit/zero.c \
+	$(srcroot)test/unit/zero_realloc_abort.c \
+	$(srcroot)test/unit/zero_realloc_free.c \
+	$(srcroot)test/unit/zero_realloc_alloc.c \
+	$(srcroot)test/unit/zero_reallocs.c
 ifeq (@enable_prof@, 1)
 TESTS_UNIT += \
-	$(srcroot)test/unit/arena_reset_prof.c
+	$(srcroot)test/unit/arena_reset_prof.c \
+	$(srcroot)test/unit/batch_alloc_prof.c
 endif
 TESTS_INTEGRATION := $(srcroot)test/integration/aligned_alloc.c \
 	$(srcroot)test/integration/allocated.c \
@@ -251,16 +316,26 @@ TESTS_INTEGRATION += \
 endif
 ifeq (@enable_cxx@, 1)
 CPP_SRCS := $(srcroot)src/jemalloc_cpp.cpp
-TESTS_INTEGRATION_CPP := $(srcroot)test/integration/cpp/basic.cpp
+TESTS_INTEGRATION_CPP := $(srcroot)test/integration/cpp/basic.cpp \
+	$(srcroot)test/integration/cpp/infallible_new_true.cpp \
+	$(srcroot)test/integration/cpp/infallible_new_false.cpp
 else
 CPP_SRCS :=
 TESTS_INTEGRATION_CPP :=
 endif
-TESTS_STRESS := $(srcroot)test/stress/microbench.c \
-	$(srcroot)test/stress/hookbench.c
+TESTS_ANALYZE := $(srcroot)test/analyze/prof_bias.c \
+	$(srcroot)test/analyze/rand.c \
+	$(srcroot)test/analyze/sizes.c
+TESTS_STRESS := $(srcroot)test/stress/batch_alloc.c \
+	$(srcroot)test/stress/fill_flush.c \
+	$(srcroot)test/stress/hookbench.c \
+	$(srcroot)test/stress/large_microbench.c \
+	$(srcroot)test/stress/mallctl.c \
+	$(srcroot)test/stress/microbench.c
 
 
-TESTS := $(TESTS_UNIT) $(TESTS_INTEGRATION) $(TESTS_INTEGRATION_CPP) $(TESTS_STRESS)
+TESTS := $(TESTS_UNIT) $(TESTS_INTEGRATION) $(TESTS_INTEGRATION_CPP) \
+	$(TESTS_ANALYZE) $(TESTS_STRESS)
 
 PRIVATE_NAMESPACE_HDRS := $(objroot)include/jemalloc/internal/private_namespace.h $(objroot)include/jemalloc/internal/private_namespace_jet.h
 PRIVATE_NAMESPACE_GEN_HDRS := $(PRIVATE_NAMESPACE_HDRS:%.h=%.gen.h)
@@ -276,14 +351,19 @@ C_JET_OBJS := $(C_SRCS:$(srcroot)%.c=$(objroot)%.jet.$(O))
 C_TESTLIB_UNIT_OBJS := $(C_TESTLIB_SRCS:$(srcroot)%.c=$(objroot)%.unit.$(O))
 C_TESTLIB_INTEGRATION_OBJS := $(C_TESTLIB_SRCS:$(srcroot)%.c=$(objroot)%.integration.$(O))
 C_UTIL_INTEGRATION_OBJS := $(C_UTIL_INTEGRATION_SRCS:$(srcroot)%.c=$(objroot)%.integration.$(O))
+C_TESTLIB_ANALYZE_OBJS := $(C_TESTLIB_SRCS:$(srcroot)%.c=$(objroot)%.analyze.$(O))
 C_TESTLIB_STRESS_OBJS := $(C_TESTLIB_SRCS:$(srcroot)%.c=$(objroot)%.stress.$(O))
-C_TESTLIB_OBJS := $(C_TESTLIB_UNIT_OBJS) $(C_TESTLIB_INTEGRATION_OBJS) $(C_UTIL_INTEGRATION_OBJS) $(C_TESTLIB_STRESS_OBJS)
+C_TESTLIB_OBJS := $(C_TESTLIB_UNIT_OBJS) $(C_TESTLIB_INTEGRATION_OBJS) \
+	$(C_UTIL_INTEGRATION_OBJS) $(C_TESTLIB_ANALYZE_OBJS) \
+	$(C_TESTLIB_STRESS_OBJS)
 
 TESTS_UNIT_OBJS := $(TESTS_UNIT:$(srcroot)%.c=$(objroot)%.$(O))
 TESTS_INTEGRATION_OBJS := $(TESTS_INTEGRATION:$(srcroot)%.c=$(objroot)%.$(O))
 TESTS_INTEGRATION_CPP_OBJS := $(TESTS_INTEGRATION_CPP:$(srcroot)%.cpp=$(objroot)%.$(O))
+TESTS_ANALYZE_OBJS := $(TESTS_ANALYZE:$(srcroot)%.c=$(objroot)%.$(O))
 TESTS_STRESS_OBJS := $(TESTS_STRESS:$(srcroot)%.c=$(objroot)%.$(O))
-TESTS_OBJS := $(TESTS_UNIT_OBJS) $(TESTS_INTEGRATION_OBJS) $(TESTS_STRESS_OBJS)
+TESTS_OBJS := $(TESTS_UNIT_OBJS) $(TESTS_INTEGRATION_OBJS) $(TESTS_ANALYZE_OBJS) \
+	$(TESTS_STRESS_OBJS)
 TESTS_CPP_OBJS := $(TESTS_INTEGRATION_CPP_OBJS)
 
 .PHONY: all dist build_doc_html build_doc_man build_doc
@@ -298,7 +378,7 @@ all: build_lib
 
 dist: build_doc
 
-$(objroot)doc/%.html : $(objroot)doc/%.xml $(srcroot)doc/stylesheet.xsl $(objroot)doc/html.xsl
+$(objroot)doc/%$(install_suffix).html : $(objroot)doc/%.xml $(srcroot)doc/stylesheet.xsl $(objroot)doc/html.xsl
 ifneq ($(XSLROOT),)
 	$(XSLTPROC) -o $@ $(objroot)doc/html.xsl $<
 else
@@ -308,9 +388,16 @@ endif
 	@echo "Missing xsltproc.  "$@" not (re)built."
 endif
 
-$(objroot)doc/%.3 : $(objroot)doc/%.xml $(srcroot)doc/stylesheet.xsl $(objroot)doc/manpages.xsl
+$(objroot)doc/%$(install_suffix).3 : $(objroot)doc/%.xml $(srcroot)doc/stylesheet.xsl $(objroot)doc/manpages.xsl
 ifneq ($(XSLROOT),)
 	$(XSLTPROC) -o $@ $(objroot)doc/manpages.xsl $<
+# The -o option (output filename) of xsltproc may not work (it uses the
+# <refname> in the .xml file).  Manually add the suffix if so.
+  ifneq ($(install_suffix),)
+	@if [ -f $(objroot)doc/jemalloc.3 ]; then \
+		mv $(objroot)doc/jemalloc.3 $(objroot)doc/jemalloc$(install_suffix).3 ; \
+	fi
+  endif
 else
 ifeq ($(wildcard $(DOCS_MAN3)),)
 	@echo "Missing xsltproc.  Doc not built." > $@
@@ -357,12 +444,15 @@ $(C_TESTLIB_UNIT_OBJS): CPPFLAGS += -DJEMALLOC_UNIT_TEST
 $(C_TESTLIB_INTEGRATION_OBJS): $(objroot)test/src/%.integration.$(O): $(srcroot)test/src/%.c
 $(C_TESTLIB_INTEGRATION_OBJS): CPPFLAGS += -DJEMALLOC_INTEGRATION_TEST
 $(C_UTIL_INTEGRATION_OBJS): $(objroot)src/%.integration.$(O): $(srcroot)src/%.c
+$(C_TESTLIB_ANALYZE_OBJS): $(objroot)test/src/%.analyze.$(O): $(srcroot)test/src/%.c
+$(C_TESTLIB_ANALYZE_OBJS): CPPFLAGS += -DJEMALLOC_ANALYZE_TEST
 $(C_TESTLIB_STRESS_OBJS): $(objroot)test/src/%.stress.$(O): $(srcroot)test/src/%.c
 $(C_TESTLIB_STRESS_OBJS): CPPFLAGS += -DJEMALLOC_STRESS_TEST -DJEMALLOC_STRESS_TESTLIB
 $(C_TESTLIB_OBJS): CPPFLAGS += -I$(srcroot)test/include -I$(objroot)test/include
 $(TESTS_UNIT_OBJS): CPPFLAGS += -DJEMALLOC_UNIT_TEST
 $(TESTS_INTEGRATION_OBJS): CPPFLAGS += -DJEMALLOC_INTEGRATION_TEST
 $(TESTS_INTEGRATION_CPP_OBJS): CPPFLAGS += -DJEMALLOC_INTEGRATION_CPP_TEST
+$(TESTS_ANALYZE_OBJS): CPPFLAGS += -DJEMALLOC_ANALYZE_TEST
 $(TESTS_STRESS_OBJS): CPPFLAGS += -DJEMALLOC_STRESS_TEST
 $(TESTS_OBJS): $(objroot)test/%.$(O): $(srcroot)test/%.c
 $(TESTS_CPP_OBJS): $(objroot)test/%.$(O): $(srcroot)test/%.cpp
@@ -382,7 +472,7 @@ $(TESTS_OBJS) $(TESTS_CPP_OBJS): $(objroot)test/include/test/jemalloc_test.h
 endif
 
 $(C_OBJS) $(CPP_OBJS) $(C_PIC_OBJS) $(CPP_PIC_OBJS) $(C_TESTLIB_INTEGRATION_OBJS) $(C_UTIL_INTEGRATION_OBJS) $(TESTS_INTEGRATION_OBJS) $(TESTS_INTEGRATION_CPP_OBJS): $(objroot)include/jemalloc/internal/private_namespace.h
-$(C_JET_OBJS) $(C_TESTLIB_UNIT_OBJS) $(C_TESTLIB_STRESS_OBJS) $(TESTS_UNIT_OBJS) $(TESTS_STRESS_OBJS): $(objroot)include/jemalloc/internal/private_namespace_jet.h
+$(C_JET_OBJS) $(C_TESTLIB_UNIT_OBJS) $(C_TESTLIB_ANALYZE_OBJS) $(C_TESTLIB_STRESS_OBJS) $(TESTS_UNIT_OBJS) $(TESTS_ANALYZE_OBJS) $(TESTS_STRESS_OBJS): $(objroot)include/jemalloc/internal/private_namespace_jet.h
 
 $(C_SYM_OBJS) $(C_OBJS) $(C_PIC_OBJS) $(C_JET_SYM_OBJS) $(C_JET_OBJS) $(C_TESTLIB_OBJS) $(TESTS_OBJS): %.$(O):
 	@mkdir -p $(@D)
@@ -406,7 +496,7 @@ $(objroot)include/jemalloc/internal/private_namespace_jet.gen.h: $(C_JET_SYMS)
 	$(SHELL) $(srcroot)include/jemalloc/internal/private_namespace.sh $^ > $@
 
 %.h: %.gen.h
-	@if ! `cmp -s $< $@` ; then echo "cp $< $<"; cp $< $@ ; fi
+	@if ! `cmp -s $< $@` ; then echo "cp $< $@"; cp $< $@ ; fi
 
 $(CPP_OBJS) $(CPP_PIC_OBJS) $(TESTS_CPP_OBJS): %.$(O):
 	@mkdir -p $(@D)
@@ -445,6 +535,10 @@ $(objroot)test/integration/cpp/%$(EXE): $(objroot)test/integration/cpp/%.$(O) $(
 	@mkdir -p $(@D)
 	$(CXX) $(LDTARGET) $(filter %.$(O),$^) $(call RPATH,$(objroot)lib) $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB) $(LDFLAGS) $(filter-out -lm,$(LIBS)) -lm $(EXTRA_LDFLAGS)
 
+$(objroot)test/analyze/%$(EXE): $(objroot)test/analyze/%.$(O) $(C_JET_OBJS) $(C_TESTLIB_ANALYZE_OBJS)
+	@mkdir -p $(@D)
+	$(CC) $(LDTARGET) $(filter %.$(O),$^) $(call RPATH,$(objroot)lib) $(LDFLAGS) $(filter-out -lm,$(LIBS)) $(LM) $(EXTRA_LDFLAGS)
+
 $(objroot)test/stress/%$(EXE): $(objroot)test/stress/%.$(O) $(C_JET_OBJS) $(C_TESTLIB_STRESS_OBJS) $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB)
 	@mkdir -p $(@D)
 	$(CC) $(TEST_LD_MODE) $(LDTARGET) $(filter %.$(O),$^) $(call RPATH,$(objroot)lib) $(objroot)lib/$(LIBJEMALLOC).$(IMPORTLIB) $(LDFLAGS) $(filter-out -lm,$(LIBS)) $(LM) $(EXTRA_LDFLAGS)
@@ -461,20 +555,18 @@ endif
 install_bin:
 	$(INSTALL) -d $(BINDIR)
 	@for b in $(BINS); do \
-	echo "$(INSTALL) -m 755 $$b $(BINDIR)"; \
-	$(INSTALL) -m 755 $$b $(BINDIR); \
+	$(INSTALL) -v -m 755 $$b $(BINDIR); \
 done
 
 install_include:
 	$(INSTALL) -d $(INCLUDEDIR)/jemalloc
 	@for h in $(C_HDRS); do \
-	echo "$(INSTALL) -m 644 $$h $(INCLUDEDIR)/jemalloc"; \
-	$(INSTALL) -m 644 $$h $(INCLUDEDIR)/jemalloc; \
+	$(INSTALL) -v -m 644 $$h $(INCLUDEDIR)/jemalloc; \
 done
 
 install_lib_shared: $(DSOS)
 	$(INSTALL) -d $(LIBDIR)
-	$(INSTALL) -m 755 $(objroot)lib/$(LIBJEMALLOC).$(SOREV) $(LIBDIR)
+	$(INSTALL) -v -m 755 $(objroot)lib/$(LIBJEMALLOC).$(SOREV) $(LIBDIR)
 ifneq ($(SOREV),$(SO))
 	ln -sf $(LIBJEMALLOC).$(SOREV) $(LIBDIR)/$(LIBJEMALLOC).$(SO)
 endif
@@ -482,15 +574,13 @@ endif
 install_lib_static: $(STATIC_LIBS)
 	$(INSTALL) -d $(LIBDIR)
 	@for l in $(STATIC_LIBS); do \
-	echo "$(INSTALL) -m 755 $$l $(LIBDIR)"; \
-	$(INSTALL) -m 755 $$l $(LIBDIR); \
+	$(INSTALL) -v -m 755 $$l $(LIBDIR); \
 done
 
 install_lib_pc: $(PC)
 	$(INSTALL) -d $(LIBDIR)/pkgconfig
 	@for l in $(PC); do \
-	echo "$(INSTALL) -m 644 $$l $(LIBDIR)/pkgconfig"; \
-	$(INSTALL) -m 644 $$l $(LIBDIR)/pkgconfig; \
+	$(INSTALL) -v -m 644 $$l $(LIBDIR)/pkgconfig; \
 done
 
 ifeq ($(enable_shared), 1)
@@ -501,21 +591,19 @@ install_lib: install_lib_static
 endif
 install_lib: install_lib_pc
 
-install_doc_html:
+install_doc_html: build_doc_html
 	$(INSTALL) -d $(DATADIR)/doc/jemalloc$(install_suffix)
 	@for d in $(DOCS_HTML); do \
-	echo "$(INSTALL) -m 644 $$d $(DATADIR)/doc/jemalloc$(install_suffix)"; \
-	$(INSTALL) -m 644 $$d $(DATADIR)/doc/jemalloc$(install_suffix); \
+	$(INSTALL) -v -m 644 $$d $(DATADIR)/doc/jemalloc$(install_suffix); \
 done
 
-install_doc_man:
+install_doc_man: build_doc_man
 	$(INSTALL) -d $(MANDIR)/man3
 	@for d in $(DOCS_MAN3); do \
-	echo "$(INSTALL) -m 644 $$d $(MANDIR)/man3"; \
-	$(INSTALL) -m 644 $$d $(MANDIR)/man3; \
+	$(INSTALL) -v -m 644 $$d $(MANDIR)/man3; \
 done
 
-install_doc: build_doc install_doc_html install_doc_man
+install_doc: install_doc_html install_doc_man
 
 install: install_bin install_include install_lib
 
@@ -523,15 +611,60 @@ ifeq ($(enable_doc), 1)
 install: install_doc
 endif
 
+uninstall_bin:
+	$(RM) -v $(foreach b,$(notdir $(BINS)),$(BINDIR)/$(b))
+
+uninstall_include:
+	$(RM) -v $(foreach h,$(notdir $(C_HDRS)),$(INCLUDEDIR)/jemalloc/$(h))
+	rmdir -v $(INCLUDEDIR)/jemalloc
+
+uninstall_lib_shared:
+	$(RM) -v $(LIBDIR)/$(LIBJEMALLOC).$(SOREV)
+ifneq ($(SOREV),$(SO))
+	$(RM) -v $(LIBDIR)/$(LIBJEMALLOC).$(SO)
+endif
+
+uninstall_lib_static:
+	$(RM) -v $(foreach l,$(notdir $(STATIC_LIBS)),$(LIBDIR)/$(l))
+
+uninstall_lib_pc:
+	$(RM) -v $(foreach p,$(notdir $(PC)),$(LIBDIR)/pkgconfig/$(p))
+
+ifeq ($(enable_shared), 1)
+uninstall_lib: uninstall_lib_shared
+endif
+ifeq ($(enable_static), 1)
+uninstall_lib: uninstall_lib_static
+endif
+uninstall_lib: uninstall_lib_pc
+
+uninstall_doc_html:
+	$(RM) -v $(foreach d,$(notdir $(DOCS_HTML)),$(DATADIR)/doc/jemalloc$(install_suffix)/$(d))
+	rmdir -v $(DATADIR)/doc/jemalloc$(install_suffix)
+
+uninstall_doc_man:
+	$(RM) -v $(foreach d,$(notdir $(DOCS_MAN3)),$(MANDIR)/man3/$(d))
+
+uninstall_doc: uninstall_doc_html uninstall_doc_man
+
+uninstall: uninstall_bin uninstall_include uninstall_lib
+
+ifeq ($(enable_doc), 1)
+uninstall: uninstall_doc
+endif
+
 tests_unit: $(TESTS_UNIT:$(srcroot)%.c=$(objroot)%$(EXE))
 tests_integration: $(TESTS_INTEGRATION:$(srcroot)%.c=$(objroot)%$(EXE)) $(TESTS_INTEGRATION_CPP:$(srcroot)%.cpp=$(objroot)%$(EXE))
+tests_analyze: $(TESTS_ANALYZE:$(srcroot)%.c=$(objroot)%$(EXE))
 tests_stress: $(TESTS_STRESS:$(srcroot)%.c=$(objroot)%$(EXE))
-tests: tests_unit tests_integration tests_stress
+tests: tests_unit tests_integration tests_analyze tests_stress
 
 check_unit_dir:
 	@mkdir -p $(objroot)test/unit
 check_integration_dir:
 	@mkdir -p $(objroot)test/integration
+analyze_dir:
+	@mkdir -p $(objroot)test/analyze
 stress_dir:
 	@mkdir -p $(objroot)test/stress
 check_dir: check_unit_dir check_integration_dir
@@ -548,6 +681,12 @@ check_integration_decay: tests_integration check_integration_dir
 	$(MALLOC_CONF)="dirty_decay_ms:0,muzzy_decay_ms:0" $(SHELL) $(objroot)test/test.sh $(TESTS_INTEGRATION:$(srcroot)%.c=$(objroot)%) $(TESTS_INTEGRATION_CPP:$(srcroot)%.cpp=$(objroot)%)
 check_integration: tests_integration check_integration_dir
 	$(SHELL) $(objroot)test/test.sh $(TESTS_INTEGRATION:$(srcroot)%.c=$(objroot)%) $(TESTS_INTEGRATION_CPP:$(srcroot)%.cpp=$(objroot)%)
+analyze: tests_analyze analyze_dir
+ifeq ($(enable_prof), 1)
+	$(MALLOC_CONF)="prof:true" $(SHELL) $(objroot)test/test.sh $(TESTS_ANALYZE:$(srcroot)%.c=$(objroot)%)
+else
+	$(SHELL) $(objroot)test/test.sh $(TESTS_ANALYZE:$(srcroot)%.c=$(objroot)%)
+endif
 stress: tests_stress stress_dir
 	$(SHELL) $(objroot)test/test.sh $(TESTS_STRESS:$(srcroot)%.c=$(objroot)%)
 check: check_unit check_integration check_integration_decay check_integration_prof

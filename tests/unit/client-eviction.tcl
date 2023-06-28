@@ -1,4 +1,4 @@
-tags {"external:skip"} {
+tags {"external:skip logreqres:skip"} {
 
 # Get info about a redis client connection:
 # name - name of client we want to query
@@ -347,12 +347,12 @@ start_server {} {
         # We use two obuf-clients to make sure that even if client eviction is attempted
         # between two command processing (with no sleep) we don't perform any client eviction
         # because the obuf limit is enforced with precedence.
-        exec kill -SIGSTOP $server_pid
+        pause_process $server_pid
         $rr2 get k
         $rr2 flush
         $rr3 get k
         $rr3 flush
-        exec kill -SIGCONT $server_pid
+        resume_process $server_pid
         r ping ;# make sure a full event loop cycle is processed before issuing CLIENT LIST
 
         # Validate obuf-clients were disconnected (because of obuf limit)

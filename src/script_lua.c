@@ -790,8 +790,6 @@ static robj **lua_argv = NULL;
 static int lua_argv_size = 0;
 
 /* Cache of recently used small arguments to avoid malloc calls. */
-#define LUA_CMD_OBJCACHE_SIZE 32
-#define LUA_CMD_OBJCACHE_MAX_LEN 64
 static robj *lua_args_cached_objects[LUA_CMD_OBJCACHE_SIZE];
 static size_t lua_args_cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
@@ -1564,8 +1562,8 @@ static void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 
         /*
          * Set the hook to invoke all the time so the user
-         * will not be able to catch the error with pcall and invoke
-         * pcall again which will prevent the script from ever been killed
+         * will not be able to catch the error with pcall and invoke
+         * pcall again which will prevent the script from ever been killed
          */
         lua_sethook(lua, luaMaskCountHook, LUA_MASKLINE, 0);
 

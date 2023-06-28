@@ -1,6 +1,6 @@
 {
     "MYID": {
-        "summary": "Get the Sentinel instance ID",
+        "summary": "Returns the Redis Sentinel instance ID.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "6.2.0",
@@ -11,6 +11,10 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "description": "Node ID of the sentinel instance.",
+            "type": "string"
+        }
     }
 }

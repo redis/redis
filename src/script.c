@@ -60,16 +60,16 @@ static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
     blockingOperationStarts();
 }
 
-int scriptIsTimedout() {
+int scriptIsTimedout(void) {
     return scriptIsRunning() && (curr_run_ctx->flags & SCRIPT_TIMEDOUT);
 }
 
-client* scriptGetClient() {
+client* scriptGetClient(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->c;
 }
 
-client* scriptGetCaller() {
+client* scriptGetCaller(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->original_client;
 }
@@ -130,7 +130,7 @@ uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
 /* Prepare the given run ctx for execution */
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
-    bool client_allow_oom = caller->flags & CLIENT_ALLOW_OOM;
+    int client_allow_oom = !!(caller->flags & CLIENT_ALLOW_OOM);
 
     int running_stale = server.masterhost &&
             server.repl_state != REPL_STATE_CONNECTED &&
@@ -160,7 +160,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 return C_ERR;
             }
 
-            /* Deny writes if we're unale to persist. */
+            /* Deny writes if we're unable to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
             if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
@@ -269,16 +269,16 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
 }
 
 /* return true if a script is currently running */
-int scriptIsRunning() {
+int scriptIsRunning(void) {
     return curr_run_ctx != NULL;
 }
 
-const char* scriptCurrFunction() {
+const char* scriptCurrFunction(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->funcname;
 }
 
-int scriptIsEval() {
+int scriptIsEval(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->flags & SCRIPT_EVAL_MODE;
 }
@@ -292,6 +292,7 @@ void scriptKill(client *c, int is_eval) {
     if (mustObeyClient(curr_run_ctx->original_client)) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
+        return;
     }
     if (curr_run_ctx->flags & SCRIPT_WRITE_DIRTY) {
         addReplyError(c,
@@ -571,7 +572,7 @@ error:
     incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
-long long scriptRunDuration() {
+long long scriptRunDuration(void) {
     serverAssert(scriptIsRunning());
     return elapsedMs(curr_run_ctx->start_time);
 }
