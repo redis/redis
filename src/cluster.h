@@ -71,39 +71,42 @@ typedef struct clusterState {
 } clusterState;
 
 /* ---------------------- API exported outside cluster.c -------------------- */
+/*
+ * Functions requiring per-clustering mechanism implementation: Lifecycle events
+ */
 void clusterInit(void);
 void clusterInitListeners(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
-int verifyClusterNodeId(const char *name, int length);
-clusterNode *clusterLookupNode(const char *name, int length);
-int clusterRedirectBlockedClientIfNeeded(client *c);
-void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 void migrateCloseTimedoutSockets(void);
 int verifyClusterConfigWithData(void);
-unsigned long getClusterConnectionsCount(void);
-int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
-void clusterPropagatePublish(robj *channel, robj *message, int sharded);
-unsigned int keyHashSlot(char *key, int keylen);
-void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
-void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
-void slotToKeyReplaceEntry(dict *d, dictEntry *entry);
-void slotToKeyInit(redisDb *db);
-void slotToKeyFlush(redisDb *db);
-void slotToKeyDestroy(redisDb *db);
 void clusterUpdateMyselfFlags(void);
-void clusterUpdateMyselfIp(void);
-void slotToChannelAdd(sds channel);
-void slotToChannelDel(sds channel);
+unsigned long getClusterConnectionsCount(void);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
-sds clusterGenNodesDescription(client *c, int filter, int use_pport);
-sds genClusterInfoString(void);
-char* clusterNodeLastKnownIp(clusterNode *node);
-int clusterNodePort(clusterNode *node);
+void clusterUpdateMyselfIp(void);
+
+/*
+ * Functions requiring per-clustering mechanism implementation: Pub/Sub and module messages
+ */
+int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
+void clusterPropagatePublish(robj *channel, robj *message, int sharded);
+void slotToChannelAdd(sds channel);
+void slotToChannelDel(sds channel);
+
+/*
+ * Functions requiring per-clustering mechanism implementation: Debug and info actions
+ */
 void freeThisNodesLink(clusterNode *node);
 void freeNodeInboundLink(clusterNode *node);
+sds clusterGenNodesDescription(client *c, int filter, int use_pport);
+sds genClusterInfoString(void);
+
+/*
+ * Functions requiring per-clustering mechanism implementation: "Accessor" functions
+ */
+char* clusterNodeLastKnownIp(clusterNode *node);
+int clusterNodePort(clusterNode *node);
 clusterNode* clusterNodeGetSlaveof(clusterNode *node);
 int clusterNodeConfirmedReachable(clusterNode* node);
 int clusterNodeIsMaster(clusterNode* node);
@@ -119,4 +122,22 @@ clusterNode* getImportingSlotSource(int slot);
 int isClusterHealthy(void);
 uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport);
 const char *getPreferredEndpoint(clusterNode *n);
+clusterNode *clusterLookupNode(const char *name, int length);
+
+/*
+ * Functions not requiring per-clustering mechanism implementation. These functions have generic implementations
+ * (in cluster.c) that work with both legacy and flotilla cluster implementations.
+ */
+int verifyClusterNodeId(const char *name, int length);
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+int clusterRedirectBlockedClientIfNeeded(client *c);
+void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+unsigned int keyHashSlot(char *key, int keylen);
+void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
+void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
+void slotToKeyReplaceEntry(dict *d, dictEntry *entry);
+void slotToKeyInit(redisDb *db);
+void slotToKeyFlush(redisDb *db);
+void slotToKeyDestroy(redisDb *db);
+
 #endif /* __CLUSTER_H */
