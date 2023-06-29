@@ -713,7 +713,10 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        dictExpand(c->db->dict,keys);
+        if (dictTryExpand(c->db->dict, keys) != DICT_OK) {
+            addReplyErrorFormat(c, "OOM in dictTryExpand %ld", keys);
+            return;
+        }
         long valsize = 0;
         if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
