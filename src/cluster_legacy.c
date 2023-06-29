@@ -912,7 +912,7 @@ void clusterInit(void) {
      * discover the IP address via MEET messages. */
     deriveAnnouncedPorts(&nodeData(myself)->port, &nodeData(myself)->pport, &nodeData(myself)->cport);
 
-    server.cluster->mf_end = 0;
+    state_internal->mf_end = 0;
     state_internal->mf_slave = NULL;
     resetManualFailover();
     clusterUpdateMyselfFlags();
@@ -2596,7 +2596,7 @@ int clusterProcessPacket(clusterLink *link) {
         sender_data->repl_offset_time = now;
         /* If we are a slave performing a manual failover and our master
          * sent its offset while already paused, populate the MF state. */
-        if (server.cluster->mf_end &&
+        if (state_internal->mf_end &&
             nodeIsSlave(myself) &&
             myself_data->slaveof == sender &&
             hdr->mflags[0] & CLUSTERMSG_FLAG0_PAUSED &&
@@ -2954,7 +2954,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Manual failover requested from slaves. Initialize the state
          * accordingly. */
         resetManualFailover();
-        server.cluster->mf_end = now + CLUSTER_MF_TIMEOUT;
+        state_internal->mf_end = now + CLUSTER_MF_TIMEOUT;
         state_internal->mf_slave = sender;
         pauseActions(PAUSE_DURING_FAILOVER,
                      now + (CLUSTER_MF_TIMEOUT * CLUSTER_MF_PAUSE_MULT),
@@ -3239,6 +3239,7 @@ void clusterBroadcastMessage(clusterMsgSendBlock *msgblock) {
  * sizeof(clusterMsg) in bytes. */
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     clusterNodeInternal *myself_data = nodeData(myself);
+    clusterStateInternal *state_internal = stateInternal(server.cluster);
     uint64_t offset;
     clusterNode *master;
 
@@ -3277,10 +3278,10 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     hdr->pport = htons(announced_pport);
     hdr->cport = htons(announced_cport);
     hdr->flags = htons(myself_data->flags);
-    hdr->state = stateInternal(server.cluster)->state;
+    hdr->state = state_internal->state;
 
     /* Set the currentEpoch and configEpochs. */
-    hdr->currentEpoch = htonu64(stateInternal(server.cluster)->currentEpoch);
+    hdr->currentEpoch = htonu64(state_internal->currentEpoch);
     hdr->configEpoch = htonu64(nodeData(master)->configEpoch);
 
     /* Set the replication offset. */
@@ -3291,7 +3292,7 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     hdr->offset = htonu64(offset);
 
     /* Set the message flags. */
-    if (nodeIsMaster(myself) && server.cluster->mf_end)
+    if (nodeIsMaster(myself) && state_internal->mf_end)
         hdr->mflags[0] |= CLUSTERMSG_FLAG0_PAUSED;
 
     hdr->totlen = htonl(msglen);
@@ -3652,7 +3653,7 @@ void clusterRequestFailoverAuth(void) {
     /* If this is a manual failover, set the CLUSTERMSG_FLAG0_FORCEACK bit
      * in the header to communicate the nodes receiving the message that
      * they should authorized the failover even if the master is working. */
-    if (server.cluster->mf_end) hdr->mflags[0] |= CLUSTERMSG_FLAG0_FORCEACK;
+    if (stateInternal(server.cluster)->mf_end) hdr->mflags[0] |= CLUSTERMSG_FLAG0_FORCEACK;
     clusterBroadcastMessage(msgblock);
     clusterMsgSendBlockDecrRefCount(msgblock);
 }
@@ -3939,7 +3940,7 @@ void clusterHandleSlaveFailover(void) {
     mstime_t data_age;
     mstime_t auth_age = mstime() - state_internal->failover_auth_time;
     int needed_quorum = (state_internal->size / 2) + 1;
-    int manual_failover = server.cluster->mf_end != 0 &&
+    int manual_failover = state_internal->mf_end != 0 &&
                           state_internal->mf_can_start;
     mstime_t auth_timeout, auth_retry_time;
 
@@ -4020,7 +4021,7 @@ void clusterHandleSlaveFailover(void) {
         state_internal->failover_auth_time +=
             state_internal->failover_auth_rank * 1000;
         /* However if this is a manual failover, no delay is needed. */
-        if (server.cluster->mf_end) {
+        if (state_internal->mf_end) {
             state_internal->failover_auth_time = mstime();
             state_internal->failover_auth_rank = 0;
 	    clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
@@ -4044,7 +4045,7 @@ void clusterHandleSlaveFailover(void) {
      *
      * Not performed if this is a manual failover. */
     if (state_internal->failover_auth_sent == 0 &&
-        server.cluster->mf_end == 0)
+        state_internal->mf_end == 0)
     {
         int newrank = clusterGetSlaveRank();
         if (newrank > state_internal->failover_auth_rank) {
@@ -4261,7 +4262,7 @@ void resetManualFailover(void) {
          * Regardless of the outcome we unpause now to allow traffic again. */
         unpauseActions(PAUSE_DURING_FAILOVER);
     }
-    server.cluster->mf_end = 0; /* No manual failover in progress. */
+    state_internal->mf_end = 0; /* No manual failover in progress. */
     state_internal->mf_can_start = 0;
     state_internal->mf_slave = NULL;
     state_internal->mf_master_offset = -1;
@@ -4269,7 +4270,7 @@ void resetManualFailover(void) {
 
 /* If a manual failover timed out, abort it. */
 void manualFailoverCheckTimeout(void) {
-    if (server.cluster->mf_end && server.cluster->mf_end < mstime()) {
+    if (stateInternal(server.cluster)->mf_end && stateInternal(server.cluster)->mf_end < mstime()) {
         serverLog(LL_WARNING,"Manual failover timed out.");
         resetManualFailover();
     }
@@ -4280,7 +4281,7 @@ void manualFailoverCheckTimeout(void) {
 void clusterHandleManualFailover(void) {
     clusterStateInternal *state_internal = stateInternal(server.cluster);
     /* Return ASAP if no manual failover is in progress. */
-    if (server.cluster->mf_end == 0) return;
+    if (state_internal->mf_end == 0) return;
 
     /* If mf_can_start is non-zero, the failover was already triggered so the
      * next steps are performed by clusterHandleSlaveFailover(). */
@@ -4508,7 +4509,7 @@ void clusterCron(void) {
 
         /* If we are a master and one of the slaves requested a manual
          * failover, ping it continuously. */
-        if (server.cluster->mf_end &&
+        if (state_internal->mf_end &&
             nodeIsMaster(myself) &&
             state_internal->mf_slave == node &&
             node_data->link)
@@ -6195,7 +6196,7 @@ NULL
             return;
         }
         resetManualFailover();
-        server.cluster->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
+        state_internal->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
 
         if (takeover) {
             /* A takeover does not perform any initial check. It just
@@ -6431,4 +6432,8 @@ int isClusterHealthy(void) {
 uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport) {
     clusterNodeInternal *node_data = nodeData(node);
     return use_pport && node_data->pport ? node_data->pport : node_data->port;
+}
+
+int isClusterManualFailoverInProgress() {
+    return stateInternal(server.cluster)->mf_end != 0;
 }

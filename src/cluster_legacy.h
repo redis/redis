@@ -89,6 +89,8 @@ typedef struct clusterStateInternal {
                                    or -1 if still not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
+    mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
+                                   It is zero if there is no MF in progress. */
     /* The following fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */

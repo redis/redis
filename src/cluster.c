@@ -1187,9 +1187,9 @@ void migrateCommand(client *c) {
     zfree(ov); zfree(kv); zfree(newargv);
     return;
 
-/* On socket errors we try to close the cached socket and try again.
- * It is very common for the cached socket to get closed, if just reopening
- * it works it's a shame to notify the error to the caller. */
+    /* On socket errors we try to close the cached socket and try again.
+     * It is very common for the cached socket to get closed, if just reopening
+     * it works it's a shame to notify the error to the caller. */
     socket_err:
     /* Cleanup we want to perform in both the retry and no retry case.
      * Note: Closing the migrate socket will also force SELECT next time. */

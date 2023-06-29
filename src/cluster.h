@@ -65,8 +65,6 @@ typedef struct clusterState {
     clusterNode *myself;  /* This node */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     /* Manual failover state in common. */
-    mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
-                                   It is zero if there is no MF in progress. */
     void *internal;
 } clusterState;
 
@@ -127,6 +125,7 @@ int isClusterHealthy(void);
 uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport);
 const char *getPreferredEndpoint(clusterNode *n);
 clusterNode *clusterLookupNode(const char *name, int length);
+int isClusterManualFailoverInProgress(void);
 
 /*
  * Functions not requiring per-clustering mechanism implementation. These functions have generic implementations
