@@ -1218,6 +1218,19 @@ void migrateCommand(client *c) {
     return;
 }
 
+/* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
+ * clusterNode structures. This is required in order to initialize the
+ * clusterState.nodes field. */
+dictType clusterNodesDictType = {
+        dictSdsHash,                /* hash function */
+        NULL,                       /* key dup */
+        NULL,                       /* val dup */
+        dictSdsKeyCompare,          /* key compare */
+        dictSdsDestructor,          /* key destructor */
+        NULL,                       /* val destructor */
+        NULL                        /* allow to expand */
+};
+
 #ifdef REDIS_CLUSTER_FLOTILLA
 #include "cluster_flotilla.c"
 #else
