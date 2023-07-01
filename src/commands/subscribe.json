@@ -6,7 +6,12 @@
         "since": "2.0.0",
         "arity": -2,
         "function": "subscribeCommand",
-        "history": [],
+        "history": [
+          [
+            "6.2.0",
+            "`RESET` can be called to exit subscribed state."
+          ]
+        ],
         "command_flags": [
             "PUBSUB",
             "NOSCRIPT",
