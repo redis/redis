@@ -12300,6 +12300,8 @@ void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* Handle event loop events if pipe was written from event loop API */
     eventLoopHandleOneShotEvents();
+    /* Handle Module Unblocks */
+    moduleHandleBlockedClients();
 }
 
 /* Helper function for the MODULE and HELLO command: send the list of the
