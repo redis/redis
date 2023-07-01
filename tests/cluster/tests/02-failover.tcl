@@ -63,3 +63,12 @@ test "Instance #0 gets converted into a slave" {
         fail "Old master was not converted into slave"
     }
 }
+
+test "Killing two master node" {
+    kill_instance redis 1
+    kill_instance redis 2
+}
+
+test "Cluster should eventually be up again" {
+    assert_cluster_state ok
+}

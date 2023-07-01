@@ -67,6 +67,8 @@ void clusterSetMaster(clusterNode *n);
 void clusterHandleSlaveFailover(void);
 void clusterHandleSlaveMigration(int max_slaves);
 int bitmapTestBit(unsigned char *bitmap, int pos);
+int bitmapTestBits(unsigned char *bitmap, unsigned char *pos, int len);
+void bitmapSetBits(unsigned char *bitmap, unsigned char *pos, int len);
 void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
 void resetManualFailover(void);
@@ -394,6 +396,8 @@ int clusterLoadConfig(char *filename) {
                 } else if (strcasecmp(argv[j],"lastVoteEpoch") == 0) {
                     server.cluster->lastVoteEpoch =
                             strtoull(argv[j+1],NULL,10);
+                    memset(server.cluster->lastVoteSlots, 0xffff,
+                                sizeof(server.cluster->lastVoteSlots));
                 } else {
                     serverLog(LL_NOTICE,
                         "Skipping unknown cluster config variable '%s'",
@@ -980,6 +984,8 @@ void clusterInit(void) {
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
+    memset(server.cluster->lastVoteSlots, 0xffff,
+            sizeof(server.cluster->lastVoteSlots));
 
     /* Initialize stats */
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
@@ -1118,6 +1124,8 @@ void clusterReset(int hard) {
 
         server.cluster->currentEpoch = 0;
         server.cluster->lastVoteEpoch = 0;
+        memset(server.cluster->lastVoteSlots, 0xffff,
+                    sizeof(server.cluster->lastVoteSlots));
         myself->configEpoch = 0;
         serverLog(LL_NOTICE, "configEpoch set to 0 via CLUSTER RESET HARD");
 
@@ -3901,8 +3909,10 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         return;
     }
 
-    /* I already voted for this epoch? Return ASAP. */
-    if (server.cluster->lastVoteEpoch == server.cluster->currentEpoch) {
+    /* I already voted for this epoch and slots? Return ASAP. */
+    if (server.cluster->lastVoteEpoch == server.cluster->currentEpoch &&
+            bitmapTestBits(server.cluster->lastVoteSlots, claimed_slots,
+                    sizeof(server.cluster->lastVoteSlots))) {
         serverLog(LL_WARNING,
                 "Failover auth denied to %.40s (%s): already voted for epoch %llu",
                 node->name, node->human_nodename,
@@ -3969,7 +3979,13 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     }
 
     /* We can vote for this slave. */
-    server.cluster->lastVoteEpoch = server.cluster->currentEpoch;
+    if (server.cluster->lastVoteEpoch < server.cluster->currentEpoch) {
+        server.cluster->lastVoteEpoch = server.cluster->currentEpoch;
+        memset(server.cluster->lastVoteSlots, 0,
+                sizeof(server.cluster->lastVoteSlots));
+    }
+    bitmapSetBits(server.cluster->lastVoteSlots, claimed_slots,
+            sizeof(server.cluster->lastVoteSlots));
     node->slaveof->voted_time = mstime();
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
     clusterSendFailoverAuth(node);
@@ -4806,11 +4822,26 @@ int bitmapTestBit(unsigned char *bitmap, int pos) {
     return (bitmap[byte] & (1<<bit)) != 0;
 }
 
+int bitmapTestBits(unsigned char *bitmap, unsigned char *pos, int len) {
+    int i=0;
+    for (i=0; i<len; i++) {
+        if (bitmap[i] & pos[i]) return 1;
+    }
+    return 0;
+}
+
 /* Set the bit at position 'pos' in a bitmap. */
 void bitmapSetBit(unsigned char *bitmap, int pos) {
     off_t byte = pos/8;
     int bit = pos&7;
     bitmap[byte] |= 1<<bit;
+}
+
+void bitmapSetBits(unsigned char *bitmap, unsigned char *pos, int len) {
+    int i=0;
+    for (i=0; i<len; i++) {
+        bitmap[i] |= pos[i];
+    }
 }
 
 /* Clear the bit at position 'pos' in a bitmap. */
