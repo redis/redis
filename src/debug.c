@@ -714,7 +714,7 @@ NULL
             return;
 
         if (dictTryExpand(c->db->dict, keys) != DICT_OK) {
-            addReplyErrorFormat(c, "OOM in dictTryExpand %ld", keys);
+            addReplyError(c, "OOM in dictTryExpand");
             return;
         }
         long valsize = 0;
