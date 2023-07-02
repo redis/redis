@@ -2,6 +2,8 @@
 
 uname_S:= $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
+LUA_COVERAGE?=no
+
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
 SRCCOLOR="\033[33m"
@@ -64,6 +66,11 @@ endif
 
 LUA_CFLAGS+= -O2 -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' $(CFLAGS)
 LUA_LDFLAGS+= $(LDFLAGS)
+ifeq ($(LUA_COVERAGE),yes)
+	LUA_CFLAGS += -fprofile-arcs -ftest-coverage
+	LUA_LDFLAGS += -fprofile-arcs -ftest-coverage
+endif
+
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier
 # to fit redis into cross-compilation environments, which typically set AR.
