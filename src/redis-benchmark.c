@@ -678,6 +678,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
                 node_idx = config.liveclients % config.cluster_node_count;
             else
                 node_idx = thread_id % config.cluster_node_count;
+	    // note: number of clients has to be the same or higher than the amount of nodes.
             clusterNode *node = config.cluster_nodes[node_idx];
             assert(node != NULL);
             ip = (const char *) node->ip;
