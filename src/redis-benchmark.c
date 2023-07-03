@@ -678,7 +678,6 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
                 node_idx = config.liveclients % config.cluster_node_count;
             else
                 node_idx = thread_id % config.cluster_node_count;
-	    // note: number of clients has to be the same or higher than the amount of nodes.
             clusterNode *node = config.cluster_nodes[node_idx];
             assert(node != NULL);
             ip = (const char *) node->ip;
@@ -1615,7 +1614,8 @@ usage:
 " -a <password>      Password for Redis Auth\n"
 " --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 " -u <uri>           Server URI.\n"
-" -c <clients>       Number of parallel connections (default 50)\n"
+" -c <clients>       Number of parallel connections (default 50). Note: number of\n"
+"                    clients has to be the same or higher than the amount of nodes.\n"
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
