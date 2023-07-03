@@ -272,7 +272,7 @@ usage:
     }
 
     int init_this_loop = 1;
-    long long init_start, init_end, mismatched = 0;
+    long long init_start, init_end;
 
     do {
         unsigned char* data = NULL;
