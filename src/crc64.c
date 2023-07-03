@@ -234,8 +234,6 @@ again:
             crc64_test_size = atoll(argv[++i]);
         } else if (!strcmp(argv[i],"--combine")) {
             combine = 1;
-        } else if (!strcmp(argv[i],"test") || !strcmp(argv[i],"crc64")) {
-            // used to call this stuff from `redis-server test crc64`
         } else {
 invalid:
             printf("Invalid option \"%s\" or option argument missing\n\n",argv[i]);
