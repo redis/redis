@@ -1231,6 +1231,137 @@ dictType clusterNodesDictType = {
         NULL                        /* allow to expand */
 };
 
+void addNodeToNodeReply(client *c, clusterNode *node) {
+    sds hostname = clusterNodeHostname(node);
+    addReplyArrayLen(c, 4);
+    if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
+        addReplyBulkCString(c, clusterNodeLastKnownIp(node));
+    } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_HOSTNAME) {
+        if (sdslen(hostname) != 0) {
+            addReplyBulkCBuffer(c, hostname, sdslen(hostname));
+        } else {
+            addReplyBulkCString(c, "?");
+        }
+    } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT) {
+        addReplyNull(c);
+    } else {
+        serverPanic("Unrecognized preferred endpoint type");
+    }
+
+    /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
+    int use_pport = (server.tls_cluster &&
+                     c->conn && (c->conn->type != connectionTypeTls()));
+    addReplyLongLong(c, use_pport &&
+        clusterNodePlainTextPort(node) ? clusterNodePlainTextPort(node) : clusterNodePort(node));
+    addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
+
+    /* Add the additional endpoint information, this is all the known networking information
+     * that is not the preferred endpoint. Note the logic is evaluated twice so we can
+     * correctly report the number of additional network arguments without using a deferred
+     * map, an assertion is made at the end to check we set the right length. */
+    int length = 0;
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
+        length++;
+    }
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
+        && sdslen(clusterNodeHostname(node)) != 0)
+    {
+        length++;
+    }
+    addReplyMapLen(c, length);
+
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
+        addReplyBulkCString(c, "ip");
+        addReplyBulkCString(c, clusterNodeLastKnownIp(node));
+        length--;
+    }
+    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
+        && sdslen(hostname) != 0)
+    {
+        addReplyBulkCString(c, "hostname");
+        addReplyBulkCBuffer(c, hostname, sdslen(hostname));
+        length--;
+    }
+    serverAssert(length == 0);
+}
+
+/* Returns an indication if the replica node is fully available
+ * and should be listed in CLUSTER SLOTS response.
+ * Returns 1 for available nodes, 0 for nodes that have
+ * not finished their initial sync, in failed state, or are
+ * otherwise considered not available to serve read commands. */
+static int isReplicaAvailable(clusterNode *node) {
+    if (clusterNodeIsFailing(node)) {
+        return 0;
+    }
+    long long repl_offset = getReplOffset(node);
+    if (clusterNodeIsMyself(node)) {
+        /* Nodes do not update their own information
+         * in the cluster node list. */
+        repl_offset = replicationGetSlaveOffset();
+    }
+    return (repl_offset != 0);
+}
+
+void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
+    int i, nested_elements = 3; /* slots (2) + master addr (1) */
+    for (i = 0; i < getNumSlaves(node); i++) {
+        if (!isReplicaAvailable(getSlave(node, i))) continue;
+        nested_elements++;
+    }
+    addReplyArrayLen(c, nested_elements);
+    addReplyLongLong(c, start_slot);
+    addReplyLongLong(c, end_slot);
+    addNodeToNodeReply(c, node);
+
+    /* Remaining nodes in reply are replicas for slot range */
+    for (i = 0; i < getNumSlaves(node); i++) {
+        /* This loop is copy/pasted from clusterGenNodeDescription()
+         * with modifications for per-slot node aggregation. */
+        if (!isReplicaAvailable(getSlave(node, i))) continue;
+        addNodeToNodeReply(c, getSlave(node, i));
+        nested_elements--;
+    }
+    serverAssert(nested_elements == 3); /* Original 3 elements */
+}
+
+void clusterReplySlots(client * c) {
+    /* Format: 1) 1) start slot
+     *            2) end slot
+     *            3) 1) master IP
+     *               2) master port
+     *               3) node ID
+     *            4) 1) replica IP
+     *               2) replica port
+     *               3) node ID
+     *           ... continued until done
+     */
+    clusterNode *n = NULL;
+    int num_masters = 0, start = -1;
+    void *slot_replylen = addReplyDeferredLen(c);
+
+    for (int i = 0; i <= CLUSTER_SLOTS; i++) {
+        /* Find start node and slot id. */
+        if (n == NULL) {
+            if (i == CLUSTER_SLOTS) break;
+            n = getNodeBySlot(i);
+            start = i;
+            continue;
+        }
+
+        /* Add cluster slots info when occur different node with start
+         * or end of slot. */
+        if (i == CLUSTER_SLOTS || n != getNodeBySlot(i)) {
+            addNodeReplyForClusterSlot(c, n, start, i-1);
+            num_masters++;
+            if (i == CLUSTER_SLOTS) break;
+            n = getNodeBySlot(i);
+            start = i;
+        }
+    }
+    setDeferredArrayLen(c, slot_replylen, num_masters);
+}
+
 #ifdef REDIS_CLUSTER_FLOTILLA
 #include "cluster_flotilla.c"
 #else

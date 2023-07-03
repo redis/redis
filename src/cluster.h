@@ -126,6 +126,11 @@ uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport);
 const char *getPreferredEndpoint(clusterNode *n);
 clusterNode *clusterLookupNode(const char *name, int length);
 int isClusterManualFailoverInProgress(void);
+int getNumSlaves(clusterNode *node);
+clusterNode* getSlave(clusterNode *node, int slave_idx);
+long long getReplOffset(clusterNode* node);
+int clusterNodePlainTextPort(clusterNode *node);
+sds clusterNodeHostname(clusterNode* node);
 
 /*
  * Functions not requiring per-clustering mechanism implementation. These functions have generic implementations

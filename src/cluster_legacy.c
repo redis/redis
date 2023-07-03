@@ -5302,23 +5302,6 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
-/* Returns an indication if the replica node is fully available
- * and should be listed in CLUSTER SLOTS response.
- * Returns 1 for available nodes, 0 for nodes that have 
- * not finished their initial sync, in failed state, or are 
- * otherwise considered not available to serve read commands. */
-static int isReplicaAvailable(clusterNode *node) {
-    if (nodeFailed(node)) {
-        return 0;
-    }
-    long long repl_offset = nodeData(node)->repl_offset;
-    if (nodeData(node)->flags & CLUSTER_NODE_MYSELF) {
-        /* Nodes do not update their own information
-         * in the cluster node list. */
-        repl_offset = replicationGetSlaveOffset();
-    }
-    return (repl_offset != 0);
-}
 
 int checkSlotAssignmentsOrReply(client *c, unsigned char *slots, int del, int start_slot, int end_slot) {
     int slot;
@@ -5356,81 +5339,6 @@ void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
     }
 }
 
-void addNodeToNodeReply(client *c, clusterNode *node) {
-    clusterNodeInternal *node_data = nodeData(node);
-    addReplyArrayLen(c, 4);
-    if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
-        addReplyBulkCString(c, node_data->ip);
-    } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_HOSTNAME) {
-        if (sdslen(node_data->hostname) != 0) {
-            addReplyBulkCBuffer(c, node_data->hostname, sdslen(node_data->hostname));
-        } else {
-            addReplyBulkCString(c, "?");
-        }
-    } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT) {
-        addReplyNull(c);
-    } else {
-        serverPanic("Unrecognized preferred endpoint type");
-    }
-
-    /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
-    int use_pport = (server.tls_cluster &&
-                     c->conn && (c->conn->type != connectionTypeTls()));
-    addReplyLongLong(c, use_pport && node_data->pport ? node_data->pport : node_data->port);
-    addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
-
-    /* Add the additional endpoint information, this is all the known networking information
-     * that is not the preferred endpoint. Note the logic is evaluated twice so we can
-     * correctly report the number of additional network arguments without using a deferred
-     * map, an assertion is made at the end to check we set the right length. */
-    int length = 0;
-    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
-        length++;
-    }
-    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
-        && sdslen(node_data->hostname) != 0)
-    {
-        length++;
-    }
-    addReplyMapLen(c, length);
-
-    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
-        addReplyBulkCString(c, "ip");
-        addReplyBulkCString(c, node_data->ip);
-        length--;
-    }
-    if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
-        && sdslen(node_data->hostname) != 0)
-    {
-        addReplyBulkCString(c, "hostname");
-        addReplyBulkCBuffer(c, node_data->hostname, sdslen(node_data->hostname));
-        length--;
-    }
-    serverAssert(length == 0);
-}
-
-void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
-    clusterNodeInternal *node_data = nodeData(node);
-    int i, nested_elements = 3; /* slots (2) + master addr (1) */
-    for (i = 0; i < node_data->numslaves; i++) {
-        if (!isReplicaAvailable(node_data->slaves[i])) continue;
-        nested_elements++;
-    }
-    addReplyArrayLen(c, nested_elements);
-    addReplyLongLong(c, start_slot);
-    addReplyLongLong(c, end_slot);
-    addNodeToNodeReply(c, node);
-
-    /* Remaining nodes in reply are replicas for slot range */
-    for (i = 0; i < node_data->numslaves; i++) {
-        /* This loop is copy/pasted from clusterGenNodeDescription()
-         * with modifications for per-slot node aggregation. */
-        if (!isReplicaAvailable(node_data->slaves[i])) continue;
-        addNodeToNodeReply(c, node_data->slaves[i]);
-        nested_elements--;
-    }
-    serverAssert(nested_elements == 3); /* Original 3 elements */
-}
 
 /* Add detailed information of a node to the output buffer of the given client. */
 void addNodeDetailsToShardReply(client *c, clusterNode *node) {
@@ -5545,44 +5453,6 @@ void clusterReplyShards(client *c) {
         addShardReplyForClusterShards(c, dictGetVal(de));
     }
     dictReleaseIterator(di);
-}
-
-void clusterReplyMultiBulkSlots(client * c) {
-    /* Format: 1) 1) start slot
-     *            2) end slot
-     *            3) 1) master IP
-     *               2) master port
-     *               3) node ID
-     *            4) 1) replica IP
-     *               2) replica port
-     *               3) node ID
-     *           ... continued until done
-     */
-    clusterStateInternal *state_internal = stateInternal(server.cluster);
-    clusterNode *n = NULL;
-    int num_masters = 0, start = -1;
-    void *slot_replylen = addReplyDeferredLen(c);
-
-    for (int i = 0; i <= CLUSTER_SLOTS; i++) {
-        /* Find start node and slot id. */
-        if (n == NULL) {
-            if (i == CLUSTER_SLOTS) break;
-            n = state_internal->slots[i];
-            start = i;
-            continue;
-        }
-
-        /* Add cluster slots info when occur different node with start
-         * or end of slot. */
-        if (i == CLUSTER_SLOTS || n != state_internal->slots[i]) {
-            addNodeReplyForClusterSlot(c, n, start, i-1);
-            num_masters++;
-            if (i == CLUSTER_SLOTS) break;
-            n = state_internal->slots[i];
-            start = i;
-        }
-    }
-    setDeferredArrayLen(c, slot_replylen, num_masters);
 }
 
 sds genClusterInfoString(void) {
@@ -5778,7 +5648,7 @@ NULL
         addReplyBulkCBuffer(c,myself->shard_id, CLUSTER_NAMELEN);
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
-        clusterReplyMultiBulkSlots(c);
+        clusterReplySlots(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"shards") && c->argc == 2) {
         /* CLUSTER SHARDS */
         clusterReplyShards(c);
@@ -6425,4 +6295,24 @@ uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport) {
 
 int isClusterManualFailoverInProgress() {
     return stateInternal(server.cluster)->mf_end != 0;
+}
+
+int getNumSlaves(clusterNode *node) {
+    return nodeData(node)->numslaves;
+}
+
+clusterNode* getSlave(clusterNode *node, int slave_idx) {
+    return nodeData(node)->slaves[slave_idx];
+}
+
+long long getReplOffset(clusterNode* node) {
+    return nodeData(node)->repl_offset;
+}
+
+int clusterNodePlainTextPort(clusterNode *node) {
+    return nodeData(node)->pport;
+}
+
+sds clusterNodeHostname(clusterNode* node) {
+    return nodeData(node)->hostname;
 }
