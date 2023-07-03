@@ -161,10 +161,10 @@ start_server {tags {"introspection"}} {
         }
         set all_keys_with_target [linsert $all_keys 0 target]
         # we are using ZUNIONSTORE command since in order to reproduce allocation of a new buffer in getKeysPrepareResult
-        # when numkeys in result > 0 
+        # when numkeys in result > 0
         # we need a command that the final number of keys is not known in the first call to getKeysPrepareResult
-        # before the fix in that case data of old buffer was not copied to the new result buffer 
-        # causing all previous keys (numkeys) data to be uninitialize  
+        # before the fix in that case data of old buffer was not copied to the new result buffer
+        # causing all previous keys (numkeys) data to be uninitialize
         assert_equal $all_keys_with_target [r command getkeys ZUNIONSTORE target $numkeys {*}$all_keys]
     }
 
