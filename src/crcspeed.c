@@ -334,8 +334,6 @@ uint64_t crcspeed64big(uint64_t big_table[8][256], uint64_t crc, void *buf,
     return rev8(crc);
 }
 
-
-
 /* WARNING: Completely untested on big endian architecture.  Possibly broken. */
 uint16_t crcspeed16big(uint16_t big_table[8][256], uint16_t crc_in, void *buf,
                        size_t len) {
