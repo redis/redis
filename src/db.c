@@ -1770,8 +1770,9 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
  *                               found in other valid keyspecs. 
  */
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    int j, i, k = 0, last, first, step;
+    int j, i, last, first, step;
     keyReference *keys;
+    result->numkeys = 0;
 
     for (j = 0; j < cmd->key_specs_num; j++) {
         keySpec *spec = cmd->key_specs + j;
@@ -1836,7 +1837,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         }
 
         int count = ((last - first)+1);
-        keys = getKeysPrepareResult(result, count);
+        keys = getKeysPrepareResult(result, result->numkeys + count);
 
         /* First or last is out of bounds, which indicates a syntax error */
         if (last >= argc || last < first || first >= argc) {
@@ -1857,8 +1858,9 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                     serverPanic("Redis built-in command declared keys positions not matching the arity requirements.");
                 }
             }
-            keys[k].pos = i;
-            keys[k++].flags = spec->flags;
+            keys[result->numkeys].pos = i;
+            keys[result->numkeys].flags = spec->flags;
+            result->numkeys++;
         }
 
         /* Handle incomplete specs (only after we added the current spec
@@ -1879,8 +1881,7 @@ invalid_spec:
         }
     }
 
-    result->numkeys = k;
-    return k;
+    return result->numkeys;
 }
 
 /* Return all the arguments that are keys in the command passed via argc / argv. 
