@@ -169,7 +169,7 @@ long long _ustime(void) {
 }
 
 static int bench_crc64(unsigned char *data, uint64_t size, long long passes, uint64_t check, char* name, int csv) {
-    uint64_t min = size, hash;
+    uint64_t min = size, hash = 0;
     long long original_start = _ustime(), original_end;
     for (long long i=passes; i > 0; i--) {
         hash = crc64(0, data, size);
