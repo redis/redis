@@ -386,11 +386,9 @@ uint64_t dictEncObjHash(const void *key) {
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
 int dictExpandAllowed(size_t moreMem, double usedRatio) {
-    if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
+    if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR)
         return !overMaxmemoryAfterAlloc(moreMem);
-    } else {
-        return 1;
-    }
+    return 1;
 }
 
 /* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
