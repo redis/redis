@@ -1960,6 +1960,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
             keys[k].pos = i;
             keys[k++].flags = spec->flags;
+            result->numkeys = k;
         }
 
         /* Handle incomplete specs (only after we added the current spec
