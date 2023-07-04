@@ -191,8 +191,9 @@ uint64_t crcspeed64little(uint64_t little_table[8][256], uint64_t crc1,
         unsigned char *next2, *next3;
         uint64_t olen, crc2=0, crc3=0;
         CRC64_SPLIT(3);
-        // len is now the length of the first segment, the 3rd segment possibly
-        // having extra bytes to clean up at the end
+        /* len is now the length of the first segment, the 3rd segment possibly
+         * having extra bytes to clean up at the end
+         */
         next3 = next2 + len;
         while (len >= 8) {
             len -= 8;
@@ -213,8 +214,9 @@ uint64_t crcspeed64little(uint64_t little_table[8][256], uint64_t crc1,
         unsigned char *next2;
         uint64_t olen, crc2=0;
         CRC64_SPLIT(2);
-        // len is now the length of the first segment, the 2nd segment possibly
-        // having extra bytes to clean up at the end
+        /* len is now the length of the first segment, the 2nd segment possibly
+         * having extra bytes to clean up at the end
+         */
         while (len >= 8) {
             len -= 8;
             DO_8_1(crc1, next1);
@@ -246,7 +248,7 @@ final:
     return crc1;
 }
 
-// clean up our namespace
+/* clean up our namespace */
 #undef DO_8_1
 #undef DO_8_2
 #undef CRC64_SPLIT

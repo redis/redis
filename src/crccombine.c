@@ -90,17 +90,13 @@ uint64_t gf2_matrix_times_vec2(uint64_t *mat, uint64_t vec) {
 #undef MASKS_2
 
 
-
-#define GMT gf2_matrix_times_vec2
-
 static void gf2_matrix_square(uint64_t *square, uint64_t *mat, uint8_t dim) {
 	unsigned n;
 
 	for (n = 0; n < dim; n++)
-		square[n] = GMT(mat, mat[n]);
+		square[n] = gf2_matrix_times_vec2(mat, mat[n]);
 }
 
-#if USE_STATIC_COMBINE_CACHE
 /* Turns out our Redis / Jones CRC cycles at this point, so we can support
  * more than 64 bits of extension if we want. Trivially. */
 static uint64_t combine_cache[64][64];
@@ -128,14 +124,12 @@ void init_combine_cache(uint64_t poly, uint8_t dim) {
 	gf2_matrix_square(combine_cache[1], combine_cache[0], dim);
 
 	/* do/while to overwrite the first two layers, they are not used, but are
-	 * re-generated in the last two layer for the Redis polynomial */
+	 * re-generated in the last two layers for the Redis polynomial */
 	do {
 		gf2_matrix_square(combine_cache[cache_num], combine_cache[cache_num + prev], dim);
 		prev = -1;
 	} while (++cache_num < 64);
 }
-
-#endif
 
 /* Return the CRC-64 of two sequential blocks, where crc1 is the CRC-64 of the
  * first block, crc2 is the CRC-64 of the second block, and len2 is the length
@@ -155,46 +149,19 @@ uint64_t crc64_combine(uint64_t crc1, uint64_t crc2, uintmax_t len2, uint64_t po
 		return crc1;
 
 	unsigned cache_num = 0;
-#if USE_STATIC_COMBINE_CACHE
 	if (combine_cache[0][0] == 0) {
 		init_combine_cache(poly, dim);
 	}
-#define MASK 63
-
-#else
-#define MASK 1
-	unsigned n;
-	uint64_t row;
-	/* not really a cache, but it is if you USE_STATIC_COMBINE_CACHE */
-	uint64_t combine_cache[2][64];
-
-	/* put operator for one zero bit in odd */
-	combine_cache[1][0] = poly;
-	row = 1;
-	for (n = 1; n < dim; n++)
-	{
-		combine_cache[1][n] = row;
-		row <<= 1;
-	}
-	/* put operator for two zero bits in even */
-	gf2_matrix_square(combine_cache[0], combine_cache[1], dim);
-
-	/* put operator for four zero bits in odd */
-	gf2_matrix_square(combine_cache[1], combine_cache[0], dim);
-#endif
 
 	/* apply len2 zeros to crc1 (first square will put the operator for one
 	   zero byte, eight zero bits, in even) */
 	do
 	{
-#if !USE_STATIC_COMBINE_CACHE
-		gf2_matrix_square(combine_cache[cache_num], combine_cache[!cache_num], dim);
-#endif
 		/* apply zeros operator for this bit of len2 */
 		if (len2 & 1)
-			crc1 = GMT(combine_cache[cache_num], crc1);
+			crc1 = gf2_matrix_times_vec2(combine_cache[cache_num], crc1);
 		len2 >>= 1;
-		cache_num = (cache_num + 1) & MASK;
+		cache_num = (cache_num + 1) & 63;
 		/* if no more bits set, then done */
 	} while (len2 != 0);
 
@@ -202,5 +169,3 @@ uint64_t crc64_combine(uint64_t crc1, uint64_t crc2, uintmax_t len2, uint64_t po
 	crc1 ^= crc2;
 	return crc1;
 }
-
-#undef GMT
