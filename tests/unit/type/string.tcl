@@ -647,7 +647,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN MINMATCHLEN 5] matches
     } {{{1 222} {13 234} 222}}
 
-    test {LCS with len and idx option} {
+    test {LCS with LEN and IDX option} {
         assert_error "ERR If you want both the length and indexes, please just use IDX." {r LCS virus1{t} virus2{t} LEN IDX}
     }
 

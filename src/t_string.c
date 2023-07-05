@@ -738,7 +738,7 @@ void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
-    int getlen = 0, getidx = 0, withmatchlen = 0,minmatchlenflag=0;
+    int getlen = 0, getidx = 0, withmatchlen = 0, minmatchlenflag=0;
     robj *obja = NULL, *objb = NULL;
 
     obja = lookupKeyRead(c->db,c->argv[1]);
