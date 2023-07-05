@@ -951,7 +951,7 @@ dictEntry *dictNext(dictIterator *iter)
                 else
                     iter->fingerprint = dictFingerprint(iter->d);
 
-                // skip the rehashed entries in table[0]
+                /* skip the rehashed slots in table[0] */
                 if (dictIsRehashing(iter->d)) {
                     iter->index = iter->d->rehashidx - 1;
                 }
