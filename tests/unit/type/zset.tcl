@@ -123,6 +123,9 @@ start_server {tags {"zset"}} {
             r zadd ztmp 30 z
             assert_equal {x y z} [r zrange ztmp 0 -1]
 
+            # coverage for objectComputeSize
+            assert_morethan [memory_usage ztmp] 0
+
             r zadd ztmp 1 y
             assert_equal {y x z} [r zrange ztmp 0 -1]
         }

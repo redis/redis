@@ -21,6 +21,10 @@ start_server {
     test "SADD, SCARD, SISMEMBER, SMISMEMBER, SMEMBERS basics - $type" {
         create_set myset $initelems($type)
         assert_encoding $type myset
+
+        # coverage for objectComputeSize
+        assert_morethan [memory_usage myset] 0
+
         assert_equal 1 [r sadd myset bar]
         assert_equal 0 [r sadd myset bar]
         assert_equal [expr [llength $initelems($type)] + 1] [r scard myset]

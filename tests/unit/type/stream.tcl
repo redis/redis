@@ -61,6 +61,10 @@ start_server {
     test {XADD can add entries into a stream that XRANGE can fetch} {
         r XADD mystream * item 1 value a
         r XADD mystream * item 2 value b
+
+        # coverage for objectComputeSize
+        assert_morethan [memory_usage mystream] 0
+
         assert_equal 2 [r XLEN mystream]
         set items [r XRANGE mystream - +]
         assert_equal [lindex $items 0 1] {item 1 value a}
