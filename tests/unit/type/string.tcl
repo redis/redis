@@ -647,6 +647,16 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         dict get [r LCS virus1{t} virus2{t} IDX WITHMATCHLEN MINMATCHLEN 5] matches
     } {{{1 222} {13 234} 222}}
 
+    test {LCS with len and idx option} {
+        assert_error "ERR If you want both the length and indexes, please just use IDX." {r LCS virus1{t} virus2{t} LEN IDX}
+    }
+
+    test {LCS with WITHMATCHLEN and MINMATCHLEN option without IDX option} {
+        assert_error "*ERR*WITHMATCHLEN*MINMATCHLEN*can only be used with IDX*" {r LCS virus1{t} virus2{t} WITHMATCHLEN}
+        assert_error "*ERR*WITHMATCHLEN*MINMATCHLEN*can only be used with IDX*" {r LCS virus1{t} virus2{t} MINMATCHLEN 5}
+        assert_error "*ERR*WITHMATCHLEN*MINMATCHLEN*can only be used with IDX*" {r LCS virus1{t} virus2{t} LEN WITHMATCHLEN MINMATCHLEN 5}
+    }
+
     test {SETRANGE with huge offset} {
         foreach value {9223372036854775807 2147483647} {
             catch {[r setrange K $value A]} res
