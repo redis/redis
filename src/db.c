@@ -1873,7 +1873,7 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     int j, i, last, first, step;
     keyReference *keys;
-    result->numkeys = 0;
+    serverAssert(result->numkeys == 0); /* caller should initialize or reset it */
 
     for (j = 0; j < cmd->key_specs_num; j++) {
         keySpec *spec = cmd->key_specs + j;
