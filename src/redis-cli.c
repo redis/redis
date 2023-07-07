@@ -2676,6 +2676,21 @@ static int parseOptions(int argc, char **argv) {
                    && !lastarg)
         {
             config.conn_info.auth = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i], "--readpass")) {
+            FILE *fp;
+            sds filepass = sdsempty();
+            char buf[32];
+            if ((fp = fopen(argv[++i], "r")) == NULL) {
+                fprintf(stderr, "can't open the file '%s'\n", argv[i]);
+                continue;
+            }
+            while(fgets(buf, 32, fp) != NULL) {
+                filepass = sdscat(filepass, buf);
+            }
+            fclose(fp);
+            filepass = sdstrim(filepass," \t\r\n");
+            config.no_auth_warning = 1;
+            config.conn_info.auth = filepass;
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
@@ -3023,6 +3038,7 @@ static void usage(int err) {
 "  --askpass          Force user to input password with mask from STDIN.\n"
 "                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
 "                     environment variable will be ignored.\n"
+"  --readpass <filename> Read password from file.\n"
 "  -u <uri>           Server URI.\n"
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
