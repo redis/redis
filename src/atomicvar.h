@@ -141,7 +141,7 @@
     while(!__sync_bool_compare_and_swap(&var,var,value)); \
 } while(0)
 /* Actually the builtin issues a full memory barrier by default. */
-#define atomicGetWithSync(var,dstvar) { \
+#define atomicGetWithSync(var,dstvar) do { \
     dstvar = __sync_sub_and_fetch(&var,0,__sync_synchronize); \
     ANNOTATE_HAPPENS_AFTER(&var); \
 } while(0)

@@ -1,0 +1,29 @@
+{
+    "DELUSER": {
+        "summary": "Deletes ACL users, and terminates their connections.",
+        "complexity": "O(1) amortized time considering the typical user.",
+        "group": "server",
+        "since": "6.0.0",
+        "arity": -3,
+        "container": "ACL",
+        "function": "aclCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of users that were deleted"
+        },
+        "arguments": [
+            {
+                "name": "username",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

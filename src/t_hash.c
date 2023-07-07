@@ -35,49 +35,62 @@
  *----------------------------------------------------------------------------*/
 
 /* Check the length of a number of objects to see if we need to convert a
- * ziplist to a real hash. Note that we only check string encoded objects
+ * listpack to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     int i;
+    size_t sum = 0;
 
-    if (o->encoding != OBJ_ENCODING_ZIPLIST) return;
+    if (o->encoding != OBJ_ENCODING_LISTPACK) return;
+
+    /* We guess that most of the values in the input are unique, so
+     * if there are enough arguments we create a pre-sized hash, which
+     * might over allocate memory if there are duplicates. */
+    size_t new_fields = (end - start + 1) / 2;
+    if (new_fields > server.hash_max_listpack_entries) {
+        hashTypeConvert(o, OBJ_ENCODING_HT);
+        dictExpand(o->ptr, new_fields);
+        return;
+    }
 
     for (i = start; i <= end; i++) {
-        if (sdsEncodedObject(argv[i]) &&
-            sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
-        {
+        if (!sdsEncodedObject(argv[i]))
+            continue;
+        size_t len = sdslen(argv[i]->ptr);
+        if (len > server.hash_max_listpack_value) {
             hashTypeConvert(o, OBJ_ENCODING_HT);
-            break;
+            return;
         }
+        sum += len;
     }
+    if (!lpSafeToAdd(o->ptr, sum))
+        hashTypeConvert(o, OBJ_ENCODING_HT);
 }
 
-/* Get the value from a ziplist encoded hash, identified by field.
+/* Get the value from a listpack encoded hash, identified by field.
  * Returns -1 when the field cannot be found. */
-int hashTypeGetFromZiplist(robj *o, sds field,
-                           unsigned char **vstr,
-                           unsigned int *vlen,
-                           long long *vll)
+int hashTypeGetFromListpack(robj *o, sds field,
+                            unsigned char **vstr,
+                            unsigned int *vlen,
+                            long long *vll)
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
-    int ret;
 
-    serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
+    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
 
     zl = o->ptr;
-    fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+    fptr = lpFirst(zl);
     if (fptr != NULL) {
-        fptr = ziplistFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+        fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
-            vptr = ziplistNext(zl, fptr);
+            vptr = lpNext(zl, fptr);
             serverAssert(vptr != NULL);
         }
     }
 
     if (vptr != NULL) {
-        ret = ziplistGet(vptr, vstr, vlen, vll);
-        serverAssert(ret);
+        *vstr = lpGetValue(vptr, vlen, vll);
         return 0;
     }
 
@@ -107,9 +120,9 @@ sds hashTypeGetFromHashTable(robj *o, sds field) {
  * can always check the function return by checking the return value
  * for C_OK and checking if vll (or vstr) is NULL. */
 int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
         *vstr = NULL;
-        if (hashTypeGetFromZiplist(o, field, vstr, vlen, vll) == 0)
+        if (hashTypeGetFromListpack(o, field, vstr, vlen, vll) == 0)
             return C_OK;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         sds value;
@@ -143,39 +156,24 @@ robj *hashTypeGetValueObject(robj *o, sds field) {
  * exist. */
 size_t hashTypeGetValueLength(robj *o, sds field) {
     size_t len = 0;
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0)
-            len = vstr ? vlen : sdigits10(vll);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        sds aux;
+    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK)
+        len = vstr ? vlen : sdigits10(vll);
 
-        if ((aux = hashTypeGetFromHashTable(o, field)) != NULL)
-            len = sdslen(aux);
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
     return len;
 }
 
 /* Test if the specified field exists in the given hash. Returns 1 if the field
  * exists, and 0 when it doesn't. */
 int hashTypeExists(robj *o, sds field) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) return 1;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (hashTypeGetFromHashTable(o, field) != NULL) return 1;
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-    return 0;
+    return hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK;
 }
 
 /* Add a new field, overwrite the old with the new value if it already exists.
@@ -202,66 +200,64 @@ int hashTypeExists(robj *o, sds field) {
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    /* Check if the field is too long for listpack, and convert before adding the item.
+     * This is needed for HINCRBY* case since in other commands this is handled early by
+     * hashTypeTryConversion, so this check will be a NOP. */
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        if (sdslen(field) > server.hash_max_listpack_value || sdslen(value) > server.hash_max_listpack_value)
+            hashTypeConvert(o, OBJ_ENCODING_HT);
+    }
+    
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr, *vptr;
 
         zl = o->ptr;
-        fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+        fptr = lpFirst(zl);
         if (fptr != NULL) {
-            fptr = ziplistFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+            fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
                 /* Grab pointer to the value (fptr points to the field) */
-                vptr = ziplistNext(zl, fptr);
+                vptr = lpNext(zl, fptr);
                 serverAssert(vptr != NULL);
                 update = 1;
 
-                /* Delete value */
-                zl = ziplistDelete(zl, &vptr);
-
-                /* Insert new value */
-                zl = ziplistInsert(zl, vptr, (unsigned char*)value,
-                        sdslen(value));
+                /* Replace value */
+                zl = lpReplace(zl, &vptr, (unsigned char*)value, sdslen(value));
             }
         }
 
         if (!update) {
-            /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, (unsigned char*)field, sdslen(field),
-                    ZIPLIST_TAIL);
-            zl = ziplistPush(zl, (unsigned char*)value, sdslen(value),
-                    ZIPLIST_TAIL);
+            /* Push new field/value pair onto the tail of the listpack */
+            zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
+            zl = lpAppend(zl, (unsigned char*)value, sdslen(value));
         }
         o->ptr = zl;
 
-        /* Check if the ziplist needs to be converted to a hash table */
-        if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+        /* Check if the listpack needs to be converted to a hash table */
+        if (hashTypeLength(o) > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictFind(o->ptr,field);
-        if (de) {
-            sdsfree(dictGetVal(de));
-            if (flags & HASH_SET_TAKE_VALUE) {
-                dictGetVal(de) = value;
-                value = NULL;
-            } else {
-                dictGetVal(de) = sdsdup(value);
-            }
-            update = 1;
+        dict *ht = o->ptr;
+        dictEntry *de, *existing;
+        sds v;
+        if (flags & HASH_SET_TAKE_VALUE) {
+            v = value;
+            value = NULL;
         } else {
-            sds f,v;
+            v = sdsdup(value);
+        }
+        de = dictAddRaw(ht, field, &existing);
+        if (de) {
+            dictSetVal(ht, de, v);
             if (flags & HASH_SET_TAKE_FIELD) {
-                f = field;
                 field = NULL;
             } else {
-                f = sdsdup(field);
+                dictSetKey(ht, de, sdsdup(field));
             }
-            if (flags & HASH_SET_TAKE_VALUE) {
-                v = value;
-                value = NULL;
-            } else {
-                v = sdsdup(value);
-            }
-            dictAdd(o->ptr,f,v);
+        } else {
+            sdsfree(dictGetVal(existing));
+            dictSetVal(ht, existing, v);
+            update = 1;
         }
     } else {
         serverPanic("Unknown hash encoding");
@@ -279,16 +275,16 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 int hashTypeDelete(robj *o, sds field) {
     int deleted = 0;
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl, *fptr;
 
         zl = o->ptr;
-        fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+        fptr = lpFirst(zl);
         if (fptr != NULL) {
-            fptr = ziplistFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+            fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
-                zl = ziplistDelete(zl,&fptr); /* Delete the key. */
-                zl = ziplistDelete(zl,&fptr); /* Delete the value. */
+                /* Delete both of the key and the value. */
+                zl = lpDeleteRangeWithEntry(zl,&fptr,2);
                 o->ptr = zl;
                 deleted = 1;
             }
@@ -311,8 +307,8 @@ int hashTypeDelete(robj *o, sds field) {
 unsigned long hashTypeLength(const robj *o) {
     unsigned long length = ULONG_MAX;
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        length = ziplistLen(o->ptr) / 2;
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        length = lpLength(o->ptr) / 2;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         length = dictSize((const dict*)o->ptr);
     } else {
@@ -326,7 +322,7 @@ hashTypeIterator *hashTypeInitIterator(robj *subject) {
     hi->subject = subject;
     hi->encoding = subject->encoding;
 
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         hi->fptr = NULL;
         hi->vptr = NULL;
     } else if (hi->encoding == OBJ_ENCODING_HT) {
@@ -346,7 +342,7 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
 /* Move to the next entry in the hash. Return C_OK when the next entry
  * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi) {
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl;
         unsigned char *fptr, *vptr;
 
@@ -357,16 +353,16 @@ int hashTypeNext(hashTypeIterator *hi) {
         if (fptr == NULL) {
             /* Initialize cursor */
             serverAssert(vptr == NULL);
-            fptr = ziplistIndex(zl, 0);
+            fptr = lpFirst(zl);
         } else {
             /* Advance cursor */
             serverAssert(vptr != NULL);
-            fptr = ziplistNext(zl, vptr);
+            fptr = lpNext(zl, vptr);
         }
         if (fptr == NULL) return C_ERR;
 
         /* Grab pointer to the value (fptr points to the field) */
-        vptr = ziplistNext(zl, fptr);
+        vptr = lpNext(zl, fptr);
         serverAssert(vptr != NULL);
 
         /* fptr, vptr now point to the first or next pair */
@@ -381,22 +377,18 @@ int hashTypeNext(hashTypeIterator *hi) {
 }
 
 /* Get the field or value at iterator cursor, for an iterator on a hash value
- * encoded as a ziplist. Prototype is similar to `hashTypeGetFromZiplist`. */
-void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
-                                unsigned char **vstr,
-                                unsigned int *vlen,
-                                long long *vll)
+ * encoded as a listpack. Prototype is similar to `hashTypeGetFromListpack`. */
+void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
+                                 unsigned char **vstr,
+                                 unsigned int *vlen,
+                                 long long *vll)
 {
-    int ret;
-
-    serverAssert(hi->encoding == OBJ_ENCODING_ZIPLIST);
+    serverAssert(hi->encoding == OBJ_ENCODING_LISTPACK);
 
     if (what & OBJ_HASH_KEY) {
-        ret = ziplistGet(hi->fptr, vstr, vlen, vll);
-        serverAssert(ret);
+        *vstr = lpGetValue(hi->fptr, vlen, vll);
     } else {
-        ret = ziplistGet(hi->vptr, vstr, vlen, vll);
-        serverAssert(ret);
+        *vstr = lpGetValue(hi->vptr, vlen, vll);
     }
 }
 
@@ -424,9 +416,9 @@ sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what) {
  * can always check the function return by checking the return value
  * type checking if vstr == NULL. */
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll) {
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         *vstr = NULL;
-        hashTypeCurrentFromZiplist(hi, what, vstr, vlen, vll);
+        hashTypeCurrentFromListpack(hi, what, vstr, vlen, vll);
     } else if (hi->encoding == OBJ_ENCODING_HT) {
         sds ele = hashTypeCurrentFromHashTable(hi, what);
         *vstr = (unsigned char*) ele;
@@ -459,10 +451,11 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     return o;
 }
 
-void hashTypeConvertZiplist(robj *o, int enc) {
-    serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
 
-    if (enc == OBJ_ENCODING_ZIPLIST) {
+void hashTypeConvertListpack(robj *o, int enc) {
+    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK);
+
+    if (enc == OBJ_ENCODING_LISTPACK) {
         /* Nothing to do... */
 
     } else if (enc == OBJ_ENCODING_HT) {
@@ -471,7 +464,10 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         int ret;
 
         hi = hashTypeInitIterator(o);
-        dict = dictCreate(&hashDictType, NULL);
+        dict = dictCreate(&hashDictType);
+
+        /* Presize the dict to avoid rehashing */
+        dictExpand(dict,hashTypeLength(o));
 
         while (hashTypeNext(hi) != C_ERR) {
             sds key, value;
@@ -480,9 +476,11 @@ void hashTypeConvertZiplist(robj *o, int enc) {
             value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
-                serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
-                    o->ptr,ziplistBlobLen(o->ptr));
-                serverPanic("Ziplist corruption detected");
+                sdsfree(key); sdsfree(value); /* Needed for gcc ASAN */
+                hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
+                serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
+                    o->ptr,lpBytes(o->ptr));
+                serverPanic("Listpack corruption detected");
             }
         }
         hashTypeReleaseIterator(hi);
@@ -495,8 +493,8 @@ void hashTypeConvertZiplist(robj *o, int enc) {
 }
 
 void hashTypeConvert(robj *o, int enc) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        hashTypeConvertZiplist(o, enc);
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        hashTypeConvertListpack(o, enc);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         serverPanic("Not implemented");
     } else {
@@ -515,15 +513,15 @@ robj *hashTypeDup(robj *o) {
 
     serverAssert(o->type == OBJ_HASH);
 
-    if(o->encoding == OBJ_ENCODING_ZIPLIST){
+    if(o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = o->ptr;
-        size_t sz = ziplistBlobLen(zl);
+        size_t sz = lpBytes(zl);
         unsigned char *new_zl = zmalloc(sz);
         memcpy(new_zl, zl, sz);
         hobj = createObject(OBJ_HASH, new_zl);
-        hobj->encoding = OBJ_ENCODING_ZIPLIST;
+        hobj->encoding = OBJ_ENCODING_LISTPACK;
     } else if(o->encoding == OBJ_ENCODING_HT){
-        dict *d = dictCreate(&hashDictType, NULL);
+        dict *d = dictCreate(&hashDictType);
         dictExpand(d, dictSize((const dict*)o->ptr));
 
         hi = hashTypeInitIterator(o);
@@ -549,54 +547,41 @@ robj *hashTypeDup(robj *o) {
     return hobj;
 }
 
-/* callback for to check the ziplist doesn't have duplicate recoreds */
-static int _hashZiplistEntryValidation(unsigned char *p, void *userdata) {
-    struct {
-        long count;
-        dict *fields;
-    } *data = userdata;
+/* Create a new sds string from the listpack entry. */
+sds hashSdsFromListpackEntry(listpackEntry *e) {
+    return e->sval ? sdsnewlen(e->sval, e->slen) : sdsfromlonglong(e->lval);
+}
 
-    /* Odd records are field names, add to dict and check that's not a dup */
-    if (((data->count) & 1) == 0) {
-        unsigned char *str;
-        unsigned int slen;
-        long long vll;
-        if (!ziplistGet(p, &str, &slen, &vll))
-            return 0;
-        sds field = str? sdsnewlen(str, slen): sdsfromlonglong(vll);;
-        if (dictAdd(data->fields, field, NULL) != DICT_OK) {
-            /* Duplicate, return an error */
-            sdsfree(field);
-            return 0;
+/* Reply with bulk string from the listpack entry. */
+void hashReplyFromListpackEntry(client *c, listpackEntry *e) {
+    if (e->sval)
+        addReplyBulkCBuffer(c, e->sval, e->slen);
+    else
+        addReplyBulkLongLong(c, e->lval);
+}
+
+/* Return random element from a non empty hash.
+ * 'key' and 'val' will be set to hold the element.
+ * The memory in them is not to be freed or modified by the caller.
+ * 'val' can be NULL in which case it's not extracted. */
+void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, listpackEntry *key, listpackEntry *val) {
+    if (hashobj->encoding == OBJ_ENCODING_HT) {
+        dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
+        sds s = dictGetKey(de);
+        key->sval = (unsigned char*)s;
+        key->slen = sdslen(s);
+        if (val) {
+            sds s = dictGetVal(de);
+            val->sval = (unsigned char*)s;
+            val->slen = sdslen(s);
         }
+    } else if (hashobj->encoding == OBJ_ENCODING_LISTPACK) {
+        lpRandomPair(hashobj->ptr, hashsize, key, val);
+    } else {
+        serverPanic("Unknown hash encoding");
     }
-
-    (data->count)++;
-    return 1;
 }
 
-/* Validate the integrity of the data stracture.
- * when `deep` is 0, only the integrity of the header is validated.
- * when `deep` is 1, we scan all the entries one by one. */
-int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
-    if (!deep)
-        return ziplistValidateIntegrity(zl, size, 0, NULL, NULL);
-
-    /* Keep track of the field names to locate duplicate ones */
-    struct {
-        long count;
-        dict *fields;
-    } data = {0, dictCreate(&hashDictType, NULL)};
-
-    int ret = ziplistValidateIntegrity(zl, size, 1, _hashZiplistEntryValidation, &data);
-
-    /* make sure we have an even number of records. */
-    if (data.count & 1)
-        ret = 0;
-
-    dictRelease(data.fields);
-    return ret;
-}
 
 /*-----------------------------------------------------------------------------
  * Hash type commands
@@ -605,11 +590,11 @@ int hashZiplistValidateIntegrity(unsigned char *zl, size_t size, int deep) {
 void hsetnxCommand(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    hashTypeTryConversion(o,c->argv,2,3);
 
     if (hashTypeExists(o, c->argv[2]->ptr)) {
         addReply(c, shared.czero);
     } else {
+        hashTypeTryConversion(o,c->argv,2,3);
         hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -623,7 +608,7 @@ void hsetCommand(client *c) {
     robj *o;
 
     if ((c->argc % 2) == 1) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 
@@ -691,6 +676,10 @@ void hincrbyfloatCommand(client *c) {
     unsigned int vlen;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
+    if (isnan(incr) || isinf(incr)) {
+        addReplyError(c,"value is NaN or Infinity");
+        return;
+    }
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&ll) == C_OK) {
         if (vstr) {
@@ -723,47 +712,31 @@ void hincrbyfloatCommand(client *c) {
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float precision or formatting
      * will not create differences in replicas or after an AOF restart. */
-    robj *aux, *newobj;
-    aux = createStringObject("HSET",4);
+    robj *newobj;
     newobj = createRawStringObject(buf,len);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
+    rewriteClientCommandArgument(c,0,shared.hset);
     rewriteClientCommandArgument(c,3,newobj);
     decrRefCount(newobj);
 }
 
 static void addHashFieldToReply(client *c, robj *o, sds field) {
-    int ret;
-
     if (o == NULL) {
         addReplyNull(c);
         return;
     }
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *vstr = NULL;
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
 
-        ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
-        if (ret < 0) {
-            addReplyNull(c);
+    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK) {
+        if (vstr) {
+            addReplyBulkCBuffer(c, vstr, vlen);
         } else {
-            if (vstr) {
-                addReplyBulkCBuffer(c, vstr, vlen);
-            } else {
-                addReplyBulkLongLong(c, vll);
-            }
+            addReplyBulkLongLong(c, vll);
         }
-
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        sds value = hashTypeGetFromHashTable(o, field);
-        if (value == NULL)
-            addReplyNull(c);
-        else
-            addReplyBulkCBuffer(c, value, sdslen(value));
     } else {
-        serverPanic("Unknown hash encoding");
+        addReplyNull(c);
     }
 }
 
@@ -837,12 +810,12 @@ void hstrlenCommand(client *c) {
 }
 
 static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
+        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll);
         if (vstr)
             addReplyBulkCBuffer(c, vstr, vlen);
         else
@@ -921,4 +894,270 @@ void hscanCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
     scanGenericCommand(c,o,cursor);
+}
+
+static void hrandfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+    for (unsigned long i = 0; i < count; i++) {
+        if (vals && c->resp > 2)
+            addReplyArrayLen(c,2);
+        if (keys[i].sval)
+            addReplyBulkCBuffer(c, keys[i].sval, keys[i].slen);
+        else
+            addReplyBulkLongLong(c, keys[i].lval);
+        if (vals) {
+            if (vals[i].sval)
+                addReplyBulkCBuffer(c, vals[i].sval, vals[i].slen);
+            else
+                addReplyBulkLongLong(c, vals[i].lval);
+        }
+    }
+}
+
+/* How many times bigger should be the hash compared to the requested size
+ * for us to not use the "remove elements" strategy? Read later in the
+ * implementation for more info. */
+#define HRANDFIELD_SUB_STRATEGY_MUL 3
+
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define HRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
+
+void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
+    unsigned long count, size;
+    int uniq = 1;
+    robj *hash;
+
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
+        == NULL || checkType(c,hash,OBJ_HASH)) return;
+    size = hashTypeLength(hash);
+
+    if(l >= 0) {
+        count = (unsigned long) l;
+    } else {
+        count = -l;
+        uniq = 0;
+    }
+
+    /* If count is zero, serve it ASAP to avoid special cases later. */
+    if (count == 0) {
+        addReply(c,shared.emptyarray);
+        return;
+    }
+
+    /* CASE 1: The count was negative, so the extraction method is just:
+     * "return N random elements" sampling the whole set every time.
+     * This case is trivial and can be served without auxiliary data
+     * structures. This case is the only one that also needs to return the
+     * elements in random order. */
+    if (!uniq || count == 1) {
+        if (withvalues && c->resp == 2)
+            addReplyArrayLen(c, count*2);
+        else
+            addReplyArrayLen(c, count);
+        if (hash->encoding == OBJ_ENCODING_HT) {
+            sds key, value;
+            while (count--) {
+                dictEntry *de = dictGetFairRandomKey(hash->ptr);
+                key = dictGetKey(de);
+                value = dictGetVal(de);
+                if (withvalues && c->resp > 2)
+                    addReplyArrayLen(c,2);
+                addReplyBulkCBuffer(c, key, sdslen(key));
+                if (withvalues)
+                    addReplyBulkCBuffer(c, value, sdslen(value));
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
+            }
+        } else if (hash->encoding == OBJ_ENCODING_LISTPACK) {
+            listpackEntry *keys, *vals = NULL;
+            unsigned long limit, sample_count;
+
+            limit = count > HRANDFIELD_RANDOM_SAMPLE_LIMIT ? HRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
+            keys = zmalloc(sizeof(listpackEntry)*limit);
+            if (withvalues)
+                vals = zmalloc(sizeof(listpackEntry)*limit);
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                lpRandomPairs(hash->ptr, sample_count, keys, vals);
+                hrandfieldReplyWithListpack(c, sample_count, keys, vals);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
+            }
+            zfree(keys);
+            zfree(vals);
+        }
+        return;
+    }
+
+    /* Initiate reply count, RESP3 responds with nested array, RESP2 with flat one. */
+    long reply_size = count < size ? count : size;
+    if (withvalues && c->resp == 2)
+        addReplyArrayLen(c, reply_size*2);
+    else
+        addReplyArrayLen(c, reply_size);
+
+    /* CASE 2:
+    * The number of requested elements is greater than the number of
+    * elements inside the hash: simply return the whole hash. */
+    if(count >= size) {
+        hashTypeIterator *hi = hashTypeInitIterator(hash);
+        while (hashTypeNext(hi) != C_ERR) {
+            if (withvalues && c->resp > 2)
+                addReplyArrayLen(c,2);
+            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+            if (withvalues)
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+        }
+        hashTypeReleaseIterator(hi);
+        return;
+    }
+
+    /* CASE 2.5 listpack only. Sampling unique elements, in non-random order.
+     * Listpack encoded hashes are meant to be relatively small, so
+     * HRANDFIELD_SUB_STRATEGY_MUL isn't necessary and we rather not make
+     * copies of the entries. Instead, we emit them directly to the output
+     * buffer.
+     *
+     * And it is inefficient to repeatedly pick one random element from a
+     * listpack in CASE 4. So we use this instead. */
+    if (hash->encoding == OBJ_ENCODING_LISTPACK) {
+        listpackEntry *keys, *vals = NULL;
+        keys = zmalloc(sizeof(listpackEntry)*count);
+        if (withvalues)
+            vals = zmalloc(sizeof(listpackEntry)*count);
+        serverAssert(lpRandomPairsUnique(hash->ptr, count, keys, vals) == count);
+        hrandfieldReplyWithListpack(c, count, keys, vals);
+        zfree(keys);
+        zfree(vals);
+        return;
+    }
+
+    /* CASE 3:
+     * The number of elements inside the hash is not greater than
+     * HRANDFIELD_SUB_STRATEGY_MUL times the number of requested elements.
+     * In this case we create a hash from scratch with all the elements, and
+     * subtract random elements to reach the requested number of elements.
+     *
+     * This is done because if the number of requested elements is just
+     * a bit less than the number of elements in the hash, the natural approach
+     * used into CASE 4 is highly inefficient. */
+    if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
+        /* Hashtable encoding (generic implementation) */
+        dict *d = dictCreate(&sdsReplyDictType);
+        dictExpand(d, size);
+        hashTypeIterator *hi = hashTypeInitIterator(hash);
+
+        /* Add all the elements into the temporary dictionary. */
+        while ((hashTypeNext(hi)) != C_ERR) {
+            int ret = DICT_ERR;
+            sds key, value = NULL;
+
+            key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            if (withvalues)
+                value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            ret = dictAdd(d, key, value);
+
+            serverAssert(ret == DICT_OK);
+        }
+        serverAssert(dictSize(d) == size);
+        hashTypeReleaseIterator(hi);
+
+        /* Remove random elements to reach the right count. */
+        while (size > count) {
+            dictEntry *de;
+            de = dictGetFairRandomKey(d);
+            dictUnlink(d,dictGetKey(de));
+            sdsfree(dictGetKey(de));
+            sdsfree(dictGetVal(de));
+            dictFreeUnlinkedEntry(d,de);
+            size--;
+        }
+
+        /* Reply with what's in the dict and release memory */
+        dictIterator *di;
+        dictEntry *de;
+        di = dictGetIterator(d);
+        while ((de = dictNext(di)) != NULL) {
+            sds key = dictGetKey(de);
+            sds value = dictGetVal(de);
+            if (withvalues && c->resp > 2)
+                addReplyArrayLen(c,2);
+            addReplyBulkSds(c, key);
+            if (withvalues)
+                addReplyBulkSds(c, value);
+        }
+
+        dictReleaseIterator(di);
+        dictRelease(d);
+    }
+
+    /* CASE 4: We have a big hash compared to the requested number of elements.
+     * In this case we can simply get random elements from the hash and add
+     * to the temporary hash, trying to eventually get enough unique elements
+     * to reach the specified count. */
+    else {
+        /* Hashtable encoding (generic implementation) */
+        unsigned long added = 0;
+        listpackEntry key, value;
+        dict *d = dictCreate(&hashDictType);
+        dictExpand(d, count);
+        while(added < count) {
+            hashTypeRandomElement(hash, size, &key, withvalues? &value : NULL);
+
+            /* Try to add the object to the dictionary. If it already exists
+            * free it, otherwise increment the number of objects we have
+            * in the result dictionary. */
+            sds skey = hashSdsFromListpackEntry(&key);
+            if (dictAdd(d,skey,NULL) != DICT_OK) {
+                sdsfree(skey);
+                continue;
+            }
+            added++;
+
+            /* We can reply right away, so that we don't need to store the value in the dict. */
+            if (withvalues && c->resp > 2)
+                addReplyArrayLen(c,2);
+            hashReplyFromListpackEntry(c, &key);
+            if (withvalues)
+                hashReplyFromListpackEntry(c, &value);
+        }
+
+        /* Release memory */
+        dictRelease(d);
+    }
+}
+
+/* HRANDFIELD key [<count> [WITHVALUES]] */
+void hrandfieldCommand(client *c) {
+    long l;
+    int withvalues = 0;
+    robj *hash;
+    listpackEntry ele;
+
+    if (c->argc >= 3) {
+        if (getRangeLongFromObjectOrReply(c,c->argv[2],-LONG_MAX,LONG_MAX,&l,NULL) != C_OK) return;
+        if (c->argc > 4 || (c->argc == 4 && strcasecmp(c->argv[3]->ptr,"withvalues"))) {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
+        } else if (c->argc == 4) {
+            withvalues = 1;
+            if (l < -LONG_MAX/2 || l > LONG_MAX/2) {
+                addReplyError(c,"value is out of range");
+                return;
+            }
+        }
+        hrandfieldWithCountCommand(c, l, withvalues);
+        return;
+    }
+
+    /* Handle variant without <count> argument. Reply with simple bulk string */
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))== NULL ||
+        checkType(c,hash,OBJ_HASH)) {
+        return;
+    }
+
+    hashTypeRandomElement(hash,hashTypeLength(hash),&ele,NULL);
+    hashReplyFromListpackEntry(c, &ele);
 }

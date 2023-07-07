@@ -32,12 +32,22 @@
 
 #include "hiredis.h"
 #include "async.h"
+#include "net.h"
 
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <wincrypt.h>
+#ifdef OPENSSL_IS_BORINGSSL
+#undef X509_NAME
+#undef X509_EXTENSIONS
+#undef PKCS7_ISSUER_AND_SERIAL
+#undef PKCS7_SIGNER_INFO
+#undef OCSP_REQUEST
+#undef OCSP_RESPONSE
+#endif
 #else
 #include <pthread.h>
 #endif
@@ -182,6 +192,10 @@ const char *redisSSLContextGetError(redisSSLContextError error)
             return "Failed to load client certificate";
         case REDIS_SSL_CTX_PRIVATE_KEY_LOAD_FAILED:
             return "Failed to load private key";
+        case REDIS_SSL_CTX_OS_CERTSTORE_OPEN_FAILED:
+            return "Failed to open system certificate store";
+        case REDIS_SSL_CTX_OS_CERT_ADD_FAILED:
+            return "Failed to add CA certificates obtained from system to the SSL context";
         default:
             return "Unknown error code";
     }
@@ -214,6 +228,30 @@ redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *
         const char *cert_filename, const char *private_key_filename,
         const char *server_name, redisSSLContextError *error)
 {
+    redisSSLOptions options = {
+        .cacert_filename = cacert_filename,
+        .capath = capath,
+        .cert_filename = cert_filename,
+        .private_key_filename = private_key_filename,
+        .server_name = server_name,
+        .verify_mode = REDIS_SSL_VERIFY_PEER,
+    };
+
+    return redisCreateSSLContextWithOptions(&options, error);
+}
+
+redisSSLContext *redisCreateSSLContextWithOptions(redisSSLOptions *options, redisSSLContextError *error) {
+    const char *cacert_filename = options->cacert_filename;
+    const char *capath = options->capath;
+    const char *cert_filename = options->cert_filename;
+    const char *private_key_filename = options->private_key_filename;
+    const char *server_name = options->server_name;
+
+#ifdef _WIN32
+    HCERTSTORE win_store = NULL;
+    PCCERT_CONTEXT win_ctx = NULL;
+#endif
+
     redisSSLContext *ctx = hi_calloc(1, sizeof(redisSSLContext));
     if (ctx == NULL)
         goto error;
@@ -225,7 +263,7 @@ redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *
     }
 
     SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
-    SSL_CTX_set_verify(ctx->ssl_ctx, SSL_VERIFY_PEER, NULL);
+    SSL_CTX_set_verify(ctx->ssl_ctx, options->verify_mode, NULL);
 
     if ((cert_filename != NULL && private_key_filename == NULL) ||
             (private_key_filename != NULL && cert_filename == NULL)) {
@@ -234,8 +272,38 @@ redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *
     }
 
     if (capath || cacert_filename) {
+#ifdef _WIN32
+        if (0 == strcmp(cacert_filename, "wincert")) {
+            win_store = CertOpenSystemStore(NULL, "Root");
+            if (!win_store) {
+                if (error) *error = REDIS_SSL_CTX_OS_CERTSTORE_OPEN_FAILED;
+                goto error;
+            }
+            X509_STORE* store = SSL_CTX_get_cert_store(ctx->ssl_ctx);
+            while (win_ctx = CertEnumCertificatesInStore(win_store, win_ctx)) {
+                X509* x509 = NULL;
+                x509 = d2i_X509(NULL, (const unsigned char**)&win_ctx->pbCertEncoded, win_ctx->cbCertEncoded);
+                if (x509) {
+                    if ((1 != X509_STORE_add_cert(store, x509)) ||
+                        (1 != SSL_CTX_add_client_CA(ctx->ssl_ctx, x509)))
+                    {
+                        if (error) *error = REDIS_SSL_CTX_OS_CERT_ADD_FAILED;
+                        goto error;
+                    }
+                    X509_free(x509);
+                }
+            }
+            CertFreeCertificateContext(win_ctx);
+            CertCloseStore(win_store, 0);
+        } else
+#endif
         if (!SSL_CTX_load_verify_locations(ctx->ssl_ctx, cacert_filename, capath)) {
             if (error) *error = REDIS_SSL_CTX_CA_CERT_LOAD_FAILED;
+            goto error;
+        }
+    } else {
+        if (!SSL_CTX_set_default_verify_paths(ctx->ssl_ctx)) {
+            if (error) *error = REDIS_SSL_CTX_CLIENT_DEFAULT_CERT_FAILED;
             goto error;
         }
     }
@@ -257,6 +325,10 @@ redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *
     return ctx;
 
 error:
+#ifdef _WIN32
+    CertFreeCertificateContext(win_ctx);
+    CertCloseStore(win_store, 0);
+#endif
     redisFreeSSLContext(ctx);
     return NULL;
 }
@@ -353,7 +425,11 @@ int redisInitiateSSLWithContext(redisContext *c, redisSSLContext *redis_ssl_ctx)
         }
     }
 
-    return redisSSLConnect(c, ssl);
+    if (redisSSLConnect(c, ssl) != REDIS_OK) {
+        goto error;
+    }
+
+    return REDIS_OK;
 
 error:
     if (ssl)
@@ -517,6 +593,7 @@ static void redisSSLAsyncWrite(redisAsyncContext *ac) {
 }
 
 redisContextFuncs redisContextSSLFuncs = {
+    .close = redisNetClose,
     .free_privctx = redisSSLFree,
     .async_read = redisSSLAsyncRead,
     .async_write = redisSSLAsyncWrite,

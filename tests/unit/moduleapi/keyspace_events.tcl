@@ -67,5 +67,39 @@ tags "modules" {
             assert_equal {1} [r get lua]
             r get x
         } {3}
-	}
+
+        test {Test module key space event} {
+            r keyspace.notify x
+            assert_equal {1 x} [r keyspace.is_module_key_notified x]
+        }
+
+        test "Keyspace notifications: module events test" {
+            r config set notify-keyspace-events Kd
+            r del x
+            set rd1 [redis_deferring_client]
+            assert_equal {1} [psubscribe $rd1 *]
+            r keyspace.notify x
+            assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
+            $rd1 close
+        }
+
+        test {Test expired key space event} {
+            set prev_expired [s expired_keys]
+            r set exp 1 PX 10
+            wait_for_condition 100 10 {
+                [s expired_keys] eq $prev_expired + 1
+            } else {
+                fail "key not expired"
+            }
+            assert_equal [r get testkeyspace:expired] 1
+        }
+
+        test "Unload the module - testkeyspace" {
+            assert_equal {OK} [r module unload testkeyspace]
+        }
+
+        test "Verify RM_StringDMA with expiration are not causing invalid memory access" {
+            assert_equal {OK} [r set x 1 EX 1]
+        }
+    }
 }

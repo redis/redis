@@ -1,0 +1,32 @@
+{
+    "REPLICAS": {
+        "summary": "Returns a list of the monitored Redis replicas.",
+        "complexity": "O(N) where N is the number of replicas",
+        "group": "sentinel",
+        "since": "5.0.0",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of replicas for this master, and their state.",
+            "items": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            }
+        },
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            }
+        ]
+    }
+}

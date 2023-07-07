@@ -1,0 +1,31 @@
+{
+    "SHARDCHANNELS": {
+        "summary": "Returns the active shard channels.",
+        "complexity": "O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short shard channels).",
+        "group": "pubsub",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "PUBSUB",
+        "function": "pubsubCommand",
+        "command_flags": [
+            "PUBSUB",
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "pattern",
+                "type": "pattern",
+                "optional": true
+            }
+        ],
+        "reply_schema": {
+            "description": "a list of active channels, optionally matching the specified pattern",
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "uniqueItems": true
+        }
+    }
+}

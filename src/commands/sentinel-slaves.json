@@ -1,0 +1,37 @@
+{
+    "SLAVES": {
+        "summary": "Returns a list of the monitored replicas.",
+        "complexity": "O(N) where N is the number of replicas.",
+        "group": "sentinel",
+        "since": "2.8.0",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "deprecated_since": "5.0.0",
+        "replaced_by": "`SENTINEL REPLICAS`",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of monitored replicas, and their state.",
+            "items": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
+            }
+        },
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            }
+        ]
+    }
+}

@@ -161,7 +161,7 @@ int HelloTypeRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
     struct HelloTypeObject *hto = RedisModule_ModuleTypeGetValue(key);
     struct HelloTypeNode *node = hto ? hto->head : NULL;
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     long long arraylen = 0;
     while(node && count--) {
         RedisModule_ReplyWithLongLong(ctx,node->value);
@@ -229,7 +229,7 @@ void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_Free(privdata);
 }
 
-/* HELLOTYPE.BRANGE key first count timeout -- This is a blocking verison of
+/* HELLOTYPE.BRANGE key first count timeout -- This is a blocking version of
  * the RANGE operation, in order to show how to use the API
  * RedisModule_BlockClientOnKeys(). */
 int HelloTypeBRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

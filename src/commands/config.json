@@ -1,0 +1,9 @@
+{
+    "CONFIG": {
+        "summary": "A container for server configuration commands.",
+        "complexity": "Depends on subcommand.",
+        "group": "server",
+        "since": "2.0.0",
+        "arity": -2
+    }
+}

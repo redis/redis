@@ -2,6 +2,7 @@
 #define __CLICOMMON_H
 
 #include <hiredis.h>
+#include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 
 typedef struct cliSSLconfig {
     /* Requested SNI, or NULL */
@@ -10,39 +11,44 @@ typedef struct cliSSLconfig {
     char *cacert;
     /* Directory where trusted CA certificates are stored, or NULL */
     char *cacertdir;
+    /* Skip server certificate verification. */
+    int skip_cert_verify;
     /* Client certificate to authenticate with, or NULL */
     char *cert;
     /* Private key file to authenticate with, or NULL */
     char *key;
-    /* Prefered cipher list, or NULL (applies only to <= TLSv1.2) */
+    /* Preferred cipher list, or NULL (applies only to <= TLSv1.2) */
     char* ciphers;
-    /* Prefered ciphersuites list, or NULL (applies only to TLSv1.3) */
+    /* Preferred ciphersuites list, or NULL (applies only to TLSv1.3) */
     char* ciphersuites;
 } cliSSLconfig;
 
-/* Wrapper around redisSecureConnection to avoid hiredis_ssl dependencies if
- * not building with TLS support.
- */
+
+/* server connection information object, used to describe an ip:port pair, db num user input, and user:pass. */
+typedef struct cliConnInfo {
+    char *hostip;
+    int hostport;
+    int input_dbnum;
+    char *auth;
+    char *user;
+} cliConnInfo;
+
 int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err);
 
-/* Wrapper around hiredis to allow arbitrary reads and writes.
- *
- * We piggybacks on top of hiredis to achieve transparent TLS support,
- * and use its internal buffers so it can co-exist with commands
- * previously/later issued on the connection.
- *
- * Interface is close to enough to read()/write() so things should mostly
- * work transparently.
- */
-
-/* Write a raw buffer through a redisContext. If we already have something
- * in the buffer (leftovers from hiredis operations) it will be written
- * as well.
- */
 ssize_t cliWriteConn(redisContext *c, const char *buf, size_t buf_len);
 
-/* Wrapper around OpenSSL (libssl and libcrypto) initialisation.
- */
-int cliSecureInit();
+int cliSecureInit(void);
+
+sds readArgFromStdin(void);
+
+sds *getSdsArrayFromArgv(int argc,char **argv, int quoted);
+
+sds unquoteCString(char *str);
+
+void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo, int *tls_flag);
+
+void freeCliConnInfo(cliConnInfo connInfo);
+
+sds escapeJsonString(sds s, const char *p, size_t len);
 
 #endif /* __CLICOMMON_H */

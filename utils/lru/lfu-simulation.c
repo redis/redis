@@ -19,7 +19,7 @@ struct entry {
 };
 
 #define to_16bit_minutes(x) ((x/60) & 65535)
-#define COUNTER_INIT_VAL 5
+#define LFU_INIT_VAL 5
 
 /* Compute the difference in minutes between two 16 bit minutes times
  * obtained with to_16bit_minutes(). Since they can wrap around if
@@ -30,13 +30,13 @@ uint16_t minutes_diff(uint16_t now, uint16_t prev) {
     return 65535-prev+now;
 }
 
-/* Increment a couter logaritmically: the greatest is its value, the
+/* Increment a counter logarithmically: the greatest is its value, the
  * less likely is that the counter is really incremented.
  * The maximum value of the counter is saturated at 255. */
 uint8_t log_incr(uint8_t counter) {
     if (counter == 255) return counter;
     double r = (double)rand()/RAND_MAX;
-    double baseval = counter-COUNTER_INIT_VAL;
+    double baseval = counter-LFU_INIT_VAL;
     if (baseval < 0) baseval = 0;
     double limit = 1.0/(baseval*10+1);
     if (r < limit) counter++;
@@ -56,7 +56,7 @@ uint8_t scan_entry(struct entry *e) {
         >= decr_every)
     {
         if (e->counter) {
-            if (e->counter > COUNTER_INIT_VAL*2) {
+            if (e->counter > LFU_INIT_VAL*2) {
                 e->counter /= 2;
             } else {
                 e->counter--;
@@ -89,7 +89,7 @@ int main(void) {
 
     /* Initialize. */
     for (j = 0; j < keyspace_size; j++) {
-        entries[j].counter = COUNTER_INIT_VAL;
+        entries[j].counter = LFU_INIT_VAL;
         entries[j].decrtime = to_16bit_minutes(start);
         entries[j].hits = 0;
         entries[j].ctime = time(NULL);
@@ -131,7 +131,7 @@ int main(void) {
          * 10 and 19, a random one every 10 seconds. */
         if (new_entry_time <= now) {
             idx = 10+(rand()%10);
-            entries[idx].counter = COUNTER_INIT_VAL;
+            entries[idx].counter = LFU_INIT_VAL;
             entries[idx].decrtime = to_16bit_minutes(time(NULL));
             entries[idx].hits = 0;
             entries[idx].ctime = time(NULL);

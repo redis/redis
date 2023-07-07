@@ -45,7 +45,13 @@ struct bin_stats_s {
 	/* Current number of slabs in this bin. */
 	size_t		curslabs;
 
-	mutex_prof_data_t mutex_data;
+	/* Current size of nonfull slabs heap in this bin. */
+	size_t		nonfull_slabs;
 };
 
+typedef struct bin_stats_data_s bin_stats_data_t;
+struct bin_stats_data_s {
+	bin_stats_t stats_data;
+	mutex_prof_data_t mutex_data;
+};
 #endif /* JEMALLOC_INTERNAL_BIN_STATS_H */

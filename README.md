@@ -15,10 +15,10 @@ Another good example is to think of Redis as a more complex version of memcached
 
 If you want to know more, this is a list of selected starting points:
 
-* Introduction to Redis data types. http://redis.io/topics/data-types-intro
-* Try Redis directly inside your browser. http://try.redis.io
-* The full list of Redis commands. http://redis.io/commands
-* There is much more inside the official Redis documentation. http://redis.io/documentation
+* Introduction to Redis data types. https://redis.io/topics/data-types-intro
+* Try Redis directly inside your browser. https://try.redis.io
+* The full list of Redis commands. https://redis.io/commands
+* There is much more inside the official Redis documentation. https://redis.io/documentation
 
 Building Redis
 --------------
@@ -49,7 +49,7 @@ To append a suffix to Redis program names, use:
 
     % make PROG_SUFFIX="-alt"
 
-You can run a 32 bit Redis binary using:
+You can build a 32 bit Redis binary using:
 
     % make 32bit
 
@@ -75,9 +75,9 @@ When you update the source code with `git pull` or when code inside the
 dependencies tree is modified in any other way, make sure to use the following
 command in order to really clean everything and rebuild from scratch:
 
-    make distclean
+    % make distclean
 
-This will clean: jemalloc, lua, hiredis, linenoise.
+This will clean: jemalloc, lua, hiredis, linenoise and other dependencies.
 
 Also if you force certain build options like 32bit target, no C compiler
 optimizations (for debugging purposes), and other similar build time options,
@@ -184,7 +184,7 @@ then in another terminal try the following:
     (integer) 2
     redis>
 
-You can find the list of all the available commands at http://redis.io/commands.
+You can find the list of all the available commands at https://redis.io/commands.
 
 Installing Redis
 -----------------
@@ -196,7 +196,7 @@ In order to install Redis binaries into /usr/local/bin, just use:
 You can use `make PREFIX=/some/other/directory install` if you wish to use a
 different destination.
 
-Make install will just install binaries in your system, but will not configure
+`make install` will just install binaries in your system, but will not configure
 init scripts and configuration files in the appropriate place. This is not
 needed if you just want to play a bit with Redis, but if you are installing
 it the proper way for a production system, we have a script that does this
@@ -223,11 +223,12 @@ public discussion groups, you agree to release your code under the terms
 of the BSD license that you can find in the [COPYING][1] file included in the Redis
 source distribution.
 
-Please see the [CONTRIBUTING][2] file in this source distribution for more
-information, including details on our process for security bugs/vulnerabilities.
+Please see the [CONTRIBUTING.md][2] file in this source distribution for more
+information. For security bugs and vulnerabilities, please see [SECURITY.md][3].
 
 [1]: https://github.com/redis/redis/blob/unstable/COPYING
-[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING
+[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING.md
+[3]: https://github.com/redis/redis/blob/unstable/SECURITY.md
 
 Redis internals
 ===
@@ -294,37 +295,41 @@ the structure definition.
 Another important Redis data structure is the one defining a client.
 In the past it was called `redisClient`, now just `client`. The structure
 has many fields, here we'll just show the main ones:
-
-    struct client {
-        int fd;
-        sds querybuf;
-        int argc;
-        robj **argv;
-        redisDb *db;
-        int flags;
-        list *reply;
-        char buf[PROTO_REPLY_CHUNK_BYTES];
-        ... many other fields ...
-    }
-
+```c
+struct client {
+    int fd;
+    sds querybuf;
+    int argc;
+    robj **argv;
+    redisDb *db;
+    int flags;
+    list *reply;
+    // ... many other fields ...
+    char buf[PROTO_REPLY_CHUNK_BYTES];
+}
+```
 The client structure defines a *connected client*:
 
 * The `fd` field is the client socket file descriptor.
 * `argc` and `argv` are populated with the command the client is executing, so that functions implementing a given Redis command can read the arguments.
 * `querybuf` accumulates the requests from the client, which are parsed by the Redis server according to the Redis protocol and executed by calling the implementations of the commands the client is executing.
-* `reply` and `buf` are dynamic and static buffers that accumulate the replies the server sends to the client. These buffers are incrementally written to the socket as soon as the file descriptor is writeable.
+* `reply` and `buf` are dynamic and static buffers that accumulate the replies the server sends to the client. These buffers are incrementally written to the socket as soon as the file descriptor is writable.
 
 As you can see in the client structure above, arguments in a command
 are described as `robj` structures. The following is the full `robj`
 structure, which defines a *Redis object*:
 
-    typedef struct redisObject {
-        unsigned type:4;
-        unsigned encoding:4;
-        unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
-        int refcount;
-        void *ptr;
-    } robj;
+```c
+struct redisObject {
+    unsigned type:4;
+    unsigned encoding:4;
+    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
+                            * LFU data (least significant 8 bits frequency
+                            * and most significant 16 bits access time). */
+    int refcount;
+    void *ptr;
+};
+```
 
 Basically this structure can represent all the basic Redis data types like
 strings, lists, sets, sorted sets and so forth. The interesting thing is that
@@ -361,6 +366,12 @@ Inside server.c you can find code that handles other vital things of the Redis s
 * `performEvictions()` is called when a new write command should be performed but Redis is out of memory according to the `maxmemory` directive.
 * The global variable `redisCommandTable` defines all the Redis commands, specifying the name of the command, the function implementing the command, the number of arguments required, and other properties of each command.
 
+commands.c
+---
+This file is auto generated by utils/generate-command-code.py, the content is based on the JSON files in the src/commands folder.
+These are meant to be the single source of truth about the Redis commands, and all the metadata about them.
+These JSON files are not meant to be used by anyone directly, instead that metadata can be obtained via the `COMMAND` command.
+
 networking.c
 ---
 
@@ -368,7 +379,7 @@ This file defines all the I/O functions with clients, masters and replicas
 (which in Redis are just special clients):
 
 * `createClient()` allocates and initializes a new client.
-* the `addReply*()` family of functions are used by command implementations in order to append data to the client structure, that will be transmitted to the client as a reply for a given command executed.
+* The `addReply*()` family of functions are used by command implementations in order to append data to the client structure, that will be transmitted to the client as a reply for a given command executed.
 * `writeToClient()` transmits the data pending in the output buffers to the client and is called by the *writable event handler* `sendReplyToClient()`.
 * `readQueryFromClient()` is the *readable event handler* and accumulates data read from the client into the query buffer.
 * `processInputBuffer()` is the entry point in order to parse the client query buffer according to the Redis protocol. Once commands are ready to be processed, it calls `processCommand()` which is defined inside `server.c` in order to actually execute the command.
@@ -379,8 +390,8 @@ aof.c and rdb.c
 
 As you can guess from the names, these files implement the RDB and AOF
 persistence for Redis. Redis uses a persistence model based on the `fork()`
-system call in order to create a thread with the same (shared) memory
-content of the main Redis thread. This secondary thread dumps the content
+system call in order to create a process with the same (shared) memory
+content of the main Redis process. This secondary process dumps the content
 of the memory on disk. This is used by `rdb.c` to create the snapshots
 on disk and by `aof.c` in order to perform the AOF rewrite when the
 append only file gets too big.
@@ -442,42 +453,50 @@ This file also implements both the `SYNC` and `PSYNC` commands that are
 used in order to perform the first synchronization between masters and
 replicas, or to continue the replication after a disconnection.
 
+Script
+---
+
+The script unit is composed of 3 units:
+* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ...)
+* `script_lua.c` - responsible to execute Lua code, uses script.c to interact with Redis from within the Lua code.
+* `function_lua.c` - contains the Lua engine implementation, uses script_lua.c to execute the Lua code.
+* `functions.c` - contains Redis Functions implementation (FUNCTION command), uses functions_lua.c if the function it wants to invoke needs the Lua engine.
+* `eval.c` - contains the `eval` implementation using `script_lua.c` to invoke the Lua code.
+
+
 Other C files
 ---
 
 * `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client command implementations for these data types.
 * `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
-* `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
+* `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `scripting.c` implements Lua scripting. It is completely self-contained and isolated from the rest of the Redis implementation and is simple enough to understand if you are familiar with the Lua API.
-* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
+* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
 
-[3]: http://redis.io/topics/cluster-spec
+[4]: https://redis.io/topics/cluster-spec
 
 Anatomy of a Redis command
 ---
 
 All the Redis commands are defined in the following way:
 
-    void foobarCommand(client *c) {
-        printf("%s",c->argv[1]->ptr); /* Do something with the argument. */
-        addReply(c,shared.ok); /* Reply something to the client. */
-    }
+```c
+void foobarCommand(client *c) {
+    printf("%s",c->argv[1]->ptr); /* Do something with the argument. */
+    addReply(c,shared.ok); /* Reply something to the client. */
+}
+```
 
-The command is then referenced inside `server.c` in the command table:
-
-    {"foobar",foobarCommand,2,"rtF",0,NULL,0,0,0,0,0},
-
-In the above example `2` is the number of arguments the command takes,
-while `"rtF"` are the command flags, as documented in the command table
-top comment inside `server.c`.
+The command function is referenced by a JSON file, together with its metadata, see `commands.c` described above for details.
+The command flags are documented in the comment above the `struct redisCommand` in `server.h`.
+For other details, please refer to the `COMMAND` command. https://redis.io/commands/command/
 
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
 There are tons of command implementations inside the Redis source code
-that can serve as examples of actual commands implementations. Writing
+that can serve as examples of actual commands implementations (e.g. pingCommand). Writing
 a few toy commands can be a good exercise to get familiar with the code base.
 
 There are also many other files not described here, but it is useless to

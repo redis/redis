@@ -1,4 +1,3 @@
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 
 #include <string.h>
@@ -7,10 +6,15 @@ static RedisModuleString *log_key_name;
 
 static const char log_command_name[] = "commandfilter.log";
 static const char ping_command_name[] = "commandfilter.ping";
+static const char retained_command_name[] = "commandfilter.retained";
 static const char unregister_command_name[] = "commandfilter.unregister";
+static const char unfiltered_clientid_name[] = "unfilter_clientid";
 static int in_log_command = 0;
 
-static RedisModuleCommandFilter *filter = NULL;
+unsigned long long unfiltered_clientid = 0;
+
+static RedisModuleCommandFilter *filter, *filter1;
+static RedisModuleString *retained;
 
 int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -34,6 +38,20 @@ int CommandFilter_PingCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
         RedisModule_FreeCallReply(reply);
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "Unknown command or invalid arguments");
+    }
+
+    return REDISMODULE_OK;
+}
+
+int CommandFilter_Retained(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    (void) argc;
+    (void) argv;
+
+    if (retained) {
+        RedisModule_ReplyWithString(ctx, retained);
+    } else {
+        RedisModule_ReplyWithNull(ctx);
     }
 
     return REDISMODULE_OK;
@@ -74,15 +92,64 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+int CommandFilter_UnfilteredClientdId(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc < 2)
+        return RedisModule_WrongArity(ctx);
+
+    long long id;
+    if (RedisModule_StringToLongLong(argv[1], &id) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "invalid client id");
+        return REDISMODULE_OK;
+    }
+    if (id < 0) {
+        RedisModule_ReplyWithError(ctx, "invalid client id");
+        return REDISMODULE_OK;
+    }
+
+    unfiltered_clientid = id;
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+/* Filter to protect against Bug #11894 reappearing
+ *
+ * ensures that the filter is only run the first time through, and not on reprocessing
+ */
+void CommandFilter_BlmoveSwap(RedisModuleCommandFilterCtx *filter)
+{
+    if (RedisModule_CommandFilterArgsCount(filter) != 6)
+        return;
+
+    RedisModuleString *arg = RedisModule_CommandFilterArgGet(filter, 0);
+    size_t arg_len;
+    const char *arg_str = RedisModule_StringPtrLen(arg, &arg_len);
+
+    if (arg_len != 6 || strncmp(arg_str, "blmove", 6))
+        return;
+
+    /*
+     * Swapping directional args (right/left) from source and destination.
+     * need to hold here, can't push into the ArgReplace func, as it will cause other to freed -> use after free
+     */
+    RedisModuleString *dir1 = RedisModule_HoldString(NULL, RedisModule_CommandFilterArgGet(filter, 3));
+    RedisModuleString *dir2 = RedisModule_HoldString(NULL, RedisModule_CommandFilterArgGet(filter, 4));
+    RedisModule_CommandFilterArgReplace(filter, 3, dir2);
+    RedisModule_CommandFilterArgReplace(filter, 4, dir1);
+}
+
 void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
 {
+    unsigned long long id = RedisModule_CommandFilterGetClientId(filter);
+    if (id == unfiltered_clientid) return;
+
     if (in_log_command) return;  /* don't process our own RM_Call() from CommandFilter_LogCommand() */
 
     /* Fun manipulations:
      * - Remove @delme
      * - Replace @replaceme
      * - Append @insertbefore or @insertafter
-     * - Prefix with Log command if @log encounterd
+     * - Prefix with Log command if @log encountered
      */
     int log = 0;
     int pos = 0;
@@ -106,6 +173,11 @@ void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
             RedisModule_CommandFilterArgInsert(filter, pos + 1,
                     RedisModule_CreateString(NULL, "--inserted-after--", 18));
             pos++;
+        } else if (arg_len == 7 && !memcmp(arg_str, "@retain", 7)) {
+            if (retained) RedisModule_FreeString(NULL, retained);
+            retained = RedisModule_CommandFilterArgGet(filter, pos + 1);
+            RedisModule_RetainString(NULL, retained);
+            pos++;
         } else if (arg_len == 4 && !memcmp(arg_str, "@log", 4)) {
             log = 1;
         }
@@ -128,6 +200,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     long long noself = 0;
     log_key_name = RedisModule_CreateStringFromString(ctx, argv[0]);
     RedisModule_StringToLongLong(argv[1], &noself);
+    retained = NULL;
 
     if (RedisModule_CreateCommand(ctx,log_command_name,
                 CommandFilter_LogCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
@@ -137,18 +210,31 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 CommandFilter_PingCommand,"deny-oom",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx,retained_command_name,
+                CommandFilter_Retained,"readonly",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx,unregister_command_name,
                 CommandFilter_UnregisterCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, unfiltered_clientid_name,
+                CommandFilter_UnfilteredClientdId, "admin", 1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
 
+    if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlmoveSwap, 0)) == NULL)
+        return REDISMODULE_ERR;
+
     return REDISMODULE_OK;
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, log_key_name);
+    if (retained) RedisModule_FreeString(NULL, retained);
+
     return REDISMODULE_OK;
 }

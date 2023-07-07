@@ -1,7 +1,7 @@
-start_server {tags {"scan"}} {
+start_server {tags {"scan network"}} {
     test "SCAN basic" {
         r flushdb
-        r debug populate 1000
+        populate 1000
 
         set cur 0
         set keys {}
@@ -19,7 +19,7 @@ start_server {tags {"scan"}} {
 
     test "SCAN COUNT" {
         r flushdb
-        r debug populate 1000
+        populate 1000
 
         set cur 0
         set keys {}
@@ -37,7 +37,7 @@ start_server {tags {"scan"}} {
 
     test "SCAN MATCH" {
         r flushdb
-        r debug populate 1000
+        populate 1000
 
         set cur 0
         set keys {}
@@ -56,7 +56,7 @@ start_server {tags {"scan"}} {
     test "SCAN TYPE" {
         r flushdb
         # populate only creates strings
-        r debug populate 1000
+        populate 1000
 
         # Check non-strings are excluded
         set cur 0
@@ -98,7 +98,109 @@ start_server {tags {"scan"}} {
         assert_equal 1000 [llength $keys]
     }
 
-    foreach enc {intset hashtable} {
+    test "SCAN unknown type" {
+        r flushdb
+        # make sure that passive expiration is triggered by the scan
+        r debug set-active-expire 0
+
+        populate 1000
+        r hset hash f v
+        r pexpire hash 1
+
+        after 2
+
+        # TODO: remove this in redis 8.0
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string1"]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 0 [llength $keys]
+        # make sure that expired key have been removed by scan command
+        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+
+        # TODO: uncomment in redis 8.0
+        #assert_error "*unknown type name*" {r scan 0 type "string1"}
+        # expired key will be no touched by scan command
+        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test "SCAN with expired keys" {
+        r flushdb
+        # make sure that passive expiration is triggered by the scan
+        r debug set-active-expire 0
+
+        populate 1000
+        r set foo bar
+        r pexpire foo 1
+        
+        # add a hash type key
+        r hset hash f v
+        r pexpire hash 1
+        
+        after 2
+
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur count 10]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+
+        # make sure that expired key have been removed by scan command
+        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test "SCAN with expired keys with TYPE filter" {
+        r flushdb
+        # make sure that passive expiration is triggered by the scan
+        r debug set-active-expire 0
+
+        populate 1000
+        r set foo bar
+        r pexpire foo 1
+
+        # add a hash type key
+        r hset hash f v
+        r pexpire hash 1
+
+        after 2
+
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string" count 10]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+
+        # make sure that expired key have been removed by scan command
+        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        # TODO: uncomment in redis 8.0
+        # make sure that only the expired key in the type match will been removed by scan command
+        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    foreach enc {intset listpack hashtable} {
         test "SSCAN with encoding $enc" {
             # Create the Set
             r del set
@@ -107,14 +209,15 @@ start_server {tags {"scan"}} {
             } else {
                 set prefix "ele:"
             }
+            set count [expr {$enc eq "hashtable" ? 200 : 100}]
             set elements {}
-            for {set j 0} {$j < 100} {incr j} {
+            for {set j 0} {$j < $count} {incr j} {
                 lappend elements ${prefix}${j}
             }
             r sadd set {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding set] eq $enc}
+            assert_encoding $enc set
 
             # Test SSCAN
             set cur 0
@@ -128,15 +231,15 @@ start_server {tags {"scan"}} {
             }
 
             set keys [lsort -unique $keys]
-            assert_equal 100 [llength $keys]
+            assert_equal $count [llength $keys]
         }
     }
 
-    foreach enc {ziplist hashtable} {
+    foreach enc {listpack hashtable} {
         test "HSCAN with encoding $enc" {
             # Create the Hash
             r del hash
-            if {$enc eq {ziplist}} {
+            if {$enc eq {listpack}} {
                 set count 30
             } else {
                 set count 1000
@@ -148,7 +251,7 @@ start_server {tags {"scan"}} {
             r hmset hash {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding hash] eq $enc}
+            assert_encoding $enc hash
 
             # Test HSCAN
             set cur 0
@@ -172,11 +275,11 @@ start_server {tags {"scan"}} {
         }
     }
 
-    foreach enc {ziplist skiplist} {
+    foreach enc {listpack skiplist} {
         test "ZSCAN with encoding $enc" {
             # Create the Sorted Set
             r del zset
-            if {$enc eq {ziplist}} {
+            if {$enc eq {listpack}} {
                 set count 30
             } else {
                 set count 1000
@@ -188,7 +291,7 @@ start_server {tags {"scan"}} {
             r zadd zset {*}$elements
 
             # Verify that the encoding matches.
-            assert {[r object encoding zset] eq $enc}
+            assert_encoding $enc zset
 
             # Test ZSCAN
             set cur 0
@@ -214,7 +317,7 @@ start_server {tags {"scan"}} {
 
     test "SCAN guarantees check under write load" {
         r flushdb
-        r debug populate 100
+        populate 100
 
         # We start scanning here, so keys from 0 to 99 should all be
         # reported at the end of the iteration.

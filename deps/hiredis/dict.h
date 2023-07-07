@@ -119,8 +119,7 @@ static int dictReplace(dict *ht, void *key, void *val);
 static int dictDelete(dict *ht, const void *key);
 static void dictRelease(dict *ht);
 static dictEntry * dictFind(dict *ht, const void *key);
-static dictIterator *dictGetIterator(dict *ht);
+static void dictInitIterator(dictIterator *iter, dict *ht);
 static dictEntry *dictNext(dictIterator *iter);
-static void dictReleaseIterator(dictIterator *iter);
 
 #endif /* __DICT_H */

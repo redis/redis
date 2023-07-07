@@ -31,12 +31,13 @@
 #define __CONFIG_H
 
 #ifdef __APPLE__
+#include <fcntl.h> // for fcntl(fd, F_FULLFSYNC)
 #include <AvailabilityMacros.h>
 #endif
 
 #ifdef __linux__
-#include <linux/version.h>
 #include <features.h>
+#include <fcntl.h>
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */
@@ -62,9 +63,16 @@
 #define HAVE_TASKINFO 1
 #endif
 
+/* Test for somaxconn check */
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#define HAVE_SYSCTL_KIPC_SOMAXCONN 1
+#elif defined(__OpenBSD__)
+#define HAVE_SYSCTL_KERN_SOMAXCONN 1
+#endif
+
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
-    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__) || defined(__sun)) && defined(USE_BACKTRACE))\
  || defined(__DragonFly__) || (defined(__UCLIBC__) && defined(__UCLIBC_HAS_BACKTRACE__))
 #define HAVE_BACKTRACE 1
 #endif
@@ -72,11 +80,20 @@
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
+#if defined(SO_MARK)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_MARK
+#endif
 #endif
 
 /* Test for polling API */
 #ifdef __linux__
 #define HAVE_EPOLL 1
+#endif
+
+/* Test for accept4() */
+#ifdef __linux__
+#define HAVE_ACCEPT4 1
 #endif
 
 #if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
@@ -92,13 +109,29 @@
 #endif
 
 /* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
-#ifdef __linux__
-#define redis_fsync fdatasync
+#if defined(__linux__)
+#define redis_fsync(fd) fdatasync(fd)
+#elif defined(__APPLE__)
+#define redis_fsync(fd) fcntl(fd, F_FULLFSYNC)
 #else
-#define redis_fsync fsync
+#define redis_fsync(fd) fsync(fd)
 #endif
 
-#if __GNUC__ >= 4
+#if defined(__FreeBSD__)
+#if defined(SO_USER_COOKIE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_USER_COOKIE
+#endif
+#endif
+
+#if defined(__OpenBSD__)
+#if defined(SO_RTABLE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_RTABLE
+#endif
+#endif
+
+#if __GNUC__ >= 5 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #define redis_unreachable __builtin_unreachable
 #else
 #define redis_unreachable abort
@@ -112,22 +145,22 @@
 #define unlikely(x) (x)
 #endif
 
-/* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
- * the plain fsync() call. */
-#ifdef __linux__
-#if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
-#if (LINUX_VERSION_CODE >= 0x020611 && __GLIBC_PREREQ(2, 6))
-#define HAVE_SYNC_FILE_RANGE 1
-#endif
-#else
-#if (LINUX_VERSION_CODE >= 0x020611)
-#define HAVE_SYNC_FILE_RANGE 1
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
+#define REDIS_NO_SANITIZE(sanitizer) __attribute__((no_sanitize(sanitizer)))
 #endif
 #endif
+#if !defined(REDIS_NO_SANITIZE)
+#define REDIS_NO_SANITIZE(sanitizer)
 #endif
 
-#ifdef HAVE_SYNC_FILE_RANGE
+/* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
+ * the plain fsync() call. */
+#if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))
+#define HAVE_SYNC_FILE_RANGE 1
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
+#elif defined(__APPLE__)
+#define rdb_fsync_range(fd,off,size) fcntl(fd, F_FULLFSYNC)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
 #endif
@@ -143,7 +176,7 @@
 #define ESOCKTNOSUPPORT 0
 #endif
 
-#if ((defined __linux && defined(__GLIBC__)) || defined __APPLE__)
+#if (defined __linux || defined __APPLE__)
 #define USE_SETPROCTITLE
 #define INIT_SETPROCTITLE_REPLACEMENT
 void spt_init(int argc, char *argv[]);
@@ -274,6 +307,11 @@ int pthread_setname_np(const char *name);
 #if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
 void setcpuaffinity(const char *cpulist);
+#endif
+
+/* Test for posix_fadvise() */
+#if defined(__linux__) || __FreeBSD__ >= 10
+#define HAVE_FADVISE
 #endif
 
 #endif

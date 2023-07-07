@@ -232,7 +232,7 @@ void spt_init(int argc, char *argv[]) {
 	if (!(SPT.arg0 = strdup(argv[0])))
 		goto syerr;
 
-#if __GLIBC__
+#if __linux__
 	if (!(tmp = strdup(program_invocation_name)))
 		goto syerr;
 

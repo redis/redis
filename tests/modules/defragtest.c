@@ -1,8 +1,8 @@
 /* A module that implements defrag callback mechanisms.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
+#include <stdlib.h>
 
 static RedisModuleType *FragType;
 
@@ -35,7 +35,7 @@ static void createGlobalStrings(RedisModuleCtx *ctx, int count)
     }
 }
 
-static int defragGlobalStrings(RedisModuleDefragCtx *ctx)
+static void defragGlobalStrings(RedisModuleDefragCtx *ctx)
 {
     for (int i = 0; i < global_strings_len; i++) {
         RedisModuleString *new = RedisModule_DefragRedisModuleString(ctx, global_strings[i]);
@@ -45,8 +45,6 @@ static int defragGlobalStrings(RedisModuleDefragCtx *ctx)
             global_defragged++;
         }
     }
-
-    return 0;
 }
 
 static void FragInfo(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -146,6 +144,9 @@ int FragDefrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value) 
     REDISMODULE_NOT_USED(key);
     unsigned long i = 0;
     int steps = 0;
+
+    int dbid = RedisModule_GetDbIdFromDefragCtx(ctx);
+    RedisModule_Assert(dbid != -1);
 
     /* Attempt to get cursor, validate it's what we're exepcting */
     if (RedisModule_DefragCursorGet(ctx, &i) == REDISMODULE_OK) {

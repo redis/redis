@@ -1,4 +1,4 @@
-# Check replica can restore database buckup correctly if fail to diskless load.
+# Check that replica keys and keys to slots map are right after failing to diskless load using SWAPDB.
 
 source "../tests/includes/init-tests.tcl"
 
@@ -14,7 +14,7 @@ test "Cluster is writable" {
     cluster_write_test 0
 }
 
-test "Right to restore backups when fail to diskless load " {
+test "Main db not affected when fail to diskless load" {
     set master [Rn 0]
     set replica [Rn 1]
     set master_id 0
@@ -22,6 +22,8 @@ test "Right to restore backups when fail to diskless load " {
 
     $replica READONLY
     $replica config set repl-diskless-load swapdb
+    $replica config set appendonly no
+    $replica config set save ""
     $replica config rewrite
     $master config set repl-backlog-size 1024
     $master config set repl-diskless-sync yes
@@ -34,11 +36,12 @@ test "Right to restore backups when fail to diskless load " {
     # Write a key that belongs to slot 0
     set slot0_key "06S"
     $master set $slot0_key 1
-    after 100
+    wait_for_ofs_sync $master $replica
     assert_equal {1} [$replica get $slot0_key]
     assert_equal $slot0_key [$replica CLUSTER GETKEYSINSLOT 0 1]
 
-    # Kill the replica
+    # Save an RDB and kill the replica
+    $replica save
     kill_instance redis $replica_id
 
     # Delete the key from master
@@ -60,16 +63,22 @@ test "Right to restore backups when fail to diskless load " {
     restart_instance redis $replica_id
     $replica READONLY
 
-    # Start full sync
+    # Start full sync, wait till after db started loading in background
     wait_for_condition 500 10 {
-        [string match "*sync*" [$replica role]]
+        [s $replica_id async_loading] eq 1
     } else {
         fail "Fail to full sync"
     }
-    after 100
 
     # Kill master, abort full sync
     kill_instance redis $master_id
+
+    # Start full sync, wait till the replica detects the disconnection
+    wait_for_condition 500 10 {
+        [s $replica_id async_loading] eq 0
+    } else {
+        fail "Fail to full sync"
+    }
 
     # Replica keys and keys to slots map still both are right
     assert_equal {1} [$replica get $slot0_key]

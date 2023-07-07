@@ -1,0 +1,100 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  full-build:
+    name: Build all, plus default examples, run tests against redis
+    runs-on: ubuntu-latest
+    env:
+      # the docker image used by the test.sh
+      REDIS_DOCKER: redis:alpine
+
+    steps:
+    - name: Install prerequisites
+      run: sudo apt-get update && sudo apt-get install -y libev-dev libevent-dev libglib2.0-dev libssl-dev valgrind
+    - uses: actions/checkout@v3
+    - name: Run make
+      run: make all examples
+    - name: Run unittests
+      run: make check
+    - name: Run tests with valgrind
+      env:
+        TEST_PREFIX: valgrind --error-exitcode=100
+        SKIPS_ARG: --skip-throughput
+      run: make check
+
+  build-32-bit:
+    name: Build and test minimal 32 bit linux
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install prerequisites
+      run: sudo apt-get update && sudo apt-get install gcc-multilib
+    - uses: actions/checkout@v3
+    - name: Run make
+      run: make all
+      env:
+        PLATFORM_FLAGS: -m32
+    - name: Run unittests
+      env:
+        REDIS_DOCKER: redis:alpine
+      run: make check
+
+  build-arm:
+    name: Cross-compile and test arm linux with Qemu
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: arm
+            toolset: arm-linux-gnueabi
+            emulator: qemu-arm
+          - name: aarch64
+            toolset: aarch64-linux-gnu
+            emulator: qemu-aarch64
+
+    steps:
+    - name: Install qemu
+      if: matrix.emulator
+      run: sudo apt-get install -y qemu-user
+    - name: Install platform toolset
+      if: matrix.toolset
+      run: sudo apt-get install -y gcc-${{matrix.toolset}}
+    - uses: actions/checkout@v3
+    - name: Run make
+      run: make all
+      env:
+        CC: ${{matrix.toolset}}-gcc
+        AR: ${{matrix.toolset}}-ar
+    - name: Run unittests
+      env:
+        REDIS_DOCKER: redis:alpine
+        TEST_PREFIX: ${{matrix.emulator}} -L /usr/${{matrix.toolset}}/
+      run: make check
+
+  build-windows:
+    name: Build and test on windows 64 bit Intel
+    runs-on: windows-latest
+    steps:
+      - uses: microsoft/setup-msbuild@v1.0.2
+      - uses: actions/checkout@v3
+      - name: Run CMake (shared lib)
+        run: cmake -Wno-dev CMakeLists.txt
+      - name: Build hiredis (shared lib)
+        run: MSBuild hiredis.vcxproj /p:Configuration=Debug
+      - name: Run CMake (static lib)
+        run: cmake -Wno-dev CMakeLists.txt -DBUILD_SHARED_LIBS=OFF
+      - name: Build hiredis (static lib)
+        run: MSBuild hiredis.vcxproj /p:Configuration=Debug
+      - name: Build hiredis-test
+        run: MSBuild hiredis-test.vcxproj /p:Configuration=Debug
+      # use memurai, redis compatible server, since it is easy to install.  Can't
+      # install official redis containers on the windows runner
+      - name: Install Memurai redis server
+        run: choco install -y memurai-developer.install
+      - name: Run tests
+        run: Debug\hiredis-test.exe

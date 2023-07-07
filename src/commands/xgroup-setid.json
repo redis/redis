@@ -1,0 +1,79 @@
+{
+    "SETID": {
+        "summary": "Sets the last-delivered ID of a consumer group.",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -5,
+        "container": "XGROUP",
+        "function": "xgroupCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the optional `entries_read` argument."
+            ]
+        ],
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "group",
+                "type": "string"
+            },
+            {
+                "name": "id-selector",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "id",
+                        "type": "string"
+                    },
+                    {
+                        "name": "new-id",
+                        "type": "pure-token",
+                        "token": "$"
+                    }
+                ]
+            },
+            {
+                "name": "entriesread",
+                "display": "entries-read",
+                "token": "ENTRIESREAD",
+                "type": "integer",
+                "optional": true
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

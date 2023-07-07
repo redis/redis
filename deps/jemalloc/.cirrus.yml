@@ -1,0 +1,46 @@
+env:
+  CIRRUS_CLONE_DEPTH: 1
+  ARCH: amd64
+
+task:
+  matrix:
+      env:
+        DEBUG_CONFIG: --enable-debug
+      env:
+        DEBUG_CONFIG: --disable-debug
+  matrix:
+    - env:
+        PROF_CONFIG: --enable-prof
+    - env:
+        PROF_CONFIG: --disable-prof
+  matrix:
+    - name: 64-bit
+      env:
+        CC:
+        CXX:
+    - name: 32-bit
+      env:
+        CC: cc -m32
+        CXX: c++ -m32
+  matrix:
+    - env:
+        UNCOMMON_CONFIG:
+    - env:
+        UNCOMMON_CONFIG: --with-lg-page=16 --with-malloc-conf=tcache:false
+  freebsd_instance:
+    matrix:
+      image: freebsd-12-3-release-amd64
+  install_script:
+    - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
+    - pkg upgrade -y
+    - pkg install -y autoconf gmake
+  script:
+    - autoconf
+    # We don't perfectly track freebsd stdlib.h definitions.  This is fine when
+    # we count as a system header, but breaks otherwise, like during these
+    # tests.
+    - ./configure --with-jemalloc-prefix=ci_ ${DEBUG_CONFIG} ${PROF_CONFIG} ${UNCOMMON_CONFIG}
+    - export JFLAG=`sysctl -n kern.smp.cpus`
+    - gmake -j${JFLAG}
+    - gmake -j${JFLAG} tests
+    - gmake check

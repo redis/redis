@@ -1,0 +1,124 @@
+{
+    "SORT_RO": {
+        "summary": "Returns the sorted elements of a list, a set, or a sorted set.",
+        "complexity": "O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).",
+        "group": "generic",
+        "since": "7.0.0",
+        "arity": -2,
+        "function": "sortroCommand",
+        "get_keys_function": "sortROGetKeys",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "SET",
+            "SORTEDSET",
+            "LIST",
+            "DANGEROUS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "notes": "For the optional BY/GET keyword. It is marked 'unknown' because the key names derive from the content of the key we sort",
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "unknown": null
+                },
+                "find_keys": {
+                    "unknown": null
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "token": "BY",
+                "name": "by-pattern",
+                "display": "pattern",
+                "type": "pattern",
+                "key_spec_index": 1,
+                "optional": true
+            },
+            {
+                "token": "LIMIT",
+                "name": "limit",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "offset",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "count",
+                        "type": "integer"
+                    }
+                ]
+            },
+            {
+                "token": "GET",
+                "name": "get-pattern",
+                "display": "pattern",
+                "key_spec_index": 1,
+                "type": "pattern",
+                "optional": true,
+                "multiple": true,
+                "multiple_token": true
+            },
+            {
+                "name": "order",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "asc",
+                        "type": "pure-token",
+                        "token": "ASC"
+                    },
+                    {
+                        "name": "desc",
+                        "type": "pure-token",
+                        "token": "DESC"
+                    }
+                ]
+            },
+            {
+                "name": "sorting",
+                "token": "ALPHA",
+                "type": "pure-token",
+                "optional": true
+            }
+        ],
+        "reply_schema": {
+            "description": "a list of sorted elements",
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}

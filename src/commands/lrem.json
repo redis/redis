@@ -1,0 +1,56 @@
+{
+    "LREM": {
+        "summary": "Removes elements from a list. Deletes the list if the last element was removed.",
+        "complexity": "O(N+M) where N is the length of the list and M is the number of elements removed.",
+        "group": "list",
+        "since": "1.0.0",
+        "arity": 4,
+        "function": "lremCommand",
+        "command_flags": [
+            "WRITE"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "The number of removed elements.",
+            "type": "integer",
+            "minimum": 0
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "count",
+                "type": "integer"
+            },
+            {
+                "name": "element",
+                "type": "string"
+            }
+        ]
+    }
+}

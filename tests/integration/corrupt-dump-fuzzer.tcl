@@ -1,6 +1,15 @@
-# tests of corrupt ziplist payload with valid CRC
+# tests of corrupt listpack payload with valid CRC
 
-tags {"dump" "corruption"} {
+tags {"dump" "corruption" "external:skip"} {
+
+# catch sigterm so that in case one of the random command hangs the test,
+# usually due to redis not putting a response in the output buffers,
+# we'll know which command it was
+if { ! [ catch {
+    package require Tclx
+} err ] } {
+    signal error SIGTERM
+}
 
 proc generate_collections {suffix elements} {
     set rd [redis_deferring_client]
@@ -23,6 +32,7 @@ proc generate_collections {suffix elements} {
 proc generate_types {} {
     r config set list-max-ziplist-size 5
     r config set hash-max-ziplist-entries 5
+    r config set set-max-listpack-entries 5
     r config set zset-max-ziplist-entries 5
     r config set stream-node-max-entries 5
 
@@ -32,6 +42,7 @@ proc generate_types {} {
     # add some metadata to the stream
     r xgroup create stream mygroup 0
     set records [r xreadgroup GROUP mygroup Alice COUNT 2 STREAMS stream >]
+    r xdel stream [lindex [lindex [lindex [lindex $records 0] 1] 1] 0]
     r xack stream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
 
     # create other non-collection types
@@ -42,7 +53,7 @@ proc generate_types {} {
     generate_collections big 10
 
     # make sure our big stream also has a listpack record that has different
-    # field names than the master recored
+    # field names than the master recorded
     r xadd streambig * item 1 value 1
     r xadd streambig * item 1 unique value
 }
@@ -71,6 +82,13 @@ foreach sanitize_dump {no yes} {
         set min_cycles 10 ; # run at least 10 cycles
     }
 
+    # Don't execute this on FreeBSD due to a yet-undiscovered memory issue
+    # which causes tclsh to bloat.
+    if {[exec uname] == "FreeBSD"} {
+        set min_cycles 1
+        set min_duration 1
+    }
+
     test "Fuzzer corrupt restore payloads - sanitize_dump: $sanitize_dump" {
         if {$min_duration * 2 > $::timeout} {
             fail "insufficient timeout"
@@ -82,6 +100,7 @@ foreach sanitize_dump {no yes} {
             r debug set-skip-checksum-validation 1
             set start_time [clock seconds]
             generate_types
+            set dbsize [r dbsize]
             r save
             set cycle 0
             set stat_terminated_in_restore 0
@@ -109,7 +128,7 @@ foreach sanitize_dump {no yes} {
                         set report_and_restart true
                         incr stat_terminated_in_restore
                         write_log_line 0 "corrupt payload: $printable_dump"
-                        if {$sanitize_dump == 1} {
+                        if {$sanitize_dump == yes} {
                             puts "Server crashed in RESTORE with payload: $printable_dump"
                         }
                     }
@@ -125,14 +144,31 @@ foreach sanitize_dump {no yes} {
                         set sent [generate_fuzzy_traffic_on_key "_$k" 1] ;# traffic for 1 second
                         incr stat_traffic_commands_sent [llength $sent]
                         r del "_$k" ;# in case the server terminated, here's where we'll detect it.
+                        if {$dbsize != [r dbsize]} {
+                            puts "unexpected keys"
+                            puts "keys: [r keys *]"
+                            puts "commands leading to it:"
+                            foreach cmd $sent {
+                                foreach arg $cmd {
+                                    puts -nonewline "[string2printable $arg] "
+                                }
+                                puts ""
+                            }
+                            exit 1
+                        }
                     } err ] } {
+                        set err [format "%s" $err] ;# convert to string for pattern matching
+                        if {[string match "*SIGTERM*" $err]} {
+                            puts "payload that caused test to hang: $printable_dump"
+                            exit 1
+                        }
                         # if the server terminated update stats and restart it
                         set report_and_restart true
                         incr stat_terminated_in_traffic
                         set by_signal [count_log_message 0 "crashed by signal"]
                         incr stat_terminated_by_signal $by_signal
 
-                        if {$by_signal != 0 || $sanitize_dump == 1 } {
+                        if {$by_signal != 0 || $sanitize_dump == yes} {
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }
@@ -142,8 +178,9 @@ foreach sanitize_dump {no yes} {
                 # check valgrind report for invalid reads after each RESTORE
                 # payload so that we have a report that is easier to reproduce
                 set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
-                if {$valgrind_errors != ""} {
-                    puts "valgrind found an issue for payload: $printable_dump"
+                set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
+                if {$valgrind_errors != "" || $asan_errors != ""} {
+                    puts "valgrind or asan found an issue for payload: $printable_dump"
                     set report_and_restart true
                     set print_commands true
                 }
@@ -178,7 +215,7 @@ foreach sanitize_dump {no yes} {
             }
         }
         # if we run sanitization we never expect the server to crash at runtime
-        if { $sanitize_dump == 1} {
+        if {$sanitize_dump == yes} {
             assert_equal $stat_terminated_in_restore 0
             assert_equal $stat_terminated_in_traffic 0
         }

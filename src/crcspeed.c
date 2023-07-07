@@ -248,7 +248,7 @@ uint16_t crcspeed16big(uint16_t big_table[8][256], uint16_t crc_in, void *buf,
 
 /* Return the CRC of buf[0..len-1] with initial crc, processing eight bytes
    at a time using passed-in lookup table.
-   This selects one of two routines depending on the endianess of
+   This selects one of two routines depending on the endianness of
    the architecture. */
 uint64_t crcspeed64native(uint64_t table[8][256], uint64_t crc, void *buf,
                           size_t len) {

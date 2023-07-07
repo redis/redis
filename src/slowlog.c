@@ -143,8 +143,8 @@ void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "GET [<count>]",
-"    Return top <count> entries from the slowlog (default: 10). Entries are",
-"    made of:",
+"    Return top <count> entries from the slowlog (default: 10, -1 mean all).",
+"    Entries are made of:",
 "    id, timestamp, time in microseconds, arguments array, client IP and port,",
 "    client name",
 "LEN",
@@ -162,21 +162,33 @@ NULL
     } else if ((c->argc == 2 || c->argc == 3) &&
                !strcasecmp(c->argv[1]->ptr,"get"))
     {
-        long count = 10, sent = 0;
+        long count = 10;
         listIter li;
-        void *totentries;
         listNode *ln;
         slowlogEntry *se;
 
-        if (c->argc == 3 &&
-            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK)
-            return;
+        if (c->argc == 3) {
+            /* Consume count arg. */
+            if (getRangeLongFromObjectOrReply(c, c->argv[2], -1,
+                    LONG_MAX, &count, "count should be greater than or equal to -1") != C_OK)
+                return;
 
-        listRewind(server.slowlog,&li);
-        totentries = addReplyDeferredLen(c);
-        while(count-- && (ln = listNext(&li))) {
+            if (count == -1) {
+                /* We treat -1 as a special value, which means to get all slow logs.
+                 * Simply set count to the length of server.slowlog.*/
+                count = listLength(server.slowlog);
+            }
+        }
+
+        if (count > (long)listLength(server.slowlog)) {
+            count = listLength(server.slowlog);
+        }
+        addReplyArrayLen(c, count);
+        listRewind(server.slowlog, &li);
+        while (count--) {
             int j;
 
+            ln = listNext(&li);
             se = ln->value;
             addReplyArrayLen(c,6);
             addReplyLongLong(c,se->id);
@@ -187,9 +199,7 @@ NULL
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
-            sent++;
         }
-        setDeferredArrayLen(c,totentries,sent);
     } else {
         addReplySubcommandSyntaxError(c);
     }

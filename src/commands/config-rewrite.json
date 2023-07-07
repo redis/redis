@@ -1,0 +1,20 @@
+{
+    "REWRITE": {
+        "summary": "Persists the effective configuration to file.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.8.0",
+        "arity": 2,
+        "container": "CONFIG",
+        "function": "configRewriteCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

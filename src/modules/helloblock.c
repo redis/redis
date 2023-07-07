@@ -31,7 +31,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -142,7 +141,7 @@ void *HelloKeys_ThreadMain(void *arg) {
     long long cursor = 0;
     size_t replylen = 0;
 
-    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     do {
         RedisModule_ThreadSafeContextLock(ctx);
         RedisModuleCallReply *reply = RedisModule_Call(ctx,

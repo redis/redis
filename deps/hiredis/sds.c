@@ -72,7 +72,7 @@ static inline char hi_sdsReqType(size_t string_size) {
  * and 'initlen'.
  * If NULL is used for 'init' the string is initialized with zero bytes.
  *
- * The string is always null-termined (all the hisds strings are, always) so
+ * The string is always null-terminated (all the hisds strings are, always) so
  * even if you create an hisds string with:
  *
  * mystring = hi_sdsnewlen("abc",3);
@@ -90,6 +90,7 @@ hisds hi_sdsnewlen(const void *init, size_t initlen) {
     int hdrlen = hi_sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
+    if (hdrlen+initlen+1 <= initlen) return NULL; /* Catch size_t overflow */
     sh = hi_s_malloc(hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     if (!init)
@@ -174,7 +175,7 @@ void hi_sdsfree(hisds s) {
  * the output will be "6" as the string was modified but the logical length
  * remains 6 bytes. */
 void hi_sdsupdatelen(hisds s) {
-    int reallen = strlen(s);
+    size_t reallen = strlen(s);
     hi_sdssetlen(s, reallen);
 }
 
@@ -196,7 +197,7 @@ void hi_sdsclear(hisds s) {
 hisds hi_sdsMakeRoomFor(hisds s, size_t addlen) {
     void *sh, *newsh;
     size_t avail = hi_sdsavail(s);
-    size_t len, newlen;
+    size_t len, newlen, reqlen;
     char type, oldtype = s[-1] & HI_SDS_TYPE_MASK;
     int hdrlen;
 
@@ -205,7 +206,8 @@ hisds hi_sdsMakeRoomFor(hisds s, size_t addlen) {
 
     len = hi_sdslen(s);
     sh = (char*)s-hi_sdsHdrSize(oldtype);
-    newlen = (len+addlen);
+    reqlen = newlen = (len+addlen);
+    if (newlen <= len) return NULL; /* Catch size_t overflow */
     if (newlen < HI_SDS_MAX_PREALLOC)
         newlen *= 2;
     else
@@ -219,6 +221,7 @@ hisds hi_sdsMakeRoomFor(hisds s, size_t addlen) {
     if (type == HI_SDS_TYPE_5) type = HI_SDS_TYPE_8;
 
     hdrlen = hi_sdsHdrSize(type);
+    if (hdrlen+newlen+1 <= reqlen) return NULL; /* Catch size_t overflow */
     if (oldtype==type) {
         newsh = hi_s_realloc(sh, hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
@@ -415,7 +418,7 @@ hisds hi_sdscpylen(hisds s, const char *t, size_t len) {
     return s;
 }
 
-/* Like hi_sdscpylen() but 't' must be a null-termined string so that the length
+/* Like hi_sdscpylen() but 't' must be a null-terminated string so that the length
  * of the string is obtained with strlen(). */
 hisds hi_sdscpy(hisds s, const char *t) {
     return hi_sdscpylen(s, t, strlen(t));
@@ -580,7 +583,7 @@ hisds hi_sdscatprintf(hisds s, const char *fmt, ...) {
  */
 hisds hi_sdscatfmt(hisds s, char const *fmt, ...) {
     const char *f = fmt;
-    int i;
+    long i;
     va_list ap;
 
     va_start(ap,fmt);
@@ -753,16 +756,16 @@ int hi_sdsrange(hisds s, ssize_t start, ssize_t end) {
     return 0;
 }
 
-/* Apply tolower() to every character of the hisds string 's'. */
+/* Apply tolower() to every character of the sds string 's'. */
 void hi_sdstolower(hisds s) {
-    int len = hi_sdslen(s), j;
+    size_t len = hi_sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
-/* Apply toupper() to every character of the hisds string 's'. */
+/* Apply toupper() to every character of the sds string 's'. */
 void hi_sdstoupper(hisds s) {
-    int len = hi_sdslen(s), j;
+    size_t len = hi_sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }

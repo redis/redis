@@ -14,9 +14,219 @@ start_server {tags {"hash"}} {
         list [r hlen smallhash]
     } {8}
 
-    test {Is the small hash encoded with a ziplist?} {
-        assert_encoding ziplist smallhash
+    test {Is the small hash encoded with a listpack?} {
+        assert_encoding listpack smallhash
     }
+
+    proc create_hash {key entries} {
+        r del $key
+        foreach entry $entries {
+            r hset $key [lindex $entry 0] [lindex $entry 1]
+        }
+    }
+
+    proc get_keys {l} {
+        set res {}
+        foreach entry $l {
+            set key [lindex $entry 0]
+            lappend res $key
+        }
+        return $res
+    }
+
+    foreach {type contents} "listpack {{a 1} {b 2} {c 3}} hashtable {{a 1} {b 2} {[randstring 70 90 alpha] 3}}" {
+        set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
+        r config set hash-max-ziplist-value 10
+        create_hash myhash $contents
+        assert_encoding $type myhash
+
+        # coverage for objectComputeSize
+        assert_morethan [memory_usage myhash] 0
+
+        test "HRANDFIELD - $type" {
+            unset -nocomplain myhash
+            array set myhash {}
+            for {set i 0} {$i < 100} {incr i} {
+                set key [r hrandfield myhash]
+                set myhash($key) 1
+            }
+            assert_equal [lsort [get_keys $contents]] [lsort [array names myhash]]
+        }
+        r config set hash-max-ziplist-value $original_max_value
+    }
+
+    test "HRANDFIELD with RESP3" {
+        r hello 3
+        set res [r hrandfield myhash 3 withvalues]
+        assert_equal [llength $res] 3
+        assert_equal [llength [lindex $res 1]] 2
+
+        set res [r hrandfield myhash 3]
+        assert_equal [llength $res] 3
+        assert_equal [llength [lindex $res 1]] 1
+        r hello 2
+    }
+
+    test "HRANDFIELD count of 0 is handled correctly" {
+        r hrandfield myhash 0
+    } {}
+
+    test "HRANDFIELD count overflow" {
+        r hmset myhash a 1
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854770000 withvalues}
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854775808 withvalues}
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854775808}
+    } {}
+
+    test "HRANDFIELD with <count> against non existing key" {
+        r hrandfield nonexisting_key 100
+    } {}
+
+    # Make sure we can distinguish between an empty array and a null response
+    r readraw 1
+
+    test "HRANDFIELD count of 0 is handled correctly - emptyarray" {
+        r hrandfield myhash 0
+    } {*0}
+
+    test "HRANDFIELD with <count> against non existing key - emptyarray" {
+        r hrandfield nonexisting_key 100
+    } {*0}
+
+    r readraw 0
+
+    foreach {type contents} "
+        hashtable {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {[randstring 70 90 alpha] 10}}
+        listpack {{a 1} {b 2} {c 3} {d 4} {e 5} {6 f} {7 g} {8 h} {9 i} {10 j}} " {
+        test "HRANDFIELD with <count> - $type" {
+            set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
+            r config set hash-max-ziplist-value 10
+            create_hash myhash $contents
+            assert_encoding $type myhash
+
+            # create a dict for easy lookup
+            set mydict [dict create {*}[r hgetall myhash]]
+
+            # We'll stress different parts of the code, see the implementation
+            # of HRANDFIELD for more information, but basically there are
+            # four different code paths.
+
+            # PATH 1: Use negative count.
+
+            # 1) Check that it returns repeated elements with and without values.
+            set res [r hrandfield myhash -20]
+            assert_equal [llength $res] 20
+            set res [r hrandfield myhash -1001]
+            assert_equal [llength $res] 1001
+            # again with WITHVALUES
+            set res [r hrandfield myhash -20 withvalues]
+            assert_equal [llength $res] 40
+            set res [r hrandfield myhash -1001 withvalues]
+            assert_equal [llength $res] 2002
+
+            # Test random uniform distribution
+            # df = 9, 40 means 0.00001 probability
+            set res [r hrandfield myhash -1000]
+            assert_lessthan [chi_square_value $res] 40
+
+            # 2) Check that all the elements actually belong to the original hash.
+            foreach {key val} $res {
+                assert {[dict exists $mydict $key]}
+            }
+
+            # 3) Check that eventually all the elements are returned.
+            #    Use both WITHVALUES and without
+            unset -nocomplain auxset
+            set iterations 1000
+            while {$iterations != 0} {
+                incr iterations -1
+                if {[expr {$iterations % 2}] == 0} {
+                    set res [r hrandfield myhash -3 withvalues]
+                    foreach {key val} $res {
+                        dict append auxset $key $val
+                    }
+                } else {
+                    set res [r hrandfield myhash -3]
+                    foreach key $res {
+                        dict append auxset $key $val
+                    }
+                }
+                if {[lsort [dict keys $mydict]] eq
+                    [lsort [dict keys $auxset]]} {
+                    break;
+                }
+            }
+            assert {$iterations != 0}
+
+            # PATH 2: positive count (unique behavior) with requested size
+            # equal or greater than set size.
+            foreach size {10 20} {
+                set res [r hrandfield myhash $size]
+                assert_equal [llength $res] 10
+                assert_equal [lsort $res] [lsort [dict keys $mydict]]
+
+                # again with WITHVALUES
+                set res [r hrandfield myhash $size withvalues]
+                assert_equal [llength $res] 20
+                assert_equal [lsort $res] [lsort $mydict]
+            }
+
+            # PATH 3: Ask almost as elements as there are in the set.
+            # In this case the implementation will duplicate the original
+            # set and will remove random elements up to the requested size.
+            #
+            # PATH 4: Ask a number of elements definitely smaller than
+            # the set size.
+            #
+            # We can test both the code paths just changing the size but
+            # using the same code.
+            foreach size {8 2} {
+                set res [r hrandfield myhash $size]
+                assert_equal [llength $res] $size
+                # again with WITHVALUES
+                set res [r hrandfield myhash $size withvalues]
+                assert_equal [llength $res] [expr {$size * 2}]
+
+                # 1) Check that all the elements actually belong to the
+                # original set.
+                foreach ele [dict keys $res] {
+                    assert {[dict exists $mydict $ele]}
+                }
+
+                # 2) Check that eventually all the elements are returned.
+                #    Use both WITHVALUES and without
+                unset -nocomplain auxset
+                unset -nocomplain allkey
+                set iterations [expr {1000 / $size}]
+                set all_ele_return false
+                while {$iterations != 0} {
+                    incr iterations -1
+                    if {[expr {$iterations % 2}] == 0} {
+                        set res [r hrandfield myhash $size withvalues]
+                        foreach {key value} $res {
+                            dict append auxset $key $value
+                            lappend allkey $key
+                        }
+                    } else {
+                        set res [r hrandfield myhash $size]
+                        foreach key $res {
+                            dict append auxset $key
+                            lappend allkey $key
+                        }
+                    }
+                    if {[lsort [dict keys $mydict]] eq
+                        [lsort [dict keys $auxset]]} {
+                        set all_ele_return true
+                    }
+                }
+                assert_equal $all_ele_return true
+                # df = 9, 40 means 0.00001 probability
+                assert_lessthan [chi_square_value $allkey] 40
+            }
+        }
+        r config set hash-max-ziplist-value $original_max_value
+    }
+
 
     test {HSET/HLEN - Big hash creation} {
         array set bighash {}
@@ -107,10 +317,10 @@ start_server {tags {"hash"}} {
         set _ $result
     } {foo}
 
-    test {HMSET wrong number of args} {
-        catch {r hmset smallhash key1 val1 key2} err
-        format $err
-    } {*wrong number*}
+    test {HSET/HMSET wrong number of args} {
+        assert_error {*wrong number of arguments for 'hset' command} {r hset smallhash key1 val1 key2}
+        assert_error {*wrong number of arguments for 'hmset' command} {r hmset smallhash key1 val1 key2}
+    }
 
     test {HMSET - small hash} {
         set args {}
@@ -140,9 +350,19 @@ start_server {tags {"hash"}} {
         set _ $rv
     } {{{} {}} {{} {}} {{} {}}}
 
-    test {HMGET against wrong type} {
+    test {Hash commands against wrong type} {
         r set wrongtype somevalue
-        assert_error "*wrong*" {r hmget wrongtype field1 field2}
+        assert_error "WRONGTYPE Operation against a key*" {r hmget wrongtype field1 field2}
+        assert_error "WRONGTYPE Operation against a key*" {r hrandfield wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hget wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hgetall wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hdel wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hincrby wrongtype field1 2}
+        assert_error "WRONGTYPE Operation against a key*" {r hincrbyfloat wrongtype field1 2.5}
+        assert_error "WRONGTYPE Operation against a key*" {r hstrlen wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hvals wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hkeys wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hexists wrongtype field1}
     }
 
     test {HMGET - small hash} {
@@ -255,7 +475,7 @@ start_server {tags {"hash"}} {
     test {Is a ziplist encoded Hash promoted on big payload?} {
         r hset smallhash foo [string repeat a 1024]
         r debug object smallhash
-    } {*hashtable*}
+    } {*hashtable*} {needs:debug}
 
     test {HINCRBY against non existing database key} {
         r del htest
@@ -304,8 +524,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY fails against hash value with spaces (right)} {
@@ -314,8 +534,8 @@ start_server {tags {"hash"}} {
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not an integer*" $smallerr]
-        lappend rv [string match "ERR*not an integer*" $bigerr]
+        lappend rv [string match "ERR *not an integer*" $smallerr]
+        lappend rv [string match "ERR *not an integer*" $bigerr]
     } {1 1}
 
     test {HINCRBY can detect overflows} {
@@ -376,8 +596,8 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value with spaces (right)} {
@@ -386,15 +606,15 @@ start_server {tags {"hash"}} {
         catch {r hincrbyfloat smallhash str 1} smallerr
         catch {r hincrbyfloat bighash str 1} bigerr
         set rv {}
-        lappend rv [string match "ERR*not*float*" $smallerr]
-        lappend rv [string match "ERR*not*float*" $bigerr]
+        lappend rv [string match "ERR *not*float*" $smallerr]
+        lappend rv [string match "ERR *not*float*" $bigerr]
     } {1 1}
 
     test {HINCRBYFLOAT fails against hash value that contains a null-terminator in the middle} {
         r hset h f "1\x002"
         catch {r hincrbyfloat h f 1} err
         set rv {}
-        lappend rv [string match "ERR*not*float*" $err]
+        lappend rv [string match "ERR *not*float*" $err]
     } {1}
 
     test {HSTRLEN against the small hash} {
@@ -443,6 +663,31 @@ start_server {tags {"hash"}} {
             assert {$len1 == $len2}
             assert {$len2 == $len3}
         }
+    }
+
+    test {HINCRBYFLOAT over hash-max-listpack-value encoded with a listpack} {
+        set original_max_value [lindex [r config get hash-max-ziplist-value] 1]
+        r config set hash-max-listpack-value 8
+        
+        # hash's value exceeds hash-max-listpack-value
+        r del smallhash
+        r del bighash
+        r hset smallhash tmp 0
+        r hset bighash tmp 0
+        r hincrbyfloat smallhash tmp 0.000005
+        r hincrbyfloat bighash tmp 0.0000005
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        # hash's field exceeds hash-max-listpack-value
+        r del smallhash
+        r del bighash
+        r hincrbyfloat smallhash abcdefgh 1
+        r hincrbyfloat bighash abcdefghi 1
+        assert_encoding listpack smallhash
+        assert_encoding hashtable bighash
+
+        r config set hash-max-listpack-value $original_max_value
     }
 
     test {Hash ziplist regression test for large keys} {
@@ -519,7 +764,7 @@ start_server {tags {"hash"}} {
             for {set i 0} {$i < 64} {incr i} {
                 r hset myhash [randomValue] [randomValue]
             }
-            assert {[r object encoding myhash] eq {hashtable}}
+            assert_encoding hashtable myhash
         }
     }
 
@@ -543,8 +788,8 @@ start_server {tags {"hash"}} {
 
     test {Hash ziplist of various encodings} {
         r del k
-        r config set hash-max-ziplist-entries 1000000000
-        r config set hash-max-ziplist-value 1000000000
+        config_set hash-max-ziplist-entries 1000000000
+        config_set hash-max-ziplist-value 1000000000
         r hset k ZIP_INT_8B 127
         r hset k ZIP_INT_16B 32767
         r hset k ZIP_INT_32B 2147483647
@@ -558,8 +803,8 @@ start_server {tags {"hash"}} {
         set dump [r dump k]
 
         # will be converted to dict at RESTORE
-        r config set hash-max-ziplist-entries 2
-        r config set sanitize-dump-payload no
+        config_set hash-max-ziplist-entries 2
+        config_set sanitize-dump-payload no mayfail
         r restore kk 0 $dump
         set kk [r hgetall kk]
 
@@ -575,7 +820,7 @@ start_server {tags {"hash"}} {
     } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
 
     test {Hash ziplist of various encodings - sanitize dump} {
-        r config set sanitize-dump-payload yes
+        config_set sanitize-dump-payload yes mayfail
         r restore kk 0 $dump replace
         set k [r hgetall k]
         set kk [r hgetall kk]
@@ -591,4 +836,11 @@ start_server {tags {"hash"}} {
         set _ $k
     } {ZIP_INT_8B 127 ZIP_INT_16B 32767 ZIP_INT_32B 2147483647 ZIP_INT_64B 9223372036854775808 ZIP_INT_IMM_MIN 0 ZIP_INT_IMM_MAX 12}
 
+    # On some platforms strtold("+inf") with valgrind returns a non-inf result
+    if {!$::valgrind} {
+        test {HINCRBYFLOAT does not allow NaN or Infinity} {
+            assert_error "*value is NaN or Infinity*" {r hincrbyfloat hfoo field +inf}
+            assert_equal 0 [r exists hfoo]
+        }
+    }
 }

@@ -9,6 +9,16 @@ start_server {tags {"incr"}} {
         r incr novar
     } {2}
 
+    test {DECR against key created by incr} {
+        r decr novar
+    } {1}
+
+    test {DECR against key is not exist and incr} {
+        r del novar_not_exist
+        assert_equal {-1} [r decr novar_not_exist]
+        assert_equal {0} [r incr novar_not_exist]
+    }
+
     test {INCR against key originally set with SET} {
         r set novar 100
         r incr novar
@@ -42,6 +52,12 @@ start_server {tags {"incr"}} {
         format $err
     } {ERR*}
 
+    test {DECRBY negation overflow} {
+        r set x 0
+        catch {r decrby x -9223372036854775808} err
+        format $err
+    } {ERR*}
+
     test {INCR fails against a key holding a list} {
         r rpush mylist 1
         catch {r incr mylist} err
@@ -54,28 +70,33 @@ start_server {tags {"incr"}} {
         r decrby novar 17179869185
     } {-1}
 
+    test {DECRBY against key is not exist} {
+        r del key_not_exist
+        assert_equal {-1} [r decrby key_not_exist 1]
+    }
+
     test {INCR uses shared objects in the 0-9999 range} {
         r set foo -1
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r set foo 9998
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r incr foo
-        assert {[r object refcount foo] == 1}
+        assert_refcount 1 foo
     }
 
     test {INCR can modify objects in-place} {
         r set foo 20000
         r incr foo
-        assert {[r object refcount foo] == 1}
+        assert_refcount 1 foo
         set old [lindex [split [r debug object foo]] 1]
         r incr foo
         set new [lindex [split [r debug object foo]] 1]
         assert {[string range $old 0 2] eq "at:"}
         assert {[string range $new 0 2] eq "at:"}
         assert {$old eq $new}
-    }
+    } {} {needs:debug}
 
     test {INCRBYFLOAT against non existing key} {
         r del novar
@@ -105,21 +126,21 @@ start_server {tags {"incr"}} {
         r set novar "    11"
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (right)} {
         set err {}
         r set novar "11    "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against key with spaces (both)} {
         set err {}
         r set novar " 11 "
         catch {r incrbyfloat novar 1.0} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {INCRBYFLOAT fails against a key holding a list} {
         r del mylist
@@ -140,7 +161,7 @@ start_server {tags {"incr"}} {
             # p.s. no way I can force NaN to test it from the API because
             # there is no way to increment / decrement by infinity nor to
             # perform divisions.
-        } {ERR*would produce*}
+        } {ERR *would produce*}
     }
 
     test {INCRBYFLOAT decrement} {
@@ -153,7 +174,7 @@ start_server {tags {"incr"}} {
         r setrange foo 2 2
         catch {r incrbyfloat foo 1} err
         format $err
-    } {ERR*valid*}
+    } {ERR *valid*}
 
     test {No negative zero} {
         r del foo

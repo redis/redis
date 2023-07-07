@@ -2,7 +2,7 @@ start_server {tags {"hll"}} {
     test {HyperLogLog self test passes} {
         catch {r pfselftest} e
         set e
-    } {OK}
+    } {OK} {needs:pfdebug}
 
     test {PFADD without arguments creates an HLL value} {
         r pfadd hll
@@ -57,11 +57,42 @@ start_server {tags {"hll"}} {
                 assert {[r pfdebug encoding hll] eq {dense}}
             }
         }
-    }
+    } {} {needs:pfdebug}
+
+    test {Change hll-sparse-max-bytes} {
+        r config set hll-sparse-max-bytes 3000
+        r del hll
+        r pfadd hll a b c d e d g h i j k
+        assert {[r pfdebug encoding hll] eq {sparse}}
+        r config set hll-sparse-max-bytes 30
+        r pfadd hll new_element
+        assert {[r pfdebug encoding hll] eq {dense}}
+    } {} {needs:pfdebug}
+
+    test {Hyperloglog promote to dense well in different hll-sparse-max-bytes} {
+        set max(0) 100
+        set max(1) 500
+        set max(2) 3000
+        for {set i 0} {$i < [array size max]} {incr i} {
+            r config set hll-sparse-max-bytes $max($i)
+            r del hll
+            r pfadd hll
+            set len [r strlen hll]
+            while {$len <= $max($i)} {
+                assert {[r pfdebug encoding hll] eq {sparse}}
+                set elements {}
+                for {set j 0} {$j < 10} {incr j} { lappend elements [expr rand()]}
+                r pfadd hll {*}$elements
+                set len [r strlen hll]
+            }
+            assert {[r pfdebug encoding hll] eq {dense}}
+        }
+    } {} {needs:pfdebug}
 
     test {HyperLogLog sparse encoding stress test} {
         for {set x 0} {$x < 1000} {incr x} {
-            r del hll1 hll2
+            r del hll1
+            r del hll2
             set numele [randomInt 100]
             set elements {}
             for {set j 0} {$j < $numele} {incr j} {
@@ -77,7 +108,7 @@ start_server {tags {"hll"}} {
             # Cardinality estimated should match exactly.
             assert {[r pfcount hll1] eq [r pfcount hll2]}
         }
-    }
+    } {} {needs:pfdebug}
 
     test {Corrupted sparse HyperLogLogs are detected: Additional at tail} {
         r del hll
@@ -144,34 +175,61 @@ start_server {tags {"hll"}} {
     }
 
     test {PFADD, PFCOUNT, PFMERGE type checking works} {
-        r set foo bar
-        catch {r pfadd foo 1} e
+        r set foo{t} bar
+        catch {r pfadd foo{t} 1} e
         assert_match {*WRONGTYPE*} $e
-        catch {r pfcount foo} e
+        catch {r pfcount foo{t}} e
         assert_match {*WRONGTYPE*} $e
-        catch {r pfmerge bar foo} e
+        catch {r pfmerge bar{t} foo{t}} e
         assert_match {*WRONGTYPE*} $e
-        catch {r pfmerge foo bar} e
+        catch {r pfmerge foo{t} bar{t}} e
         assert_match {*WRONGTYPE*} $e
     }
 
     test {PFMERGE results on the cardinality of union of sets} {
-        r del hll hll1 hll2 hll3
-        r pfadd hll1 a b c
-        r pfadd hll2 b c d
-        r pfadd hll3 c d e
-        r pfmerge hll hll1 hll2 hll3
-        r pfcount hll
+        r del hll{t} hll1{t} hll2{t} hll3{t}
+        r pfadd hll1{t} a b c
+        r pfadd hll2{t} b c d
+        r pfadd hll3{t} c d e
+        r pfmerge hll{t} hll1{t} hll2{t} hll3{t}
+        r pfcount hll{t}
     } {5}
 
-    test {PFCOUNT multiple-keys merge returns cardinality of union #1} {
-        r del hll1 hll2 hll3
-        for {set x 1} {$x < 10000} {incr x} {
-            r pfadd hll1 "foo-$x"
-            r pfadd hll2 "bar-$x"
-            r pfadd hll3 "zap-$x"
+    test {PFMERGE on missing source keys will create an empty destkey} {
+        r del sourcekey{t} sourcekey2{t} destkey{t} destkey2{t}
 
-            set card [r pfcount hll1 hll2 hll3]
+        assert_equal {OK} [r pfmerge destkey{t} sourcekey{t}]
+        assert_equal 1 [r exists destkey{t}]
+        assert_equal 0 [r pfcount destkey{t}]
+
+        assert_equal {OK} [r pfmerge destkey2{t} sourcekey{t} sourcekey2{t}]
+        assert_equal 1 [r exists destkey2{t}]
+        assert_equal 0 [r pfcount destkey{t}]
+    }
+
+    test {PFMERGE with one empty input key, create an empty destkey} {
+        r del destkey
+        assert_equal {OK} [r pfmerge destkey]
+        assert_equal 1 [r exists destkey]
+        assert_equal 0 [r pfcount destkey]
+    }
+
+    test {PFMERGE with one non-empty input key, dest key is actually one of the source keys} {
+        r del destkey
+        assert_equal 1 [r pfadd destkey a b c]
+        assert_equal {OK} [r pfmerge destkey]
+        assert_equal 1 [r exists destkey]
+        assert_equal 3 [r pfcount destkey]
+    }
+
+    test {PFCOUNT multiple-keys merge returns cardinality of union #1} {
+        r del hll1{t} hll2{t} hll3{t}
+        for {set x 1} {$x < 10000} {incr x} {
+            r pfadd hll1{t} "foo-$x"
+            r pfadd hll2{t} "bar-$x"
+            r pfadd hll3{t} "zap-$x"
+
+            set card [r pfcount hll1{t} hll2{t} hll3{t}]
             set realcard [expr {$x*3}]
             set err [expr {abs($card-$realcard)}]
             assert {$err < (double($card)/100)*5}
@@ -179,17 +237,17 @@ start_server {tags {"hll"}} {
     }
 
     test {PFCOUNT multiple-keys merge returns cardinality of union #2} {
-        r del hll1 hll2 hll3
+        r del hll1{t} hll2{t} hll3{t}
         set elements {}
         for {set x 1} {$x < 10000} {incr x} {
             for {set j 1} {$j <= 3} {incr j} {
                 set rint [randomInt 20000]
-                r pfadd hll$j $rint
+                r pfadd hll$j{t} $rint
                 lappend elements $rint
             }
         }
         set realcard [llength [lsort -unique $elements]]
-        set card [r pfcount hll1 hll2 hll3]
+        set card [r pfcount hll1{t} hll2{t} hll3{t}]
         set err [expr {abs($card-$realcard)}]
         assert {$err < (double($card)/100)*5}
     }
@@ -198,7 +256,7 @@ start_server {tags {"hll"}} {
         r del hll
         r pfadd hll 1 2 3
         llength [r pfdebug getreg hll]
-    } {16384}
+    } {16384} {needs:pfdebug}
 
     test {PFADD / PFCOUNT cache invalidation works} {
         r del hll

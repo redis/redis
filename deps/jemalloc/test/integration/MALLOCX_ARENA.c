@@ -18,7 +18,7 @@ thd_start(void *arg) {
 	size_t sz;
 
 	sz = sizeof(arena_ind);
-	assert_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz, NULL, 0),
+	expect_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz, NULL, 0),
 	    0, "Error in arenas.create");
 
 	if (thread_ind % 4 != 3) {
@@ -29,16 +29,16 @@ thd_start(void *arg) {
 		    (sizeof(dss_precs)/sizeof(char*));
 		const char *dss = dss_precs[prec_ind];
 		int expected_err = (have_dss || prec_ind == 0) ? 0 : EFAULT;
-		assert_d_eq(mallctlnametomib("arena.0.dss", mib, &miblen), 0,
+		expect_d_eq(mallctlnametomib("arena.0.dss", mib, &miblen), 0,
 		    "Error in mallctlnametomib()");
 		mib[1] = arena_ind;
-		assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, (void *)&dss,
+		expect_d_eq(mallctlbymib(mib, miblen, NULL, NULL, (void *)&dss,
 		    sizeof(const char *)), expected_err,
 		    "Error in mallctlbymib()");
 	}
 
 	p = mallocx(1, MALLOCX_ARENA(arena_ind));
-	assert_ptr_not_null(p, "Unexpected mallocx() error");
+	expect_ptr_not_null(p, "Unexpected mallocx() error");
 	dallocx(p, 0);
 
 	return NULL;

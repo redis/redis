@@ -36,7 +36,7 @@ int scan_strings(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         .nkeys = 0,
     };
 
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
     RedisModuleScanCursor* cursor = RedisModule_ScanCursorCreate();
     while(RedisModule_Scan(ctx, cursor, scan_strings_callback, &pd));

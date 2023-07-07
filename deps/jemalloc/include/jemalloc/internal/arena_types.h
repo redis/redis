@@ -1,21 +1,16 @@
 #ifndef JEMALLOC_INTERNAL_ARENA_TYPES_H
 #define JEMALLOC_INTERNAL_ARENA_TYPES_H
 
-/* Maximum number of regions in one slab. */
-#define LG_SLAB_MAXREGS		(LG_PAGE - LG_TINY_MIN)
-#define SLAB_MAXREGS		(1U << LG_SLAB_MAXREGS)
+#include "jemalloc/internal/sc.h"
 
 /* Default decay times in milliseconds. */
 #define DIRTY_DECAY_MS_DEFAULT	ZD(10 * 1000)
-#define MUZZY_DECAY_MS_DEFAULT	ZD(10 * 1000)
+#define MUZZY_DECAY_MS_DEFAULT	(0)
 /* Number of event ticks between time checks. */
-#define DECAY_NTICKS_PER_UPDATE	1000
+#define ARENA_DECAY_NTICKS_PER_UPDATE	1000
 
-typedef struct arena_slab_data_s arena_slab_data_t;
 typedef struct arena_decay_s arena_decay_t;
 typedef struct arena_s arena_t;
-typedef struct arena_tdata_s arena_tdata_t;
-typedef struct alloc_ctx_s alloc_ctx_t;
 
 typedef enum {
 	percpu_arena_mode_names_base   = 0, /* Used for options processing. */
@@ -39,5 +34,25 @@ typedef enum {
 
 #define PERCPU_ARENA_ENABLED(m)	((m) >= percpu_arena_mode_enabled_base)
 #define PERCPU_ARENA_DEFAULT	percpu_arena_disabled
+
+/*
+ * When allocation_size >= oversize_threshold, use the dedicated huge arena
+ * (unless have explicitly spicified arena index).  0 disables the feature.
+ */
+#define OVERSIZE_THRESHOLD_DEFAULT (8 << 20)
+
+struct arena_config_s {
+	/* extent hooks to be used for the arena */
+	extent_hooks_t *extent_hooks;
+
+	/*
+	 * Use extent hooks for metadata (base) allocations when true.
+	 */
+	bool metadata_use_hooks;
+};
+
+typedef struct arena_config_s arena_config_t;
+
+extern const arena_config_t arena_config_default;
 
 #endif /* JEMALLOC_INTERNAL_ARENA_TYPES_H */
