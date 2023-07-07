@@ -13498,88 +13498,74 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
  * See also RM_ValueLength(), which returns the length of a set.
  * -------------------------------------------------------------------------- */
 
-/* Operate a set key.
- * REDISMODULE_SET_ADD: Add new elements into a set. If the key is an empty key
- *                      open for writing, it is created with an empty set key in
- *                      order to add the elements.
- * REDISMODULE_SET_REM: Remove the specified element from the set and the key will be
- *                      removed if has no any element in after remove elements operation.
- * REDISMODULE_SET_ISMEMBER: Determines if member is a member of the set stored at key .
+/* Add new elements into a set.
  *
- * * **key**: The set key to be operated.
- * * **op**: The operation to the set key.
- * * **flags**: The flag for following arguments. 
- *      REDISMODULE_SET_CSTRING: The following arguments are null terminated C
- *                               strings instead of RedisModuleString objects.
- * * **...**: The actual arguments.
+ * On success the function returns REDISMODULE_OK. On the following errors
+ * REDISMODULE_ERR is returned:
  *
- * Return value:
+ * * The key was not opened for writing.
+ * * The key is of the wrong type.
  *
- * REDISMODULE_SET_ADD: The number of elements were really added.
- * REDISMODULE_SET_REM: The number of elements were really removed.
- * REDISMODULE_SET_ISMEMBER: 1 if all the elements are member of the set. Otherwise return 0.
+ * In order to know the number of elements were added, the additional argument
+ * 'added' must be passed, that populates the integer by reference
+ * setting it to the number of elements added depending on the outcome of the operation.
+ * The 'added' argument can be NULL if the caller is not interested
+ * to know if the number of elements were really added.
  *
- * If the return value is zero, `errno` is set as follows:
- *
- * - EINVAL if key is NULL.
- * - ENOTSUP if the key is associated with a non Set value.
- * - EBADF if the key was not opened for writing.
- * - ENOENT if no elements were counted as described under Return value above.
- *   This is not actually an error. The return value can be e.g. zero if all elements
- *   had been in the set key for add operation.
- */
-int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ...) {
-    va_list ap;
-    RedisModuleString *ele;
-    int count = (op == REDISMODULE_SET_ISMEMBER) ? 1 : 0;
-
-    if (!key) {
-        errno = EINVAL;
-        return 0;
-    } else if (key->value && key->value->type != OBJ_SET) {
-        errno = ENOTSUP;
-        return 0;
-    } else if ((op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ISMEMBER) &&
-               !key->value)
-    {
-        /* return 0 if key doesn't exist for remove and ismember operation. */
-        errno = ENOENT;
-        return 0;
-    } else if ((op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ADD) && 
-               !(key->mode & REDISMODULE_WRITE))
-    {
-        /* return 0 if key is not write mode for remove and add operation. */
-        errno = EBADF;
-        return 0;
+ * Empty keys will be created with set key type and continue. */
+int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, size_t *added) {
+    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
+    if (key->value && key->value->type != OBJ_SET) return REDISMODULE_ERR;
+    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
+    size_t i, numadded = 0;
+    for (i = 0; i < numeles; i++) {
+        numadded += setTypeAdd(key->value,eles[i]->ptr);
     }
+    if (added) *added = numadded;
 
-    if (key->value == NULL && op == REDISMODULE_SET_ADD)
-        moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
+    return REDISMODULE_OK;
+}
 
-    va_start(ap, flags);
-    while(1) {
-        if (flags & REDISMODULE_SET_CSTRING) {
-            char *cele = va_arg(ap,char*);
-            if (cele == NULL) break;
-            ele = createRawStringObject(cele,strlen(cele));
-        } else {
-            ele = va_arg(ap,RedisModuleString*);
-            if (ele == NULL) break;
+/* Remove the specified element from the set and the key will be
+ * removed if has no any element in after remove elements operation.
+ * The function returns REDISMODULE_OK on success, and REDISMODULE_ERR
+ * on one of the following conditions:
+ *
+ * * The key was not opened for writing.
+ * * The key is of the wrong type.
+ *
+ * Key will be removed if has no any element in after remove elements operation
+ *
+ * The return value does NOT indicate the fact the element was really
+ * removed (since it existed) or not, just if the function was executed
+ * with success.
+ *
+ * In order to know the number of elements were removed, the additional argument
+ * 'deleted' must be passed, that populates the integer by reference
+ * setting it to the number of elements removed depending on the outcome of the operation.
+ * The 'deleted' argument can be NULL if the caller is not interested
+ * to know if the number of elements were really removed.
+ *
+ * Empty keys will be handled correctly by doing nothing. */
+int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, size_t *deleted) {
+    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
+    if (key->value && key->value->type != OBJ_SET) return REDISMODULE_ERR;
+
+    size_t i, numdeleted = 0;
+    for (i = 0; i < numeles; i++) {
+        if (key->value != NULL) {
+            numdeleted += setTypeRemove(key->value,eles[i]->ptr);
+            moduleDelKeyIfEmpty(key);
         }
-       
-        if (op == REDISMODULE_SET_ADD)
-            count += setTypeAdd(key->value,ele->ptr);
-        else if (op == REDISMODULE_SET_REM) {
-            count += setTypeRemove(key->value,ele->ptr);
-            if (moduleDelKeyIfEmpty(key)) break;
-        } else if (op == REDISMODULE_SET_ISMEMBER)
-            count &= setTypeIsMember(key->value,ele->ptr);
     }
-    va_end(ap);
+    if (deleted) *deleted = numdeleted;
+    return REDISMODULE_OK;
+}
 
-    moduleDelKeyIfEmpty(key);
-    if (count == 0) errno = ENOENT;
-    return count;
+/* Return 1 as member of the key or 0 as not member of the key. */
+int RM_SetIsMember(RedisModuleKey *key, RedisModuleString *ele) {
+    if (!key->value || key->value->type != OBJ_SET) return 0;
+    return setTypeIsMember(key->value,ele->ptr);
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
@@ -13939,5 +13925,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RdbStreamFree);
     REGISTER_API(RdbLoad);
     REGISTER_API(RdbSave);
-    REGISTER_API(SetOperate);
+    REGISTER_API(SetAdd);
+    REGISTER_API(SetRem);
+    REGISTER_API(SetIsMember);
 }

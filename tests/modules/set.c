@@ -12,13 +12,11 @@ int set_rem(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     int keymode = REDISMODULE_READ | REDISMODULE_WRITE;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
-    int count = 0;
-    for (int i = 2; i < argc; i++) {
-        count += RedisModule_SetOperate(key, REDISMODULE_SET_REM, REDISMODULE_SET_NONE, argv[i], NULL);
-    }
-    RedisModule_ReplyWithLongLong(ctx, count);
-    RedisModule_CloseKey(key);
-    return REDISMODULE_OK;
+    size_t deleted;
+    if (RedisModule_SetRem(key, &argv[2], argc-2, &deleted) == REDISMODULE_OK)
+        return RedisModule_ReplyWithLongLong(ctx, deleted);
+    else
+        return RedisModule_ReplyWithError(ctx, "ERR SetRem failed");
 }
 
 /* SET.ADD key member [member ...]
@@ -31,13 +29,11 @@ int set_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     int keymode = REDISMODULE_READ | REDISMODULE_WRITE;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
-    int count = 0;
-    for (int i = 2; i < argc; i++) {
-        count += RedisModule_SetOperate(key, REDISMODULE_SET_ADD, REDISMODULE_SET_NONE, argv[i], NULL);
-    }
-    RedisModule_ReplyWithLongLong(ctx, count);
-    RedisModule_CloseKey(key);
-    return REDISMODULE_OK;
+    size_t added;
+    if (RedisModule_SetAdd(key, &argv[2], argc-2, &added) == REDISMODULE_OK)
+        return RedisModule_ReplyWithLongLong(ctx, added);
+    else
+        return RedisModule_ReplyWithError(ctx, "ERR SetAdd failed");
 }
 
 /* SET.ISMEMBER key member
@@ -50,10 +46,7 @@ int set_ismember(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     int keymode = REDISMODULE_READ;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
-    int count = RedisModule_SetOperate(key, REDISMODULE_SET_ISMEMBER, REDISMODULE_SET_NONE, argv[2], NULL);
-    RedisModule_ReplyWithLongLong(ctx, count);
-    RedisModule_CloseKey(key);
-    return REDISMODULE_OK;
+    return RedisModule_ReplyWithLongLong(ctx, RedisModule_SetIsMember(key, argv[2]));
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
