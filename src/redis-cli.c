@@ -2681,7 +2681,8 @@ static int parseOptions(int argc, char **argv) {
             sds filepass = sdsempty();
             char buf[32];
             if ((fp = fopen(argv[++i], "r")) == NULL) {
-                fprintf(stderr, "can't open the file '%s'\n", argv[i]);
+                fprintf(stderr, "Can't open the file '%s': %s\n", argv[i],
+                        strerror(errno));
                 continue;
             }
             while(fgets(buf, 32, fp) != NULL) {
