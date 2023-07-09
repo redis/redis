@@ -13,6 +13,25 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 6.2.13   Released Mon July 10 12:00:00 IDT 2023
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security Fixes:
+* (CVE-2022-24834) A specially crafted Lua script executing in Redis can trigger
+  a heap overflow in the cjson and cmsgpack libraries, and result in heap
+  corruption and potentially remote code execution. The problem exists in all
+  versions of Redis with Lua scripting support, starting from 2.6, and affects
+  only authenticated and authorized users.
+
+Bug Fixes
+=========
+
+* Re-enable downscale rehashing while there is a fork child (#12276)
+
+
+================================================================================
 Redis 6.2.12 Released Mon Apr 17 16:00:00 IST 2023
 ================================================================================
 
