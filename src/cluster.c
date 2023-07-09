@@ -1235,7 +1235,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     sds hostname = clusterNodeHostname(node);
     addReplyArrayLen(c, 4);
     if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
-        addReplyBulkCString(c, clusterNodeLastKnownIp(node));
+        addReplyBulkCString(c, clusterNodeIp(node));
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_HOSTNAME) {
         if (sdslen(hostname) != 0) {
             addReplyBulkCBuffer(c, hostname, sdslen(hostname));
@@ -1272,7 +1272,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
 
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, "ip");
-        addReplyBulkCString(c, clusterNodeLastKnownIp(node));
+        addReplyBulkCString(c, clusterNodeIp(node));
         length--;
     }
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME

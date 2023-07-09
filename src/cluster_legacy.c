@@ -6220,7 +6220,7 @@ unsigned int countChannelsInSlot(unsigned int hashslot) {
     return j;
 }
 
-char* clusterNodeLastKnownIp(clusterNode *node) {
+char* clusterNodeIp(clusterNode *node) {
     return nodeData(node)->ip;
 }
 

@@ -107,7 +107,7 @@ sds genClusterInfoString(void);
 /*
  * Functions requiring per-clustering mechanism implementation: "Accessor" functions
  */
-char* clusterNodeLastKnownIp(clusterNode *node);
+char* clusterNodeIp(clusterNode *node);
 int clusterNodePort(clusterNode *node);
 clusterNode* clusterNodeGetSlaveof(clusterNode *node);
 int clusterNodeConfirmedReachable(clusterNode* node);
