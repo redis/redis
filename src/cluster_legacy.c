@@ -909,7 +909,7 @@ void clusterInit(void) {
     clusterUpdateMyselfHostname();
 }
 
-void clusterInitListeners(void) {
+void clusterInitLast(void) {
     if (connectionIndexByType(connTypeOfCluster()->get_type(NULL)) < 0) {
         serverLog(LL_WARNING, "Missing connection type %s, but it is required for the Cluster bus.", connTypeOfCluster()->get_type(NULL));
         exit(1);

@@ -73,7 +73,7 @@ typedef struct clusterState {
  * Functions requiring per-clustering mechanism implementation: Lifecycle events
  */
 void clusterInit(void);
-void clusterInitListeners(void);
+void clusterInitLast(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
 int verifyClusterConfigWithData(void);
@@ -84,29 +84,17 @@ void clusterUpdateMyselfAnnouncedPorts(void);
 void clusterUpdateMyselfIp(void);
 
 /*
- * Functions requiring per-clustering mechanism implementation: cluster commands
+ * Functions requiring per-clustering mechanism implementation
  */
 void clusterCommand(client *c);
-
-/*
- * Functions requiring per-clustering mechanism implementation: Pub/Sub and module messages
- */
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
-
-/*
- * Functions requiring per-clustering mechanism implementation: Debug and info actions
- */
 void freeThisNodesLink(clusterNode *node);
 void freeNodeInboundLink(clusterNode *node);
 sds clusterGenNodesDescription(client *c, int filter, int use_pport);
 sds genClusterInfoString(void);
-
-/*
- * Functions requiring per-clustering mechanism implementation: "Accessor" functions
- */
 char* clusterNodeIp(clusterNode *node);
 int clusterNodePort(clusterNode *node);
 clusterNode* clusterNodeGetSlaveof(clusterNode *node);
@@ -131,11 +119,6 @@ clusterNode* getSlave(clusterNode *node, int slave_idx);
 long long getReplOffset(clusterNode* node);
 int clusterNodePlainTextPort(clusterNode *node);
 sds clusterNodeHostname(clusterNode* node);
-
-/*
- * Functions not requiring per-clustering mechanism implementation. These functions have generic implementations
- * (in cluster.c) that work with both legacy and flotilla cluster implementations.
- */
 int verifyClusterNodeId(const char *name, int length);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int clusterRedirectBlockedClientIfNeeded(client *c);

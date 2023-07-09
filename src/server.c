@@ -7319,7 +7319,7 @@ int main(int argc, char **argv) {
     ACLLoadUsersAtStartup();
     initListeners();
     if (server.cluster_enabled) {
-        clusterInitListeners();
+        clusterInitLast();
     }
     InitServerLast();
 
