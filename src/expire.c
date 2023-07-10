@@ -58,10 +58,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
         robj *keyobj = createStringObject(key,sdslen(key));
 
         propagateExpire(db,keyobj,server.lazyfree_lazy_expire);
-        if (server.lazyfree_lazy_expire)
-            dbAsyncDelete(db,keyobj);
-        else
-            dbSyncDelete(db,keyobj);
+        dbDelete(db, keyobj);
         notifyKeyspaceEvent(NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
         signalModifiedKey(NULL, db, keyobj);
