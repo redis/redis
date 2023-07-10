@@ -116,10 +116,12 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     if (expire) {
         setExpire(c,c->db,key,milliseconds);
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
-         * EX/PX/EXAT/PXAT flag. */
-        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
-        decrRefCount(milliseconds_obj);
+         * EX/PX/EXAT flag. */
+        if (!(flags & OBJ_PXAT)) {
+            robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+            rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
+            decrRefCount(milliseconds_obj);
+        }
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     }
 
@@ -388,8 +390,7 @@ void getexCommand(client *c) {
     if (((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
         /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
          * has already elapsed so delete the key in that case. */
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db, c->argv[1]) :
-                      dbSyncDelete(c->db, c->argv[1]);
+        int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
         serverAssert(deleted);
         robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
         rewriteClientCommandVector(c,2,aux,c->argv[1]);
@@ -576,10 +577,14 @@ void msetGenericCommand(client *c, int nx) {
         }
     }
 
+    int setkey_flags = nx ? SETKEY_DOESNT_EXIST : 0;
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c, c->db, c->argv[j], c->argv[j + 1], 0);
+        setKey(c, c->db, c->argv[j], c->argv[j + 1], setkey_flags);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
+        /* In MSETNX, It could be that we're overriding the same key, we can't be sure it doesn't exist. */
+        if (nx)
+            setkey_flags = SETKEY_ADD_OR_UPDATE;
     }
     server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);

@@ -356,6 +356,7 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
+    client *c;
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -620,7 +621,7 @@ void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
  * Helpers for modules API implementation
  * -------------------------------------------------------------------------- */
 
-client *moduleAllocTempClient(user *user) {
+client *moduleAllocTempClient(void) {
     client *c = NULL;
 
     if (moduleTempClientCount > 0) {
@@ -630,10 +631,8 @@ client *moduleAllocTempClient(user *user) {
     } else {
         c = createClient(NULL);
         c->flags |= CLIENT_MODULE;
+        c->user = NULL; /* Root user */
     }
-
-    c->user = user;
-
     return c;
 }
 
@@ -858,7 +857,7 @@ void moduleCallCommandUnblockedHandler(client *c) {
     moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
     selectDb(ctx.client, c->db->id);
 
-    CallReply *reply = moduleParseReply(c, &ctx);
+    CallReply *reply = moduleParseReply(c, NULL);
     module->in_call++;
     promise->on_unblocked(&ctx, reply, promise->private_data);
     module->in_call--;
@@ -879,7 +878,7 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
     out_ctx->module = module;
     out_ctx->flags = ctx_flags;
     if (ctx_flags & REDISMODULE_CTX_TEMP_CLIENT)
-        out_ctx->client = moduleAllocTempClient(NULL);
+        out_ctx->client = moduleAllocTempClient();
     else if (ctx_flags & REDISMODULE_CTX_NEW_CLIENT)
         out_ctx->client = createClient(NULL);
 
@@ -2999,15 +2998,15 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
 
 /* Reply with the error create from a printf format and arguments.
  *
- * If the error code is already passed in the string 'fmt', the error
- * code provided is used, otherwise the string "-ERR " for the generic
- * error code is automatically added.
+ * Note that 'fmt' must contain all the error, including
+ * the initial error code. The function only provides the initial "-", so
+ * the usage is, for example:
  *
- * The usage is, for example:
+ *     RedisModule_ReplyWithErrorFormat(ctx,"ERR Wrong Type: %s",type);
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "An error: %s", "foo");
+ * and not just:
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "-WRONGTYPE Wrong Type: %s", "foo");
+ *     RedisModule_ReplyWithErrorFormat(ctx,"Wrong Type: %s",type);
  *
  * The function always returns REDISMODULE_OK.
  */
@@ -3015,10 +3014,16 @@ int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
 
+    int len = strlen(fmt) + 2; /* 1 for the \0 and 1 for the hyphen */
+    char *hyphenfmt = zmalloc(len);
+    snprintf(hyphenfmt, len, "-%s", fmt);
+
     va_list ap;
     va_start(ap, fmt);
-    addReplyErrorFormatInternal(c, 0, fmt, ap);
+    addReplyErrorFormatInternal(c, 0, hyphenfmt, ap);
     va_end(ap);
+
+    zfree(hyphenfmt);
 
     return REDISMODULE_OK;
 }
@@ -6038,7 +6043,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(buf,len);
         } else if (*p == 'l') {
             long long ll = va_arg(ap,long long);
-            argv[argc++] = createObject(OBJ_STRING,sdsfromlonglong(ll));
+            argv[argc++] = createStringObjectFromLongLongWithSds(ll);
         } else if (*p == 'v') {
              /* A vector of strings */
              robj **v = va_arg(ap, void*);
@@ -6215,20 +6220,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
-    user *user = NULL;
-    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
-        user = ctx->user ? ctx->user->user : ctx->client->user;
-        if (!user) {
-            errno = ENOTSUP;
-            if (error_as_call_replies) {
-                sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
-                reply = callReplyCreateError(msg, ctx);
-            }
-            return reply;
-        }
-    }
-
-    c = moduleAllocTempClient(user);
+    c = moduleAllocTempClient();
 
     if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
         /* We do not want to allow block, the module do not expect it */
@@ -6247,6 +6239,20 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->resp = ctx->client->resp;
     }
     if (ctx->module) ctx->module->in_call++;
+
+    user *user = NULL;
+    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
+        user = ctx->user ? ctx->user->user : ctx->client->user;
+        if (!user) {
+            errno = ENOTSUP;
+            if (error_as_call_replies) {
+                sds msg = sdsnew("cannot run as user, no user directly attached to context or context's client");
+                reply = callReplyCreateError(msg, ctx);
+            }
+            goto cleanup;
+        }
+        c->user = user;
+    }
 
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
@@ -6567,7 +6573,7 @@ uint64_t moduleTypeEncodeId(const char *name, int encver) {
 /* Search, in the list of exported data types of all the modules registered,
  * a type with the same name as the one given. Returns the moduleType
  * structure pointer if such a module is found, or NULL otherwise. */
-moduleType *moduleTypeLookupModuleByName(const char *name) {
+moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_case) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -6579,7 +6585,9 @@ moduleType *moduleTypeLookupModuleByName(const char *name) {
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
-            if (memcmp(name,mt->name,sizeof(mt->name)) == 0) {
+            if ((!ignore_case && memcmp(name,mt->name,sizeof(mt->name)) == 0)
+                || (ignore_case && !strcasecmp(name, mt->name)))
+            {
                 dictReleaseIterator(di);
                 return mt;
             }
@@ -6587,6 +6595,15 @@ moduleType *moduleTypeLookupModuleByName(const char *name) {
     }
     dictReleaseIterator(di);
     return NULL;
+}
+/* Search all registered modules by name, and name is case sensitive */
+moduleType *moduleTypeLookupModuleByName(const char *name) {
+    return moduleTypeLookupModuleByNameInternal(name, 0);
+}
+
+/* Search all registered modules by name, but case insensitive */
+moduleType *moduleTypeLookupModuleByNameIgnoreCase(const char *name) {
+    return moduleTypeLookupModuleByNameInternal(name, 1);
 }
 
 /* Lookup a module by ID, with caching. This function is used during RDB
@@ -7671,7 +7688,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
      * commands from Lua or MULTI. We actually create an already aborted
      * (client set to NULL) blocked client handle, and actually reply with
      * an error. */
-    mstime_t timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
@@ -7680,8 +7696,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = privdata;
-    bc->reply_client = moduleAllocTempClient(NULL);
-    bc->thread_safe_ctx_client = moduleAllocTempClient(NULL);
+    bc->reply_client = moduleAllocTempClient();
+    bc->thread_safe_ctx_client = moduleAllocTempClient();
     if (bc->client)
         bc->reply_client->resp = bc->client->resp;
     bc->dbid = c->db->id;
@@ -7689,7 +7705,17 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
-    c->bstate.timeout = timeout;
+
+    c->bstate.timeout = 0;
+    if (timeout_ms) {
+        mstime_t now = mstime();
+        if  (timeout_ms > LLONG_MAX - now) {
+            c->bstate.module_blocked_handle = NULL;
+            addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
+            return bc;
+        }
+        c->bstate.timeout = timeout_ms + now;
+    }
 
     if (islua || ismulti) {
         c->bstate.module_blocked_handle = NULL;
@@ -7699,13 +7725,12 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Blocking module command called from a Reply callback context");
-    }
-    else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
+    } else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,c->bstate.timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -8242,6 +8267,11 @@ void moduleHandleBlockedClients(void) {
              * properly unblocked by the module. */
             bc->disconnect_callback = NULL;
             unblockClient(c, 1);
+
+            /* Update the wait offset, we don't know if this blocked client propagated anything,
+             * currently we rather not add any API for that, so we just assume it did. */
+            c->woff = server.master_repl_offset;
+
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
@@ -8610,8 +8640,14 @@ void firePostExecutionUnitJobs(void) {
  * infinite loops by halting the execution could result in violation of the feature correctness
  * and so Redis will make no attempt to protect the module from infinite loops.
  *
- * 'free_pd' can be NULL and in such case will not be used. */
+ * 'free_pd' can be NULL and in such case will not be used.
+ *
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) or
+ * if the instance is a readonly replica. */
 int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+    if (server.loading|| (server.masterhost && server.repl_slave_ro)) {
+        return REDISMODULE_ERR;
+    }
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
@@ -8919,7 +8955,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         else
             memset(master_id,0,REDISMODULE_NODE_ID_LEN);
     }
-    if (port) *port = node->port;
+    if (port) *port = getNodeDefaultClientPort(node);
 
     /* As usually we have to remap flags for modules, in order to ensure
      * we can provide binary compatibility. */
@@ -10635,7 +10671,8 @@ void moduleCallCommandFilters(client *c) {
     RedisModuleCommandFilterCtx filter = {
         .argv = c->argv,
         .argv_len = c->argv_len,
-        .argc = c->argc
+        .argc = c->argc,
+        .c = c
     };
 
     while((ln = listNext(&li))) {
@@ -10726,6 +10763,11 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     fctx->argc--;
 
     return REDISMODULE_OK;
+}
+
+/* Get Client ID for client that issued the command we are filtering */
+unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->c->id;
 }
 
 /* For a given pointer allocated via RedisModule_Alloc() or
@@ -11032,12 +11074,12 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             vstr = lpGetValue(p,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createObject(OBJ_STRING,sdsfromlonglong(vll));
+                createStringObjectFromLongLongWithSds(vll);
             p = lpNext(o->ptr,p);
             vstr = lpGetValue(p,&vlen,&vll);
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createObject(OBJ_STRING,sdsfromlonglong(vll));
+                createStringObjectFromLongLongWithSds(vll);
             fn(key, field, value, privdata);
             p = lpNext(o->ptr,p);
             decrRefCount(field);
@@ -13712,6 +13754,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgInsert);
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
+    REGISTER_API(CommandFilterGetClientId);
     REGISTER_API(Fork);
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);

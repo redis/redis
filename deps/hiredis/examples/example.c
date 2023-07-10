@@ -7,6 +7,54 @@
 #include <winsock2.h> /* For struct timeval */
 #endif
 
+static void example_argv_command(redisContext *c, size_t n) {
+    char **argv, tmp[42];
+    size_t *argvlen;
+    redisReply *reply;
+
+    /* We're allocating two additional elements for command and key */
+    argv = malloc(sizeof(*argv) * (2 + n));
+    argvlen = malloc(sizeof(*argvlen) * (2 + n));
+
+    /* First the command */
+    argv[0] = (char*)"RPUSH";
+    argvlen[0] = sizeof("RPUSH") - 1;
+
+    /* Now our key */
+    argv[1] = (char*)"argvlist";
+    argvlen[1] = sizeof("argvlist") - 1;
+
+    /* Now add the entries we wish to add to the list */
+    for (size_t i = 2; i < (n + 2); i++) {
+        argvlen[i] = snprintf(tmp, sizeof(tmp), "argv-element-%zu", i - 2);
+        argv[i] = strdup(tmp);
+    }
+
+    /* Execute the command using redisCommandArgv.  We're sending the arguments with
+     * two explicit arrays.  One for each argument's string, and the other for its
+     * length. */
+    reply = redisCommandArgv(c, n + 2, (const char **)argv, (const size_t*)argvlen);
+
+    if (reply == NULL || c->err) {
+        fprintf(stderr, "Error:  Couldn't execute redisCommandArgv\n");
+        exit(1);
+    }
+
+    if (reply->type == REDIS_REPLY_INTEGER) {
+        printf("%s reply: %lld\n", argv[0], reply->integer);
+    }
+
+    freeReplyObject(reply);
+
+    /* Clean up */
+    for (size_t i = 2; i < (n + 2); i++) {
+        free(argv[i]);
+    }
+
+    free(argv);
+    free(argvlen);
+}
+
 int main(int argc, char **argv) {
     unsigned int j, isunix = 0;
     redisContext *c;
@@ -86,6 +134,9 @@ int main(int argc, char **argv) {
         }
     }
     freeReplyObject(reply);
+
+    /* See function for an example of redisCommandArgv */
+    example_argv_command(c, 10);
 
     /* Disconnects and frees the context */
     redisFree(c);

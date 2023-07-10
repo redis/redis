@@ -38,19 +38,19 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op);
 
 /* Factory method to return a set that *can* hold "value". When the object has
- * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table.
+ * an integer-encodable value, an intset will be returned. Otherwise a listpack
+ * or a regular hash table.
  *
  * The size hint indicates approximately how many items will be added which is
  * used to determine the initial representation. */
 robj *setTypeCreate(sds value, size_t size_hint) {
-    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint < server.set_max_intset_entries)
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint <= server.set_max_intset_entries)
         return createIntsetObject();
-    if (size_hint < server.set_max_listpack_entries)
+    if (size_hint <= server.set_max_listpack_entries)
         return createSetListpackObject();
 
     /* We may oversize the set by using the hint if the hint is not accurate,
-     * but we will assume this is accpetable to maximize performance. */
+     * but we will assume this is acceptable to maximize performance. */
     robj *o = createSetObject();
     dictExpand(o->ptr, size_hint);
     return o;
@@ -59,8 +59,8 @@ robj *setTypeCreate(sds value, size_t size_hint) {
 /* Check if the existing set should be converted to another encoding based off the
  * the size hint. */
 void setTypeMaybeConvert(robj *set, size_t size_hint) {
-    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint >= server.set_max_listpack_entries)
-        || (set->encoding == OBJ_ENCODING_INTSET && size_hint >= server.set_max_intset_entries))
+    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint > server.set_max_listpack_entries)
+        || (set->encoding == OBJ_ENCODING_INTSET && size_hint > server.set_max_intset_entries))
     {
         setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
     }
@@ -798,8 +798,9 @@ void spopWithCountCommand(client *c) {
 
         /* todo: Move the spop notification to be executed after the command logic. */
 
-        /* Propagate this command as a DEL operation */
-        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
+        /* Propagate this command as a DEL or UNLINK operation */
+        robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c, 2, aux, c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
         return;
     }
@@ -807,13 +808,14 @@ void spopWithCountCommand(client *c) {
     /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
-    robj *propargv[3];
+    unsigned long batchsize = count > 1024 ? 1024 : count;
+    robj **propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
     propargv[0] = shared.srem;
     propargv[1] = c->argv[1];
+    unsigned long propindex = 2;
     addReplySetLen(c,count);
 
     /* Common iteration vars. */
-    robj *objele;
     char *str;
     size_t len;
     int64_t llele;
@@ -841,16 +843,19 @@ void spopWithCountCommand(client *c) {
 
             if (str) {
                 addReplyBulkCBuffer(c, str, len);
-                objele = createStringObject(str, len);
+                propargv[propindex++] = createStringObject(str, len);
             } else {
                 addReplyBulkLongLong(c, llele);
-                objele = createStringObjectFromLongLong(llele);
+                propargv[propindex++] = createStringObjectFromLongLong(llele);
             }
-
             /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
+                }
+                propindex = 2;
+            }
 
             /* Store pointer for later deletion and move to next. */
             ps[i] = p;
@@ -861,14 +866,18 @@ void spopWithCountCommand(client *c) {
         zfree(ps);
         set->ptr = lp;
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
-        while(count--) {
-            objele = setTypePopRandom(set);
-            addReplyBulk(c, objele);
-
+        for (unsigned long i = 0; i < count; i++) {
+            propargv[propindex] = setTypePopRandom(set);
+            addReplyBulk(c, propargv[propindex]);
+            propindex++;
             /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
+                }
+                propindex = 2;
+            }
         }
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
@@ -918,22 +927,35 @@ void spopWithCountCommand(client *c) {
         while (setTypeNext(si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
-                objele = createStringObjectFromLongLong(llele);
+                propargv[propindex++] = createStringObjectFromLongLong(llele);
             } else {
                 addReplyBulkCBuffer(c, str, len);
-                objele = createStringObject(str, len);
+                propargv[propindex++] = createStringObject(str, len);
             }
-
             /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long i = 2; i < propindex; i++) {
+                    decrRefCount(propargv[i]);
+                }
+                propindex = 2;
+            }
         }
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
         dbReplaceValue(c->db,c->argv[1],newset);
     }
+
+    /* Replicate/AOF the remaining elements as an SREM operation */
+    if (propindex != 2) {
+        alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+        for (unsigned long i = 2; i < propindex; i++) {
+            decrRefCount(propargv[i]);
+        }
+        propindex = 2;
+    }
+    zfree(propargv);
 
     /* Don't propagate the command itself even if we incremented the
      * dirty counter. We don't want to propagate an SPOP command since
@@ -1093,7 +1115,10 @@ void srandmemberWithCountCommand(client *c) {
      * Listpack encoded sets are meant to be relatively small, so
      * SRANDMEMBER_SUB_STRATEGY_MUL isn't necessary and we rather not make
      * copies of the entries. Instead, we emit them directly to the output
-     * buffer. */
+     * buffer.
+     *
+     * And it is inefficient to repeatedly pick one random element from a
+     * listpack in CASE 4. So we use this instead. */
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -1316,7 +1341,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         } else if (sets[0]->encoding == OBJ_ENCODING_LISTPACK) {
             /* To avoid many reallocs, we estimate that the result is a listpack
              * of approximately the same size as the first set. Then we shrink
-             * it or possibly convert it to intset it in the end. */
+             * it or possibly convert it to intset in the end. */
             unsigned char *lp = lpNew(lpBytes(sets[0]->ptr));
             dstset = createObject(OBJ_SET, lp);
             dstset->encoding = OBJ_ENCODING_LISTPACK;
@@ -1516,8 +1541,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-    /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
+    /* We need a temp set object to store our union/diff. If the dstkey
+     * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
     dstset = createIntsetObject();
 

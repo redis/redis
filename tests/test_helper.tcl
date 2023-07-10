@@ -98,9 +98,11 @@ set ::all_tests {
     unit/cluster/cli
     unit/cluster/scripting
     unit/cluster/hostnames
+    unit/cluster/human-announced-nodename
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
     unit/cluster/links
+    unit/cluster/cluster-response-tls
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

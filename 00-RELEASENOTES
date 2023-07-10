@@ -11,6 +11,102 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+
+================================================================================
+Redis 7.2 RC3   Released Mon July 10 12:00:00 IDT 2023
+================================================================================
+
+Upgrade urgency LOW: This is the third Release Candidate for Redis 7.2.
+Upgrade urgency SECURITY: If you're using a previous release candidate of 7.2.
+
+Security Fixes:
+* (CVE-2022-24834) A specially crafted Lua script executing in Redis can trigger
+  a heap overflow in the cjson and cmsgpack libraries, and result in heap
+  corruption and potentially remote code execution. The problem exists in all
+  versions of Redis with Lua scripting support, starting from 2.6, and affects
+  only authenticated and authorized users.
+* (CVE-2023-36824) Extracting key names from a command and a list of arguments
+  may, in some cases, trigger a heap overflow and result in reading random heap
+  memory, heap corruption and potentially remote code execution. Specifically:
+  using COMMAND GETKEYS* and validation of key names in ACL rules.
+
+New Features
+============
+
+New administrative and introspection commands and command arguments
+-------------------------------------------------------------------
+
+* Make SENTINEL CONFIG [SET|GET] variadic. (#10362)
+
+Potentially Breaking / Behavior Changes
+=======================================
+
+* Cluster SHARD IDs are no longer visible in the cluster nodes output,
+  introduced in 7.2-RC1. (#10536, #12166)
+* When calling PUBLISH with a RESP3 client that's also subscribed to the same channel,
+  the order is changed and the reply is sent before the published message (#12326)
+
+New configuration options
+=========================
+
+* Add a new loglevel "nothing" to disable logging (#12133)
+* Add cluster-announce-human-nodename - a unique identifier for a node that is
+  be used in logs for debugging (#9564)
+
+Other General Improvements
+==========================
+
+* Allow CLUSTER SLOTS / SHARDS commands during loading (#12269)
+* Support TLS service when "tls-cluster" is not enabled and persist both plain
+  and TLS port in nodes.conf (#12233)
+* Update SPOP and RESTORE commands to replicate unlink commands to replicas
+  when the server is configured to use async server deletes (#12320)
+* Try lazyfree the temporary zset in ZUNION / ZINTER / ZDIFF (#12229)
+
+Performance and resource utilization improvements
+=================================================
+
+* Optimize PSUBSCRIBE and PUNSUBSCRIBE from O(N*M) to O(N) (#12298)
+* Optimize SCAN, SSCAN, HSCAN, ZSCAN commands (#12209)
+* Set Jemalloc --disable-cache-oblivious to reduce memory overhead (#12315)
+* Optimize ZINTERCARD to avoid create a temporary zset (#12229)
+* Optimize HRANDFIELD and ZRANDMEMBER listpack encoded (#12205)
+* Numerous other optimizations (#12155, #12082, #11626, #11944, #12316, #12250,
+  #12177, #12185)
+
+
+Changes in CLI tools
+====================
+
+* redis-cli: Handle RESP3 double responses that contain a NaN (#12254)
+* redis-cli: Support URIs with IPv6 (#11834)
+
+Module API changes
+==================
+
+* Align semantics of the new (v7.2 RC2) RM_ReplyWithErrorFormat with RM_ReplyWithError.
+  This is a breaking change that affects the generated error code. (#12321)
+* Forbid RM_AddPostNotificationJob on loading and on read-only replicas (#12304)
+* Add ability for module command filter to know which client is being handled (#12219)
+
+Bug Fixes
+=========
+
+* Fix broken protocol when PUBLISH is used inside MULTI when the RESP3
+  publishing client is also subscribed for the channel (#12326)
+* Fix WAIT to be effective after a blocked module command being unblocked (#12220)
+* Re-enable downscale rehashing while there is a fork child (#12276)
+* Fix possible hang in HRANDFIELD, SRANDMEMBER, ZRANDMEMBER when used with `<count>` (#12276)
+* Improve fairness issue in RANDOMKEY, HRANDFIELD, SRANDMEMBER, ZRANDMEMBER, SPOP, and eviction (#12276)
+* Cluster: fix a race condition where a slot migration may revert on a subsequent failover or node joining (#12344)
+
+Fixes for issues in previous releases of Redis 7.2
+--------------------------------------------------
+
+* Fix XREADGROUP BLOCK with ">" from hanging (#12301)
+* Fix assertion when a blocked command is rejected when re-processed. (#12247)
+* Fix use after free on a blocking RM_Call. (#12342)
+
 ================================================================================
 Redis 7.2 RC2   Released Mon May 15 12:00:00 IST 2023
 ================================================================================
@@ -110,6 +206,9 @@ New administrative and introspection commands and command arguments
 
 * CLIENT SETINFO lets client library report name and version Redis (#11758)
 * CLIENT NO-TOUCH for clients to run commands without affecting LRU/LFU of keys (#11483)
+* Introduce Shard IDs to logically group nodes in cluster mode based on
+  replication. Shard IDs are automatically assigned and visible via
+  `CLUSTER MYSHARDID`. (#10536)
 
 Command replies that have been extended
 ---------------------------------------
@@ -250,32 +349,38 @@ and we don't get reports of serious issues for a while.
 A special thank you for the amount of work put into this release by:
 
 - Meir Shpilraien
+- Guy Benoish
 - Viktor Söderqvist
 - Zhu Binbin
-- Guy Benoish
 - Oran Agra
 - sundb
 - Ran Shidlansik
 - Zhenwei Pi
+- Jason Elbaum
 - Karthik Subbarao
+- Madelyn Olson
 - Huang Zhw
 - Ping Xie
-- Madelyn Olson
-- Brennan Cathcart
-- Chen Tianjie
-- Slava Koyfman
 - Ozan Tezcan
-- Zhu Tian
-- Roshan Khatri
+- Chen Tianjie
+- Deng Ju
+- Wen Hui
+- Brennan Cathcart
+- Itamar Haber
 - Shaya Potter
+- Roshan Khatri
+- Slava Koyfman
+- Zhu Tian
 - Moti Cohen
 - Arad Zilberstein
-- Wen Hui
 - Basel Naamna
 - Mingyi Kang
 - Uri Yagelnik
 - Filipe Oliveira
+- Zhao Zhao
 - Valentino Geron
+- Yaacov Hazan
 - Adi Pinsky
+- David Carlier
 - Li Changjun
 

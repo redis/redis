@@ -63,15 +63,21 @@ test "The old master eventually gets reconfigured as a slave" {
 }
 
 foreach flag {crash-after-election crash-after-promotion} {
+    # Before each SIMULATE-FAILURE test, re-source init-tests to get a clean environment
+    source "../tests/includes/init-tests.tcl"
+
     test "SENTINEL SIMULATE-FAILURE $flag works" {
         assert_equal {OK} [S 0 SENTINEL SIMULATE-FAILURE $flag]
 
         # Trigger a failover, failover will trigger leader election, replica promotion
+        # Sentinel may enter failover and exit before the command, catch it and allow it
         wait_for_condition 300 50 {
             [catch {S 0 SENTINEL FAILOVER mymaster}] == 0
+            ||
+            ([catch {S 0 SENTINEL FAILOVER mymaster} reply] == 1 &&
+            [string match {*couldn't open socket: connection refused*} $reply])
         } else {
             catch {S 0 SENTINEL FAILOVER mymaster} reply
-            puts [S 0 SENTINEL REPLICAS mymaster]
             fail "Sentinel manual failover did not work, got: $reply"
         }
 

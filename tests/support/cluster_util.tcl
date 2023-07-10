@@ -70,9 +70,18 @@ proc continuous_slot_allocation {masters} {
 # tests run.
 proc cluster_setup {masters node_count slot_allocator code} {
     # Have all nodes meet
-    for {set i 1} {$i < $node_count} {incr i} {
-        R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
+    if {$::tls} {
+        set tls_cluster [lindex [R 0 CONFIG GET tls-cluster] 1]
     }
+    if {$::tls && !$tls_cluster} {
+        for {set i 1} {$i < $node_count} {incr i} {
+            R 0 CLUSTER MEET [srv -$i host] [srv -$i pport]
+        }         
+    } else {
+        for {set i 1} {$i < $node_count} {incr i} {
+            R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
+        }
+    }  
 
     $slot_allocator $masters
 
@@ -149,4 +158,44 @@ proc get_cluster_nodes id {
         lappend nodes $node
     }
     return $nodes
+}
+
+# Returns 1 if no node knows node_id, 0 if any node knows it.
+proc node_is_forgotten {node_id} {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        set cluster_nodes [R $j CLUSTER NODES]
+        if { [string match "*$node_id*" $cluster_nodes] } {
+            return 0
+        }
+    }
+    return 1
+}
+
+# Isolate a node from the cluster and give it a new nodeid
+proc isolate_node {id} {
+    set node_id [R $id CLUSTER MYID]
+    R $id CLUSTER RESET HARD
+    # Here we additionally test that CLUSTER FORGET propagates to all nodes.
+    set other_id [expr $id == 0 ? 1 : 0]
+    R $other_id CLUSTER FORGET $node_id
+    wait_for_condition 50 100 {
+        [node_is_forgotten $node_id]
+    } else {
+        fail "CLUSTER FORGET was not propagated to all nodes"
+    }
+}
+
+# Check if cluster's view of hostnames is consistent
+proc are_hostnames_propagated {match_string} {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        set cfg [R $j cluster slots]
+        foreach node $cfg {
+            for {set i 2} {$i < [llength $node]} {incr i} {
+                if {! [string match $match_string [lindex [lindex [lindex $node $i] 3] 1]] } {
+                    return 0
+                }
+            }
+        }
+    }
+    return 1
 }

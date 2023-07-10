@@ -275,27 +275,6 @@ start_server {tags {"introspection"}} {
         r client list
     } {*name= *}
 
-    test {Coverage: Basic CLIENT CACHING} {
-        set rd_redirection [redis_deferring_client]
-        $rd_redirection client id
-        set redir_id [$rd_redirection read]
-        r CLIENT TRACKING on OPTIN REDIRECT $redir_id
-        r CLIENT CACHING yes
-        r CLIENT TRACKING off
-    } {OK}
-
-    test {Coverage: Basic CLIENT REPLY} {
-        r CLIENT REPLY on
-    } {OK}
-
-    test {Coverage: Basic CLIENT TRACKINGINFO} {
-        r CLIENT TRACKINGINFO
-    } {flags off redirect -1 prefixes {}}
-
-    test {Coverage: Basic CLIENT GETREDIR} {
-        r CLIENT GETREDIR
-    } {-1}
-
     test {CLIENT SETNAME does not accept spaces} {
         catch {r client setname "foo bar"} e
         set e
@@ -652,6 +631,10 @@ start_server {tags {"introspection"}} {
     }
 
     test {redis-server command line arguments - error cases} {
+        # Take '--invalid' as the option.
+        catch {exec src/redis-server --invalid} err
+        assert_match {*Bad directive or wrong number of arguments*} $err
+
         catch {exec src/redis-server --port} err
         assert_match {*'port'*wrong number of arguments*} $err
 
