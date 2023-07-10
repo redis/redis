@@ -1010,7 +1010,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         if(o->encoding == OBJ_ENCODING_INT) {
             asize = sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_RAW) {
-            asize = sdsZmallocSize(o->ptr)+sizeof(*o);
+            asize = stringObjectLen(o)+sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
             asize = zmalloc_size((void *)o);
         } else {

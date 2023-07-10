@@ -42,6 +42,17 @@ start_server {tags {"bitops"}} {
         r get bits
     } {ABC}
 
+    test {BITFIELD against memory size for set bit in different order} {
+        r del bits
+        r bitfield bits set u32 #0 1
+        r bitfield bits set u32 #22 1
+        set res [r memory usage bits]
+        r del bits
+        r bitfield bits set u32 #22 1
+        r bitfield bits set u32 #0 1
+        assert_equal $res [r memory usage bits]
+    }
+
     test {BITFIELD basic INCRBY form} {
         r del bits
         set results {}
