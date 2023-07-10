@@ -519,7 +519,7 @@ struct commandHelp {
     5,
     "2.0.0" },
     { "HINCRBY",
-    "key field increment",
+    "key field increment [field2 increment2 ...] [SV|CNT|V|KV]",
     "Increment the integer value of a hash field by the given number",
     5,
     "2.0.0" },
