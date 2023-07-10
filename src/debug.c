@@ -413,9 +413,9 @@ void debugCommand(client *c) {
 "    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
-"HTSTATS <dbid>",
+"HTSTATS <dbid> [full]",
 "    Return hash table statistics of the specified Redis database.",
-"HTSTATS-KEY <key>",
+"HTSTATS-KEY <key> [full]",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
@@ -713,7 +713,10 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        dictExpand(c->db->dict,keys);
+        if (dictTryExpand(c->db->dict, keys) != DICT_OK) {
+            addReplyError(c, "OOM in dictTryExpand");
+            return;
+        }
         long valsize = 0;
         if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
@@ -883,10 +886,11 @@ NULL
         sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
-    } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {
         long dbid;
         sds stats = sdsempty();
         char buf[4096];
+        int full = 0;
 
         if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK) {
             sdsfree(stats);
@@ -897,20 +901,26 @@ NULL
             addReplyError(c,"Out of range database");
             return;
         }
+        if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
+            full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].dict);
+        dictGetStats(buf,sizeof(buf),server.db[dbid].dict,full);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
+        dictGetStats(buf,sizeof(buf),server.db[dbid].expires,full);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
-    } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc >= 3) {
         robj *o;
         dict *ht = NULL;
+        int full = 0;
+
+        if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
+            full = 1;
 
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
@@ -933,7 +943,7 @@ NULL
                             "represented using an hash table");
         } else {
             char buf[4096];
-            dictGetStats(buf,sizeof(buf),ht);
+            dictGetStats(buf,sizeof(buf),ht,full);
             addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
@@ -1211,6 +1221,8 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     GET_SET_RETURN(uc->uc_mcontext.gregs[16], eip);
     #elif defined(__ia64__) /* Linux IA64 */
     GET_SET_RETURN(uc->uc_mcontext.sc_ip, eip);
+    #elif defined(__riscv) /* Linux RISC-V */
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[REG_PC], eip);
     #elif defined(__arm__) /* Linux ARM */
     GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
@@ -1445,6 +1457,49 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.gregs[18]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
+    #elif defined(__riscv) /* Linux RISC-V */
+    serverLog(LL_WARNING,
+	"\n"
+    "ra:%016lx gp:%016lx\ntp:%016lx t0:%016lx\n"
+    "t1:%016lx t2:%016lx\ns0:%016lx s1:%016lx\n"
+    "a0:%016lx a1:%016lx\na2:%016lx a3:%016lx\n"
+    "a4:%016lx a5:%016lx\na6:%016lx a7:%016lx\n"
+    "s2:%016lx s3:%016lx\ns4:%016lx s5:%016lx\n"
+    "s6:%016lx s7:%016lx\ns8:%016lx s9:%016lx\n"
+    "s10:%016lx s11:%016lx\nt3:%016lx t4:%016lx\n"
+    "t5:%016lx t6:%016lx\n",
+        (unsigned long) uc->uc_mcontext.__gregs[1],
+        (unsigned long) uc->uc_mcontext.__gregs[3],
+        (unsigned long) uc->uc_mcontext.__gregs[4],
+        (unsigned long) uc->uc_mcontext.__gregs[5],
+        (unsigned long) uc->uc_mcontext.__gregs[6],
+        (unsigned long) uc->uc_mcontext.__gregs[7],
+        (unsigned long) uc->uc_mcontext.__gregs[8],
+        (unsigned long) uc->uc_mcontext.__gregs[9],
+        (unsigned long) uc->uc_mcontext.__gregs[10],
+        (unsigned long) uc->uc_mcontext.__gregs[11],
+        (unsigned long) uc->uc_mcontext.__gregs[12],
+        (unsigned long) uc->uc_mcontext.__gregs[13],
+        (unsigned long) uc->uc_mcontext.__gregs[14],
+        (unsigned long) uc->uc_mcontext.__gregs[15],
+        (unsigned long) uc->uc_mcontext.__gregs[16],
+        (unsigned long) uc->uc_mcontext.__gregs[17],
+        (unsigned long) uc->uc_mcontext.__gregs[18],
+        (unsigned long) uc->uc_mcontext.__gregs[19],
+        (unsigned long) uc->uc_mcontext.__gregs[20],
+        (unsigned long) uc->uc_mcontext.__gregs[21],
+        (unsigned long) uc->uc_mcontext.__gregs[22],
+        (unsigned long) uc->uc_mcontext.__gregs[23],
+        (unsigned long) uc->uc_mcontext.__gregs[24],
+        (unsigned long) uc->uc_mcontext.__gregs[25],
+        (unsigned long) uc->uc_mcontext.__gregs[26],
+        (unsigned long) uc->uc_mcontext.__gregs[27],
+        (unsigned long) uc->uc_mcontext.__gregs[28],
+        (unsigned long) uc->uc_mcontext.__gregs[29],
+        (unsigned long) uc->uc_mcontext.__gregs[30],
+        (unsigned long) uc->uc_mcontext.__gregs[31]
+    );
+    logStackContent((void**)uc->uc_mcontext.__gregs[REG_SP]);
     #elif defined(__aarch64__) /* Linux AArch64 */
     serverLog(LL_WARNING,
 	      "\n"
@@ -1803,7 +1858,7 @@ sds genClusterDebugString(sds infostring) {
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
     infostring = sdscatsds(infostring, genClusterInfoString()); 
     infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
-    infostring = sdscatsds(infostring, clusterGenNodesDescription(0, 0));
+    infostring = sdscatsds(infostring, clusterGenNodesDescription(NULL, 0, 0));
     
     return infostring;
 }

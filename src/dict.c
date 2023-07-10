@@ -294,9 +294,12 @@ int dictTryExpand(dict *d, unsigned long size) {
  * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
+    unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
     if (dict_can_resize == DICT_RESIZE_AVOID && 
-        (DICTHT_SIZE(d->ht_size_exp[1]) / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_resize_ratio))
+        ((s1 > s0 && s1 / s0 < dict_force_resize_ratio) ||
+         (s1 < s0 && s0 / s1 < dict_force_resize_ratio)))
     {
         return 0;
     }
@@ -1095,19 +1098,30 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             } else {
                 emptylen = 0;
                 while (he) {
-                    /* Collect all the elements of the buckets found non
-                     * empty while iterating. */
-                    *des = he;
-                    des++;
+                    /* Collect all the elements of the buckets found non empty while iterating.
+                     * To avoid the issue of being unable to sample the end of a long chain,
+                     * we utilize the Reservoir Sampling algorithm to optimize the sampling process.
+                     * This means that even when the maximum number of samples has been reached,
+                     * we continue sampling until we reach the end of the chain.
+                     * See https://en.wikipedia.org/wiki/Reservoir_sampling. */
+                    if (stored < count) {
+                        des[stored] = he;
+                    } else {
+                        unsigned long r = randomULong() % (stored + 1);
+                        if (r < count) des[r] = he;
+                    }
+
                     he = dictGetNext(he);
                     stored++;
-                    if (stored == count) return stored;
                 }
+                if (stored >= count) goto end;
             }
         }
         i = (i+1) & maxsizemask;
     }
-    return stored;
+
+end:
+    return stored > count ? count : stored;
 }
 
 
@@ -1502,7 +1516,7 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
 /* ------------------------------- Debugging ---------------------------------*/
 
 #define DICT_STATS_VECTLEN 50
-size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
+size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx, int full) {
     unsigned long i, slots = 0, chainlen, maxchainlen = 0;
     unsigned long totchainlen = 0;
     unsigned long clvector[DICT_STATS_VECTLEN];
@@ -1510,7 +1524,23 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
 
     if (d->ht_used[htidx] == 0) {
         return snprintf(buf,bufsize,
-            "No stats available for empty dictionaries\n");
+            "Hash table %d stats (%s):\n"
+            "No stats available for empty dictionaries\n",
+            htidx, (htidx == 0) ? "main hash table" : "rehashing target");
+    }
+
+    if (!full) {
+        l += snprintf(buf+l,bufsize-l,
+            "Hash table %d stats (%s):\n"
+            " table size: %lu\n"
+            " number of elements: %lu\n",
+            htidx, (htidx == 0) ? "main hash table" : "rehashing target",
+            DICTHT_SIZE(d->ht_size_exp[htidx]), d->ht_used[htidx]);
+
+        /* Make sure there is a NULL term at the end. */
+        buf[bufsize-1] = '\0';
+        /* Unlike snprintf(), return the number of characters actually written. */
+        return strlen(buf);
     }
 
     /* Compute stats. */
@@ -1557,24 +1587,25 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx) {
             i, clvector[i], ((float)clvector[i]/DICTHT_SIZE(d->ht_size_exp[htidx]))*100);
     }
 
+    /* Make sure there is a NULL term at the end. */
+    buf[bufsize-1] = '\0';
     /* Unlike snprintf(), return the number of characters actually written. */
-    if (bufsize) buf[bufsize-1] = '\0';
     return strlen(buf);
 }
 
-void dictGetStats(char *buf, size_t bufsize, dict *d) {
+void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     size_t l;
     char *orig_buf = buf;
     size_t orig_bufsize = bufsize;
 
-    l = _dictGetStatsHt(buf,bufsize,d,0);
-    buf += l;
-    bufsize -= l;
-    if (dictIsRehashing(d) && bufsize > 0) {
-        _dictGetStatsHt(buf,bufsize,d,1);
+    l = _dictGetStatsHt(buf,bufsize,d,0,full);
+    if (dictIsRehashing(d) && bufsize > l) {
+        buf += l;
+        bufsize -= l;
+        _dictGetStatsHt(buf,bufsize,d,1,full);
     }
     /* Make sure there is a NULL term at the end. */
-    if (orig_bufsize) orig_buf[orig_bufsize-1] = '\0';
+    orig_buf[orig_bufsize-1] = '\0';
 }
 
 /* ------------------------------- Benchmark ---------------------------------*/

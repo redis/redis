@@ -314,6 +314,14 @@ start_server {
         $rd close
     } {0} {external:skip}
 
+    test {XREAD and XREADGROUP against wrong parameter} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        assert_error "ERR Unbalanced 'xreadgroup' list of streams: for each stream key an ID or '>' must be specified." {r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream }
+        assert_error "ERR Unbalanced 'xread' list of streams: for each stream key an ID or '$' must be specified." {r XREAD COUNT 1 STREAMS mystream }
+    }
+
     test {Blocking XREAD: key deleted} {
         r DEL mystream
         r XADD mystream 666 f v
@@ -466,7 +474,30 @@ start_server {
         
         $rd close 
     }
-    
+
+    test {Blocking XREADGROUP for stream key that has clients blocked on list - avoid endless loop} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set rd3 [redis_deferring_client]
+
+        $rd1 xreadgroup GROUP mygroup myuser COUNT 10 BLOCK 10000 STREAMS mystream >
+        $rd2 xreadgroup GROUP mygroup myuser COUNT 10 BLOCK 10000 STREAMS mystream >
+        $rd3 xreadgroup GROUP mygroup myuser COUNT 10 BLOCK 10000 STREAMS mystream >
+
+        wait_for_blocked_clients_count 3
+
+        r xadd mystream MAXLEN 5000 * field1 value1 field2 value2 field3 value3
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+
+        assert_equal [r ping] {PONG}
+    }
+
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
         r config resetstat
         r del mystream

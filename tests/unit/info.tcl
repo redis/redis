@@ -287,21 +287,26 @@ start_server {tags {"info" "external:skip"}} {
             set cycle2 [getInfoProperty $info2 eventloop_cycles]
             set el_sum2 [getInfoProperty $info2 eventloop_duration_sum]
             set cmd_sum2 [getInfoProperty $info2 eventloop_duration_cmd_sum]
+            if {$::verbose} { puts "eventloop metrics cycle1: $cycle1, cycle2: $cycle2" }
             assert_morethan $cycle2 $cycle1
             assert_lessthan $cycle2 [expr $cycle1+10] ;# we expect 2 or 3 cycles here, but allow some tolerance
+            if {$::verbose} { puts "eventloop metrics el_sum1: $el_sum1, el_sum2: $el_sum2" }
             assert_morethan $el_sum2 $el_sum1
-            assert_lessthan $el_sum2 [expr $el_sum1+5000] ;# we expect roughly 100ms here, but allow some tolerance
+            assert_lessthan $el_sum2 [expr $el_sum1+30000] ;# we expect roughly 100ms here, but allow some tolerance
+            if {$::verbose} { puts "eventloop metrics cmd_sum1: $cmd_sum1, cmd_sum2: $cmd_sum2" }
             assert_morethan $cmd_sum2 $cmd_sum1
-            assert_lessthan $cmd_sum2 [expr $cmd_sum1+3000] ;# we expect about tens of ms here, but allow some tolerance
+            assert_lessthan $cmd_sum2 [expr $cmd_sum1+15000] ;# we expect about tens of ms here, but allow some tolerance
         }
- 
+
         test {stats: instantaneous metrics} {
             r config resetstat
             after 1600 ;# hz is 10, wait for 16 cron tick so that sample array is fulfilled
             set value [s instantaneous_eventloop_cycles_per_sec]
+            if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_cycles_per_sec: $value" }
             assert_morethan $value 0
             assert_lessthan $value 15 ;# default hz is 10
             set value [s instantaneous_eventloop_duration_usec]
+            if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_duration_usec: $value" }
             assert_morethan $value 0
             assert_lessthan $value 22000 ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
         }

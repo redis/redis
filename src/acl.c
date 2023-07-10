@@ -1923,26 +1923,28 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
 
         if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
             /* Check for pattern violations. */
-            listRewind(c->pubsub_patterns,&lpi);
-            while (!kill && ((lpn = listNext(&lpi)) != NULL)) {
-
-                o = lpn->value;
+            dictIterator *di = dictGetIterator(c->pubsub_patterns);
+            dictEntry *de;
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
                 int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
                 kill = (res == ACL_DENIED_CHANNEL);
             }
+            dictReleaseIterator(di);
+
             /* Check for channel violations. */
             if (!kill) {
                 /* Check for global channels violation. */
-                dictIterator *di = dictGetIterator(c->pubsub_channels);
-
-                dictEntry *de;                
+                di = dictGetIterator(c->pubsub_channels);
                 while (!kill && ((de = dictNext(di)) != NULL)) {
                     o = dictGetKey(de);
                     int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
                     kill = (res == ACL_DENIED_CHANNEL);
                 }
                 dictReleaseIterator(di);
+            }
 
+            if (!kill) {
                 /* Check for shard channels violation. */
                 di = dictGetIterator(c->pubsubshard_channels);
                 while (!kill && ((de = dictNext(di)) != NULL)) {
@@ -1950,7 +1952,6 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
                     int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
                     kill = (res == ACL_DENIED_CHANNEL);
                 }
-
                 dictReleaseIterator(di);
             }
 
@@ -2112,10 +2113,6 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
         return C_ERR; 
     }
 
-    /* Try to apply the user rules in a fake user to see if they
-     * are actually valid. */
-    user *fakeuser = ACLCreateUnlinkedUser();
-
     /* Merged selectors before trying to process */
     int merged_argc;
     sds *acl_args = ACLMergeSelectorArguments(argv + 2, argc - 2, &merged_argc, argc_err);
@@ -2123,6 +2120,10 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
     if (!acl_args) {
         return C_ERR;
     }
+
+    /* Try to apply the user rules in a fake user to see if they
+     * are actually valid. */
+    user *fakeuser = ACLCreateUnlinkedUser();
 
     for (int j = 0; j < merged_argc; j++) {
         if (ACLSetUser(fakeuser,acl_args[j],sdslen(acl_args[j])) == C_ERR) {

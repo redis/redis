@@ -214,6 +214,16 @@ start_server {tags {"bitops"}} {
         }
         r del mystring
     }
+
+    test {BITFIELD_RO with only key as argument} {
+        set res [r bitfield_ro bits]
+        assert {$res eq {}}
+    }
+
+    test {BITFIELD_RO fails when write option is used} {
+        catch {r bitfield_ro bits set u8 0 100 get u8 0} err
+        assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
+    }
 }
 
 start_server {tags {"repl external:skip"}} {
@@ -240,12 +250,12 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 100 [$slave bitfield_ro bits get u8 0]
         }
 
-        test {BITFIELD_RO with only key as argument} {
+        test {BITFIELD_RO with only key as argument on read-only replica} {
             set res [$slave bitfield_ro bits]
             assert {$res eq {}}
         }
 
-        test {BITFIELD_RO fails when write option is used} {
+        test {BITFIELD_RO fails when write option is used on read-only replica} {
             catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
             assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
         }

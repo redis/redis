@@ -148,6 +148,19 @@ start_server {overrides {save {900 1}} tags {"modules"}} {
         $rd_trk close
     }
 
+    test {publish to self inside rm_call} {
+        r hello 3
+        r subscribe foo
+
+        # published message comes after the response of the command that issued it.
+        assert_equal [r test.rm_call publish foo bar] {1}
+        assert_equal [r read] {message foo bar}
+
+        r unsubscribe foo
+        r hello 2
+        set _ ""
+    } {} {resp3}
+
     test {test module get/set client name by id api} {
         catch { r test.getname } e
         assert_equal "-ERR No name" $e

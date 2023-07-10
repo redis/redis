@@ -8,7 +8,10 @@ static const char log_command_name[] = "commandfilter.log";
 static const char ping_command_name[] = "commandfilter.ping";
 static const char retained_command_name[] = "commandfilter.retained";
 static const char unregister_command_name[] = "commandfilter.unregister";
+static const char unfiltered_clientid_name[] = "unfilter_clientid";
 static int in_log_command = 0;
+
+unsigned long long unfiltered_clientid = 0;
 
 static RedisModuleCommandFilter *filter, *filter1;
 static RedisModuleString *retained;
@@ -89,6 +92,26 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+int CommandFilter_UnfilteredClientdId(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc < 2)
+        return RedisModule_WrongArity(ctx);
+
+    long long id;
+    if (RedisModule_StringToLongLong(argv[1], &id) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "invalid client id");
+        return REDISMODULE_OK;
+    }
+    if (id < 0) {
+        RedisModule_ReplyWithError(ctx, "invalid client id");
+        return REDISMODULE_OK;
+    }
+
+    unfiltered_clientid = id;
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 /* Filter to protect against Bug #11894 reappearing
  *
  * ensures that the filter is only run the first time through, and not on reprocessing
@@ -117,6 +140,9 @@ void CommandFilter_BlmoveSwap(RedisModuleCommandFilterCtx *filter)
 
 void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
 {
+    unsigned long long id = RedisModule_CommandFilterGetClientId(filter);
+    if (id == unfiltered_clientid) return;
+
     if (in_log_command) return;  /* don't process our own RM_Call() from CommandFilter_LogCommand() */
 
     /* Fun manipulations:
@@ -190,6 +216,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,unregister_command_name,
                 CommandFilter_UnregisterCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, unfiltered_clientid_name,
+                CommandFilter_UnfilteredClientdId, "admin", 1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, 

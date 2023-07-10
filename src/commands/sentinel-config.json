@@ -1,12 +1,18 @@
 {
     "CONFIG": {
         "summary": "Configures Redis Sentinel.",
-        "complexity": "O(1)",
+        "complexity": "O(N) when N is the number of configuration parameters provided",
         "group": "sentinel",
         "since": "6.2.0",
         "arity": -4,
         "container": "SENTINEL",
         "function": "sentinelCommand",
+        "history": [
+            [
+                "7.2.0",
+                "Added the ability to set and get multiple parameters in one call."
+            ]
+        ],
         "command_flags": [
             "ADMIN",
             "SENTINEL",
@@ -42,7 +48,7 @@
                             "type": "string"
                         },
                         "announce-port": {
-                            "type": "integer"
+                            "type": "string"
                         },
                         "sentinel-user": {
                             "type": "string"
@@ -63,6 +69,9 @@
                                 },
                                 {
                                     "const": "warning"
+                                },
+                                {
+                                    "const": "nothing"
                                 },
                                 {
                                     "const": "unknown"
@@ -87,6 +96,7 @@
                         "name":"set",
                         "token":"SET",
                         "type":"block",
+                        "multiple": true,
                         "arguments":[
                             {
                                 "name":"parameter",
@@ -101,7 +111,8 @@
                     {
                         "token":"GET",
                         "name":"parameter",
-                        "type":"string"
+                        "type":"string",
+                        "multiple": true
                     }
                 ]
             }

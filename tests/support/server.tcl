@@ -496,7 +496,8 @@ proc start_server {options {code undefined}} {
     # start every server on a different port
     set port [find_available_port $::baseport $::portcount]
     if {$::tls} {
-        dict set config "port" 0
+        set pport [find_available_port $::baseport $::portcount]
+        dict set config "port" $pport
         dict set config "tls-port" $port
         dict set config "tls-cluster" "yes"
         dict set config "tls-replication" "yes"
@@ -567,6 +568,8 @@ proc start_server {options {code undefined}} {
             puts "Port $port was already busy, trying another port..."
             set port [find_available_port $::baseport $::portcount]
             if {$::tls} {
+                set pport [find_available_port $::baseport $::portcount]
+                dict set config port $pport
                 dict set config "tls-port" $port
             } else {
                 dict set config port $port
@@ -615,6 +618,9 @@ proc start_server {options {code undefined}} {
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
     dict set srv "unixsocket" $unixsocket
+    if {$::tls} {
+        dict set srv "pport" $pport
+    }
 
     # if a block of code is supplied, we wait for the server to become
     # available, create a client object and kill the server afterwards
