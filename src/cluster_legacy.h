@@ -370,11 +370,7 @@ typedef struct clusterNodeInternal {
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNodeInternal;
 
-typedef clusterNodeInternal clusterNode;
-
-#define nodeData(node) ((clusterNodeInternal*)node)
-#define asNode(handle) ((clusterNode*)handle)
+#define asNode(handle) ((clusterNodeInternal*)handle)
 #define asHandle(node) ((clusterNodeHandle)node)
-//#define nodeData(node) ((clusterNodeInternal*)node->data)
 
 #endif //CLUSTER_LEGACY_H
