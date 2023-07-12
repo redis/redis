@@ -63,7 +63,7 @@ start_server {
         r XADD mystream * item 2 value b
 
         # coverage for objectComputeSize
-        assert_morethan [memory_usage mystream] 0
+        assert_morethan [r memory usage mystream] 4729
 
         assert_equal 2 [r XLEN mystream]
         set items [r XRANGE mystream - +]

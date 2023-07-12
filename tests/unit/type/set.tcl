@@ -23,7 +23,11 @@ start_server {
         assert_encoding $type myset
 
         # coverage for objectComputeSize
-        assert_morethan [memory_usage myset] 0
+        if {$type == "listpack"} {
+            assert_morethan [r memory usage myset] 58
+        } elseif {$type == "hashtable"} {
+            assert_morethan [r memory usage myset] 6080
+        }
 
         assert_equal 1 [r sadd myset bar]
         assert_equal 0 [r sadd myset bar]
@@ -43,6 +47,10 @@ start_server {
     test {SADD, SCARD, SISMEMBER, SMISMEMBER, SMEMBERS basics - intset} {
         create_set myset {17}
         assert_encoding intset myset
+
+        # coverage for objectComputeSize
+        assert_morethan [r memory usage myset] 56
+
         assert_equal 1 [r sadd myset 16]
         assert_equal 0 [r sadd myset 16]
         assert_equal 2 [r scard myset]
