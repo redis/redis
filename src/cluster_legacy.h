@@ -41,7 +41,7 @@ typedef struct clusterLink {
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
-    struct clusterNodeInternal *node;   /* Node related to this link. Initialized to NULL when unknown */
+    struct clusterNode *node;   /* Node related to this link. Initialized to NULL when unknown */
     int inbound;                /* 1 if this link is an inbound link accepted from the related node */
 } clusterLink;
 
@@ -70,9 +70,9 @@ typedef struct clusterStateInternal {
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
     dict *shards;         /* Hash table of shard_id -> list (of nodes) structures */
-    struct clusterNodeInternal *migrating_slots_to[CLUSTER_SLOTS];
-    struct clusterNodeInternal *importing_slots_from[CLUSTER_SLOTS];
-    struct clusterNodeInternal *slots[CLUSTER_SLOTS];
+    struct clusterNode *migrating_slots_to[CLUSTER_SLOTS];
+    struct clusterNode *importing_slots_from[CLUSTER_SLOTS];
+    struct clusterNode *slots[CLUSTER_SLOTS];
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     rax *slots_to_channels;
     /* The following fields are used to take the slave state on elections. */
@@ -84,7 +84,7 @@ typedef struct clusterStateInternal {
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
     /* Manual failover state of master. */
-    struct clusterNodeInternal *mf_slave;      /* Slave performing the manual failover. */
+    struct clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
                                    or -1 if still not received. */
@@ -327,14 +327,14 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
-    struct clusterNodeInternal *node;  /* Node reporting the failure condition. */
+    struct clusterNode *node;  /* Node reporting the failure condition. */
     mstime_t time;             /* Time of the last report from this node. */
 } clusterNodeFailReport;
 
 /* Holds cluster node data specific to *this* cluster implementation. In the near
  * future we will have multiple clustering implementations.
  */
-typedef struct clusterNodeInternal {
+typedef struct clusterNode {
     mstime_t ctime; /* Node object creation time. */
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
@@ -345,8 +345,8 @@ typedef struct clusterNodeInternal {
     int slot_info_pairs_count; /* Used number of slots in slot_info_pairs */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
-    struct clusterNodeInternal **slaves; /* pointers to slave nodes */
-    struct clusterNodeInternal *slaveof; /* pointer to the master node. Note that it
+    struct clusterNode **slaves; /* pointers to slave nodes */
+    struct clusterNode *slaveof; /* pointer to the master node. Note that it
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
@@ -368,9 +368,9 @@ typedef struct clusterNodeInternal {
     clusterLink *link;          /* TCP/IP link established toward this node */
     clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
-} clusterNodeInternal;
+} clusterNode;
 
-#define asNode(handle) ((clusterNodeInternal*)handle)
+#define asNode(handle) ((clusterNode*)handle)
 #define asHandle(node) ((clusterNodeHandle)node)
 
 #endif //CLUSTER_LEGACY_H
