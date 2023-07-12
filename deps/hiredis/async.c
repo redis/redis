@@ -59,7 +59,7 @@ void __redisSetError(redisContext *c, int type, const char *str);
 /* Functions managing dictionary of callbacks for pub/sub. */
 static unsigned int callbackHash(const void *key) {
     return dictGenHashFunction((const unsigned char *)key,
-                               hi_sdslen((const hisds)key));
+                               sdslen((const sds)key));
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
@@ -78,15 +78,15 @@ static int callbackKeyCompare(void *privdata, const void *key1, const void *key2
     int l1, l2;
     ((void) privdata);
 
-    l1 = hi_sdslen((const hisds)key1);
-    l2 = hi_sdslen((const hisds)key2);
+    l1 = sdslen((const sds)key1);
+    l2 = sdslen((const sds)key2);
     if (l1 != l2) return 0;
     return memcmp(key1,key2,l1) == 0;
 }
 
 static void callbackKeyDestructor(void *privdata, void *key) {
     ((void) privdata);
-    hi_sdsfree((hisds)key);
+    sdsfree((sds)key);
 }
 
 static void callbackValDestructor(void *privdata, void *val) {
@@ -474,7 +474,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
     dictEntry *de;
     int pvariant;
     char *stype;
-    hisds sname = NULL;
+    sds sname = NULL;
 
     /* Match reply with the expected format of a pushed message.
      * The type and number of elements (3 to 4) are specified at:
@@ -492,7 +492,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
 
         /* Locate the right callback */
         if (reply->element[1]->type == REDIS_REPLY_STRING) {
-            sname = hi_sdsnewlen(reply->element[1]->str,reply->element[1]->len);
+            sname = sdsnewlen(reply->element[1]->str,reply->element[1]->len);
             if (sname == NULL) goto oom;
 
             if ((de = dictFind(callbacks,sname)) != NULL) {
@@ -531,7 +531,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
                 }
             }
         }
-        hi_sdsfree(sname);
+        sdsfree(sname);
     } else {
         /* Shift callback for pending command in subscribed context. */
         __redisShiftCallback(&ac->sub.replies,dstcb);
@@ -576,7 +576,7 @@ void redisProcessCallbacks(redisAsyncContext *ac) {
         if (reply == NULL) {
             /* When the connection is being disconnected and there are
              * no more replies, this is the cue to really disconnect. */
-            if (c->flags & REDIS_DISCONNECTING && hi_sdslen(c->obuf) == 0
+            if (c->flags & REDIS_DISCONNECTING && sdslen(c->obuf) == 0
                 && ac->replies.head == NULL) {
                 __redisAsyncDisconnect(ac);
                 return;
@@ -842,7 +842,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     const char *cstr, *astr;
     size_t clen, alen;
     const char *p;
-    hisds sname;
+    sds sname;
     int ret;
 
     /* Don't accept new commands when the connection is about to be closed. */
@@ -867,7 +867,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
 
         /* Add every channel/pattern to the list of subscription callbacks. */
         while ((p = nextArgument(p,&astr,&alen)) != NULL) {
-            sname = hi_sdsnewlen(astr,alen);
+            sname = sdsnewlen(astr,alen);
             if (sname == NULL)
                 goto oom;
 
@@ -885,7 +885,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
 
             ret = dictReplace(cbdict,sname,&cb);
 
-            if (ret == 0) hi_sdsfree(sname);
+            if (ret == 0) sdsfree(sname);
         }
     } else if (strncasecmp(cstr,"unsubscribe\r\n",13) == 0) {
         /* It is only useful to call (P)UNSUBSCRIBE when the context is
@@ -901,7 +901,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
             /* Send an unsubscribe with specific channels/patterns.
              * Bookkeeping the number of expected replies */
             while ((p = nextArgument(p,&astr,&alen)) != NULL) {
-                sname = hi_sdsnewlen(astr,alen);
+                sname = sdsnewlen(astr,alen);
                 if (sname == NULL)
                     goto oom;
 
@@ -917,7 +917,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
                     /* Not subscribed to, reply to be ignored */
                     ac->sub.pending_unsubs += 1;
                 }
-                hi_sdsfree(sname);
+                sdsfree(sname);
             }
         } else {
             /* Send an unsubscribe without specific channels/patterns.
@@ -992,14 +992,14 @@ int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata
 }
 
 int redisAsyncCommandArgv(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, int argc, const char **argv, const size_t *argvlen) {
-    hisds cmd;
+    sds cmd;
     long long len;
     int status;
     len = redisFormatSdsCommandArgv(&cmd,argc,argv,argvlen);
     if (len < 0)
         return REDIS_ERR;
     status = __redisAsyncCommand(ac,fn,privdata,cmd,len);
-    hi_sdsfree(cmd);
+    sdsfree(cmd);
     return status;
 }
 

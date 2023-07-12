@@ -78,7 +78,7 @@ static int tests = 0, fails = 0, skips = 0;
 
 static void millisleep(int ms)
 {
-#if _MSC_VER
+#ifdef _MSC_VER
     Sleep(ms);
 #else
     usleep(ms*1000);
@@ -366,21 +366,21 @@ static void test_format_commands(void) {
         len == 4+4+(3+2)+4+(7+2)+4+(3+2));
     hi_free(cmd);
 
-    hisds sds_cmd;
+    sds sds_cmd;
 
     sds_cmd = NULL;
-    test("Format command into hisds by passing argc/argv without lengths: ");
+    test("Format command into sds by passing argc/argv without lengths: ");
     len = redisFormatSdsCommandArgv(&sds_cmd,argc,argv,NULL);
     test_cond(strncmp(sds_cmd,"*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n",len) == 0 &&
         len == 4+4+(3+2)+4+(3+2)+4+(3+2));
-    hi_sdsfree(sds_cmd);
+    sdsfree(sds_cmd);
 
     sds_cmd = NULL;
-    test("Format command into hisds by passing argc/argv with lengths: ");
+    test("Format command into sds by passing argc/argv with lengths: ");
     len = redisFormatSdsCommandArgv(&sds_cmd,argc,argv,lens);
     test_cond(strncmp(sds_cmd,"*3\r\n$3\r\nSET\r\n$7\r\nfoo\0xxx\r\n$3\r\nbar\r\n",len) == 0 &&
         len == 4+4+(3+2)+4+(7+2)+4+(3+2));
-    hi_sdsfree(sds_cmd);
+    sdsfree(sds_cmd);
 }
 
 static void test_append_formatted_commands(struct config config) {
@@ -409,10 +409,19 @@ static void test_tcp_options(struct config cfg) {
     redisContext *c;
 
     c = do_connect(cfg);
+
     test("We can enable TCP_KEEPALIVE: ");
     test_cond(redisEnableKeepAlive(c) == REDIS_OK);
 
-    disconnect(c, 0);
+#ifdef TCP_USER_TIMEOUT
+    test("We can set TCP_USER_TIMEOUT: ");
+    test_cond(redisSetTcpUserTimeout(c, 100) == REDIS_OK);
+#else
+    test("Setting TCP_USER_TIMEOUT errors when unsupported: ");
+    test_cond(redisSetTcpUserTimeout(c, 100) == REDIS_ERR && c->err == REDIS_ERR_IO);
+#endif
+
+    redisFree(c);
 }
 
 static void test_reply_reader(void) {
@@ -1244,9 +1253,9 @@ static void test_blocking_connection_timeouts(struct config config) {
 
         // flush connection buffer without waiting for the reply
         s = c->funcs->write(c);
-        assert(s == (ssize_t)hi_sdslen(c->obuf));
-        hi_sdsfree(c->obuf);
-        c->obuf = hi_sdsempty();
+        assert(s == (ssize_t)sdslen(c->obuf));
+        sdsfree(c->obuf);
+        c->obuf = sdsempty();
 
         tv.tv_sec = 0;
         tv.tv_usec = 10000;
@@ -1567,6 +1576,9 @@ static void test_throughput(struct config config) {
 // }
 
 #ifdef HIREDIS_TEST_ASYNC
+
+#pragma GCC diagnostic ignored "-Woverlength-strings"   /* required on gcc 4.8.x due to assert statements */
+
 struct event_base *base;
 
 typedef struct TestState {

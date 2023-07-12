@@ -59,7 +59,7 @@ static void __redisReaderSetError(redisReader *r, int type, const char *str) {
     }
 
     /* Clear input buffer on errors. */
-    hi_sdsfree(r->buf);
+    sdsfree(r->buf);
     r->buf = NULL;
     r->pos = r->len = 0;
 
@@ -658,7 +658,7 @@ redisReader *redisReaderCreateWithFunctions(redisReplyObjectFunctions *fn) {
     if (r == NULL)
         return NULL;
 
-    r->buf = hi_sdsempty();
+    r->buf = sdsempty();
     if (r->buf == NULL)
         goto oom;
 
@@ -699,12 +699,12 @@ void redisReaderFree(redisReader *r) {
         hi_free(r->task);
     }
 
-    hi_sdsfree(r->buf);
+    sdsfree(r->buf);
     hi_free(r);
 }
 
 int redisReaderFeed(redisReader *r, const char *buf, size_t len) {
-    hisds newbuf;
+    sds newbuf;
 
     /* Return early when this reader is in an erroneous state. */
     if (r->err)
@@ -713,19 +713,19 @@ int redisReaderFeed(redisReader *r, const char *buf, size_t len) {
     /* Copy the provided buffer. */
     if (buf != NULL && len >= 1) {
         /* Destroy internal buffer when it is empty and is quite large. */
-        if (r->len == 0 && r->maxbuf != 0 && hi_sdsavail(r->buf) > r->maxbuf) {
-            hi_sdsfree(r->buf);
-            r->buf = hi_sdsempty();
+        if (r->len == 0 && r->maxbuf != 0 && sdsavail(r->buf) > r->maxbuf) {
+            sdsfree(r->buf);
+            r->buf = sdsempty();
             if (r->buf == 0) goto oom;
 
             r->pos = 0;
         }
 
-        newbuf = hi_sdscatlen(r->buf,buf,len);
+        newbuf = sdscatlen(r->buf,buf,len);
         if (newbuf == NULL) goto oom;
 
         r->buf = newbuf;
-        r->len = hi_sdslen(r->buf);
+        r->len = sdslen(r->buf);
     }
 
     return REDIS_OK;
@@ -770,9 +770,9 @@ int redisReaderGetReply(redisReader *r, void **reply) {
     /* Discard part of the buffer when we've consumed at least 1k, to avoid
      * doing unnecessary calls to memmove() in sds.c. */
     if (r->pos >= 1024) {
-        if (hi_sdsrange(r->buf,r->pos,-1) < 0) return REDIS_ERR;
+        if (sdsrange(r->buf,r->pos,-1) < 0) return REDIS_ERR;
         r->pos = 0;
-        r->len = hi_sdslen(r->buf);
+        r->len = sdslen(r->buf);
     }
 
     /* Emit a reply when there is one. */

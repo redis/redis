@@ -317,7 +317,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
     const char *c = format;
     char *cmd = NULL; /* final command */
     int pos; /* position in final command */
-    hisds curarg, newarg; /* current argument */
+    sds curarg, newarg; /* current argument */
     int touched = 0; /* was the current argument touched? */
     char **curargv = NULL, **newargv = NULL;
     int argc = 0;
@@ -330,7 +330,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
         return -1;
 
     /* Build the command string accordingly to protocol */
-    curarg = hi_sdsempty();
+    curarg = sdsempty();
     if (curarg == NULL)
         return -1;
 
@@ -342,15 +342,15 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     if (newargv == NULL) goto memory_err;
                     curargv = newargv;
                     curargv[argc++] = curarg;
-                    totlen += bulklen(hi_sdslen(curarg));
+                    totlen += bulklen(sdslen(curarg));
 
                     /* curarg is put in argv so it can be overwritten. */
-                    curarg = hi_sdsempty();
+                    curarg = sdsempty();
                     if (curarg == NULL) goto memory_err;
                     touched = 0;
                 }
             } else {
-                newarg = hi_sdscatlen(curarg,c,1);
+                newarg = sdscatlen(curarg,c,1);
                 if (newarg == NULL) goto memory_err;
                 curarg = newarg;
                 touched = 1;
@@ -367,16 +367,16 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                 arg = va_arg(ap,char*);
                 size = strlen(arg);
                 if (size > 0)
-                    newarg = hi_sdscatlen(curarg,arg,size);
+                    newarg = sdscatlen(curarg,arg,size);
                 break;
             case 'b':
                 arg = va_arg(ap,char*);
                 size = va_arg(ap,size_t);
                 if (size > 0)
-                    newarg = hi_sdscatlen(curarg,arg,size);
+                    newarg = sdscatlen(curarg,arg,size);
                 break;
             case '%':
-                newarg = hi_sdscat(curarg,"%");
+                newarg = sdscat(curarg,"%");
                 break;
             default:
                 /* Try to detect printf format */
@@ -392,12 +392,12 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     while (*_p != '\0' && strchr(flags,*_p) != NULL) _p++;
 
                     /* Field width */
-                    while (*_p != '\0' && isdigit(*_p)) _p++;
+                    while (*_p != '\0' && isdigit((int) *_p)) _p++;
 
                     /* Precision */
                     if (*_p == '.') {
                         _p++;
-                        while (*_p != '\0' && isdigit(*_p)) _p++;
+                        while (*_p != '\0' && isdigit((int) *_p)) _p++;
                     }
 
                     /* Copy va_list before consuming with va_arg */
@@ -469,7 +469,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     if (_l < sizeof(_format)-2) {
                         memcpy(_format,c,_l);
                         _format[_l] = '\0';
-                        newarg = hi_sdscatvprintf(curarg,_format,_cpy);
+                        newarg = sdscatvprintf(curarg,_format,_cpy);
 
                         /* Update current position (note: outer blocks
                          * increment c twice so compensate here) */
@@ -498,9 +498,9 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
         if (newargv == NULL) goto memory_err;
         curargv = newargv;
         curargv[argc++] = curarg;
-        totlen += bulklen(hi_sdslen(curarg));
+        totlen += bulklen(sdslen(curarg));
     } else {
-        hi_sdsfree(curarg);
+        sdsfree(curarg);
     }
 
     /* Clear curarg because it was put in curargv or was free'd. */
@@ -515,10 +515,10 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
 
     pos = sprintf(cmd,"*%d\r\n",argc);
     for (j = 0; j < argc; j++) {
-        pos += sprintf(cmd+pos,"$%zu\r\n",hi_sdslen(curargv[j]));
-        memcpy(cmd+pos,curargv[j],hi_sdslen(curargv[j]));
-        pos += hi_sdslen(curargv[j]);
-        hi_sdsfree(curargv[j]);
+        pos += sprintf(cmd+pos,"$%zu\r\n",sdslen(curargv[j]));
+        memcpy(cmd+pos,curargv[j],sdslen(curargv[j]));
+        pos += sdslen(curargv[j]);
+        sdsfree(curargv[j]);
         cmd[pos++] = '\r';
         cmd[pos++] = '\n';
     }
@@ -540,11 +540,11 @@ memory_err:
 cleanup:
     if (curargv) {
         while(argc--)
-            hi_sdsfree(curargv[argc]);
+            sdsfree(curargv[argc]);
         hi_free(curargv);
     }
 
-    hi_sdsfree(curarg);
+    sdsfree(curarg);
     hi_free(cmd);
 
     return error_type;
@@ -577,16 +577,16 @@ int redisFormatCommand(char **target, const char *format, ...) {
     return len;
 }
 
-/* Format a command according to the Redis protocol using an hisds string and
- * hi_sdscatfmt for the processing of arguments. This function takes the
+/* Format a command according to the Redis protocol using an sds string and
+ * sdscatfmt for the processing of arguments. This function takes the
  * number of arguments, an array with arguments and an array with their
  * lengths. If the latter is set to NULL, strlen will be used to compute the
  * argument lengths.
  */
-long long redisFormatSdsCommandArgv(hisds *target, int argc, const char **argv,
+long long redisFormatSdsCommandArgv(sds *target, int argc, const char **argv,
                                     const size_t *argvlen)
 {
-    hisds cmd, aux;
+    sds cmd, aux;
     unsigned long long totlen, len;
     int j;
 
@@ -602,36 +602,36 @@ long long redisFormatSdsCommandArgv(hisds *target, int argc, const char **argv,
     }
 
     /* Use an SDS string for command construction */
-    cmd = hi_sdsempty();
+    cmd = sdsempty();
     if (cmd == NULL)
         return -1;
 
     /* We already know how much storage we need */
-    aux = hi_sdsMakeRoomFor(cmd, totlen);
+    aux = sdsMakeRoomFor(cmd, totlen);
     if (aux == NULL) {
-        hi_sdsfree(cmd);
+        sdsfree(cmd);
         return -1;
     }
 
     cmd = aux;
 
     /* Construct command */
-    cmd = hi_sdscatfmt(cmd, "*%i\r\n", argc);
+    cmd = sdscatfmt(cmd, "*%i\r\n", argc);
     for (j=0; j < argc; j++) {
         len = argvlen ? argvlen[j] : strlen(argv[j]);
-        cmd = hi_sdscatfmt(cmd, "$%U\r\n", len);
-        cmd = hi_sdscatlen(cmd, argv[j], len);
-        cmd = hi_sdscatlen(cmd, "\r\n", sizeof("\r\n")-1);
+        cmd = sdscatfmt(cmd, "$%U\r\n", len);
+        cmd = sdscatlen(cmd, argv[j], len);
+        cmd = sdscatlen(cmd, "\r\n", sizeof("\r\n")-1);
     }
 
-    assert(hi_sdslen(cmd)==totlen);
+    assert(sdslen(cmd)==totlen);
 
     *target = cmd;
     return totlen;
 }
 
-void redisFreeSdsCommand(hisds cmd) {
-    hi_sdsfree(cmd);
+void redisFreeSdsCommand(sds cmd) {
+    sdsfree(cmd);
 }
 
 /* Format a command according to the Redis protocol. This function takes the
@@ -715,7 +715,7 @@ static redisContext *redisContextInit(void) {
 
     c->funcs = &redisContextDefaultFuncs;
 
-    c->obuf = hi_sdsempty();
+    c->obuf = sdsempty();
     c->reader = redisReaderCreate();
     c->fd = REDIS_INVALID_FD;
 
@@ -735,7 +735,7 @@ void redisFree(redisContext *c) {
         c->funcs->close(c);
     }
 
-    hi_sdsfree(c->obuf);
+    sdsfree(c->obuf);
     redisReaderFree(c->reader);
     hi_free(c->tcp.host);
     hi_free(c->tcp.source_addr);
@@ -774,10 +774,10 @@ int redisReconnect(redisContext *c) {
         c->funcs->close(c);
     }
 
-    hi_sdsfree(c->obuf);
+    sdsfree(c->obuf);
     redisReaderFree(c->reader);
 
-    c->obuf = hi_sdsempty();
+    c->obuf = sdsempty();
     c->reader = redisReaderCreate();
 
     if (c->obuf == NULL || c->reader == NULL) {
@@ -1004,22 +1004,22 @@ int redisBufferWrite(redisContext *c, int *done) {
     if (c->err)
         return REDIS_ERR;
 
-    if (hi_sdslen(c->obuf) > 0) {
+    if (sdslen(c->obuf) > 0) {
         ssize_t nwritten = c->funcs->write(c);
         if (nwritten < 0) {
             return REDIS_ERR;
         } else if (nwritten > 0) {
-            if (nwritten == (ssize_t)hi_sdslen(c->obuf)) {
-                hi_sdsfree(c->obuf);
-                c->obuf = hi_sdsempty();
+            if (nwritten == (ssize_t)sdslen(c->obuf)) {
+                sdsfree(c->obuf);
+                c->obuf = sdsempty();
                 if (c->obuf == NULL)
                     goto oom;
             } else {
-                if (hi_sdsrange(c->obuf,nwritten,-1) < 0) goto oom;
+                if (sdsrange(c->obuf,nwritten,-1) < 0) goto oom;
             }
         }
     }
-    if (done != NULL) *done = (hi_sdslen(c->obuf) == 0);
+    if (done != NULL) *done = (sdslen(c->obuf) == 0);
     return REDIS_OK;
 
 oom:
@@ -1104,9 +1104,9 @@ int redisGetReply(redisContext *c, void **reply) {
  * the reply (or replies in pub/sub).
  */
 int __redisAppendCommand(redisContext *c, const char *cmd, size_t len) {
-    hisds newbuf;
+    sds newbuf;
 
-    newbuf = hi_sdscatlen(c->obuf,cmd,len);
+    newbuf = sdscatlen(c->obuf,cmd,len);
     if (newbuf == NULL) {
         __redisSetError(c,REDIS_ERR_OOM,"Out of memory");
         return REDIS_ERR;
@@ -1158,7 +1158,7 @@ int redisAppendCommand(redisContext *c, const char *format, ...) {
 }
 
 int redisAppendCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen) {
-    hisds cmd;
+    sds cmd;
     long long len;
 
     len = redisFormatSdsCommandArgv(&cmd,argc,argv,argvlen);
@@ -1168,11 +1168,11 @@ int redisAppendCommandArgv(redisContext *c, int argc, const char **argv, const s
     }
 
     if (__redisAppendCommand(c,cmd,len) != REDIS_OK) {
-        hi_sdsfree(cmd);
+        sdsfree(cmd);
         return REDIS_ERR;
     }
 
-    hi_sdsfree(cmd);
+    sdsfree(cmd);
     return REDIS_OK;
 }
 
