@@ -8846,7 +8846,7 @@ char **RM_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
     dictEntry *de;
     int j = 0;
     while((de = dictNext(di)) != NULL) {
-        clusterNode *node = dictGetVal(de);
+        clusterNodeHandle node = (clusterNodeHandle)dictGetVal(de);
         if (!clusterNodeConfirmedReachable(node)) continue;
         ids[j] = zmalloc(REDISMODULE_NODE_ID_LEN);
         memcpy(ids[j], clusterNodeGetName(node) ,REDISMODULE_NODE_ID_LEN);
@@ -8905,8 +8905,8 @@ size_t RM_GetClusterSize(void) {
 int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
     UNUSED(ctx);
 
-    clusterNode *node = clusterLookupNode(id, strlen(id));
-    if (node == NULL || !clusterNodeConfirmedReachable(node))
+    clusterNodeHandle node = clusterLookupNode(id, strlen(id));
+    if (node == 0 || !clusterNodeConfirmedReachable(node))
     {
         return REDISMODULE_ERR;
     }

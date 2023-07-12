@@ -1,6 +1,8 @@
 #ifndef __CLUSTER_H
 #define __CLUSTER_H
 
+#include <inttypes.h>
+
 /*-----------------------------------------------------------------------------
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
@@ -52,16 +54,13 @@ typedef struct {
 } clusterDictMetadata;
 
 /*-----------------------------------------------------------------------------
- * Cluster public structs
+ * Cluster public types
  *----------------------------------------------------------------------------*/
-
-typedef struct clusterNode {
-    void* data;
-} clusterNode;
+typedef intptr_t clusterNodeHandle;
 
 typedef struct clusterState {
-    clusterNode *myself;  /* This node */
-    dict *nodes;          /* Hash table of name -> clusterNode structures */
+    clusterNodeHandle myself;  /* This node */
+    dict *nodes;          /* Hash table of name -> clusterNodeHandles */
     /* Manual failover state in common. */
     void *internal;
 } clusterState;
@@ -89,39 +88,39 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
-void freeThisNodesLink(clusterNode *node);
-void freeNodeInboundLink(clusterNode *node);
+void freeThisNodesLink(clusterNodeHandle node);
+void freeNodeInboundLink(clusterNodeHandle node);
 sds clusterGenNodesDescription(client *c, int filter, int use_pport);
 sds genClusterInfoString(void);
-char* clusterNodeIp(clusterNode *node);
-int clusterNodePort(clusterNode *node);
-clusterNode* clusterNodeGetSlaveof(clusterNode *node);
-int clusterNodeConfirmedReachable(clusterNode* node);
-int clusterNodeIsMaster(clusterNode* node);
-int clusterNodeIsSlave(clusterNode* node);
-int clusterNodeIsFailing(clusterNode* node);
-int clusterNodeTimedOut(clusterNode* node);
-int clusterNodeIsMyself(clusterNode* node);
-int clusterNodeIsNoFailover(clusterNode* node);
-char* clusterNodeGetName(clusterNode* node);
-clusterNode* getMyClusterNode(void);
-clusterNode* getNodeBySlot(int slot);
-clusterNode* getMigratingSlotDest(int slot);
-clusterNode* getImportingSlotSource(int slot);
+char* clusterNodeIp(clusterNodeHandle node);
+int clusterNodePort(clusterNodeHandle node);
+clusterNodeHandle clusterNodeGetSlaveof(clusterNodeHandle node);
+int clusterNodeConfirmedReachable(clusterNodeHandle node);
+int clusterNodeIsMaster(clusterNodeHandle node);
+int clusterNodeIsSlave(clusterNodeHandle node);
+int clusterNodeIsFailing(clusterNodeHandle node);
+int clusterNodeTimedOut(clusterNodeHandle node);
+int clusterNodeIsMyself(clusterNodeHandle node);
+int clusterNodeIsNoFailover(clusterNodeHandle node);
+char* clusterNodeGetName(clusterNodeHandle node);
+clusterNodeHandle getMyClusterNode(void);
+clusterNodeHandle getNodeBySlot(int slot);
+clusterNodeHandle getMigratingSlotDest(int slot);
+clusterNodeHandle getImportingSlotSource(int slot);
 int isClusterHealthy(void);
-uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport);
-const char *getPreferredEndpoint(clusterNode *n);
-clusterNode *clusterLookupNode(const char *name, int length);
+uint16_t getClusterNodeRedirectPort(clusterNodeHandle node, int use_pport);
+const char *getPreferredEndpoint(clusterNodeHandle n);
+clusterNodeHandle clusterLookupNode(const char *name, int length);
 int isClusterManualFailoverInProgress(void);
-int getNumSlaves(clusterNode *node);
-clusterNode* getSlave(clusterNode *node, int slave_idx);
-long long getReplOffset(clusterNode* node);
-int clusterNodePlainTextPort(clusterNode *node);
-sds clusterNodeHostname(clusterNode* node);
+int getNumSlaves(clusterNodeHandle node);
+clusterNodeHandle getSlave(clusterNodeHandle node, int slave_idx);
+long long getReplOffset(clusterNodeHandle node);
+int clusterNodePlainTextPort(clusterNodeHandle node);
+sds clusterNodeHostname(clusterNodeHandle node);
 int verifyClusterNodeId(const char *name, int length);
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+clusterNodeHandle getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int clusterRedirectBlockedClientIfNeeded(client *c);
-void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
+void clusterRedirectClient(client *c, clusterNodeHandle n, int hashslot, int error_code);
 void migrateCloseTimedoutSockets(void);
 unsigned int keyHashSlot(char *key, int keylen);
 void slotToKeyAddEntry(dictEntry *entry, redisDb *db);

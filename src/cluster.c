@@ -186,9 +186,9 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
  *
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
-    clusterNode *myself = getMyClusterNode();
-    clusterNode *n = NULL;
+clusterNodeHandle getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
+    clusterNodeHandle myself = getMyClusterNode();
+    clusterNodeHandle n = 0;
     robj *firstkey = NULL;
     int multiple_keys = 0;
     multiState *ms, _ms;
@@ -262,11 +262,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * state. However the state is yet to be updated, so this was
                  * not trapped earlier in processCommand(). Report the same
                  * error to the client. */
-                if (n == NULL) {
+                if (n == 0) {
                     getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_DOWN_UNBOUND;
-                    return NULL;
+                    return 0;
                 }
 
                 /* If we are migrating or importing this slot, we need to check
@@ -275,10 +275,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * error). To do so we set the importing/migrating state and
                  * increment a counter for every missing key. */
                 if (n == myself &&
-                        getMigratingSlotDest(slot) != NULL)
+                        getMigratingSlotDest(slot) != 0)
                 {
                     migrating_slot = 1;
-                } else if (getImportingSlotSource(slot) != NULL) {
+                } else if (getImportingSlotSource(slot) != 0) {
                     importing_slot = 1;
                 }
             } else {
@@ -289,7 +289,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                     getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_CROSS_SLOT;
-                    return NULL;
+                    return 0;
                 }
                 if (importing_slot && !multiple_keys && !equalStringObjects(firstkey,thiskey)) {
                     /* Flag this request as one with multiple different
@@ -316,7 +316,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 
     /* No key at all in command? then we can serve the request
      * without redirections or errors in all the cases. */
-    if (n == NULL) return myself;
+    if (n == 0) return myself;
 
     uint64_t cmd_flags = getCommandFlags(c);
     /* Cluster is globally down but we got keys? We only serve the request
@@ -325,17 +325,17 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         if (is_pubsubshard) {
             if (!server.cluster_allow_pubsubshard_when_down) {
                 if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
-                return NULL;
+                return 0;
             }
         } else if (!server.cluster_allow_reads_when_down) {
             /* The cluster is configured to block commands when the
              * cluster is down. */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
-            return NULL;
+            return 0;
         } else if (cmd_flags & CMD_WRITE) {
             /* The cluster is configured to allow read only commands */
             if (error_code) *error_code = CLUSTER_REDIR_DOWN_RO_STATE;
-            return NULL;
+            return 0;
         } else {
             /* Fall through and allow the command to be executed:
              * this happens when server.cluster_allow_reads_when_down is
@@ -358,7 +358,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         /* If we have keys but we don't have all keys, we return TRYAGAIN */
         if (existing_keys) {
             if (error_code) *error_code = CLUSTER_REDIR_UNSTABLE;
-            return NULL;
+            return 0;
         } else {
             if (error_code) *error_code = CLUSTER_REDIR_ASK;
             return getMigratingSlotDest(slot);
@@ -374,7 +374,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     {
         if (multiple_keys && missing_keys) {
             if (error_code) *error_code = CLUSTER_REDIR_UNSTABLE;
-            return NULL;
+            return 0;
         } else {
             return myself;
         }
@@ -405,7 +405,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
  * are used, then the node 'n' should not be NULL, but should be the
  * node we want to mention in the redirection. Moreover hashslot should
  * be set to the hash slot that caused the redirection. */
-void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code) {
+void clusterRedirectClient(client *c, clusterNodeHandle n, int hashslot, int error_code) {
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
         addReplyError(c,"-CROSSSLOT Keys in request don't hash to the same slot");
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
@@ -454,7 +454,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
          c->bstate.btype == BLOCKED_STREAM ||
          c->bstate.btype == BLOCKED_MODULE))
     {
-        clusterNode *myself = getMyClusterNode();
+        clusterNodeHandle myself = getMyClusterNode();
         dictEntry *de;
         dictIterator *di;
 
@@ -463,7 +463,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
          * still want to emit this error since a write will be required
          * to unblock them which may never come.  */
         if (!isClusterHealthy()) {
-            clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
+            clusterRedirectClient(c,0,0,CLUSTER_REDIR_DOWN_STATE);
             return 1;
         }
 
@@ -477,7 +477,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         if ((de = dictNext(di)) != NULL) {
             robj *key = dictGetKey(de);
             int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
-            clusterNode *node = getNodeBySlot(slot);
+            clusterNodeHandle node = getNodeBySlot(slot);
 
             /* if the client is read-only and attempting to access key that our
              * replica can handle, allow it. */
@@ -492,10 +492,10 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
              * 1) The slot is unassigned, emitting a cluster down error.
              * 2) The slot is not handled by this node, nor being imported. */
             if (node != myself &&
-                    getImportingSlotSource(slot) == NULL)
+                    getImportingSlotSource(slot) == 0)
             {
-                if (node == NULL) {
-                    clusterRedirectClient(c,NULL,0,
+                if (node == 0) {
+                    clusterRedirectClient(c,0,0,
                                           CLUSTER_REDIR_DOWN_UNBOUND);
                 } else {
                     clusterRedirectClient(c,node,slot,
@@ -644,7 +644,6 @@ void dumpCommand(client *c) {
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);
-    return;
 }
 
 /* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] */
@@ -1231,7 +1230,7 @@ dictType clusterNodesDictType = {
         NULL                        /* allow to expand */
 };
 
-void addNodeToNodeReply(client *c, clusterNode *node) {
+void addNodeToNodeReply(client *c, clusterNodeHandle node) {
     sds hostname = clusterNodeHostname(node);
     addReplyArrayLen(c, 4);
     if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
@@ -1290,7 +1289,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
  * Returns 1 for available nodes, 0 for nodes that have
  * not finished their initial sync, in failed state, or are
  * otherwise considered not available to serve read commands. */
-static int isReplicaAvailable(clusterNode *node) {
+static int isReplicaAvailable(clusterNodeHandle node) {
     if (clusterNodeIsFailing(node)) {
         return 0;
     }
@@ -1303,7 +1302,7 @@ static int isReplicaAvailable(clusterNode *node) {
     return (repl_offset != 0);
 }
 
-void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
+void addNodeReplyForClusterSlot(client *c, clusterNodeHandle node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
     for (i = 0; i < getNumSlaves(node); i++) {
         if (!isReplicaAvailable(getSlave(node, i))) continue;
@@ -1336,13 +1335,13 @@ void clusterReplySlots(client * c) {
      *               3) node ID
      *           ... continued until done
      */
-    clusterNode *n = NULL;
+    clusterNodeHandle n = 0;
     int num_masters = 0, start = -1;
     void *slot_replylen = addReplyDeferredLen(c);
 
     for (int i = 0; i <= CLUSTER_SLOTS; i++) {
         /* Find start node and slot id. */
-        if (n == NULL) {
+        if (n == 0) {
             if (i == CLUSTER_SLOTS) break;
             n = getNodeBySlot(i);
             start = i;

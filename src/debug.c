@@ -1021,7 +1021,7 @@ NULL
         }
 
         /* Find the node. */
-        clusterNode *n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+        clusterNodeHandle n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[4]->ptr);
             return;

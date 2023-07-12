@@ -41,7 +41,7 @@ typedef struct clusterLink {
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
-    struct clusterNode *node;   /* Node related to this link. Initialized to NULL when unknown */
+    struct clusterNodeInternal *node;   /* Node related to this link. Initialized to NULL when unknown */
     int inbound;                /* 1 if this link is an inbound link accepted from the related node */
 } clusterLink;
 
@@ -64,14 +64,15 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_PUBLISHSHARD 10 /* Pub/Sub Publish shard propagation */
 #define CLUSTERMSG_TYPE_COUNT 11        /* Total number of message types. */
 
+
 typedef struct clusterStateInternal {
     uint64_t currentEpoch;
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
     dict *shards;         /* Hash table of shard_id -> list (of nodes) structures */
-    clusterNode *migrating_slots_to[CLUSTER_SLOTS];
-    clusterNode *importing_slots_from[CLUSTER_SLOTS];
-    clusterNode *slots[CLUSTER_SLOTS];
+    struct clusterNodeInternal *migrating_slots_to[CLUSTER_SLOTS];
+    struct clusterNodeInternal *importing_slots_from[CLUSTER_SLOTS];
+    struct clusterNodeInternal *slots[CLUSTER_SLOTS];
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     rax *slots_to_channels;
     /* The following fields are used to take the slave state on elections. */
@@ -83,7 +84,7 @@ typedef struct clusterStateInternal {
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
     /* Manual failover state of master. */
-    clusterNode *mf_slave;      /* Slave performing the manual failover. */
+    struct clusterNodeInternal *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
                                    or -1 if still not received. */
@@ -316,17 +317,17 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
-#define nodeIsMaster(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_MASTER)
-#define nodeIsSlave(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_SLAVE)
-#define nodeInHandshake(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_HANDSHAKE)
-#define nodeHasAddr(n) (!(((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_NOADDR))
-#define nodeTimedOut(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_PFAIL)
-#define nodeFailed(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_FAIL)
-#define nodeCantFailover(n) (((clusterNodeInternal*)n->data)->flags & CLUSTER_NODE_NOFAILOVER)
+#define nodeIsMaster(n) (n->flags & CLUSTER_NODE_MASTER)
+#define nodeIsSlave(n) (n->flags & CLUSTER_NODE_SLAVE)
+#define nodeInHandshake(n) (n->flags & CLUSTER_NODE_HANDSHAKE)
+#define nodeHasAddr(n) (!(n->flags & CLUSTER_NODE_NOADDR))
+#define nodeTimedOut(n) (n->flags & CLUSTER_NODE_PFAIL)
+#define nodeFailed(n) (n->flags & CLUSTER_NODE_FAIL)
+#define nodeCantFailover(n) (n->flags & CLUSTER_NODE_NOFAILOVER)
 
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
-    struct clusterNode *node;  /* Node reporting the failure condition. */
+    struct clusterNodeInternal *node;  /* Node reporting the failure condition. */
     mstime_t time;             /* Time of the last report from this node. */
 } clusterNodeFailReport;
 
@@ -344,8 +345,8 @@ typedef struct clusterNodeInternal {
     int slot_info_pairs_count; /* Used number of slots in slot_info_pairs */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
-    struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node. Note that it
+    struct clusterNodeInternal **slaves; /* pointers to slave nodes */
+    struct clusterNodeInternal *slaveof; /* pointer to the master node. Note that it
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
@@ -369,6 +370,11 @@ typedef struct clusterNodeInternal {
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNodeInternal;
 
-#define nodeData(node) ((clusterNodeInternal*)node->data)
+typedef clusterNodeInternal clusterNode;
+
+#define nodeData(node) ((clusterNodeInternal*)node)
+#define asNode(handle) ((clusterNode*)handle)
+#define asHandle(node) ((clusterNodeHandle)node)
+//#define nodeData(node) ((clusterNodeInternal*)node->data)
 
 #endif //CLUSTER_LEGACY_H

@@ -301,7 +301,7 @@ int clusterLoadConfig(char *filename) {
             sdsfreesplitres(argv, argc);
             goto fmterr;
         }
-        n = clusterLookupNode(argv[0], sdslen(argv[0]));
+        n = asNode(clusterLookupNode(argv[0], sdslen(argv[0])));
         if (!n) {
             n = createClusterNode(argv[0],0);
             clusterAddNode(n);
@@ -408,8 +408,9 @@ int clusterLoadConfig(char *filename) {
             p = strchr(s,',');
             if (p) *p = '\0';
             if (!strcasecmp(s,"myself")) {
-                serverAssert(server.cluster->myself == NULL);
-                myself = server.cluster->myself = n;
+                serverAssert(server.cluster->myself == 0);
+                myself = n;
+                server.cluster->myself = asHandle(n);
                 n_data->flags |= CLUSTER_NODE_MYSELF;
             } else if (!strcasecmp(s,"master")) {
                 n_data->flags |= CLUSTER_NODE_MASTER;
@@ -441,7 +442,7 @@ int clusterLoadConfig(char *filename) {
                 sdsfreesplitres(argv, argc);
                 goto fmterr;
             }
-            master = clusterLookupNode(argv[3], sdslen(argv[3]));
+            master = asNode(clusterLookupNode(argv[3], sdslen(argv[3])));
             if (!master) {
                 master = createClusterNode(argv[3],0);
                 clusterAddNode(master);
@@ -505,7 +506,7 @@ int clusterLoadConfig(char *filename) {
                     sdsfreesplitres(argv, argc);
                     goto fmterr;
                 }
-                cn = clusterLookupNode(p, CLUSTER_NAMELEN);
+                cn = asNode(clusterLookupNode(p, CLUSTER_NAMELEN));
                 if (!cn) {
                     cn = createClusterNode(p,0);
                     clusterAddNode(cn);
@@ -535,7 +536,7 @@ int clusterLoadConfig(char *filename) {
         sdsfreesplitres(argv,argc);
     }
     /* Config sanity check */
-    if (server.cluster->myself == NULL) goto fmterr;
+    if (server.cluster->myself == 0) goto fmterr;
 
     zfree(line);
     fclose(fp);
@@ -828,7 +829,7 @@ void clusterInit(void) {
     server.cluster = zmalloc(sizeof(clusterState));
     state_internal = zmalloc(sizeof(clusterStateInternal));
     server.cluster->internal = state_internal;
-    server.cluster->myself = NULL;
+    server.cluster->myself = 0;
     server.cluster->nodes = dictCreate(&clusterNodesDictType);
     state_internal->currentEpoch = 0;
     state_internal->state = CLUSTER_FAIL;
@@ -865,8 +866,9 @@ void clusterInit(void) {
     if (clusterLoadConfig(server.cluster_configfile) == C_ERR) {
         /* No configuration found. We will just use the random name provided
          * by the createClusterNode() function. */
-        myself = server.cluster->myself =
-            createClusterNode(NULL,CLUSTER_NODE_MYSELF|CLUSTER_NODE_MASTER);
+        myself = createClusterNode(NULL,CLUSTER_NODE_MYSELF|CLUSTER_NODE_MASTER); 
+        server.cluster->myself = asHandle(myself);
+
         serverLog(LL_NOTICE,"No cluster configuration found, I'm %.40s",
             nodeData(myself)->name);
         clusterAddNode(myself);
@@ -1191,15 +1193,13 @@ unsigned long getClusterConnectionsCount(void) {
  * The node is created and returned to the user, but it is not automatically
  * added to the nodes hash table. */
 clusterNode *createClusterNode(char *nodename, int flags) {
-    clusterNode *node = zmalloc(sizeof(*node));
     clusterNodeInternal *data = zmalloc(sizeof(clusterNodeInternal));
-    node->data = data;
 
     if (nodename)
-        memcpy(nodeData(node)->name, nodename, CLUSTER_NAMELEN);
+        memcpy(data->name, nodename, CLUSTER_NAMELEN);
     else
-        getRandomHexChars(nodeData(node)->name, CLUSTER_NAMELEN);
-    getRandomHexChars(nodeData(node)->shard_id, CLUSTER_NAMELEN);
+        getRandomHexChars(data->name, CLUSTER_NAMELEN);
+    getRandomHexChars(data->shard_id, CLUSTER_NAMELEN);
     data->ctime = mstime();
     data->configEpoch = 0;
     data->flags = flags;
@@ -1227,7 +1227,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     data->repl_offset_time = 0;
     data->repl_offset = 0;
     listSetFreeMethod(data->fail_reports,zfree);
-    return node;
+    return data;
 }
 
 /* This function is called every time we get a failure report from a node.
@@ -1393,7 +1393,6 @@ void freeClusterNode(clusterNode *n) {
     if (n_data->inbound_link) freeClusterLink(n_data->inbound_link);
     listRelease(n_data->fail_reports);
     zfree(n_data->slaves);
-    zfree(n_data);
     zfree(n);
 }
 
@@ -1452,13 +1451,13 @@ void clusterDelNode(clusterNode *delnode) {
 }
 
 /* Node lookup by name */
-clusterNode *clusterLookupNode(const char *name, int length) {
-    if (verifyClusterNodeId(name, length) != C_OK) return NULL;
+clusterNodeHandle clusterLookupNode(const char *name, int length) {
+    if (verifyClusterNodeId(name, length) != C_OK) return 0;
     sds s = sdsnewlen(name, length);
     dictEntry *de = dictFind(server.cluster->nodes, s);
     sdsfree(s);
-    if (de == NULL) return NULL;
-    return dictGetVal(de);
+    if (de == NULL) return 0;
+    return asHandle(dictGetVal(de));
 }
 
 /* Get all the nodes in my shard.
@@ -1911,7 +1910,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
 void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     uint16_t count = ntohs(hdr->count);
     clusterMsgDataGossip *g = (clusterMsgDataGossip*) hdr->data.ping.gossip;
-    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
+    clusterNode *sender = link->node ? link->node : asNode(clusterLookupNode(hdr->sender, CLUSTER_NAMELEN));
 
     while(count--) {
         uint16_t flags = ntohs(g->flags);
@@ -1931,7 +1930,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         }
 
         /* Update our state accordingly to the gossip sections */
-        node = clusterLookupNode(g->nodename, CLUSTER_NAMELEN);
+        node = asNode(clusterLookupNode(g->nodename, CLUSTER_NAMELEN));
         if (node) {
             node_data = nodeData(node);
             /* We already know this node.
@@ -2391,7 +2390,7 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
 /* We previously validated the extensions, so this function just needs to
  * handle the extensions. */
 void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
-    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
+    clusterNode *sender = link->node ? link->node : asNode(clusterLookupNode(hdr->sender, CLUSTER_NAMELEN));
     char *ext_hostname = NULL;
     char *ext_shardid = NULL;
     uint16_t extensions = ntohs(hdr->extensions);
@@ -2404,7 +2403,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             ext_hostname = hostname_ext->hostname;
         } else if (type == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
             clusterMsgPingExtForgottenNode *forgotten_node_ext = &(ext->ext[0].forgotten_node);
-            clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
+            clusterNode *n = asNode(clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN));
             if (n && n != myself && !(nodeIsSlave(myself) && nodeData(myself)->slaveof == n)) {
                 sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
                 dictEntry *de = dictAddRaw(stateInternal(server.cluster)->nodes_black_list, id, NULL);
@@ -2442,7 +2441,7 @@ static clusterNode *getNodeFromLinkAndMsg(clusterLink *link, clusterMsg *hdr) {
         sender = link->node;
     } else {
         /* Otherwise, fetch sender based on the message */
-        sender = clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
+        sender = asNode(clusterLookupNode(hdr->sender, CLUSTER_NAMELEN));
         /* We know the sender node but haven't associate it with the link. This must
          * be an inbound link because only for inbound links we didn't know which node
          * to associate when they were created. */
@@ -2762,7 +2761,7 @@ int clusterProcessPacket(clusterLink *link) {
                 clusterSetNodeAsMaster(sender);
             } else {
                 /* Node is a slave. */
-                clusterNode *master = clusterLookupNode(hdr->slaveof, CLUSTER_NAMELEN);
+                clusterNode *master = asNode(clusterLookupNode(hdr->slaveof, CLUSTER_NAMELEN));
 
                 if (nodeIsMaster(sender)) {
                     /* Master turned into a slave! Reconfigure the node. */
@@ -2877,7 +2876,7 @@ int clusterProcessPacket(clusterLink *link) {
         clusterNode *failing;
 
         if (sender) {
-            failing = clusterLookupNode(hdr->data.fail.about.nodename, CLUSTER_NAMELEN);
+            failing = asNode(clusterLookupNode(hdr->data.fail.about.nodename, CLUSTER_NAMELEN));
             if (failing &&
                 !(nodeData(failing)->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_MYSELF)))
             {
@@ -2962,7 +2961,7 @@ int clusterProcessPacket(clusterLink *link) {
                     ntohu64(hdr->data.update.nodecfg.configEpoch);
 
         if (!sender) return 1;  /* We don't know the sender. */
-        n = clusterLookupNode(hdr->data.update.nodecfg.nodename, CLUSTER_NAMELEN);
+        n = asNode(clusterLookupNode(hdr->data.update.nodecfg.nodename, CLUSTER_NAMELEN));
         if (!n) return 1;   /* We don't know the reported node. */
         if (nodeData(n)->configEpoch >= reportedConfigEpoch) return 1; /* Nothing new. */
 
@@ -3580,7 +3579,7 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
     clusterNode *node = NULL;
 
     if (target != NULL) {
-        node = clusterLookupNode(target, strlen(target));
+        node = asNode(clusterLookupNode(target, strlen(target)));
         if (node == NULL || nodeData(node)->link == NULL) return C_ERR;
     }
 
@@ -3611,7 +3610,7 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
 
     listIter li;
     listNode *ln;
-    list *nodes_for_slot = clusterGetNodesInMyShard(server.cluster->myself);
+    list *nodes_for_slot = clusterGetNodesInMyShard(asNode(server.cluster->myself));
     serverAssert(nodes_for_slot != NULL);
     listRewind(nodes_for_slot, &li);
     msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
@@ -5263,11 +5262,11 @@ void addReplyClusterLinksDescription(client *c) {
  * CLUSTER command
  * -------------------------------------------------------------------------- */
 
-const char *getPreferredEndpoint(clusterNode *n) {
-    clusterNodeInternal *n_data = nodeData(n);
+const char *getPreferredEndpoint(clusterNodeHandle n) {
+    clusterNodeInternal *node = asNode(n);
     switch(server.cluster_preferred_endpoint_type) {
-    case CLUSTER_ENDPOINT_TYPE_IP: return n_data->ip;
-    case CLUSTER_ENDPOINT_TYPE_HOSTNAME: return (sdslen(n_data->hostname) != 0) ? n_data->hostname : "?";
+    case CLUSTER_ENDPOINT_TYPE_IP: return node->ip;
+    case CLUSTER_ENDPOINT_TYPE_HOSTNAME: return (sdslen(node->hostname) != 0) ? node->hostname : "?";
     case CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT: return "";
     }
     return "unknown";
@@ -5370,7 +5369,7 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     reply_count++;
 
     addReplyBulkCString(c, "endpoint");
-    addReplyBulkCString(c, getPreferredEndpoint(node));
+    addReplyBulkCString(c, getPreferredEndpoint(asHandle(node)));
     reply_count++;
 
     if (sdslen(node_data->hostname) != 0) {
@@ -5749,7 +5748,7 @@ NULL
                 addReplyErrorFormat(c,"I'm not the owner of hash slot %u",slot);
                 return;
             }
-            n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+            n = asNode(clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)));
             if (n == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
@@ -5766,7 +5765,7 @@ NULL
                     "I'm already the owner of hash slot %u",slot);
                 return;
             }
-            n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+            n = asNode(clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)));
             if (n == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
@@ -5783,7 +5782,7 @@ NULL
             state_internal->migrating_slots_to[slot] = NULL;
         } else if (!strcasecmp(c->argv[3]->ptr,"node") && c->argc == 5) {
             /* CLUSTER SETSLOT <SLOT> NODE <NODE ID> */
-            n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+            n = asNode(clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)));
             if (!n) {
                 addReplyErrorFormat(c,"Unknown node %s",
                     (char*)c->argv[4]->ptr);
@@ -5925,7 +5924,7 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
+        clusterNode *n = asNode(clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)));
         if (!n) {
             if (clusterBlacklistExists((char*)c->argv[2]->ptr))
                 /* Already forgotten. The deletion may have been gossipped by
@@ -5949,7 +5948,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc == 3) {
         /* CLUSTER REPLICATE <NODE ID> */
         /* Lookup the specified node in our table. */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
+        clusterNode *n = asNode(clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)));
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
             return;
@@ -5985,7 +5984,7 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
+        clusterNode *n = asNode(clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)));
         clusterNodeInternal *n_data = nodeData(n);
         int j;
 
@@ -6013,7 +6012,7 @@ NULL
                c->argc == 3)
     {
         /* CLUSTER COUNT-FAILURE-REPORTS <NODE ID> */
-        clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
+        clusterNode *n = asNode(clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)));
 
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
@@ -6220,76 +6219,76 @@ unsigned int countChannelsInSlot(unsigned int hashslot) {
     return j;
 }
 
-char* clusterNodeIp(clusterNode *node) {
-    return nodeData(node)->ip;
+char* clusterNodeIp(clusterNodeHandle node) {
+    return asNode(node)->ip;
 }
 
-int clusterNodePort(clusterNode *node) {
-    return nodeData(node)->port;
+int clusterNodePort(clusterNodeHandle node) {
+    return asNode(node)->port;
 }
 
-void freeThisNodesLink(clusterNode *node) {
-    freeClusterLink(nodeData(node)->link);
+void freeThisNodesLink(clusterNodeHandle node) {
+    freeClusterLink(asNode(node)->link);
 }
 
-void freeNodeInboundLink(clusterNode *node) {
-    freeClusterLink(nodeData(node)->inbound_link);
+void freeNodeInboundLink(clusterNodeHandle node) {
+    freeClusterLink(asNode(node)->inbound_link);
 }
 
-clusterNode* clusterNodeGetSlaveof(clusterNode *node) {
-    return nodeData(node)->slaveof;
+clusterNodeHandle clusterNodeGetSlaveof(clusterNodeHandle node) {
+    return asHandle(asNode(node)->slaveof);
 }
 
-int clusterNodeIsMaster(clusterNode* node) {
-    return nodeIsMaster(node);
+int clusterNodeIsMaster(clusterNodeHandle  node) {
+    return nodeIsMaster(asNode(node));
 }
 
-int clusterNodeConfirmedReachable(clusterNode* node) {
-    return !(nodeData(node)->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE));
+int clusterNodeConfirmedReachable(clusterNodeHandle  node) {
+    return !(asNode(node)->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE));
 }
 
-int clusterNodeIsSlave(clusterNode* node) {
-    return nodeIsSlave(node);
+int clusterNodeIsSlave(clusterNodeHandle  node) {
+    return nodeIsSlave(asNode(node));
 }
 
-int clusterNodeIsFailing(clusterNode* node) {
-    return nodeFailed(node);
+int clusterNodeIsFailing(clusterNodeHandle  node) {
+    return nodeFailed(asNode(node));
 }
 
-int clusterNodeTimedOut(clusterNode* node) {
-    return nodeTimedOut(node);
+int clusterNodeTimedOut(clusterNodeHandle  node) {
+    return nodeTimedOut(asNode(node));
 }
 
-int clusterNodeIsMyself(clusterNode* node) {
-    return nodeData(node)->flags & CLUSTER_NODE_MYSELF;
+int clusterNodeIsMyself(clusterNodeHandle  node) {
+    return asNode(node)->flags & CLUSTER_NODE_MYSELF;
 }
 
-int clusterNodeIsNoFailover(clusterNode* node) {
-    return nodeData(node)->flags & CLUSTER_NODE_NOFAILOVER;
+int clusterNodeIsNoFailover(clusterNodeHandle  node) {
+    return asNode(node)->flags & CLUSTER_NODE_NOFAILOVER;
 }
 
-clusterNode* getMyClusterNode(void) {
-    return myself;
+clusterNodeHandle getMyClusterNode(void) {
+    return asHandle(myself);
 }
 
-clusterNode* getNodeBySlot(int slot) {
-    return stateInternal(server.cluster)->slots[slot];
+clusterNodeHandle getNodeBySlot(int slot) {
+    return asHandle(stateInternal(server.cluster)->slots[slot]);
 }
 
-clusterNode* getMigratingSlotDest(int slot) {
-    return stateInternal(server.cluster)->migrating_slots_to[slot];
+clusterNodeHandle getMigratingSlotDest(int slot) {
+    return asHandle(stateInternal(server.cluster)->migrating_slots_to[slot]);
 }
 
-clusterNode* getImportingSlotSource(int slot) {
-    return stateInternal(server.cluster)->importing_slots_from[slot];
+clusterNodeHandle getImportingSlotSource(int slot) {
+    return asHandle(stateInternal(server.cluster)->importing_slots_from[slot]);
 }
 
 int isClusterHealthy(void) {
     return stateInternal(server.cluster)->state == CLUSTER_OK;
 }
 
-uint16_t getClusterNodeRedirectPort(clusterNode* node, int use_pport) {
-    clusterNodeInternal *node_data = nodeData(node);
+uint16_t getClusterNodeRedirectPort(clusterNodeHandle node, int use_pport) {
+    clusterNodeInternal *node_data = asNode(node);
     return use_pport && node_data->pport ? node_data->pport : node_data->port;
 }
 
@@ -6297,26 +6296,26 @@ int isClusterManualFailoverInProgress() {
     return stateInternal(server.cluster)->mf_end != 0;
 }
 
-int getNumSlaves(clusterNode *node) {
-    return nodeData(node)->numslaves;
+int getNumSlaves(clusterNodeHandle node) {
+    return asNode(node)->numslaves;
 }
 
-clusterNode* getSlave(clusterNode *node, int slave_idx) {
-    return nodeData(node)->slaves[slave_idx];
+clusterNodeHandle getSlave(clusterNodeHandle node, int slave_idx) {
+    return asHandle(asNode(node)->slaves[slave_idx]);
 }
 
-long long getReplOffset(clusterNode* node) {
-    return nodeData(node)->repl_offset;
+long long getReplOffset(clusterNodeHandle  node) {
+    return asNode(node)->repl_offset;
 }
 
-int clusterNodePlainTextPort(clusterNode *node) {
-    return nodeData(node)->pport;
+int clusterNodePlainTextPort(clusterNodeHandle node) {
+    return asNode(node)->pport;
 }
 
-sds clusterNodeHostname(clusterNode* node) {
-    return nodeData(node)->hostname;
+sds clusterNodeHostname(clusterNodeHandle  node) {
+    return asNode(node)->hostname;
 }
 
-char* clusterNodeGetName(clusterNode* node) {
-    return nodeData(node)->name;
+char* clusterNodeGetName(clusterNodeHandle  node) {
+    return asNode(node)->name;
 }
