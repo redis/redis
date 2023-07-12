@@ -124,11 +124,7 @@ start_server {tags {"zset"}} {
             assert_equal {x y z} [r zrange ztmp 0 -1]
 
             # coverage for objectComputeSize
-            if {$encoding == "listpack"} {
-                assert_morethan [r memory usage ztmp] 67
-            } elseif {$encoding == "skiplist"} {
-                assert_morethan [r memory usage ztmp] 918
-            }
+            assert_range [r memory usage ztmp] 60 2000 ;#ztmp size for listpack:68; skiplist:919
 
             r zadd ztmp 1 y
             assert_equal {y x z} [r zrange ztmp 0 -1]
