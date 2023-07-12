@@ -335,6 +335,8 @@ typedef struct clusterNodeFailReport {
  */
 typedef struct clusterNodeInternal {
     mstime_t ctime; /* Node object creation time. */
+    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
@@ -347,7 +349,6 @@ typedef struct clusterNodeInternal {
                                     may be NULL even if the node is a slave
                                     if we don't have the master node in our
                                     tables. */
-
     unsigned long long last_in_ping_gossip; /* The number of the last carried in the ping gossip section */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */

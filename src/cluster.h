@@ -56,8 +56,6 @@ typedef struct {
  *----------------------------------------------------------------------------*/
 
 typedef struct clusterNode {
-    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
-    char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
     void* data;
 } clusterNode;
 
@@ -105,6 +103,7 @@ int clusterNodeIsFailing(clusterNode* node);
 int clusterNodeTimedOut(clusterNode* node);
 int clusterNodeIsMyself(clusterNode* node);
 int clusterNodeIsNoFailover(clusterNode* node);
+char* clusterNodeGetName(clusterNode* node);
 clusterNode* getMyClusterNode(void);
 clusterNode* getNodeBySlot(int slot);
 clusterNode* getMigratingSlotDest(int slot);

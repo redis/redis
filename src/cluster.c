@@ -1253,7 +1253,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
                      c->conn && (c->conn->type != connectionTypeTls()));
     addReplyLongLong(c, use_pport &&
         clusterNodePlainTextPort(node) ? clusterNodePlainTextPort(node) : clusterNodePort(node));
-    addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
+    addReplyBulkCBuffer(c, clusterNodeGetName(node), CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
      * that is not the preferred endpoint. Note the logic is evaluated twice so we can

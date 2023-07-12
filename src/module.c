@@ -8849,7 +8849,7 @@ char **RM_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
         clusterNode *node = dictGetVal(de);
         if (!clusterNodeConfirmedReachable(node)) continue;
         ids[j] = zmalloc(REDISMODULE_NODE_ID_LEN);
-        memcpy(ids[j],node->name,REDISMODULE_NODE_ID_LEN);
+        memcpy(ids[j], clusterNodeGetName(node) ,REDISMODULE_NODE_ID_LEN);
         j++;
     }
     *numnodes = j;
@@ -8870,7 +8870,7 @@ void RM_FreeClusterNodesList(char **ids) {
  * is disabled. */
 const char *RM_GetMyClusterID(void) {
     if (!server.cluster_enabled) return NULL;
-    return server.cluster->myself->name;
+    return clusterNodeGetName(server.cluster->myself);
 }
 
 /* Return the number of nodes in the cluster, regardless of their state
@@ -8918,7 +8918,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
          * field to zero bytes, so that when the field can't be populated the
          * function kinda remains predictable. */
         if (clusterNodeIsSlave(node) && clusterNodeGetSlaveof(node))
-            memcpy(master_id, clusterNodeGetSlaveof(node)->name,REDISMODULE_NODE_ID_LEN);
+            memcpy(master_id, clusterNodeGetName(clusterNodeGetSlaveof(node)) ,REDISMODULE_NODE_ID_LEN);
         else
             memset(master_id,0,REDISMODULE_NODE_ID_LEN);
     }
