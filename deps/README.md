@@ -63,6 +63,10 @@ Hiredis
 
 Hiredis is used by Sentinel, `redis-cli` and `redis-benchmark`. Like Redis, uses the SDS string library, but not necessarily the same version. In order to avoid conflicts, this version has all SDS identifiers prefixed by `hi`.
 
+1. `git subtree pull --prefix deps/hiredis https://github.com/redis/hiredis.git <version-tag> --squash`<br>
+This should hopefully merge the local changes into the new version.
+2. Conflicts will arise (due to our changes) you'll need to resolve them and commit.
+
 Linenoise
 ---
 
