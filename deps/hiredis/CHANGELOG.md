@@ -1,12 +1,63 @@
+## [1.2.0](https://github.com/redis/hiredis/tree/v1.2.0) - (2023-06-04)
+
+Announcing Hiredis v1.2.0 with with new adapters, and a great many bug fixes.
+
+## 🚀 New Features
+
+- Add sdevent adapter @Oipo (#1144)
+- Allow specifying the keepalive interval @michael-grunder (#1168)
+- Add RedisModule adapter @tezc (#1182)
+- Helper for setting TCP_USER_TIMEOUT socket option @zuiderkwast (#1188)
+
+## 🐛 Bug Fixes
+
+- Fix a typo in b6a052f. @yossigo (#1190)
+- Fix wincrypt symbols conflict @hudayou (#1151)
+- Don't attempt to set a timeout if we are in an error state. @michael-grunder (#1180)
+- Accept -nan per the RESP3 spec recommendation. @michael-grunder (#1178)
+- Fix colliding option values @zuiderkwast (#1172)
+- Ensure functionality without `_MSC_VER` definition @windyakin (#1194)
+
+## 🧰 Maintenance
+
+- Add a test for the TCP_USER_TIMEOUT option. @michael-grunder (#1192)
+- Add -Werror as a default. @yossigo (#1193)
+- CI: Update homebrew Redis version. @yossigo (#1191)
+- Fix typo in makefile. @michael-grunder (#1179)
+- Write a version file for the CMake package @Neverlord (#1165)
+- CMakeLists.txt: respect BUILD_SHARED_LIBS @ffontaine (#1147)
+- Cmake static or shared @autoantwort (#1160)
+- fix typo @tillkruss (#1153)
+- Add a test ensuring we don't clobber connection error. @michael-grunder (#1181)
+- Search for openssl on macOS @michael-grunder (#1169)
+
+
+## Contributors
+We'd like to thank all the contributors who worked on this release!
+
+<a href="https://github.com/neverlord"><img src="https://github.com/neverlord.png" width="32" height="32"></a>
+<a href="https://github.com/Oipo"><img src="https://github.com/Oipo.png" width="32" height="32"></a>
+<a href="https://github.com/autoantwort"><img src="https://github.com/autoantwort.png" width="32" height="32"></a>
+<a href="https://github.com/ffontaine"><img src="https://github.com/ffontaine.png" width="32" height="32"></a>
+<a href="https://github.com/hudayou"><img src="https://github.com/hudayou.png" width="32" height="32"></a>
+<a href="https://github.com/michael-grunder"><img src="https://github.com/michael-grunder.png" width="32" height="32"></a>
+<a href="https://github.com/postgraph"><img src="https://github.com/postgraph.png" width="32" height="32"></a>
+<a href="https://github.com/tezc"><img src="https://github.com/tezc.png" width="32" height="32"></a>
+<a href="https://github.com/tillkruss"><img src="https://github.com/tillkruss.png" width="32" height="32"></a>
+<a href="https://github.com/vityafx"><img src="https://github.com/vityafx.png" width="32" height="32"></a>
+<a href="https://github.com/windyakin"><img src="https://github.com/windyakin.png" width="32" height="32"></a>
+<a href="https://github.com/yossigo"><img src="https://github.com/yossigo.png" width="32" height="32"></a>
+<a href="https://github.com/zuiderkwast"><img src="https://github.com/zuiderkwast.png" width="32" height="32"></a>
+
 ## [1.1.0](https://github.com/redis/hiredis/tree/v1.1.0) - (2022-11-15)
 
 Announcing Hiredis v1.1.0 GA with better SSL convenience, new async adapters and a great many bug fixes.
 
-**NOTE**:  Hiredis can now return `nan` in addition to `-inf` and `inf` when returning a `REDIS_REPLY_DOUBLE`. 
+**NOTE**:  Hiredis can now return `nan` in addition to `-inf` and `inf` when returning a `REDIS_REPLY_DOUBLE`.
 
 ## 🐛 Bug Fixes
 
-- Add support for nan in RESP3 double [@filipecosta90](https://github.com/filipecosta90) 
+- Add support for nan in RESP3 double [@filipecosta90](https://github.com/filipecosta90)
   ([\#1133](https://github.com/redis/hiredis/pull/1133))
 
 ## 🧰 Maintenance
@@ -14,7 +65,7 @@ Announcing Hiredis v1.1.0 GA with better SSL convenience, new async adapters and
 - Add an example that calls redisCommandArgv [@michael-grunder](https://github.com/michael-grunder)
   ([\#1140](https://github.com/redis/hiredis/pull/1140))
 - fix flag reference [@pata00](https://github.com/pata00) ([\#1136](https://github.com/redis/hiredis/pull/1136))
-- Make freeing a NULL redisAsyncContext a no op. [@michael-grunder](https://github.com/michael-grunder) 
+- Make freeing a NULL redisAsyncContext a no op. [@michael-grunder](https://github.com/michael-grunder)
   ([\#1135](https://github.com/redis/hiredis/pull/1135))
 - CI updates ([@bjosv](https://github.com/redis/bjosv) ([\#1139](https://github.com/redis/hiredis/pull/1139))
 
