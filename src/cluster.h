@@ -88,8 +88,7 @@ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uin
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
-void freeThisNodesLink(clusterNodeHandle node);
-void freeNodeInboundLink(clusterNodeHandle node);
+int handleDebugClusterCommand(client *c);
 sds clusterGenNodesDescription(client *c, int filter, int use_pport);
 sds genClusterInfoString(void);
 char* clusterNodeIp(clusterNodeHandle node);

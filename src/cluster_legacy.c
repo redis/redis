@@ -85,12 +85,13 @@ unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
 void clusterAddNodeToShard(const char *shard_id, clusterNode *node);
-list *clusterLookupNodeListByShardId(const char *shard_id);
 void clusterRemoveNodeFromShard(clusterNode *node);
 int auxShardIdSetter(clusterNode *n, void *value, int length);
 sds auxShardIdGetter(clusterNode *n, sds s);
 int auxShardIdPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
+void freeThisNodesLink(clusterNodeHandle node);
+void freeNodeInboundLink(clusterNodeHandle node);
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -1184,41 +1185,41 @@ unsigned long getClusterConnectionsCount(void) {
  * The node is created and returned to the user, but it is not automatically
  * added to the nodes hash table. */
 clusterNode *createClusterNode(char *nodename, int flags) {
-    clusterNode *data = zmalloc(sizeof(clusterNode));
+    clusterNode *node = zmalloc(sizeof(clusterNode));
 
     if (nodename)
-        memcpy(data->name, nodename, CLUSTER_NAMELEN);
+        memcpy(node->name, nodename, CLUSTER_NAMELEN);
     else
-        getRandomHexChars(data->name, CLUSTER_NAMELEN);
-    getRandomHexChars(data->shard_id, CLUSTER_NAMELEN);
-    data->ctime = mstime();
-    data->configEpoch = 0;
-    data->flags = flags;
-    memset(data->slots,0,sizeof(data->slots));
-    data->slot_info_pairs = NULL;
-    data->slot_info_pairs_count = 0;
-    data->numslots = 0;
-    data->numslaves = 0;
-    data->slaves = NULL;
-    data->slaveof = NULL;
-    data->last_in_ping_gossip = 0;
-    data->ping_sent = data->pong_received = 0;
-    data->data_received = 0;
-    data->fail_time = 0;
-    data->link = NULL;
-    data->inbound_link = NULL;
-    memset(data->ip,0,sizeof(data->ip));
-    data->hostname = sdsempty();
-    data->port = 0;
-    data->cport = 0;
-    data->pport = 0;
-    data->fail_reports = listCreate();
-    data->voted_time = 0;
-    data->orphaned_time = 0;
-    data->repl_offset_time = 0;
-    data->repl_offset = 0;
-    listSetFreeMethod(data->fail_reports,zfree);
-    return data;
+        getRandomHexChars(node->name, CLUSTER_NAMELEN);
+    getRandomHexChars(node->shard_id, CLUSTER_NAMELEN);
+    node->ctime = mstime();
+    node->configEpoch = 0;
+    node->flags = flags;
+    memset(node->slots, 0, sizeof(node->slots));
+    node->slot_info_pairs = NULL;
+    node->slot_info_pairs_count = 0;
+    node->numslots = 0;
+    node->numslaves = 0;
+    node->slaves = NULL;
+    node->slaveof = NULL;
+    node->last_in_ping_gossip = 0;
+    node->ping_sent = node->pong_received = 0;
+    node->data_received = 0;
+    node->fail_time = 0;
+    node->link = NULL;
+    node->inbound_link = NULL;
+    memset(node->ip, 0, sizeof(node->ip));
+    node->hostname = sdsempty();
+    node->port = 0;
+    node->cport = 0;
+    node->pport = 0;
+    node->fail_reports = listCreate();
+    node->voted_time = 0;
+    node->orphaned_time = 0;
+    node->repl_offset_time = 0;
+    node->repl_offset = 0;
+    listSetFreeMethod(node->fail_reports, zfree);
+    return node;
 }
 
 /* This function is called every time we get a failure report from a node.
@@ -6255,4 +6256,39 @@ sds clusterNodeHostname(clusterNodeHandle  node) {
 
 char* clusterNodeGetName(clusterNodeHandle  node) {
     return asNode(node)->name;
+}
+
+int handleDebugClusterCommand(client *c) {
+    if(strcasecmp(c->argv[1]->ptr,"CLUSTERLINK") ||
+       strcasecmp(c->argv[2]->ptr,"KILL") ||
+       c->argc != 5) {
+        return 0;
+    }
+
+    if (!server.cluster_enabled) {
+        addReplyError(c, "Debug option only available for cluster mode enabled setup!");
+        return 1;
+    }
+
+    /* Find the node. */
+    clusterNodeHandle n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+    if (!n) {
+        addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[4]->ptr);
+        return 1;
+    }
+
+    /* Terminate the link based on the direction or all. */
+    if (!strcasecmp(c->argv[3]->ptr,"from")) {
+        freeNodeInboundLink(n);
+    } else if (!strcasecmp(c->argv[3]->ptr,"to")) {
+        freeThisNodesLink(n);
+    } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
+        freeThisNodesLink(n);
+        freeNodeInboundLink(n);
+    } else {
+        addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
+    }
+    addReply(c,shared.ok);
+
+    return 1;
 }
