@@ -392,12 +392,12 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     while (*_p != '\0' && strchr(flags,*_p) != NULL) _p++;
 
                     /* Field width */
-                    while (*_p != '\0' && isdigit(*_p)) _p++;
+                    while (*_p != '\0' && isdigit((int) *_p)) _p++;
 
                     /* Precision */
                     if (*_p == '.') {
                         _p++;
-                        while (*_p != '\0' && isdigit(*_p)) _p++;
+                        while (*_p != '\0' && isdigit((int) *_p)) _p++;
                     }
 
                     /* Copy va_list before consuming with va_arg */
