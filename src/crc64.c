@@ -352,8 +352,9 @@ usage:
     } while (crc64_test_size > 3);
     if (loop) goto again;
     return 0;
-# endif
 }
+# endif
+
 
 #ifdef REDIS_TEST_MAIN
 int main(int argc, char *argv[]) {
