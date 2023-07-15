@@ -92,6 +92,10 @@ ifeq ($(USE_JEMALLOC),no)
 	MALLOC=libc
 endif
 
+ifeq ($(USE_MIMALLOC),no)
+	MALLOC=mimalloc
+endif
+
 ifdef SANITIZER
 ifeq ($(SANITIZER),address)
 	MALLOC=libc
@@ -263,6 +267,11 @@ endif
 ifeq ($(MALLOC),tcmalloc_minimal)
 	FINAL_CFLAGS+= -DUSE_TCMALLOC
 	FINAL_LIBS+= -ltcmalloc_minimal
+endif
+
+ifeq ($(MALLOC),mimalloc)
+	FINAL_CFLAGS+= -DUSE_MIMALLOC
+	FINAL_LIBS+= -lmimalloc
 endif
 
 ifeq ($(MALLOC),jemalloc)

@@ -45,6 +45,12 @@
 #error "Newer version of tcmalloc required"
 #endif
 
+#elif defined(USE_MIMALLOC)
+#define ZMALLOC_LIB ("mimalloc-" __xstr(MI_MALLOC_VERSION))
+#include <mimalloc.h>
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) mi_usable_size(p)
+
 #elif defined(USE_JEMALLOC)
 #define ZMALLOC_LIB ("jemalloc-" __xstr(JEMALLOC_VERSION_MAJOR) "." __xstr(JEMALLOC_VERSION_MINOR) "." __xstr(JEMALLOC_VERSION_BUGFIX))
 #include <jemalloc/jemalloc.h>

@@ -82,3 +82,11 @@ jobs:
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
 
+  build-mimalloc-malloc:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: make
+      run: |
+        sudo apt-get update && sudo apt-get install libmimalloc-dev
+         make REDIS_CFLAGS='-Werror' MALLOC=mimalloc
