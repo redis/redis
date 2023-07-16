@@ -6239,6 +6239,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->resp = ctx->client->resp;
     }
     if (ctx->module) ctx->module->in_call++;
+    c->authenticated = ctx->client->authenticated;
 
     user *user = NULL;
     if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
