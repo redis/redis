@@ -2328,6 +2328,7 @@ struct COMMAND_ARG PTTL_Args[] = {
 /* RANDOMKEY tips */
 const char *RANDOMKEY_Tips[] = {
 "request_policy:all_shards",
+"response_policy:special",
 "nondeterministic_output",
 };
 #endif
@@ -2437,6 +2438,7 @@ commandHistory SCAN_History[] = {
 const char *SCAN_Tips[] = {
 "nondeterministic_output",
 "request_policy:special",
+"response_policy:special",
 };
 #endif
 
@@ -10264,8 +10266,6 @@ struct COMMAND_ARG MSET_Args[] = {
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MSETNX tips */
 const char *MSETNX_Tips[] = {
-"request_policy:multi_shard",
-"response_policy:agg_min",
 };
 #endif
 
