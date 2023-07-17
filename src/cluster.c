@@ -998,6 +998,8 @@ void clusterInit(void) {
     memset(server.cluster->slots,0, sizeof(server.cluster->slots));
     clusterCloseAllSlots();
 
+    memset(server.cluster->owner_not_claiming_slot, 0, sizeof(server.cluster->owner_not_claiming_slot));
+
     /* Lock the cluster config file to make sure every node uses
      * its own nodes.conf. */
     server.cluster_config_file_lock_fd = -1;
@@ -5228,12 +5230,12 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary) {
     if (sdslen(node->hostname) != 0) {
         ci = sdscatfmt(ci,",%s", node->hostname);
     }
-    if (sdslen(node->hostname) == 0) {
-        ci = sdscatfmt(ci,",", 1);
-    }
     /* Don't expose aux fields to any clients yet but do allow them
      * to be persisted to nodes.conf */
     if (c == NULL) {
+        if (sdslen(node->hostname) == 0) {
+            ci = sdscatfmt(ci,",", 1);
+        }
         for (int i = af_count-1; i >=0; i--) {
             if ((tls_primary && i == af_tls_port) || (!tls_primary && i == af_tcp_port)) {
                 continue;
