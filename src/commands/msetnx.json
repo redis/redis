@@ -13,8 +13,6 @@
         "acl_categories": [
             "STRING"
         ],
-        "command_tips": [
-        ],
         "key_specs": [
             {
                 "flags": [

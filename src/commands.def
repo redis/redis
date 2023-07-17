@@ -10265,8 +10265,7 @@ struct COMMAND_ARG MSET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MSETNX tips */
-const char *MSETNX_Tips[] = {
-};
+#define MSETNX_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
