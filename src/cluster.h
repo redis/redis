@@ -84,6 +84,8 @@ void clusterUpdateMyselfIp(void);
  * Functions requiring per-clustering mechanism implementation
  */
 void clusterCommand(client *c);
+int clusterCommandSpecial(client *c);
+const char** clusterCommandSpecialHelp(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 void slotToChannelAdd(sds channel);
@@ -102,6 +104,7 @@ int clusterNodeTimedOut(clusterNodeHandle node);
 int clusterNodeIsMyself(clusterNodeHandle node);
 int clusterNodeIsNoFailover(clusterNodeHandle node);
 char* clusterNodeGetName(clusterNodeHandle node);
+char* clusterNodeGetShardId(clusterNodeHandle node);
 clusterNodeHandle getMyClusterNode(void);
 clusterNodeHandle getNodeBySlot(int slot);
 clusterNodeHandle getMigratingSlotDest(int slot);

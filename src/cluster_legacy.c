@@ -5474,88 +5474,75 @@ sds genClusterInfoString(void) {
     return info;
 }
 
-void clusterCommand(client *c) {
-    clusterStateInternal *state_internal = stateInternal(server.cluster);
-    if (server.cluster_enabled == 0) {
-        addReplyError(c,"This instance has cluster support disabled");
-        return;
-    }
+const char** clusterCommandSpecialHelp(void) {
+    static const char *help[] = {
+            "ADDSLOTS <slot> [<slot> ...]",
+            "    Assign slots to current node.",
+            "ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
+            "    Assign slots which are between <start-slot> and <end-slot> to current node.",
+            "BUMPEPOCH",
+            "    Advance the cluster config epoch.",
+            "COUNT-FAILURE-REPORTS <node-id>",
+            "    Return number of failure reports for <node-id>.",
+            " <slot>",
+            "    Return the number of keys in <slot>.",
+            "DELSLOTS <slot> [<slot> ...]",
+            "    Delete slots information from current node.",
+            "DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
+            "    Delete slots information which are between <start-slot> and <end-slot> from current node.",
+            "FAILOVER [FORCE|TAKEOVER]",
+            "    Promote current replica node to being a master.",
+            "FORGET <node-id>",
+            "    Remove a node from the cluster.",
+            "FLUSHSLOTS",
+            "    Delete current node own slots information.",
+            "INFO",
+            "    Return information about the cluster.",
+            "MEET <ip> <port> [<bus-port>]",
+            "    Connect nodes into a working cluster.",
+            "NODES",
+            "    Return cluster configuration seen by node. Output format:",
+            "    <id> <ip:port@bus-port[,hostname]> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
+            "REPLICATE <node-id>",
+            "    Configure current node as replica to <node-id>.",
+            "RESET [HARD|SOFT]",
+            "    Reset current node (default: soft).",
+            "SET-CONFIG-EPOCH <epoch>",
+            "    Set config epoch of current node.",
+            "SETSLOT <slot> (IMPORTING <node-id>|MIGRATING <node-id>|STABLE|NODE <node-id>)",
+            "    Set slot state.",
+            "REPLICAS <node-id>",
+            "    Return <node-id> replicas.",
+            "SAVECONFIG",
+            "    Force saving cluster configuration on disk.",
+            "SHARDS",
+            "    Return information about slot range mappings and the nodes associated with them.",
+            "LINKS",
+            "    Return information about all network links between this node and its peers.",
+            "    Output format is an array where each array element is a map containing attributes of a link",
+            NULL
+    };
+    return help;
+}
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-"ADDSLOTS <slot> [<slot> ...]",
-"    Assign slots to current node.",
-"ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
-"    Assign slots which are between <start-slot> and <end-slot> to current node.",
-"BUMPEPOCH",
-"    Advance the cluster config epoch.",
-"COUNT-FAILURE-REPORTS <node-id>",
-"    Return number of failure reports for <node-id>.",
-"COUNTKEYSINSLOT <slot>",
-"    Return the number of keys in <slot>.",
-"DELSLOTS <slot> [<slot> ...]",
-"    Delete slots information from current node.",
-"DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...]",
-"    Delete slots information which are between <start-slot> and <end-slot> from current node.",
-"FAILOVER [FORCE|TAKEOVER]",
-"    Promote current replica node to being a master.",
-"FORGET <node-id>",
-"    Remove a node from the cluster.",
-"GETKEYSINSLOT <slot> <count>",
-"    Return key names stored by current node in a slot.",
-"FLUSHSLOTS",
-"    Delete current node own slots information.",
-"INFO",
-"    Return information about the cluster.",
-"KEYSLOT <key>",
-"    Return the hash slot for <key>.",
-"MEET <ip> <port> [<bus-port>]",
-"    Connect nodes into a working cluster.",
-"MYID",
-"    Return the node id.",
-"MYSHARDID",
-"    Return the node's shard id.",
-"NODES",
-"    Return cluster configuration seen by node. Output format:",
-"    <id> <ip:port@bus-port[,hostname]> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ...",
-"REPLICATE <node-id>",
-"    Configure current node as replica to <node-id>.",
-"RESET [HARD|SOFT]",
-"    Reset current node (default: soft).",
-"SET-CONFIG-EPOCH <epoch>",
-"    Set config epoch of current node.",
-"SETSLOT <slot> (IMPORTING <node-id>|MIGRATING <node-id>|STABLE|NODE <node-id>)",
-"    Set slot state.",
-"REPLICAS <node-id>",
-"    Return <node-id> replicas.",
-"SAVECONFIG",
-"    Force saving cluster configuration on disk.",
-"SLOTS",
-"    Return information about slots range mappings. Each range is made of:",
-"    start, end, master and replicas IP addresses, ports and ids",
-"SHARDS",
-"    Return information about slot range mappings and the nodes associated with them.",
-"LINKS",
-"    Return information about all network links between this node and its peers.",
-"    Output format is an array where each array element is a map containing attributes of a link",
-NULL
-        };
-        addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
+int clusterCommandSpecial(client *c) {
+    clusterStateInternal *state_internal = stateInternal(server.cluster);
+
+    if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
         /* CLUSTER MEET <ip> <port> [cport] */
         long long port, cport;
 
         if (getLongLongFromObject(c->argv[3], &port) != C_OK) {
             addReplyErrorFormat(c,"Invalid TCP base port specified: %s",
                                 (char*)c->argv[3]->ptr);
-            return;
+            return 1;
         }
 
         if (c->argc == 5) {
             if (getLongLongFromObject(c->argv[4], &cport) != C_OK) {
                 addReplyErrorFormat(c,"Invalid TCP bus port specified: %s",
                                     (char*)c->argv[4]->ptr);
-                return;
+                return 1;
             }
         } else {
             cport = port + CLUSTER_PORT_INCR;
@@ -5578,15 +5565,6 @@ NULL
         sds nodes = clusterGenNodesDescription(c, 0, use_pport);
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
-    } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
-        /* CLUSTER MYID */
-        addReplyBulkCBuffer(c,myself->name, CLUSTER_NAMELEN);
-    } else if (!strcasecmp(c->argv[1]->ptr,"myshardid") && c->argc == 2) {
-        /* CLUSTER MYSHARDID */
-        addReplyBulkCBuffer(c,myself->shard_id, CLUSTER_NAMELEN);
-    } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
-        /* CLUSTER SLOTS */
-        clusterReplySlots(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"shards") && c->argc == 2) {
         /* CLUSTER SHARDS */
         clusterReplyShards(c);
@@ -5594,7 +5572,7 @@ NULL
         /* CLUSTER FLUSHSLOTS */
         if (dictSize(server.db[0].dict) != 0) {
             addReplyError(c,"DB must be empty to perform CLUSTER FLUSHSLOTS.");
-            return;
+            return 1;
         }
         clusterDelNodeSlots(myself);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
@@ -5613,7 +5591,7 @@ NULL
         for (j = 2; j < c->argc; j++) {
             if ((slot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
-                return;
+                return 1;
             }
         }
         /* Check that the slots are not already busy. */
@@ -5621,7 +5599,7 @@ NULL
             slot = getSlotOrReply(c,c->argv[j]);
             if (checkSlotAssignmentsOrReply(c, slots, del, slot, slot) == C_ERR) {
                 zfree(slots);
-                return;
+                return 1;
             }
         }
         clusterUpdateSlots(c, slots, del);    
@@ -5632,7 +5610,7 @@ NULL
                !strcasecmp(c->argv[1]->ptr,"delslotsrange")) && c->argc >= 4) {
         if (c->argc % 2 == 1) {
             addReplyErrorArity(c);
-            return;
+            return 1;
         }
         /* CLUSTER ADDSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
         /* CLUSTER DELSLOTSRANGE <start slot> <end slot> [<start slot> <end slot> ...] */
@@ -5646,21 +5624,21 @@ NULL
         for (j = 2; j < c->argc; j += 2) {
             if ((startslot = getSlotOrReply(c,c->argv[j])) == C_ERR) {
                 zfree(slots);
-                return;
+                return 1;
             }
             if ((endslot = getSlotOrReply(c,c->argv[j+1])) == C_ERR) {
                 zfree(slots);
-                return;
+                return 1;
             }
             if (startslot > endslot) {
                 addReplyErrorFormat(c,"start slot number %d is greater than end slot number %d", startslot, endslot);
                 zfree(slots);
-                return;
+                return 1;
             }
 
             if (checkSlotAssignmentsOrReply(c, slots, del, startslot, endslot) == C_ERR) {
                 zfree(slots);
-                return;
+                return 1;
             }
         }
         clusterUpdateSlots(c, slots, del);
@@ -5677,42 +5655,42 @@ NULL
 
         if (nodeIsSlave(myself)) {
             addReplyError(c,"Please use SETSLOT only with masters.");
-            return;
+            return 1;
         }
 
-        if ((slot = getSlotOrReply(c,c->argv[2])) == -1) return;
+        if ((slot = getSlotOrReply(c,c->argv[2])) == -1) return 1;
 
         if (!strcasecmp(c->argv[3]->ptr,"migrating") && c->argc == 5) {
             if (state_internal->slots[slot] != myself) {
                 addReplyErrorFormat(c,"I'm not the owner of hash slot %u",slot);
-                return;
+                return 1;
             }
             n = asNode(clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)));
             if (n == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
-                return;
+                return 1;
             }
             if (nodeIsSlave(n)) {
                 addReplyError(c,"Target node is not a master");
-                return;
+                return 1;
             }
             state_internal->migrating_slots_to[slot] = n;
         } else if (!strcasecmp(c->argv[3]->ptr,"importing") && c->argc == 5) {
             if (state_internal->slots[slot] == myself) {
                 addReplyErrorFormat(c,
                     "I'm already the owner of hash slot %u",slot);
-                return;
+                return 1;
             }
             n = asNode(clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr)));
             if (n == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
-                return;
+                return 1;
             }
             if (nodeIsSlave(n)) {
                 addReplyError(c,"Target node is not a master");
-                return;
+                return 1;
             }
             state_internal->importing_slots_from[slot] = n;
         } else if (!strcasecmp(c->argv[3]->ptr,"stable") && c->argc == 4) {
@@ -5725,11 +5703,11 @@ NULL
             if (!n) {
                 addReplyErrorFormat(c,"Unknown node %s",
                     (char*)c->argv[4]->ptr);
-                return;
+                return 1;
             }
             if (nodeIsSlave(n)) {
                 addReplyError(c,"Target node is not a master");
-                return;
+                return 1;
             }
             /* If this hash slot was served by 'myself' before to switch
              * make sure there are no longer local keys for this hash slot. */
@@ -5738,7 +5716,7 @@ NULL
                     addReplyErrorFormat(c,
                         "Can't assign hashslot %d to a different node "
                         "while I still hold keys for this hash slot.", slot);
-                    return;
+                    return 1;
                 }
             }
             /* If this slot is in migrating status but we have no keys
@@ -5794,7 +5772,7 @@ NULL
         } else {
             addReplyError(c,
                 "Invalid CLUSTER SETSLOT action or number of arguments. Try CLUSTER HELP");
-            return;
+            return 1;
         }
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
         addReply(c,shared.ok);
@@ -5821,46 +5799,6 @@ NULL
         else
             addReplyErrorFormat(c,"error saving the cluster node config: %s",
                 strerror(errno));
-    } else if (!strcasecmp(c->argv[1]->ptr,"keyslot") && c->argc == 3) {
-        /* CLUSTER KEYSLOT <key> */
-        sds key = c->argv[2]->ptr;
-
-        addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
-    } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
-        /* CLUSTER COUNTKEYSINSLOT <slot> */
-        long long slot;
-
-        if (getLongLongFromObjectOrReply(c,c->argv[2],&slot,NULL) != C_OK)
-            return;
-        if (slot < 0 || slot >= CLUSTER_SLOTS) {
-            addReplyError(c,"Invalid slot");
-            return;
-        }
-        addReplyLongLong(c,countKeysInSlot(slot));
-    } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
-        /* CLUSTER GETKEYSINSLOT <slot> <count> */
-        long long maxkeys, slot;
-
-        if (getLongLongFromObjectOrReply(c,c->argv[2],&slot,NULL) != C_OK)
-            return;
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&maxkeys,NULL)
-            != C_OK)
-            return;
-        if (slot < 0 || slot >= CLUSTER_SLOTS || maxkeys < 0) {
-            addReplyError(c,"Invalid slot or number of keys");
-            return;
-        }
-
-        unsigned int keys_in_slot = countKeysInSlot(slot);
-        unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
-        addReplyArrayLen(c,numkeys);
-        dictEntry *de = (*server.db->slots_to_keys).by_slot[slot].head;
-        for (unsigned int j = 0; j < numkeys; j++) {
-            serverAssert(de != NULL);
-            sds sdskey = dictGetKey(de);
-            addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
-            de = dictEntryNextInSlot(de);
-        }
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
         clusterNode *n = asNode(clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)));
@@ -5871,13 +5809,13 @@ NULL
                 addReply(c,shared.ok);
             else
                 addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
-            return;
+            return 1;
         } else if (n == myself) {
             addReplyError(c,"I tried hard but I can't forget myself...");
-            return;
+            return 1;
         } else if (nodeIsSlave(myself) && myself->slaveof == n) {
             addReplyError(c,"Can't forget my master!");
-            return;
+            return 1;
         }
         clusterBlacklistAddNode(n);
         clusterDelNode(n);
@@ -5890,19 +5828,19 @@ NULL
         clusterNode *n = asNode(clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr)));
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
-            return;
+            return 1;
         }
 
         /* I can't replicate myself. */
         if (n == myself) {
             addReplyError(c,"Can't replicate myself");
-            return;
+            return 1;
         }
 
         /* Can't replicate a slave. */
         if (nodeIsSlave(n)) {
             addReplyError(c,"I can only replicate a master, not a replica.");
-            return;
+            return 1;
         }
 
         /* If the instance is currently a master, it should have no assigned
@@ -5913,7 +5851,7 @@ NULL
             addReplyError(c,
                 "To set a master the node must be empty and "
                 "without assigned slots.");
-            return;
+            return 1;
         }
 
         /* Set the master. */
@@ -5929,12 +5867,12 @@ NULL
         /* Lookup the specified node in our table. */
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
-            return;
+            return 1;
         }
 
         if (nodeIsSlave(n)) {
             addReplyError(c,"The specified node is not a master");
-            return;
+            return 1;
         }
 
         /* Use plaintext port if cluster is TLS but client is non-TLS. */
@@ -5954,7 +5892,7 @@ NULL
 
         if (!n) {
             addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
-            return;
+            return 1;
         } else {
             addReplyLongLong(c,clusterNodeFailureReportsCount(n));
         }
@@ -5972,24 +5910,24 @@ NULL
                 force = 1; /* Takeover also implies force. */
             } else {
                 addReplyErrorObject(c,shared.syntaxerr);
-                return;
+                return 1;
             }
         }
 
         /* Check preconditions. */
         if (nodeIsMaster(myself)) {
             addReplyError(c,"You should send CLUSTER FAILOVER to a replica");
-            return;
+            return 1;
         } else if (myself->slaveof == NULL) {
             addReplyError(c,"I'm a replica but my master is unknown to me");
-            return;
+            return 1;
         } else if (!force &&
                    (nodeFailed(myself->slaveof) ||
                     myself->slaveof->link == NULL))
         {
             addReplyError(c,"Master is down or failed, "
                             "please use CLUSTER FAILOVER FORCE");
-            return;
+            return 1;
         }
         resetManualFailover();
         state_internal->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
@@ -6013,8 +5951,7 @@ NULL
             clusterSendMFStart(myself->slaveof);
         }
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc == 3)
-    {
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc == 3) {
         /* CLUSTER SET-CONFIG-EPOCH <epoch>
          *
          * The user is allowed to set the config epoch only when a node is
@@ -6025,7 +5962,7 @@ NULL
         long long epoch;
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&epoch,NULL) != C_OK)
-            return;
+            return 1;
 
         if (epoch < 0) {
             addReplyErrorFormat(c,"Invalid config epoch specified: %lld",epoch);
@@ -6063,7 +6000,7 @@ NULL
                 hard = 0;
             } else {
                 addReplyErrorObject(c,shared.syntaxerr);
-                return;
+                return 1;
             }
         }
 
@@ -6072,7 +6009,7 @@ NULL
         if (nodeIsMaster(myself) && dictSize(c->db->dict) != 0) {
             addReplyError(c,"CLUSTER RESET can't be called with "
                             "master nodes containing keys");
-            return;
+            return 1;
         }
         clusterReset(hard);
         addReply(c,shared.ok);
@@ -6080,9 +6017,10 @@ NULL
         /* CLUSTER LINKS */
         addReplyClusterLinksDescription(c);
     } else {
-        addReplySubcommandSyntaxError(c);
-        return;
+        return 0;
     }
+
+    return 1;
 }
 
 void removeChannelsInSlot(unsigned int slot) {
@@ -6256,6 +6194,10 @@ sds clusterNodeHostname(clusterNodeHandle  node) {
 
 char* clusterNodeGetName(clusterNodeHandle  node) {
     return asNode(node)->name;
+}
+
+char* clusterNodeGetShardId(clusterNodeHandle node) {
+    return asNode(node)->shard_id;
 }
 
 int handleDebugClusterCommand(client *c) {

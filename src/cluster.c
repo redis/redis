@@ -1361,6 +1361,107 @@ void clusterReplySlots(client * c) {
     setDeferredArrayLen(c, slot_replylen, num_masters);
 }
 
+void clusterCommandHelp(client *c) {
+    const char *help[] = {
+            "COUNTKEYSINSLOT <slot>",
+            "    Return the number of keys in <slot>.",
+            "GETKEYSINSLOT <slot> <count>",
+            "    Return key names stored by current node in a slot.",
+            "KEYSLOT <key>",
+            "    Return the hash slot for <key>.",
+            "MYID",
+            "    Return the node id.",
+            "MYSHARDID",
+            "    Return the node's shard id.",
+            "SLOTS",
+            "    Return information about slots range mappings. Each range is made of:",
+            "    start, end, master and replicas IP addresses, ports and ids",
+            NULL
+    };
+
+    sds cmd = sdsnew((char*) c->argv[0]->ptr);
+    void *blenp = addReplyDeferredLen(c);
+    int blen = 0;
+
+    sdstoupper(cmd);
+    addReplyStatusFormat(c,
+                         "%s <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",cmd);
+    sdsfree(cmd);
+
+    while (help[blen]) addReplyStatus(c,help[blen++]);
+    const char** special_help = clusterCommandSpecialHelp();
+    while (help[blen]) addReplyStatus(c,special_help[blen++]);
+
+    addReplyStatus(c,"HELP");
+    addReplyStatus(c,"    Print this help.");
+
+    blen += 1;  /* Account for the header. */
+    blen += 2;  /* Account for the footer. */
+    setDeferredArrayLen(c,blenp,blen);
+}
+
+void clusterCommand(client *c) {
+    if (server.cluster_enabled == 0) {
+        addReplyError(c,"This instance has cluster support disabled");
+        return;
+    }
+
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        clusterCommandHelp(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
+        /* CLUSTER MYID */
+        addReplyBulkCBuffer(c,clusterNodeGetName(getMyClusterNode()), CLUSTER_NAMELEN);
+    } else if (!strcasecmp(c->argv[1]->ptr,"myshardid") && c->argc == 2) {
+        /* CLUSTER MYSHARDID */
+        addReplyBulkCBuffer(c,clusterNodeGetShardId(getMyClusterNode()), CLUSTER_NAMELEN);
+    } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
+        /* CLUSTER SLOTS */
+        clusterReplySlots(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"keyslot") && c->argc == 3) {
+        /* CLUSTER KEYSLOT <key> */
+        sds key = c->argv[2]->ptr;
+
+        addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
+    } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
+        /* CLUSTER COUNTKEYSINSLOT <slot> */
+        long long slot;
+
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&slot,NULL) != C_OK)
+            return;
+        if (slot < 0 || slot >= CLUSTER_SLOTS) {
+            addReplyError(c,"Invalid slot");
+            return;
+        }
+        addReplyLongLong(c,countKeysInSlot(slot));
+    } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
+        /* CLUSTER GETKEYSINSLOT <slot> <count> */
+        long long maxkeys, slot;
+
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&slot,NULL) != C_OK)
+            return;
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&maxkeys,NULL)
+            != C_OK)
+            return;
+        if (slot < 0 || slot >= CLUSTER_SLOTS || maxkeys < 0) {
+            addReplyError(c,"Invalid slot or number of keys");
+            return;
+        }
+
+        unsigned int keys_in_slot = countKeysInSlot(slot);
+        unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
+        addReplyArrayLen(c,numkeys);
+        dictEntry *de = (*server.db->slots_to_keys).by_slot[slot].head;
+        for (unsigned int j = 0; j < numkeys; j++) {
+            serverAssert(de != NULL);
+            sds sdskey = dictGetKey(de);
+            addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
+            de = dictEntryNextInSlot(de);
+        }
+    } else if(!clusterCommandSpecial(c)) {
+        addReplySubcommandSyntaxError(c);
+        return;
+    }
+}
 #ifdef REDIS_CLUSTER_FLOTILLA
 #include "cluster_flotilla.c"
 #else
