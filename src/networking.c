@@ -3808,7 +3808,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
  * classes of clients.
  *
  * The function will return one of the following:
- * CLIENT_TYPE_NORMAL -> Normal client
+ * CLIENT_TYPE_NORMAL -> Normal client, including MONITOR
  * CLIENT_TYPE_SLAVE  -> Slave
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  * CLIENT_TYPE_MASTER -> The client representing our replication master.
