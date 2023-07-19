@@ -63,7 +63,7 @@ start_server {
         r XADD mystream * item 2 value b
 
         # coverage for objectComputeSize
-        assert_range [r memory usage mystream] 4720 9400 ;# mystream size: 4730
+        assert_range [r memory usage mystream] 4700 5000 ;# Range cant be lower than 20bytes lower than actual stream and higher than 50 bytes; mystream size here is 4730
 
         assert_equal 2 [r XLEN mystream]
         set items [r XRANGE mystream - +]

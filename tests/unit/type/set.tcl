@@ -23,8 +23,7 @@ start_server {
         assert_encoding $type myset
 
         # coverage for objectComputeSize
-        assert_range [r memory usage myset] 50 12000 ;# sum of the size of each element in $initelems
-                                                      # for listpack 59 and hashtable 6081
+        assert_range [r memory usage myset] 50 7000 ;# can't be lower than one byte per item, or higher than 50 bytes overhead beyond the sum of the actual strings.
         assert_equal 1 [r sadd myset bar]
         assert_equal 0 [r sadd myset bar]
         assert_equal [expr [llength $initelems($type)] + 1] [r scard myset]
@@ -45,8 +44,7 @@ start_server {
         assert_encoding intset myset
 
         # coverage for objectComputeSize
-        assert_range [r memory usage myset] 50 100 ;# sum of the size of element for myset:57
-
+        assert_range [r memory usage myset] 50 100 ;# can't be lower than one byte per item, or higher than 50 bytes of overhead of sum of all the items.
         assert_equal 1 [r sadd myset 16]
         assert_equal 0 [r sadd myset 16]
         assert_equal 2 [r scard myset]
