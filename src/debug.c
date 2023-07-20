@@ -66,6 +66,9 @@ typedef ucontext_t sigcontext_t;
 /* Globals */
 static int bug_report_start = 0; /* True if bug report header was already logged. */
 static pthread_mutex_t bug_report_start_mutex = PTHREAD_MUTEX_INITIALIZER;
+/* Set signal handler with error checking attribute.
+A thread attempting to relock this mutex without first unlocking it shall return with an error. */
+static pthread_mutex_t signal_handler_lock = PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP;
 
 /* Forward declarations */
 void bugReportStart(void);
@@ -2119,6 +2122,16 @@ typedef void (*invalidFunctionWasCalledType)(void);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
+    // Check if it is safe to enter the signal handler
+    if(pthread_mutex_lock(&signal_handler_lock) == EDEADLK) {
+        // If this thread already owns the lock (meaning we crashed during handling a signal)
+        // log that the crash report can't be generated.
+        serverLog(LL_WARNING,
+            "Crashed running signal handler. Can't continue to generate the crash report");
+        // gracefully exit
+        bugReportEnd(1, sig);
+        return;
+    }
 
     bugReportStart();
     serverLog(LL_WARNING,
@@ -2218,7 +2231,7 @@ void bugReportEnd(int killViaSignal, int sig) {
     /* Make sure we exit with the right signal at the end. So for instance
      * the core will be dumped if enabled. */
     sigemptyset (&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
+    act.sa_flags = 0;
     act.sa_handler = SIG_DFL;
     sigaction (sig, &act, NULL);
     kill(getpid(),sig);
