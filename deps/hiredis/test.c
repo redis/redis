@@ -78,7 +78,7 @@ static int tests = 0, fails = 0, skips = 0;
 
 static void millisleep(int ms)
 {
-#if _MSC_VER
+#ifdef _MSC_VER
     Sleep(ms);
 #else
     usleep(ms*1000);
@@ -409,10 +409,19 @@ static void test_tcp_options(struct config cfg) {
     redisContext *c;
 
     c = do_connect(cfg);
+
     test("We can enable TCP_KEEPALIVE: ");
     test_cond(redisEnableKeepAlive(c) == REDIS_OK);
 
-    disconnect(c, 0);
+#ifdef TCP_USER_TIMEOUT
+    test("We can set TCP_USER_TIMEOUT: ");
+    test_cond(redisSetTcpUserTimeout(c, 100) == REDIS_OK);
+#else
+    test("Setting TCP_USER_TIMEOUT errors when unsupported: ");
+    test_cond(redisSetTcpUserTimeout(c, 100) == REDIS_ERR && c->err == REDIS_ERR_IO);
+#endif
+
+    redisFree(c);
 }
 
 static void test_reply_reader(void) {
@@ -1567,6 +1576,9 @@ static void test_throughput(struct config config) {
 // }
 
 #ifdef HIREDIS_TEST_ASYNC
+
+#pragma GCC diagnostic ignored "-Woverlength-strings"   /* required on gcc 4.8.x due to assert statements */
+
 struct event_base *base;
 
 typedef struct TestState {

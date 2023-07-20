@@ -60,7 +60,7 @@ jobs:
     steps:
     - name: Install qemu
       if: matrix.emulator
-      run: sudo apt-get install -y qemu-user
+      run: sudo apt-get update && sudo apt-get install -y qemu-user
     - name: Install platform toolset
       if: matrix.toolset
       run: sudo apt-get install -y gcc-${{matrix.toolset}}
