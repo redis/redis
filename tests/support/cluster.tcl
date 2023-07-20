@@ -196,6 +196,11 @@ proc ::redis_cluster::__method__masternode_notfor_slot {id slot} {
     error "Slot $slot is everywhere"
 }
 
+proc ::redis_cluster::__method__get_link {id node_addr} {
+    set node [dict get $::redis_cluster::nodes($id) $node_addr]
+    return [dict get $node link]
+}
+
 proc ::redis_cluster::__dispatch__ {id method args} {
     if {[info command ::redis_cluster::__method__$method] eq {}} {
         # Get the keys from the command.
@@ -221,8 +226,7 @@ proc ::redis_cluster::__dispatch__ {id method args} {
         set asking 0
         while {[incr retry -1]} {
             if {$retry < 5} {after 100}
-            set node [dict get $::redis_cluster::nodes($id) $node_addr]
-            set link [dict get $node link]
+            set link [::redis_cluster::__method__get_link $id $node_addr]
             if {$asking} {
                 $link ASKING
                 set asking 0

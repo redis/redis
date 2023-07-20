@@ -605,6 +605,10 @@ proc set_instance_attrib {type id attrib newval} {
     lset ::${type}_instances $id $d
 }
 
+proc get_instance_addr {type id} {
+    return [get_instance_attrib $type $id host]:[get_instance_attrib $type $id port]
+}
+
 # Create a master-slave cluster of the given number of total instances.
 # The first instance "0" is the master, all others are configured as
 # slaves.
