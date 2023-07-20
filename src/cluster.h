@@ -413,5 +413,8 @@ sds clusterGenNodesDescription(client *c, int filter, int tls_primary);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
+void clusterUpdateMyselfHumanNodename(void);
+int isValidAuxString(char *s, unsigned int length);
+int getNodeDefaultClientPort(clusterNode *n);
 
 #endif /* __CLUSTER_H */
