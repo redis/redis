@@ -2291,8 +2291,9 @@ static int cliReadReply(int output_raw_strings) {
         slot = atoi(s+1);
         s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
-        if (p+1 != s) {         
-            /* Update hostip if target host is non-empty. See #12266. */
+        if (p+1 != s) {
+            /* Host might be empty, like 'MOVED 3999 :6381', if endpoint type is unknown. Only update the
+             * host if it's non-empty. */
             sdsfree(config.conn_info.hostip);
             config.conn_info.hostip = sdsnew(p+1);
         }
