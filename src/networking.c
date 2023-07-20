@@ -3087,7 +3087,13 @@ NULL
 
         if (!o)
             o = getAllClientsInfoString(type);
-        addReplyVerbatim(c,o,sdslen(o),"txt");
+        if(!sdslen(o)) {
+            addReplyArrayLen(c,1);
+            addReplyBulkCString(c,"\"\" \n");
+        }
+        else {
+            addReplyVerbatim(c,o,sdslen(o),"txt");
+        }
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
         /* CLIENT REPLY ON|OFF|SKIP */
