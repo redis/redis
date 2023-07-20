@@ -3090,8 +3090,7 @@ NULL
         if(!sdslen(o)) {
             addReplyArrayLen(c,1);
             addReplyBulkCString(c,"\"\" \n");
-        }
-        else {
+        } else {
             addReplyVerbatim(c,o,sdslen(o),"txt");
         }
         sdsfree(o);
