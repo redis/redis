@@ -47,11 +47,11 @@
                 },
                 {
                     "type": "integer",
-                    "description": "The rank of the member when 'WITHSCORES' is not used."
+                    "description": "The rank of the member when 'WITHSCORE' is not used."
                 },
                 {
                     "type": "array",
-                    "description": "The rank and score of the member when 'WITHSCORES' is used.",
+                    "description": "The rank and score of the member when 'WITHSCORE' is used.",
                     "minItems": 2,
                     "maxItems": 2,
                     "items": [

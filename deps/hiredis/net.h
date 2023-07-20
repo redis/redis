@@ -52,5 +52,6 @@ int redisKeepAlive(redisContext *c, int interval);
 int redisCheckConnectDone(redisContext *c, int *completed);
 
 int redisSetTcpNoDelay(redisContext *c);
+int redisContextSetTcpUserTimeout(redisContext *c, unsigned int timeout);
 
 #endif

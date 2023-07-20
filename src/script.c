@@ -292,6 +292,7 @@ void scriptKill(client *c, int is_eval) {
     if (mustObeyClient(curr_run_ctx->original_client)) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
+        return;
     }
     if (curr_run_ctx->flags & SCRIPT_WRITE_DIRTY) {
         addReplyError(c,

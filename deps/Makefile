@@ -3,6 +3,7 @@
 uname_S:= $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 LUA_DEBUG?=no
+LUA_COVERAGE?=no
 
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
@@ -85,6 +86,11 @@ ifeq ($(LUA_DEBUG),yes)
 else
 	LUA_CFLAGS+= -O2 
 endif
+ifeq ($(LUA_COVERAGE),yes)
+	LUA_CFLAGS += -fprofile-arcs -ftest-coverage
+	LUA_LDFLAGS += -fprofile-arcs -ftest-coverage
+endif
+
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier
 # to fit redis into cross-compilation environments, which typically set AR.
@@ -106,7 +112,7 @@ endif
 
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd jemalloc && ./configure --disable-cxx --with-version=5.3.0-0-g0 --with-lg-quantum=3 --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
+	cd jemalloc && ./configure --disable-cxx --with-version=5.3.0-0-g0 --with-lg-quantum=3 --disable-cache-oblivious --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
 	cd jemalloc && $(MAKE) lib/libjemalloc.a
 
 .PHONY: jemalloc

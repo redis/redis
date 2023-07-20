@@ -205,7 +205,7 @@ void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 dictEntry *dictGetFairRandomKey(dict *d);
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
-void dictGetStats(char *buf, size_t bufsize, dict *d);
+void dictGetStats(char *buf, size_t bufsize, dict *d, int full);
 uint64_t dictGenHashFunction(const void *key, size_t len);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len);
 void dictEmpty(dict *d, void(callback)(dict*));
@@ -219,8 +219,8 @@ unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dic
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
-size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats);
-dictStats* dictGetStatsHt(dict *d, int htidx);
+size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full);
+dictStats* dictGetStatsHt(dict *d, int htidx, int full);
 void dictCombineStats(dictStats *from, dictStats *into);
 void dictFreeStats(dictStats *stats);
 
