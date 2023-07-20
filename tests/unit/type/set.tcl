@@ -18,12 +18,19 @@ start_server {
     }
 
     foreach type {listpack hashtable} {
+    test "SET against MEMORY USAGE - $type " {
+       array set noofelem {listpack {128} hashtable {129}}
+       for {set i 0} {$i < $noofelem($type)} {incr i} {
+           lappend memelems($type) [format "e%03d" $i]
+       }
+       create_set myset $memelems($type)
+       assert_encoding $type myset
+       assert_range [r memory usage myset] 130 7000 ;# can't be lower than one byte per item, or higher than 50 bytes overhead beyond the sum of the actual strings.
+    }
+
     test "SADD, SCARD, SISMEMBER, SMISMEMBER, SMEMBERS basics - $type" {
         create_set myset $initelems($type)
         assert_encoding $type myset
-
-        # coverage for objectComputeSize
-        assert_range [r memory usage myset] 50 7000 ;# can't be lower than one byte per item, or higher than 50 bytes overhead beyond the sum of the actual strings.
         assert_equal 1 [r sadd myset bar]
         assert_equal 0 [r sadd myset bar]
         assert_equal [expr [llength $initelems($type)] + 1] [r scard myset]
