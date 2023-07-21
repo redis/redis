@@ -498,6 +498,9 @@ noopt:
 valgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc"
 
+test-valgrind: valgrind
+	@(cd ..; ./runtest --valgrind)
+
 helgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
 
