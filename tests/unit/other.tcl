@@ -274,7 +274,7 @@ start_server {tags {"other"}} {
         assert_equal "encoding:int" $encoding 
 
         assert_equal [r get foo] [r get bar]
-    }
+    } {} {needs:debug}
 
     test {APPEND fuzzing} {
         set err {}
