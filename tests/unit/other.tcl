@@ -266,12 +266,10 @@ start_server {tags {"other"}} {
         # append command undergoes a operation dbUnshareStringValue which
         # converts the value to a sds object of encoding raw type.  
         assert_equal 12 [r get foo]
-        set encoding [lindex [split [r debug object foo]] 3]
-        assert_equal "encoding:raw" $encoding 
+        assert_encoding "raw" foo
 
         r set bar 12
-        set encoding [lindex [split [r debug object bar]] 3]
-        assert_equal "encoding:int" $encoding 
+        assert_encoding "int" bar
 
         assert_equal [r get foo] [r get bar]
     } {} {needs:debug}
