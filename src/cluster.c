@@ -1231,13 +1231,13 @@ dictType clusterNodesDictType = {
 };
 
 void addNodeToNodeReply(client *c, clusterNodeHandle node) {
-    sds hostname = clusterNodeHostname(node);
+    char* hostname = clusterNodeHostname(node);
     addReplyArrayLen(c, 4);
     if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_IP) {
         addReplyBulkCString(c, clusterNodeIp(node));
     } else if (server.cluster_preferred_endpoint_type == CLUSTER_ENDPOINT_TYPE_HOSTNAME) {
-        if (sdslen(hostname) != 0) {
-            addReplyBulkCBuffer(c, hostname, sdslen(hostname));
+        if (*hostname != '\0') {
+            addReplyBulkCString(c, hostname);
         } else {
             addReplyBulkCString(c, "?");
         }
@@ -1263,7 +1263,7 @@ void addNodeToNodeReply(client *c, clusterNodeHandle node) {
         length++;
     }
     if (server.cluster_preferred_endpoint_type != CLUSTER_ENDPOINT_TYPE_HOSTNAME
-        && sdslen(clusterNodeHostname(node)) != 0)
+        && *hostname != '\0')
     {
         length++;
     }
@@ -1278,7 +1278,7 @@ void addNodeToNodeReply(client *c, clusterNodeHandle node) {
         && sdslen(hostname) != 0)
     {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCBuffer(c, hostname, sdslen(hostname));
+        addReplyBulkCString(c, hostname);
         length--;
     }
     serverAssert(length == 0);

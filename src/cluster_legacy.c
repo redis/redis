@@ -6188,7 +6188,7 @@ int clusterNodePlainTextPort(clusterNodeHandle node) {
     return asNode(node)->pport;
 }
 
-sds clusterNodeHostname(clusterNodeHandle  node) {
+char* clusterNodeHostname(clusterNodeHandle  node) {
     return asNode(node)->hostname;
 }
 

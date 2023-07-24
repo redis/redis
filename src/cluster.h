@@ -118,7 +118,7 @@ int getNumSlaves(clusterNodeHandle node);
 clusterNodeHandle getSlave(clusterNodeHandle node, int slave_idx);
 long long getReplOffset(clusterNodeHandle node);
 int clusterNodePlainTextPort(clusterNodeHandle node);
-sds clusterNodeHostname(clusterNodeHandle node);
+char* clusterNodeHostname(clusterNodeHandle node);
 int verifyClusterNodeId(const char *name, int length);
 clusterNodeHandle getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int clusterRedirectBlockedClientIfNeeded(client *c);
