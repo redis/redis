@@ -258,22 +258,6 @@ start_server {tags {"other"}} {
         lappend res [r get foo]
     } {12 12}
 
-    test {APPEND modifies the encoding from int to raw} {
-        r del foo
-        r set foo 1
-        r append foo 2
-
-        # append command undergoes a operation dbUnshareStringValue which
-        # converts the value to a sds object of encoding raw type.  
-        assert_equal 12 [r get foo]
-        assert_encoding "raw" foo
-
-        r set bar 12
-        assert_encoding "int" bar
-
-        assert_equal [r get foo] [r get bar]
-    } {} {needs:debug}
-
     test {APPEND fuzzing} {
         set err {}
         foreach type {binary alpha compr} {

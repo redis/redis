@@ -656,4 +656,19 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
            }
         }
     }
+
+    test {APPEND modifies the encoding from int to raw} {
+        r del foo
+        r set foo 1
+        assert_encoding "int" foo
+        r append foo 2
+
+        assert_equal 12 [r get foo]
+        assert_encoding "raw" foo
+        
+        r set bar 12
+        assert_encoding "int" bar
+
+        r mget foo bar
+    } {12 12}
 }
