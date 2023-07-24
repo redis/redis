@@ -663,12 +663,12 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_encoding "int" foo
         r append foo 2
 
-        assert_equal 12 [r get foo]
+        set res {}
+        lappend res [r get foo]
         assert_encoding "raw" foo
         
         r set bar 12
         assert_encoding "int" bar
-
-        r mget foo bar
+        lappend res [r get bar]
     } {12 12}
 }
