@@ -69,6 +69,7 @@ static pthread_mutex_t bug_report_start_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Mutex for a case when two threads crash at the same time. */
 static pthread_mutex_t signal_handler_lock;
 static pthread_mutexattr_t signal_handler_lock_attr;
+static volatile int signal_handler_lock_initialized = 0;
 /* Forward declarations */
 void bugReportStart(void);
 void printCrashReport(void);
@@ -2183,11 +2184,17 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     bugReportEnd(1, sig);
 }
 
+int isDebugReady(void) {
+    return signal_handler_lock_initialized;
+}
+
 void initDebug(void) {
     /* Set signal handler with error checking attribute. re-lock within the same thread will error. */
     pthread_mutexattr_init(&signal_handler_lock_attr);
     pthread_mutexattr_settype(&signal_handler_lock_attr, PTHREAD_MUTEX_ERRORCHECK);
     pthread_mutex_init(&signal_handler_lock, &signal_handler_lock_attr);
+
+    signal_handler_lock_initialized = 1;
 }
 
 void printCrashReport(void) {
