@@ -193,8 +193,6 @@ start_server {tags {"incr"}} {
         }
 
         test "$cmd operation should update encoding from raw to int" {
-            r del foo
-
             r set foo 1
             assert_encoding "int" foo
             lappend res [r get foo]
