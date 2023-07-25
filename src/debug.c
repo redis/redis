@@ -2118,7 +2118,7 @@ void invalidFunctionWasCalled(void) {}
 
 typedef void (*invalidFunctionWasCalledType)(void);
 
-static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
+void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
     /* Check if it is safe to enter the signal handler. second thread crashing at the same time will deadlock. */
@@ -2183,26 +2183,11 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     bugReportEnd(1, sig);
 }
 
-void setupSigSegvHandler(void) {
+void initDebug(void) {
     /* Set signal handler with error checking attribute. re-lock within the same thread will error. */
     pthread_mutexattr_init(&signal_handler_lock_attr);
     pthread_mutexattr_settype(&signal_handler_lock_attr, PTHREAD_MUTEX_ERRORCHECK);
     pthread_mutex_init(&signal_handler_lock, &signal_handler_lock_attr);
-    
-    struct sigaction act;
-
-    sigemptyset(&act.sa_mask);
-    /* Set SA_NODEFER to disable adding the signal to the signal mask of the
-     * calling process on entry to the signal handler unless it is included in the sa_mask field. */
-    act.sa_flags = SA_NODEFER | SA_SIGINFO;
-    act.sa_sigaction = sigsegvHandler;
-    if(server.crashlog_enabled) {
-        sigaction(SIGSEGV, &act, NULL);
-        sigaction(SIGBUS, &act, NULL);
-        sigaction(SIGFPE, &act, NULL);
-        sigaction(SIGILL, &act, NULL);
-        sigaction(SIGABRT, &act, NULL);
-    }
 }
 
 void printCrashReport(void) {
