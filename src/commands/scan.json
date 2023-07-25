@@ -21,7 +21,8 @@
         ],
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT",
-            "REQUEST_POLICY:SPECIAL"
+            "REQUEST_POLICY:SPECIAL",
+            "RESPONSE_POLICY:SPECIAL"
         ],
         "arguments": [
             {
