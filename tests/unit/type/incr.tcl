@@ -192,7 +192,7 @@ start_server {tags {"incr"}} {
             lappend expected 11
         }
 
-        test {INCR[BY]/DECR[BY] operation should update encoding from raw to int} {
+        test "$cmd operation should update encoding from raw to int" {
             r del foo
 
             r set foo 1
@@ -210,7 +210,7 @@ start_server {tags {"incr"}} {
             }
             assert_encoding "int" foo
             lappend res [r get foo]
+            assert_equal $res $expected
         }
-        assert_equal $res $expected
     }
 }
