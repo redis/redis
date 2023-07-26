@@ -5395,11 +5395,6 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
     /* Every kind of instance */
     sentinelCheckSubjectivelyDown(ri);
 
-    /* Masters and slaves */
-    if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
-        /* Nothing so far. */
-    }
-
     /* Only masters */
     if (ri->flags & SRI_MASTER) {
         sentinelCheckObjectivelyDown(ri);
