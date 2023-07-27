@@ -102,6 +102,16 @@ typedef long long ustime_t;
 /* Expire */
 #define REDISMODULE_NO_EXPIRE -1
 
+/* Set API Operation flags. */
+typedef enum {
+    REDISMODULE_SET_ADD,
+    REDISMODULE_SET_REM,
+    REDISMODULE_SET_ISMEMBER
+} RedisModuleSetOperation;
+
+#define REDISMODULE_SET_NONE     0
+#define REDISMODULE_SET_CSTRING  (1<<0)
+
 /* Sorted set API flags. */
 #define REDISMODULE_ZADD_XX      (1<<0)
 #define REDISMODULE_ZADD_NX      (1<<1)
@@ -1310,9 +1320,7 @@ REDISMODULE_API RedisModuleRdbStream *(*RedisModule_RdbStreamCreateFromFile)(con
 REDISMODULE_API void (*RedisModule_RdbStreamFree)(RedisModuleRdbStream *stream) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RdbLoad)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RdbSave)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetAdd)(RedisModuleKey *key, const char *fmt, ...) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetRem)(RedisModuleKey *key, const char *fmt, ...) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetIsMember)(RedisModuleKey *key, const char *fmt, ...) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetOperate)(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ...) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1674,9 +1682,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RdbStreamFree);
     REDISMODULE_GET_API(RdbLoad);
     REDISMODULE_GET_API(RdbSave);
-    REDISMODULE_GET_API(SetAdd);
-    REDISMODULE_GET_API(SetRem);
-    REDISMODULE_GET_API(SetIsMember);
+    REDISMODULE_GET_API(SetOperate);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

@@ -384,7 +384,7 @@ typedef struct RedisModuleServerInfoData {
     rax *rax;                       /* parsed info data. */
 } RedisModuleServerInfoData;
 
-/* Flags for moduleCreateArgvFromUserFormatAux(). */
+/* Flags for moduleCreateArgvFromUserFormat(). */
 #define REDISMODULE_ARGV_REPLICATE (1<<0)
 #define REDISMODULE_ARGV_NO_AOF (1<<1)
 #define REDISMODULE_ARGV_NO_REPLICAS (1<<2)
@@ -488,8 +488,7 @@ typedef struct RedisModuleAsyncRMCallPromise{
 void RM_FreeCallReply(RedisModuleCallReply *reply);
 void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
-robj **moduleCreateCmdArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
-robj **moduleCreateGenArgvFromUserFormat(const char *fmt, int *argcp, va_list ap);
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
@@ -3495,7 +3494,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
-    argv = moduleCreateCmdArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     va_end(ap);
     if (argv == NULL) return REDISMODULE_ERR;
 
@@ -5997,8 +5996,9 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
 }
 
-/* Returns an array of robj pointers, by parsing the format specifier "fmt" as described.
- * Populates *argcp with the number of items (which equals to the length of the allocated argv).
+/* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
+ * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
+ * items (which equals to the length of the allocated argv).
  *
  * The integer pointed by 'flags' is populated with flags according
  * to special modifiers in "fmt".
@@ -6014,19 +6014,18 @@ void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
-robj **moduleCreateArgvFromUserFormatAux(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
+robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
     int argc = 0, argv_size, j;
     robj **argv = NULL;
 
     /* As a first guess to avoid useless reallocations, size argv to
      * hold one argument for each char specifier in 'fmt'. */
-    argv_size = strlen(fmt) + (cmdname ? 1 : 0); /* +1 because of the command name if is not null. */
+    argv_size = strlen(fmt)+1; /* +1 because of the command name. */
     argv = zrealloc(argv,sizeof(robj*)*argv_size);
 
-    if (cmdname) {
-        /* Build the arguments vector based on the format specifier. */
-        argv[argc++] = createStringObject(cmdname,strlen(cmdname));
-    }
+    /* Build the arguments vector based on the format specifier. */
+    argv[0] = createStringObject(cmdname,strlen(cmdname));
+    argc++;
 
     /* Create the client and dispatch the command. */
     const char *p = fmt;
@@ -6101,26 +6100,6 @@ fmterr:
         decrRefCount(argv[j]);
     zfree(argv);
     return NULL;
-}
-
-/* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
- * the RM_Call(), RM_Replicate() and other module APIs. Populates *argcp with the number of
- * items (which equals to the length of the allocated argv).
- *
- * On error (format specifier error) NULL is returned and nothing is
- * allocated. On success the argument vector is returned. */
-robj **moduleCreateCmdArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap) {
-    return moduleCreateArgvFromUserFormatAux(cmdname, fmt, argcp, flags, ap);
-}
-
-/* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
- * the RM_SetAdd(), RM_SetRem() and other module APIs. Populates *argcp with the number of
- * items (which equals to the length of the allocated argv).
- *
- * On error (format specifier error) NULL is returned and nothing is
- * allocated. On success the argument vector is returned. */
-robj **moduleCreateGenArgvFromUserFormat(const char *fmt, int *argcp, va_list ap) {
-    return moduleCreateArgvFromUserFormatAux(NULL, fmt, argcp, NULL, ap);
 }
 
 /* Exported API to call any Redis command from modules.
@@ -6239,7 +6218,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Handle arguments. */
     va_start(ap, fmt);
-    argv = moduleCreateCmdArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
@@ -7473,7 +7452,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 
     /* Emit the arguments into the AOF in Redis protocol format. */
     va_start(ap, fmt);
-    argv = moduleCreateCmdArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
+    argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     va_end(ap);
     if (argv == NULL) {
         serverLog(LL_WARNING,
@@ -13519,171 +13498,91 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
  * See also RM_ValueLength(), which returns the length of a set.
  * -------------------------------------------------------------------------- */
 
-/* Add new elements into a set. If the key is an empty key open for writing,
- * it is created with an empty set key in order to add the elements.
+/* Operate a set key.
+ * REDISMODULE_SET_ADD: Add new elements into a set. If the key is an empty key
+ *                      open for writing, it is created with an empty set key in
+ *                      order to add the elements.
+ * REDISMODULE_SET_REM: Remove the specified element from the set and the key will be
+ *                      removed if has no any element in after remove elements operation.
+ * REDISMODULE_SET_ISMEMBER: Determines if member is a member of the set stored at key .
  *
- * * **key**: The set key to be added elements to.
- * * **fmt**: A format specifier string for the command's arguments. Each
- *   of the arguments should be specified by a valid type specification.
+ * * **key**: The set key to be operated.
+ * * **op**: The operation to the set key.
+ * * **flags**: The flag for following arguments. 
+ *      REDISMODULE_SET_CSTRING: The following arguments are null terminated C
+ *                               strings instead of RedisModuleString objects.
+ * * **...**: The actual arguments.
  *
- *     * `c` -- The argument is a pointer to a plain C string (null-terminated).
- *     * `l` -- The argument is long long integer.
- *     * `s` -- The argument is a RedisModuleString.
- *     * `v` -- The argument(s) is a vector of RedisModuleString.
- * * **...**: The actual arguments to the Redis command.
- *
-
  * Return value:
  *
- * The number of elements were really added.
+ * REDISMODULE_SET_ADD: The number of elements were really added.
+ * REDISMODULE_SET_REM: The number of elements were really removed.
+ * REDISMODULE_SET_ISMEMBER: 1 if all the elements are member of the set. Otherwise return 0.
  *
  * If the return value is zero, `errno` is set as follows:
  *
- * - EINVAL if any unknown flags are set or if key is NULL.
- * - ENOTSUP if the key is associated with a non Hash value.
+ * - EINVAL if key is NULL.
+ * - ENOTSUP if the key is associated with a non Set value.
  * - EBADF if the key was not opened for writing.
  * - ENOENT if no elements were counted as described under Return value above.
- *   This is not actually an error. The return value can be zero if all elements
- *   had been in the set key.
+ *   This is not actually an error. The return value can be e.g. zero if all elements
+ *   had been in the set key for add operation.
  */
-int RM_SetAdd(RedisModuleKey *key, const char *fmt, ...) {
-    robj **argv = NULL;
-    int argc = 0;
+int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ...) {
     va_list ap;
+    RedisModuleString *ele;
+    int count = (op == REDISMODULE_SET_ISMEMBER) ? 1 : 0;
 
     if (!key) {
         errno = EINVAL;
         return 0;
-    } else if (key->value && key->value->type != OBJ_SET) {
-        errno = ENOTSUP;
-        return 0;
-    } else if (!(key->mode & REDISMODULE_WRITE)) {
-        errno = EBADF;
-        return 0;
+    } else if (op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ISMEMBER) {
+        // return 0 if key doesn't exist for remove and ismember operation.  
+        if (!key->value) {
+            errno = ENOENT;
+            return 0;
+        }
+    } else if (op == REDISMODULE_SET_REM ||
+               op == REDISMODULE_SET_ADD ||
+               op == REDISMODULE_SET_ISMEMBER) {
+        // key should be set type.
+        if (key->value && key->value->type != OBJ_SET) {
+            errno = ENOTSUP;
+            return 0;
+        }
+    } else if (op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ADD) {
+        if (!(key->mode & REDISMODULE_WRITE)) {
+            errno = EBADF;
+            return 0;
+        }
     }
 
-    /* Handle arguments. */
-    va_start(ap, fmt);
-    argv = moduleCreateGenArgvFromUserFormat(fmt,&argc,ap);
+    if (key->value == NULL && op == REDISMODULE_SET_ADD) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
+
+    va_start(ap, flags);
+    while(1) {
+        if (flags & REDISMODULE_SET_CSTRING) {
+            char *cele = va_arg(ap,char*);
+            if (cele == NULL) break;
+            ele = createRawStringObject(cele,strlen(cele));
+        } else {
+            ele = va_arg(ap,RedisModuleString*);
+            if (ele == NULL) break;
+        }
+       
+        if (op == REDISMODULE_SET_ADD)
+            count += setTypeAdd(key->value,ele->ptr);
+        else if (op == REDISMODULE_SET_REM) {
+            count += setTypeRemove(key->value,ele->ptr);
+            if (moduleDelKeyIfEmpty(key)) break;
+        }
+        else if (op == REDISMODULE_SET_ISMEMBER)
+            count &= setTypeIsMember(key->value,ele->ptr);
+    }
     va_end(ap);
-
-    if (argv == NULL) {
-        errno = EBADF;
-        return 0;
-    }
-
-    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
-
-    int i, count = 0;
-    for (i = 0; i < argc; i++) {
-        count += setTypeAdd(key->value,argv[i]->ptr);
-        freeStringObject(argv[i]);
-    }
-    if (count == 0) errno = ENOENT;
-    return count;
-}
-
-/* Remove the specified element from the set and the key will be
- * removed if has no any element in after remove elements operation.
- *
- * * **key**: The set key to be added elements to.
- * * **fmt**: A format specifier string for the command's arguments. Each
- *   of the arguments should be specified by a valid type specification.
- *
- *     * `c` -- The argument is a pointer to a plain C string (null-terminated).
- *     * `l` -- The argument is long long integer.
- *     * `s` -- The argument is a RedisModuleString.
- *     * `v` -- The argument(s) is a vector of RedisModuleString.
- * * **...**: The actual arguments to the Redis command.
- *
-
- * Return value:
- *
- * The number of elements were really deleted.
- *
- * If the return value is zero, `errno` is set as follows:
- *
- * - EINVAL if any unknown flags are set or if key is NULL.
- * - ENOTSUP if the key is associated with a non Hash value.
- * - EBADF if the key was not opened for writing.
- * - ENOENT if no elements were counted as described under Return value above.
- *   This is not actually an error. The return value can be zero if the key
- *   doesn't consist any element to be removed or the key doesn't exist
- */
-int RM_SetRem(RedisModuleKey *key, const char *fmt, ...) {
-    robj **argv = NULL;
-    int argc = 0;
-    va_list ap;
-
-    if (!key) {
-        errno = EINVAL;
-        return 0;
-    } else if (!key->value) {
-        errno = ENOENT;
-        return 0;
-    } else if (key->value && key->value->type != OBJ_SET) {
-        errno = ENOTSUP;
-        return 0;
-    } else if (!(key->mode & REDISMODULE_WRITE)) {
-        errno = EBADF;
-        return 0;
-    }
-
-    /* Handle arguments. */
-    va_start(ap, fmt);
-    argv = moduleCreateGenArgvFromUserFormat(fmt,&argc,ap);
-    va_end(ap);
-
-    if (argv == NULL) {
-        errno = EBADF;
-        return 0;
-    }
-
-    int i, count = 0;
-    for (i = 0; i < argc; i++) {
-        count += setTypeRemove(key->value,argv[i]->ptr);
-        freeStringObject(argv[i]);
-    }
-    moduleDelKeyIfEmpty(key);
 
     if (count == 0) errno = ENOENT;
     return count;
-}
-
-/* Determines if member is a member of the set stored at key .
- *
- * * **key**: The set key to be added elements to.
- * * **fmt**: A format specifier string for the command's arguments. Each
- *   of the arguments should be specified by a valid type specification.
- *
- *     * `c` -- The argument is a pointer to a plain C string (null-terminated).
- *     * `l` -- The argument is long long integer.
- *     * `s` -- The argument is a RedisModuleString.
- * * **...**: The actual arguments to the Redis command.
- *
-
- * Return value:
- *
- * 1 if the element is a member of the set.
- * 0 if the element is not a member of the set.
- */
-int RM_SetIsMember(RedisModuleKey *key, const char *fmt, ...) {
-    robj **argv = NULL;
-    int argc = 0;
-    va_list ap;
-
-    if (!key || !key->value || key->value->type != OBJ_SET) return 0;
-
-    /* Handle arguments. */
-    va_start(ap, fmt);
-    argv = moduleCreateGenArgvFromUserFormat(fmt,&argc,ap);
-    va_end(ap);
-
-    if (argv == NULL) {
-        return 0;
-    }
-
-    return setTypeIsMember(key->value,argv[0]->ptr);
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
@@ -14043,7 +13942,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RdbStreamFree);
     REGISTER_API(RdbLoad);
     REGISTER_API(RdbSave);
-    REGISTER_API(SetAdd);
-    REGISTER_API(SetRem);
-    REGISTER_API(SetIsMember);
+    REGISTER_API(SetOperate);
 }

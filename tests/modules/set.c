@@ -12,7 +12,11 @@ int set_rem(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     int keymode = REDISMODULE_READ | REDISMODULE_WRITE;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
-    RedisModule_ReplyWithLongLong(ctx, RedisModule_SetRem(key, "v", &argv[2], argc-2));
+    int count = 0;
+    for (int i=2; i<argc; i++) {
+        count += RedisModule_SetOperate(key, REDISMODULE_SET_REM, REDISMODULE_SET_NONE, argv[i], NULL);
+    }
+    RedisModule_ReplyWithLongLong(ctx, count);
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;
 }
@@ -27,7 +31,11 @@ int set_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     int keymode = REDISMODULE_READ | REDISMODULE_WRITE;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
-    RedisModule_ReplyWithLongLong(ctx, RedisModule_SetAdd(key, "v", &argv[2], argc-2));
+    int count = 0;
+    for (int i=2; i<argc; i++) {
+        count += RedisModule_SetOperate(key, REDISMODULE_SET_ADD, REDISMODULE_SET_NONE, argv[i], NULL);
+    }
+    RedisModule_ReplyWithLongLong(ctx, count);
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;
 }
@@ -38,11 +46,15 @@ int set_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * or 0 as not member of the key
  */
 int set_ismember(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 3) return RedisModule_WrongArity(ctx);
+    if (argc < 3) return RedisModule_WrongArity(ctx);
     RedisModule_AutoMemory(ctx);
     int keymode = REDISMODULE_READ;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
-    RedisModule_ReplyWithLongLong(ctx, RedisModule_SetIsMember(key, "s", argv[2]));
+    int count = 1;
+    for (int i=2; i<argc; i++) {
+        count &= RedisModule_SetOperate(key, REDISMODULE_SET_ISMEMBER, REDISMODULE_SET_NONE, argv[i], NULL);
+    }
+    RedisModule_ReplyWithLongLong(ctx, count);
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;
 }
