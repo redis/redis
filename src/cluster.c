@@ -1390,7 +1390,7 @@ void clusterCommandHelp(client *c) {
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
     const char** special_help = clusterCommandSpecialHelp();
-    while (help[blen]) addReplyStatus(c,special_help[blen++]);
+    while (special_help[blen]) addReplyStatus(c,special_help[blen++]);
 
     addReplyStatus(c,"HELP");
     addReplyStatus(c,"    Print this help.");
@@ -1398,6 +1398,24 @@ void clusterCommandHelp(client *c) {
     blen += 1;  /* Account for the header. */
     blen += 2;  /* Account for the footer. */
     setDeferredArrayLen(c,blenp,blen);
+}
+
+void clusterCommandMyId(client *c) {
+    char *name = clusterNodeGetName(getMyClusterNode());
+    if (name) {
+        addReplyBulkCBuffer(c,name, CLUSTER_NAMELEN);
+    } else {
+        addReplyError(c, "No ID yet");
+    }
+}
+
+void clusterCommandMyShardId(client *c) {
+    char *sid = clusterNodeGetShardId(getMyClusterNode());
+    if (sid) {
+        addReplyBulkCBuffer(c,sid, CLUSTER_NAMELEN);
+    } else {
+        addReplyError(c, "No shard ID yet");
+    }
 }
 
 void clusterCommand(client *c) {
@@ -1410,10 +1428,10 @@ void clusterCommand(client *c) {
         clusterCommandHelp(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
         /* CLUSTER MYID */
-        addReplyBulkCBuffer(c,clusterNodeGetName(getMyClusterNode()), CLUSTER_NAMELEN);
+        clusterCommandMyId(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"myshardid") && c->argc == 2) {
         /* CLUSTER MYSHARDID */
-        addReplyBulkCBuffer(c,clusterNodeGetShardId(getMyClusterNode()), CLUSTER_NAMELEN);
+        clusterCommandMyShardId(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
         clusterReplySlots(c);
