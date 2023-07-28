@@ -211,7 +211,11 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
     SSL_CTX *ctx = NULL;
 
     ctx = SSL_CTX_new(SSLv23_method());
-
+    if(!ctx)
+    {
+        // output error
+        goto error;
+    }
     SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 
 #ifdef SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS
