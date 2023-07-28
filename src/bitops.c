@@ -607,7 +607,7 @@ REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
-    unsigned long op, j, numkeys;
+    unsigned long op, j, numkeys, nullobjs = 0;
     robj **objects;      /* Array of source objects. */
     unsigned char **src; /* Array of source strings pointers. */
     unsigned long *len, maxlen = 0; /* Array of length of src strings,
@@ -648,6 +648,7 @@ void bitopCommand(client *c) {
             src[j] = NULL;
             len[j] = 0;
             minlen = 0;
+            nullobjs++;
             continue;
         }
         /* Return an error if one of the keys is not a string. */
@@ -670,7 +671,7 @@ void bitopCommand(client *c) {
     }
 
     /* Compute the bit operation, if at least one string is not empty. */
-    if (maxlen) {
+    if (nullobjs < numkeys) {
         res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte;
         unsigned long i;
@@ -778,7 +779,7 @@ void bitopCommand(client *c) {
     zfree(objects);
 
     /* Store the computed value into the target key */
-    if (maxlen) {
+    if (nullobjs < numkeys) {
         o = createObject(OBJ_STRING,res);
         setKey(c,c->db,targetkey,o,0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);

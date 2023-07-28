@@ -257,6 +257,15 @@ start_server {tags {"bitops"}} {
         r bitop or x{t} a{t} b{t}
     } {32}
 
+    test {BITOP with input all empty string or nil} {
+        assert_equal [r bitop and dest c d] 0
+        assert_equal [r exists dest] 0
+        r set c ""
+        assert_equal [r bitop and dest c d] 0
+        assert_equal [r exists dest] 1
+        assert_equal [r get dest] ""
+    }
+
     test {BITPOS bit=0 with empty key returns 0} {
         r del str
         assert {[r bitpos str 0] == 0}
