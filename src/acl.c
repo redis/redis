@@ -563,7 +563,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
          * as well if the command is removed. */
         char *rule_end = strchr(existing_rule, ' ');
         if (!rule_end) {
-            /* This is the last rule, so it has to extend to the end of string. */
+            /* This is the last rule, so it has to be extended to the end of string. */
             rule_end = existing_rule + strlen(existing_rule);
 
             /* This approach can leave a trailing space if the last rule is removed,
