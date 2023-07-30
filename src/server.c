@@ -228,7 +228,7 @@ mstime_t commandTimeSnapshot(void) {
 
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
  * exit(), because the latter may interact with the same file objects used by
- * the parent process. However if we are testing the coverage normal exit() is
+ * the parent process. However, if we are testing the coverage normal exit() is
  * used in order to obtain the right coverage information. */
 void exitFromChild(int retcode) {
 #ifdef COVERAGE_TEST
@@ -268,8 +268,8 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-/* A case insensitive version used for the command lookup table and other
- * places where case insensitive non binary-safe comparison is needed. */
+/* A case-insensitive version used for the command lookup table and other
+ * places where case-insensitive non binary-safe comparison is needed. */
 int dictSdsKeyCaseCompare(dict *d, const void *key1,
         const void *key2)
 {
@@ -336,7 +336,7 @@ int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     return memcmp(key1, key2, l1) == 0;
 }
 
-/* Dict case insensitive compare function for null terminated string */
+/* Dict case-insensitive compare function for null terminated string */
 int dictCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
     UNUSED(d);
     return strcasecmp(key1, key2) == 0;
@@ -520,7 +520,7 @@ dictType sdsReplyDictType = {
 
 /* Keylist hash table type has unencoded redis objects as keys and
  * lists as values. It's used for blocking operations (BLPOP) and to
- * map swapped keys to a list of clients waiting for this keys to be loaded. */
+ * map swapped keys to a list of clients waiting for these keys to be loaded. */
 dictType keylistDictType = {
     dictObjHash,                /* hash function */
     NULL,                       /* key dup */
@@ -554,7 +554,7 @@ dictType migrateCacheDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Dict for for case-insensitive search using null terminated C strings.
+/* Dict for case-insensitive search using null terminated C strings.
  * The keys stored in dict are sds though. */
 dictType stringSetDictType = {
     dictCStrCaseHash,           /* hash function */
@@ -566,7 +566,7 @@ dictType stringSetDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Dict for for case-insensitive search using null terminated C strings.
+/* Dict for case-insensitive search using null terminated C strings.
  * The key and value do not have a destructor. */
 dictType externalStringType = {
     dictCStrCaseHash,           /* hash function */
@@ -867,7 +867,7 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients to accurately
  * provide information around clients memory usage.
  *
- * It is also used in updateClientMemUsageAndBucket to have latest
+ * It is also used in updateClientMemUsageAndBucket to have the latest
  * client memory usage information to place it into appropriate client memory
  * usage bucket.
  */
@@ -1060,7 +1060,7 @@ void databasesCron(void) {
     activeDefragCycle();
 
     /* Perform hash tables rehashing if needed, but only if there are no
-     * other processes saving the DB on disk. Otherwise rehashing is bad
+     * other processes saving the DB on disk. Otherwise, rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
     if (!hasActiveChildProcess()) {
         /* We use global counters so if we stop the computation at a given
@@ -1105,7 +1105,7 @@ static inline void updateCachedTimeWithUs(int update_daylight_info, const long l
     atomicSet(server.unixtime, unixtime);
 
     /* To get information about daylight saving time, we need to call
-     * localtime_r and cache the result. However calling localtime_r in this
+     * localtime_r and cache the result. However, calling localtime_r in this
      * context is safe since we will never fork() while here, in the main
      * thread. The logging function will call a thread safe version of
      * localtime that has no locks. */
@@ -1163,7 +1163,7 @@ void checkChildrenDone(void) {
         if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
         /* sigKillChildHandler catches the signal and calls exit(), but we
-         * must make sure not to flag lastbgsave_status, etc incorrectly.
+         * must make sure not to flag lastbgsave_status, etc. incorrectly.
          * We could directly terminate the child process via SIGUSR1
          * without handling it */
         if (exitcode == SERVER_CHILD_NOERROR_RETVAL) {
@@ -1269,7 +1269,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
-     * many clients, we want to call serverCron() with an higher frequency. */
+     * many clients, we want to call serverCron() with a higher frequency. */
     if (server.dynamic_hz) {
         while (listLength(server.clients) / server.hz >
                MAX_CLIENTS_PER_CLOCK_TICK)
@@ -1316,7 +1316,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that even if the counter wraps it's not a big problem,
      * everything will still work but some object will appear younger
-     * to Redis. However for this to happen a given object should never be
+     * to Redis. However, for this to happen a given object should never be
      * touched for all the time needed to the counter to wrap, which is
      * not likely.
      *
@@ -1553,7 +1553,7 @@ void whileBlockedCron(void) {
      * make sure it was done. */
     serverAssert(server.blocked_last_cron);
 
-    /* In case we where called too soon, leave right away. This way one time
+    /* In case we were called too soon, leave right away. This way one time
      * jobs after the loop below don't need an if. and we don't bother to start
      * latency monitor if this function is called too often. */
     if (server.blocked_last_cron >= server.mstime)
@@ -1620,7 +1620,7 @@ extern int ProcessingEventsWhileBlocked;
  * to perform all actions (For example, we don't want to expire
  * keys), but we do need to perform some actions.
  *
- * The most important is freeClientsInAsyncFreeQueue but we also
+ * The most important is freeClientsInAsyncFreeQueue, but we also
  * call some other low-risk functions. */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
@@ -1707,7 +1707,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     serverAssert(listLength(server.tracking_pending_keys) == 0);
     serverAssert(listLength(server.pending_push_messages) == 0);
 
-    /* Send the invalidation messages to clients participating to the
+    /* Send the invalidation messages to clients participating on the
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages();
 
@@ -2173,7 +2173,7 @@ int restartServer(int flags, mstime_t delay) {
         return C_ERR;
     }
 
-    /* Close all file descriptors, with the exception of stdin, stdout, stderr
+    /* Close all file descriptors, except for stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
     for (j = 3; j < (int)server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
@@ -2728,7 +2728,7 @@ void initServer(void) {
 
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
-     * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
+     * at 3 GB using maxmemory with 'noeviction' policy. This avoids
      * useless crashes of the Redis instance for out of memory. */
     if (server.arch_bits == 32 && server.maxmemory == 0) {
         serverLog(LL_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3 GB maxmemory limit with 'noeviction' policy now.");
@@ -2842,7 +2842,7 @@ void InitServerLast(void) {
  * in order to have different flags for different keys (e.g. SMOVE,
  * first key is "RW ACCESS DELETE", second key is "RW INSERT").
  *
- * Additionally set the CMD_MOVABLE_KEYS flag for commands that may have key
+ * Additionally, set the CMD_MOVABLE_KEYS flag for commands that may have key
  * names in their arguments, but the legacy range spec doesn't cover all of them.
  *
  * This function uses very basic heuristics and is "best effort":
@@ -2977,7 +2977,7 @@ void setImplicitACLCategories(struct redisCommand *c) {
 
 /* Recursively populate the command structure.
  *
- * On success, the function return C_OK. Otherwise C_ERR is returned and we won't
+ * On success, the function return C_OK. Otherwise C_ERR is returned, and we won't
  * add this command in the commands dict. */
 int populateCommandStructure(struct redisCommand *c) {
     /* If the command marks with CMD_SENTINEL, it exists in sentinel. */
@@ -3283,7 +3283,7 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
- * Redis command implementation in order to to force the propagation of a
+ * Redis command implementation in order to force the propagation of a
  * specific command execution into AOF / Replication. */
 void forceCommandPropagation(client *c, int flags) {
     serverAssert(c->cmd->flags & (CMD_WRITE | CMD_MAY_REPLICATE));
@@ -3322,7 +3322,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
 }
 
 /* This function is called in order to update the total command histogram duration.
- * The latency unit is nano-seconds.
+ * The latency unit is nanoseconds.
  * If needed it will allocate the histogram memory and trim the duration to the upper/lower tracking limits*/
 void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int64_t duration_hist){
     if (duration_hist < LATENCY_HISTOGRAM_MIN_VALUE)
@@ -3399,7 +3399,7 @@ void postExecutionUnitOperations(void) {
 
     firePostExecutionUnitJobs();
 
-    /* If we are at the top-most call() and not inside a an active module
+    /* If we are at the top-most call() and not inside an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */
     propagatePendingCommands();
 
@@ -3413,7 +3413,7 @@ void postExecutionUnitOperations(void) {
  * * ERROR_COMMAND_FAILED - update failed_calls
  *
  * The function also reset the prev_err_count to make sure we will not count the same error
- * twice, its possible to pass a NULL cmd value to indicate that the error was counted elsewhere.
+ * twice, it's possible to pass a NULL cmd value to indicate that the error was counted elsewhere.
  *
  * The function returns true if stats was updated and false if not. */
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
@@ -3799,7 +3799,7 @@ int commandCheckArity(client *c, sds *err) {
 
 /* If we're executing a script, try to extract a set of command flags from
  * it, in case it declared them. Note this is just an attempt, we don't yet
- * know the script command is well formed.*/
+ * know the script command is well-formed.*/
 uint64_t getCommandFlags(client *c) {
     uint64_t cmd_flags = c->cmd->flags;
 
@@ -3820,7 +3820,7 @@ uint64_t getCommandFlags(client *c) {
  * server for a bulk read from the client.
  *
  * If C_OK is returned the client is still alive and valid and
- * other operations can be performed by the caller. Otherwise
+ * other operations can be performed by the caller. Otherwise,
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
     if (!scriptIsTimedout()) {
@@ -3832,7 +3832,7 @@ int processCommand(client *c) {
         serverAssert(!scriptIsRunning());
     }
 
-    /* in case we are starting to ProcessCommand and we already have a command we assume
+    /* in case we are starting to ProcessCommand, and we already have a command we assume
      * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
 
@@ -3935,7 +3935,7 @@ int processCommand(client *c) {
     }
 
     /* If cluster is enabled perform the cluster redirection here.
-     * However we don't perform the redirection if:
+     * However, we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
@@ -3991,7 +3991,7 @@ int processCommand(client *c) {
          * amount of memory, so we want to stop that.
          * However, we never want to reject DISCARD, or even EXEC (unless it
          * contains denied commands, in which case is_denyoom_command is already
-         * set. */
+         * set). */
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
             c->cmd->proc != discardCommand &&
@@ -4223,7 +4223,7 @@ void closeListeningSockets(int unlink_unix_socket) {
  * returned and an error is logged. If the flag SHUTDOWN_FORCE is set, these
  * errors are logged but ignored and C_OK is returned.
  *
- * On success, this function returns C_OK and then it's OK to call exit(0). */
+ * On success, this function returns C_OK, and then it's OK to call exit(0). */
 int prepareForShutdown(int flags) {
     if (isShutdownInitiated()) return C_ERR;
 
@@ -4232,7 +4232,7 @@ int prepareForShutdown(int flags) {
      * the dataset on shutdown (otherwise it could overwrite the current DB
      * with half-read data).
      *
-     * Also when in Sentinel mode clear the SAVE flag and force NOSAVE. */
+     * Also, when in Sentinel mode clear the SAVE flag and force NOSAVE. */
     if (server.loading || server.sentinel_mode)
         flags = (flags & ~SHUTDOWN_SAVE) | SHUTDOWN_NOSAVE;
 
@@ -4306,7 +4306,7 @@ int abortShutdown(void) {
 }
 
 /* The final step of the shutdown sequence. Returns C_OK if the shutdown
- * sequence was successful and it's OK to call exit(). If C_ERR is returned,
+ * sequence was successful, and it's OK to call exit(). If C_ERR is returned,
  * it's not safe to call exit(). */
 int finishShutdown(void) {
 
@@ -4354,7 +4354,7 @@ int finishShutdown(void) {
          * doing it's cleanup, but in this case this code will not be reached,
          * so we need to call rdbRemoveTempFile which will close fd(in order
          * to unlink file actually) in background thread.
-         * The temp rdb file fd may won't be closed when redis exits quickly,
+         * The temp rdb file fd might not be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
         rdbRemoveTempFile(server.child_pid, 0);
     }
@@ -4504,7 +4504,7 @@ sds writeCommandsGetDiskErrorMessage(int error_code) {
     return ret;
 }
 
-/* The PING command. It works in a different way if the client is in
+/* The PING command. It works in a different way if the client is
  * in Pub/Sub mode. */
 void pingCommand(client *c) {
     /* The command takes zero or one arguments. */
@@ -4647,7 +4647,7 @@ void addReplyFlagsForArg(client *c, uint64_t flags) {
 void addReplyCommandArgList(client *c, struct redisCommandArg *args, int num_args) {
     addReplyArrayLen(c, num_args);
     for (int j = 0; j<num_args; j++) {
-        /* Count our reply len so we don't have to use deferred reply. */
+        /* Count our reply len so, we don't have to use deferred reply. */
         int has_display_text = 1;
         long maplen = 2;
         if (args[j].key_spec_index != -1) maplen++;
@@ -4904,7 +4904,7 @@ void addReplyCommandInfo(client *c, struct redisCommand *cmd) {
 
 /* Output the representation of a Redis command. Used by the COMMAND DOCS. */
 void addReplyCommandDocs(client *c, struct redisCommand *cmd) {
-    /* Count our reply len so we don't have to use deferred reply. */
+    /* Count our reply len so, we don't have to use deferred reply. */
     long maplen = 1;
     if (cmd->summary) maplen++;
     if (cmd->since) maplen++;
@@ -5248,7 +5248,7 @@ NULL
     addReplyHelp(c, help);
 }
 
-/* Convert an amount of bytes into a human readable string in the form
+/* Convert an amount of bytes into a human-readable string in the form
  * of 100B, 2G, 100M, 4K, and so forth. */
 void bytesToHuman(char *s, size_t size, unsigned long long n) {
     double d;
@@ -5420,7 +5420,7 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
         defaults = default_sections;
 
     if (argc == 0) {
-        /* In this case we know the dict is not gonna be modified, so we cache
+        /* In this case we know the dict is not going to be modified, so we cache
          * it as an optimization for a common case. */
         if (cached_default_info_sections)
             return cached_default_info_sections;
@@ -6632,7 +6632,7 @@ int redisFork(int purpose) {
         /* The child_pid and child_type are only for mutually exclusive children.
          * other child types should handle and store their pid's in dedicated variables.
          *
-         * Today, we allows CHILD_TYPE_LDB to run in parallel with the other fork types:
+         * Today, we allow CHILD_TYPE_LDB to run in parallel with the other fork types:
          * - it isn't used for production, so it will not make the server be less efficient
          * - used for debugging, and we don't want to block it from running while other
          *   forks are running (like RDB and AOF) */
@@ -6669,7 +6669,7 @@ void sendChildInfo(childInfoType info_type, size_t keys, char *pname) {
  * allocation from the allocator (malloc_size) when we already know it's small,
  * we check the size_hint. If the size is not already known, passing a size_hint
  * of 0 will lead the checking the real size of the allocation.
- * Also please note that the size may be not accurate, so in order to make this
+ * Also, please note that the size may be not accurate, so in order to make this
  * solution effective, the judgement for releasing memory pages should not be
  * too strict. */
 void dismissMemory(void* ptr, size_t size_hint) {
@@ -7127,7 +7127,7 @@ int main(int argc, char **argv) {
     }
 
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
-     * the program main. However the program is part of the Redis executable
+     * the program main. However, the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
     if (strstr(exec_name,"redis-check-rdb") != NULL)
         redis_check_rdb_main(argc,argv,NULL);
