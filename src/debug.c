@@ -2184,8 +2184,7 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     bugReportEnd(1, sig);
 }
 
-void setupSignalHandlers(void) {
-
+void setupSigSegvHandler(void) {
     /* Initialize the signal handler lock. 
     Attempting to initialize an already initialized mutex or mutexattr results in undefined behavior. */
     if (!signal_handler_lock_initialized) {
@@ -2210,7 +2209,6 @@ void setupSignalHandlers(void) {
         sigaction(SIGILL, &act, NULL);
         sigaction(SIGABRT, &act, NULL);
     }
-
 }
 
 void printCrashReport(void) {

@@ -6524,7 +6524,7 @@ void setupSignalHandlers(void) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-    setupSignalHandlers();
+    setupSigSegvHandler();
 }
 
 void removeSignalHandlers(void) {
