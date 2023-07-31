@@ -3704,9 +3704,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...)
 void _serverPanic(const char *file, int line, const char *msg, ...);
 #endif
 void serverLogObjectDebugInfo(const robj *o);
-void initDebug(void);
-int isDebugReady(void);
-void sigsegvHandler(int sig, siginfo_t *info, void *secret);
+void setupSignalHandlers(void);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
 dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything);
 void releaseInfoSectionDict(dict *sec);

@@ -2562,7 +2562,6 @@ void initServer(void) {
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
-    initDebug();
     setupSignalHandlers();
     makeThreadKillable();
 
@@ -6525,24 +6524,7 @@ void setupSignalHandlers(void) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-    /* Check that the debug resources were intialized proprely */
-    if(!isDebugReady()) {
-        serverLog(LL_WARNING, "Warning: Debug resources were not initialized. Skipping registration to sigsegv handler.");
-        return;
-    }
-
-    sigemptyset(&act.sa_mask);
-    /* Set SA_NODEFER to disable adding the signal to the signal mask of the
-     * calling process on entry to the signal handler unless it is included in the sa_mask field. */
-    act.sa_flags = SA_NODEFER | SA_SIGINFO;
-    act.sa_sigaction = sigsegvHandler;
-    if(server.crashlog_enabled) {
-        sigaction(SIGSEGV, &act, NULL);
-        sigaction(SIGBUS, &act, NULL);
-        sigaction(SIGFPE, &act, NULL);
-        sigaction(SIGILL, &act, NULL);
-        sigaction(SIGABRT, &act, NULL);
-    }
+    setupSignalHandlers();
 }
 
 void removeSignalHandlers(void) {
