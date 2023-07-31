@@ -47,7 +47,7 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 
-/* Using dictEnableResize() / dictDisableResize() we make possible to disable
+/* Using dictEnableResize() / dictDisableResize() we make possible to enable/disable
  * resizing and rehashing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
@@ -518,7 +518,7 @@ int dictReplace(dict *d, void *key, void *val)
     dictEntry *entry, *existing;
 
     /* Try to add the element. If the key
-     * does not exists dictAdd will succeed. */
+     * does not exist dictAdd will succeed. */
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
@@ -696,7 +696,7 @@ void *dictFetchValue(dict *d, const void *key) {
 
 /* Find an element from the table, also get the plink of the entry. The entry
  * is returned if the element is found, and the user should later call
- * `dictTwoPhaseUnlinkFree` with it in order to unlink and release it. Otherwise if
+ * `dictTwoPhaseUnlinkFree` with it in order to unlink and release it. Otherwise, if
  * the key is not found, NULL is returned. These two functions should be used in pair.
  * `dictTwoPhaseUnlinkFind` pauses rehash and `dictTwoPhaseUnlinkFree` resumes rehash.
  *
@@ -1166,7 +1166,7 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions
  *
  * This function improves the distribution because the dictGetRandomKey()
  * problem is that it selects a random bucket, then it selects a random
- * element from the chain in the bucket. However elements being in different
+ * element from the chain in the bucket. However, elements being in different
  * chain lengths will have different probabilities of being reported. With
  * this function instead what we do is to consider a "linear" range of the table
  * that may be constituted of N buckets with chains of different lengths
@@ -1208,7 +1208,7 @@ static unsigned long rev(unsigned long v) {
  *
  * The function guarantees all elements present in the
  * dictionary get returned between the start and end of the iteration.
- * However it is possible some elements get returned multiple times.
+ * However, it is possible some elements get returned multiple times.
  *
  * For every element returned, the callback argument 'fn' is
  * called with 'privdata' as first argument and the dictionary entry
@@ -1261,7 +1261,7 @@ static unsigned long rev(unsigned long v) {
  *
  * Yes, this is true, but we always iterate the smaller table first, then
  * we test all the expansions of the current cursor into the larger
- * table. For example if the current cursor is 101 and we also have a
+ * table. For example if the current cursor is 101, and we also have a
  * larger table of size 16, we also test (0)101 and (1)101 inside the larger
  * table. This reduces the problem back to having only one table, where
  * the larger one, if it exists, is just an expansion of the smaller one.
@@ -1273,7 +1273,7 @@ static unsigned long rev(unsigned long v) {
  *
  * The disadvantages resulting from this design are:
  *
- * 1) It is possible we return elements more than once. However this is usually
+ * 1) It is possible we return elements more than once. However, this is usually
  *    easy to deal with in the application level.
  * 2) The iterator must return multiple elements per call, as it needs to always
  *    return all the keys chained in a given bucket, and all the expansions, so
@@ -1565,7 +1565,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx, int full) 
         totchainlen += chainlen;
     }
 
-    /* Generate human readable stats. */
+    /* Generate human-readable stats. */
     l += snprintf(buf+l,bufsize-l,
         "Hash table %d stats (%s):\n"
         " table size: %lu\n"
