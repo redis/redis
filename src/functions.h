@@ -54,7 +54,7 @@ typedef struct engine {
     void *engine_ctx;
 
     /* Create function callback, get the engine_ctx, and function code
-     * engine_ctx - opaque stuct that was created on engine initialization
+     * engine_ctx - opaque struct that was created on engine initialization
      * li - library information that need to be provided and when add functions
      * code - the library code
      * timeout - timeout for the library creation (0 for no timeout)
