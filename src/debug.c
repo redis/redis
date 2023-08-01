@@ -1066,7 +1066,7 @@ void _serverAssert(const char *estr, const char *file, int line) {
     }
 
     // remove the signal handler so on abort() we will output the crash report.
-    removeSignalHandlers();
+    removeSigSegvHandlers();
     bugReportEnd(0, 0);
 }
 
@@ -1162,7 +1162,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     }
 
     // remove the signal handler so on abort() we will output the crash report.
-    removeSignalHandlers();
+    removeSigSegvHandlers();
     bugReportEnd(0, 0);
 }
 
@@ -2209,6 +2209,18 @@ void setupSigSegvHandler(void) {
         sigaction(SIGILL, &act, NULL);
         sigaction(SIGABRT, &act, NULL);
     }
+}
+
+void removeSigSegvHandlers(void) {
+    struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_NODEFER | SA_RESETHAND;
+    act.sa_handler = SIG_DFL;
+    sigaction(SIGSEGV, &act, NULL);
+    sigaction(SIGBUS, &act, NULL);
+    sigaction(SIGFPE, &act, NULL);
+    sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
 }
 
 void printCrashReport(void) {
