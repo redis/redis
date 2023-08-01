@@ -1990,7 +1990,8 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
     for (int j = 0; j < argc; j++) {
         char *op = argv[j];
 
-        if (op[0] == '(' && op[sdslen(op) - 1] != ')') {
+        if (open_bracket_start == -1 &&
+            (op[0] == '(' && op[sdslen(op) - 1] != ')')) {
             selector = sdsdup(argv[j]);
             open_bracket_start = j;
             continue;
