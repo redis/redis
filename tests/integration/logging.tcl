@@ -2,11 +2,13 @@ tags {"external:skip"} {
 
 set system_name [string tolower [exec uname -s]]
 set backtrace_supported 0
+set threads_mngr_supported 0
 
 # We only support darwin or Linux with glibc
 if {$system_name eq {darwin}} {
     set backtrace_supported 1
 } elseif {$system_name eq {linux}} {
+    set threads_mngr_supported 1
     # Avoid the test on libmusl, which does not support backtrace
     # and on static binaries (ldd exit code 1) where we can't detect libmusl
     catch {
@@ -56,6 +58,19 @@ if {!$::valgrind} {
             if {$::verbose} { puts $res }
         }
     }
+    if {$threads_mngr_supported} {
+        set server_path [tmpdir server3.log]
+        start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
+            test "Crash report generated on DEBUG get-threads-stacktraces" {
+                catch {r debug get-threads-stacktraces}
+                for {set i 0} {$i < 3} {incr i} {
+                    set crash_pattern [format "*thread %d output:*here is my backtrace!*" $i]
+                    set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
+                }
+                if {$::verbose} { puts $res }
+            }
+        }
+    }    
 }
 
 }

@@ -38,6 +38,7 @@
 #include "functions.h"
 #include "hdr_histogram.h"
 #include "syscheck.h"
+#include "threads_mngr.h"
 
 #include <time.h>
 #include <signal.h>
@@ -2529,6 +2530,7 @@ void initServer(void) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
+    ThreadsManager_init();
     makeThreadKillable();
 
     if (server.syslog_enabled) {

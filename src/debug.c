@@ -36,6 +36,7 @@
 #include "quicklist.h"
 #include "fpconv_dtoa.h"
 #include "cluster.h"
+#include "threads_mngr.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -72,6 +73,14 @@ void bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
+
+/** This test creates 2 additional threads and calls ThreadsManager_runOnThreads
+ * with a callback that returns a string from each thread. Then writes the outputs to the log file.
+ * This test is called by sending "debug get-threads-stacktraces" command.
+ * NOTE: if the system is not linux, it does nothing.
+ * TODO: Once we implement getting the process's threads backtraces, replace dummy string with the actual backtraces.
+*/
+void ThreadsManager_test(void);
 
 /* ================================= Debugging ============================== */
 
@@ -1031,6 +1040,9 @@ NULL
         } else {
             addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
         }
+        addReply(c,shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"get-threads-stacktraces") && c->argc == 2) {
+        ThreadsManager_test();
         addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
@@ -2265,3 +2277,71 @@ void debugDelay(int usec) {
     if (usec < 0) usec = (rand() % -usec) == 0 ? 1: 0;
     if (usec) usleep(usec);
 }
+
+#ifdef __linux__
+
+#define THREADS_NUMBER 2
+static const size_t buff_len = 256;
+/* tids of additional threads + main thread */
+static pid_t test_tids[THREADS_NUMBER + 1];
+static volatile int wait_for_signal = 1;
+static atomic_size_t g_done = 0;
+
+
+static void *thread_do(void *arg) {
+    size_t thread_id = (size_t)arg;
+    test_tids[thread_id] = gettid();
+
+    ++g_done;
+    while(wait_for_signal) {}
+
+    return NULL;
+}
+
+static void *generate_string(void) {
+    void *buff = zmalloc(buff_len);
+    snprintf(buff, buff_len, "%d: here is my backtrace!\n", gettid());
+    return buff;
+}
+
+
+void ThreadsManager_test(void) {
+    /* generate 2 threads that put their tids into a global array and wait on wait_for_signal*/
+    pthread_t pthread_t_ids[THREADS_NUMBER];
+    for (size_t i = 0; i < THREADS_NUMBER; i++) {
+        pthread_create(&(pthread_t_ids[i]), NULL, thread_do, (void *)i);
+    }
+
+    /* add main thread to tids */
+    test_tids[THREADS_NUMBER] = gettid();
+    while (g_done < THREADS_NUMBER) {}
+
+    /* call ThreadsManager_runOnThreads with a callback that generates a string from each thread */
+    void **outputs = ThreadsManager_runOnThreads(test_tids, THREADS_NUMBER + 1, generate_string); 
+    
+    /* print to the log file and release the outputs */
+    int fd = openDirectLogFiledes();
+
+    for (size_t i = 0; i < THREADS_NUMBER + 1; i++) {
+        char msg[buff_len];
+        snprintf(msg, buff_len,"thread %lu output:%s", i, (const char *)outputs[i]);
+        if (write(fd, msg, strlen(msg)) == -1) {/* Avoid warning. */};
+        zfree(outputs[i]);
+    }
+
+    closeDirectLogFiledes(fd);
+
+    /* let the threads continue*/
+    wait_for_signal = 0;
+
+    /* wait for the threads to end*/
+    for (size_t i = 0; i < THREADS_NUMBER; i++) {
+        pthread_join(pthread_t_ids[i], NULL);
+    }
+}
+#else 
+void ThreadsManager_test(void) {
+    /* DO NOTHING */
+}
+
+#endif /* __linux__ */

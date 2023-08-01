@@ -28,7 +28,6 @@
  */
 
 #include "threads_mngr.h"
-
 /* Anti-warning macro... */
 #define UNUSED(V) ((void) V)
 
@@ -42,9 +41,9 @@
 #include <errno.h>
 #include <semaphore.h>
 
-
-#define IN_PROGRESS true
+#define IN_PROGRESS false
 static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
+
 /*================================= Globals ================================= */
 
 static run_on_thread_cb g_callback = NULL;
@@ -95,7 +94,7 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
     g_output_array = zmalloc(sizeof(void*) * tids_len);
 
     /* Initialize a semaphore that we will be waiting on for the threads
-    use pshared = 0 to indicate shared between the process's threads (and not between processes),
+    use pshared = 0 to indicate the semaphore is shared between the process's threads (and not between processes),
     and value = 0 as the initial semaphore value.*/
     sem_init(&wait_for_threads_sem, 0, 0);
 
