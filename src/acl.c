@@ -1859,6 +1859,12 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
  * permissions specified via the upcoming argument, and kill them if so. */
 void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+    /* Do nothing if there are no subscribers. */
+    if (!dictSize(server.pubsub_patterns) &&
+        !dictSize(server.pubsub_channels) &&
+        !dictSize(server.pubsubshard_channels))
+        return;
+
     listIter li, lpi;
     listNode *ln, *lpn;
     robj *o;
