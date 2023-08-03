@@ -4158,7 +4158,7 @@ int processCommand(client *c) {
         int flags = CMD_CALL_FULL;
         if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
         call(c,flags);
-        if (listLength(server.ready_keys))
+        if (listLength(server.ready_keys) && !isInsideYieldingLongCommand())
             handleClientsBlockedOnKeys();
     }
 
