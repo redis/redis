@@ -2384,6 +2384,8 @@ void ThreadsManager_test(void) {
         zfree(outputs[i]);
     }
 
+    zfree(outputs);
+
     closeDirectLogFiledes(fd);
 
     /* let the threads continue*/
