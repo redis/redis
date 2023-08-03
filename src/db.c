@@ -47,6 +47,7 @@
 
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
+static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -187,15 +188,26 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
  *
- * The program is aborted if the key already exists. */
-void dbAdd(redisDb *db, robj *key, robj *val) {
-    sds copy = sdsdup(key->ptr);
-    dictEntry *de = dictAddRaw(db->dict, copy, NULL);
+ * If the update_if_existing argument is false, the the program is aborted
+ * if the key already exists, otherwise, it can fall back to dbOverwite. */
+static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
+    dictEntry *existing;
+    dictEntry *de = dictAddRaw(db->dict, key->ptr, &existing);
+    if (update_if_existing && existing) {
+        dbSetValue(db, key, val, 1, existing);
+        return;
+    }
     serverAssertWithInfo(NULL, key, de != NULL);
+    dictSetKey(db->dict, de, sdsdup(key->ptr));
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     signalKeyAsReady(db, key, val->type);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
+}
+
+void dbAdd(redisDb *db, robj *key, robj *val) {
+    dbAddInternal(db, key, val, 0);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -212,6 +224,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     dictEntry *de = dictAddRaw(db->dict, key, NULL);
     if (de == NULL) return 0;
+    initObjectLRUOrLFU(val);
     dictSetVal(db->dict, de, val);
     if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     return 1;
@@ -226,15 +239,16 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * replacement (in which case we need to emit deletion signals), or just an
  * update of a value of an existing key (when false).
  *
+ * The dictEntry input is optional, can be used if we already have one.
+ *
  * The program is aborted if the key was not already present. */
-static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
-    dictEntry *de = dictFind(db->dict,key->ptr);
-
+static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de) {
+    if (!de) de = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        val->lru = old->lru;
-    }
+
+    val->lru = old->lru;
+
     if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
@@ -262,7 +276,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite) {
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
 void dbReplaceValue(redisDb *db, robj *key, robj *val) {
-    dbSetValue(db, key, val, 0);
+    dbSetValue(db, key, val, 0, NULL);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -283,13 +297,17 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 
     if (flags & SETKEY_ALREADY_EXIST)
         keyfound = 1;
+    else if (flags & SETKEY_ADD_OR_UPDATE)
+        keyfound = -1;
     else if (!(flags & SETKEY_DOESNT_EXIST))
         keyfound = (lookupKeyWrite(db,key) != NULL);
 
     if (!keyfound) {
         dbAdd(db,key,val);
+    } else if (keyfound<0) {
+        dbAddInternal(db,key,val,1);
     } else {
-        dbSetValue(db,key,val,1);
+        dbSetValue(db,key,val,1,NULL);
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
@@ -792,29 +810,70 @@ void keysCommand(client *c) {
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
+/* Data used by the dict scan callback. */
+typedef struct {
+    list *keys;   /* elements that collect from dict */
+    robj *o;      /* o must be a hash/set/zset object, NULL means current db */
+    long long type; /* the particular type when scan the db */
+    sds pattern;  /* pattern string, NULL means no pattern */
+    long sampled; /* cumulative number of keys sampled */
+} scanData;
+
+/* Helper function to compare key type in scan commands */
+int objectTypeCompare(robj *o, long long target) {
+    if (o->type != OBJ_MODULE) {
+        if (o->type != target) 
+            return 0;
+        else 
+            return 1;
+    }
+    /* module type compare */
+    long long mt = (long long)REDISMODULE_TYPE_SIGN(((moduleValue *)o->ptr)->type->id);
+    if (target != -mt)
+        return 0;
+    else 
+        return 1;
+}
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de) {
-    void **pd = (void**) privdata;
-    list *keys = pd[0];
-    robj *o = pd[1];
-    robj *key, *val = NULL;
+    scanData *data = (scanData *)privdata;
+    list *keys = data->keys;
+    robj *o = data->o;
+    sds val = NULL;
+    sds key = NULL;
+    data->sampled++;
+
+    /* o and typename can not have values at the same time. */
+    serverAssert(!((data->type != LLONG_MAX) && o));
+
+    /* Filter an element if it isn't the type we want. */
+    /* TODO: uncomment in redis 8.0
+    if (!o && data->type != LLONG_MAX) {
+        robj *rval = dictGetVal(de);
+        if (!objectTypeCompare(rval, data->type)) return;
+    }*/
+
+    /* Filter element if it does not match the pattern. */
+    sds keysds = dictGetKey(de);
+    if (data->pattern) {
+        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keysds, sdslen(keysds), 0)) {
+            return;
+        }
+    }
 
     if (o == NULL) {
-        sds sdskey = dictGetKey(de);
-        key = createStringObject(sdskey, sdslen(sdskey));
+        key = keysds;
     } else if (o->type == OBJ_SET) {
-        sds keysds = dictGetKey(de);
-        key = createStringObject(keysds,sdslen(keysds));
+        key = keysds;
     } else if (o->type == OBJ_HASH) {
-        sds sdskey = dictGetKey(de);
-        sds sdsval = dictGetVal(de);
-        key = createStringObject(sdskey,sdslen(sdskey));
-        val = createStringObject(sdsval,sdslen(sdsval));
+        key = keysds;
+        val = dictGetVal(de);
     } else if (o->type == OBJ_ZSET) {
-        sds sdskey = dictGetKey(de);
-        key = createStringObject(sdskey,sdslen(sdskey));
-        val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
+        char buf[MAX_LONG_DOUBLE_CHARS];
+        int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);
+        key = sdsdup(keysds);
+        val = sdsnewlen(buf, len);
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
@@ -842,6 +901,46 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
     return C_OK;
 }
 
+char *obj_type_name[OBJ_TYPE_MAX] = {
+    "string", 
+    "list", 
+    "set", 
+    "zset", 
+    "hash", 
+    NULL, /* module type is special */
+    "stream"
+};
+
+/* Helper function to get type from a string in scan commands */
+long long getObjectTypeByName(char *name) {
+
+    for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
+        if (obj_type_name[i] && !strcasecmp(name, obj_type_name[i])) {
+            return i;
+        }
+    }
+
+    moduleType *mt = moduleTypeLookupModuleByNameIgnoreCase(name);
+    if (mt != NULL) return -(REDISMODULE_TYPE_SIGN(mt->id));
+
+    return LLONG_MAX;
+}
+
+char *getObjectTypeName(robj *o) {
+    if (o == NULL) {
+        return "none";
+    }
+
+    serverAssert(o->type >= 0 && o->type < OBJ_TYPE_MAX);
+
+    if (o->type == OBJ_MODULE) {
+        moduleValue *mv = o->ptr;
+        return mv->type->name;
+    } else {
+        return obj_type_name[o->type];
+    }
+}
+
 /* This command implements SCAN, HSCAN and SSCAN commands.
  * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
@@ -855,11 +954,11 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     int i, j;
-    list *keys = listCreate();
-    listNode *node, *nextnode;
+    listNode *node;
     long count = 10;
     sds pat = NULL;
     sds typename = NULL;
+    long long type = LLONG_MAX;
     int patlen = 0, use_pattern = 0;
     dict *ht;
 
@@ -878,12 +977,12 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
                 != C_OK)
             {
-                goto cleanup;
+                return;
             }
 
             if (count < 1) {
                 addReplyErrorObject(c,shared.syntaxerr);
-                goto cleanup;
+                return;
             }
 
             i += 2;
@@ -899,10 +998,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
             /* SCAN for a particular type only applies to the db dict */
             typename = c->argv[i+1]->ptr;
+            type = getObjectTypeByName(typename);
+            if (type == LLONG_MAX) {
+                /* TODO: uncomment in redis 8.0
+                addReplyErrorFormat(c, "unknown type name '%s'", typename);
+                return; */
+            }
             i+= 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
-            goto cleanup;
+            return;
         }
     }
 
@@ -922,42 +1027,67 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
-        count *= 2; /* We return key / value for this type. */
     } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
         ht = zs->dict;
-        count *= 2; /* We return key / value for this type. */
+    }
+
+    list *keys = listCreate();
+    /* Set a free callback for the contents of the collected keys list.
+     * For the main keyspace dict, and when we scan a key that's dict encoded
+     * (we have 'ht'), we don't need to define free method because the strings
+     * in the list are just a shallow copy from the pointer in the dictEntry.
+     * When scanning a key with other encodings (e.g. listpack), we need to
+     * free the temporary strings we add to that list.
+     * The exception to the above is ZSET, where we do allocate temporary
+     * strings even when scanning a dict. */
+    if (o && (!ht || o->type == OBJ_ZSET)) {
+        listSetFreeMethod(keys, (void (*)(void*))sdsfree);
     }
 
     if (ht) {
-        void *privdata[2];
         /* We set the max number of iterations to ten times the specified
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
         long maxiterations = count*10;
 
-        /* We pass two pointers to the callback: the list to which it will
-         * add new elements, and the object containing the dictionary so that
-         * it is possible to fetch more data in a type-dependent way. */
-        privdata[0] = keys;
-        privdata[1] = o;
+        /* We pass scanData which have three pointers to the callback:
+         * 1. data.keys: the list to which it will add new elements;
+         * 2. data.o: the object containing the dictionary so that
+         * it is possible to fetch more data in a type-dependent way;
+         * 3. data.type: the specified type scan in the db, LLONG_MAX means
+         * type matching is no needed;
+         * 4. data.pattern: the pattern string
+         * 5. data.sampled: the maxiteration limit is there in case we're
+         * working on an empty dict, one with a lot of empty buckets, and
+         * for the buckets are not empty, we need to limit the spampled number
+         * to prevent a long hang time caused by filtering too many keys*/
+        scanData data = {
+            .keys = keys,
+            .o = o,
+            .type = type,
+            .pattern = use_pattern ? pat : NULL,
+            .sampled = 0,
+        };
         do {
-            cursor = dictScan(ht, cursor, scanCallback, privdata);
-        } while (cursor &&
-              maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
+            cursor = dictScan(ht, cursor, scanCallback, &data);
+        } while (cursor && maxiterations-- && data.sampled < count);
     } else if (o->type == OBJ_SET) {
         char *str;
+        char buf[LONG_STR_SIZE];
         size_t len;
         int64_t llele;
         setTypeIterator *si = setTypeInitIterator(o);
         while (setTypeNext(si, &str, &len, &llele) != -1) {
             if (str == NULL) {
-                listAddNodeTail(keys, createStringObjectFromLongLong(llele));
-            } else {
-                listAddNodeTail(keys, createStringObject(str, len));
+                len = ll2string(buf, sizeof(buf), llele);
             }
+            char *key = str ? str : buf;
+            if (use_pattern && !stringmatchlen(pat, sdslen(pat), key, len, 0)) {
+                continue;
+            }
+            listAddNodeTail(keys, sdsnewlen(key, len));
         }
         setTypeReleaseIterator(si);
         cursor = 0;
@@ -965,72 +1095,53 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
                o->encoding == OBJ_ENCODING_LISTPACK)
     {
         unsigned char *p = lpFirst(o->ptr);
-        unsigned char *vstr;
-        int64_t vlen;
+        unsigned char *str;
+        int64_t len;
         unsigned char intbuf[LP_INTBUF_SIZE];
 
         while(p) {
-            vstr = lpGet(p,&vlen,intbuf);
-            listAddNodeTail(keys, createStringObject((char*)vstr,vlen));
-            p = lpNext(o->ptr,p);
+            str = lpGet(p, &len, intbuf);
+            /* point to the value */
+            p = lpNext(o->ptr, p);
+            if (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)) {
+                /* jump to the next key/val pair */
+                p = lpNext(o->ptr, p);
+                continue;
+            }
+            /* add key object */
+            listAddNodeTail(keys, sdsnewlen(str, len));
+            /* add value object */
+            str = lpGet(p, &len, intbuf);
+            listAddNodeTail(keys, sdsnewlen(str, len));
+            p = lpNext(o->ptr, p);
         }
         cursor = 0;
     } else {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter elements. */
-    node = listFirst(keys);
-    while (node) {
-        robj *kobj = listNodeValue(node);
-        nextnode = listNextNode(node);
-        int filter = 0;
-
-        /* Filter element if it does not match the pattern. */
-        if (use_pattern) {
-            if (sdsEncodedObject(kobj)) {
-                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
-                    filter = 1;
-            } else {
-                char buf[LONG_STR_SIZE];
-                int len;
-
-                serverAssert(kobj->encoding == OBJ_ENCODING_INT);
-                len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
-                if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
+    /* Step 3: Filter the expired keys */
+    if (o == NULL && listLength(keys)) {
+        robj kobj;
+        listIter li;
+        listNode *ln;
+        listRewind(keys, &li);
+        while ((ln = listNext(&li))) {
+            sds key = listNodeValue(ln);
+            initStaticStringObject(kobj, key);
+            /* Filter an element if it isn't the type we want. */
+            /* TODO: remove this in redis 8.0 */
+            if (typename) {
+                robj* typecheck = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
+                if (!typecheck || !objectTypeCompare(typecheck, type)) {
+                    listDelNode(keys, ln);
+                }
+                continue;
+            }
+            if (expireIfNeeded(c->db, &kobj, 0)) {
+                listDelNode(keys, ln);
             }
         }
-
-        /* Filter an element if it isn't the type we want. */
-        if (!filter && o == NULL && typename){
-            robj* typecheck = lookupKeyReadWithFlags(c->db, kobj, LOOKUP_NOTOUCH);
-            char* type = getObjectTypeName(typecheck);
-            if (strcasecmp((char*) typename, type)) filter = 1;
-        }
-
-        /* Filter element if it is an expired key. */
-        if (!filter && o == NULL && expireIfNeeded(c->db, kobj, 0)) filter = 1;
-
-        /* Remove the element and its associated value if needed. */
-        if (filter) {
-            decrRefCount(kobj);
-            listDelNode(keys, node);
-        }
-
-        /* If this is a hash or a sorted set, we have a flat list of
-         * key-value elements, so if this element was filtered, remove the
-         * value, or skip it if it was not filtered: we only match keys. */
-        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
-            node = nextnode;
-            serverAssert(node); /* assertion for valgrind (avoid NPD) */
-            nextnode = listNextNode(node);
-            if (filter) {
-                kobj = listNodeValue(node);
-                decrRefCount(kobj);
-                listDelNode(keys, node);
-            }
-        }
-        node = nextnode;
     }
 
     /* Step 4: Reply to the client. */
@@ -1039,14 +1150,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
-        robj *kobj = listNodeValue(node);
-        addReplyBulk(c, kobj);
-        decrRefCount(kobj);
+        sds key = listNodeValue(node);
+        addReplyBulkCBuffer(c, key, sdslen(key));
         listDelNode(keys, node);
     }
 
-cleanup:
-    listSetFreeMethod(keys,decrRefCountVoid);
     listRelease(keys);
 }
 
@@ -1063,28 +1171,6 @@ void dbsizeCommand(client *c) {
 
 void lastsaveCommand(client *c) {
     addReplyLongLong(c,server.lastsave);
-}
-
-char* getObjectTypeName(robj *o) {
-    char* type;
-    if (o == NULL) {
-        type = "none";
-    } else {
-        switch(o->type) {
-        case OBJ_STRING: type = "string"; break;
-        case OBJ_LIST: type = "list"; break;
-        case OBJ_SET: type = "set"; break;
-        case OBJ_ZSET: type = "zset"; break;
-        case OBJ_HASH: type = "hash"; break;
-        case OBJ_STREAM: type = "stream"; break;
-        case OBJ_MODULE: {
-            moduleValue *mv = o->ptr;
-            type = mv->type->name;
-        }; break;
-        default: type = "unknown"; break;
-        }
-    }
-    return type;
 }
 
 void typeCommand(client *c) {
@@ -1557,9 +1643,6 @@ void swapdbCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 int removeExpire(redisDb *db, robj *key) {
-    /* An expire may only be removed if there is a corresponding entry in the
-     * main dict. Otherwise, the key will never be freed. */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -1590,9 +1673,6 @@ long long getExpire(redisDb *db, robj *key) {
     if (dictSize(db->expires) == 0 ||
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
-    /* The entry was found in the expire dict, this means it should also
-     * be present in the main dict (safety check). */
-    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
 
@@ -1724,8 +1804,16 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
 
+    /* The key needs to be converted from static to heap before deleted */
+    int static_key = key->refcount == OBJ_STATIC_REFCOUNT;
+    if (static_key) {
+        key = createStringObject(key->ptr, sdslen(key->ptr));
+    }
     /* Delete the key */
     deleteExpiredKeyAndPropagate(db,key);
+    if (static_key) {
+        decrRefCount(key);
+    }
     return 1;
 }
 
@@ -1783,8 +1871,9 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
  *                               found in other valid keyspecs. 
  */
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    int j, i, k = 0, last, first, step;
+    int j, i, last, first, step;
     keyReference *keys;
+    serverAssert(result->numkeys == 0); /* caller should initialize or reset it */
 
     for (j = 0; j < cmd->key_specs_num; j++) {
         keySpec *spec = cmd->key_specs + j;
@@ -1849,7 +1938,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
         }
 
         int count = ((last - first)+1);
-        keys = getKeysPrepareResult(result, count);
+        keys = getKeysPrepareResult(result, result->numkeys + count);
 
         /* First or last is out of bounds, which indicates a syntax error */
         if (last >= argc || last < first || first >= argc) {
@@ -1870,8 +1959,9 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                     serverPanic("Redis built-in command declared keys positions not matching the arity requirements.");
                 }
             }
-            keys[k].pos = i;
-            keys[k++].flags = spec->flags;
+            keys[result->numkeys].pos = i;
+            keys[result->numkeys].flags = spec->flags;
+            result->numkeys++;
         }
 
         /* Handle incomplete specs (only after we added the current spec
@@ -1892,8 +1982,7 @@ invalid_spec:
         }
     }
 
-    result->numkeys = k;
-    return k;
+    return result->numkeys;
 }
 
 /* Return all the arguments that are keys in the command passed via argc / argv. 
@@ -2110,7 +2199,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
  * 
- * The commands using this functoin have a fully defined keyspec, so returning flags isn't needed. */
+ * The commands using this function have a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
     int i, num;

@@ -464,6 +464,7 @@ foreach {type large} [array get largevalue] {
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
         assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
+        assert_error "*value is out of range*" {r LPOS mylist c RANK -9223372036854775808}
     }
 
     test {LPOS COUNT option} {
@@ -2311,4 +2312,52 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         
         $rd close
     }
+
+    test {Command being unblocked cause another command to get unblocked execution order test} {
+        r del src{t} dst{t} key1{t} key2{t} key3{t}
+        set repl [attach_to_replication_stream]
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set rd3 [redis_deferring_client]
+
+        $rd1 blmove src{t} dst{t} left right 0
+        wait_for_blocked_clients_count 1
+
+        $rd2 blmove dst{t} src{t} right left 0
+        wait_for_blocked_clients_count 2
+
+        # Create a pipeline of commands that will be processed in one socket read.
+        # Insert two set commands before and after lpush to observe the execution order.
+        set buf ""
+        append buf "set key1{t} value1\r\n"
+        append buf "lpush src{t} dummy\r\n"
+        append buf "set key2{t} value2\r\n"
+        $rd3 write $buf
+        $rd3 flush
+
+        wait_for_blocked_clients_count 0
+
+        r set key3{t} value3
+
+        # If a command being unblocked causes another command to get unblocked, like a BLMOVE would do,
+        # then the new unblocked command will get processed right away rather than wait for later.
+        # If the set command occurs between two lmove commands, the results are not as expected.
+        assert_replication_stream $repl {
+            {select *}
+            {set key1{t} value1}
+            {lpush src{t} dummy}
+            {lmove src{t} dst{t} left right}
+            {lmove dst{t} src{t} right left}
+            {set key2{t} value2}
+            {set key3{t} value3}
+        }
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+
+        close_replication_stream $repl
+    } {} {needs:repl}
+
 } ;# stop servers
