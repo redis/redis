@@ -124,7 +124,7 @@
 
 #define atomicIncr(var,count) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
 #define atomicIncrGet(var, oldvalue_var, count) \
-    oldvalue_var = __atomic_add_fetch(&var,(count),memory_order_relaxed)
+    oldvalue_var = __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __atomic_fetch_add(&var,(count),__ATOMIC_RELAXED); \
 } while(0)
@@ -139,9 +139,9 @@
 #define atomicSetWithSync(var,value) \
     __atomic_store_n(&var,value,__ATOMIC_SEQ_CST)
 #define atomicFlagTestSet(var, testres_var) \
-    testres_var = __atomic_test_and_set(&var,memory_order_relaxed)
+    testres_var = __atomic_test_and_set(&var,__ATOMIC_RELAXED)
 #define atomicFlagClear(var) \
-    __atomic_clear(&var,memory_order_relaxed)
+    __atomic_clear(&var,__ATOMIC_RELAXED)
 #define REDIS_ATOMIC_API "atomic-builtin"
 
 #elif defined(HAVE_ATOMIC)

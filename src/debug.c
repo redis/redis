@@ -2334,6 +2334,7 @@ void debugDelay(int usec) {
 }
 
 #ifdef __linux__
+#include <sys/syscall.h>
 
 #define THREADS_NUMBER 2
 static const size_t buff_len = 256;
@@ -2345,7 +2346,7 @@ static atomic_size_t g_done = 0;
 
 static void *thread_do(void *arg) {
     size_t thread_id = (size_t)arg;
-    test_tids[thread_id] = gettid();
+    test_tids[thread_id] = syscall(SYS_gettid);
 
     ++g_done;
     while(wait_for_signal) {}
@@ -2355,7 +2356,7 @@ static void *thread_do(void *arg) {
 
 static void *generate_string(void) {
     void *buff = zmalloc(buff_len);
-    snprintf(buff, buff_len, "%d: here is my backtrace!\n", gettid());
+    snprintf(buff, buff_len, "%d: here is my backtrace!\n", syscall(SYS_gettid));
     return buff;
 }
 
@@ -2368,7 +2369,7 @@ void ThreadsManager_test(void) {
     }
 
     /* add main thread to tids */
-    test_tids[THREADS_NUMBER] = gettid();
+    test_tids[THREADS_NUMBER] = syscall(SYS_gettid);
     while (g_done < THREADS_NUMBER) {}
 
     /* call ThreadsManager_runOnThreads with a callback that generates a string from each thread */
