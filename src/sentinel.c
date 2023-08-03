@@ -3211,10 +3211,12 @@ void sentinelConfigSetCommand(client *c) {
         "announce-port",
         "announce-hostnames",
         "loglevel",
+        "tls-ca-cert-file",
         "tls-cert-file",
         "tls-key-file",
         NULL};
     static dict *options_dict = NULL;
+    int update_tls = 0;
     if (!options_dict) {
         options_dict = dictCreate(&stringSetDictType);
         populateDict(options_dict, options);
@@ -3304,17 +3306,26 @@ void sentinelConfigSetCommand(client *c) {
             sentinel.sentinel_auth_pass = sdslen(val->ptr) == 0 ?
                 NULL : sdsdup(val->ptr);
             drop_conns = 1;
+        } else if (!strcasecmp(option, "tls-ca-cert-file") && moreargs > 0) {
+            val = c->argv[++i];
+            sdsfree(server.tls_ctx_config.ca_cert_file);
+            server.tls_ctx_config.ca_cert_file = sdslen(val->ptr) == 0 ?
+                                              NULL : sdsdup(val->ptr);
+            update_tls = 1;
+            drop_conns = 1;
         } else if (!strcasecmp(option, "tls-cert-file") && moreargs > 0) {
             val = c->argv[++i];
             sdsfree(server.tls_ctx_config.cert_file);
             server.tls_ctx_config.cert_file = sdslen(val->ptr) == 0 ?
                                           NULL : sdsdup(val->ptr);
+            update_tls = 1;
             drop_conns = 1;
         } else if (!strcasecmp(option, "tls-key-file") && moreargs > 0) {
             val = c->argv[++i];
             sdsfree(server.tls_ctx_config.key_file);
             server.tls_ctx_config.key_file = sdslen(val->ptr) == 0 ?
                                               NULL : sdsdup(val->ptr);
+            update_tls = 1;
             drop_conns = 1;
         } else {
             /* Should never reach here */
@@ -3322,15 +3333,10 @@ void sentinelConfigSetCommand(client *c) {
         }
     }
 
-    /* TLS certificate and key file were updated,  */
-    for (int i = 3; i < c->argc; i++) {
-        option = c->argv[i]->ptr;
-        if (!strcasecmp(option, "tls-key-file") || !strcasecmp(option, "tls-cert-file")) {
-            if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
-                addReplyErrorFormat(c, "Failed to configure TLS. Check logs for more info.");
-                goto exit;
-            }
-            break;
+    if (update_tls == 1) {
+        if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 1) == C_ERR) {
+            addReplyErrorFormat(c, "Failed to configure TLS. Check logs for more info.");
+            goto exit;
         }
     }
 
@@ -3402,6 +3408,12 @@ void sentinelConfigGetCommand(client *c) {
             addReplyBulkCString(c, "loglevel");
             addReplyBulkCString(c, getLogLevel());
             dictAdd(d, "loglevel", NULL);
+            matches++;
+        }
+        if (stringmatch(pattern, "tls-ca-cert-file", 1) && !dictFind(d, "tls-ca-cert-file")) {
+            addReplyBulkCString(c, "tls-ca-cert-file");
+            addReplyBulkCString(c, server.tls_ctx_config.ca_cert_file);
+            dictAdd(d, "tls-ca-cert-file", NULL);
             matches++;
         }
         if (stringmatch(pattern, "tls-cert-file", 1) && !dictFind(d, "tls-cert-file")) {

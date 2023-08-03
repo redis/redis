@@ -11,6 +11,10 @@
             [
                 "7.2.0",
                 "Added the ability to set and get multiple parameters in one call."
+            ],
+            [
+                "7.2.0",
+                "Added the ability configure TLS parameters at runtime."
             ]
         ],
         "command_flags": [
@@ -77,6 +81,9 @@
                                     "const": "unknown"
                                 }
                             ]
+                        },
+                        "tls-ca-cert-file": {
+                            "type": "string"
                         },
                         "tls-cert-file": {
                             "type": "string"

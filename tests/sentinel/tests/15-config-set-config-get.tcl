@@ -56,3 +56,7 @@ test "SENTINEL CONFIG SET, wrong number of arguments" {
         fail "Expected to return Missing argument error"
     }
 }
+
+test "SENTINEL CONFIG SET with TLS update" {
+   # assert_equal {OK} [S 1 SENTINEL CONFIG SET tls-ca-cert-file ${::tlsdir}/ca.crt tls-cert-file ${::tlsdir}/server.crt tls-key-file ${::tlsdir}/server.key ]
+}
