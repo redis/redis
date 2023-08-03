@@ -2356,7 +2356,7 @@ static void *thread_do(void *arg) {
 
 static void *generate_string(void) {
     void *buff = zmalloc(buff_len);
-    snprintf(buff, buff_len, "%d: here is my backtrace!\n", syscall(SYS_gettid));
+    snprintf(buff, buff_len, "%ld: here is my backtrace!\n", syscall(SYS_gettid));
     return buff;
 }
 
