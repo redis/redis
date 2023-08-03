@@ -33,9 +33,9 @@
 
 #ifdef __linux__
 #include "zmalloc.h"
+#include "atomicvar.h"
 
 #include <signal.h>
-#include <stdatomic.h>
 #include <stdbool.h>
 #include <time.h>
 #include <errno.h>
@@ -49,20 +49,20 @@ static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
 static run_on_thread_cb g_callback = NULL;
 static volatile size_t g_tids_len = 0;
 static void **g_output_array = NULL;
-static atomic_size_t g_thread_ids = 0;
-static volatile size_t g_num_threads_done = 0;
+static redisAtomic size_t g_thread_ids = 0;
+static redisAtomic volatile size_t g_num_threads_done = 0;
 
 static sem_t wait_for_threads_sem;
 
 /* This flag is set while ThreadsManager_runOnThreads is running */
-static volatile int g_in_progress = 0;
+static redisAtomicFlag g_in_progress = 0;
 
 /*============================ Internal prototypes ========================== */
 
 static void invoke_callback(int sig);
 static bool test_and_start(void);
 static void wait_threads(void);
-static void ThreadsManager_cleanups();
+static void ThreadsManager_cleanups(void);
 
 /*============================ API functions implementations ========================== */
 
@@ -119,11 +119,12 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
 
 
 static bool test_and_start(void) {
-    /* __atomic_test_and_set sets the bool to true and returns true if only if it was already true. */
+    /* atomicFlagTestSet sets the variable to true and returns true if only if it was already true. */
 
-    bool is_in_progress = __atomic_test_and_set(&g_in_progress, __ATOMIC_RELAXED);
+    bool is_in_progress;
+    atomicFlagTestSet(g_in_progress, is_in_progress);
 
-    /* If __atomic_test_and_set returned false, g_in_progress was off. */
+    /* If atomicFlagTestSet returned false, g_in_progress was off. */
     return !is_in_progress;
 
 }
@@ -131,9 +132,11 @@ static bool test_and_start(void) {
 static void invoke_callback(int sig) {
     UNUSED(sig);
 
-    size_t thread_id = g_thread_ids++;
+    size_t thread_id;
+    atomicGetIncr(g_thread_ids, thread_id, 1);
     g_output_array[thread_id] = g_callback();
-    size_t curr_done_count = __atomic_add_fetch(&g_num_threads_done, 1, __ATOMIC_RELAXED);
+    size_t curr_done_count;
+    atomicIncrGet(g_num_threads_done, curr_done_count, 1);
 
     /* last thread shuts down the light  */
     if (curr_done_count == g_tids_len) {
@@ -159,12 +162,12 @@ static void ThreadsManager_cleanups(void) {
     g_callback = NULL;
     g_tids_len = 0;
     g_output_array = NULL;
-    g_thread_ids = 0;
-    g_num_threads_done = 0;
+    atomicSet(g_thread_ids, 0);
+    atomicSet(g_num_threads_done, 0);
     sem_destroy(&wait_for_threads_sem);
 
-    /* Last, turn off g_in_progress*/
-  __atomic_clear(&g_in_progress, __ATOMIC_RELAXED);
+    /* Lastly, turn off g_in_progress*/
+    atomicFlagClear(g_in_progress);
 }
 #else
 
