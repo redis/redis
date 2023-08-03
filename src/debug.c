@@ -2379,7 +2379,7 @@ void ThreadsManager_test(void) {
 
     for (size_t i = 0; i < THREADS_NUMBER + 1; i++) {
         char msg[buff_len];
-        snprintf(msg, buff_len,"thread %lu output:%s", i, (const char *)outputs[i]);
+        snprintf(msg, buff_len,"thread %zu output:%s", i, (const char *)outputs[i]);
         if (write(fd, msg, strlen(msg)) == -1) {/* Avoid warning. */};
         zfree(outputs[i]);
     }

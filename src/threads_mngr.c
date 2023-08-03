@@ -40,6 +40,7 @@
 #include <time.h>
 #include <errno.h>
 #include <semaphore.h>
+#include <sys/syscall.h>
 
 #define IN_PROGRESS false
 static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
@@ -101,7 +102,7 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
     /* Send signal to all the threads in tids */
     pid_t pid = getpid();
     for (size_t i = 0; i < tids_len ; ++i) {
-        tgkill(pid, tids[i], THREADS_SIGNAL);
+        syscall(SYS_tgkill, pid, tids[i], THREADS_SIGNAL);
     }
 
     /* Wait for all the threads to write to the output array, or until timeout is reached */
