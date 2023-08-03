@@ -2341,14 +2341,14 @@ static const size_t buff_len = 256;
 /* tids of additional threads + main thread */
 static pid_t test_tids[THREADS_NUMBER + 1];
 static volatile int wait_for_signal = 1;
-static atomic_size_t g_done = 0;
+static redisAtomic size_t g_done = 0;
 
 
 static void *thread_do(void *arg) {
     size_t thread_id = (size_t)arg;
     test_tids[thread_id] = syscall(SYS_gettid);
 
-    ++g_done;
+    atomicIncr(g_done, 1);
     while(wait_for_signal) {}
 
     return NULL;
@@ -2370,7 +2370,8 @@ void ThreadsManager_test(void) {
 
     /* add main thread to tids */
     test_tids[THREADS_NUMBER] = syscall(SYS_gettid);
-    while (g_done < THREADS_NUMBER) {}
+    size_t curr_done = 0;
+    while ((atomicIncrGet(g_done, curr_done, 0)) < THREADS_NUMBER) {}
 
     /* call ThreadsManager_runOnThreads with a callback that generates a string from each thread */
     void **outputs = ThreadsManager_runOnThreads(test_tids, THREADS_NUMBER + 1, generate_string); 
