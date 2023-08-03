@@ -307,6 +307,13 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
+    test {EVAL - JSON string encoding a string larger than 2GB} {
+        run_script {
+            local s = string.rep("a", 1024 * 1024 * 1024)
+            return #cjson.encode(s..s..s)
+        } 0
+    } {3221225474} {large-memory} ;# length includes two double quotes at both ends
+
     test {EVAL - JSON numeric decoding} {
         # We must return the table as a string because otherwise
         # Redis converts floats to ints and we get 0 and 1023 instead
