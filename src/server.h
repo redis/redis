@@ -821,6 +821,7 @@ struct RedisModule {
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
     int num_commands_with_acl_categories; /* Number of commands in this module included in acl categories */
     int onload;     /* Flag to identify if the call is being made from Onload (0 or 1) */
+    size_t num_acl_categories_added; /* Number of acl categories added by this module. */
 };
 typedef struct RedisModule RedisModule;
 
@@ -2925,6 +2926,8 @@ int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
+int ACLAddCommandCategory(const char *name, int flag);
+void ACLCleanupAddedCommandCategories(size_t num_acl_categories_added);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
