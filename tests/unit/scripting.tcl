@@ -1114,14 +1114,19 @@ start_server {tags {"scripting"}} {
 
     test {Timedout scripts and unblocked command} {
         # make sure a command that's allowed during BUSY doens't trigger an unblocked command
+
+        # enable AOF to also expose an assertion if the bug would happen
+        r flushall
+        r config set appendonly yes
+
+        # create clients, and set one to block waiting for key 'x'
         set rd [redis_deferring_client]
         set rd2 [redis_deferring_client]
         set r3 [redis_client]
-        r del x
         $rd2 blpop x 0
         wait_for_blocked_clients_count 1
 
-        # allow the script to use client list
+        # hack: allow the script to use client list command so that we can control when it aborts
         r DEBUG set-disable-deny-scripts 1
         r config set lua-time-limit 10
         run_script_on_connection $rd {
