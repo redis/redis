@@ -1,7 +1,7 @@
 {
     "GEODIST": {
         "summary": "Returns the distance between two members of a geospatial index.",
-        "complexity": "O(log(N))",
+        "complexity": "O(1)",
         "group": "geo",
         "since": "3.2.0",
         "arity": -4,
