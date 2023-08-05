@@ -1112,6 +1112,48 @@ start_server {tags {"scripting"}} {
         r ping
     } {PONG}
 
+    test {Timedout scripts and unblocked command} {
+        # make sure a command that's allowed during BUSY doens't trigger an unblocked command
+        set rd [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set r3 [redis_client]
+        r del x
+        $rd2 blpop x 0
+        wait_for_blocked_clients_count 1
+
+        # allow the script to use client list
+        r DEBUG set-disable-deny-scripts 1
+        r config set lua-time-limit 10
+        run_script_on_connection $rd {
+            local clients
+            redis.call('lpush',KEYS[1],'y');
+            while true do
+                clients = redis.call('client','list')
+                if string.find(clients, 'abortscript') ~= nil then break end
+            end
+            redis.call('lpush',KEYS[1],'z');
+            return clients
+            } 1 x
+
+        # wait for the script to be busy
+        after 200
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        # run cause the script to abort, and run a command that could have processed
+        # unblocked clients (due to a bug)
+        $r3 hello 2 setname abortscript
+
+        # make sure the script completed before the pop was processed
+        assert_equal [$rd2 read] {x z}
+        assert_match {*abortscript*} [$rd read]
+
+        $rd close
+        $rd2 close
+        $r3 close
+        r DEBUG set-disable-deny-scripts 0
+    } {OK} {external:skip needs:debug}
+
     test {Timedout scripts that modified data can't be killed by SCRIPT KILL} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
