@@ -1113,7 +1113,7 @@ start_server {tags {"scripting"}} {
     } {PONG}
 
     test {Timedout scripts and unblocked command} {
-        # make sure a command that's allowed during BUSY doens't trigger an unblocked command
+        # make sure a command that's allowed during BUSY doesn't trigger an unblocked command
 
         # enable AOF to also expose an assertion if the bug would happen
         r flushall
