@@ -1,16 +1,22 @@
 /* This file implements atomic counters using c11 _Atomic, __atomic or __sync
  * macros if available, otherwise we will throw an error when compile.
  *
- * The exported interface is composed of three macros:
+ * The exported interface is composed of the following macros:
  *
  * atomicIncr(var,count) -- Increment the atomic counter
  * atomicGetIncr(var,oldvalue_var,count) -- Get and increment the atomic counter
- * atomicIncrGet(var,oldvalue_var,count) -- Increment and get the atomic counter
+ * atomicIncrGet(var,newvalue_var,count) -- Increment and get the atomic counter new value
  * atomicDecr(var,count) -- Decrement the atomic counter
  * atomicGet(var,dstvar) -- Fetch the atomic counter value
  * atomicSet(var,value)  -- Set the atomic counter value
  * atomicGetWithSync(var,value)  -- 'atomicGet' with inter-thread synchronization
  * atomicSetWithSync(var,value)  -- 'atomicSet' with inter-thread synchronization
+ * 
+ * The following macros should be used to use atomic operations on flags:
+ * redisAtomicFlag - atomic flag type
+ * REDIS_ATOMIC_FLAG_INIT - The atomic flag should be only initalized using this macro.
+ * initialization example:
+ * redisAtomicFlag my_atomic_flag = REDIS_ATOMIC_FLAG_INIT;
  * atomicFlagTestSet(var, testres_var) -- Set on the flag and put the previous state in testres_var
  * atomicFlagClear(var) -- Turn off the flag
  *
@@ -61,9 +67,6 @@
 /* Define redisAtomic for atomic variable. */
 #define redisAtomic
 
-/* Define redisAtomicFlag for atomic operations on booleans */
-#define redisAtomicFlag volatile unsigned char
-
 /* To test Redis with Helgrind (a Valgrind tool) it is useful to define
  * the following macro, so that __sync macros are used: those can be detected
  * by Helgrind (even if they are less efficient) so that no false positive
@@ -96,11 +99,11 @@
 
 #include <stdatomic.h>
 #define atomicIncr(var,count) atomic_fetch_add_explicit(&var,(count),memory_order_relaxed)
-#define atomicIncrGet(var, oldvalue_var, count) \
-    oldvalue_var = __atomic_add_fetch(&var,(count),memory_order_relaxed)
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = atomic_fetch_add_explicit(&var,(count),memory_order_relaxed); \
 } while(0)
+#define atomicIncrGet(var, newvalue_var, count) \
+    newvalue_var = atomicIncr(var,count) + count
 #define atomicDecr(var,count) atomic_fetch_sub_explicit(&var,(count),memory_order_relaxed)
 #define atomicGet(var,dstvar) do { \
     dstvar = atomic_load_explicit(&var,memory_order_relaxed); \
@@ -111,10 +114,13 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     atomic_store_explicit(&var,value,memory_order_seq_cst)
+/* Atomic flag definitions */
+#define redisAtomicFlag atomic_flag
+#define REDIS_ATOMIC_FLAG_INIT ATOMIC_FLAG_INIT
 #define atomicFlagTestSet(var, testres_var) \
-    testres_var = __atomic_test_and_set(&var,memory_order_relaxed)
+    testres_var = atomic_flag_test_and_set_explicit(&var,memory_order_relaxed)
 #define atomicFlagClear(var) \
-    __atomic_clear(&var,memory_order_relaxed)
+    atomic_flag_clear_explicit(&var,memory_order_relaxed)
 #define REDIS_ATOMIC_API "c11-builtin"
 
 #elif !defined(__ATOMIC_VAR_FORCE_SYNC_MACROS) && \
@@ -123,8 +129,8 @@
 /* Implementation using __atomic macros. */
 
 #define atomicIncr(var,count) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
-#define atomicIncrGet(var, oldvalue_var, count) \
-    oldvalue_var = __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
+#define atomicIncrGet(var, newvalue_var, count) \
+    newvalue_var = __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __atomic_fetch_add(&var,(count),__ATOMIC_RELAXED); \
 } while(0)
@@ -138,6 +144,9 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     __atomic_store_n(&var,value,__ATOMIC_SEQ_CST)
+/* Atomic flag definitions */
+#define redisAtomicFlag unsigned char
+#define REDIS_ATOMIC_FLAG_INIT 0
 #define atomicFlagTestSet(var, testres_var) \
     testres_var = __atomic_test_and_set(&var,__ATOMIC_RELAXED)
 #define atomicFlagClear(var) \
@@ -147,14 +156,11 @@
 #elif defined(HAVE_ATOMIC)
 /* Implementation using __sync macros. */
 
-/* According to Intel Itanium Processor-specific Application Binary Interface, section 7.4, 
-__sync operations on booleans expect int operand. */
-#undef redisAtomicFlag
-#define redisAtomicFlag int
+
 
 #define atomicIncr(var,count) __sync_add_and_fetch(&var,(count))
-#define atomicIncrGet(var, oldvalue_var, count) \
-    oldvalue_var = __sync_add_and_fetch(&var,(count))
+#define atomicIncrGet(var, newvalue_var, count) \
+    newvalue_var = __sync_add_and_fetch(&var,(count))
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __sync_fetch_and_add(&var,(count)); \
 } while(0)
@@ -174,6 +180,11 @@ __sync operations on booleans expect int operand. */
     ANNOTATE_HAPPENS_BEFORE(&var);  \
     while(!__sync_bool_compare_and_swap(&var,var,value,__sync_synchronize)); \
 } while(0)
+/* Atomic flag definitions */
+/* According to Intel Itanium Processor-specific Application Binary Interface, section 7.4, 
+__sync operations on booleans expect int operand. */
+#define redisAtomicFlag int
+#define REDIS_ATOMIC_FLAG_INIT 0
 #define atomicFlagTestSet(var, testres_var) \
     testres_var = __sync_bool_compare_and_swap(&var,0,1)
 #define atomicFlagClear(var) \

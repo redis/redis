@@ -51,12 +51,12 @@ static run_on_thread_cb g_callback = NULL;
 static volatile size_t g_tids_len = 0;
 static void **g_output_array = NULL;
 static redisAtomic size_t g_thread_ids = 0;
-static redisAtomic volatile size_t g_num_threads_done = 0;
+static redisAtomic size_t g_num_threads_done = 0;
 
 static sem_t wait_for_threads_sem;
 
 /* This flag is set while ThreadsManager_runOnThreads is running */
-static redisAtomicFlag g_in_progress = 0;
+static redisAtomicFlag g_in_progress = REDIS_ATOMIC_FLAG_INIT;
 
 /*============================ Internal prototypes ========================== */
 
@@ -163,8 +163,8 @@ static void ThreadsManager_cleanups(void) {
     g_callback = NULL;
     g_tids_len = 0;
     g_output_array = NULL;
-    atomicSet(g_thread_ids, 0);
-    atomicSet(g_num_threads_done, 0);
+    g_thread_ids = 0;
+    g_num_threads_done = 0;
     sem_destroy(&wait_for_threads_sem);
 
     /* Lastly, turn off g_in_progress*/
