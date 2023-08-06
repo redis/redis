@@ -2198,8 +2198,10 @@ void setupSigSegvHandler(void) {
     struct sigaction act;
 
     sigemptyset(&act.sa_mask);
-    /* Set SA_NODEFER to disable adding the signal to the signal mask of the
+    /* SA_NODEFER to disables adding the signal to the signal mask of the
      * calling process on entry to the signal handler unless it is included in the sa_mask field. */
+    /* SA_SIGINFO flag is set to raise the function defined in sa_sigaction.
+     * Otherwise, sa_handler is used. */
     act.sa_flags = SA_NODEFER | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
     if(server.crashlog_enabled) {
