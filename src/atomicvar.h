@@ -14,7 +14,7 @@
  * 
  * The following macros should be used to use atomic operations on flags:
  * redisAtomicFlag - atomic flag type
- * REDIS_ATOMIC_FLAG_INIT - The atomic flag should be only initalized using this macro.
+ * REDIS_ATOMIC_FLAG_INIT - The atomic flag should be only initialized using this macro.
  * initialization example:
  * redisAtomicFlag my_atomic_flag = REDIS_ATOMIC_FLAG_INIT;
  * atomicFlagTestSet(var, testres_var) -- Set on the flag and put the previous state in testres_var
