@@ -13546,7 +13546,8 @@ int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ..
         errno = ENOENT;
         return 0;
     } else if ((op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ADD) && 
-              !(key->mode & REDISMODULE_WRITE)) {
+               !(key->mode & REDISMODULE_WRITE))
+    {
         /* return 0 if key is not write mode for remove and add operation. */
         errno = EBADF;
         return 0;
