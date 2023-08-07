@@ -13536,28 +13536,23 @@ int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ..
     if (!key) {
         errno = EINVAL;
         return 0;
-    } else if (op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ISMEMBER) {
-        // return 0 if key doesn't exist for remove and ismember operation.  
-        if (!key->value) {
-            errno = ENOENT;
-            return 0;
-        }
-    } else if (op == REDISMODULE_SET_REM ||
-               op == REDISMODULE_SET_ADD ||
-               op == REDISMODULE_SET_ISMEMBER) {
-        // key should be set type.
-        if (key->value && key->value->type != OBJ_SET) {
-            errno = ENOTSUP;
-            return 0;
-        }
-    } else if (op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ADD) {
-        if (!(key->mode & REDISMODULE_WRITE)) {
-            errno = EBADF;
-            return 0;
-        }
+    } else if (key->value && key->value->type != OBJ_SET) {
+        errno = ENOTSUP;
+        return 0;
+    } else if ((op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ISMEMBER) &&
+              !key->value) {
+        /* return 0 if key doesn't exist for remove and ismember operation. */
+        errno = ENOENT;
+        return 0;
+    } else if ((op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ADD) && 
+              !(key->mode & REDISMODULE_WRITE)) {
+        /* return 0 if key is not write mode for remove and add operation. */
+        errno = EBADF;
+        return 0;
     }
 
-    if (key->value == NULL && op == REDISMODULE_SET_ADD) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
+    if (key->value == NULL && op == REDISMODULE_SET_ADD)
+        moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
 
     va_start(ap, flags);
     while(1) {
@@ -13575,8 +13570,7 @@ int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ..
         else if (op == REDISMODULE_SET_REM) {
             count += setTypeRemove(key->value,ele->ptr);
             if (moduleDelKeyIfEmpty(key)) break;
-        }
-        else if (op == REDISMODULE_SET_ISMEMBER)
+        } else if (op == REDISMODULE_SET_ISMEMBER)
             count &= setTypeIsMember(key->value,ele->ptr);
     }
     va_end(ap);

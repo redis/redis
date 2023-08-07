@@ -46,14 +46,11 @@ int set_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  * or 0 as not member of the key
  */
 int set_ismember(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc < 3) return RedisModule_WrongArity(ctx);
+    if (argc != 3) return RedisModule_WrongArity(ctx);
     RedisModule_AutoMemory(ctx);
     int keymode = REDISMODULE_READ;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
-    int count = 1;
-    for (int i=2; i<argc; i++) {
-        count &= RedisModule_SetOperate(key, REDISMODULE_SET_ISMEMBER, REDISMODULE_SET_NONE, argv[i], NULL);
-    }
+    int count = RedisModule_SetOperate(key, REDISMODULE_SET_ISMEMBER, REDISMODULE_SET_NONE, argv[2], NULL);
     RedisModule_ReplyWithLongLong(ctx, count);
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;
