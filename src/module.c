@@ -13560,6 +13560,7 @@ int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ..
             char *cele = va_arg(ap,char*);
             if (cele == NULL) break;
             ele = createRawStringObject(cele,strlen(cele));
+            if (ele == NULL) break;
         } else {
             ele = va_arg(ap,RedisModuleString*);
             if (ele == NULL) break;
@@ -13575,6 +13576,7 @@ int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ..
     }
     va_end(ap);
 
+    moduleDelKeyIfEmpty(key);
     if (count == 0) errno = ENOENT;
     return count;
 }

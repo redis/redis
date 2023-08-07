@@ -1457,6 +1457,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StreamIteratorDelete);
     REDISMODULE_GET_API(StreamTrimByLength);
     REDISMODULE_GET_API(StreamTrimByID);
+    REDISMODULE_GET_API(SetOperate);
     REDISMODULE_GET_API(IsKeysPositionRequest);
     REDISMODULE_GET_API(KeyAtPos);
     REDISMODULE_GET_API(KeyAtPosWithFlags);
@@ -1682,7 +1683,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RdbStreamFree);
     REDISMODULE_GET_API(RdbLoad);
     REDISMODULE_GET_API(RdbSave);
-    REDISMODULE_GET_API(SetOperate);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
