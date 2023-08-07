@@ -13562,7 +13562,6 @@ int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ..
             char *cele = va_arg(ap,char*);
             if (cele == NULL) break;
             ele = createRawStringObject(cele,strlen(cele));
-            if (ele == NULL) break;
         } else {
             ele = va_arg(ap,RedisModuleString*);
             if (ele == NULL) break;
