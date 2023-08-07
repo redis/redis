@@ -13540,7 +13540,8 @@ int RM_SetOperate(RedisModuleKey *key, RedisModuleSetOperation op, int flags, ..
         errno = ENOTSUP;
         return 0;
     } else if ((op == REDISMODULE_SET_REM || op == REDISMODULE_SET_ISMEMBER) &&
-              !key->value) {
+               !key->value)
+    {
         /* return 0 if key doesn't exist for remove and ismember operation. */
         errno = ENOENT;
         return 0;
