@@ -13,7 +13,7 @@ int set_rem(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int keymode = REDISMODULE_READ | REDISMODULE_WRITE;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], keymode);
     int count = 0;
-    for (int i=2; i<argc; i++) {
+    for (int i = 2; i < argc; i++) {
         count += RedisModule_SetOperate(key, REDISMODULE_SET_REM, REDISMODULE_SET_NONE, argv[i], NULL);
     }
     RedisModule_ReplyWithLongLong(ctx, count);
