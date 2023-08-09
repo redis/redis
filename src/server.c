@@ -6269,7 +6269,7 @@ void infoCommand(client *c) {
     char *sections[] = {
         "default", "all", "everything", "server", "clients", "memory", "persistence",
         "stats", "replication", "cpu", "module_list", "modules", "commandstats",
-        "errorstats", "latencystats", "cluster", "keyspace", "debug", NULL};
+        "errorstats", "latencystats", "cluster", "keyspace", "debug", "sentinel", NULL};
     int matched = 0;
     for (int i = 1; i < c->argc; i++) {
         matched = 0;
