@@ -6266,6 +6266,24 @@ void infoCommand(client *c) {
     }
     int all_sections = 0;
     int everything = 0;
+    char *sections[] = {
+        "default", "all", "everything", "server", "clients", "memory", "persistence",
+        "stats", "replication", "cpu", "module_list", "modules", "commandstats",
+        "errorstats", "latencystats", "cluster", "keyspace", "debug", NULL};
+    int matched = 0;
+    for (int i = 1; i < c->argc; i++) {
+        matched = 0;
+        for (int j=0; sections[j] != NULL; j++) {
+            if (!strcasecmp(c->argv[i]->ptr, sections[j])) {
+                matched++;
+                break;
+            }
+        }
+        if (!matched) {
+            addReplyErrorFormat(c,"Invalid section '%s' to INFO [section [section ...]]",(char *)c->argv[i]->ptr);
+            return;
+        }
+    }
     dict *sections_dict = genInfoSectionDict(c->argv+1, c->argc-1, NULL, &all_sections, &everything);
     sds info = genRedisInfoString(sections_dict, all_sections, everything);
     addReplyVerbatim(c,info,sdslen(info),"txt");
