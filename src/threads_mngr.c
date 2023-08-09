@@ -36,13 +36,12 @@
 #include "atomicvar.h"
 
 #include <signal.h>
-#include <stdbool.h>
 #include <time.h>
 #include <errno.h>
 #include <semaphore.h>
 #include <sys/syscall.h>
 
-#define IN_PROGRESS false
+#define IN_PROGRESS 1
 static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
 
 /*================================= Globals ================================= */
@@ -56,13 +55,16 @@ static redisAtomic size_t g_num_threads_done = 0;
 static sem_t wait_for_threads_sem;
 
 /* This flag is set while ThreadsManager_runOnThreads is running */
-static redisAtomicFlag g_in_progress = REDIS_ATOMIC_FLAG_INIT;
+static redisAtomic int g_in_progress = 0;
 
 /*============================ Internal prototypes ========================== */
 
 static void invoke_callback(int sig);
-static bool test_and_start(void);
+/* returns 0 if it is safe to start, IN_PROGRESS otherwise. */
+static int test_and_start(void);
 static void wait_threads(void);
+/* Clean up global variable. 
+Assuming we are under the g_in_progress protection, this is not a thread-safe function */
 static void ThreadsManager_cleanups(void);
 
 /*============================ API functions implementations ========================== */
@@ -119,15 +121,13 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
 /*============================ Internal functions implementations ========================== */
 
 
-static bool test_and_start(void) {
-    /* atomicFlagTestSet sets the variable to true and returns true if only if it was already true. */
+static int test_and_start(void) {
+    /* atomicFlagGetSet sets the variable to 1 and returns the previous value */
+    int prev_state;
+    atomicFlagGetSet(g_in_progress, prev_state);
 
-    bool is_in_progress;
-    atomicFlagTestSet(g_in_progress, is_in_progress);
-
-    /* If atomicFlagTestSet returned false, g_in_progress was off. */
-    return !is_in_progress;
-
+    /* If prev_state is 1, g_in_progress was on. */
+    return prev_state;
 }
 
 static void invoke_callback(int sig) {
@@ -168,7 +168,7 @@ static void ThreadsManager_cleanups(void) {
     sem_destroy(&wait_for_threads_sem);
 
     /* Lastly, turn off g_in_progress*/
-    atomicFlagClear(g_in_progress);
+    atomicSet(g_in_progress, 0);
 }
 #else
 
