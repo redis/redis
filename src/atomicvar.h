@@ -17,7 +17,7 @@
  * REDIS_ATOMIC_FLAG_INIT - The atomic flag should be only initialized using this macro.
  * initialization example:
  * redisAtomicFlag my_atomic_flag = REDIS_ATOMIC_FLAG_INIT;
- * atomicFlagTestSet(var, testres_var) -- Set on the flag and put the previous state in testres_var
+ * atomicFlagTestSet(var,testres_var) -- Set on the flag and put the previous state in testres_var
  * atomicFlagClear(var) -- Turn off the flag
  *
  * Never use return value from the macros, instead use the AtomicGetIncr()
