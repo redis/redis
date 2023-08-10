@@ -563,7 +563,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
          * as well if the command is removed. */
         char *rule_end = strchr(existing_rule, ' ');
         if (!rule_end) {
-            /* This is the last rule, so it it to the end of the string. */
+            /* This is the last rule, so move it to the end of the string. */
             rule_end = existing_rule + strlen(existing_rule);
 
             /* This approach can leave a trailing space if the last rule is removed,
@@ -580,6 +580,8 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
                 /* Copy the remaining rules starting at the next rule to replace the rule to be
                  * deleted, including the terminating NULL character. */
                 memmove(copy_position, copy_end, strlen(copy_end) + 1);
+                existing_rule = copy_position;
+                continue;
             }
         }
         existing_rule = copy_end;
