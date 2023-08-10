@@ -340,6 +340,11 @@ static void cliRefreshPrompt(void) {
     if (config.pubsub_mode)
         prompt = sdscatfmt(prompt,"(subscribed mode)");
 
+    if (linenoiseReverseSearchModeEnabled()) {
+        char * reverseISearchPrompt = " (reverse-i-search)";
+        prompt = sdscatlen(prompt, reverseISearchPrompt, strlen(reverseISearchPrompt));
+    }
+
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
     snprintf(config.prompt,sizeof(config.prompt),"%s",prompt);
@@ -3357,7 +3362,7 @@ static void repl(void) {
     linenoiseSetFreeHintsCallback(freeHintsCallback);
 
     /* Only use history and load the rc file when stdin is a tty. */
-    if (isatty(fileno(stdin))) {
+    if (getenv("FAKETTY_WITH_PROMPT") != NULL || isatty(fileno(stdin))) {
         historyfile = getDotfilePath(REDIS_CLI_HISTFILE_ENV,REDIS_CLI_HISTFILE_DEFAULT);
         //keep in-memory history always regardless if history file can be determined
         history = 1;
@@ -3367,8 +3372,8 @@ static void repl(void) {
         cliLoadPreferences();
     }
 
-    cliRefreshPrompt();
     while(1) {
+        cliRefreshPrompt();
         line = linenoise(context ? config.prompt : "not connected> ");
         if (line == NULL) {
             /* ^C, ^D or similar. */

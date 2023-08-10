@@ -68,6 +68,12 @@ start_server {tags {"cli"}} {
         set _ [format_output [read_cli $fd]]
     }
 
+    proc test_interactive_cli_with_prompt {name code} {
+        set ::env(FAKETTY_WITH_PROMPT) 1
+        test_interactive_cli $name $code
+        unset ::env(FAKETTY_WITH_PROMPT)
+    }
+
     proc test_interactive_cli {name code} {
         set ::env(FAKETTY) 1
         set fd [open_cli]
@@ -143,6 +149,148 @@ start_server {tags {"cli"}} {
         set ::env(FAKETTY) 1
         test "Non-interactive TTY CLI: $name" $code
         unset ::env(FAKETTY)
+    }
+
+    proc flush_and_read { fd } {
+        flush $fd
+
+        while (1) {
+
+            # allow $fd to flush
+            after 1
+            
+            set result [read $fd]
+            if { $result != "" } {
+                break
+            }
+        }
+
+        return $result
+    }
+
+    test_interactive_cli_with_prompt "should find first search result" {
+        run_command $fd "keys one\x0D"
+        run_command $fd "keys two\x0D"
+
+        puts $fd "\x12"
+        flush_and_read $fd
+
+        puts -nonewline $fd "ey"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+    }
+
+    test_interactive_cli_with_prompt "should find and use the first search result" {
+        set now [clock seconds]
+        run_command $fd "SET blah \"myvalue\"\x0D"
+        run_command $fd "GET blah\x0D"
+
+        puts $fd "\x12"
+        flush_and_read $fd
+
+        puts -nonewline $fd "ET b"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)> \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
+
+        puts $fd "\x0D"
+        set result2 [flush_and_read $fd]
+        assert_equal 1 [regexp {.*"myvalue"\n} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should be ok if there is no result" {
+        set now [clock seconds]
+        puts $fd "\x12"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        set result2 [run_command $fd "keys \"$now\"\x0D"]
+        assert_equal 1 [regexp {.*(empty array).*} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should find second search result if user presses ctrl+r again" {
+        run_command $fd "keys one\x0D"
+        run_command $fd "keys two\x0D"
+
+        puts $fd "\x12"
+        flush_and_read $fd
+
+        puts -nonewline $fd "ey"
+        flush_and_read $fd
+
+        set max_retries 10
+        set retries 0
+
+        while {1} {
+            if {$retries >= $max_retries} {
+                fail "exceeded max retries looking through history"
+            }
+            puts $fd "\x12"
+            set result [flush_and_read $fd]
+            if {[regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]} {
+                break
+            }
+            incr retries
+        }
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
+        run_command $fd ""
+
+        puts $fd "\x12"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts $fd "\x07"
+        set result2 [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses up arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts $fd "\x1B\x5B\x41"
+        set result2 [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses right arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts $fd "\x1B\x5B\x42"
+        set result2 [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses down arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts $fd "\x1B\x5B\x43"
+        set result2 [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses left arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12"
+        set result [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts $fd "\x1B\x5B\x44"
+        set result2 [flush_and_read $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
     }
 
     test_interactive_cli "INFO response should be printed raw" {
@@ -335,6 +483,37 @@ start_server {tags {"cli"}} {
         assert_equal \{\"K\\u0000\\u0001ey\":\"V\\u0000\\u0001alue\"\} [run_cli --json hgetall npkey]
         assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
     }
+
+    # test "blah" {
+    #     set ::env(FAKETTY_WITH_PROMPT) 1
+    #     set ::env(FAKETTY) 1
+    #     set cmd [rediscli [srv host] [srv port]]
+    #     set fh [open |$cmd "r+"]
+    #     fconfigure $fh -blocking false
+    #     fconfigure $fh -buffering none
+
+    #     flush $fh
+    #     after 10000
+    #     puts [read $fh]
+        
+    #     puts $fh "keys patternone"
+    #     flush $fh
+    #     after 1000
+    #     puts [read $fh]
+
+    #     puts -nonewline $fh "\u0012"
+    #     flush $fh
+    #     after 1000
+    #     puts [read $fh]
+        
+    #     puts -nonewline $fh "pattern"
+    #     flush $fh
+    #     after 1000
+    #     puts [read $fh]
+
+    #     unset ::env(FAKETTY_WITH_PROMPT)
+    #     unset ::env(FAKETTY)
+    # }   
 
     test_nontty_cli "Status reply" {
         assert_equal "OK" [run_cli set key bar]
