@@ -47,7 +47,7 @@ list *UsersToLoad;  /* This is a list of users found in the configuration file
                        that we'll need to load in the final stage of Redis
                        initialization, after all the modules are already
                        loaded. Every list element is a NULL terminated
-                       array of SDS pointers: the first is the user name,
+                       array of SDS pointers: the first is the username,
                        all the remaining pointers are ACL rules in the same
                        format as ACLSetUser(). */
 list *ACLLog;       /* Our security log, the user is able to inspect that
@@ -111,7 +111,7 @@ struct ACLSelectorFlags {
     {NULL,0} /* Terminator. */
 };
 
-/* ACL selectors are private and not exposed outside of acl.c. */
+/* ACL selectors are private and not exposed outside acl.c. */
 typedef struct {
     uint32_t flags; /* See SELECTOR_FLAG_* */
     /* The bit in allowed_commands is set if this user has the right to
@@ -452,10 +452,10 @@ void ACLFreeUserAndKillClients(user *u) {
         if (c->user == u) {
             /* We'll free the connection asynchronously, so
              * in theory to set a different user is not needed.
-             * However if there are bugs in Redis, soon or later
+             * However, if there are bugs in Redis, sooner or later
              * this may result in some security hole: it's much
              * more defensive to set the default user and put
-             * it in non authenticated mode. */
+             * it in non-authenticated mode. */
             c->user = DefaultUser;
             c->authenticated = 0;
             /* We will write replies to this client later, so we can't
@@ -563,7 +563,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
          * as well if the command is removed. */
         char *rule_end = strchr(existing_rule, ' ');
         if (!rule_end) {
-            /* This is the last rule, so it it to the end of the string. */
+            /* This is the last rule, so it has to be extended to the end of string. */
             rule_end = existing_rule + strlen(existing_rule);
 
             /* This approach can leave a trailing space if the last rule is removed,
@@ -621,7 +621,7 @@ void ACLChangeSelectorPerm(aclSelector *selector, struct redisCommand *cmd, int 
 /* This is like ACLSetSelectorCommandBit(), but instead of setting the specified
  * ID, it will check all the commands in the category specified as argument,
  * and will set all the bits corresponding to such commands to the specified
- * value. Since the category passed by the user may be non existing, the
+ * value. Since the category passed by the user may be non-existing, the
  * function returns C_ERR if the category was not found, or C_OK if it was
  * found and the operation was performed. */
 void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector, uint64_t cflag, int value) {
@@ -665,7 +665,7 @@ void ACLRecomputeCommandBitsFromCommandRulesAllUsers(void) {
                 serverAssert(res == C_OK);
             }
 
-            /* Apply all of the commands and categories to this selector. */
+            /* Apply all the commands and categories to this selector. */
             for(int i = 0; i < argc; i++) {
                 int res = ACLSetSelector(selector, argv[i], sdslen(argv[i]));
                 serverAssert(res == C_OK);
@@ -749,7 +749,7 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
         ACLSetSelector(fake_selector,"-@all",-1);
     }
 
-    /* Apply all of the commands and categories to the fake selector. */
+    /* Apply all the commands and categories to the fake selector. */
     int argc = 0;
     sds *argv = sdssplitargs(selector->command_rules, &argc);
     serverAssert(argv != NULL);
@@ -1204,7 +1204,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *              immediately authenticated with the default user without
  *              any explicit AUTH command required. Note that the "resetpass"
  *              directive will clear this condition.
- * resetpass    Flush the list of allowed passwords. Moreover removes the
+ * resetpass    Flush the list of allowed passwords. Moreover, removes the
  *              "nopass" status. After "resetpass" the user has no associated
  *              passwords and there is no way to authenticate without adding
  *              some password (or setting it as "nopass" later).
@@ -1215,7 +1215,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  *              parentheses and attach it to the user. Each option should be
  *              space separated. The first character must be ( and the last
  *              character must be ).
- * clearselectors          Remove all of the currently attached selectors. 
+ * clearselectors          Remove all the currently attached selectors.
  *                         Note this does not change the "root" user permissions,
  *                         which are the permissions directly applied onto the
  *                         user (outside the parentheses).
@@ -1226,17 +1226,17 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
  * The 'op' string must be null terminated. The 'oplen' argument should
  * specify the length of the 'op' string in case the caller requires to pass
  * binary data (for instance the >password form may use a binary password).
- * Otherwise the field can be set to -1 and the function will use strlen()
+ * Otherwise, the field can be set to -1 and the function will use strlen()
  * to determine the length.
  *
  * The function returns C_OK if the action to perform was understood because
- * the 'op' string made sense. Otherwise C_ERR is returned if the operation
+ * the 'op' string made sense. Otherwise, C_ERR is returned if the operation
  * is unknown or has some syntax error.
  *
  * When an error is returned, errno is set to the following values:
  *
  * EINVAL: The specified opcode is not understood or the key/channel pattern is
- *         invalid (contains non allowed characters).
+ *         invalid (contains non-allowed characters).
  * ENOENT: The command name or command category provided with + or - is not
  *         known.
  * EEXIST: You are adding a key pattern after "*" was already added. This is
@@ -1530,7 +1530,7 @@ void ACLClearCommandID(void) {
     nextid = 0;
 }
 
-/* Return an username by its name, or NULL if the user does not exist. */
+/* Return a username by its name, or NULL if the user does not exist. */
 user *ACLGetUserByName(const char *name, size_t namelen) {
     void *myuser = raxFind(Users,(unsigned char*)name,namelen);
     if (myuser == raxNotFound) return NULL;
@@ -1571,7 +1571,7 @@ static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keyle
     return ACL_DENIED_KEY;
 }
 
-/* Checks if the provided selector selector has access specified in flags
+/* Checks if the provided selector has access specified in flags
  * to all keys in the keyspace. For example, CMD_KEY_READ access requires either
  * '%R~*', '~*', or allkeys to be granted to the selector. Returns 1 if all 
  * the access flags are satisfied with this selector or 0 otherwise.
@@ -1735,7 +1735,7 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
-    /* Check all of the selectors */
+    /* Check all the selectors */
     listRewind(u->selectors,&li);
     while((ln = listNext(&li))) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
@@ -1791,7 +1791,7 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
-    /* Check all of the selectors */
+    /* Check all the selectors */
     listRewind(u->selectors,&li);
     while((ln = listNext(&li))) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
@@ -2097,7 +2097,7 @@ cleanup:
  * this function validates, and if the syntax is valid, appends
  * the user definition to a list for later loading.
  *
- * The rules are tested for validity and if there obvious syntax errors
+ * The rules are tested for validity and if there are obvious syntax errors
  * the function returns C_ERR and does nothing, otherwise C_OK is returned
  * and the user is appended to the list.
  *
@@ -2105,7 +2105,7 @@ cleanup:
  * and, in that case, the error will be emitted later, because certain
  * commands may be defined later once modules are loaded.
  *
- * When an error is detected and C_ERR is returned, the function populates
+ * When an error gets detected and C_ERR is returned, the function populates
  * by reference (if not set to NULL) the argc_err argument with the index
  * of the argv vector that caused the error. */
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
@@ -2224,7 +2224,7 @@ int ACLLoadConfiguredUsers(void) {
  * and the rules will remain exactly as they were.
  *
  * At the end of the process, if no errors were found in the whole file then
- * NULL is returned. Otherwise an SDS string describing in a single line
+ * NULL is returned. Otherwise, an SDS string describing in a single line
  * a description of all the issues found is returned. */
 sds ACLLoadFromFile(const char *filename) {
     FILE *fp;
@@ -2251,7 +2251,7 @@ sds ACLLoadFromFile(const char *filename) {
     sdsfree(acls);
 
     /* We do all the loading in a fresh instance of the Users radix tree,
-     * so if there are errors loading the ACL file we can rollback to the
+     * so if there are errors loading the ACL file we can roll back to the
      * old version. */
     rax *old_users = Users;
     Users = raxNew();
@@ -2566,7 +2566,7 @@ void ACLUpdateInfoMetrics(int reason){
  * ACL_DENIED_CHANNEL, since it allows the function to log the key or channel
  * name that caused the problem.
  *
- * The last 2 arguments are a manual override to be used, instead of any of the automatic
+ * The last 2 arguments are a manual override to be used, instead any of the automatic
  * ones which depend on the client and reason arguments (use NULL for default).
  *
  * If `object` is not NULL, this functions takes over it.
@@ -2757,7 +2757,7 @@ int aclAddReplySelectorDescription(client *c, aclSelector *s) {
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
-        /* Initially redact all of the arguments to not leak any information
+        /* Initially redact all the arguments to not leak any information
          * about the user. */
         for (int j = 2; j < c->argc; j++) {
             redactClientCommandArgument(c, j);
@@ -2841,7 +2841,7 @@ void aclCommand(client *c) {
         /* Include the root selector at the top level for backwards compatibility */
         fields += aclAddReplySelectorDescription(c, ACLUserGetRootSelector(u));
 
-        /* Describe all of the selectors on this user, including duplicating the root selector */
+        /* Describe all the selectors on this user, including duplicating the root selector */
         addReplyBulkCString(c,"selectors");
         addReplyArrayLen(c, listLength(u->selectors) - 1);
         listRewind(u->selectors,&li);

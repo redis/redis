@@ -348,7 +348,7 @@ static void cliRefreshPrompt(void) {
 
 /* Return the name of the dotfile for the specified 'dotfilename'.
  * Normally it just concatenates user $HOME to the file specified
- * in 'dotfilename'. However if the environment variable 'envoverride'
+ * in 'dotfilename'. However, if the environment variable 'envoverride'
  * is set, its value is taken as the path.
  *
  * The function returns NULL (if the file is /dev/null or cannot be
@@ -440,7 +440,7 @@ static sds cliVersion(void) {
 
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
- * names from the commands.c file. However the Redis instance we are connecting
+ * names from the commands.c file. However, the Redis instance we are connecting
  * to may support more commands, so this function integrates the previous
  * entries with additional entries obtained using the COMMAND command
  * available in recent versions of Redis. */
@@ -1351,7 +1351,7 @@ static int matchArg(char **nextword, int numwords, cliCommandArg *arg) {
         clearMatchedArgs(arg, 1);
         if (arg->token != NULL && !(arg->flags & CMD_ARG_MULTIPLE_TOKEN)) {
             /* The token only appears the first time; the rest of the times,
-             * pretend we saw it so we don't hint it.
+             * pretend we saw it, so we don't hint it.
              */
             matchedOnce = matchNoTokenArg(nextword + matchedWords, numwords - matchedWords, arg);
             if (arg->matched) {
@@ -1394,7 +1394,7 @@ static int matchOptionalArgs(char **words, int numwords, cliCommandArg *args, in
         if (matchedWords == 0) {
             break;
         }
-        /* Successfully matched an optional arg; mark any previous match as completed
+        /* Successfully matched an optional arg; mark any previous match as completed,
          * so it won't be partially hinted.
          */
         if (lastmatchedarg != -1) {
@@ -3149,7 +3149,7 @@ static int confirmWithYes(char *msg, int ignore_force) {
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
     /* In Lua debugging mode, we want to pass the "help" to Redis to get
-     * it's own HELP message, rather than handle it by the CLI, see ldbRepl.
+     * its own HELP message, rather than handle it by the CLI, see ldbRepl.
      *
      * For the normal Redis HELP, we can process it without a connection. */
     if (!config.eval_ldb &&
@@ -4352,7 +4352,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
         int new_score = clusterManagerGetAntiAffinityScore(ipnodes,
                                                            ip_count,
                                                            NULL, NULL);
-        /* If the change actually makes thing worse, revert. Otherwise
+        /* If the change actually makes thing worse, revert. Otherwise,
          * leave as it is because the best solution may need a few
          * combined swaps. */
         if (new_score > score) {
@@ -4507,7 +4507,7 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
 /* We have 16384 hash slots. The hash slot of a given key is obtained
  * as the least significant 14 bits of the crc16 of the key.
  *
- * However if the key contains the {...} pattern, only the part between
+ * However, if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
 static unsigned int clusterManagerKeyHashSlot(char *key, int keylen) {
@@ -5195,7 +5195,7 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
         /* Inform the source node. If the source node has just lost its last
          * slot and the target node has already informed the source node, the
          * source node has turned itself into a replica. This is not an error in
-         * this scenario so we ignore it. See issue #9223. */
+         * this scenario, so we ignore it. See issue #9223. */
         success = clusterManagerSetSlot(source, target, slot, "node", err);
         const char *acceptable = "ERR Please use SETSLOT only with masters.";
         if (!success && err && !strncmp(*err, acceptable, strlen(acceptable))) {
@@ -5242,7 +5242,7 @@ static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
                 redis_strlcpy(*err, reply->str, (reply->len + 1));
             }
             success = 0;
-            /* If the cluster did not already joined it is possible that
+            /* If the cluster did not already join it is possible that
              * the slave does not know the master node yet. So on errors
              * we return ASAP leaving the dirty flag set, to flush the
              * config later. */
@@ -8392,7 +8392,7 @@ int sendReplconf(const char* arg1, const char* arg2) {
         fprintf(stderr, "\nI/O error\n");
         exit(1);
     } else if(reply->type == REDIS_REPLY_ERROR) {
-        /* non fatal, old versions may not support it */
+        /* non-fatal, old versions may not support it */
         fprintf(stderr, "REPLCONF %s error: %s\n", arg1, reply->str);
         res = 0;
     }
@@ -8428,7 +8428,7 @@ static ssize_t readConn(redisContext *c, char *buf, size_t len)
  * The out_full_mode parameter if 1 means this is a full sync, if 0 means this is partial mode. */
 unsigned long long sendSync(redisContext *c, int send_sync, char *out_eof, int *out_full_mode) {
     /* To start we need to send the SYNC command and return the payload.
-     * The hiredis client lib does not understand this part of the protocol
+     * The hiredis client lib does not understand this part of the protocol,
      * and we don't want to mess with its buffers, so everything is performed
      * using direct low-level I/O. */
     char buf[4096], *p;
