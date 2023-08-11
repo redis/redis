@@ -400,6 +400,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                                     auth had been authenticated from the Module. */
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
+#define CLIENT_MODULE_PERSISTENT (1ULL<<50) /* Module client created by RM_CreateModuleClient */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1270,6 +1271,7 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+    uint64_t reset_flags;   /* flags to reset in persistent clients after each execution, generally set by RM_Call */
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
@@ -2720,6 +2722,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
+int isMultiQueuedCommand(client *c);
 
 /* Redis object implementation */
 void decrRefCount(robj *o);

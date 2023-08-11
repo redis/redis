@@ -140,6 +140,7 @@ typedef struct RedisModulePoolAllocBlock {
 
 struct RedisModuleBlockedClient;
 struct RedisModuleUser;
+struct RedisModuleClient;
 
 struct RedisModuleCtx {
     void *getapifuncptr;            /* NOTE: Must be the first field. */
@@ -167,6 +168,9 @@ struct RedisModuleCtx {
 
     const struct RedisModuleUser *user;  /* RedisModuleUser commands executed via
                                             RM_Call should be executed as, if set */
+
+    const struct RedisModuleClient *persistent_client;   /* persistent client to use for repeated RM_Calls.
+                                                            Not freed at end of an RM_Call */
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
@@ -428,6 +432,10 @@ typedef struct RedisModuleUser {
     int free_user; /* Indicates that user should also be freed when this object is freed */
 } RedisModuleUser;
 
+typedef struct RedisModuleClient {
+    client *client;
+} RedisModuleClient;
+
 /* This is a structure used to export some meta-information such as dbid to the module. */
 typedef struct RedisModuleKeyOptCtx {
     struct redisObject *from_key, *to_key; /* Optional name of key processed, NULL when unknown. 
@@ -505,6 +513,7 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
+void moduleReleaseTempClient(client *c);
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
  *
@@ -646,11 +655,40 @@ static void freeRedisModuleAsyncRMCallPromise(RedisModuleAsyncRMCallPromise *pro
     zfree(promise);
 }
 
+static void freeTempClientAndCallPromise(client *c) {
+    RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
+    promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
+    freeRedisModuleAsyncRMCallPromise(promise);
+    c->bstate.async_rm_call_handle = NULL;
+    moduleReleaseTempClient(c);
+}
+
+static void moduleFreeArgv(robj **argv, int argc) {
+    for (int j = 0; j < argc; j++)
+        decrRefCount(argv[j]);
+    zfree(argv);
+}
+
 void moduleReleaseTempClient(client *c) {
+    serverAssert(!(c->flags & CLIENT_BLOCKED));
+
+    if (c->flags & CLIENT_MODULE_PERSISTENT) {
+        /* if a persistent client, only reset flags and free argv
+         * don't reset client in general or return to pool */
+        c->flags &= ~(c->reset_flags);
+        c->reset_flags = 0;
+        moduleFreeArgv(c->argv, c->argc);
+        c->argv = NULL;
+        c->argc = 0;
+
+        return;
+    }
+
     if (moduleTempClientCount == moduleTempClientCap) {
         moduleTempClientCap = moduleTempClientCap ? moduleTempClientCap*2 : 32;
         moduleTempClients = zrealloc(moduleTempClients, sizeof(c)*moduleTempClientCap);
     }
+
     clearClientConnectionState(c);
     listEmpty(c->reply);
     c->reply_bytes = 0;
@@ -660,12 +698,13 @@ void moduleReleaseTempClient(client *c) {
     c->flags = CLIENT_MODULE;
     c->user = NULL; /* Root user */
     c->cmd = c->lastcmd = c->realcmd = NULL;
-    if (c->bstate.async_rm_call_handle) {
-        RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
-        promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
-        freeRedisModuleAsyncRMCallPromise(promise);
-        c->bstate.async_rm_call_handle = NULL;
-    }
+
+    /* reset client stat that can persist */
+    pubsubUnsubscribeAllChannels(c, 0);
+    pubsubUnsubscribeShardAllChannels(c, 0);
+    pubsubUnsubscribeAllPatterns(c, 0);
+    freeClientMultiState(c);
+
     moduleTempClients[moduleTempClientCount++] = c;
 }
 
@@ -851,8 +890,7 @@ void moduleCallCommandUnblockedHandler(client *c) {
     serverAssert(promise);
     RedisModule *module = promise->module;
     if (!promise->on_unblocked) {
-        moduleReleaseTempClient(c);
-        return; /* module did not set any unblock callback. */
+        goto out;
     }
     moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
     selectDb(ctx.client, c->db->id);
@@ -863,7 +901,9 @@ void moduleCallCommandUnblockedHandler(client *c) {
     module->in_call--;
 
     moduleFreeContext(&ctx);
-    moduleReleaseTempClient(c);
+
+out:
+    freeTempClientAndCallPromise(c);
 }
 
 /* Create a module ctx and keep track of the nesting level.
@@ -5956,7 +5996,8 @@ int RM_CallReplyPromiseAbort(RedisModuleCallReply *reply, void **private_data) {
     promise->private_data = NULL;
     promise->on_unblocked = NULL;
     unblockClient(promise->c, 0);
-    moduleReleaseTempClient(promise->c);
+
+    freeTempClientAndCallPromise(promise->c);
     return REDISMODULE_OK;
 }
 
@@ -5991,6 +6032,100 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
 /* Modifies the user that RM_Call will use (e.g. for ACL checks) */
 void RM_SetContextUser(RedisModuleCtx *ctx, const RedisModuleUser *user) {
     ctx->user = user;
+}
+
+/* Returns an object that provides a client that can be attached to a
+ * RedisModuleContet object to provide a persistent client usage
+ * between multiple RM_Calls. This simulates a network connected
+ * client and enables modules to use WATCH/MULTI/EXEC transaction.
+ * The object must be released with RM_FreeModuleClient.
+ */
+RedisModuleClient *RM_CreateModuleClient(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
+
+    client *c = moduleAllocTempClient();
+    c->flags |= CLIENT_MODULE_PERSISTENT;
+    c->reset_flags = 0;
+
+    RedisModuleClient *rmc = zmalloc(sizeof(RedisModuleClient));
+    rmc->client = c;
+
+    return rmc;
+}
+
+/* Releases a RedisModuleClient.
+ *
+ * Note that the client must not be released if it has an outstanding command running.
+ * A blocked RM_Call (using the 'K' flag), requires calling RM_CallReplyPromiseAbort
+ * successfully or wait for the unblock handler to be called. */
+int RM_FreeModuleClient(RedisModuleCtx *ctx, RedisModuleClient *client) {
+    UNUSED(ctx);
+
+    if (!client) return REDISMODULE_OK;
+
+    if (client->client->flags & CLIENT_BLOCKED) {
+        return REDISMODULE_ERR;
+    }
+
+    /* remove CLIENT_MODULE_PERSISTENT -> client to be returned to pool */
+    client->client->flags &= ~CLIENT_MODULE_PERSISTENT;
+    moduleReleaseTempClient(client->client);
+    zfree(client);
+
+    return REDISMODULE_OK;
+}
+
+/* Enables persistent clients to work with ACLs.  Requires using RM_Call with
+ * the 'C' flag to check ACLs
+ */
+void RM_SetClientUser(RedisModuleClient *client, RedisModuleUser *user) {
+    if (user) {
+        client->client->user = user->user;
+    } else {
+        client->client->user = NULL;
+    }
+}
+
+/* Sets the persistent client object on the given context.  To unset the
+ * client, call with the client seto NULL)
+ */
+void RM_SetContextClient(RedisModuleCtx *ctx, RedisModuleClient *client) {
+    ctx->persistent_client = client;
+}
+
+/* Get the client flags that are exported to Redis Modules
+ * Available flags and their meaning:
+ *
+ *  * REDISMODULE_CLIENT_FLAG_DIRTY_CAS: Watched keys modified. EXEC will fail
+ *
+ *  * REDISMODULE_CLIENT_FLAG_DIRTY_EXEC: EXEC will fail for errors while queueing
+ */
+uint64_t RM_GetClientFlags(RedisModuleClient *client) {
+    uint64_t flags = 0;
+
+    if (client->client->flags & CLIENT_DIRTY_CAS)
+        flags |= REDISMODULE_CLIENT_FLAG_DIRTY_CAS;
+    if (client->client->flags & CLIENT_DIRTY_EXEC)
+        flags |= REDISMODULE_CLIENT_FLAG_DIRTY_EXEC;
+
+    return flags;
+}
+
+/**
+ * Returns the full ClientFlags mask, using the return value
+ * the module can check if a certain set of flags are supported
+ * by the redis server version in use.
+ * Example:
+ *
+ *        int supportedFlags = RM_GetClientFlagsAll();
+ *        if (supportedFlags & REDISMODULE_CLIENT_FLAG_DIRTY_CAS) {
+ *              // REDISMODULE_CLIENT_FLAG_DIRTY_CAS is supported
+ *        } else{
+ *              // REDISMODULE_CLIENT_FLAG_DIRTY_CAS is not supported
+ *        }
+ */
+uint64_t RM_GetClientFlagsAll(void) {
+    return _REDISMODULE_CLIENT_FLAGS_NEXT-1;
 }
 
 /* Returns an array of robj pointers, by parsing the format specifier "fmt" as described for
@@ -6097,6 +6232,11 @@ fmterr:
         decrRefCount(argv[j]);
     zfree(argv);
     return NULL;
+}
+
+static void setRMCallClientFlags(client *c, uint64_t flags) {
+    c->flags |= flags;
+    c->reset_flags |= flags;
 }
 
 /* Exported API to call any Redis command from modules.
@@ -6220,11 +6360,24 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     error_as_call_replies = flags & REDISMODULE_ARGV_CALL_REPLIES_AS_ERRORS;
     va_end(ap);
 
-    c = moduleAllocTempClient();
+    if (ctx->persistent_client) {
+        c = ctx->persistent_client->client;
+    } else {
+        c = moduleAllocTempClient();
+    }
+
+    if (c->flags & CLIENT_BLOCKED) {
+        errno = -EADDRINUSE;
+        if (error_as_call_replies) {
+            sds msg = sdsnew("cannot reuse redis module client while blocked on another command");
+            reply = callReplyCreateError(msg, ctx);
+        }
+        goto cleanup;
+    }
 
     if (!(flags & REDISMODULE_ARGV_ALLOW_BLOCK)) {
         /* We do not want to allow block, the module do not expect it */
-        c->flags |= CLIENT_DENY_BLOCKING;
+        setRMCallClientFlags(c, CLIENT_DENY_BLOCKING);
     }
     c->db = ctx->client->db;
     c->argv = argv;
@@ -6242,7 +6395,16 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     user *user = NULL;
     if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
-        user = ctx->user ? ctx->user->user : ctx->client->user;
+        if (ctx->client) {
+            user = ctx->client->user;
+        }
+
+        if (ctx->user) {
+            user = ctx->user->user;
+        } else if (ctx->persistent_client) {
+            user = ctx->persistent_client->client->user;
+        }
+
         if (!user) {
             errno = ENOTSUP;
             if (error_as_call_replies) {
@@ -6323,7 +6485,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         }
     } else {
         /* if we aren't OOM checking in RM_Call, we want further executions from this client to also not fail on OOM */
-        c->flags |= CLIENT_ALLOW_OOM;
+        setRMCallClientFlags(c, CLIENT_ALLOW_OOM);
     }
 
     if (flags & REDISMODULE_ARGV_NO_WRITES) {
@@ -6403,7 +6565,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             addACLLogEntry(ctx->client, acl_retval, ACL_LOG_CTX_MODULE, -1, c->user->name, object);
             if (error_as_call_replies) {
                 /* verbosity should be same as processCommand() in server.c */
-                sds acl_msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+                sds acl_msg = getAclErrorMessage(acl_retval, user, c->cmd, c->argv[acl_errpos]->ptr, 0);
                 sds msg = sdscatfmt(sdsempty(), "-NOPERM %S\r\n", acl_msg);
                 sdsfree(acl_msg);
                 reply = callReplyCreateError(msg, ctx);
@@ -6420,7 +6582,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         int error_code;
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
-        c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
+        setRMCallClientFlags(c, ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING));
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
                            server.cluster->myself)
         {
@@ -6449,6 +6611,12 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
 
     if (flags & REDISMODULE_ARGV_DRY_RUN) {
+        goto cleanup;
+    }
+
+    if (ctx->persistent_client && c->flags & CLIENT_MULTI && isMultiQueuedCommand(c)) {
+        queueMultiCommand(c, cmd_flags);
+        reply = callReplyCreate(sdsdup(shared.queued->ptr), NULL, ctx);
         goto cleanup;
     }
 
@@ -6490,11 +6658,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->bstate.async_rm_call_handle = promise;
         if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
-            c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
+            setRMCallClientFlags(c, CLIENT_MODULE_PREVENT_AOF_PROP);
         }
         if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
             /* No need for replication propagation, set the relevant flags of the client */
-            c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
+            setRMCallClientFlags(c, CLIENT_MODULE_PREVENT_REPL_PROP);
         }
         c = NULL; /* Make sure not to free the client */
     } else {
@@ -13846,4 +14014,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RdbStreamFree);
     REGISTER_API(RdbLoad);
     REGISTER_API(RdbSave);
+    REGISTER_API(CreateModuleClient);
+    REGISTER_API(FreeModuleClient);
+    REGISTER_API(SetContextClient);
+    REGISTER_API(GetClientFlags);
+    REGISTER_API(GetClientFlagsAll);
+    REGISTER_API(SetClientUser);
 }
