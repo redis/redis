@@ -781,6 +781,16 @@ typedef struct RedisModuleCronLoopInfo {
     int32_t hz;             /* Approximate number of events per second. */
 } RedisModuleCronLoopV1;
 
+#define REDISMODULE_CRON_LOOP_VERSION_2 2
+typedef struct RedisModuleCronLoopInfoV2 {
+    uint64_t version; /* Not used since this structure is never passed
+                         from the module to the core right now. Here
+                         for future compatibility. */
+    int32_t hz;       /* Approximate number of events per second. */
+    int activeRehashing;
+    int hasActiveChildProcess;
+} RedisModuleCronLoopV2;
+
 #define RedisModuleCronLoop RedisModuleCronLoopV1
 
 #define REDISMODULE_LOADING_PROGRESS_VERSION 1

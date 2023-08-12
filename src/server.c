@@ -1514,7 +1514,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Fire the cron loop modules event. */
-    RedisModuleCronLoopV1 ei = {REDISMODULE_CRON_LOOP_VERSION,server.hz};
+    //RedisModuleCronLoopV1 ei = {REDISMODULE_CRON_LOOP_VERSION,server.hz};
+    RedisModuleCronLoopV2 ei = {REDISMODULE_CRON_LOOP_VERSION,server.hz,server.activerehashing,hasActiveChildProcess()};
     moduleFireServerEvent(REDISMODULE_EVENT_CRON_LOOP,
                           0,
                           &ei);
