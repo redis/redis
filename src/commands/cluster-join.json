@@ -1,0 +1,53 @@
+{
+  "JOIN": {
+    "summary": "Join this Redis instance to a Flotilla cluster",
+    "complexity": "O(1)",
+    "group": "cluster",
+    "since": "8.0.0",
+    "arity": -5,
+    "container": "CLUSTER",
+    "function": "clusterCommand",
+    "feature_flags": ["flotilla-cluster"],
+    "command_flags": [],
+    "arguments": [
+      {
+        "name": "topology-director-hostname",
+        "type": "string"
+      },
+      {
+        "name": "topology-director-port",
+        "type": "integer"
+      },
+      {
+        "name": "shard-assignment",
+        "type": "oneof",
+        "arguments": [
+          {
+            "name": "unassigned-slots",
+            "type": "string"
+          },
+          {
+            "name": "existing-shard",
+            "type": "string"
+          },
+          {
+            "name": "new-shard",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "shard-id",
+        "type": "integer"
+      },
+      {
+        "name": "slots-csv",
+        "type": "string",
+        "optional": true
+      }
+    ],
+    "reply_schema": {
+      "const": "OK"
+    }
+  }
+}

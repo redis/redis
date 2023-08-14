@@ -7,6 +7,7 @@
         "arity": 3,
         "container": "CLUSTER",
         "function": "clusterCommand",
+        "feature_flags": ["legacy-cluster", "flotilla-cluster"],
         "deprecated_since": "5.0.0",
         "replaced_by": "`CLUSTER REPLICAS`",
         "doc_flags": [

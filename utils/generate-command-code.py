@@ -516,6 +516,9 @@ class Subcommand(Command):
 
 
 def create_command(name, desc):
+    features = desc.get("feature_flags")
+    if features and len(features) and len([flag for flag in features if flag in args.feature_flag]) == 0:
+        return
     if desc.get("container"):
         cmd = Subcommand(name.upper(), desc)
         subcommands.setdefault(desc["container"].upper(), {})[name] = cmd
@@ -531,6 +534,7 @@ srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--with-reply-schema', action='store_true')
+parser.add_argument('--feature-flag', action='store', nargs='+')
 args = parser.parse_args()
 
 # Create all command objects
