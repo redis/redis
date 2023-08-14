@@ -352,7 +352,7 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         }
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
-            for (i = n + 1; i > 0; i--) { 
+            for (i = 0; i < n + 1; i++) { 
                 if (!x) {
                     return NULL;
                 }
@@ -368,14 +368,14 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         for (i = zsl->level - 1; i >= 0; i--) {
             /* Go forward while *IN* range. */
             while (x->level[i].forward && zslValueLteMax(x->level[i].forward->score, range)) {
-                /* Count the rank of the first element in range. */
+                /* Count the rank of the last element in range. */
                 rank += x->level[i].span;
                 x = x->level[i].forward;
             }
         }   
         if (n > -ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
-            for (i = -n - 1; i > 0; i--) {
+            for (i = 0; i < -n - 1; i++) {
                 if (!x) {
                     return NULL;
                 }
@@ -702,7 +702,7 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
         }
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* Use the skip list to reach the nth node in range. */
-            for (i = n + 1; i > 0; i--) { 
+            for (i = 0; i < n + 1; i++) { 
                 if (!x) {
                     return NULL;
                 }
@@ -718,14 +718,14 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
         for (i = zsl->level - 1; i >= 0; i--) {
             /* Go forward while *IN* range. */
             while (x->level[i].forward && zslLexValueLteMax(x->level[i].forward->ele, range)) {
-                /* Count the rank of the first element in range. */
+                /* Count the rank of the last element in range. */
                 rank += x->level[i].span;
                 x = x->level[i].forward;
             }
         }  
         if (n > -ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
-            for (i = -n - 1; i > 0; i--) {
+            for (i = 0; i < -n - 1; i++) {
                 if (!x) {
                     return NULL;
                 }
