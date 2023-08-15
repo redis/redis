@@ -223,6 +223,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"aclcheck",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (argc > 1) return RedisModule_WrongArity(ctx);
+    
     /* When that flag is passed, we try to create too many categories,
      * and the test expects this to fail. */
     if (argc == 1) {
