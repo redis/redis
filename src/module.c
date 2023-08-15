@@ -1452,7 +1452,7 @@ int moduleVerifyName(const char *name) {
         return REDISMODULE_ERR;
     }
 
-    for (size_t i = 0 ; i < strlen(name) ; ++i) {
+    for (size_t i = 0; i < strlen(name); i++) {
         char curr_char = name[i];
         if ((curr_char >= 'a' && curr_char <= 'z') ||
             (curr_char >= 'A' && curr_char <= 'Z') ||
@@ -1466,8 +1466,10 @@ int moduleVerifyName(const char *name) {
     return C_OK;
 }
 
-/* RedisModule_AddACLCategory can be used to add new ACL command categories.
- * This function can only be called during the RedisModule_OnLoad function.
+/* RedisModule_AddACLCategory can be used to add new ACL command categories. Category names
+ * can only contain alphanumeric characters, underscores, or dashes. Categories can only be added
+ * during the RedisModule_OnLoad function. Once a category has been added, it can not be removed. 
+ * Any module can register a command to any added categories using RedisModule_SetCommandACLCategories.
  * 
  * Returns:
  * - REDISMODULE_OK on successfully adding the new ACL category. 
@@ -1475,8 +1477,8 @@ int moduleVerifyName(const char *name) {
  * 
  * On error the errno is set to:
  * - EINVAL if the name contains invalid characters.
- * - EBUSY if categoty name already exists.
- * - ENOMEM if number of categories reach the max limit of 64 categories.
+ * - EBUSY if the category name is already in use.
+ * - ENOMEM if the number of categories reached the max limit of 64 categories.
  */
 int RM_AddACLCategory(RedisModuleCtx *ctx, const char *name) {
     if (!ctx->module->onload) {

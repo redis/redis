@@ -64,7 +64,8 @@ static unsigned long nextid = 0; /* Next command id that has not been assigned *
 struct ACLCategoryItem {
     char *name;
     uint64_t flag;
-} static *ACLCommandCategories = NULL;
+}; 
+static struct *ACLCommandCategories = NULL;
 
 static size_t nextCommandCategory = 0; /* Index of the next command category to be added */
 
@@ -102,7 +103,7 @@ struct ACLCategoryItem ACLDefaultCommandCategories[] = { /* See redis.conf for d
  *
  * This function is present here to gain access to the ACLCommandCategories array and add a new ACL category.
  */
-int ACLAddCommandCategory(const char *name, int flag) {
+int ACLAddCommandCategory(const char *name, uint64_t flag) {
     if (nextCommandCategory >= ACL_MAX_CATEGORIES) return C_ERR;
     ACLCommandCategories[nextCommandCategory].name = zstrdup(name);
     ACLCommandCategories[nextCommandCategory].flag = flag != 0 ? flag : (1ULL<<nextCommandCategory);
@@ -110,7 +111,7 @@ int ACLAddCommandCategory(const char *name, int flag) {
     return C_OK;
 }
 
-/* Initializes ACLCommandCategories with default ACL categories and allocates space of 
+/* Initializes ACLCommandCategories with default ACL categories and allocates space for 
  * new ACL categories.
  */
 void ACLInitCommandCategories(void) {
