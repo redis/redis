@@ -11,6 +11,27 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+================================================================================
+Redis 7.2.0 GA   Released Mon Aug 15 12:00:00 IDT 2023
+================================================================================
+
+Upgrade urgency LOW: This is the first stable Release for Redis 7.2.
+
+Bug Fixes
+=========
+
+* redis-cli in cluster mode handles `unknown-endpoint` (#12273)
+* Update request / response policy hints for a few commands (#12417)
+* Ensure that the function load timeout is disabled during loading from RDB/AOF and on replicas. (#12451)
+* Fix false success and a memory leak for ACL selector with bad parenthesis combination (#12452)
+* Fix the assertion when script timeout occurs after it signaled a blocked client (#12459)
+
+Fixes for issues in previous releases of Redis 7.2
+--------------------------------------------------
+
+* Update MONITOR client's memory correctly for INFO and client-eviction (#12420)
+* The response of cluster nodes was unnecessarily adding an extra comma when no
+  hostname was present. (#12411)
 
 ================================================================================
 Redis 7.2 RC3   Released Mon July 10 12:00:00 IDT 2023

@@ -1,7 +1,7 @@
 {
     "REPLICAS": {
         "summary": "Lists the replica nodes of a master node.",
-        "complexity": "O(1)",
+        "complexity": "O(N) where N is the number of replicas.",
         "group": "cluster",
         "since": "5.0.0",
         "arity": 3,

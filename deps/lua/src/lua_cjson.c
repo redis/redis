@@ -464,9 +464,8 @@ static void json_encode_exception(lua_State *l, json_config_t *cfg, strbuf_t *js
 static void json_append_string(lua_State *l, strbuf_t *json, int lindex)
 {
     const char *escstr;
-    int i;
     const char *str;
-    size_t len;
+    size_t i, len;
 
     str = lua_tolstring(l, lindex, &len);
 

@@ -182,4 +182,33 @@ start_server {tags {"incr"}} {
         r incrbyfloat foo [expr double(-1)/41]
         r get foo
     } {0}
+
+    foreach cmd {"incr" "decr" "incrby" "decrby"} {
+        test "$cmd operation should update encoding from raw to int" {
+            set res {}
+            set expected {1 12}
+            if {[string match {*incr*} $cmd]} {
+                lappend expected 13
+            } else {
+                lappend expected 11
+            }
+
+            r set foo 1
+            assert_encoding "int" foo
+            lappend res [r get foo]
+
+            r append foo 2
+            assert_encoding "raw" foo
+            lappend res [r get foo]
+
+            if {[string match {*by*} $cmd]} {
+                r $cmd foo 1
+            } else {
+                r $cmd foo
+            }
+            assert_encoding "int" foo
+            lappend res [r get foo]
+            assert_equal $res $expected
+        }
+    }
 }
