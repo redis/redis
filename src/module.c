@@ -12476,7 +12476,7 @@ int moduleVerifyResourceName(const char *name) {
         return REDISMODULE_ERR;
     }
 
-    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
+    for (size_t i = 0; i < strlen(name); i++) {
         char curr_char = name[i];
         if ((curr_char >= 'a' && curr_char <= 'z') ||
             (curr_char >= 'A' && curr_char <= 'Z') ||

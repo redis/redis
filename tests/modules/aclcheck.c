@@ -197,7 +197,7 @@ int commandBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int result = RedisModule_CreateCommand(ctx,"command.that.should.fail", module_test_acl_category, "", 0, 0, 0);
     response_ok |= (result == REDISMODULE_OK);
 
-    result  = RedisModule_AddACLCategory(ctx,"blockedcategory");
+    result = RedisModule_AddACLCategory(ctx,"blockedcategory");
     response_ok |= (result == REDISMODULE_OK);
     
     RedisModuleCommand *parent = RedisModule_GetCommand(ctx,"block.commands.outside.onload");
