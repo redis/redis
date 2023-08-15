@@ -95,7 +95,7 @@ struct ACLCategoryItem ACLDefaultCommandCategories[] = { /* See redis.conf for d
 
 /* Implements the ability to add to the list of ACL categories at runtime. Since each ACL category
  * also requires a bit in the acl_categories flag, there is a limit to the number that can be added.
- * The new ACL categories occupy the remaing bits of acl_categories flag, other than the bits
+ * The new ACL categories occupy the remaining bits of acl_categories flag, other than the bits
  * occupied by the default ACL command categories.
  *
  * returns C_OK -> Added, C_ERR -> Failed (out of space)
