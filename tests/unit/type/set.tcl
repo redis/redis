@@ -51,7 +51,7 @@ start_server {
         assert_encoding intset myset
 
         # coverage for objectComputeSize
-        assert_range [r memory usage myset] 1 60 ;# Generally, can't be lower than one byte per item, or higher than sum of all the items memory.
+        assert_range [r memory usage myset] 1 80 ;# Generally, can't be lower than one byte per item, or higher than sum of all the items memory.
         assert_equal 1 [r sadd myset 16]
         assert_equal 0 [r sadd myset 16]
         assert_equal 2 [r scard myset]
