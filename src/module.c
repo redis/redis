@@ -506,8 +506,8 @@ static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, 
 static int moduleConvertArgFlags(int flags);
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
 
-/* Common help fundctions. */
-int moduleVerifyName(const char *name);
+/* Common helper functions. */
+int moduleVerifyResourceName(const char *name);
 
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
@@ -1470,8 +1470,8 @@ int RM_AddACLCategory(RedisModuleCtx *ctx, const char *name) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
-    
-    if (moduleVerifyName(name) == C_ERR) {
+
+    if (moduleVerifyResourceName(name) == REDISMODULE_ERR) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -12469,12 +12469,14 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
     return REDISMODULE_OK;
 }
 
-int moduleVerifyName(const char *name) {
+/* Verify a module resource or name has only alphanumeric characters, underscores
+ * or dashes. */
+int moduleVerifyResourceName(const char *name) {
     if (strlen(name) == 0) {
         return REDISMODULE_ERR;
     }
 
-    for (size_t i = 0; i < strlen(name); i++) {
+    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
         char curr_char = name[i];
         if ((curr_char >= 'a' && curr_char <= 'z') ||
             (curr_char >= 'A' && curr_char <= 'Z') ||
@@ -12483,9 +12485,10 @@ int moduleVerifyName(const char *name) {
         {
             continue;
         }
-        return C_ERR;
+        serverLog(LL_WARNING, "Invalid character %c in Module resource name %s.", curr_char, name);
+        return REDISMODULE_ERR;
     }
-    return C_OK;
+    return REDISMODULE_OK;
 }
 
 /* This is a series of set functions for each type that act as dispatchers for 
@@ -12641,7 +12644,7 @@ int moduleConfigValidityCheck(RedisModule *module, sds name, unsigned int flags,
         errno = EBUSY;
         return REDISMODULE_ERR;
     }
-    if (moduleVerifyConfigFlags(flags, type) || moduleVerifyName(name) == C_ERR) {
+    if (moduleVerifyConfigFlags(flags, type) || moduleVerifyResourceName(name)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
