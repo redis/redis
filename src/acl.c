@@ -64,8 +64,8 @@ static unsigned long nextid = 0; /* Next command id that has not been assigned *
 struct ACLCategoryItem {
     char *name;
     uint64_t flag;
-}; 
-static struct *ACLCommandCategories = NULL;
+};
+static struct ACLCategoryItem *ACLCommandCategories = NULL;
 
 static size_t nextCommandCategory = 0; /* Index of the next command category to be added */
 
