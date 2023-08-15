@@ -15,6 +15,7 @@
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:SPECIAL",
             "NONDETERMINISTIC_OUTPUT"
         ],
         "reply_schema": {

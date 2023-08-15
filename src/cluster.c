@@ -5230,12 +5230,12 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary) {
     if (sdslen(node->hostname) != 0) {
         ci = sdscatfmt(ci,",%s", node->hostname);
     }
-    if (sdslen(node->hostname) == 0) {
-        ci = sdscatfmt(ci,",", 1);
-    }
     /* Don't expose aux fields to any clients yet but do allow them
      * to be persisted to nodes.conf */
     if (c == NULL) {
+        if (sdslen(node->hostname) == 0) {
+            ci = sdscatfmt(ci,",", 1);
+        }
         for (int i = af_count-1; i >=0; i--) {
             if ((tls_primary && i == af_tls_port) || (!tls_primary && i == af_tcp_port)) {
                 continue;
@@ -6294,6 +6294,7 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
+        /* CLUSTER REPLICAS <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         int j;
 
