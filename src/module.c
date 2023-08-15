@@ -505,6 +505,10 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
+
+/* Common help fundctions. */
+int moduleVerifyName(const char *name);
+
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
  *
@@ -1445,25 +1449,6 @@ int populateArgsStructure(struct redisCommandArg *args) {
         args++;
     }
     return count;
-}
-
-int moduleVerifyName(const char *name) {
-    if (strlen(name) == 0) {
-        return REDISMODULE_ERR;
-    }
-
-    for (size_t i = 0; i < strlen(name); i++) {
-        char curr_char = name[i];
-        if ((curr_char >= 'a' && curr_char <= 'z') ||
-            (curr_char >= 'A' && curr_char <= 'Z') ||
-            (curr_char >= '0' && curr_char <= '9') ||
-            (curr_char == '_') || (curr_char == '-'))
-        {
-            continue;
-        }
-        return C_ERR;
-    }
-    return C_OK;
 }
 
 /* RedisModule_AddACLCategory can be used to add new ACL command categories. Category names
@@ -12482,6 +12467,25 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
+}
+
+int moduleVerifyName(const char *name) {
+    if (strlen(name) == 0) {
+        return REDISMODULE_ERR;
+    }
+
+    for (size_t i = 0; i < strlen(name); i++) {
+        char curr_char = name[i];
+        if ((curr_char >= 'a' && curr_char <= 'z') ||
+            (curr_char >= 'A' && curr_char <= 'Z') ||
+            (curr_char >= '0' && curr_char <= '9') ||
+            (curr_char == '_') || (curr_char == '-'))
+        {
+            continue;
+        }
+        return C_ERR;
+    }
+    return C_OK;
 }
 
 /* This is a series of set functions for each type that act as dispatchers for 
