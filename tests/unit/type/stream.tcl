@@ -61,10 +61,6 @@ start_server {
     test {XADD can add entries into a stream that XRANGE can fetch} {
         r XADD mystream * item 1 value a
         r XADD mystream * item 2 value b
-
-        # coverage for objectComputeSize
-        assert_range [r memory usage mystream] 4700 5000 ;# Range can't be lower than 20bytes lower than actual stream and higher than 50 bytes; mystream size here is 4730
-
         assert_equal 2 [r XLEN mystream]
         set items [r XRANGE mystream - +]
         assert_equal [lindex $items 0 1] {item 1 value a}
@@ -243,10 +239,22 @@ start_server {
         r exec
     }
 
+    test {STREAM & GROUP against memory usage} {
+        r DEL mystream
+        insert_into_stream_key mystream
+        assert_range [r memory usage mystream] 165000 200000 ;# mystream memory varies between 167000 to 194000 for 10000 item so added overhead around actual values. it varies as insert_into_stream_key uses the rand to generate items.
+        r DEL mystream_group
+        r XGROUP CREATE mystream_group mygroup $ MKSTREAM
+        r XADD mystream_group * a 1
+        r XADD mystream_group * b 2
+        r XADD mystream_group * c 3
+        r XADD mystream_group * d 4
+        assert_range [r memory usage mystream_group] 5000 5050 ;# Generally, lower limit can't be lower than one item stream and not higher than 30bytes of sum of all items.
+    }
+
     test {XADD mass insertion and XLEN} {
         r DEL mystream
         insert_into_stream_key mystream
-
         set items [r XRANGE mystream - +]
         for {set j 0} {$j < 10000} {incr j} {
             assert {[lrange [lindex $items $j 1] 0 1] eq [list item $j]}

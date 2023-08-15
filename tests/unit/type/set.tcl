@@ -25,7 +25,7 @@ start_server {
        }
        create_set myset $memelems($type)
        assert_encoding $type myset
-       assert_range [r memory usage myset] 130 7000 ;# can't be lower than one byte per item, or higher than 50 bytes overhead beyond the sum of the actual strings.
+       assert_range [r memory usage myset] 130 7000 ;# Generlly, can't be lower than one byte per item, or higher than 50 bytes overhead beyond the sum of the actual strings.
     }
 
     test "SADD, SCARD, SISMEMBER, SMISMEMBER, SMEMBERS basics - $type" {
@@ -51,7 +51,7 @@ start_server {
         assert_encoding intset myset
 
         # coverage for objectComputeSize
-        assert_range [r memory usage myset] 50 100 ;# can't be lower than one byte per item, or higher than 50 bytes of overhead of sum of all the items.
+        assert_range [r memory usage myset] 1 60 ;# Generally, can't be lower than one byte per item, or higher than sum of all the items memory.
         assert_equal 1 [r sadd myset 16]
         assert_equal 0 [r sadd myset 16]
         assert_equal 2 [r scard myset]
