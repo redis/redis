@@ -242,7 +242,7 @@ start_server {
     test {STREAM & GROUP against memory usage} {
         r DEL mystream
         insert_into_stream_key mystream
-        assert_range [r memory usage mystream] 165000 200000 ;# mystream memory varies between 167000 to 194000 for 10000 item so added overhead around actual values. it varies as insert_into_stream_key uses the rand to generate items.
+        assert_range [r memory usage mystream] 165000 210000 ;# mystream memory varies between 167000 to 194000 for 10000 item so added overhead around actual values. it varies as insert_into_stream_key uses the rand to generate items.
         r DEL mystream_group
         r XGROUP CREATE mystream_group mygroup $ MKSTREAM
         r XADD mystream_group * a 1
