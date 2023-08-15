@@ -12472,11 +12472,11 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
 /* Verify a module resource or name has only alphanumeric characters, underscores
  * or dashes. */
 int moduleVerifyResourceName(const char *name) {
-    if (strlen(name) == 0) {
+    if (name[0] == '\0') {
         return REDISMODULE_ERR;
     }
 
-    for (size_t i = 0; i < strlen(name); i++) {
+    for (size_t i = 0; name[i] != '\0'; i++) {
         char curr_char = name[i];
         if ((curr_char >= 'a' && curr_char <= 'z') ||
             (curr_char >= 'A' && curr_char <= 'Z') ||

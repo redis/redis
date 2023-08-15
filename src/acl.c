@@ -96,6 +96,10 @@ static size_t nextCommandCategory = 0; /* Index of the next command category to 
  * also requires a bit in the acl_categories flag, there is a limit to the number that can be added.
  * The new ACL categories occupy the remaining bits of acl_categories flag, other than the bits
  * occupied by the default ACL command categories.
+ * 
+ * The optional `flag` argument allows the assignment of the `acl_categories` flag bit to the ACL category.
+ * When adding a new category, except for the default ACL command categories, this arguments should be `0`
+ * to allow the function to assign the next available `acl_categories` flag bit to the new ACL category.
  *
  * returns C_OK -> Added, C_ERR -> Failed (out of space)
  *

@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/aclcheck.so]
 
 start_server {tags {"modules acl"}} {
-    r module load $testmodule 0
+    r module load $testmodule
 
     test {test module check acl for command perm} {
         # by default all commands allowed
@@ -112,7 +112,7 @@ start_server {tags {"modules acl"}} {
 start_server {tags {"modules acl"}} {
     test {test existing users to have access to module commands loaded on runtime} {
         r acl SETUSER j3 on >password -@all +@WRITE
-        assert_equal [r module load $testmodule 0] OK
+        assert_equal [r module load $testmodule] OK
         assert_equal [r acl DRYRUN j3 aclcheck.module.command.aclcategories.write] OK
         assert_equal {OK} [r module unload aclcheck]
     }
@@ -122,7 +122,7 @@ start_server {tags {"modules acl"}} {
     test {test existing users without permissions, do not have access to module commands loaded on runtime.} {
         r acl SETUSER j4 on >password -@all +@READ
         r acl SETUSER j5 on >password -@all +@WRITE
-        assert_equal [r module load $testmodule 0] OK
+        assert_equal [r module load $testmodule] OK
         catch {r acl DRYRUN j4 aclcheck.module.command.aclcategories.write} e
         assert_equal {User j4 has no permissions to run the 'aclcheck.module.command.aclcategories.write' command} $e
         catch {r acl DRYRUN j5 aclcheck.module.command.aclcategories.write.function.read.category} e
@@ -154,6 +154,5 @@ start_server {tags {"modules acl"}} {
 start_server {tags {"modules acl"}} {
     test {test module load fails if exceeds the maximum number of adding acl categories} {
         assert_error {ERR Error loading the extension. Please check the server logs.} {r module load $testmodule 1}
-        assert_equal [r module load $testmodule 0] OK
     }
 }
