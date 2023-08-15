@@ -103,7 +103,7 @@ int clusterNodeIsFailing(clusterNodeHandle node);
 int clusterNodeTimedOut(clusterNodeHandle node);
 int clusterNodeIsMyself(clusterNodeHandle node);
 int clusterNodeIsNoFailover(clusterNodeHandle node);
-char* clusterNodeGetName(clusterNodeHandle node);
+char *clusterNodeGetName(clusterNodeHandle node);
 char* clusterNodeGetShardId(clusterNodeHandle node);
 clusterNodeHandle getMyClusterNode(void);
 clusterNodeHandle getNodeBySlot(int slot);
