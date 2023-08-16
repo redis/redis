@@ -117,7 +117,7 @@ int ACLAddCommandCategory(const char *name, uint64_t flag) {
  * new ACL categories.
  */
 void ACLInitCommandCategories(void) {
-    ACLCommandCategories = zcalloc(sizeof(struct ACLCategoryItem) * (ACL_MAX_CATEGORIES +1));
+    ACLCommandCategories = zcalloc(sizeof(struct ACLCategoryItem) * (ACL_MAX_CATEGORIES + 1));
     for (int j = 0; ACLDefaultCommandCategories[j].flag; j++) {
         int result = ACLAddCommandCategory(ACLDefaultCommandCategories[j].name, ACLDefaultCommandCategories[j].flag);
         serverAssert(result == C_OK);
