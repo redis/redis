@@ -1462,7 +1462,7 @@ int populateArgsStructure(struct redisCommandArg *args) {
  * 
  * On error the errno is set to:
  * - EINVAL if the name contains invalid characters.
- * - EBUSY if the category name is already in use.
+ * - EBUSY if the category name already exists.
  * - ENOMEM if the number of categories reached the max limit of 64 categories.
  */
 int RM_AddACLCategory(RedisModuleCtx *ctx, const char *name) {
@@ -1481,11 +1481,10 @@ int RM_AddACLCategory(RedisModuleCtx *ctx, const char *name) {
         return REDISMODULE_ERR;
     }
 
-    if (ACLAddCommandCategory(name, 0) == C_OK) {
+    if (ACLAddCommandCategory(name, 0)) {
         ctx->module->num_acl_categories_added++;
         return REDISMODULE_OK;
     } else {
-        ACLCleanupAddedCommandCategories(ctx->module->num_acl_categories_added);
         errno = ENOMEM;
         return REDISMODULE_ERR;
     }
@@ -11982,6 +11981,13 @@ void moduleRemoveConfigs(RedisModule *module) {
     }
 }
 
+/* Remove ACL categories added by the module when it fails to load. */
+void moduleRemoveCateogires(RedisModule *module) {
+    if (module->num_acl_categories_added) {
+        ACLCleanupCategoriesOnFailure(module->num_acl_categories_added);
+    }
+}
+
 /* Load all the modules in the server.loadmodule_queue list, which is
  * populated by `loadmodule` directives in the configuration file.
  * We can't load modules directly when processing the configuration file
@@ -12197,6 +12203,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleUnregisterCommands(ctx.module);
             moduleUnregisterSharedAPI(ctx.module);
             moduleUnregisterUsedAPI(ctx.module);
+            moduleRemoveCateogires(ctx.module);
             moduleRemoveConfigs(ctx.module);
             moduleUnregisterAuthCBs(ctx.module);
             moduleFreeModuleStructure(ctx.module);

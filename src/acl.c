@@ -101,16 +101,16 @@ static size_t nextCommandCategory = 0; /* Index of the next command category to 
  * When adding a new category, except for the default ACL command categories, this arguments should be `0`
  * to allow the function to assign the next available `acl_categories` flag bit to the new ACL category.
  *
- * returns C_OK -> Added, C_ERR -> Failed (out of space)
+ * returns 1 -> Added, 0 -> Failed (out of space)
  *
  * This function is present here to gain access to the ACLCommandCategories array and add a new ACL category.
  */
 int ACLAddCommandCategory(const char *name, uint64_t flag) {
-    if (nextCommandCategory >= ACL_MAX_CATEGORIES) return C_ERR;
+    if (nextCommandCategory >= ACL_MAX_CATEGORIES) return 0;
     ACLCommandCategories[nextCommandCategory].name = zstrdup(name);
     ACLCommandCategories[nextCommandCategory].flag = flag != 0 ? flag : (1ULL<<nextCommandCategory);
     nextCommandCategory++;
-    return C_OK;
+    return 1;
 }
 
 /* Initializes ACLCommandCategories with default ACL categories and allocates space for 
@@ -119,15 +119,16 @@ int ACLAddCommandCategory(const char *name, uint64_t flag) {
 void ACLInitCommandCategories(void) {
     ACLCommandCategories = zcalloc(sizeof(struct ACLCategoryItem) * (ACL_MAX_CATEGORIES + 1));
     for (int j = 0; ACLDefaultCommandCategories[j].flag; j++) {
-        int result = ACLAddCommandCategory(ACLDefaultCommandCategories[j].name, ACLDefaultCommandCategories[j].flag);
-        serverAssert(result == C_OK);
+        serverAssert(ACLAddCommandCategory(ACLDefaultCommandCategories[j].name, ACLDefaultCommandCategories[j].flag));
     }
 }
 
 /* This function removes the specified number of categories from the trailing end of
  * the `ACLCommandCategories` array.
+ * The purpose of this is to remove the categories added by modules that fail
+ * during the onload function.
  */
-void ACLCleanupAddedCommandCategories(size_t num_acl_categories_added) {
+void ACLCleanupCategoriesOnFailure(size_t num_acl_categories_added) {
     for (size_t j = nextCommandCategory - num_acl_categories_added; j < nextCommandCategory; j++) {
         zfree(ACLCommandCategories[j].name);
         ACLCommandCategories[j].name = NULL;
