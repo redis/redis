@@ -4577,7 +4577,7 @@ static void clusterManagerShowNodes(void) {
 
 static void clusterManagerShowClusterInfo(void) {
     int masters = 0;
-    int keys = 0;
+    long long keys = 0;
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
@@ -4586,7 +4586,7 @@ static void clusterManagerShowClusterInfo(void) {
         if (!(node->flags & CLUSTER_MANAGER_FLAG_SLAVE)) {
             if (!node->name) continue;
             int replicas = 0;
-            int dbsize = -1;
+            long long dbsize = -1;
             char name[9];
             memcpy(name, node->name, 8);
             name[8] = '\0';
@@ -4612,14 +4612,14 @@ static void clusterManagerShowClusterInfo(void) {
                 return;
             };
             if (reply != NULL) freeReplyObject(reply);
-            printf("%s:%d (%s...) -> %d keys | %d slots | %d slaves.\n",
+            printf("%s:%d (%s...) -> %lld keys | %d slots | %d slaves.\n",
                    node->ip, node->port, name, dbsize,
                    node->slots_count, replicas);
             masters++;
             keys += dbsize;
         }
     }
-    clusterManagerLogOk("[OK] %d keys in %d masters.\n", keys, masters);
+    clusterManagerLogOk("[OK] %lld keys in %d masters.\n", keys, masters);
     float keys_per_slot = keys / (float) CLUSTER_MANAGER_SLOTS;
     printf("%.2f keys per slot on average.\n", keys_per_slot);
 }
