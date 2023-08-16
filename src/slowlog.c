@@ -90,6 +90,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
     se->id = server.slowlog_entry_id++;
     se->peerid = sdsnew(getClientPeerId(c));
     se->cname = c->name ? sdsnew(c->name->ptr) : sdsempty();
+    se->uname = c->user ? sdsdup(c->user->name) : sdsnew("(superuser)");
     return se;
 }
 
@@ -106,6 +107,7 @@ void slowlogFreeEntry(void *septr) {
     zfree(se->argv);
     sdsfree(se->peerid);
     sdsfree(se->cname);
+    sdsfree(se->uname);
     zfree(se);
 }
 
@@ -190,7 +192,7 @@ NULL
 
             ln = listNext(&li);
             se = ln->value;
-            addReplyArrayLen(c,6);
+            addReplyArrayLen(c,7);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
@@ -199,6 +201,7 @@ NULL
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
+            addReplyBulkCBuffer(c,se->uname,sdslen(se->uname));
         }
     } else {
         addReplySubcommandSyntaxError(c);
