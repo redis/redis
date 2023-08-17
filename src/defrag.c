@@ -228,7 +228,7 @@ void activeDefragZsetEntry(zset *zs, dictEntry *de) {
         dictSetKey(zs->dict, de, newsds);
     newscore = zslDefrag(zs->zsl, *(double*)dictGetVal(de), sdsele, newsds);
     if (newscore) {
-        dictSetVal(zs->dict, de, newscore);
+        dictSetVal(zs->dict, &de, newscore);
     }
 }
 
@@ -253,7 +253,7 @@ void activeDefragSdsDict(dict* d, int val_type) {
                       val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
                       val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
                       val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
-                      NULL)
+                      NULL),
     };
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
@@ -670,35 +670,18 @@ void defragModule(redisDb *db, dictEntry *kde) {
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. Returns a stat of how many pointers were
  * moved. */
-void defragKey(redisDb *db, dictEntry *de) {
-    sds keysds = dictGetKey(de);
-    robj *newob, *ob;
+void defragValue(redisDb *db, dictEntry *de) {
+    robj *ob;
     unsigned char *newzl;
-    sds newsds;
-
-    /* Try to defrag the key name. */
-    newsds = activeDefragSds(keysds);
-    if (newsds) {
-        dictSetKey(db->dict[calculateKeySlot(newsds)], de, newsds);
-        if (dictSize(db->expires)) {
-            /* We can't search in db->expires for that key after we've released
-             * the pointer it holds, since it won't be able to do the string
-             * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(db->dict[calculateKeySlot(newsds)], newsds);
-            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires, keysds, hash);
-            if (expire_de) dictSetKey(db->expires, expire_de, newsds);
-        }
-    }
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
-    if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[calculateKeySlot(newsds)], de, newob);
-        ob = newob;
-    }
 
-    if (ob->type == OBJ_STRING) {
-        /* Already handled in activeDefragStringOb. */
+    if (ob->type == OBJ_STRING && ob->encoding == OBJ_ENCODING_RAW) {
+        sds newsds = activeDefragSds(ob->ptr);
+        if (newsds) {
+            ob->ptr = newsds;
+        }
     } else if (ob->type == OBJ_LIST) {
         if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragQuicklist(db, de);
@@ -750,7 +733,7 @@ void defragKey(redisDb *db, dictEntry *de) {
 /* Defrag scan callback for the main db dictionary. */
 void defragScanCallback(void *privdata, const dictEntry *de) {
     long long hits_before = server.stat_active_defrag_hits;
-    defragKey((redisDb*)privdata, (dictEntry*)de);
+    defragValue((redisDb*)privdata, (dictEntry*)de);
     if (server.stat_active_defrag_hits != hits_before)
         server.stat_active_defrag_key_hits++;
     else

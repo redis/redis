@@ -268,6 +268,59 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
+size_t dictSdsKeyLen(const void *key) { return sdsAllocSize((sds)key); }
+
+size_t dictSdsKeyToBytes(unsigned char *buf, const void *key, unsigned char *header_size) {
+    sds keySds = (sds)key;
+    size_t n_bytes = sdsAllocSize(keySds);
+    memcpy(buf, sdsAllocPtr(keySds), n_bytes);
+    *header_size = sdsHdrSize(keySds[-1]);
+    return n_bytes;
+}
+
+size_t dictObjectValLen(const void *val) {
+    robj *o = (robj*)val;
+    if (o->encoding == OBJ_ENCODING_EMBSTR) {
+        return sdsAllocSize((sds)o->ptr);
+    } else {
+        return 0;
+    }
+}
+
+int dictObjectTrySetVal(void *de, const void *val) {
+    robj *new = (robj*)val; /* New value we are trying to set. */
+    robj *old = (robj*)de; /* Existing entry in the DB. */
+    /* Only values that are referenced through pointer can be set directly,
+     * embedded strings would require new object allocation. */
+    if (old->encoding == OBJ_ENCODING_EMBSTR || new->encoding == OBJ_ENCODING_EMBSTR) return 0;
+    old->type = new->type;
+    old->encoding = new->encoding;
+    old->lru = new->lru;
+    old->ptr = new->ptr;
+    serverAssert(old->state & OBJ_STATE_PROTECTED);
+    serverAssert(!(old->state & OBJ_STATE_REFERENCE));
+    if (new->encoding != OBJ_ENCODING_EMBSTR && new->encoding != OBJ_ENCODING_INT && new->refcount != OBJ_SHARED_REFCOUNT) {
+        new->state |= OBJ_STATE_REFERENCE; /* Ownership of the actual value behind ptr now belongs to the entry in the DB. */
+    }
+    return 1;
+}
+
+void dictObjectValToBytes(void *de, const void *val, unsigned char *buf) {
+    robj *new = (robj*)val;
+    robj *copy = (robj*)de;
+    memcpy(de, val, sizeof(robj));
+    copy->state = 0;
+    // Update robj->ptr for the string to point into the buffer instead of the source.
+    if (new->encoding == OBJ_ENCODING_EMBSTR) {
+        sds valSds = (sds) copy->ptr;
+        memcpy(buf, sdsAllocPtr(copy->ptr), sdsAllocSize(valSds));
+        copy->ptr = buf + sdsHdrSize(valSds[-1]);
+    }
+    new->state |= OBJ_STATE_REFERENCE; /* Ownership of the actual value behind ptr now belongs to the entry in the DB. */
+    copy->refcount = 1;
+    copy->state |= OBJ_STATE_PROTECTED;
+}
+
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
 int dictSdsKeyCaseCompare(dict *d, const void *key1,
@@ -282,6 +335,16 @@ void dictObjectDestructor(dict *d, void *val)
     UNUSED(d);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(val);
+}
+
+void dictEmbeddedValueDestructor(dict *d, void *val)
+{
+    UNUSED(d);
+    robj *obj = ((robj*)val);
+    if (val == NULL || server.lazyfree_lazy_server_del) return; /* Lazy freeing will set value to NULL. */
+    serverAssert(obj->state & OBJ_STATE_PROTECTED);
+    obj->state &= ~(OBJ_STATE_PROTECTED); /* unlinked from dict. */
+    decrRefCount(obj);
 }
 
 void dictSdsDestructor(dict *d, void *val)
@@ -455,10 +518,16 @@ dictType dbDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
+    NULL,                       /* Note: key (sds) is stored in the embedded buffer, will be released internally */
+    dictEmbeddedValueDestructor, /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictRehashingStarted,
+    dictSdsKeyLen,
+    dictSdsKeyToBytes,
+    dictObjectValLen,
+    dictObjectValToBytes,
+    dictObjectTrySetVal,
+    .embedded_entry = 1
 };
 
 /* Db->expires */

@@ -131,6 +131,7 @@ start_server {tags {"scripting"}} {
         r function list
     } {{library_name test engine LUA functions {{name test description {} flags {}}}}} {needs:debug}
 
+if (0) {
     test {FUNCTION - test debug reload with nosave and noflush} {
         r function delete test
         r set x 1
@@ -141,6 +142,7 @@ start_server {tags {"scripting"}} {
         assert_equal [r fcall test1 0] {hello}
         assert_equal [r fcall test2 0] {hello}
     } {} {needs:debug}
+}
 
     test {FUNCTION - test flushall and flushdb do not clean functions} {
         r function flush

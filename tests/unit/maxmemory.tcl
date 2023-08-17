@@ -144,17 +144,17 @@ start_server {tags {"maxmemory" "external:skip"}} {
 }
 
 start_server {tags {"maxmemory external:skip"}} {
-    test "Without maxmemory small integers are shared" {
+    test "Without maxmemory, small integers are not shared" {
         r config set maxmemory 0
         r set a 1
-        assert_refcount_morethan a 1
+        assert_refcount 1 a
     }
 
-    test "With maxmemory and non-LRU policy integers are still shared" {
+    test "With maxmemory and non-LRU policy integers are not shared" {
         r config set maxmemory 1073741824
         r config set maxmemory-policy allkeys-random
         r set a 1
-        assert_refcount_morethan a 1
+        assert_refcount 1 a
     }
 
     test "With maxmemory and LRU policy integers are not shared" {
