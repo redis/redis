@@ -350,6 +350,8 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
                 x = x->level[i].forward;
             }
         }
+        /* Check if zsl is long enough. */
+        if ((unsigned long)(rank + n) >= zsl->length) return NULL; 
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             for (i = 0; i < n + 1; i++) { 
@@ -360,8 +362,8 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
             }
         } else {
             /* If offset is big, we jump to the nth node by its rank from the start of skiplist. */
-            x = (unsigned long)(rank + n) < zsl->length ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
-        }  
+            x = zslGetElementByRank(zsl, rank + n + 1);
+        }
         /* Check if score <= max. */
         if (x && !zslValueLteMax(x->score,range)) return NULL;
     } else  {
@@ -372,18 +374,20 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
                 rank += x->level[i].span;
                 x = x->level[i].forward;
             }
-        }   
-        if (n > -ZSKIPLIST_MAX_SEARCH) {
+        }
+        /* Check if the range is big enough. */
+        if (rank < -n) return NULL;
+        if (n + 1 > -ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             for (i = 0; i < -n - 1; i++) {
                 if (!x) {
                     return NULL;
                 }
-                x = x->backward; 
+                x = x->backward;
             }
         } else {
             /* If offset is big, we jump to the nth node by its rank from the start of skiplist. */
-            x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+            x = zslGetElementByRank(zsl, rank + n + 1);
         }
         /* Check if score >= min. */
         if (x && !zslValueGteMin(x->score, range)) return NULL;
@@ -700,21 +704,23 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
                 x = x->level[i].forward;
             }
         }
+        /* Check if zsl is long enough. */
+        if ((unsigned long)(rank + n) >= zsl->length) return NULL; 
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* Use the skip list to reach the nth node in range. */
             for (i = 0; i < n + 1; i++) { 
                 if (!x) {
                     return NULL;
                 }
-                x = x->level[0].forward; 
+                x = x->level[0].forward;
             }
         } else {
             /* If offset is big, we jump to the nth node by its rank from the start of skiplist. */
-            x = (unsigned long)(rank + n) < zsl->length ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
-        } 
+            x = zslGetElementByRank(zsl, rank + n + 1);
+        }
         /* Check if score <= max. */
         if (x && !zslLexValueLteMax(x->ele,range)) return NULL;
-    } else {      
+    } else {
         for (i = zsl->level - 1; i >= 0; i--) {
             /* Go forward while *IN* range. */
             while (x->level[i].forward && zslLexValueLteMax(x->level[i].forward->ele, range)) {
@@ -722,18 +728,20 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
                 rank += x->level[i].span;
                 x = x->level[i].forward;
             }
-        }  
-        if (n > -ZSKIPLIST_MAX_SEARCH) {
+        }
+        /* Check if the range is big enough. */
+        if (rank < -n) return NULL;
+        if (n + 1 > -ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             for (i = 0; i < -n - 1; i++) {
                 if (!x) {
                     return NULL;
                 }
                 x = x->backward;
-            }           
+            }
         } else {
             /* If offset is big, we jump to the nth node by its rank from the start of skiplist. */
-            x = rank >= -n ? zslGetElementByRank(zsl, rank + n + 1) : NULL;
+            x = zslGetElementByRank(zsl, rank + n + 1);
         }
         /* Check if score >= min. */
         if (x && !zslLexValueGteMin(x->ele, range)) return NULL;
