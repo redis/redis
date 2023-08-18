@@ -1685,10 +1685,7 @@ void clusterRemoveNodeFromShard(clusterNode *node) {
     dictEntry *de = dictFind(server.cluster->shards, s);
     if (de != NULL) {
         list *l = dictGetVal(de);
-        listNode *ln = listSearchKey(l, node);
-        if (ln != NULL) {
-            listDelNode(l, ln);
-        }
+        listSearchDel(l, node);
         if (listLength(l) == 0) {
             dictDelete(server.cluster->shards, s);
         }
@@ -4899,10 +4896,7 @@ int clusterDelSlot(int slot) {
     /* Cleanup the channels in master/replica as part of slot deletion. */
     list *nodes_for_slot = clusterGetNodesInMyShard(n);
     serverAssert(nodes_for_slot != NULL);
-    listNode *ln = listSearchKey(nodes_for_slot, myself);
-    if (ln != NULL) {
-        removeChannelsInSlot(slot);
-    }
+    listSearchDel(nodes_for_slot, myself);
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     return C_OK;

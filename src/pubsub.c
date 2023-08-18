@@ -273,7 +273,6 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
 int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype type) {
     dictEntry *de;
     list *clients;
-    listNode *ln;
     int retval = 0;
 
     /* Remove the channel from the client -> channels hash table */
@@ -285,9 +284,8 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         de = dictFind(*type.serverPubSubChannels, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        ln = listSearchKey(clients,c);
-        serverAssertWithInfo(c,NULL,ln != NULL);
-        listDelNode(clients,ln);
+        int result = listSearchDel(clients,c);
+        serverAssertWithInfo(c,NULL,result);
         if (listLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
@@ -369,7 +367,6 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
 int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     dictEntry *de;
     list *clients;
-    listNode *ln;
     int retval = 0;
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
@@ -379,9 +376,8 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         de = dictFind(server.pubsub_patterns,pattern);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        ln = listSearchKey(clients,c);
-        serverAssertWithInfo(c,NULL,ln != NULL);
-        listDelNode(clients,ln);
+        int result = listSearchDel(clients,c);
+        serverAssertWithInfo(c,NULL,result);
         if (listLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client. */

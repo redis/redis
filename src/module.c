@@ -10543,11 +10543,7 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
     listRewind(module->using,&li);
     while((ln = listNext(&li))) {
         RedisModule *used = ln->value;
-        listNode *ln = listSearchKey(used->usedby,module);
-        if (ln) {
-            listDelNode(used->usedby,ln);
-            count++;
-        }
+        count += listSearchDel(used->usedby,module);
     }
     return count;
 }
@@ -10564,11 +10560,7 @@ int moduleUnregisterFilters(RedisModule *module) {
     listRewind(module->filters,&li);
     while((ln = listNext(&li))) {
         RedisModuleCommandFilter *filter = ln->value;
-        listNode *ln = listSearchKey(moduleCommandFilters,filter);
-        if (ln) {
-            listDelNode(moduleCommandFilters,ln);
-            count++;
-        }
+        count += listSearchDel(moduleCommandFilters,filter);
         zfree(filter);
     }
     return count;
@@ -10643,18 +10635,16 @@ RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisMod
 /* Unregister a command filter.
  */
 int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *filter) {
-    listNode *ln;
+    int result;
 
     /* A module can only remove its own filters */
     if (filter->module != ctx->module) return REDISMODULE_ERR;
 
-    ln = listSearchKey(moduleCommandFilters,filter);
-    if (!ln) return REDISMODULE_ERR;
-    listDelNode(moduleCommandFilters,ln);
+    result = listSearchDel(moduleCommandFilters,filter);
+    if (!result) return REDISMODULE_ERR;
 
-    ln = listSearchKey(ctx->module->filters,filter);
-    if (!ln) return REDISMODULE_ERR;    /* Shouldn't happen */
-    listDelNode(ctx->module->filters,ln);
+    result = listSearchDel(ctx->module->filters,filter);
+    if (!result) return REDISMODULE_ERR;    /* Shouldn't happen */
 
     zfree(filter);
 

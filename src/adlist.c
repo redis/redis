@@ -338,6 +338,19 @@ listNode *listSearchKey(list *list, void *key)
     return NULL;
 }
 
+/* Search the list for a node matching the given key, and delete
+ * it if found. The search is performed the same listSearchKey.
+ *
+ * Returns 1 if the key was found and deleted, 0 otherwise. */
+int listSearchDel(list *list, void *key)
+{
+    listNode *ln = listSearchKey(list, key);
+    if (!ln)
+        return 0;
+    listDelNode(list, ln);
+    return 1;
+}
+
 /* Return the element at the specified zero-based index
  * where 0 is the head, 1 is the element next to head
  * and so on. Negative integers are used in order to count

@@ -370,7 +370,6 @@ static void freeRedisConfig(redisConfig *cfg) {
 
 static void freeClient(client c) {
     aeEventLoop *el = CLIENT_GET_EVENTLOOP(c);
-    listNode *ln;
     aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(el,c->context->fd,AE_READABLE);
     if (c->thread_id >= 0) {
@@ -387,9 +386,8 @@ static void freeClient(client c) {
     zfree(c);
     if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
     config.liveclients--;
-    ln = listSearchKey(config.clients,c);
-    assert(ln != NULL);
-    listDelNode(config.clients,ln);
+    int result = listSearchDel(config.clients,c);
+    assert(result);
     if (config.num_threads) pthread_mutex_unlock(&(config.liveclients_mutex));
 }
 

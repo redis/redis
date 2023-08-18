@@ -1304,11 +1304,9 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             }
             delpass = sdsnewlen(op+1,oplen-1);
         }
-        listNode *ln = listSearchKey(u->passwords,delpass);
+        int result = listSearchDel(u->passwords,delpass);
         sdsfree(delpass);
-        if (ln) {
-            listDelNode(u->passwords,ln);
-        } else {
+        if (!result) {
             errno = ENODEV;
             return C_ERR;
         }

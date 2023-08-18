@@ -857,12 +857,7 @@ void ldbEndSession(client *c) {
  * forked debugging sessions, it is removed from the children list.
  * If the pid was found non-zero is returned. */
 int ldbRemoveChild(pid_t pid) {
-    listNode *ln = listSearchKey(ldb.children,(void*)(unsigned long)pid);
-    if (ln) {
-        listDelNode(ldb.children,ln);
-        return 1;
-    }
-    return 0;
+    return listSearchDel(ldb.children,(void*)(unsigned long)pid);
 }
 
 /* Return the number of children we still did not receive termination

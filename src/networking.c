@@ -1430,8 +1430,6 @@ int anyOtherSlaveWaitRdb(client *except_me) {
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
 void unlinkClient(client *c) {
-    listNode *ln;
-
     /* If this is marked as current client unset it. */
     if (server.current_client == c) server.current_client = NULL;
 
@@ -1487,9 +1485,8 @@ void unlinkClient(client *c) {
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list of unblocked clients. */
     if (c->flags & CLIENT_UNBLOCKED) {
-        ln = listSearchKey(server.unblocked_clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.unblocked_clients,ln);
+        int result = listSearchDel(server.unblocked_clients,c);
+        serverAssert(result);
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
@@ -1499,16 +1496,12 @@ void unlinkClient(client *c) {
 
 /* Clear the client state to resemble a newly connected client. */
 void clearClientConnectionState(client *c) {
-    listNode *ln;
-
     /* MONITOR clients are also marked with CLIENT_SLAVE, we need to
      * distinguish between the two.
      */
     if (c->flags & CLIENT_MONITOR) {
-        ln = listSearchKey(server.monitors,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.monitors,ln);
-
+        int result = listSearchDel(server.monitors,c);
+        serverAssert(result);
         c->flags &= ~(CLIENT_MONITOR|CLIENT_SLAVE);
     }
 
@@ -1544,8 +1537,6 @@ void clearClientConnectionState(client *c) {
 }
 
 void freeClient(client *c) {
-    listNode *ln;
-
     /* If a client is protected, yet we need to free it right now, make sure
      * to at least use asynchronous freeing. */
     if (c->flags & CLIENT_PROTECTED) {
@@ -1571,9 +1562,8 @@ void freeClient(client *c) {
      * we may call replicationCacheMaster() and the client should already
      * be removed from the list of clients to free. */
     if (c->flags & CLIENT_CLOSE_ASAP) {
-        ln = listSearchKey(server.clients_to_close,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_to_close,ln);
+        int result = listSearchDel(server.clients_to_close,c);
+        serverAssert(result);
     }
 
     /* If it is our master that's being disconnected we should make sure
@@ -1658,9 +1648,8 @@ void freeClient(client *c) {
             if (c->replpreamble) sdsfree(c->replpreamble);
         }
         list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
-        ln = listSearchKey(l,c);
-        serverAssert(ln != NULL);
-        listDelNode(l,ln);
+        int result = listSearchDel(l,c);
+        serverAssert(result);
         /* We need to remember the time when we started to have zero
          * attached slaves, as after some time we'll free the replication
          * backlog. */
