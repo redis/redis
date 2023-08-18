@@ -355,9 +355,6 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             for (i = 0; i < n + 1; i++) { 
-                if (!x) {
-                    return NULL;
-                }
                 x = x->level[0].forward; 
             }
         } else {
@@ -380,9 +377,6 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         if (n + 1 > -ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             for (i = 0; i < -n - 1; i++) {
-                if (!x) {
-                    return NULL;
-                }
                 x = x->backward;
             }
         } else {
@@ -709,9 +703,6 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* Use the skip list to reach the nth node in range. */
             for (i = 0; i < n + 1; i++) { 
-                if (!x) {
-                    return NULL;
-                }
                 x = x->level[0].forward;
             }
         } else {
@@ -734,9 +725,6 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
         if (n + 1 > -ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             for (i = 0; i < -n - 1; i++) {
-                if (!x) {
-                    return NULL;
-                }
                 x = x->backward;
             }
         } else {
