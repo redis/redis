@@ -6453,6 +6453,85 @@ void removeChannelsInSlot(unsigned int slot) {
     zfree(channels);
 }
 
+/* The SCAN command completely relies on scanGenericCommand. */
+
+/* Returns a unique 3 character hash key. */
+static char HashKeyTable[CLUSTER_SLOTS][4] = {0};
+
+static void fillHashKeys(void) {
+    int remaining = CLUSTER_SLOTS;
+    const char *valid_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    char ref[3] = "\0\0\0";
+    for (size_t i = 0; valid_chars[i] != '\0'; i++) {
+        ref[0] = valid_chars[i];
+        for (size_t j = 0; valid_chars[j] != '\0'; j++) {
+            ref[1] = valid_chars[j];
+            for (size_t k = 0; valid_chars[k] != '\0'; k++) {
+                ref[2] = valid_chars[k];
+                int slot = keyHashSlot(ref, sizeof(ref));
+                if (HashKeyTable[slot][0] == '\0') {
+                    memcpy(HashKeyTable[slot], ref, sizeof(ref));
+                    if (--remaining == 0) return;
+                }
+            }
+        }
+    }
+    serverPanic("Unable to fill hash key table");
+}
+
+const char *getSlotHash(int slot) {
+    if (HashKeyTable[0][0] == '\0') {
+        fillHashKeys();
+    }
+    return HashKeyTable[slot];
+}
+
+void cscanCommand(client *c) {
+    /* For sanity, just assert the length for the draft. */
+    serverAssert(c->argc == 2);
+
+    /* Check initial condition */
+    int requested_slot, next_slot;
+    if (sdslen(c->argv[1]->ptr) == 1 && ((char *)c->argv[1]->ptr)[0] == '0') {
+        requested_slot = -1;
+    } else {
+        /* We're being fast and loose right now for this PoC. */
+        int argc;
+        sds *argv = sdssplitlen((char *)c->argv[1]->ptr, sdslen(c->argv[1]->ptr), "-", 1, &argc);
+        requested_slot = keyHashSlot(argv[1], sdslen(argv[1]));
+        sdsfreesplitres(argv, argc);
+    }
+
+    /* Cursor looks like <version>-{abc}-<cursor>. */
+    sds cursor;
+    next_slot = requested_slot + 1;
+    if (next_slot < CLUSTER_SLOTS) {
+        cursor = sdscatfmt(sdsempty(), "1-{%s}-0", getSlotHash(next_slot));
+    } else {
+        cursor = sdsnew("0");
+    }
+
+
+    addReplyArrayLen(c, 2);
+    addReplyBulkSds(c, cursor);
+    if (requested_slot == -1) {
+        addReplyArrayLen(c, 0);
+        return;
+    }
+
+    /* Normal flow of requesting data from a slot. */
+    unsigned int keys_in_slot = countKeysInSlot(requested_slot);
+    addReplyArrayLen(c,keys_in_slot);
+
+    dictEntry *de = (*server.db->slots_to_keys).by_slot[requested_slot].head;
+    for (unsigned int j = 0; j < keys_in_slot; j++) {
+        serverAssert(de != NULL);
+        sds sdskey = dictGetKey(de);
+        addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
+        de = dictEntryNextInSlot(de);
+    }
+}
+
 /* -----------------------------------------------------------------------------
  * DUMP, RESTORE and MIGRATE commands
  * -------------------------------------------------------------------------- */

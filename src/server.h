@@ -3467,6 +3467,7 @@ void swapdbCommand(client *c);
 void randomkeyCommand(client *c);
 void keysCommand(client *c);
 void scanCommand(client *c);
+void cscanCommand(client *c);
 void dbsizeCommand(client *c);
 void lastsaveCommand(client *c);
 void saveCommand(client *c);
