@@ -1,0 +1,14 @@
+# Example of how to use the Amusing program to analyze redis
+name: Amuse
+run-name: Amusing (Static Analysis Tools bundled by Foodforbrain)
+on: [open, push]
+jobs:
+  Infer:
+    runs-on: foodforbrain/amuse:latest
+    steps:
+      - run: |
+          amusing
+    permissions:
+      security-events: write
+      pull-requests: write
+      contents: write
