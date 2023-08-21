@@ -50,11 +50,19 @@ start_server {tags {"bitops"}} {
         r lpush mylist a b c
         assert_error "*WRONGTYPE*" {r bitcount mylist}
         assert_error "*WRONGTYPE*" {r bitcount mylist 0 100}
+
+        # with negative indexes where start > end
+        assert_error "*WRONGTYPE*" {r bitcount mylist -6 -7}
+        assert_error "*WRONGTYPE*" {r bitcount mylist -6 -15 bit}
     }
 
     test {BITCOUNT returns 0 against non existing key} {
         assert {[r bitcount no-key] == 0}
         assert {[r bitcount no-key 0 1000 bit] == 0}
+
+        # with negative indexes where start > end
+        assert {[r bitcount no-key -6 -7] == 0}
+        assert {[r bitcount no-key -6 -15 bit] == 0}
     }
 
     test {BITCOUNT returns 0 with out of range indexes} {
