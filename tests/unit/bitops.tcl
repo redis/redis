@@ -158,7 +158,6 @@ start_server {tags {"bitops"}} {
         assert_error {ERR *syntax*} {r bitcount s 0}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello hello2}
-        assert_error {ERR *not an integer*} {r bitcount s a b}
     }
 
     test {BITCOUNT against non-integer value} {
