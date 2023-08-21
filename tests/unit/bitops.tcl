@@ -303,12 +303,10 @@ start_server {tags {"bitops"}} {
         r del s
         assert_error {ERR *syntax*} {r bitpos s 0 1 hello hello2}
         assert_error {ERR *syntax*} {r bitpos s 0 0 1 hello}
-        assert_error {ERR *not an integer*} {r bitpos s 0 a}
 
         r set s 1
         assert_error {ERR *syntax*} {r bitpos s 0 1 hello hello2}
         assert_error {ERR *syntax*} {r bitpos s 0 0 1 hello}
-        assert_error {ERR *not an integer*} {r bitpos s 0 a}
     }
 
     test {BITPOS against non-integer value} {
