@@ -1,7 +1,7 @@
 {
     "ZRANDMEMBER": {
-        "summary": "Get one or multiple random elements from a sorted set",
-        "complexity": "O(N) where N is the number of elements returned",
+        "summary": "Returns one or more random members from a sorted set.",
+        "complexity": "O(N) where N is the number of members returned",
         "group": "sorted_set",
         "since": "6.2.0",
         "arity": -2,
@@ -35,6 +35,44 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "type": "null",
+                    "description": "Key does not exist."
+                },
+                {
+                    "type": "string",
+                    "description": "Randomly selected element when 'COUNT' is not used."
+                },
+                {
+                    "type": "array",
+                    "description": "Randomly selected elements when 'COUNT' is used.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "type": "array",
+                    "description": "Randomly selected elements when 'COUNT' and 'WITHSCORES' modifiers are used.",
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "type": "string",
+                                "description": "Element."
+                            },
+                            {
+                                "type": "number",
+                                "description": "Score."
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

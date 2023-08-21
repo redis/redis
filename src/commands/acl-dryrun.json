@@ -1,6 +1,6 @@
 {
     "DRYRUN": {
-        "summary": "Returns whether the user can execute the given command without executing the command.",
+        "summary": "Simulates the execution of a command by a user, without executing the command.",
         "complexity": "O(1).",
         "group": "server",
         "since": "7.0.0",
@@ -15,6 +15,18 @@
             "STALE",
             "SENTINEL"
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "const": "OK",
+                    "description": "The given user may successfully execute the given command."
+                },
+                {
+                    "type": "string",
+                    "description": "The description of the problem, in case the user is not allowed to run the given command."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "username",

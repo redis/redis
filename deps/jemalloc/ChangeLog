@@ -4,6 +4,106 @@ brevity.  Much more detail can be found in the git revision history:
 
     https://github.com/jemalloc/jemalloc
 
+* 5.3.0 (May 6, 2022)
+
+  This release contains many speed and space optimizations, from micro
+  optimizations on common paths to rework of internal data structures and
+  locking schemes, and many more too detailed to list below.  Multiple percent
+  of system level metric improvements were measured in tested production
+  workloads.  The release has gone through large-scale production testing.
+
+  New features:
+  - Add the thread.idle mallctl which hints that the calling thread will be
+    idle for a nontrivial period of time.  (@davidtgoldblatt)
+  - Allow small size classes to be the maximum size class to cache in the
+    thread-specific cache, through the opt.[lg_]tcache_max option.  (@interwq,
+    @jordalgo)
+  - Make the behavior of realloc(ptr, 0) configurable with opt.zero_realloc.
+    (@davidtgoldblatt)
+  - Add 'make uninstall' support.  (@sangshuduo, @Lapenkov)
+  - Support C++17 over-aligned allocation.  (@marksantaniello)
+  - Add the thread.peak mallctl for approximate per-thread peak memory tracking.
+    (@davidtgoldblatt)
+  - Add interval-based stats output opt.stats_interval.  (@interwq)
+  - Add prof.prefix to override filename prefixes for dumps.  (@zhxchen17)
+  - Add high resolution timestamp support for profiling.  (@tyroguru)
+  - Add the --collapsed flag to jeprof for flamegraph generation.
+    (@igorwwwwwwwwwwwwwwwwwwww)
+  - Add the --debug-syms-by-id option to jeprof for debug symbols discovery.
+    (@DeannaGelbart)
+  - Add the opt.prof_leak_error option to exit with error code when leak is
+    detected using opt.prof_final.  (@yunxuo)
+  - Add opt.cache_oblivious as an runtime alternative to config.cache_oblivious.
+    (@interwq)
+  - Add mallctl interfaces:
+    + opt.zero_realloc  (@davidtgoldblatt)
+    + opt.cache_oblivious  (@interwq)
+    + opt.prof_leak_error  (@yunxuo)
+    + opt.stats_interval  (@interwq)
+    + opt.stats_interval_opts  (@interwq)
+    + opt.tcache_max  (@interwq)
+    + opt.trust_madvise  (@azat)
+    + prof.prefix  (@zhxchen17)
+    + stats.zero_reallocs  (@davidtgoldblatt)
+    + thread.idle  (@davidtgoldblatt)
+    + thread.peak.{read,reset}  (@davidtgoldblatt)
+
+  Bug fixes:
+  - Fix the synchronization around explicit tcache creation which could cause
+    invalid tcache identifiers.  This regression was first released in 5.0.0.
+    (@yoshinorim, @davidtgoldblatt)
+  - Fix a profiling biasing issue which could cause incorrect heap usage and
+    object counts.  This issue existed in all previous releases with the heap
+    profiling feature.  (@davidtgoldblatt)
+  - Fix the order of stats counter updating on large realloc which could cause
+    failed assertions.  This regression was first released in 5.0.0.  (@azat)
+  - Fix the locking on the arena destroy mallctl, which could cause concurrent
+    arena creations to fail.  This functionality was first introduced in 5.0.0.
+    (@interwq)
+
+  Portability improvements:
+  - Remove nothrow from system function declarations on macOS and FreeBSD.
+    (@davidtgoldblatt, @fredemmott, @leres)
+  - Improve overcommit and page alignment settings on NetBSD.  (@zoulasc)
+  - Improve CPU affinity support on BSD platforms.  (@devnexen)
+  - Improve utrace detection and support.  (@devnexen)
+  - Improve QEMU support with MADV_DONTNEED zeroed pages detection.  (@azat)
+  - Add memcntl support on Solaris / illumos.  (@devnexen)
+  - Improve CPU_SPINWAIT on ARM.  (@AWSjswinney)
+  - Improve TSD cleanup on FreeBSD.  (@Lapenkov)
+  - Disable percpu_arena if the CPU count cannot be reliably detected.  (@azat)
+  - Add malloc_size(3) override support.  (@devnexen)
+  - Add mmap VM_MAKE_TAG support.  (@devnexen)
+  - Add support for MADV_[NO]CORE.  (@devnexen)
+  - Add support for DragonFlyBSD.  (@devnexen)
+  - Fix the QUANTUM setting on MIPS64.  (@brooksdavis)
+  - Add the QUANTUM setting for ARC.  (@vineetgarc)
+  - Add the QUANTUM setting for LoongArch.  (@wangjl-uos)
+  - Add QNX support.  (@jqian-aurora)
+  - Avoid atexit(3) calls unless the relevant profiling features are enabled.
+    (@BusyJay, @laiwei-rice, @interwq)
+  - Fix unknown option detection when using Clang.  (@Lapenkov)
+  - Fix symbol conflict with musl libc.  (@georgthegreat)
+  - Add -Wimplicit-fallthrough checks.  (@nickdesaulniers)
+  - Add __forceinline support on MSVC.  (@santagada)
+  - Improve FreeBSD and Windows CI support.  (@Lapenkov)
+  - Add CI support for PPC64LE architecture.  (@ezeeyahoo)
+
+  Incompatible changes:
+  - Maximum size class allowed in tcache (opt.[lg_]tcache_max) now has an upper
+    bound of 8MiB.  (@interwq)
+
+  Optimizations and refactors (@davidtgoldblatt, @Lapenkov, @interwq):
+  - Optimize the common cases of the thread cache operations.
+  - Optimize internal data structures, including RB tree and pairing heap.
+  - Optimize the internal locking on extent management.
+  - Extract and refactor the internal page allocator and interface modules.
+
+  Documentation:
+  - Fix doc build with --with-install-suffix.  (@lawmurray, @interwq)
+  - Add PROFILING_INTERNALS.md.  (@davidtgoldblatt)
+  - Ensure the proper order of doc building and installation.  (@Mingli-Yu)
+
 * 5.2.1 (August 5, 2019)
 
   This release is primarily about Windows.  A critical virtual memory leak is

@@ -802,25 +802,12 @@ void bitcountCommand(client *c) {
     int isbit = 0;
     unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
-    /* Lookup, check for type. */
-    o = lookupKeyRead(c->db, c->argv[1]);
-    if (checkType(c, o, OBJ_STRING)) return;
-    p = getObjectReadOnlyString(o,&strlen,llbuf);
-
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5) {
-        long long totlen = strlen;
-        /* Make sure we will not overflow */
-        serverAssert(totlen <= LLONG_MAX >> 3);
         if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
             return;
         if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
             return;
-        /* Convert negative indexes */
-        if (start < 0 && end < 0 && start > end) {
-            addReply(c,shared.czero);
-            return;
-        }
         if (c->argc == 5) {
             if (!strcasecmp(c->argv[4]->ptr,"bit")) isbit = 1;
             else if (!strcasecmp(c->argv[4]->ptr,"byte")) isbit = 0;
@@ -828,6 +815,20 @@ void bitcountCommand(client *c) {
                 addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
+        }
+        /* Lookup, check for type. */
+        o = lookupKeyRead(c->db, c->argv[1]);
+        if (checkType(c, o, OBJ_STRING)) return;
+        p = getObjectReadOnlyString(o,&strlen,llbuf);
+        long long totlen = strlen;
+
+        /* Make sure we will not overflow */
+        serverAssert(totlen <= LLONG_MAX >> 3);
+
+        /* Convert negative indexes */
+        if (start < 0 && end < 0 && start > end) {
+            addReply(c,shared.czero);
+            return;
         }
         if (isbit) totlen <<= 3;
         if (start < 0) start = totlen+start;
@@ -844,6 +845,10 @@ void bitcountCommand(client *c) {
             end >>= 3;
         }
     } else if (c->argc == 2) {
+        /* Lookup, check for type. */
+        o = lookupKeyRead(c->db, c->argv[1]);
+        if (checkType(c, o, OBJ_STRING)) return;
+        p = getObjectReadOnlyString(o,&strlen,llbuf);
         /* The whole string. */
         start = 0;
         end = strlen-1;

@@ -56,7 +56,7 @@ int main (int argc, char **argv) {
     const char *caCert = argc > 5 ? argv[6] : NULL;
 
     redisSSLContext *ssl;
-    redisSSLContextError ssl_error;
+    redisSSLContextError ssl_error = REDIS_SSL_CTX_NONE;
 
     redisInitOpenSSL();
 

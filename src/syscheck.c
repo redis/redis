@@ -62,7 +62,7 @@ static sds read_sysfs_line(char *path) {
     return res;
 }
 
-/* Verify our clokcsource implementation doesn't go through a system call (uses vdso).
+/* Verify our clocksource implementation doesn't go through a system call (uses vdso).
  * Going through a system call to check the time degrades Redis performance. */
 static int checkClocksource(sds *error_msg) {
     unsigned long test_time_us, system_hz;

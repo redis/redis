@@ -12,5 +12,15 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         assert_error {ASK*} {R 0 GET FOO}
         R 0 ping
     } {PONG}
+
+    test "Coverage: Basic cluster commands" {
+        assert_equal {OK} [R 0 CLUSTER saveconfig]
+
+        set id [R 0 CLUSTER MYID]
+        assert_equal {0} [R 0 CLUSTER count-failure-reports $id]
+
+        R 0 flushall
+        assert_equal {OK} [R 0 CLUSTER flushslots]
+    }
 }
 

@@ -1,6 +1,6 @@
 {
     "DEBUG": {
-        "summary": "List or update the current configurable parameters",
+        "summary": "Lists or updates the current configurable parameters of Redis Sentinel.",
         "complexity": "O(N) where N is the number of configurable parameters",
         "group": "sentinel",
         "since": "7.0.0",
@@ -12,6 +12,21 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The configuration update was successful.",
+                    "const": "OK"
+                },
+                {
+                    "description": "List of configurable time parameters and their values (milliseconds).",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "data",

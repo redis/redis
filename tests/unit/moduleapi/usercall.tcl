@@ -39,15 +39,48 @@ start_server {tags {"modules usercall"}} {
     test {test module check regular redis command with user and acl} {
         assert_equal [r set x 5] OK
 
+        r ACL LOG RESET
         assert_equal [r usercall.reset_user] OK
         assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
         # off and sanitize-payload because module user / default value
         assert_equal [r usercall.get_acl] "off sanitize-payload ~* &* +@all -set"
 
         # fails here as testing acl in rm call
-        assert_error {*NOPERM User default has no permissions*} {r usercall.call_with_user_flag C set x 10}
+        assert_error {*NOPERM User module_user has no permissions*} {r usercall.call_with_user_flag C set x 10}
 
         assert_equal [r usercall.call_with_user_flag C get x] 5
+
+        # verify that new log entry added
+        set entry [lindex [r ACL LOG] 0]
+        assert_equal [dict get $entry username] {module_user}
+        assert_equal [dict get $entry context] {module}
+        assert_equal [dict get $entry object] {set}
+        assert_equal [dict get $entry reason] {command}
+        assert_match {*cmd=usercall.call_with_user_flag*} [dict get $entry client-info]
+
+        assert_equal [r usercall.reset_user] OK
+    }
+
+    # call with user with acl set on it, but with testing the acl in rm_call (for cmd itself)
+    test {test module check regular redis command with user and acl from blocked background thread} {
+        assert_equal [r set x 5] OK
+
+        r ACL LOG RESET
+        assert_equal [r usercall.reset_user] OK
+        assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
+
+        # fails here as testing acl in rm call from a background thread
+        assert_error {*NOPERM User module_user has no permissions*} {r usercall.call_with_user_bg C set x 10}
+
+        assert_equal [r usercall.call_with_user_bg C get x] 5
+
+        # verify that new log entry added
+        set entry [lindex [r ACL LOG] 0]
+        assert_equal [dict get $entry username] {module_user}
+        assert_equal [dict get $entry context] {module}
+        assert_equal [dict get $entry object] {set}
+        assert_equal [dict get $entry reason] {command}
+        assert_match {*cmd=NULL*} [dict get $entry client-info]
 
         assert_equal [r usercall.reset_user] OK
     }
@@ -82,6 +115,7 @@ start_server {tags {"modules usercall"}} {
         set sha_set [r script load $test_script_set]
         set sha_get [r script load $test_script_get]
 
+        r ACL LOG RESET
         assert_equal [r usercall.reset_user] OK
         assert_equal [r usercall.add_to_acl "~* &* +@all -set"] OK
 
@@ -90,5 +124,13 @@ start_server {tags {"modules usercall"}} {
         assert_match {*ERR ACL failure in script*} $e
 
         assert_equal [r usercall.call_with_user_flag C evalsha $sha_get 0] 1
+
+        # verify that new log entry added
+        set entry [lindex [r ACL LOG] 0]
+        assert_equal [dict get $entry username] {module_user}
+        assert_equal [dict get $entry context] {lua}
+        assert_equal [dict get $entry object] {set}
+        assert_equal [dict get $entry reason] {command}
+        assert_match {*cmd=usercall.call_with_user_flag*} [dict get $entry client-info]
     }
 }

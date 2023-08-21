@@ -34,7 +34,7 @@ test_independent_entries(ring_t *entries) {
 		qr_foreach(t, &entries[i], link) {
 			j++;
 		}
-		assert_u_eq(j, 1,
+		expect_u_eq(j, 1,
 		    "Iteration over single-element ring should visit precisely "
 		    "one element");
 	}
@@ -43,19 +43,19 @@ test_independent_entries(ring_t *entries) {
 		qr_reverse_foreach(t, &entries[i], link) {
 			j++;
 		}
-		assert_u_eq(j, 1,
+		expect_u_eq(j, 1,
 		    "Iteration over single-element ring should visit precisely "
 		    "one element");
 	}
 	for (i = 0; i < NENTRIES; i++) {
 		t = qr_next(&entries[i], link);
-		assert_ptr_eq(t, &entries[i],
+		expect_ptr_eq(t, &entries[i],
 		    "Next element in single-element ring should be same as "
 		    "current element");
 	}
 	for (i = 0; i < NENTRIES; i++) {
 		t = qr_prev(&entries[i], link);
-		assert_ptr_eq(t, &entries[i],
+		expect_ptr_eq(t, &entries[i],
 		    "Previous element in single-element ring should be same as "
 		    "current element");
 	}
@@ -77,7 +77,7 @@ test_entries_ring(ring_t *entries) {
 	for (i = 0; i < NENTRIES; i++) {
 		j = 0;
 		qr_foreach(t, &entries[i], link) {
-			assert_c_eq(t->id, entries[(i+j) % NENTRIES].id,
+			expect_c_eq(t->id, entries[(i+j) % NENTRIES].id,
 			    "Element id mismatch");
 			j++;
 		}
@@ -85,19 +85,19 @@ test_entries_ring(ring_t *entries) {
 	for (i = 0; i < NENTRIES; i++) {
 		j = 0;
 		qr_reverse_foreach(t, &entries[i], link) {
-			assert_c_eq(t->id, entries[(NENTRIES+i-j-1) %
+			expect_c_eq(t->id, entries[(NENTRIES+i-j-1) %
 			    NENTRIES].id, "Element id mismatch");
 			j++;
 		}
 	}
 	for (i = 0; i < NENTRIES; i++) {
 		t = qr_next(&entries[i], link);
-		assert_c_eq(t->id, entries[(i+1) % NENTRIES].id,
+		expect_c_eq(t->id, entries[(i+1) % NENTRIES].id,
 		    "Element id mismatch");
 	}
 	for (i = 0; i < NENTRIES; i++) {
 		t = qr_prev(&entries[i], link);
-		assert_c_eq(t->id, entries[(NENTRIES+i-1) % NENTRIES].id,
+		expect_c_eq(t->id, entries[(NENTRIES+i-1) % NENTRIES].id,
 		    "Element id mismatch");
 	}
 }
@@ -127,13 +127,13 @@ TEST_BEGIN(test_qr_remove) {
 	for (i = 0; i < NENTRIES; i++) {
 		j = 0;
 		qr_foreach(t, &entries[i], link) {
-			assert_c_eq(t->id, entries[i+j].id,
+			expect_c_eq(t->id, entries[i+j].id,
 			    "Element id mismatch");
 			j++;
 		}
 		j = 0;
 		qr_reverse_foreach(t, &entries[i], link) {
-			assert_c_eq(t->id, entries[NENTRIES - 1 - j].id,
+			expect_c_eq(t->id, entries[NENTRIES - 1 - j].id,
 			"Element id mismatch");
 			j++;
 		}
@@ -155,7 +155,7 @@ TEST_BEGIN(test_qr_before_insert) {
 	for (i = 0; i < NENTRIES; i++) {
 		j = 0;
 		qr_foreach(t, &entries[i], link) {
-			assert_c_eq(t->id, entries[(NENTRIES+i-j) %
+			expect_c_eq(t->id, entries[(NENTRIES+i-j) %
 			    NENTRIES].id, "Element id mismatch");
 			j++;
 		}
@@ -163,19 +163,19 @@ TEST_BEGIN(test_qr_before_insert) {
 	for (i = 0; i < NENTRIES; i++) {
 		j = 0;
 		qr_reverse_foreach(t, &entries[i], link) {
-			assert_c_eq(t->id, entries[(i+j+1) % NENTRIES].id,
+			expect_c_eq(t->id, entries[(i+j+1) % NENTRIES].id,
 			    "Element id mismatch");
 			j++;
 		}
 	}
 	for (i = 0; i < NENTRIES; i++) {
 		t = qr_next(&entries[i], link);
-		assert_c_eq(t->id, entries[(NENTRIES+i-1) % NENTRIES].id,
+		expect_c_eq(t->id, entries[(NENTRIES+i-1) % NENTRIES].id,
 		    "Element id mismatch");
 	}
 	for (i = 0; i < NENTRIES; i++) {
 		t = qr_prev(&entries[i], link);
-		assert_c_eq(t->id, entries[(i+1) % NENTRIES].id,
+		expect_c_eq(t->id, entries[(i+1) % NENTRIES].id,
 		    "Element id mismatch");
 	}
 }
@@ -190,11 +190,11 @@ test_split_entries(ring_t *entries) {
 		j = 0;
 		qr_foreach(t, &entries[i], link) {
 			if (i < SPLIT_INDEX) {
-				assert_c_eq(t->id,
+				expect_c_eq(t->id,
 				    entries[(i+j) % SPLIT_INDEX].id,
 				    "Element id mismatch");
 			} else {
-				assert_c_eq(t->id, entries[(i+j-SPLIT_INDEX) %
+				expect_c_eq(t->id, entries[(i+j-SPLIT_INDEX) %
 				    (NENTRIES-SPLIT_INDEX) + SPLIT_INDEX].id,
 				    "Element id mismatch");
 			}
@@ -212,22 +212,22 @@ TEST_BEGIN(test_qr_meld_split) {
 		qr_after_insert(&entries[i - 1], &entries[i], link);
 	}
 
-	qr_split(&entries[0], &entries[SPLIT_INDEX], ring_t, link);
+	qr_split(&entries[0], &entries[SPLIT_INDEX], link);
 	test_split_entries(entries);
 
-	qr_meld(&entries[0], &entries[SPLIT_INDEX], ring_t, link);
+	qr_meld(&entries[0], &entries[SPLIT_INDEX], link);
 	test_entries_ring(entries);
 
-	qr_meld(&entries[0], &entries[SPLIT_INDEX], ring_t, link);
+	qr_meld(&entries[0], &entries[SPLIT_INDEX], link);
 	test_split_entries(entries);
 
-	qr_split(&entries[0], &entries[SPLIT_INDEX], ring_t, link);
+	qr_split(&entries[0], &entries[SPLIT_INDEX], link);
 	test_entries_ring(entries);
 
-	qr_split(&entries[0], &entries[0], ring_t, link);
+	qr_split(&entries[0], &entries[0], link);
 	test_entries_ring(entries);
 
-	qr_meld(&entries[0], &entries[0], ring_t, link);
+	qr_meld(&entries[0], &entries[0], link);
 	test_entries_ring(entries);
 }
 TEST_END

@@ -46,15 +46,21 @@ robj *createObject(int type, void *ptr) {
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
+    o->lru = 0;
+    return o;
+}
 
+void initObjectLRUOrLFU(robj *o) {
+    if (o->refcount == OBJ_SHARED_REFCOUNT)
+        return;
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
+        o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
     } else {
         o->lru = LRU_CLOCK();
     }
-    return o;
+    return;
 }
 
 /* Set a special refcount in the object to make it "shared":
@@ -91,11 +97,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
-    } else {
-        o->lru = LRU_CLOCK();
-    }
+    o->lru = 0;
 
     sh->len = len;
     sh->alloc = len;
@@ -140,33 +142,24 @@ robj *tryCreateStringObject(const char *ptr, size_t len) {
         return tryCreateRawStringObject(ptr,len);
 }
 
-/* Create a string object from a long long value. When possible returns a
- * shared integer object, or at least an integer encoded one.
- *
- * If valueobj is non zero, the function avoids returning a shared
- * integer, because the object is going to be used as value in the Redis key
- * space (for instance when the INCR command is used), so we want LFU/LRU
- * values specific for each key. */
-robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
+/* Create a string object from a long long value according to the specified flag. */
+#define LL2STROBJ_AUTO 0       /* automatically create the optimal string object */
+#define LL2STROBJ_NO_SHARED 1  /* disallow shared objects */
+#define LL2STROBJ_NO_INT_ENC 2 /* disallow integer encoded objects. */
+robj *createStringObjectFromLongLongWithOptions(long long value, int flag) {
     robj *o;
 
-    if (server.maxmemory == 0 ||
-        !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS))
-    {
-        /* If the maxmemory policy permits, we can still return shared integers
-         * even if valueobj is true. */
-        valueobj = 0;
-    }
-
-    if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
+    if (value >= 0 && value < OBJ_SHARED_INTEGERS && flag == LL2STROBJ_AUTO) {
         o = shared.integers[value];
     } else {
-        if (value >= LONG_MIN && value <= LONG_MAX) {
+        if ((value >= LONG_MIN && value <= LONG_MAX) && flag != LL2STROBJ_NO_INT_ENC) {
             o = createObject(OBJ_STRING, NULL);
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
-            o = createObject(OBJ_STRING,sdsfromlonglong(value));
+            char buf[LONG_STR_SIZE];
+            int len = ll2string(buf, sizeof(buf), value);
+            o = createStringObject(buf, len);
         }
     }
     return o;
@@ -175,15 +168,27 @@ robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
 /* Wrapper for createStringObjectFromLongLongWithOptions() always demanding
  * to create a shared object if possible. */
 robj *createStringObjectFromLongLong(long long value) {
-    return createStringObjectFromLongLongWithOptions(value,0);
+    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
 }
 
-/* Wrapper for createStringObjectFromLongLongWithOptions() avoiding a shared
- * object when LFU/LRU info are needed, that is, when the object is used
- * as a value in the key space, and Redis is configured to evict based on
- * LFU/LRU. */
+/* The function avoids returning a shared integer when LFU/LRU info
+ * are needed, that is, when the object is used as a value in the key
+ * space(for instance when the INCR command is used), and Redis is
+ * configured to evict based on LFU/LRU, so we want LFU/LRU values
+ * specific for each key. */
 robj *createStringObjectFromLongLongForValue(long long value) {
-    return createStringObjectFromLongLongWithOptions(value,1);
+    if (server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) {
+        /* If the maxmemory policy permits, we can still return shared integers */
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
+    } else {
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_SHARED);
+    }
+}
+
+/* Create a string object that contains an sds inside it. That means it can't be
+ * integer encoded (OBJ_ENCODING_INT), and it'll always be an EMBSTR type. */
+robj *createStringObjectFromLongLongWithSds(long long value) {
+    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_INT_ENC);
 }
 
 /* Create a string object from a long double. If humanfriendly is non-zero
@@ -609,19 +614,25 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 }
 
 /* Optimize the SDS string inside the string object to require little space,
- * in case there is more than 10% of free space at the end of the SDS
- * string. This happens because SDS strings tend to overallocate to avoid
- * wasting too much time in allocations when appending to the string. */
-void trimStringObjectIfNeeded(robj *o) {
-    if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(o->ptr) > sdslen(o->ptr)/10)
-    {
-        o->ptr = sdsRemoveFreeSpace(o->ptr);
+ * in case there is more than 10% of free space at the end of the SDS. */
+void trimStringObjectIfNeeded(robj *o, int trim_small_values) {
+    if (o->encoding != OBJ_ENCODING_RAW) return;
+    /* A string may have free space in the following cases:
+     * 1. When an arg len is greater than PROTO_MBULK_BIG_ARG the query buffer may be used directly as the SDS string.
+     * 2. When utilizing the argument caching mechanism in Lua. 
+     * 3. When calling from RM_TrimStringAllocation (trim_small_values is true). */
+    size_t len = sdslen(o->ptr);
+    if (len >= PROTO_MBULK_BIG_ARG ||
+        trim_small_values||
+        (server.executing_client && server.executing_client->flags & CLIENT_SCRIPT && len < LUA_CMD_OBJCACHE_MAX_LEN)) {
+        if (sdsavail(o->ptr) > len/10) {
+            o->ptr = sdsRemoveFreeSpace(o->ptr, 0);
+        }
     }
 }
 
 /* Try to encode a string object in order to save space */
-robj *tryObjectEncoding(robj *o) {
+robj *tryObjectEncodingEx(robj *o, int try_trim) {
     long value;
     sds s = o->ptr;
     size_t len;
@@ -685,18 +696,16 @@ robj *tryObjectEncoding(robj *o) {
     }
 
     /* We can't encode the object...
-     *
-     * Do the last try, and at least optimize the SDS string inside
-     * the string object to require little space, in case there
-     * is more than 10% of free space at the end of the SDS string.
-     *
-     * We do that only for relatively large strings as this branch
-     * is only entered if the length of the string is greater than
-     * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
-    trimStringObjectIfNeeded(o);
+     * Do the last try, and at least optimize the SDS string inside */
+    if (try_trim)
+        trimStringObjectIfNeeded(o, 0);
 
     /* Return the original object. */
     return o;
+}
+
+robj *tryObjectEncoding(robj *o) {
+    return tryObjectEncodingEx(o, 1);
 }
 
 /* Get a decoded version of an encoded object (returned as a new object).
@@ -1095,7 +1104,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         size_t lpsize = 0, samples = 0;
         while(samples < sample_size && raxNext(&ri)) {
             unsigned char *lp = ri.data;
-            lpsize += lpBytes(lp);
+            /* Use the allocated size, since we overprovision the node initially. */
+            lpsize += zmalloc_size(lp);
             samples++;
         }
         if (s->rax->numele <= samples) {
@@ -1107,7 +1117,8 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
              * if there are a few elements in the radix tree. */
             raxSeek(&ri,"$",NULL,0);
             raxNext(&ri);
-            asize += lpBytes(ri.data);
+            /* Use the allocated size, since we overprovision the node initially. */
+            asize += zmalloc_size(ri.data);
         }
         raxStop(&ri);
 

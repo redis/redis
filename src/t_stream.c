@@ -461,7 +461,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     }
 
     /* Avoid overflow when trying to add an element to the stream (listpack
-     * can only host up to 32bit length sttrings, and also a total listpack size
+     * can only host up to 32bit length strings, and also a total listpack size
      * can't be bigger than 32bit length. */
     size_t totelelen = 0;
     for (int64_t i = 0; i < numfields*2; i++) {
@@ -530,22 +530,25 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * if we need to switch to the next one. 'lp' will be set to NULL if
      * the current node is full. */
     if (lp != NULL) {
+        int new_node = 0;
         size_t node_max_bytes = server.stream_node_max_bytes;
         if (node_max_bytes == 0 || node_max_bytes > STREAM_LISTPACK_MAX_SIZE)
             node_max_bytes = STREAM_LISTPACK_MAX_SIZE;
         if (lp_bytes + totelelen >= node_max_bytes) {
-            lp = NULL;
+            new_node = 1;
         } else if (server.stream_node_max_entries) {
             unsigned char *lp_ele = lpFirst(lp);
             /* Count both live entries and deleted ones. */
             int64_t count = lpGetInteger(lp_ele) + lpGetInteger(lpNext(lp,lp_ele));
-            if (count >= server.stream_node_max_entries) {
-                /* Shrink extra pre-allocated memory */
-                lp = lpShrinkToFit(lp);
-                if (ri.data != lp)
-                    raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
-                lp = NULL;
-            }
+            if (count >= server.stream_node_max_entries) new_node = 1;
+        }
+
+        if (new_node) {
+            /* Shrink extra pre-allocated memory */
+            lp = lpShrinkToFit(lp);
+            if (ri.data != lp)
+                raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+            lp = NULL;
         }
     }
 
@@ -2205,9 +2208,10 @@ void xreadCommand(client *c) {
             streams_arg = i+1;
             streams_count = (c->argc-streams_arg);
             if ((streams_count % 2) != 0) {
-                addReplyError(c,"Unbalanced XREAD list of streams: "
-                                "for each stream key an ID or '$' must be "
-                                "specified.");
+                char symbol = xreadgroup ? '>' : '$';
+                addReplyErrorFormat(c,"Unbalanced '%s' list of streams: "
+                                      "for each stream key an ID or '%c' must be "
+                                      "specified.", c->cmd->fullname,symbol);
                 return;
             }
             streams_count /= 2; /* We have two arguments for each stream. */

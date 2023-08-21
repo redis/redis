@@ -74,7 +74,6 @@ struct scriptRunCtx {
     int flags;
     int repl_flags;
     monotime start_time;
-    mstime_t snapshot_time;
 };
 
 /* Scripts flags */
@@ -101,13 +100,12 @@ int scriptSetRepl(scriptRunCtx *r_ctx, int repl);
 void scriptCall(scriptRunCtx *r_ctx, sds *err);
 int scriptInterrupt(scriptRunCtx *r_ctx);
 void scriptKill(client *c, int is_eval);
-int scriptIsRunning();
-const char* scriptCurrFunction();
-int scriptIsEval();
-int scriptIsTimedout();
-client* scriptGetClient();
-client* scriptGetCaller();
-mstime_t scriptTimeSnapshot();
-long long scriptRunDuration();
+int scriptIsRunning(void);
+const char* scriptCurrFunction(void);
+int scriptIsEval(void);
+int scriptIsTimedout(void);
+client* scriptGetClient(void);
+client* scriptGetCaller(void);
+long long scriptRunDuration(void);
 
 #endif /* __SCRIPT_H_ */

@@ -6,6 +6,30 @@ start_server {tags {"other"}} {
         } {ok}
     }
 
+    test {Coverage: HELP commands} {
+        assert_match "*OBJECT <subcommand> *" [r OBJECT HELP]
+        assert_match "*MEMORY <subcommand> *" [r MEMORY HELP]
+        assert_match "*PUBSUB <subcommand> *" [r PUBSUB HELP]
+        assert_match "*SLOWLOG <subcommand> *" [r SLOWLOG HELP]
+        assert_match "*CLIENT <subcommand> *" [r CLIENT HELP]
+        assert_match "*COMMAND <subcommand> *" [r COMMAND HELP]
+        assert_match "*CONFIG <subcommand> *" [r CONFIG HELP]
+        assert_match "*FUNCTION <subcommand> *" [r FUNCTION HELP]
+        assert_match "*MODULE <subcommand> *" [r MODULE HELP]
+    }
+
+    test {Coverage: MEMORY MALLOC-STATS} {
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            assert_match "*jemalloc*" [r memory malloc-stats]
+        }
+    }
+
+    test {Coverage: MEMORY PURGE} {
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            assert_equal {OK} [r memory purge]
+        }
+    }
+
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r
@@ -380,13 +404,14 @@ start_server {tags {"other external:skip"}} {
             assert_match "*/redis-server" [lindex $cmdline 1]
             
             if {$::tls} {
-                set expect_port 0
+                set expect_port [srv 0 pport]
                 set expect_tls_port [srv 0 port]
+                set port [srv 0 pport]
             } else {
                 set expect_port [srv 0 port]
                 set expect_tls_port 0
+                set port [srv 0 port]
             }
-            set port [srv 0 port]
 
             assert_equal "$::host:$port" [lindex $cmdline 2]
             assert_equal $expect_port [lindex $cmdline 3]

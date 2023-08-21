@@ -66,7 +66,10 @@ typedef ucontext_t sigcontext_t;
 /* Globals */
 static int bug_report_start = 0; /* True if bug report header was already logged. */
 static pthread_mutex_t bug_report_start_mutex = PTHREAD_MUTEX_INITIALIZER;
-
+/* Mutex for a case when two threads crash at the same time. */
+static pthread_mutex_t signal_handler_lock;
+static pthread_mutexattr_t signal_handler_lock_attr;
+static volatile int signal_handler_lock_initialized = 0;
 /* Forward declarations */
 void bugReportStart(void);
 void printCrashReport(void);
@@ -329,7 +332,8 @@ void mallctl_int(client *c, robj **argv, int argc) {
     }
     size_t sz = sizeof(old);
     while (sz > 0) {
-        if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
+        size_t zz = sz;
+        if ((ret=je_mallctl(argv[0]->ptr, &old, &zz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
             if (ret == EPERM && argc > 1) {
                 /* if this option is write only, try just writing to it. */
                 if (!(ret=je_mallctl(argv[0]->ptr, NULL, 0, &val, sz))) {
@@ -412,9 +416,9 @@ void debugCommand(client *c) {
 "    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
-"HTSTATS <dbid>",
+"HTSTATS <dbid> [full]",
 "    Return hash table statistics of the specified Redis database.",
-"HTSTATS-KEY <key>",
+"HTSTATS-KEY <key> [full]",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
@@ -492,6 +496,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"CLUSTERLINK KILL <to|from|all> <node-id>",
+"    Kills the link based on the direction to/from (both) with the provided node." ,
 NULL
         };
         addReplyHelp(c, help);
@@ -518,7 +524,7 @@ NULL
         restartServer(flags,delay);
         addReplyError(c,"failed to restart the server. Check server logs.");
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
-        void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
+        void *ptr = zmalloc(SIZE_MAX/2); /* Should trigger an out of memory. */
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
@@ -555,7 +561,7 @@ NULL
         if (save) {
             rdbSaveInfo rsi, *rsiptr;
             rsiptr = rdbPopulateSaveInfo(&rsi);
-            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr) != C_OK) {
+            if (rdbSave(SLAVE_REQ_NONE,server.rdb_filename,rsiptr,RDBFLAGS_NONE) != C_OK) {
                 addReplyErrorObject(c,shared.err);
                 return;
             }
@@ -573,7 +579,7 @@ NULL
             addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
-        serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");
+        serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
@@ -583,11 +589,13 @@ NULL
         aofLoadManifestFromDisk();
         aofDelHistoryFiles();
         int ret = loadAppendOnlyFiles(server.aof_manifest);
-        if (ret != AOF_OK && ret != AOF_EMPTY)
-            exit(1);
         unprotectClient(c);
+        if (ret != AOF_OK && ret != AOF_EMPTY) {
+            addReplyError(c, "Error trying to load the AOF files, check server logs.");
+            return;
+        }
         server.dirty = 0; /* Prevent AOF / replication */
-        serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        serverLog(LL_NOTICE,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"drop-cluster-packet-filter") && c->argc == 3) {
         long packet_type;
@@ -708,7 +716,10 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        dictExpand(c->db->dict,keys);
+        if (dictTryExpand(c->db->dict, keys) != DICT_OK) {
+            addReplyError(c, "OOM in dictTryExpand");
+            return;
+        }
         long valsize = 0;
         if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
@@ -803,9 +814,12 @@ NULL
                 addReplyError(c,"RESP2 is not supported by this command");
                 return;
 	    }
+            uint64_t old_flags = c->flags;
+            c->flags |= CLIENT_PUSHING;
             addReplyPushLen(c,2);
             addReplyBulkCString(c,"server-cpu-usage");
             addReplyLongLong(c,42);
+            if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
             /* Push replies are not synchronous replies, so we emit also a
              * normal reply in order for blocking clients just discarding the
              * push reply, to actually consume the reply and continue. */
@@ -875,10 +889,11 @@ NULL
         sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
-    } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {
         long dbid;
         sds stats = sdsempty();
         char buf[4096];
+        int full = 0;
 
         if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK) {
             sdsfree(stats);
@@ -889,20 +904,26 @@ NULL
             addReplyError(c,"Out of range database");
             return;
         }
+        if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
+            full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].dict);
+        dictGetStats(buf,sizeof(buf),server.db[dbid].dict,full);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
+        dictGetStats(buf,sizeof(buf),server.db[dbid].expires,full);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
-    } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc >= 3) {
         robj *o;
         dict *ht = NULL;
+        int full = 0;
+
+        if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
+            full = 1;
 
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
@@ -925,11 +946,11 @@ NULL
                             "represented using an hash table");
         } else {
             char buf[4096];
-            dictGetStats(buf,sizeof(buf),ht);
+            dictGetStats(buf,sizeof(buf),ht,full);
             addReplyVerbatim(c,buf,strlen(buf),"txt");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
-        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        serverLog(LL_NOTICE,"Changing replication IDs after receiving DEBUG change-repl-id");
         changeReplicationId();
         clearReplicationId2();
         addReply(c,shared.ok);
@@ -997,6 +1018,33 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"CLUSTERLINK") &&
+        !strcasecmp(c->argv[2]->ptr,"KILL") &&
+        c->argc == 5) {
+        if (!server.cluster_enabled) {
+            addReplyError(c, "Debug option only available for cluster mode enabled setup!");
+            return;
+        }
+
+        /* Find the node. */
+        clusterNode *n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+        if (!n) {
+            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[4]->ptr);
+            return;
+        }
+
+        /* Terminate the link based on the direction or all. */
+        if (!strcasecmp(c->argv[3]->ptr,"from")) {
+            freeClusterLink(n->inbound_link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"to")) {
+            freeClusterLink(n->link);
+        } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
+            freeClusterLink(n->link);
+            freeClusterLink(n->inbound_link);
+        } else {
+            addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
+        }
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1018,7 +1066,7 @@ void _serverAssert(const char *estr, const char *file, int line) {
     }
 
     // remove the signal handler so on abort() we will output the crash report.
-    removeSignalHandlers();
+    removeSigSegvHandlers();
     bugReportEnd(0, 0);
 }
 
@@ -1114,7 +1162,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     }
 
     // remove the signal handler so on abort() we will output the crash report.
-    removeSignalHandlers();
+    removeSigSegvHandlers();
     bugReportEnd(0, 0);
 }
 
@@ -1176,6 +1224,8 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     GET_SET_RETURN(uc->uc_mcontext.gregs[16], eip);
     #elif defined(__ia64__) /* Linux IA64 */
     GET_SET_RETURN(uc->uc_mcontext.sc_ip, eip);
+    #elif defined(__riscv) /* Linux RISC-V */
+    GET_SET_RETURN(uc->uc_mcontext.__gregs[REG_PC], eip);
     #elif defined(__arm__) /* Linux ARM */
     GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
@@ -1410,6 +1460,49 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.gregs[18]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
+    #elif defined(__riscv) /* Linux RISC-V */
+    serverLog(LL_WARNING,
+	"\n"
+    "ra:%016lx gp:%016lx\ntp:%016lx t0:%016lx\n"
+    "t1:%016lx t2:%016lx\ns0:%016lx s1:%016lx\n"
+    "a0:%016lx a1:%016lx\na2:%016lx a3:%016lx\n"
+    "a4:%016lx a5:%016lx\na6:%016lx a7:%016lx\n"
+    "s2:%016lx s3:%016lx\ns4:%016lx s5:%016lx\n"
+    "s6:%016lx s7:%016lx\ns8:%016lx s9:%016lx\n"
+    "s10:%016lx s11:%016lx\nt3:%016lx t4:%016lx\n"
+    "t5:%016lx t6:%016lx\n",
+        (unsigned long) uc->uc_mcontext.__gregs[1],
+        (unsigned long) uc->uc_mcontext.__gregs[3],
+        (unsigned long) uc->uc_mcontext.__gregs[4],
+        (unsigned long) uc->uc_mcontext.__gregs[5],
+        (unsigned long) uc->uc_mcontext.__gregs[6],
+        (unsigned long) uc->uc_mcontext.__gregs[7],
+        (unsigned long) uc->uc_mcontext.__gregs[8],
+        (unsigned long) uc->uc_mcontext.__gregs[9],
+        (unsigned long) uc->uc_mcontext.__gregs[10],
+        (unsigned long) uc->uc_mcontext.__gregs[11],
+        (unsigned long) uc->uc_mcontext.__gregs[12],
+        (unsigned long) uc->uc_mcontext.__gregs[13],
+        (unsigned long) uc->uc_mcontext.__gregs[14],
+        (unsigned long) uc->uc_mcontext.__gregs[15],
+        (unsigned long) uc->uc_mcontext.__gregs[16],
+        (unsigned long) uc->uc_mcontext.__gregs[17],
+        (unsigned long) uc->uc_mcontext.__gregs[18],
+        (unsigned long) uc->uc_mcontext.__gregs[19],
+        (unsigned long) uc->uc_mcontext.__gregs[20],
+        (unsigned long) uc->uc_mcontext.__gregs[21],
+        (unsigned long) uc->uc_mcontext.__gregs[22],
+        (unsigned long) uc->uc_mcontext.__gregs[23],
+        (unsigned long) uc->uc_mcontext.__gregs[24],
+        (unsigned long) uc->uc_mcontext.__gregs[25],
+        (unsigned long) uc->uc_mcontext.__gregs[26],
+        (unsigned long) uc->uc_mcontext.__gregs[27],
+        (unsigned long) uc->uc_mcontext.__gregs[28],
+        (unsigned long) uc->uc_mcontext.__gregs[29],
+        (unsigned long) uc->uc_mcontext.__gregs[30],
+        (unsigned long) uc->uc_mcontext.__gregs[31]
+    );
+    logStackContent((void**)uc->uc_mcontext.__gregs[REG_SP]);
     #elif defined(__aarch64__) /* Linux AArch64 */
     serverLog(LL_WARNING,
 	      "\n"
@@ -1768,7 +1861,7 @@ sds genClusterDebugString(sds infostring) {
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
     infostring = sdscatsds(infostring, genClusterInfoString()); 
     infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
-    infostring = sdscatsds(infostring, clusterGenNodesDescription(0, 0));
+    infostring = sdscatsds(infostring, clusterGenNodesDescription(NULL, 0, 0));
     
     return infostring;
 }
@@ -1795,7 +1888,7 @@ void logServerInfo(void) {
     decrRefCount(argv[0]);
 }
 
-/* Log certain config values, which can be used for debuggin */
+/* Log certain config values, which can be used for debugging */
 void logConfigDebugInfo(void) {
     sds configstring;
     configstring = getConfigDebugInfo();
@@ -1815,22 +1908,27 @@ void logModulesInfo(void) {
 /* Log information about the "current" client, that is, the client that is
  * currently being served by Redis. May be NULL if Redis is not serving a
  * client right now. */
-void logCurrentClient(void) {
-    if (server.current_client == NULL) return;
+void logCurrentClient(client *cc, const char *title) {
+    if (cc == NULL) return;
 
-    client *cc = server.current_client;
     sds client;
     int j;
 
-    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CURRENT CLIENT INFO ------\n");
+    serverLog(LL_WARNING|LL_RAW, "\n------ %s CLIENT INFO ------\n", title);
     client = catClientInfoString(sdsempty(),cc);
     serverLog(LL_WARNING|LL_RAW,"%s\n", client);
     sdsfree(client);
+    serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
         decoded = getDecodedObject(cc->argv[j]);
         sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
+        if (!strcasecmp(decoded->ptr, "auth") || !strcasecmp(decoded->ptr, "auth2")) {
+            sdsfree(repr);
+            decrRefCount(decoded);
+            break;
+        }
         sdsfree(repr);
         decrRefCount(decoded);
     }
@@ -2017,13 +2115,23 @@ void dumpCodeAroundEIP(void *eip) {
     }
 }
 
-void invalidFunctionWasCalled() {}
+void invalidFunctionWasCalled(void) {}
 
-typedef void (*invalidFunctionWasCalledType)();
+typedef void (*invalidFunctionWasCalledType)(void);
 
-void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
+static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
+    /* Check if it is safe to enter the signal handler. second thread crashing at the same time will deadlock. */
+    if(pthread_mutex_lock(&signal_handler_lock) == EDEADLK) {
+        /* If this thread already owns the lock (meaning we crashed during handling a signal)
+         * log that the crash report can't be generated. */
+        serverLog(LL_WARNING,
+            "Crashed running signal handler. Can't continue to generate the crash report");
+        /* gracefully exit */
+        bugReportEnd(1, sig);
+        return;
+    }
 
     bugReportStart();
     serverLog(LL_WARNING,
@@ -2076,12 +2184,54 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     bugReportEnd(1, sig);
 }
 
+void setupSigSegvHandler(void) {
+    /* Initialize the signal handler lock. 
+    Attempting to initialize an already initialized mutex or mutexattr results in undefined behavior. */
+    if (!signal_handler_lock_initialized) {
+        /* Set signal handler with error checking attribute. re-lock within the same thread will error. */
+        pthread_mutexattr_init(&signal_handler_lock_attr);
+        pthread_mutexattr_settype(&signal_handler_lock_attr, PTHREAD_MUTEX_ERRORCHECK);
+        pthread_mutex_init(&signal_handler_lock, &signal_handler_lock_attr);
+        signal_handler_lock_initialized = 1;
+    }
+
+    struct sigaction act;
+
+    sigemptyset(&act.sa_mask);
+    /* SA_NODEFER to disables adding the signal to the signal mask of the
+     * calling process on entry to the signal handler unless it is included in the sa_mask field. */
+    /* SA_SIGINFO flag is set to raise the function defined in sa_sigaction.
+     * Otherwise, sa_handler is used. */
+    act.sa_flags = SA_NODEFER | SA_SIGINFO;
+    act.sa_sigaction = sigsegvHandler;
+    if(server.crashlog_enabled) {
+        sigaction(SIGSEGV, &act, NULL);
+        sigaction(SIGBUS, &act, NULL);
+        sigaction(SIGFPE, &act, NULL);
+        sigaction(SIGILL, &act, NULL);
+        sigaction(SIGABRT, &act, NULL);
+    }
+}
+
+void removeSigSegvHandlers(void) {
+    struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_NODEFER | SA_RESETHAND;
+    act.sa_handler = SIG_DFL;
+    sigaction(SIGSEGV, &act, NULL);
+    sigaction(SIGBUS, &act, NULL);
+    sigaction(SIGFPE, &act, NULL);
+    sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
+}
+
 void printCrashReport(void) {
     /* Log INFO and CLIENT LIST */
     logServerInfo();
 
     /* Log the current client */
-    logCurrentClient();
+    logCurrentClient(server.current_client, "CURRENT");
+    logCurrentClient(server.executing_client, "EXECUTING");
 
     /* Log modules info. Something we wanna do last since we fear it may crash. */
     logModulesInfo();
@@ -2122,7 +2272,7 @@ void bugReportEnd(int killViaSignal, int sig) {
     /* Make sure we exit with the right signal at the end. So for instance
      * the core will be dumped if enabled. */
     sigemptyset (&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
+    act.sa_flags = 0;
     act.sa_handler = SIG_DFL;
     sigaction (sig, &act, NULL);
     kill(getpid(),sig);
@@ -2187,7 +2337,7 @@ void watchdogScheduleSignal(int period) {
     it.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &it, NULL);
 }
-void applyWatchdogPeriod() {
+void applyWatchdogPeriod(void) {
     struct sigaction act;
 
     /* Disable watchdog when period is 0 */

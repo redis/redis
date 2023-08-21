@@ -8,6 +8,55 @@
 
 #define UNUSED(x) (void)(x)
 
+static int n_events = 0;
+
+static int KeySpace_NotificationModuleKeyMissExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    UNUSED(ctx);
+    UNUSED(type);
+    UNUSED(event);
+    UNUSED(key);
+    n_events++;
+    return REDISMODULE_OK;
+}
+
+int test_clear_n_events(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    n_events = 0;
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+int test_get_n_events(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    RedisModule_ReplyWithLongLong(ctx, n_events);
+    return REDISMODULE_OK;
+}
+
+int test_open_key_no_effects(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc<2) {
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    int supportedMode = RedisModule_GetOpenKeyModesAll();
+    if (!(supportedMode & REDISMODULE_READ) || !(supportedMode & REDISMODULE_OPEN_KEY_NOEFFECTS)) {
+        RedisModule_ReplyWithError(ctx, "OpenKey modes are not supported");
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+    if (!key) {
+        RedisModule_ReplyWithError(ctx, "key not found");
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_CloseKey(key);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int test_call_generic(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (argc<2) {
@@ -460,6 +509,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"misc",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_MISS | REDISMODULE_NOTIFY_EXPIRED, KeySpace_NotificationModuleKeyMissExpired) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if (RedisModule_CreateCommand(ctx,"test.call_generic", test_call_generic,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.call_info", test_call_info,"",0,0,0) == REDISMODULE_ERR)
@@ -506,6 +559,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "test.rm_call_flags", test_rm_call_flags,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "test.rm_call_replicate", test_rm_call_replicate,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.silent_open_key", test_open_key_no_effects,"", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.get_n_events", test_get_n_events,"", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.clear_n_events", test_clear_n_events,"", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

@@ -20,6 +20,12 @@ test "Can't read from replica without READONLY" {
     assert {[string range $err 0 4] eq {MOVED}}
 }
 
+test "Can't read from replica after READWRITE" {
+    $replica READWRITE
+    catch {$replica GET a} err
+    assert {[string range $err 0 4] eq {MOVED}}
+}
+
 test "Can read from replica after READONLY" {
     $replica READONLY
     assert {[$replica GET a] eq {1}}

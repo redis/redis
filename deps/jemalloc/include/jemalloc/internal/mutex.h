@@ -6,6 +6,8 @@
 #include "jemalloc/internal/tsd.h"
 #include "jemalloc/internal/witness.h"
 
+extern int64_t opt_mutex_max_spin;
+
 typedef enum {
 	/* Can only acquire one mutex of a given witness rank at a time. */
 	malloc_mutex_rank_exclusive,
@@ -43,7 +45,7 @@ struct malloc_mutex_s {
 #else
 			pthread_mutex_t		lock;
 #endif
-			/* 
+			/*
 			 * Hint flag to avoid exclusive cache line contention
 			 * during spin waiting
 			 */
@@ -66,12 +68,6 @@ struct malloc_mutex_s {
 	malloc_mutex_lock_order_t	lock_order;
 #endif
 };
-
-/*
- * Based on benchmark results, a fixed spin with this amount of retries works
- * well for our critical sections.
- */
-#define MALLOC_MUTEX_MAX_SPIN 250
 
 #ifdef _WIN32
 #  if _WIN32_WINNT >= 0x0600
@@ -245,22 +241,25 @@ malloc_mutex_assert_not_owner(tsdn_t *tsdn, malloc_mutex_t *mutex) {
 	witness_assert_not_owner(tsdn_witness_tsdp_get(tsdn), &mutex->witness);
 }
 
-/* Copy the prof data from mutex for processing. */
 static inline void
-malloc_mutex_prof_read(tsdn_t *tsdn, mutex_prof_data_t *data,
-    malloc_mutex_t *mutex) {
-	mutex_prof_data_t *source = &mutex->prof_data;
-	/* Can only read holding the mutex. */
-	malloc_mutex_assert_owner(tsdn, mutex);
-
+malloc_mutex_prof_copy(mutex_prof_data_t *dst, mutex_prof_data_t *source) {
 	/*
 	 * Not *really* allowed (we shouldn't be doing non-atomic loads of
 	 * atomic data), but the mutex protection makes this safe, and writing
 	 * a member-for-member copy is tedious for this situation.
 	 */
-	*data = *source;
+	*dst = *source;
 	/* n_wait_thds is not reported (modified w/o locking). */
-	atomic_store_u32(&data->n_waiting_thds, 0, ATOMIC_RELAXED);
+	atomic_store_u32(&dst->n_waiting_thds, 0, ATOMIC_RELAXED);
+}
+
+/* Copy the prof data from mutex for processing. */
+static inline void
+malloc_mutex_prof_read(tsdn_t *tsdn, mutex_prof_data_t *data,
+    malloc_mutex_t *mutex) {
+	/* Can only read holding the mutex. */
+	malloc_mutex_assert_owner(tsdn, mutex);
+	malloc_mutex_prof_copy(data, &mutex->prof_data);
 }
 
 static inline void
@@ -283,6 +282,38 @@ malloc_mutex_prof_accum(tsdn_t *tsdn, mutex_prof_data_t *data,
 	atomic_store_u32(&data->n_waiting_thds, 0, ATOMIC_RELAXED);
 	data->n_owner_switches += source->n_owner_switches;
 	data->n_lock_ops += source->n_lock_ops;
+}
+
+/* Compare the prof data and update to the maximum. */
+static inline void
+malloc_mutex_prof_max_update(tsdn_t *tsdn, mutex_prof_data_t *data,
+    malloc_mutex_t *mutex) {
+	mutex_prof_data_t *source = &mutex->prof_data;
+	/* Can only read holding the mutex. */
+	malloc_mutex_assert_owner(tsdn, mutex);
+
+	if (nstime_compare(&source->tot_wait_time, &data->tot_wait_time) > 0) {
+		nstime_copy(&data->tot_wait_time, &source->tot_wait_time);
+	}
+	if (nstime_compare(&source->max_wait_time, &data->max_wait_time) > 0) {
+		nstime_copy(&data->max_wait_time, &source->max_wait_time);
+	}
+	if (source->n_wait_times > data->n_wait_times) {
+		data->n_wait_times = source->n_wait_times;
+	}
+	if (source->n_spin_acquired > data->n_spin_acquired) {
+		data->n_spin_acquired = source->n_spin_acquired;
+	}
+	if (source->max_n_thds > data->max_n_thds) {
+		data->max_n_thds = source->max_n_thds;
+	}
+	if (source->n_owner_switches > data->n_owner_switches) {
+		data->n_owner_switches = source->n_owner_switches;
+	}
+	if (source->n_lock_ops > data->n_lock_ops) {
+		data->n_lock_ops = source->n_lock_ops;
+	}
+	/* n_wait_thds is not reported. */
 }
 
 #endif /* JEMALLOC_INTERNAL_MUTEX_H */

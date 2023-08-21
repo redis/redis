@@ -1,6 +1,6 @@
 {
     "ZRANGE": {
-        "summary": "Return a range of members in a sorted set",
+        "summary": "Returns members in a sorted set within a range of indexes.",
         "complexity": "O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements returned.",
         "group": "sorted_set",
         "since": "1.2.0",
@@ -38,6 +38,38 @@
                 }
             }
         ],
+        "reply_schema": {
+            "anyOf": [
+                {
+                    "description": "A list of member elements",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                {
+                    "description": "Members and their scores. Returned in case `WITHSCORES` was used. In RESP2 this is returned as a flat array",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": [
+                            {
+                                "description": "Member",
+                                "type": "string"
+                            },
+                            {
+                                "description": "Score",
+                                "type": "number"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

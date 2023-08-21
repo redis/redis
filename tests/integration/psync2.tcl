@@ -355,6 +355,8 @@ start_server {} {
         set sync_partial [status $R($master_id) sync_partial_ok]
         set sync_partial_err [status $R($master_id) sync_partial_err]
         catch {
+            # Make sure the server saves an RDB on shutdown
+            $R($slave_id) config set save "900 1"
             $R($slave_id) config rewrite
             restart_server [expr {0-$slave_id}] true false
             set R($slave_id) [srv [expr {0-$slave_id}] client]

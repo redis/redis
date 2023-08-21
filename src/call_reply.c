@@ -234,12 +234,27 @@ void freeCallReply(CallReply *rep) {
         return;
     }
     if (rep->flags & REPLY_FLAG_PARSED) {
+        if (rep->type == REDISMODULE_REPLY_PROMISE) {
+            zfree(rep);
+            return;
+        }
         freeCallReplyInternal(rep);
     }
     sdsfree(rep->original_proto);
     if (rep->deferred_error_list)
         listRelease(rep->deferred_error_list);
     zfree(rep);
+}
+
+CallReply *callReplyCreatePromise(void *private_data) {
+    CallReply *res = zmalloc(sizeof(*res));
+    res->type = REDISMODULE_REPLY_PROMISE;
+    /* Mark the reply as parsed so there will be not attempt to parse
+     * it when calling reply API such as freeCallReply.
+     * Also mark the reply as root so freeCallReply will not ignore it. */
+    res->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_ROOT;
+    res->private_data = private_data;
+    return res;
 }
 
 static const ReplyParserCallbacks DefaultParserCallbacks = {

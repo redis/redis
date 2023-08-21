@@ -132,7 +132,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSET element can't be set to NaN with ZINCRBY - $encoding" {
-            assert_error "*not*float*" {r zadd myzset nan abc}
+            assert_error "*not*float*" {r zincrby myzset nan abc}
         }
 
         test "ZADD with options syntax error with incomplete pair - $encoding" {
@@ -308,29 +308,29 @@ start_server {tags {"zset"}} {
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
-        test {ZADD - Variadic version base case - $encoding} {
+        test "ZADD - Variadic version base case - $encoding" {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {3 {a 10 b 20 c 30}}
 
-        test {ZADD - Return value is the number of actually added items - $encoding} {
+        test "ZADD - Return value is the number of actually added items - $encoding" {
             list [r zadd myzset 5 x 20 b 30 c] [r zrange myzset 0 -1 withscores]
         } {1 {x 5 a 10 b 20 c 30}}
 
-        test {ZADD - Variadic version does not add nothing on single parsing err - $encoding} {
+        test "ZADD - Variadic version does not add nothing on single parsing err - $encoding" {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30.badscore c} e
             assert_match {*ERR*not*float*} $e
             r exists myzset
         } {0}
 
-        test {ZADD - Variadic version will raise error on missing arg - $encoding} {
+        test "ZADD - Variadic version will raise error on missing arg - $encoding" {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30 c 40} e
             assert_match {*ERR*syntax*} $e
         }
 
-        test {ZINCRBY does not work variadic even if shares ZADD implementation - $encoding} {
+        test "ZINCRBY does not work variadic even if shares ZADD implementation - $encoding" {
             r del myzset
             catch {r zincrby myzset 10 a 20 b 30 c} e
             assert_match {*ERR*wrong*number*arg*} $e
@@ -431,6 +431,10 @@ start_server {tags {"zset"}} {
         }
 
         test "ZRANK/ZREVRANK basics - $encoding" {
+            set nullres {$-1}
+            if {$::force_resp3} {
+                set nullres {_}
+            }
             r del zranktmp
             r zadd zranktmp 10 x
             r zadd zranktmp 20 y
@@ -442,11 +446,15 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zrevrank zranktmp y]
             assert_equal 0 [r zrevrank zranktmp z]
             r readraw 1
-            assert_equal {$-1} [r zrank zranktmp foo]
-            assert_equal {$-1} [r zrevrank zranktmp foo]
+            assert_equal $nullres [r zrank zranktmp foo]
+            assert_equal $nullres [r zrevrank zranktmp foo]
             r readraw 0
 
-            # withscores
+            # withscore
+            set nullres {*-1}
+            if {$::force_resp3} {
+                set nullres {_}
+            }
             assert_equal {0 10} [r zrank zranktmp x withscore]
             assert_equal {1 20} [r zrank zranktmp y withscore]
             assert_equal {2 30} [r zrank zranktmp z withscore]
@@ -454,8 +462,8 @@ start_server {tags {"zset"}} {
             assert_equal {1 20} [r zrevrank zranktmp y withscore]
             assert_equal {0 30} [r zrevrank zranktmp z withscore]
             r readraw 1
-            assert_equal {*-1} [r zrank zranktmp foo withscore]
-            assert_equal {*-1} [r zrevrank zranktmp foo withscore]
+            assert_equal $nullres [r zrank zranktmp foo withscore]
+            assert_equal $nullres [r zrevrank zranktmp foo withscore]
             r readraw 0
         }
 
@@ -744,6 +752,46 @@ start_server {tags {"zset"}} {
 
             # destroy when empty
             assert_equal 5 [remrangebyrank 0 4]
+            assert_equal 0 [r exists zset]
+        }
+
+        test "ZREMRANGEBYLEX basics - $encoding" {
+            proc remrangebylex {min max} {
+                create_default_lex_zset
+                assert_equal 1 [r exists zset]
+                r zremrangebylex zset $min $max
+            }
+
+            # inclusive range
+            assert_equal 3 [remrangebylex - \[cool]
+            assert_equal {down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 3 [remrangebylex \[bar \[down]
+            assert_equal {alpha elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 3 [remrangebylex \[g +]
+            assert_equal {alpha bar cool down elephant foo} [r zrange zset 0 -1]
+            assert_equal 6 [r zcard zset]
+
+            # exclusive range
+            assert_equal 2 [remrangebylex - (cool]
+            assert_equal {cool down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 1 [remrangebylex (bar (down]
+            assert_equal {alpha bar down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 2 [remrangebylex (great +]
+            assert_equal {alpha bar cool down elephant foo great} [r zrange zset 0 -1]
+            assert_equal 7 [r zcard zset]
+
+            # inclusive and exclusive
+            assert_equal 0 [remrangebylex (az (b]
+            assert_equal {alpha bar cool down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 0 [remrangebylex (z +]
+            assert_equal {alpha bar cool down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 0 [remrangebylex - \[aaaa]
+            assert_equal {alpha bar cool down elephant foo great hill omega} [r zrange zset 0 -1]
+            assert_equal 9 [r zcard zset]
+
+            # destroy when empty
+            assert_equal 9 [remrangebylex - +]
+            assert_equal 0 [r zcard zset]
             assert_equal 0 [r exists zset]
         }
 
@@ -1243,11 +1291,12 @@ start_server {tags {"zset"}} {
 
         if {[lsearch $::denytags "resp3"] >= 0} {
             if {$resp == 3} {continue}
-        } else {
-            r hello $resp
-            $rd hello $resp
-            $rd read
+        } elseif {$::force_resp3} {
+            if {$resp == 2} {continue}
         }
+        r hello $resp
+        $rd hello $resp
+        $rd read
 
         test "ZPOPMIN/ZPOPMAX readraw in RESP$resp" {
             r del zset{t}
@@ -1401,6 +1450,7 @@ start_server {tags {"zset"}} {
         }
 
         $rd close
+        r hello 2
     }
 
     test {ZINTERSTORE regression with two sets, intset+hashtable} {
@@ -2235,7 +2285,9 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries 0
         r del z1{t} z2{t}
         r zadd z1{t} 1 a
+        assert_encoding skiplist z1{t}
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
+        assert_encoding skiplist z2{t}
         r config set zset-max-listpack-entries $original_max
     }
 
@@ -2325,6 +2377,8 @@ start_server {tags {"zset"}} {
     test "ZRANDMEMBER count overflow" {
         r zadd myzset 0 a
         assert_error {*value is out of range*} {r zrandmember myzset -9223372036854770000 withscores}
+        assert_error {*value is out of range*} {r zrandmember myzset -9223372036854775808 withscores}
+        assert_error {*value is out of range*} {r zrandmember myzset -9223372036854775808}
     } {}
 
     # Make sure we can distinguish between an empty array and a null response
@@ -2563,5 +2617,38 @@ start_server {tags {"zset"}} {
         r config set set-max-intset-entries 512
         r config set set-max-listpack-entries 128
         r config set zset-max-listpack-entries 128
+    }
+
+    foreach type {single multiple single_multiple} {
+        test "ZADD overflows the maximum allowed elements in a listpack - $type" {
+            r del myzset
+
+            set max_entries 64
+            set original_max [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries $max_entries
+
+            if {$type == "single"} {
+                # All are single zadd commands.
+                for {set i 0} {$i < $max_entries} {incr i} { r zadd myzset $i $i }
+            } elseif {$type == "multiple"} {
+                # One zadd command to add all elements.
+                set args {}
+                for {set i 0} {$i < $max_entries * 2} {incr i} { lappend args $i }
+                r zadd myzset {*}$args
+            } elseif {$type == "single_multiple"} {
+                # First one zadd adds an element (creates a key) and then one zadd adds all elements.
+                r zadd myzset 1 1
+                set args {}
+                for {set i 0} {$i < $max_entries * 2} {incr i} { lappend args $i }
+                r zadd myzset {*}$args
+            }
+
+            assert_encoding listpack myzset
+            assert_equal $max_entries [r zcard myzset]
+            assert_equal 1 [r zadd myzset 1 b]
+            assert_encoding skiplist myzset
+
+            r config set zset-max-listpack-entries $original_max
+        }
     }
 }
