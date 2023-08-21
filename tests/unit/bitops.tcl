@@ -69,14 +69,14 @@ start_server {tags {"bitops"}} {
     }
 
     test {BITCOUNT returns 0 with negative indexes where start > end} {
-        r set str{t} "xxxx"
-        assert {[r bitcount str{t} -6 -7] == 0}
-        assert {[r bitcount str{t} -6 -15 bit] == 0}
+        r set str "xxxx"
+        assert {[r bitcount str -6 -7] == 0}
+        assert {[r bitcount str -6 -15 bit] == 0}
 
         # against non existing key
-        r del no-key{t}
-        assert {[r bitcount no-key{t} -6 -7] == 0}
-        assert {[r bitcount no-key{t} -6 -15 bit] == 0}
+        r del str
+        assert {[r bitcount str -6 -7] == 0}
+        assert {[r bitcount str -6 -15 bit] == 0}
     }
 
     catch {unset num}
@@ -161,18 +161,17 @@ start_server {tags {"bitops"}} {
     }
 
     test {BITCOUNT against non-integer value} {
-        # against non existing key
-        r del no-key{t}
-        assert_error {ERR *not an integer*} {r bitcount no-key{t} a b}
-
         # against existing key
-        r set s{t} 1
-        assert_error {ERR *not an integer*} {r bitcount s{t} a b}
+        r set s 1
+        assert_error {ERR *not an integer*} {r bitcount s a b}
+
+        # against non existing key
+        r del s
+        assert_error {ERR *not an integer*} {r bitcount s a b}
 
         # against wrong type
-        r del mylist{t}
-        r lpush mylist{t} a b c
-        assert_error {ERR *not an integer*} {r bitcount mylist{t} a b}
+        r lpush s a b c
+        assert_error {ERR *not an integer*} {r bitcount s a b}
     }
 
     test {BITCOUNT regression test for github issue #582} {
