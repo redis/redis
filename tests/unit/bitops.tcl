@@ -57,6 +57,7 @@ start_server {tags {"bitops"}} {
     }
 
     test {BITCOUNT returns 0 against non existing key} {
+        r del no-key
         assert {[r bitcount no-key] == 0}
         assert {[r bitcount no-key 0 1000 bit] == 0}
     }
@@ -69,12 +70,13 @@ start_server {tags {"bitops"}} {
 
     test {BITCOUNT returns 0 with negative indexes where start > end} {
         r set str "xxxx"
-        assert {[r bitcount str -6 -7] == 0}
-        assert {[r bitcount str -6 -15 bit] == 0}
+        assert {[r bitcount str{t} -6 -7] == 0}
+        assert {[r bitcount str{t} -6 -15 bit] == 0}
 
         # against non existing key
-        assert {[r bitcount no-key -6 -7] == 0}
-        assert {[r bitcount no-key -6 -15 bit] == 0}
+        r del no-key{t}
+        assert {[r bitcount no-key{t} -6 -7] == 0}
+        assert {[r bitcount no-key{t} -6 -15 bit] == 0}
     }
 
     catch {unset num}
@@ -151,7 +153,6 @@ start_server {tags {"bitops"}} {
         assert_error {ERR *syntax*} {r bitcount s 0}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello hello2}
-        assert_error {ERR *not an integer*} {r bitcount s a b}
 
         r set s 1
         assert_error {ERR *syntax*} {r bitcount s 0}
@@ -161,9 +162,19 @@ start_server {tags {"bitops"}} {
     }
 
     test {BITCOUNT against non-integer value} {
-        catch {r bitcount no-key a b} e
-        set e
-    } {ERR *not an integer*}
+        # against non existing key
+        r del no-key{t}
+        assert_error {ERR *not an integer*} {r bitcount no-key{t} a b}
+
+        # against existing key
+        r set s{t} 1
+        assert_error {ERR *not an integer*} {r bitcount s{t} a b}
+
+        # against wrong type
+        r del mylist{t}
+        r lpush mylist{t} a b c
+        assert_error {ERR *not an integer*} {r bitcount mylist{t} a b}
+    }
 
     test {BITCOUNT regression test for github issue #582} {
         r del foo
