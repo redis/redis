@@ -69,7 +69,7 @@ start_server {tags {"bitops"}} {
     }
 
     test {BITCOUNT returns 0 with negative indexes where start > end} {
-        r set str "xxxx"
+        r set str{t} "xxxx"
         assert {[r bitcount str{t} -6 -7] == 0}
         assert {[r bitcount str{t} -6 -15 bit] == 0}
 
