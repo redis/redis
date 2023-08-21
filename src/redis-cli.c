@@ -9809,6 +9809,7 @@ int main(int argc, char **argv) {
     config.pipe_mode = 0;
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
+    config.memkeys = 0;
     config.hotkeys = 0;
     config.stdin_lastarg = 0;
     config.stdin_tag_arg = 0;
