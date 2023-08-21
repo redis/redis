@@ -140,6 +140,11 @@ start_server {tags {"bitops"}} {
         set e
     } {ERR *syntax*}
 
+    test {BITCOUNT against non-integer value} {
+        catch {r bitcount no-key a b} e
+        set e
+    } {ERR *not an integer*}
+
     test {BITCOUNT regression test for github issue #582} {
         r del foo
         r setbit foo 0 1
