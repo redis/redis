@@ -2599,7 +2599,7 @@ size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
 void *dupClientReplyValue(void *o);
 char *getClientPeerId(client *client);
-char *getClientSockName(client *client);
+char *getClientSockname(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(int type);
 int clientSetName(client *c, robj *name, const char **err);
