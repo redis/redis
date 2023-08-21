@@ -59,10 +59,6 @@ start_server {tags {"bitops"}} {
     test {BITCOUNT returns 0 against non existing key} {
         assert {[r bitcount no-key] == 0}
         assert {[r bitcount no-key 0 1000 bit] == 0}
-
-        # with negative indexes where start > end
-        assert {[r bitcount no-key -6 -7] == 0}
-        assert {[r bitcount no-key -6 -15 bit] == 0}
     }
 
     test {BITCOUNT returns 0 with out of range indexes} {
@@ -75,6 +71,10 @@ start_server {tags {"bitops"}} {
         r set str "xxxx"
         assert {[r bitcount str -6 -7] == 0}
         assert {[r bitcount str -6 -15 bit] == 0}
+
+        # against non existing key
+        assert {[r bitcount no-key -6 -7] == 0}
+        assert {[r bitcount no-key -6 -15 bit] == 0}
     }
 
     catch {unset num}
