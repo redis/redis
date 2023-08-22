@@ -2317,7 +2317,7 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 /* =========================== Software Watchdog ============================ */
 #include <sys/time.h>
 
-void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
+void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
 #else
@@ -2350,25 +2350,10 @@ void watchdogScheduleSignal(int period) {
     setitimer(ITIMER_REAL, &it, NULL);
 }
 void applyWatchdogPeriod(void) {
-    struct sigaction act;
-
     /* Disable watchdog when period is 0 */
     if (server.watchdog_period == 0) {
         watchdogScheduleSignal(0); /* Stop the current timer. */
-
-        /* Set the signal handler to SIG_IGN, this will also remove pending
-         * signals from the queue. */
-        sigemptyset(&act.sa_mask);
-        act.sa_flags = 0;
-        act.sa_handler = SIG_IGN;
-        sigaction(SIGALRM, &act, NULL);
     } else {
-        /* Setup the signal handler. */
-        sigemptyset(&act.sa_mask);
-        act.sa_flags = SA_SIGINFO;
-        act.sa_sigaction = watchdogSignalHandler;
-        sigaction(SIGALRM, &act, NULL);
-
         /* If the configured period is smaller than twice the timer period, it is
          * too short for the software watchdog to work reliably. Fix it now
          * if needed. */
