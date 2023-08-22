@@ -2236,6 +2236,10 @@ void readSyncBulkPayload(connection *conn) {
                                     "disabled");
                 bg_unlink(server.rdb_filename);
             }
+
+            /* If disk-based RDB loading fails, remove the half-loaded dataset. */
+            emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
+
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */
             return;
