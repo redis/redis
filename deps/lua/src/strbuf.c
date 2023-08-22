@@ -176,8 +176,7 @@ void strbuf_resize(strbuf_t *s, size_t len)
 
 void strbuf_append_string(strbuf_t *s, const char *str)
 {
-    int i;
-    size_t space;
+    size_t i, space;
 
     space = strbuf_empty_length(s);
 

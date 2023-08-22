@@ -1060,7 +1060,7 @@ void lremCommand(client *c) {
     long toremove;
     long removed = 0;
 
-    if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
+    if (getRangeLongFromObjectOrReply(c, c->argv[2], -LONG_MAX, LONG_MAX, &toremove, NULL) != C_OK)
         return;
 
     subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);

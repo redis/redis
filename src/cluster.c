@@ -6294,6 +6294,7 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
+        /* CLUSTER REPLICAS <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         int j;
 

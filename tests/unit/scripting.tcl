@@ -307,6 +307,13 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
+    test {EVAL - JSON string encoding a string larger than 2GB} {
+        run_script {
+            local s = string.rep("a", 1024 * 1024 * 1024)
+            return #cjson.encode(s..s..s)
+        } 0
+    } {3221225474} {large-memory} ;# length includes two double quotes at both ends
+
     test {EVAL - JSON numeric decoding} {
         # We must return the table as a string because otherwise
         # Redis converts floats to ints and we get 0 and 1023 instead
@@ -1111,6 +1118,53 @@ start_server {tags {"scripting"}} {
         run_script {for i=1,100000 do redis.call('ping') end return 'ok'} 0
         r ping
     } {PONG}
+
+    test {Timedout scripts and unblocked command} {
+        # make sure a command that's allowed during BUSY doesn't trigger an unblocked command
+
+        # enable AOF to also expose an assertion if the bug would happen
+        r flushall
+        r config set appendonly yes
+
+        # create clients, and set one to block waiting for key 'x'
+        set rd [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set r3 [redis_client]
+        $rd2 blpop x 0
+        wait_for_blocked_clients_count 1
+
+        # hack: allow the script to use client list command so that we can control when it aborts
+        r DEBUG set-disable-deny-scripts 1
+        r config set lua-time-limit 10
+        run_script_on_connection $rd {
+            local clients
+            redis.call('lpush',KEYS[1],'y');
+            while true do
+                clients = redis.call('client','list')
+                if string.find(clients, 'abortscript') ~= nil then break end
+            end
+            redis.call('lpush',KEYS[1],'z');
+            return clients
+            } 1 x
+
+        # wait for the script to be busy
+        after 200
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        # run cause the script to abort, and run a command that could have processed
+        # unblocked clients (due to a bug)
+        $r3 hello 2 setname abortscript
+
+        # make sure the script completed before the pop was processed
+        assert_equal [$rd2 read] {x z}
+        assert_match {*abortscript*} [$rd read]
+
+        $rd close
+        $rd2 close
+        $r3 close
+        r DEBUG set-disable-deny-scripts 0
+    } {OK} {external:skip needs:debug}
 
     test {Timedout scripts that modified data can't be killed by SCRIPT KILL} {
         set rd [redis_deferring_client]

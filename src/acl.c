@@ -563,7 +563,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
          * as well if the command is removed. */
         char *rule_end = strchr(existing_rule, ' ');
         if (!rule_end) {
-            /* This is the last rule, so it it to the end of the string. */
+            /* This is the last rule, so move it to the end of the string. */
             rule_end = existing_rule + strlen(existing_rule);
 
             /* This approach can leave a trailing space if the last rule is removed,
@@ -580,6 +580,8 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
                 /* Copy the remaining rules starting at the next rule to replace the rule to be
                  * deleted, including the terminating NULL character. */
                 memmove(copy_position, copy_end, strlen(copy_end) + 1);
+                existing_rule = copy_position;
+                continue;
             }
         }
         existing_rule = copy_end;
@@ -1859,6 +1861,12 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
  * permissions specified via the upcoming argument, and kill them if so. */
 void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+    /* Do nothing if there are no subscribers. */
+    if (!dictSize(server.pubsub_patterns) &&
+        !dictSize(server.pubsub_channels) &&
+        !dictSize(server.pubsubshard_channels))
+        return;
+
     listIter li, lpi;
     listNode *ln, *lpn;
     robj *o;
@@ -1990,7 +1998,8 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
     for (int j = 0; j < argc; j++) {
         char *op = argv[j];
 
-        if (op[0] == '(' && op[sdslen(op) - 1] != ')') {
+        if (open_bracket_start == -1 &&
+            (op[0] == '(' && op[sdslen(op) - 1] != ')')) {
             selector = sdsdup(argv[j]);
             open_bracket_start = j;
             continue;

@@ -918,11 +918,9 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * together clients consuming about the same amount of memory and can quickly
  * free them in case we reach maxmemory-clients (client eviction).
  *
- * Note: This function filters clients of type monitor, master or replica regardless
+ * Note: This function filters clients of type no-evict, master or replica regardless
  * of whether the eviction is enabled or not, so the memory usage we get from these
- * types of clients via the INFO command may be out of date. If someday we wanna
- * improve that to make monitors' memory usage more accurate, we need to re-add this
- * function call to `replicationFeedMonitors()`.
+ * types of clients via the INFO command may be out of date.
  *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
@@ -4162,7 +4160,7 @@ int processCommand(client *c) {
         int flags = CMD_CALL_FULL;
         if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
         call(c,flags);
-        if (listLength(server.ready_keys))
+        if (listLength(server.ready_keys) && !isInsideYieldingLongCommand())
             handleClientsBlockedOnKeys();
     }
 
@@ -6518,37 +6516,13 @@ static void sigShutdownHandler(int sig) {
 void setupSignalHandlers(void) {
     struct sigaction act;
 
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
-     * Otherwise, sa_handler is used. */
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
-    act.sa_sigaction = sigsegvHandler;
-    if(server.crashlog_enabled) {
-        sigaction(SIGSEGV, &act, NULL);
-        sigaction(SIGBUS, &act, NULL);
-        sigaction(SIGFPE, &act, NULL);
-        sigaction(SIGILL, &act, NULL);
-        sigaction(SIGABRT, &act, NULL);
-    }
-    return;
-}
-
-void removeSignalHandlers(void) {
-    struct sigaction act;
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_RESETHAND;
-    act.sa_handler = SIG_DFL;
-    sigaction(SIGSEGV, &act, NULL);
-    sigaction(SIGBUS, &act, NULL);
-    sigaction(SIGFPE, &act, NULL);
-    sigaction(SIGILL, &act, NULL);
-    sigaction(SIGABRT, &act, NULL);
+    setupSigSegvHandler();
 }
 
 /* This is the signal handler for children process. It is currently useful

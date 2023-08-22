@@ -33,6 +33,8 @@
 #include "adlist.h"
 #include "atomicvar.h"
 
+#define LOAD_TIMEOUT_MS 500
+
 typedef enum {
     restorePolicy_Flush, restorePolicy_Append, restorePolicy_Replace
 } restorePolicy;
@@ -961,7 +963,7 @@ void functionFreeLibMetaData(functionsLibMataData *md) {
 
 /* Compile and save the given library, return the loaded library name on success
  * and NULL on failure. In case on failure the err out param is set with relevant error message */
-sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx) {
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx, size_t timeout) {
     dictIterator *iter = NULL;
     dictEntry *entry = NULL;
     functionLibInfo *new_li = NULL;
@@ -995,7 +997,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     }
 
     new_li = engineLibraryCreate(md.name, ei, code);
-    if (engine->create(engine->engine_ctx, new_li, md.code, err) != C_OK) {
+    if (engine->create(engine->engine_ctx, new_li, md.code, timeout, err) != C_OK) {
         goto error;
     }
 
@@ -1063,7 +1065,11 @@ void functionLoadCommand(client *c) {
     robj *code = c->argv[argc_pos];
     sds err = NULL;
     sds library_name = NULL;
-    if (!(library_name = functionsCreateWithLibraryCtx(code->ptr, replace, &err, curr_functions_lib_ctx)))
+    size_t timeout = LOAD_TIMEOUT_MS;
+    if (mustObeyClient(c)) {
+        timeout = 0;
+    }
+    if (!(library_name = functionsCreateWithLibraryCtx(code->ptr, replace, &err, curr_functions_lib_ctx, timeout)))
     {
         addReplyErrorSds(c, err);
         return;
