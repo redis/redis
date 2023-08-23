@@ -52,7 +52,8 @@ proc kill_server config {
     }
 
     # nevermind if its already dead
-    if {![is_alive $config]} {
+    set pid [dict get $config pid]
+    if {![is_alive $pid]} {
         # Check valgrind errors if needed
         if {$::valgrind} {
             check_valgrind_errors [dict get $config stderr]
@@ -61,7 +62,6 @@ proc kill_server config {
         check_sanitizer_errors [dict get $config stderr]
         return
     }
-    set pid [dict get $config pid]
 
     # check for leaks
     if {![dict exists $config "skipleaks"]} {
@@ -99,7 +99,7 @@ proc kill_server config {
     } else {
         set max_wait 10000
     }
-    while {[is_alive $config]} {
+    while {[is_alive $pid]} {
         incr wait 10
 
         if {$wait == $max_wait} {
@@ -125,8 +125,7 @@ proc kill_server config {
     send_data_packet $::test_server_fd server-killed $pid
 }
 
-proc is_alive config {
-    set pid [dict get $config pid]
+proc is_alive pid {
     if {[catch {exec kill -0 $pid} err]} {
         return 0
     } else {
@@ -417,6 +416,10 @@ proc start_server {options {code undefined}} {
     set keep_persistence false
     set config_lines {}
 
+    # The server is expected to exit on startup (e.g. loading corrupted AOF/RDB), so some
+    # checks about server liveness/client connectivity are skipped.
+    set short_life false
+
     # parse options
     foreach {option value} $options {
         switch $option {
@@ -443,6 +446,9 @@ proc start_server {options {code undefined}} {
             }
             "keep_persistence" {
                 set keep_persistence $value
+            }
+            "short_life" {
+                set short_life $value
             }
             default {
                 error "Unknown option $option"
@@ -584,7 +590,7 @@ proc start_server {options {code undefined}} {
         }
 
         if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
-        if {$code ne "undefined"} {
+        if {$code ne "undefined" && !$short_life} {
             set serverisup [server_is_up $::host $port $retrynum]
         } else {
             set serverisup 1
@@ -630,19 +636,21 @@ proc start_server {options {code undefined}} {
             error_and_quit $config_file $line
         }
 
-        while 1 {
-            # check that the server actually started and is ready for connections
-            if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {
-                break
-            }
-            after 10
-        }
-
         # append the server to the stack
         lappend ::servers $srv
 
-        # connect client (after server dict is put on the stack)
-        reconnect
+        if {!$short_life} {
+            while 1 {
+                # check that the server actually started and is ready for connections
+                if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {
+                    break
+                }
+                after 10
+            }
+
+            # connect client (after server dict is put on the stack)
+            reconnect
+        }
 
         # remember previous num_failed to catch new errors
         set prev_num_failed $::num_failed
