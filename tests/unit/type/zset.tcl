@@ -506,6 +506,13 @@ start_server {tags {"zset"}} {
             create_zset zset {-inf a 1 b 2 c 3 d 4 e 5 f +inf g}
         }
 
+        proc create_long_zset {key length} {
+            r del $key
+            for {set i 0} {$i < $length} {incr i 1} {
+                r zadd $key $i i$i
+            }
+        }
+
         test "ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZCOUNT basics - $encoding" {
             create_default_zset
 
@@ -574,6 +581,16 @@ start_server {tags {"zset"}} {
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 3]
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 10]
             assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT 20 10]
+            # zrangebyscore uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            create_long_zset zset 20
+            assert_equal {i12 i13 i14} [r zrangebyscore zset 0 20 LIMIT 12 3]
+            assert_equal {i14 i15}     [r zrangebyscore zset 0 20 LIMIT 14 2]
+            assert_equal {i18 i19}     [r zrangebyscore zset 0 20 LIMIT 18 5]
+            assert_equal {}            [r zrangebyscore zset 0 20 LIMIT 20 5]
+            assert_equal {i7 i6 i5}    [r zrevrangebyscore zset 20 0 LIMIT 12 3]
+            assert_equal {i5 i4}       [r zrevrangebyscore zset 20 0 LIMIT 14 2]
+            assert_equal {i1 i0}       [r zrevrangebyscore zset 20 0 LIMIT 18 5]
+            assert_equal {}            [r zrevrangebyscore zset 20 0 LIMIT 20 5]
         }
 
         test "ZRANGEBYSCORE with LIMIT and WITHSCORES - $encoding" {
@@ -593,6 +610,14 @@ start_server {tags {"zset"}} {
             create_zset zset {0 alpha 0 bar 0 cool 0 down
                               0 elephant 0 foo 0 great 0 hill
                               0 omega}
+        }
+
+        proc create_long_lex_zset {} {
+            create_zset zset {0 alpha 0 bar 0 cool 0 down
+                              0 elephant 0 foo 0 great 0 hill
+                              0 island 0 jacket 0 key 0 lip 
+                              0 max 0 null 0 omega 0 point
+                              0 query 0 result 0 sea 0 tree}
         }
 
         test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics - $encoding" {
@@ -651,6 +676,17 @@ start_server {tags {"zset"}} {
             assert_equal {bar cool down} [r zrangebylex zset \[bar \[down LIMIT 0 100]
             assert_equal {omega hill great foo elephant} [r zrevrangebylex zset + \[d LIMIT 0 5]
             assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
+            # zrangebylex uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            create_long_lex_zset
+            assert_equal {max null} [r zrangebylex zset - \[tree LIMIT 12 2]
+            assert_equal {point query} [r zrangebylex zset - \[tree LIMIT 15 2]
+            assert_equal {} [r zrangebylex zset \[max \[tree LIMIT 10 0]
+            assert_equal {} [r zrangebylex zset \[max \[tree LIMIT 12 0]
+            assert_equal {max} [r zrangebylex zset \[max \[null LIMIT 0 1]
+            assert_equal {null} [r zrangebylex zset \[max \[null LIMIT 1 1]
+            assert_equal {max null omega point} [r zrangebylex zset \[max \[point LIMIT 0 100]
+            assert_equal {tree sea result query point} [r zrevrangebylex zset + \[o LIMIT 0 5]
+            assert_equal {tree sea result query} [r zrevrangebylex zset + \[o LIMIT 0 4]
         }
 
         test "ZRANGEBYLEX with invalid lex range specifiers - $encoding" {
