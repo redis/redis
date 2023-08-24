@@ -2237,6 +2237,37 @@ void removeSigSegvHandlers(void) {
     sigaction(SIGABRT, &act, NULL);
 }
 
+void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
+#ifdef HAVE_BACKTRACE
+    ucontext_t *uc = (ucontext_t*) secret;
+#else
+    (void)secret;
+#endif
+    UNUSED(sig);
+
+    /* SIGALRM can be sent explicitly to the process to get the stacktraces,
+    or every watchdog_period interval */
+    if(info->si_code != SI_USER) {
+        serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+    }
+    
+#ifdef HAVE_BACKTRACE
+    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
+#else
+    serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
+#endif
+    serverLogFromHandler(LL_WARNING,"--------\n");
+}
+
+void setupSigAlrmHandler(void) {
+    struct sigaction act;
+
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_SIGINFO;
+    act.sa_sigaction = sigalrmSignalHandler;
+    sigaction(SIGALRM, &act, NULL);
+}
+
 void printCrashReport(void) {
     /* Log INFO and CLIENT LIST */
     logServerInfo();
@@ -2316,24 +2347,6 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 
 /* =========================== Software Watchdog ============================ */
 #include <sys/time.h>
-
-void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
-#ifdef HAVE_BACKTRACE
-    ucontext_t *uc = (ucontext_t*) secret;
-#else
-    (void)secret;
-#endif
-    UNUSED(info);
-    UNUSED(sig);
-
-    serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
-#ifdef HAVE_BACKTRACE
-    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
-#else
-    serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
-#endif
-    serverLogFromHandler(LL_WARNING,"--------\n");
-}
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
  * If a timer is already scheduled, this function will re-schedule it to the

@@ -6524,10 +6524,7 @@ void setupSignalHandlers(void) {
 
     setupSigSegvHandler();
 
-    act.sa_flags = SA_SIGINFO;
-    act.sa_handler = NULL;
-    act.sa_sigaction = sigalrmSignalHandler;
-    sigaction(SIGALRM, &act, NULL);
+    setupSigAlrmHandler();
 }
 
 /* This is the signal handler for children process. It is currently useful
