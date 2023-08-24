@@ -2245,12 +2245,11 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
 #endif
     UNUSED(sig);
 
-    /* SIGALRM can be sent explicitly to the process to get the stacktraces,
-    or every watchdog_period interval */
-    if(info->si_code != SI_USER) {
+    /* SIGALRM can be sent explicitly to the process calling kill() to get the stacktraces,
+    or every watchdog_period interval. In the last case, si_pid is not set */
+    if(info->si_pid == 0) {
         serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
     }
-    
 #ifdef HAVE_BACKTRACE
     logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
 #else
