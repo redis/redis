@@ -76,6 +76,7 @@ void bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
+void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret);
 
 /** This test creates 2 additional threads and calls ThreadsManager_runOnThreads
  * with a callback that returns a string from each thread. Then writes the outputs to the log file.
@@ -2196,6 +2197,17 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     bugReportEnd(1, sig);
 }
 
+void setupDebugSigHandlers(void) {
+    setupSigSegvHandler();
+
+    struct sigaction act;
+
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_SIGINFO;
+    act.sa_sigaction = sigalrmSignalHandler;
+    sigaction(SIGALRM, &act, NULL);
+}
+
 void setupSigSegvHandler(void) {
     /* Initialize the signal handler lock. 
     Attempting to initialize an already initialized mutex or mutexattr results in undefined behavior. */
@@ -2235,36 +2247,6 @@ void removeSigSegvHandlers(void) {
     sigaction(SIGFPE, &act, NULL);
     sigaction(SIGILL, &act, NULL);
     sigaction(SIGABRT, &act, NULL);
-}
-
-void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
-#ifdef HAVE_BACKTRACE
-    ucontext_t *uc = (ucontext_t*) secret;
-#else
-    (void)secret;
-#endif
-    UNUSED(sig);
-
-    /* SIGALRM can be sent explicitly to the process calling kill() to get the stacktraces,
-    or every watchdog_period interval. In the last case, si_pid is not set */
-    if(info->si_pid == 0) {
-        serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
-    }
-#ifdef HAVE_BACKTRACE
-    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
-#else
-    serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
-#endif
-    serverLogFromHandler(LL_WARNING,"--------\n");
-}
-
-void setupSigAlrmHandler(void) {
-    struct sigaction act;
-
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_SIGINFO;
-    act.sa_sigaction = sigalrmSignalHandler;
-    sigaction(SIGALRM, &act, NULL);
 }
 
 void printCrashReport(void) {
@@ -2346,6 +2328,27 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 
 /* =========================== Software Watchdog ============================ */
 #include <sys/time.h>
+
+void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
+#ifdef HAVE_BACKTRACE
+    ucontext_t *uc = (ucontext_t*) secret;
+#else
+    (void)secret;
+#endif
+    UNUSED(sig);
+
+    /* SIGALRM can be sent explicitly to the process calling kill() to get the stacktraces,
+    or every watchdog_period interval. In the last case, si_pid is not set */
+    if(info->si_pid == 0) {
+        serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+    }
+#ifdef HAVE_BACKTRACE
+    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
+#else
+    serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
+#endif
+    serverLogFromHandler(LL_WARNING,"--------\n");
+}
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
  * If a timer is already scheduled, this function will re-schedule it to the

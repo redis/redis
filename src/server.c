@@ -6522,9 +6522,7 @@ void setupSignalHandlers(void) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-    setupSigSegvHandler();
-
-    setupSigAlrmHandler();
+    setupDebugSigHandlers();
 }
 
 /* This is the signal handler for children process. It is currently useful
