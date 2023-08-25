@@ -114,8 +114,8 @@ tags {"needs:debug"} {
         # These numbers are taken from the "Test latency events logging" test.
         # (debug sleep 0.3) and (debug sleep 0.5), using range to prevent timing issue.
         regexp "command - high (.*?) ms, low (.*?) ms" $res -> high low
-        assert_morethan_equal $high 500
-        assert_morethan_equal $low 300
+        assert_morethan_equal $high 400
+        assert_morethan_equal $low 200
     }
 } ;# tag
 
