@@ -2705,7 +2705,7 @@ void readQueryFromClient(connection *conn) {
         sdsfree(ci);
         sdsfree(bytes);
         freeClientAsync(c);
-        server.stat_client_qbuf_limit_reached++;
+        server.stat_client_qbuf_limit_disconnections++;
         goto done;
     }
 
@@ -3930,7 +3930,7 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
                       client);
         }
         sdsfree(client);
-        server.stat_client_outbuf_limit_reached++;
+        server.stat_client_outbuf_limit_disconnections++;
         return  1;
     }
     return 0;

@@ -1695,8 +1695,8 @@ struct redisServer {
     long long stat_io_writes_processed; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_total_reads_processed; /* Total number of read events processed */
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
-    long long stat_client_qbuf_limit_reached;  /* Total number of clients reached query buf length limit */
-    long long stat_client_outbuf_limit_reached;  /* Total number of clients reached output buf length limit */
+    long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
+    long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
