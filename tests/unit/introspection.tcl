@@ -335,8 +335,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT SETINFO can set a library name to this connection} {
         r CLIENT SETINFO lib-name redis.py
         r CLIENT SETINFO lib-ver 1.2.3
+        r CLIENT SETINFO lib-instance-name worker1
         r client info
-    } {*lib-name=redis.py lib-ver=1.2.3*}
+    } {*lib-name=redis.py lib-ver=1.2.3 lib-instance-name=worker1*}
 
     test {CLIENT SETINFO invalid args} {
         assert_error {*wrong number of arguments*} {r CLIENT SETINFO lib-name}
@@ -345,7 +346,7 @@ start_server {tags {"introspection"}} {
         assert_error {*Unrecognized*} {r CLIENT SETINFO badger hamster}
         # test that all of these didn't affect the previously set values
         r client info
-    } {*lib-name=redis.py lib-ver=1.2.3*}
+    } {*lib-name=redis.py lib-ver=1.2.3 lib-instance-name=worker1*}
 
     test {RESET does NOT clean library name} {
         r reset

@@ -33,6 +33,11 @@
                         "token": "lib-ver",
                         "name": "libver",
                         "type": "string"
+                    },
+                    {
+                        "token": "lib-instance-name",
+                        "name": "libinstancename",
+                        "type": "string"
                     }
                 ]
             }

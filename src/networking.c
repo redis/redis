@@ -145,6 +145,7 @@ client *createClient(connection *conn) {
     c->name = NULL;
     c->lib_name = NULL;
     c->lib_ver = NULL;
+    c->instance_name = NULL;
     c->bufpos = 0;
     c->buf_peak = c->buf_usable_size;
     c->buf_peak_last_reset_time = server.unixtime;
@@ -1535,7 +1536,7 @@ void clearClientConnectionState(client *c) {
         c->name = NULL;
     }
 
-    /* Note: lib_name and lib_ver are not reset since they still
+    /* Note: lib_name, lib_ver and lib_instance_name are not reset since they still
      * represent the client library behind the connection. */
     
     /* Selectively clear state flags not covered above */
@@ -1693,6 +1694,7 @@ void freeClient(client *c) {
     if (c->name) decrRefCount(c->name);
     if (c->lib_name) decrRefCount(c->lib_name);
     if (c->lib_ver) decrRefCount(c->lib_ver);
+    if (c->lib_instance_name) decrRefCount(c->lib_instance_name);
     freeClientMultiState(c);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
@@ -2815,7 +2817,7 @@ sds catClientInfoString(sds s, client *client) {
     }
 
     sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
+        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s lib-instance-name=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         getClientSockname(client),
@@ -2846,6 +2848,7 @@ sds catClientInfoString(sds s, client *client) {
         client->resp,
         client->lib_name ? (char*)client->lib_name->ptr : "",
         client->lib_ver ? (char*)client->lib_ver->ptr : ""
+        client->lib_instance_name ? (char*)client->lib_instance_name->ptr : ""
         );
     return ret;
 }
@@ -2941,6 +2944,8 @@ void clientSetinfoCommand(client *c) {
         destvar = &c->lib_name;
     } else if (!strcasecmp(attr,"lib-ver")) {
         destvar = &c->lib_ver;
+    } else if (!strcasecmp(attr,"lib-instance-name")) {
+        destvar = &c->lib_instance_name;
     } else {
         addReplyErrorFormat(c,"Unrecognized option '%s'", attr);
         return;
