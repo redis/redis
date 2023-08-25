@@ -67,7 +67,8 @@
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap);
-zskiplistNode *zslGetElementByRank(zskiplistNode *start_node, int start_level, unsigned long rank);
+zskiplistNode *zslGetElementByRankFromNode(zskiplistNode *start_node, int start_level, unsigned long rank);
+zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
@@ -374,7 +375,7 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         } else {
             /* If offset is big, we can jump from the last zsl->level-1 node. */
             rank_diff = edge_rank + 1 + n - last_highest_level_rank;
-            x = zslGetElementByRank(last_highest_level_node, zsl->level - 1, rank_diff);
+            x = zslGetElementByRankFromNode(last_highest_level_node, zsl->level - 1, rank_diff);
         }
         /* Check if score <= max. */
         if (x && !zslValueLteMax(x->score,range)) return NULL;
@@ -399,7 +400,7 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
             /* If offset is big, we can jump from the last zsl->level-1 node. */
             /* rank is the last element in range, n is -1-based, so we need n+1 to count backwards. */
             rank_diff = edge_rank + 1 + n - last_highest_level_rank;
-            x = zslGetElementByRank(last_highest_level_node, zsl->level - 1, rank_diff);
+            x = zslGetElementByRankFromNode(last_highest_level_node, zsl->level - 1, rank_diff);
         }
         /* Check if score >= min. */
         if (x && !zslValueGteMin(x->score, range)) return NULL;
@@ -528,7 +529,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
 }
 
 /* Finds an element by its rank from start node. The rank argument needs to be 1-based. */
-zskiplistNode *zslGetElementByRank(zskiplistNode *start_node, int start_level, unsigned long rank) {
+zskiplistNode *zslGetElementByRankFromNode(zskiplistNode *start_node, int start_level, unsigned long rank) {
     zskiplistNode *x;
     unsigned long traversed = 0;
     int i;
@@ -545,6 +546,11 @@ zskiplistNode *zslGetElementByRank(zskiplistNode *start_node, int start_level, u
         }
     }
     return NULL;
+}
+
+/* Finds an element by its rank. The rank argument needs to be 1-based. */
+zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
+    return zslGetElementByRankFromNode(zsl->header, zsl->level - 1, rank);
 }
 
 /* Populate the rangespec according to the objects min and max. */
@@ -740,7 +746,7 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
         } else {
             /* If offset is big, we caasn jump from the last zsl->level-1 node. */
             rank_diff = edge_rank + 1 + n - last_highest_level_rank;
-            x = zslGetElementByRank(last_highest_level_node, zsl->level - 1, rank_diff);
+            x = zslGetElementByRankFromNode(last_highest_level_node, zsl->level - 1, rank_diff);
         }
         /* Check if score <= max. */
         if (x && !zslLexValueLteMax(x->ele,range)) return NULL;
@@ -764,7 +770,7 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
             /* If offset is big, we can jump from the last zsl->level-1 node. */
             /* rank is the last element in range, n is -1-based, so we need n+1 to count backwards. */
             rank_diff = edge_rank + 1 + n - last_highest_level_rank;
-            x = zslGetElementByRank(last_highest_level_node, zsl->level - 1, rank_diff);
+            x = zslGetElementByRankFromNode(last_highest_level_node, zsl->level - 1, rank_diff);
         }
         /* Check if score >= min. */
         if (x && !zslLexValueGteMin(x->ele, range)) return NULL;
@@ -3208,11 +3214,11 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
         if (reverse) {
             ln = zsl->tail;
             if (start > 0)
-                ln = zslGetElementByRank(zsl->header, zsl->level - 1, llen - start);
+                ln = zslGetElementByRank(zsl,llen-start);
         } else {
             ln = zsl->header->level[0].forward;
             if (start > 0)
-                ln = zslGetElementByRank(zsl->header, zsl->level - 1, start + 1);
+                ln = zslGetElementByRank(zsl,start+1);
         }
 
         while(rangelen--) {

@@ -33,7 +33,7 @@
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
 
-zskiplistNode *zslGetElementByRank(zskiplistNode *start_node, int start_level, unsigned long rank);
+zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
 redisSortOperation *createSortOperation(int type, robj *pattern) {
     redisSortOperation *so = zmalloc(sizeof(*so));
@@ -425,11 +425,11 @@ void sortCommandGeneric(client *c, int readonly) {
 
             ln = zsl->tail;
             if (start > 0)
-                ln = zslGetElementByRank(zsl->header,zsl->level-1,zsetlen-start);
+                ln = zslGetElementByRank(zsl,zsetlen-start);
         } else {
             ln = zsl->header->level[0].forward;
             if (start > 0)
-                ln = zslGetElementByRank(zsl->header,zsl->level-1,start+1);
+                ln = zslGetElementByRank(zsl,start+1);
         }
 
         while(rangelen--) {
