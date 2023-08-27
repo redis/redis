@@ -75,10 +75,12 @@ start_server {tags {"dump"}} {
 
     test {RESTORE returns an error of the key already exists} {
         r set foo bar
-        set e {}
-        catch {r restore foo 0 "..."} e
-        set e
-    } {*BUSYKEY*}
+        assert_error {*value is not an integer or out of range*} {r restore foo bad_ttl bad_serialized_value}
+        assert_error {*DUMP payload version or checksum are wrong*} {r restore foo 0 bad_serialized_value}
+
+        set encoded [r dump foo]
+        assert_error {*BUSYKEY Target key name already exists*} {r restore foo 0 $encoded}
+    }
 
     test {RESTORE can overwrite an existing key with REPLACE} {
         r set foo bar1
