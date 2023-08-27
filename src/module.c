@@ -10635,16 +10635,13 @@ RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisMod
 /* Unregister a command filter.
  */
 int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *filter) {
-    int result;
-
     /* A module can only remove its own filters */
     if (filter->module != ctx->module) return REDISMODULE_ERR;
 
-    result = listSearchDel(moduleCommandFilters,filter);
-    if (!result) return REDISMODULE_ERR;
+    if (!listSearchDel(moduleCommandFilters,filter)) return REDISMODULE_ERR;
 
-    result = listSearchDel(ctx->module->filters,filter);
-    if (!result) return REDISMODULE_ERR;    /* Shouldn't happen */
+    /* This should always succeed, but adding a defensive return here. */
+    if (!listSearchDel(ctx->module->filters,filter)) return REDISMODULE_ERR;
 
     zfree(filter);
 

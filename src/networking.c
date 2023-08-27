@@ -1485,8 +1485,8 @@ void unlinkClient(client *c) {
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list of unblocked clients. */
     if (c->flags & CLIENT_UNBLOCKED) {
-        int result = listSearchDel(server.unblocked_clients,c);
-        serverAssert(result);
+        int deleted = listSearchDel(server.unblocked_clients,c);
+        serverAssert(deleted);
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
