@@ -67,7 +67,7 @@ void ThreadsManager_init(void);
  * NOTES:
  * The indices of the outputs in the output array are NOT associated with the threads indices in @param tids.
  *
- * The returned array length will be @param tids_len, but it might include NULLs if the
+ * The returned array length will be @param tids_len, but some of the entries might be set to NULL if the
  * invocation of @param callback was unsuccessful.
  *
  * The output array should be freed by the caller by calling zfree().

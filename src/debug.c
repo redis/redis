@@ -1832,6 +1832,99 @@ void closeDirectLogFiledes(int fd) {
 }
 
 #ifdef HAVE_BACKTRACE
+#define BACKTRACE_MAX_SIZE 100
+#ifdef __linux__
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <dirent.h>
+
+/** Returns a list of all the process's (pid) threads that can recieve signal sig_num.
+ * Also updates tids_len_output to the number of valid threads' ids in the returned array
+ * NOTE: It is the caller responsibility to free the returned array with zfree().
+*/
+static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *tids_len_output);
+
+#define MAX_BUFF_LENGTH 256
+typedef struct {
+    char thread_name[16];
+    int trace_size;
+    pid_t tid;
+    void *trace[BACKTRACE_MAX_SIZE];
+} stacktrace_data;
+
+static void *collect_stacktrace_data(void) {
+    /* allocate stacktrace_data struct */
+    stacktrace_data *trace_data = zmalloc(sizeof(stacktrace_data));
+
+    /* Get the stack trace first! */
+    trace_data->trace_size = backtrace(trace_data->trace, BACKTRACE_MAX_SIZE);
+    
+    /* get the thread name*/
+    prctl(PR_GET_NAME,trace_data->thread_name);
+
+    /* get the thread id*/
+    trace_data->tid = syscall(SYS_gettid);
+
+    /* return the trace data */
+    return trace_data;
+}
+
+static void writeStacktraces(int fd, int uplevel)  {
+    /* get the list of all the process's threads that don't block or ignore the THREADS_SIGNAL */
+    pid_t pid = getpid();
+    size_t len_tids;    
+    pid_t *tids = get_ready_to_signal_threads_tids(pid, THREADS_SIGNAL, &len_tids);
+
+    /* This call returns either NULL or the stacktraces data from all tids*/
+    stacktrace_data **stackraces_data = NULL;
+
+    /* free tids */
+    zfree(tids);
+
+    /* ThreadsManager_runOnThreads returns NULL if it is already running */
+    if(NULL == (stackraces_data =  (stacktrace_data **)ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data))) return;
+
+    char buff[MAX_BUFF_LENGTH];
+    pid_t calling_tid = syscall(SYS_gettid);
+    /* for backtrace_data in backtraces_data: */
+    for(size_t i = 0; i < len_tids; i++) {
+        stacktrace_data *curr_stacktrace_data = stackraces_data[i];
+        /*ThreadsManager_runOnThreads might fail to collect the thread's data*/
+        if(!curr_stacktrace_data) continue;
+        
+        /* stacktrace header includes the tid and the thread's name*/
+        snprintf(buff, MAX_BUFF_LENGTH, "\n%d %s", curr_stacktrace_data->tid, curr_stacktrace_data->thread_name);
+        if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
+
+        /* Add an indication to the the line of the thread that handles the log file*/
+        if(curr_stacktrace_data->tid == calling_tid) {
+            snprintf(buff, MAX_BUFF_LENGTH, " stacktraces-logging-handling-thread\n");
+        } else { /*jusr add a new line*/
+            snprintf(buff, MAX_BUFF_LENGTH, "\n");
+        }
+
+        if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
+
+        /* add the stacktrace*/
+        backtrace_symbols_fd(curr_stacktrace_data->trace+uplevel, curr_stacktrace_data->trace_size-uplevel, fd);
+
+        zfree(curr_stacktrace_data);
+    }
+    zfree(stackraces_data);
+}
+
+#else /* __linux__*/
+
+static void writeStacktraces(int fd, int uplevel)  {
+    void *trace[BACKTRACE_MAX_SIZE];
+
+    trace_size = backtrace(trace, BACKTRACE_MAX_SIZE);
+
+    char *msg = "\nBacktrace:\n";
+    if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
+    backtrace_symbols_fd(trace+uplevel, trace_size-uplevel, fd);
+}
+#endif /* __linux__*/
 
 /* Logs the stack trace using the backtrace() call. This function is designed
  * to be called from signal handlers safely.
@@ -1839,15 +1932,11 @@ void closeDirectLogFiledes(int fd) {
  * The uplevel argument indicates how many of the calling functions to skip.
  */
 void logStackTrace(void *eip, int uplevel) {
-    void *trace[100];
-    int trace_size = 0, fd = openDirectLogFiledes();
+    int fd = openDirectLogFiledes();
     char *msg;
     uplevel++; /* skip this function */
 
     if (fd == -1) return; /* If we can't log there is anything to do. */
-
-    /* Get the stack trace first! */
-    trace_size = backtrace(trace, 100);
 
     msg = "\n------ STACK TRACE ------\n";
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
@@ -1860,9 +1949,8 @@ void logStackTrace(void *eip, int uplevel) {
     }
 
     /* Write symbols to log file */
-    msg = "\nBacktrace:\n";
-    if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
-    backtrace_symbols_fd(trace+uplevel, trace_size-uplevel, fd);
+    ++uplevel;
+    writeStacktraces(fd, uplevel);
 
     /* Cleanup */
     closeDirectLogFiledes(fd);
@@ -2388,7 +2476,116 @@ void debugDelay(int usec) {
 }
 
 #ifdef __linux__
-#include <sys/syscall.h>
+
+/* =========================== Stacktrace Utils ============================ */
+#define TIDS_INITIAL_SIZE 50
+
+/** If it doesn't block and doesn't ignore, return 1 (the thread will handle the signal) 
+ * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
+ * also returns 0 if it failed to open the thread's status file. **/
+static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
+    /* open the threads status file */
+    char buff[MAX_BUFF_LENGTH];
+    snprintf(buff, MAX_BUFF_LENGTH, "/proc/%d/task/%d/status", pid, tid);
+    FILE *thread_status_file = fopen(buff, "r");
+    if (thread_status_file == NULL) {
+        return 0;
+    }
+
+    int ret = 1;
+
+    size_t field_name_len = strlen("SigBlk:");
+    while (fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) {
+        /* iterate the file until we reach SigBlk field line*/
+        if (!strncmp(buff, "SigBlk:", field_name_len)) {
+            /* check if the signal is blocked by this thread */
+            unsigned long sig_block_mask = strtoul(buff + field_name_len, NULL, 16);
+            if(sig_block_mask & sig_num) {
+                ret = 0;
+            } else {
+                /* get SigIgn field line and check if this thread ignors sig_num*/
+                if (fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) {/* Avoid warning. */};
+                unsigned long sig_ign_mask = strtoul(buff + field_name_len, NULL, 16);
+                if(sig_ign_mask & sig_num) {
+                    ret = 0;
+                }
+            }
+
+            break;
+        }
+    }
+
+    fclose(thread_status_file);
+    return ret;    
+}
+
+static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *tids_len_output) {
+    /* Initialize the path the process threads' directory.*/
+    char path_buff[MAX_BUFF_LENGTH];
+    snprintf(path_buff, MAX_BUFF_LENGTH, "/proc/%d/task", pid);
+
+    /* Get the directory handler. */
+    DIR *dir;
+    if (!(dir = opendir(path_buff))) return NULL;
+    
+    size_t tids_cap = TIDS_INITIAL_SIZE;
+    pid_t *tids = zmalloc(sizeof(pid_t) * tids_cap);
+
+    size_t tids_count = 0;
+    struct dirent *entry;
+    pid_t calling_tid = syscall(SYS_gettid);
+    int current_thread_index = -1;
+
+    /* Each thread is represented by a directory */
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_DIR) {
+            /* Skip irrelevant directories. */
+            if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+                /* the thread's directory name is equivalent to its tid. */ 
+                pid_t tid = atoi(entry->d_name);
+
+                if(!is_thread_ready_to_signal(pid, tid, sig_num)) continue;
+
+                if(tid == calling_tid) {
+                    current_thread_index = tids_count;
+                }
+
+                ++tids_count;
+                /* increase tids capacity if needed */
+                if(tids_count > tids_cap) {
+                    tids_cap *= 2;
+                    tids = zrealloc(tids, sizeof(pid_t) * tids_cap);
+                }
+
+                /* save the thread id*/
+                tids[tids_count - 1] = tid;
+            }
+        }
+    }
+
+    /* Swap the last tid with the the current thread id */
+    if(current_thread_index != -1) {
+        pid_t last_tid = tids[tids_count - 1];
+        
+        tids[tids_count - 1] = calling_tid;       
+        tids[current_thread_index] = last_tid;
+    }
+
+
+    closedir(dir);
+
+    *tids_len_output = tids_count;
+    return tids;
+}
+
+
+
+
+
+
+
+
+
 
 #define THREADS_NUMBER 2
 static const size_t buff_len = 256;
