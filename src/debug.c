@@ -1838,7 +1838,7 @@ void closeDirectLogFiledes(int fd) {
 #include <sys/syscall.h>
 #include <dirent.h>
 
-/** Returns a list of all the process's (pid) threads that can recieve signal sig_num.
+/** Returns a list of all the process's (pid) threads that can receive signal sig_num.
  * Also updates tids_len_output to the number of valid threads' ids in the returned array
  * NOTE: It is the caller responsibility to free the returned array with zfree().
 */
@@ -1872,7 +1872,7 @@ static void *collect_stacktrace_data(void) {
 static void writeStacktraces(int fd, int uplevel)  {
     /* get the list of all the process's threads that don't block or ignore the THREADS_SIGNAL */
     pid_t pid = getpid();
-    size_t len_tids;    
+    size_t len_tids = 0;    
     pid_t *tids = get_ready_to_signal_threads_tids(pid, THREADS_SIGNAL, &len_tids);
 
     /* This call returns either NULL or the stacktraces data from all tids*/
@@ -1918,7 +1918,7 @@ static void writeStacktraces(int fd, int uplevel)  {
 static void writeStacktraces(int fd, int uplevel)  {
     void *trace[BACKTRACE_MAX_SIZE];
 
-    trace_size = backtrace(trace, BACKTRACE_MAX_SIZE);
+    int trace_size = backtrace(trace, BACKTRACE_MAX_SIZE);
 
     char *msg = "\nBacktrace:\n";
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
@@ -2503,7 +2503,7 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
             if(sig_block_mask & sig_num) {
                 ret = 0;
             } else {
-                /* get SigIgn field line and check if this thread ignors sig_num*/
+                /* get SigIgn field line and check if this thread ignores sig_num*/
                 if (fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) {/* Avoid warning. */};
                 unsigned long sig_ign_mask = strtoul(buff + field_name_len, NULL, 16);
                 if(sig_ign_mask & sig_num) {
