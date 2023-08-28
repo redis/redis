@@ -43,12 +43,12 @@
 #include "listpack.h"
 #include "listpack_malloc.h"
 #include "redisassert.h"
+#include "util.h"
 
 #define LP_HDR_SIZE 6       /* 32 bit total len + 16 bit number of elements. */
 #define LP_HDR_NUMELE_UNKNOWN UINT16_MAX
 #define LP_MAX_INT_ENCODING_LEN 9
 #define LP_MAX_BACKLEN_SIZE 5
-#define LP_MAX_ENTRY_BACKLEN 34359738367ULL
 #define LP_ENCODING_INT 0
 #define LP_ENCODING_STRING 1
 
@@ -139,6 +139,16 @@
 
 static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p);
 
+/* Don't let listpacks grow over 1GB in any case, don't wanna risk overflow in
+ * Total Bytes header field */
+#define LISTPACK_MAX_SAFETY_SIZE (1<<30)
+int lpSafeToAdd(unsigned char* lp, size_t add) {
+    size_t len = lp? lpGetTotalBytes(lp): 0;
+    if (len + add > LISTPACK_MAX_SAFETY_SIZE)
+        return 0;
+    return 1;
+}
+
 /* Convert a string into a signed 64 bit integer.
  * The function returns 1 if the string could be parsed into a (non-overflowing)
  * signed 64 bit int, 0 otherwise. The 'value' will be set to the parsed value
@@ -169,7 +179,8 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
     int negative = 0;
     uint64_t v;
 
-    if (plen == slen)
+    /* Abort if length indicates this cannot possibly be an int */
+    if (slen == 0 || slen >= LONG_STR_SIZE)
         return 0;
 
     /* Special case: first and only digit is 0. */
@@ -323,7 +334,7 @@ static inline int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned ch
     } else {
         if (size < 64) *enclen = 1+size;
         else if (size < 4096) *enclen = 2+size;
-        else *enclen = 5+size;
+        else *enclen = 5+(uint64_t)size;
         return LP_ENCODING_STRING;
     }
 }
@@ -557,9 +568,7 @@ unsigned long lpLength(unsigned char *lp) {
  * this lib.
  *
  * Similarly, there is no error returned since the listpack normally can be
- * assumed to be valid, so that would be a very high API cost. However a function
- * in order to check the integrity of the listpack at load time is provided,
- * check lpIsValid(). */
+ * assumed to be valid, so that would be a very high API cost. */
 static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, unsigned char *intbuf, uint64_t *entry_size) {
     int64_t val;
     uint64_t uval, negstart, negmax;
@@ -642,7 +651,7 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
     /* Return the string representation of the integer or the value itself
      * depending on intbuf being NULL or not. */
     if (intbuf) {
-        *count = snprintf((char*)intbuf,LP_INTBUF_SIZE,"%lld",(long long)val);
+        *count = ll2string((char*)intbuf,LP_INTBUF_SIZE,(long long)val);
         return intbuf;
     } else {
         *count = val;
@@ -688,6 +697,8 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
         if (skipcnt == 0) {
             value = lpGetWithSize(p, &ll, NULL, &entry_size);
             if (value) {
+                /* check the value doesn't reach outside the listpack before accessing it */
+                assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
                 if (slen == ll && memcmp(value, s, slen) == 0) {
                     return p;
                 }
@@ -721,12 +732,17 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
             /* Skip entry */
             skipcnt--;
 
-            /* Move to next entry, avoid use `lpNext` due to `ASSERT_INTEGRITY` in
+            /* Move to next entry, avoid use `lpNext` due to `lpAssertValidEntry` in
             * `lpNext` will call `lpBytes`, will cause performance degradation */
             p = lpSkip(p);
         }
 
-        assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
+        /* The next call to lpGetWithSize could read at most 8 bytes past `p`
+         * We use the slower validation call only when necessary. */
+        if (p + 8 >= lp + lp_bytes)
+            lpAssertValidEntry(lp, lp_bytes, p);
+        else
+            assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
         if (p[0] == LP_EOF) break;
     }
 
@@ -845,8 +861,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     if (where == LP_BEFORE) {
         memmove(dst+enclen+backlen_size,dst,old_listpack_bytes-poff);
     } else { /* LP_REPLACE. */
-        long lendiff = (enclen+backlen_size)-replaced_len;
-        memmove(dst+replaced_len+lendiff,
+        memmove(dst+enclen+backlen_size,
                 dst+replaced_len,
                 old_listpack_bytes-poff-replaced_len);
     }
@@ -867,8 +882,10 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     if (!delete) {
         if (enctype == LP_ENCODING_INT) {
             memcpy(dst,eleint,enclen);
-        } else {
+        } else if (elestr) {
             lpEncodeString(dst,elestr,size);
+        } else {
+            redis_unreachable();
         }
         dst += enclen;
         memcpy(dst,backlen,backlen_size);
@@ -909,6 +926,13 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     return lp;
 }
 
+/* This is just a wrapper for lpInsert() to directly use a string. */
+unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
+                              unsigned char *p, int where, unsigned char **newp)
+{
+    return lpInsert(lp, s, NULL, slen, p, where, newp);
+}
+
 /* This is just a wrapper for lpInsert() to directly use a 64 bit integer
  * instead of a string. */
 unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char *p, int where, unsigned char **newp) {
@@ -933,7 +957,7 @@ unsigned char *lpPrependInteger(unsigned char *lp, long long lval) {
     return lpInsertInteger(lp, lval, p, LP_BEFORE, NULL);
 }
 
-/* Append the specified element 'ele' of length 'len' at the end of the
+/* Append the specified element 'ele' of length 'size' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
@@ -972,9 +996,238 @@ unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **new
     return lpInsert(lp,NULL,NULL,0,p,LP_REPLACE,newp);
 }
 
+/* Delete a range of entries from the listpack start with the element pointed by 'p'. */
+unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num) {
+    size_t bytes = lpBytes(lp);
+    unsigned long deleted = 0;
+    unsigned char *eofptr = lp + bytes - 1;
+    unsigned char *first, *tail;
+    first = tail = *p;
+
+    if (num == 0) return lp;  /* Nothing to delete, return ASAP. */
+
+    /* Find the next entry to the last entry that needs to be deleted.
+     * lpLength may be unreliable due to corrupt data, so we cannot
+     * treat 'num' as the number of elements to be deleted. */
+    while (num--) {
+        deleted++;
+        tail = lpSkip(tail);
+        if (tail[0] == LP_EOF) break;
+        lpAssertValidEntry(lp, bytes, tail);
+    }
+
+    /* Store the offset of the element 'first', so that we can obtain its
+     * address again after a reallocation. */
+    unsigned long poff = first-lp;
+
+    /* Move tail to the front of the listpack */
+    memmove(first, tail, eofptr - tail + 1);
+    lpSetTotalBytes(lp, bytes - (tail - first));
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN)
+        lpSetNumElements(lp, numele-deleted);
+    lp = lpShrinkToFit(lp);
+
+    /* Store the entry. */
+    *p = lp+poff;
+    if ((*p)[0] == LP_EOF) *p = NULL;
+
+    return lp;
+}
+
+/* Delete a range of entries from the listpack. */
+unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
+    unsigned char *p;
+    uint32_t numele = lpGetNumElements(lp);
+
+    if (num == 0) return lp; /* Nothing to delete, return ASAP. */
+    if ((p = lpSeek(lp, index)) == NULL) return lp;
+
+    /* If we know we're gonna delete beyond the end of the listpack, we can just move
+     * the EOF marker, and there's no need to iterate through the entries,
+     * but if we can't be sure how many entries there are, we rather avoid calling lpLength
+     * since that means an additional iteration on all elements.
+     *
+     * Note that index could overflow, but we use the value after seek, so when we
+     * use it no overflow happens. */
+    if (numele != LP_HDR_NUMELE_UNKNOWN && index < 0) index = (long)numele + index;
+    if (numele != LP_HDR_NUMELE_UNKNOWN && (numele - (unsigned long)index) <= num) {
+        p[0] = LP_EOF;
+        lpSetTotalBytes(lp, p - lp + 1);
+        lpSetNumElements(lp, index);
+        lp = lpShrinkToFit(lp);
+    } else {
+        lp = lpDeleteRangeWithEntry(lp, &p, num);
+    }
+
+    return lp;
+}
+
+/* Delete the elements 'ps' passed as an array of 'count' element pointers and
+ * return the resulting listpack. The elements must be given in the same order
+ * as they apper in the listpack. */
+unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count) {
+    if (count == 0) return lp;
+    unsigned char *dst = ps[0];
+    size_t total_bytes = lpGetTotalBytes(lp);
+    unsigned char *lp_end = lp + total_bytes; /* After the EOF element. */
+    assert(lp_end[-1] == LP_EOF);
+    /*
+     * ----+--------+-----------+--------+---------+-----+---+
+     * ... | Delete | Keep      | Delete | Keep    | ... |EOF|
+     * ... |xxxxxxxx|           |xxxxxxxx|         | ... |   |
+     * ----+--------+-----------+--------+---------+-----+---+
+     *     ^        ^           ^                            ^
+     *     |        |           |                            |
+     *     ps[i]    |           ps[i+1]                      |
+     *     skip     keep_start  keep_end                     lp_end
+     *
+     * The loop memmoves the bytes between keep_start and keep_end to dst.
+     */
+    for (unsigned long i = 0; i < count; i++) {
+        unsigned char *skip = ps[i];
+        assert(skip != NULL && skip[0] != LP_EOF);
+        unsigned char *keep_start = lpSkip(skip);
+        unsigned char *keep_end;
+        if (i + 1 < count) {
+            keep_end = ps[i + 1];
+            /* Deleting consecutive elements. Nothing to keep between them. */
+            if (keep_start == keep_end) continue;
+        } else {
+            /* Keep the rest of the listpack including the EOF marker. */
+            keep_end = lp_end;
+        }
+        assert(keep_end > keep_start);
+        size_t bytes_to_keep = keep_end - keep_start;
+        memmove(dst, keep_start, bytes_to_keep);
+        dst += bytes_to_keep;
+    }
+    /* Update total size and num elements. */
+    size_t deleted_bytes = lp_end - dst;
+    total_bytes -= deleted_bytes;
+    assert(lp[total_bytes - 1] == LP_EOF);
+    lpSetTotalBytes(lp, total_bytes);
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN) lpSetNumElements(lp, numele - count);
+    return lpShrinkToFit(lp);
+}
+
+/* Merge listpacks 'first' and 'second' by appending 'second' to 'first'.
+ *
+ * NOTE: The larger listpack is reallocated to contain the new merged listpack.
+ * Either 'first' or 'second' can be used for the result.  The parameter not
+ * used will be free'd and set to NULL.
+ *
+ * After calling this function, the input parameters are no longer valid since
+ * they are changed and free'd in-place.
+ *
+ * The result listpack is the contents of 'first' followed by 'second'.
+ *
+ * On failure: returns NULL if the merge is impossible.
+ * On success: returns the merged listpack (which is expanded version of either
+ * 'first' or 'second', also frees the other unused input listpack, and sets the
+ * input listpack argument equal to newly reallocated listpack return value. */
+unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
+    /* If any params are null, we can't merge, so NULL. */
+    if (first == NULL || *first == NULL || second == NULL || *second == NULL)
+        return NULL;
+
+    /* Can't merge same list into itself. */
+    if (*first == *second)
+        return NULL;
+
+    size_t first_bytes = lpBytes(*first);
+    unsigned long first_len = lpLength(*first);
+
+    size_t second_bytes = lpBytes(*second);
+    unsigned long second_len = lpLength(*second);
+
+    int append;
+    unsigned char *source, *target;
+    size_t target_bytes, source_bytes;
+    /* Pick the largest listpack so we can resize easily in-place.
+     * We must also track if we are now appending or prepending to
+     * the target listpack. */
+    if (first_bytes >= second_bytes) {
+        /* retain first, append second to first. */
+        target = *first;
+        target_bytes = first_bytes;
+        source = *second;
+        source_bytes = second_bytes;
+        append = 1;
+    } else {
+        /* else, retain second, prepend first to second. */
+        target = *second;
+        target_bytes = second_bytes;
+        source = *first;
+        source_bytes = first_bytes;
+        append = 0;
+    }
+
+    /* Calculate final bytes (subtract one pair of metadata) */
+    unsigned long long lpbytes = (unsigned long long)first_bytes + second_bytes - LP_HDR_SIZE - 1;
+    assert(lpbytes < UINT32_MAX); /* larger values can't be stored */
+    unsigned long lplength = first_len + second_len;
+
+    /* Combined lp length should be limited within UINT16_MAX */
+    lplength = lplength < UINT16_MAX ? lplength : UINT16_MAX;
+
+    /* Extend target to new lpbytes then append or prepend source. */
+    target = lp_realloc(target, lpbytes);
+    if (append) {
+        /* append == appending to target */
+        /* Copy source after target (copying over original [END]):
+         *   [TARGET - END, SOURCE - HEADER] */
+        memcpy(target + target_bytes - 1,
+               source + LP_HDR_SIZE,
+               source_bytes - LP_HDR_SIZE);
+    } else {
+        /* !append == prepending to target */
+        /* Move target *contents* exactly size of (source - [END]),
+         * then copy source into vacated space (source - [END]):
+         *   [SOURCE - END, TARGET - HEADER] */
+        memmove(target + source_bytes - 1,
+                target + LP_HDR_SIZE,
+                target_bytes - LP_HDR_SIZE);
+        memcpy(target, source, source_bytes - 1);
+    }
+
+    lpSetNumElements(target, lplength);
+    lpSetTotalBytes(target, lpbytes);
+
+    /* Now free and NULL out what we didn't realloc */
+    if (append) {
+        lp_free(*second);
+        *second = NULL;
+        *first = target;
+    } else {
+        lp_free(*first);
+        *first = NULL;
+        *second = target;
+    }
+
+    return target;
+}
+
+unsigned char *lpDup(unsigned char *lp) {
+    size_t lpbytes = lpBytes(lp);
+    unsigned char *newlp = lp_malloc(lpbytes);
+    memcpy(newlp, lp, lpbytes);
+    return newlp;
+}
+
 /* Return the total number of bytes the listpack is composed of. */
 size_t lpBytes(unsigned char *lp) {
     return lpGetTotalBytes(lp);
+}
+
+/* Returns the size of a listpack consisting of an integer repeated 'rep' times. */
+size_t lpEstimateBytesRepeatedInteger(long long lval, unsigned long rep) {
+    uint64_t enclen;
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+    lpEncodeIntegerGetType(lval, intenc, &enclen);
+    unsigned long backlen = lpEncodeBacklen(NULL, enclen);
+    return LP_HDR_SIZE + (enclen + backlen) * rep + 1;
 }
 
 /* Seek the specified element and returns the pointer to the seeked element.
@@ -1112,6 +1365,7 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 
     /* Validate the individual entries. */
     uint32_t count = 0;
+    uint32_t numele = lpGetNumElements(lp);
     unsigned char *p = lp + LP_HDR_SIZE;
     while(p && p[0] != LP_EOF) {
         unsigned char *prev = p;
@@ -1122,28 +1376,43 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
             return 0;
 
         /* Optionally let the caller validate the entry too. */
-        if (entry_cb && !entry_cb(prev, cb_userdata))
+        if (entry_cb && !entry_cb(prev, numele, cb_userdata))
             return 0;
 
         count++;
     }
 
+    /* Make sure 'p' really does point to the end of the listpack. */
+    if (p != lp + size - 1)
+        return 0;
+
     /* Check that the count in the header is correct */
-    uint32_t numele = lpGetNumElements(lp);
     if (numele != LP_HDR_NUMELE_UNKNOWN && numele != count)
         return 0;
 
     return 1;
 }
 
+/* Compare entry pointer to by 'p' with string 's' of length 'slen'.
+ * Return 1 if equal. */
 unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
-    unsigned char buf[LP_INTBUF_SIZE];
     unsigned char *value;
     int64_t sz;
-
     if (p[0] == LP_EOF) return 0;
-    value = lpGet(p, &sz, buf);
-    return (slen == sz) && memcmp(value,s,slen) == 0;
+
+    value = lpGet(p, &sz, NULL);
+    if (value) {
+        return (slen == sz) && memcmp(value,s,slen) == 0;
+    } else {
+        /* We use lpStringToInt64() to get an integer representation of the
+         * string 's' and compare it to 'sval', it's much faster than convert
+         * integer to string and comparing. */
+        int64_t sval;
+        if (lpStringToInt64((const char*)s, slen, &sval))
+            return sz == sval;
+    }
+
+    return 0;
 }
 
 /* uint compare for qsort */
@@ -1179,6 +1448,43 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
     val->sval = lpGetValue(p, &(val->slen), &(val->lval));
 }
 
+/* Randomly select 'count' entries and store them in the 'entries' array, which
+ * needs to have space for 'count' listpackEntry structs. The order is random
+ * and duplicates are possible. */
+void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entries) {
+    struct pick {
+        unsigned int index;
+        unsigned int order;
+    } *picks = lp_malloc(count * sizeof(struct pick));
+    unsigned int total_size = lpLength(lp);
+    assert(total_size);
+    for (unsigned int i = 0; i < count; i++) {
+        picks[i].index = rand() % total_size;
+        picks[i].order = i;
+    }
+
+    /* Sort by index. */
+    qsort(picks, count, sizeof(struct pick), uintCompare);
+
+    /* Iterate over listpack in index order and store the values in the entries
+     * array respecting the original order. */
+    unsigned char *p = lpFirst(lp);
+    unsigned int j = 0; /* index in listpack */
+    for (unsigned int i = 0; i < count; i++) {
+        /* Advance listpack pointer to until we reach 'index' listpack. */
+        while (j < picks[i].index) {
+            p = lpNext(lp, p);
+            j++;
+        }
+        int storeorder = picks[i].order;
+        unsigned int len = 0;
+        long long llval = 0;
+        unsigned char *str = lpGetValue(p, &len, &llval);
+        lpSaveValue(str, len, llval, &entries[storeorder]);
+    }
+    lp_free(picks);
+}
+
 /* Randomly select count of key value pairs and store into 'keys' and
  * 'vals' args. The order of the picked entries is random, and the selections
  * are non-unique (repetitions are possible).
@@ -1193,7 +1499,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         unsigned int index;
         unsigned int order;
     } rand_pick;
-    rand_pick *picks = zmalloc(sizeof(rand_pick)*count);
+    rand_pick *picks = lp_malloc(sizeof(rand_pick)*count);
     unsigned int total_size = lpLength(lp)/2;
 
     /* Avoid div by zero on corrupt listpack */
@@ -1227,7 +1533,7 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         p = lpNext(lp, p);
     }
 
-    zfree(picks);
+    lp_free(picks);
 }
 
 /* Randomly select count of key value pairs and store into 'keys' and
@@ -1245,32 +1551,132 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
     if (count > total_size)
         count = total_size;
 
-    /* To only iterate once, every time we try to pick a member, the probability
-     * we pick it is the quotient of the count left we want to pick and the
-     * count still we haven't visited in the dict, this way, we could make every
-     * member be equally picked.*/
     p = lpFirst(lp);
     unsigned int picked = 0, remaining = count;
     while (picked < count && p) {
-        double randomDouble = ((double)rand()) / RAND_MAX;
-        double threshold = ((double)remaining) / (total_size - index);
-        if (randomDouble <= threshold) {
+        assert((p = lpNextRandom(lp, p, &index, remaining, 1)));
+        key = lpGetValue(p, &klen, &klval);
+        lpSaveValue(key, klen, klval, &keys[picked]);
+        assert((p = lpNext(lp, p)));
+        index++;
+        if (vals) {
             key = lpGetValue(p, &klen, &klval);
-            lpSaveValue(key, klen, klval, &keys[picked]);
-            assert((p = lpNext(lp, p)));
-            if (vals) {
-                key = lpGetValue(p, &klen, &klval);
-                lpSaveValue(key, klen, klval, &vals[picked]);
-            }
-            remaining--;
-            picked++;
-        } else {
-            assert((p = lpNext(lp, p)));
+            lpSaveValue(key, klen, klval, &vals[picked]);
         }
         p = lpNext(lp, p);
+        remaining--;
+        picked++;
         index++;
     }
     return picked;
+}
+
+/* Iterates forward to the "next random" element, given we are yet to pick
+ * 'remaining' unique elements between the starting element 'p' (inclusive) and
+ * the end of the list. The 'index' needs to be initialized according to the
+ * current zero-based index matching the position of the starting element 'p'
+ * and is updated to match the returned element's zero-based index. If
+ * 'even_only' is nonzero, an element with an even index is picked, which is
+ * useful if the listpack represents a key-value pair sequence.
+ *
+ * Note that this function can return p. In order to skip the previously
+ * returned element, you need to call lpNext() or lpDelete() after each call to
+ * lpNextRandom(). Idea:
+ *
+ *     assert(remaining <= lpLength(lp));
+ *     p = lpFirst(lp);
+ *     i = 0;
+ *     while (remaining > 0) {
+ *         p = lpNextRandom(lp, p, &i, remaining--, 0);
+ *
+ *         // ... Do stuff with p ...
+ *
+ *         p = lpNext(lp, p);
+ *         i++;
+ *     }
+ */
+unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *index,
+                            unsigned int remaining, int even_only)
+{
+    /* To only iterate once, every time we try to pick a member, the probability
+     * we pick it is the quotient of the count left we want to pick and the
+     * count still we haven't visited. This way, we could make every member be
+     * equally likely to be picked. */
+    unsigned int i = *index;
+    unsigned int total_size = lpLength(lp);
+    while (i < total_size && p != NULL) {
+        if (even_only && i % 2 != 0) {
+            p = lpNext(lp, p);
+            i++;
+            continue;
+        }
+
+        /* Do we pick this element? */
+        unsigned int available = total_size - i;
+        if (even_only) available /= 2;
+        double randomDouble = ((double)rand()) / RAND_MAX;
+        double threshold = ((double)remaining) / available;
+        if (randomDouble <= threshold) {
+            *index = i;
+            return p;
+        }
+
+        p = lpNext(lp, p);
+        i++;
+    }
+
+    return NULL;
+}
+
+/* Print info of listpack which is used in debugCommand */
+void lpRepr(unsigned char *lp) {
+    unsigned char *p, *vstr;
+    int64_t vlen;
+    unsigned char intbuf[LP_INTBUF_SIZE];
+    int index = 0;
+
+    printf("{total bytes %zu} {num entries %lu}\n", lpBytes(lp), lpLength(lp));
+        
+    p = lpFirst(lp);
+    while(p) {
+        uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p);
+        uint32_t encoded_size = lpCurrentEncodedSizeUnsafe(p);
+        unsigned long back_len = lpEncodeBacklen(NULL, encoded_size);
+        printf(
+            "{\n"
+                "\taddr: 0x%08lx,\n"
+                "\tindex: %2d,\n"
+                "\toffset: %1lu,\n"
+                "\thdr+entrylen+backlen: %2lu,\n"
+                "\thdrlen: %3u,\n"
+                "\tbacklen: %2lu,\n"
+                "\tpayload: %1u\n",
+            (long unsigned)p,
+            index,
+            (unsigned long) (p-lp),
+            encoded_size + back_len,
+            encoded_size_bytes,
+            back_len,
+            encoded_size - encoded_size_bytes);
+        printf("\tbytes: ");
+        for (unsigned int i = 0; i < (encoded_size + back_len); i++) {
+            printf("%02x|",p[i]);
+        }
+        printf("\n");
+
+        vstr = lpGet(p, &vlen, intbuf);
+        printf("\t[str]");
+        if (vlen > 40) {
+            if (fwrite(vstr, 40, 1, stdout) == 0) perror("fwrite");
+            printf("...");
+        } else {
+            if (fwrite(vstr, vlen, 1, stdout) == 0) perror("fwrite");
+        }
+        printf("\n}\n");
+        index++;
+        p = lpNext(lp, p);
+    }
+    printf("{end}\n\n");
 }
 
 #ifdef REDIS_TEST
@@ -1278,6 +1684,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
 #include <sys/time.h>
 #include "adlist.h"
 #include "sds.h"
+#include "testhelp.h"
 
 #define UNUSED(x) (void)(x)
 #define TEST(name) printf("test — %s\n", name);
@@ -1286,7 +1693,7 @@ char *mixlist[] = {"hello", "foo", "quux", "1024"};
 char *intlist[] = {"4294967296", "-100", "100", "128000", 
                    "non integer", "much much longer non integer"};
 
-static unsigned char *createList() {
+static unsigned char *createList(void) {
     unsigned char *lp = lpNew(0);
     lp = lpAppend(lp, (unsigned char*)mixlist[1], strlen(mixlist[1]));
     lp = lpAppend(lp, (unsigned char*)mixlist[2], strlen(mixlist[2]));
@@ -1295,7 +1702,7 @@ static unsigned char *createList() {
     return lp;
 }
 
-static unsigned char *createIntList() {
+static unsigned char *createIntList(void) {
     unsigned char *lp = lpNew(0);
     lp = lpAppend(lp, (unsigned char*)intlist[2], strlen(intlist[2]));
     lp = lpAppend(lp, (unsigned char*)intlist[3], strlen(intlist[3]));
@@ -1391,8 +1798,9 @@ static void verifyEntry(unsigned char *p, unsigned char *s, size_t slen) {
     assert(lpCompare(p, s, slen));
 }
 
-static int lpValidation(unsigned char *p, void *userdata) {
+static int lpValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     UNUSED(p);
+    UNUSED(head_count);
 
     int ret;
     long *count = userdata;
@@ -1401,15 +1809,15 @@ static int lpValidation(unsigned char *p, void *userdata) {
     return ret;
 }
 
-int listpackTest(int argc, char *argv[], int accurate) {
+int listpackTest(int argc, char *argv[], int flags) {
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(accurate);
 
     int i;
     unsigned char *lp, *p, *vstr;
     int64_t vlen;
     unsigned char intbuf[LP_INTBUF_SIZE];
+    int accurate = (flags & REDIS_TEST_ACCURATE);
 
     TEST("Create int list") {
         lp = createIntList();
@@ -1537,6 +1945,129 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lpFree(lp);
     }
 
+    TEST("Delete whole listpack when num == -1");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, -1);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpFirst(lp);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, -1);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
+    }
+
+    TEST("Delete whole listpack with negative index");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, -4, 4);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpSeek(lp, -4);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 4);
+        assert(lpLength(lp) == 0);
+        assert(lp[LP_HDR_SIZE] == LP_EOF);
+        assert(lpBytes(lp) == (LP_HDR_SIZE + 1));
+        zfree(lp);
+    }
+
+    TEST("Delete inclusive range 0,0");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, 1);
+        assert(lpLength(lp) == 3);
+        assert(lpSkip(lpLast(lp))[0] == LP_EOF); /* check set LP_EOF correctly */
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpFirst(lp);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 1);
+        assert(lpLength(lp) == 3);
+        assert(lpSkip(lpLast(lp))[0] == LP_EOF); /* check set LP_EOF correctly */
+        zfree(lp);
+    }
+
+    TEST("Delete inclusive range 0,1");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 0, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpFirst(lp);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        zfree(lp);
+    }
+
+    TEST("Delete inclusive range 1,2");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 1, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpSeek(lp, 1);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 2);
+        assert(lpLength(lp) == 2);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+    }
+    
+    TEST("Delete with start index out of range");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 5, 1);
+        assert(lpLength(lp) == 4);
+        zfree(lp);
+    }
+
+    TEST("Delete with num overflow");
+    {
+        lp = createList();
+        lp = lpDeleteRange(lp, 1, 5);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+
+        lp = createList();
+        unsigned char *ptr = lpSeek(lp, 1);
+        lp = lpDeleteRangeWithEntry(lp, &ptr, 5);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+    }
+
+    TEST("Batch delete") {
+        unsigned char *lp = createList(); /* char *mixlist[] = {"hello", "foo", "quux", "1024"} */
+        assert(lpLength(lp) == 4); /* Pre-condition */
+        unsigned char *p0 = lpFirst(lp),
+            *p1 = lpNext(lp, p0),
+            *p2 = lpNext(lp, p1),
+            *p3 = lpNext(lp, p2);
+        unsigned char *ps[] = {p0, p1, p3};
+        lp = lpBatchDelete(lp, ps, 3);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char*)mixlist[2], strlen(mixlist[2]));
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
+    }
+
     TEST("Delete foo while iterating") {
         lp = createList();
         p = lpFirst(lp);
@@ -1604,7 +2135,7 @@ int listpackTest(int argc, char *argv[], int accurate) {
         char buf[32];
         int i,len;
         for (i = 0; i < 1000; i++) {
-            len = sprintf(buf, "%d", i);
+            len = snprintf(buf, sizeof(buf), "%d", i);
             lp = lpAppend(lp, (unsigned char*)buf, len);
         }
         for (i = 0; i < 1000; i++) {
@@ -1628,6 +2159,136 @@ int listpackTest(int argc, char *argv[], int accurate) {
         p = lpSeek(lp,3);
         assert(lpCompare(p,(unsigned char*)"1024",4));
         assert(!lpCompare(p,(unsigned char*)"1025",4));
+        lpFree(lp);
+    }
+
+    TEST("lpMerge two empty listpacks") {
+        unsigned char *lp1 = lpNew(0);
+        unsigned char *lp2 = lpNew(0);
+
+        /* Merge two empty listpacks, get empty result back. */
+        lp1 = lpMerge(&lp1, &lp2);
+        assert(lpLength(lp1) == 0);
+        zfree(lp1);
+    }
+
+    TEST("lpMerge two listpacks - first larger than second") {
+        unsigned char *lp1 = createIntList();
+        unsigned char *lp2 = createList();
+
+        size_t lp1_bytes = lpBytes(lp1);
+        size_t lp2_bytes = lpBytes(lp2);
+        unsigned long lp1_len = lpLength(lp1);
+        unsigned long lp2_len = lpLength(lp2);
+
+        unsigned char *lp3 = lpMerge(&lp1, &lp2);
+        assert(lp3 == lp1);
+        assert(lp2 == NULL);
+        assert(lpLength(lp3) == (lp1_len + lp2_len));
+        assert(lpBytes(lp3) == (lp1_bytes + lp2_bytes - LP_HDR_SIZE - 1));
+        verifyEntry(lpSeek(lp3, 0), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp3, 5), (unsigned char*)"much much longer non integer", 28);
+        verifyEntry(lpSeek(lp3, 6), (unsigned char*)"hello", 5);
+        verifyEntry(lpSeek(lp3, -1), (unsigned char*)"1024", 4);
+        zfree(lp3);
+    }
+
+    TEST("lpMerge two listpacks - second larger than first") {
+        unsigned char *lp1 = createList();
+        unsigned char *lp2 = createIntList();
+
+        size_t lp1_bytes = lpBytes(lp1);
+        size_t lp2_bytes = lpBytes(lp2);
+        unsigned long lp1_len = lpLength(lp1);
+        unsigned long lp2_len = lpLength(lp2);
+
+        unsigned char *lp3 = lpMerge(&lp1, &lp2);
+        assert(lp3 == lp2);
+        assert(lp1 == NULL);
+        assert(lpLength(lp3) == (lp1_len + lp2_len));
+        assert(lpBytes(lp3) == (lp1_bytes + lp2_bytes - LP_HDR_SIZE - 1));
+        verifyEntry(lpSeek(lp3, 0), (unsigned char*)"hello", 5);
+        verifyEntry(lpSeek(lp3, 3), (unsigned char*)"1024", 4);
+        verifyEntry(lpSeek(lp3, 4), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp3, -1), (unsigned char*)"much much longer non integer", 28);
+        zfree(lp3);
+    }
+
+    TEST("lpNextRandom normal usage") {
+        /* Create some data */
+        unsigned char *lp = lpNew(0);
+        unsigned char buf[100] = "asdf";
+        unsigned int size = 100;
+        for (size_t i = 0; i < size; i++) {
+            lp = lpAppend(lp, buf, i);
+        }
+        assert(lpLength(lp) == size);
+
+        /* Pick a subset of the elements of every possible subset size */
+        for (unsigned int count = 0; count <= size; count++) {
+            unsigned int remaining = count;
+            unsigned char *p = lpFirst(lp);
+            unsigned char *prev = NULL;
+            unsigned index = 0;
+            while (remaining > 0) {
+                assert(p != NULL);
+                p = lpNextRandom(lp, p, &index, remaining--, 0);
+                assert(p != NULL);
+                assert(p != prev);
+                prev = p;
+                p = lpNext(lp, p);
+                index++;
+            }
+        }
+        lpFree(lp);
+    }
+
+    TEST("lpNextRandom corner cases") {
+        unsigned char *lp = lpNew(0);
+        unsigned i = 0;
+
+        /* Pick from empty listpack returns NULL. */
+        assert(lpNextRandom(lp, NULL, &i, 2, 0) == NULL);
+
+        /* Add some elements and find their pointers within the listpack. */
+        lp = lpAppend(lp, (unsigned char *)"abc", 3);
+        lp = lpAppend(lp, (unsigned char *)"def", 3);
+        lp = lpAppend(lp, (unsigned char *)"ghi", 3);
+        assert(lpLength(lp) == 3);
+        unsigned char *p0 = lpFirst(lp);
+        unsigned char *p1 = lpNext(lp, p0);
+        unsigned char *p2 = lpNext(lp, p1);
+        assert(lpNext(lp, p2) == NULL);
+
+        /* Pick zero elements returns NULL. */
+        i = 0; assert(lpNextRandom(lp, lpFirst(lp), &i, 0, 0) == NULL);
+
+        /* Pick all returns all. */
+        i = 0; assert(lpNextRandom(lp, p0, &i, 3, 0) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 2, 0) == p1 && i == 1);
+        i = 2; assert(lpNextRandom(lp, p2, &i, 1, 0) == p2 && i == 2);
+
+        /* Pick more than one when there's only one left returns the last one. */
+        i = 2; assert(lpNextRandom(lp, p2, &i, 42, 0) == p2 && i == 2);
+
+        /* Pick all even elements returns p0 and p2. */
+        i = 0; assert(lpNextRandom(lp, p0, &i, 10, 1) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 10, 1) == p2 && i == 2);
+
+        /* Don't crash even for bad index. */
+        for (int j = 0; j < 100; j++) {
+            unsigned char *p;
+            switch (j % 4) {
+            case 0: p = p0; break;
+            case 1: p = p1; break;
+            case 2: p = p2; break;
+            case 3: p = NULL; break;
+            }
+            i = j % 7;
+            unsigned int remaining = j % 5;
+            p = lpNextRandom(lp, p, &i, remaining, 0);
+            assert(p == p0 || p == p1 || p == p2 || p == NULL);
+        }
         lpFree(lp);
     }
 
@@ -1817,6 +2478,21 @@ int listpackTest(int argc, char *argv[], int accurate) {
         lpFree(lp);
     }
 
+    TEST("Test number of elements exceeds LP_HDR_NUMELE_UNKNOWN") {
+        lp = lpNew(0);
+        for (int i = 0; i < LP_HDR_NUMELE_UNKNOWN + 1; i++)
+            lp = lpAppend(lp, (unsigned char*)"1", 1);
+
+        assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN);
+        assert(lpLength(lp) == LP_HDR_NUMELE_UNKNOWN+1);
+
+        lp = lpDeleteRange(lp, -2, 2);
+        assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN);
+        assert(lpLength(lp) == LP_HDR_NUMELE_UNKNOWN-1);
+        assert(lpGetNumElements(lp) == LP_HDR_NUMELE_UNKNOWN-1); /* update length after lpLength */
+        lpFree(lp);
+    }
+
     TEST("Stress with random payloads of different encoding") {
         unsigned long long start = usec();
         int i,j,len,where;
@@ -1841,13 +2517,13 @@ int listpackTest(int argc, char *argv[], int accurate) {
                 } else {
                     switch(rand() % 3) {
                     case 0:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) >> 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) >> 20);
                         break;
                     case 1:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()));
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()));
                         break;
                     case 2:
-                        buflen = sprintf(buf,"%lld",(0LL + rand()) << 20);
+                        buflen = snprintf(buf,sizeof(buf),"%lld",(0LL + rand()) << 20);
                         break;
                     default:
                         assert(NULL);
@@ -1947,6 +2623,30 @@ int listpackTest(int argc, char *argv[], int accurate) {
             unsigned long long start = usec();
             for (int i = 0; i < 2000; i++) {
                 lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL);
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpCompare with string") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = lpSeek(lp,0);
+                while (eptr != NULL) {
+                    lpCompare(eptr,(unsigned char*)"nothing",7);
+                    eptr = lpNext(lp,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpCompare with number") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = lpSeek(lp,0);
+                while (eptr != NULL) {
+                    lpCompare(lp, (unsigned char*)"99999", 5);
+                    eptr = lpNext(lp,eptr);
+                }
             }
             printf("Done. usec=%lld\n", usec()-start);
         }

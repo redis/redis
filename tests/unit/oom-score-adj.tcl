@@ -14,6 +14,15 @@ if {$system_name eq {linux}} {
             return $val
         }
 
+        proc set_oom_score_adj {score {pid ""}} {
+            if {$pid == ""} {
+                set pid [srv 0 pid]
+            }
+            set fd [open "/proc/$pid/oom_score_adj" "w"]
+            puts $fd $score
+            close $fd
+        }
+
         test {CONFIG SET oom-score-adj works as expected} {
             set base [get_oom_score_adj]
 
@@ -72,6 +81,51 @@ if {$system_name eq {linux}} {
                 # Make sure previous values remain
                 assert {[r config get oom-score-adj-values] == {oom-score-adj-values {0 100 100}}}
             }
+        }
+
+        test {CONFIG SET oom-score-adj-values doesn't touch proc when disabled} {
+            set orig_osa [get_oom_score_adj]
+            
+            set other_val1 [expr $orig_osa + 1]
+            set other_val2 [expr $orig_osa + 2]
+            
+            r config set oom-score-adj no
+            
+            set_oom_score_adj $other_val2
+            assert_equal [get_oom_score_adj] $other_val2
+
+            r config set oom-score-adj-values "$other_val1 $other_val1 $other_val1"
+            
+            assert_equal [get_oom_score_adj] $other_val2
+        }
+
+        test {CONFIG SET oom score restored on disable} {
+            r config set oom-score-adj no
+            set_oom_score_adj 22
+            assert_equal [get_oom_score_adj] 22
+
+            r config set oom-score-adj-values "9 9 9" oom-score-adj yes
+            assert_equal [get_oom_score_adj] [expr 9+22]
+
+            r config set oom-score-adj no
+            assert_equal [get_oom_score_adj] 22
+        }
+
+        test {CONFIG SET oom score relative and absolute} {
+            set custom_oom 9
+            r config set oom-score-adj no
+            set base_oom [get_oom_score_adj]
+
+            r config set oom-score-adj-values "$custom_oom $custom_oom $custom_oom" oom-score-adj relative
+            assert_equal [get_oom_score_adj] [expr $base_oom+$custom_oom]
+
+            r config set oom-score-adj absolute
+            assert_equal [get_oom_score_adj] $custom_oom
+        }
+
+        test {CONFIG SET out-of-range oom score} {
+            assert_error {ERR *must be between -2000 and 2000*} {r config set oom-score-adj-values "-2001 -2001 -2001"} 
+            assert_error {ERR *must be between -2000 and 2000*} {r config set oom-score-adj-values "2001 2001 2001"} 
         }
     }
 }

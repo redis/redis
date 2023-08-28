@@ -1,4 +1,3 @@
-#define REDISMODULE_EXPERIMENTAL_API
 #define _XOPEN_SOURCE 700
 #include "redismodule.h"
 #include <stdio.h>
@@ -29,6 +28,11 @@ int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     UNUSED(ctx);
     RedisModule_Free(privdata);
+}
+
+/* Private data freeing callback for BLOCK.BLOCK command. */
+void HelloBlock_FreeStringData(RedisModuleCtx *ctx, void *privdata) {
+    RedisModule_FreeString(ctx, (RedisModuleString*)privdata);
 }
 
 /* The thread entry point that actually executes the blocking part
@@ -225,7 +229,7 @@ int Block_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
      * callback and differentiate the different code flows above.
      */
     blocked_client = RedisModule_BlockClient(ctx, Block_RedisCommand,
-            timeout > 0 ? Block_RedisCommand : NULL, NULL, timeout);
+            timeout > 0 ? Block_RedisCommand : NULL, HelloBlock_FreeStringData, timeout);
     return REDISMODULE_OK;
 }
 

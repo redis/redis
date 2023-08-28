@@ -1,0 +1,55 @@
+{
+    "SUNION": {
+        "summary": "Returns the union of multiple sets.",
+        "complexity": "O(N) where N is the total number of elements in all given sets.",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": -2,
+        "function": "sunionCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List with the members of the resulting set.",
+            "uniqueItems": true,
+            "items": {
+                "type": "string"
+            }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            }
+        ]
+    }
+}

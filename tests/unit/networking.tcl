@@ -121,7 +121,14 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
 
         # Make sure bind parameter is as expected and server handles binding
         # accordingly.
-        assert_equal {bind {}} [rediscli_exec 0 config get bind]
+        # (it seems that rediscli_exec behaves differently in RESP3, possibly
+        # because CONFIG GET returns a dict instead of a list so redis-cli emits
+        # it in a single line)
+        if {$::force_resp3} {
+            assert_equal {{bind }} [rediscli_exec 0 config get bind]
+        } else {
+            assert_equal {bind {}} [rediscli_exec 0 config get bind]
+        }
         catch {reconnect 0} err
         assert_match {*connection refused*} $err
 
@@ -129,16 +136,6 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
         reconnect 0
         r ping
     } {PONG}
-
-    proc get_nonloopback_addr {} {
-        set addrlist [list {}]
-        catch { set addrlist [exec hostname -I] }
-        return [lindex $addrlist 0]
-    }
-
-    proc get_nonloopback_client {} {
-        return [redis [get_nonloopback_addr] [srv 0 "port"] 0 $::tls]
-    }
 
     test {Protected mode works as expected} {
         # Get a non-loopback address of this instance for this test.

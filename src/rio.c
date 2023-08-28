@@ -46,6 +46,7 @@
 
 
 #include "fmacros.h"
+#include "fpconv_dtoa.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -108,19 +109,62 @@ void rioInitWithBuffer(rio *r, sds s) {
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
-    size_t retval;
+    if (!r->io.file.autosync) return fwrite(buf,len,1,r->io.file.fp);
 
-    retval = fwrite(buf,len,1,r->io.file.fp);
-    r->io.file.buffered += len;
+    size_t nwritten = 0;
+    /* Incrementally write data to the file, avoid a single write larger than
+     * the autosync threshold (so that the kernel's buffer cache never has too
+     * many dirty pages at once). */
+    while (len != nwritten) {
+        serverAssert(r->io.file.autosync > r->io.file.buffered);
+        size_t nalign = (size_t)(r->io.file.autosync - r->io.file.buffered);
+        size_t towrite = nalign > len-nwritten ? len-nwritten : nalign;
 
-    if (r->io.file.autosync &&
-        r->io.file.buffered >= r->io.file.autosync)
-    {
-        fflush(r->io.file.fp);
-        if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
-        r->io.file.buffered = 0;
+        if (fwrite((char*)buf+nwritten,towrite,1,r->io.file.fp) == 0) return 0;
+        nwritten += towrite;
+        r->io.file.buffered += towrite;
+
+        if (r->io.file.buffered >= r->io.file.autosync) {
+            fflush(r->io.file.fp);
+
+            size_t processed = r->processed_bytes + nwritten;
+            serverAssert(processed % r->io.file.autosync == 0);
+            serverAssert(r->io.file.buffered == r->io.file.autosync);
+
+#if HAVE_SYNC_FILE_RANGE
+            /* Start writeout asynchronously. */
+            if (sync_file_range(fileno(r->io.file.fp),
+                    processed - r->io.file.autosync, r->io.file.autosync,
+                    SYNC_FILE_RANGE_WRITE) == -1)
+                return 0;
+
+            if (processed >= (size_t)r->io.file.autosync * 2) {
+                /* To keep the promise to 'autosync', we should make sure last
+                 * asynchronous writeout persists into disk. This call may block
+                 * if last writeout is not finished since disk is slow. */
+                if (sync_file_range(fileno(r->io.file.fp),
+                        processed - r->io.file.autosync*2,
+                        r->io.file.autosync, SYNC_FILE_RANGE_WAIT_BEFORE|
+                        SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER) == -1)
+                    return 0;
+            }
+#else
+            if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
+#endif
+            if (r->io.file.reclaim_cache) {
+                /* In Linux sync_file_range just issue a writeback request to
+                 * OS, and when posix_fadvise is called, the dirty page may
+                 * still be in flushing, which means it would be ignored by
+                 * posix_fadvise.
+                 * 
+                 * So we posix_fadvise the whole file, and the writeback-ed 
+                 * pages will have other chances to be reclaimed. */
+                reclaimFilePageCache(fileno(r->io.file.fp), 0, 0);
+            }
+            r->io.file.buffered = 0;
+        }
     }
-    return retval;
+    return 1;
 }
 
 /* Returns 1 or 0 for success/failure. */
@@ -157,6 +201,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.fp = fp;
     r->io.file.buffered = 0;
     r->io.file.autosync = 0;
+    r->io.file.reclaim_cache = 0;
 }
 
 /* ------------------- Connection implementation -------------------
@@ -211,7 +256,10 @@ static size_t rioConnRead(rio *r, void *buf, size_t len) {
         int retval = connRead(r->io.conn.conn,
                           (char*)r->io.conn.buf + sdslen(r->io.conn.buf),
                           toread);
-        if (retval <= 0) {
+        if (retval == 0) {
+            return 0;
+        } else if (retval < 0) {
+            if (connLastErrorRetryable(r->io.conn.conn)) continue;
             if (errno == EWOULDBLOCK) errno = ETIMEDOUT;
             return 0;
         }
@@ -319,6 +367,7 @@ static size_t rioFdWrite(rio *r, const void *buf, size_t len) {
     while(nwritten != len) {
         retval = write(r->io.fd.fd,p+nwritten,len-nwritten);
         if (retval <= 0) {
+            if (retval == -1 && errno == EINTR) continue;
             /* With blocking io, which is the sole user of this
              * rio target, EWOULDBLOCK is returned only because of
              * the SO_SNDTIMEO socket option, so we translate the error
@@ -401,6 +450,29 @@ void rioSetAutoSync(rio *r, off_t bytes) {
     r->io.file.autosync = bytes;
 }
 
+/* Set the file-based rio object to reclaim cache after every auto-sync.
+ * In the Linux implementation POSIX_FADV_DONTNEED skips the dirty
+ * pages, so if auto sync is unset this option will have no effect.
+ * 
+ * This feature can reduce the cache footprint backed by the file. */
+void rioSetReclaimCache(rio *r, int enabled) {
+    r->io.file.reclaim_cache = enabled;
+}
+
+/* Check the type of rio. */
+uint8_t rioCheckType(rio *r) {
+    if (r->read == rioFileRead) {
+        return RIO_TYPE_FILE;
+    } else if (r->read == rioBufferRead) {
+        return RIO_TYPE_BUFFER;
+    } else if (r->read == rioConnRead) {
+        return RIO_TYPE_CONN;
+    } else {
+        /* r->read == rioFdRead */
+        return RIO_TYPE_FD;
+    }
+}
+
 /* --------------------------- Higher level interface --------------------------
  *
  * The following higher level functions use lower level rio.c functions to help
@@ -442,7 +514,7 @@ size_t rioWriteBulkLongLong(rio *r, long long l) {
 size_t rioWriteBulkDouble(rio *r, double d) {
     char dbuf[128];
     unsigned int dlen;
-
-    dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+    dlen = fpconv_dtoa(d, dbuf);
+    dbuf[dlen] = '\0';
     return rioWriteBulkString(r,dbuf,dlen);
 }

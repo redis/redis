@@ -1,0 +1,90 @@
+{
+    "SHARDS": {
+        "summary": "Returns the mapping of cluster slots to shards.",
+        "complexity": "O(N) where N is the total number of cluster nodes",
+        "group": "cluster",
+        "since": "7.0.0",
+        "arity": 2,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "history": [],
+        "command_flags": [
+            "LOADING",
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "description": "a nested list of a map of hash ranges and shard nodes describing individual shards",
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "slots": {
+                        "description": "an even number element array specifying the start and end slot numbers for slot ranges owned by this shard",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "nodes": {
+                        "description": "nodes that handle these slot ranges",
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "port": {
+                                    "type": "integer"
+                                },
+                                "tls-port": {
+                                    "type": "integer"
+                                },
+                                "ip": {
+                                    "type": "string"
+                                },
+                                "endpoint": {
+                                    "type": "string"
+                                },
+                                "hostname": {
+                                    "type": "string"
+                                },
+                                "role": {
+                                    "oneOf": [
+                                        {
+                                            "const": "master"
+                                        },
+                                        {
+                                            "const": "replica"
+                                        }
+                                    ]
+                                },
+                                "replication-offset": {
+                                    "type": "integer"
+                                },
+                                "health": {
+                                    "oneOf": [
+                                        {
+                                            "const": "fail"
+                                        },
+                                        {
+                                            "const": "loading"
+                                        },
+                                        {
+                                            "const": "online"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -37,8 +37,14 @@ int getGenericCommand(client *c);
  * String Commands
  *----------------------------------------------------------------------------*/
 
-static int checkStringLength(client *c, long long size) {
-    if (!(c->flags & CLIENT_MASTER) && size > server.proto_max_bulk_len) {
+static int checkStringLength(client *c, long long size, long long append) {
+    if (mustObeyClient(c))
+        return C_OK;
+    /* 'uint64_t' cast is there just to prevent undefined behavior on overflow */
+    long long total = (uint64_t)size + append;
+    /* Test configured max-bulk-len represending a limit of the biggest string object,
+     * and also test for overflow. */
+    if (total > server.proto_max_bulk_len || total < size || total < append) {
         addReplyError(c,"string exceeds maximum allowed size (proto-max-bulk-len)");
         return C_ERR;
     }
@@ -77,6 +83,9 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    int found = 0;
+    int setkey_flags = 0;
+
     if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
         return;
     }
@@ -85,8 +94,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    found = (lookupKeyWrite(c->db,key) != NULL);
+
+    if ((flags & OBJ_SET_NX && found) ||
+        (flags & OBJ_SET_XX && !found))
     {
         if (!(flags & OBJ_SET_GET)) {
             addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
@@ -94,17 +105,23 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         return;
     }
 
-    genericSetKey(c,c->db,key, val,flags & OBJ_KEEPTTL,1);
+    /* When expire is not NULL, we avoid deleting the TTL so it can be updated later instead of being deleted and then created again. */
+    setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
+    setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
+
+    setKey(c,c->db,key,val,setkey_flags);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
     if (expire) {
         setExpire(c,c->db,key,milliseconds);
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
-         * EX/PX/EXAT/PXAT flag. */
-        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
-        decrRefCount(milliseconds_obj);
+         * EX/PX/EXAT flag. */
+        if (!(flags & OBJ_PXAT)) {
+            robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+            rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
+            decrRefCount(milliseconds_obj);
+        }
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
     }
 
@@ -152,19 +169,19 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
     if (*milliseconds <= 0 || (unit == UNIT_SECONDS && *milliseconds > LLONG_MAX / 1000)) {
         /* Negative value provided or multiplication is gonna overflow. */
-        addReplyErrorFormat(c, "invalid expire time in %s", c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if ((flags & OBJ_PX) || (flags & OBJ_EX)) {
-        *milliseconds += mstime();
+        *milliseconds += commandTimeSnapshot();
     }
 
     if (*milliseconds <= 0) {
         /* Overflow detected. */
-        addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+        addReplyErrorExpireTime(c);
         return C_ERR;
     }
 
@@ -373,8 +390,7 @@ void getexCommand(client *c) {
     if (((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
         /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
          * has already elapsed so delete the key in that case. */
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db, c->argv[1]) :
-                      dbSyncDelete(c->db, c->argv[1]);
+        int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
         serverAssert(deleted);
         robj *aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
         rewriteClientCommandVector(c,2,aux,c->argv[1]);
@@ -403,12 +419,9 @@ void getexCommand(client *c) {
 
 void getdelCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
-    int deleted = server.lazyfree_lazy_user_del ? dbAsyncDelete(c->db, c->argv[1]) :
-                  dbSyncDelete(c->db, c->argv[1]);
-    if (deleted) {
-        /* Propagate as DEL/UNLINK command */
-        robj *aux = server.lazyfree_lazy_user_del ? shared.unlink : shared.del;
-        rewriteClientCommandVector(c,2,aux,c->argv[1]);
+    if (dbSyncDelete(c->db, c->argv[1])) {
+        /* Propagate as DEL command */
+        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
@@ -418,7 +431,7 @@ void getdelCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2]);
+    setKey(c,c->db,c->argv[1],c->argv[2],0);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -448,7 +461,7 @@ void setrangeCommand(client *c) {
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
+        if (checkStringLength(c,offset,sdslen(value)) != C_OK)
             return;
 
         o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
@@ -468,7 +481,7 @@ void setrangeCommand(client *c) {
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
+        if (checkStringLength(c,offset,sdslen(value)) != C_OK)
             return;
 
         /* Create a copy when the object is shared or encoded. */
@@ -549,8 +562,7 @@ void msetGenericCommand(client *c, int nx) {
     int j;
 
     if ((c->argc % 2) == 0) {
-        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
-                            c->cmd->name);
+        addReplyErrorArity(c);
         return;
     }
 
@@ -565,10 +577,14 @@ void msetGenericCommand(client *c, int nx) {
         }
     }
 
+    int setkey_flags = nx ? SETKEY_DOESNT_EXIST : 0;
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c,c->db,c->argv[j],c->argv[j+1]);
+        setKey(c, c->db, c->argv[j], c->argv[j + 1], setkey_flags);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
+        /* In MSETNX, It could be that we're overriding the same key, we can't be sure it doesn't exist. */
+        if (nx)
+            setkey_flags = SETKEY_ADD_OR_UPDATE;
     }
     server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);
@@ -607,7 +623,7 @@ void incrDecrCommand(client *c, long long incr) {
     } else {
         new = createStringObjectFromLongLongForValue(value);
         if (o) {
-            dbOverwrite(c->db,c->argv[1],new);
+            dbReplaceValue(c->db,c->argv[1],new);
         } else {
             dbAdd(c->db,c->argv[1],new);
         }
@@ -637,6 +653,11 @@ void decrbyCommand(client *c) {
     long long incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
+    /* Overflow check: negating LLONG_MIN will cause an overflow */
+    if (incr == LLONG_MIN) {
+        addReplyError(c, "decrement would overflow");
+        return;
+    }
     incrDecrCommand(c,-incr);
 }
 
@@ -657,7 +678,7 @@ void incrbyfloatCommand(client *c) {
     }
     new = createStringObjectFromLongDouble(value,1);
     if (o)
-        dbOverwrite(c->db,c->argv[1],new);
+        dbReplaceValue(c->db,c->argv[1],new);
     else
         dbAdd(c->db,c->argv[1],new);
     signalModifiedKey(c,c->db,c->argv[1]);
@@ -691,8 +712,7 @@ void appendCommand(client *c) {
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
-        totlen = stringObjectLen(o)+sdslen(append->ptr);
-        if (checkStringLength(c,totlen) != C_OK)
+        if (checkStringLength(c,stringObjectLen(o),sdslen(append->ptr)) != C_OK)
             return;
 
         /* Append the value */
@@ -713,31 +733,33 @@ void strlenCommand(client *c) {
     addReplyLongLong(c,stringObjectLen(o));
 }
 
-
-/* STRALGO -- Implement complex algorithms on strings.
- *
- * STRALGO <algorithm> ... arguments ... */
-void stralgoLCS(client *c);     /* This implements the LCS algorithm. */
-void stralgoCommand(client *c) {
-    /* Select the algorithm. */
-    if (!strcasecmp(c->argv[1]->ptr,"lcs")) {
-        stralgoLCS(c);
-    } else {
-        addReplyErrorObject(c,shared.syntaxerr);
-    }
-}
-
-/* STRALGO <algo> [IDX] [LEN] [MINMATCHLEN <len>] [WITHMATCHLEN]
- *     STRINGS <string> <string> | KEYS <keya> <keyb>
- */
-void stralgoLCS(client *c) {
+/* LCS key1 key2 [LEN] [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN] */
+void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
     robj *obja = NULL, *objb = NULL;
 
-    for (j = 2; j < (uint32_t)c->argc; j++) {
+    obja = lookupKeyRead(c->db,c->argv[1]);
+    objb = lookupKeyRead(c->db,c->argv[2]);
+    if ((obja && obja->type != OBJ_STRING) ||
+        (objb && objb->type != OBJ_STRING))
+    {
+        addReplyError(c,
+            "The specified keys must contain string values");
+        /* Don't cleanup the objects, we need to do that
+         * only after calling getDecodedObject(). */
+        obja = NULL;
+        objb = NULL;
+        goto cleanup;
+    }
+    obja = obja ? getDecodedObject(obja) : createStringObject("",0);
+    objb = objb ? getDecodedObject(objb) : createStringObject("",0);
+    a = obja->ptr;
+    b = objb->ptr;
+
+    for (j = 3; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         int moreargs = (c->argc-1) - j;
 
@@ -752,37 +774,6 @@ void stralgoLCS(client *c) {
                 != C_OK) goto cleanup;
             if (minmatchlen < 0) minmatchlen = 0;
             j++;
-        } else if (!strcasecmp(opt,"STRINGS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            a = c->argv[j+1]->ptr;
-            b = c->argv[j+2]->ptr;
-            j += 2;
-        } else if (!strcasecmp(opt,"KEYS") && moreargs > 1) {
-            if (a != NULL) {
-                addReplyError(c,"Either use STRINGS or KEYS");
-                goto cleanup;
-            }
-            obja = lookupKeyRead(c->db,c->argv[j+1]);
-            objb = lookupKeyRead(c->db,c->argv[j+2]);
-            if ((obja && obja->type != OBJ_STRING) ||
-                (objb && objb->type != OBJ_STRING))
-            {
-                addReplyError(c,
-                    "The specified keys must contain string values");
-                /* Don't cleanup the objects, we need to do that
-                 * only after calling getDecodedObject(). */
-                obja = NULL;
-                objb = NULL;
-                goto cleanup;
-            }
-            obja = obja ? getDecodedObject(obja) : createStringObject("",0);
-            objb = objb ? getDecodedObject(objb) : createStringObject("",0);
-            a = obja->ptr;
-            b = objb->ptr;
-            j += 2;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             goto cleanup;
@@ -790,14 +781,9 @@ void stralgoLCS(client *c) {
     }
 
     /* Complain if the user passed ambiguous parameters. */
-    if (a == NULL) {
-        addReplyError(c,"Please specify two strings: "
-                        "STRINGS or KEYS options are mandatory");
-        goto cleanup;
-    } else if (getlen && getidx) {
+    if (getlen && getidx) {
         addReplyError(c,
-            "If you want both the length and indexes, please "
-            "just use IDX.");
+            "If you want both the length and indexes, please just use IDX.");
         goto cleanup;
     }
 
@@ -814,17 +800,22 @@ void stralgoLCS(client *c) {
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
-     * we index it as LCS[j+(blen+1)*j] */
+     * we index it as LCS[j+(blen+1)*i] */
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
     /* Try to allocate the LCS table, and abort on overflow or insufficient memory. */
     unsigned long long lcssize = (unsigned long long)(alen+1)*(blen+1); /* Can't overflow due to the size limits above. */
     unsigned long long lcsalloc = lcssize * sizeof(uint32_t);
     uint32_t *lcs = NULL;
-    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t))
+    if (lcsalloc < SIZE_MAX && lcsalloc / lcssize == sizeof(uint32_t)) {
+        if (lcsalloc > (size_t)server.proto_max_bulk_len) {
+            addReplyError(c, "Insufficient memory, transient memory for LCS exceeds proto-max-bulk-len");
+            goto cleanup;
+        }
         lcs = ztrymalloc(lcsalloc);
+    }
     if (!lcs) {
-        addReplyError(c, "Insufficient memory");
+        addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
         goto cleanup;
     }
 

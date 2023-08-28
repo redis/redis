@@ -39,8 +39,13 @@
 #ifndef __TESTHELP_H
 #define __TESTHELP_H
 
-int __failed_tests = 0;
-int __test_num = 0;
+#define REDIS_TEST_ACCURATE     (1<<0)
+#define REDIS_TEST_LARGE_MEMORY (1<<1)
+#define REDIS_TEST_VALGRIND     (1<<2)
+
+extern int __failed_tests;
+extern int __test_num;
+
 #define test_cond(descr,_c) do { \
     __test_num++; printf("%d - %s: ", __test_num, descr); \
     if(_c) printf("PASSED\n"); else {printf("FAILED\n"); __failed_tests++;} \

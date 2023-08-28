@@ -1,4 +1,32 @@
-start_server {tags {"obuf-limits external:skip"}} {
+start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
+    test {CONFIG SET client-output-buffer-limit} {
+        set oldval [lindex [r config get client-output-buffer-limit] 1]
+
+        catch {r config set client-output-buffer-limit "wrong number"} e
+        assert_match {*Wrong*arguments*} $e
+
+        catch {r config set client-output-buffer-limit "invalid_class 10mb 10mb 60"} e
+        assert_match {*Invalid*client*class*} $e
+        catch {r config set client-output-buffer-limit "master 10mb 10mb 60"} e
+        assert_match {*Invalid*client*class*} $e
+
+        catch {r config set client-output-buffer-limit "normal 10mbs 10mb 60"} e
+        assert_match {*Error*hard*} $e
+
+        catch {r config set client-output-buffer-limit "replica 10mb 10mbs 60"} e
+        assert_match {*Error*soft*} $e
+
+        catch {r config set client-output-buffer-limit "pubsub 10mb 10mb 60s"} e
+        assert_match {*Error*soft_seconds*} $e
+
+        r config set client-output-buffer-limit "normal 1mb 2mb 60 replica 3mb 4mb 70 pubsub 5mb 6mb 80"
+        set res [lindex [r config get client-output-buffer-limit] 1]
+        assert_equal $res "normal 1048576 2097152 60 slave 3145728 4194304 70 pubsub 5242880 6291456 80"
+
+        # Set back to the original value.
+        r config set client-output-buffer-limit $oldval
+    }
+
     test {Client output buffer hard limit is enforced} {
         r config set client-output-buffer-limit {pubsub 100000 0 0}
         set rd1 [redis_deferring_client]
@@ -87,6 +115,7 @@ start_server {tags {"obuf-limits external:skip"}} {
     }
 
     test {No response for single command if client output buffer hard limit is enforced} {
+        r config set latency-tracking no
         r config set client-output-buffer-limit {normal 100000 0 0}
         # Total size of all items must be more than 100k
         set item [string repeat "x" 1000]
@@ -111,7 +140,7 @@ start_server {tags {"obuf-limits external:skip"}} {
 
         # Read nothing
         set fd [$rd channel]
-        assert_equal {} [read $fd]
+        assert_equal {} [$rd rawread]
     }
 
     # Note: This test assumes that what's written with one write, will be read by redis in one read.
@@ -151,8 +180,7 @@ start_server {tags {"obuf-limits external:skip"}} {
         assert_equal "PONG" [r ping]
         set clients [r client list]
         assert_no_match "*name=multicommands*" $clients
-        set fd [$rd2 channel]
-        assert_equal {} [read $fd]
+        assert_equal {} [$rd2 rawread]
     }
 
     test {Execute transactions completely even if client output buffer limit is enforced} {
@@ -182,5 +210,21 @@ start_server {tags {"obuf-limits external:skip"}} {
         assert_equal {} [r get k1]
         assert_equal "v2" [r get k2]
         assert_equal "v3" [r get k3]
+    }
+
+    test "Obuf limit, HRANDFIELD with huge count stopped mid-run" {
+        r config set client-output-buffer-limit {normal 1000000 0 0}
+        r hset myhash a b
+        catch {r hrandfield myhash -999999999} e
+        assert_match "*I/O error*" $e
+        reconnect
+    }
+
+    test "Obuf limit, KEYS stopped mid-run" {
+        r config set client-output-buffer-limit {normal 100000 0 0}
+        populate 1000 "long-key-name-prefix-of-100-chars-------------------------------------------------------------------"
+        catch {r keys *} e
+        assert_match "*I/O error*" $e
+        reconnect
     }
 }

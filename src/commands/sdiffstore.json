@@ -1,0 +1,73 @@
+{
+    "SDIFFSTORE": {
+        "summary": "Stores the difference of multiple sets in a key.",
+        "complexity": "O(N) where N is the total number of elements in all given sets.",
+        "group": "set",
+        "since": "1.0.0",
+        "arity": -3,
+        "function": "sdiffstoreCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Number of the elements in the resulting set.",
+            "type": "integer",
+            "minimum": 0
+        },
+        "arguments": [
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 1,
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -61,7 +61,9 @@ while {[incr iterations -1]} {
         }
     }
 
-    test "Killing node #$tokill" {
+    test "Terminating node #$tokill" {
+        # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
+        R $tokill config set appendonly no
         kill_instance redis $tokill
     }
 

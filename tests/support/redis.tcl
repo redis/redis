@@ -28,6 +28,8 @@
 package require Tcl 8.5
 package provide redis 0.1
 
+source [file join [file dirname [info script]] "response_transformers.tcl"]
+
 namespace eval redis {}
 set ::redis::id 0
 array set ::redis::fd {}
@@ -35,11 +37,17 @@ array set ::redis::addr {}
 array set ::redis::blocking {}
 array set ::redis::deferred {}
 array set ::redis::readraw {}
+array set ::redis::attributes {} ;# Holds the RESP3 attributes from the last call
 array set ::redis::reconnect {}
 array set ::redis::tls {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
+array set ::redis::curr_argv {} ;# Remember the current argv, to be used in response_transformers.tcl
+array set ::redis::testing_resp3 {} ;# Indicating if the current client is using RESP3 (only if the test is trying to test RESP3 specific behavior. It won't be on in case of force_resp3)
+
+set ::force_resp3 0
+set ::log_req_res 0
 
 proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {readraw 0}} {
     if {$tls} {
@@ -61,9 +69,38 @@ proc redis {{server 127.0.0.1} {port 6379} {defer 0} {tls 0} {tlsoptions {}} {re
     set ::redis::deferred($id) $defer
     set ::redis::readraw($id) $readraw
     set ::redis::reconnect($id) 0
+    set ::redis::curr_argv($id) 0
+    set ::redis::testing_resp3($id) 0
     set ::redis::tls($id) $tls
     ::redis::redis_reset_state $id
     interp alias {} ::redis::redisHandle$id {} ::redis::__dispatch__ $id
+}
+
+# On recent versions of tcl-tls/OpenSSL, reading from a dropped connection
+# results with an error we need to catch and mimic the old behavior.
+proc ::redis::redis_safe_read {fd len} {
+    if {$len == -1} {
+        set err [catch {set val [read $fd]} msg]
+    } else {
+        set err [catch {set val [read $fd $len]} msg]
+    }
+    if {!$err} {
+        return $val
+    }
+    if {[string match "*connection abort*" $msg]} {
+        return {}
+    }
+    error $msg
+}
+
+proc ::redis::redis_safe_gets {fd} {
+    if {[catch {set val [gets $fd]} msg]} {
+        if {[string match "*connection abort*" $msg]} {
+            return {}
+        }
+        error $msg
+    }
+    return $val
 }
 
 # This is a wrapper to the actual dispatching procedure that handles
@@ -84,7 +121,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
     set fd $::redis::fd($id)
 
     # Reconnect the link if needed.
-    if {$fd eq {}} {
+    if {$fd eq {} && $method ne {close}} {
         lassign $::redis::addr($id) host port
         if {$::redis::tls($id)} {
             set ::redis::fd($id) [::tls::socket $host $port]
@@ -93,6 +130,20 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         }
         fconfigure $::redis::fd($id) -translation binary
         set fd $::redis::fd($id)
+    }
+
+    # Transform HELLO 2 to HELLO 3 if force_resp3
+    # All set the connection var testing_resp3 in case of HELLO 3
+    if {[llength $argv] > 0 && [string compare -nocase $method "HELLO"] == 0} {
+        if {[lindex $argv 0] == 3} {
+            set ::redis::testing_resp3($id) 1
+        } else {
+            set ::redis::testing_resp3($id) 0
+            if {$::force_resp3} {
+                # If we are in force_resp3 we run HELLO 3 instead of HELLO 2
+                lset argv 0 3
+            }
+        }
     }
 
     set blocking $::redis::blocking($id)
@@ -105,6 +156,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
         set argv [lrange $argv 0 end-1]
     }
     if {[info command ::redis::__method__$method] eq {}} {
+        catch {unset ::redis::attributes($id)}
         set cmd "*[expr {[llength $argv]+1}]\r\n"
         append cmd "$[string length $method]\r\n$method\r\n"
         foreach a $argv {
@@ -117,6 +169,7 @@ proc ::redis::__dispatch__raw__ {id method argv} {
             return -code error "I/O error reading reply"
         }
 
+        set ::redis::curr_argv($id) [concat $method $argv]
         if {!$deferred} {
             if {$blocking} {
                 ::redis::redis_read_reply $id $fd
@@ -146,6 +199,10 @@ proc ::redis::__method__read {id fd} {
     ::redis::redis_read_reply $id $fd
 }
 
+proc ::redis::__method__rawread {id fd {len -1}} {
+    return [redis_safe_read $fd $len]
+}
+
 proc ::redis::__method__write {id fd buf} {
     ::redis::redis_write $fd $buf
 }
@@ -161,11 +218,14 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::blocking($id)}
     catch {unset ::redis::deferred($id)}
     catch {unset ::redis::readraw($id)}
+    catch {unset ::redis::attributes($id)}
     catch {unset ::redis::reconnect($id)}
     catch {unset ::redis::tls($id)}
     catch {unset ::redis::state($id)}
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
+    catch {unset ::redis::curr_argv($id)}
+    catch {unset ::redis::testing_resp3($id)}
     catch {interp alias {} ::redis::redisHandle$id {}}
 }
 
@@ -181,6 +241,14 @@ proc ::redis::__method__readraw {id fd val} {
     set ::redis::readraw($id) $val
 }
 
+proc ::redis::__method__readingraw {id fd} {
+    return $::redis::readraw($id)
+}
+
+proc ::redis::__method__attributes {id fd} {
+    set _ $::redis::attributes($id)
+}
+
 proc ::redis::redis_write {fd buf} {
     puts -nonewline $fd $buf
 }
@@ -192,8 +260,8 @@ proc ::redis::redis_writenl {fd buf} {
 }
 
 proc ::redis::redis_readnl {fd len} {
-    set buf [read $fd $len]
-    read $fd 2 ; # discard CR LF
+    set buf [redis_safe_read $fd $len]
+    redis_safe_read $fd 2 ; # discard CR LF
     return $buf
 }
 
@@ -211,7 +279,7 @@ proc ::redis::redis_multi_bulk_read {id fd} {
     set err {}
     for {set i 0} {$i < $count} {incr i} {
         if {[catch {
-            lappend l [redis_read_reply $id $fd]
+            lappend l [redis_read_reply_logic $id $fd]
         } e] && $err eq {}} {
             set err $e
         }
@@ -227,8 +295,8 @@ proc ::redis::redis_read_map {id fd} {
     set err {}
     for {set i 0} {$i < $count} {incr i} {
         if {[catch {
-            set k [redis_read_reply $id $fd] ; # key
-            set v [redis_read_reply $id $fd] ; # value
+            set k [redis_read_reply_logic $id $fd] ; # key
+            set v [redis_read_reply_logic $id $fd] ; # value
             dict set d $k $v
         } e] && $err eq {}} {
             set err $e
@@ -239,11 +307,11 @@ proc ::redis::redis_read_map {id fd} {
 }
 
 proc ::redis::redis_read_line fd {
-    string trim [gets $fd]
+    string trim [redis_safe_gets $fd]
 }
 
 proc ::redis::redis_read_null fd {
-    gets $fd
+    redis_safe_gets $fd
     return {}
 }
 
@@ -254,25 +322,37 @@ proc ::redis::redis_read_bool fd {
     return -code error "Bad protocol, '$v' as bool type"
 }
 
+proc ::redis::redis_read_double {id fd} {
+    set v [redis_read_line $fd]
+    # unlike many other DTs, there is a textual difference between double and a string with the same value,
+    # so we need to transform to double if we are testing RESP3 (i.e. some tests check that a
+    # double reply is "1.0" and not "1")
+    if {[should_transform_to_resp2 $id]} {
+        return $v
+    } else {
+        return [expr {double($v)}]
+    }
+}
+
 proc ::redis::redis_read_verbatim_str fd {
     set v [redis_bulk_read $fd]
     # strip the first 4 chars ("txt:")
     return [string range $v 4 end]
 }
 
-proc ::redis::redis_read_reply {id fd} {
+proc ::redis::redis_read_reply_logic {id fd} {
     if {$::redis::readraw($id)} {
         return [redis_read_line $fd]
     }
 
     while {1} {
-        set type [read $fd 1]
+        set type [redis_safe_read $fd 1]
         switch -exact -- $type {
             _ {return [redis_read_null $fd]}
             : -
             ( -
             + {return [redis_read_line $fd]}
-            , {return [expr {double([redis_read_line $fd])}]}
+            , {return [redis_read_double $id $fd]}
             # {return [redis_read_bool $fd]}
             = {return [redis_read_verbatim_str $fd]}
             - {return -code error [redis_read_line $fd]}
@@ -282,8 +362,8 @@ proc ::redis::redis_read_reply {id fd} {
             * {return [redis_multi_bulk_read $id $fd]}
             % {return [redis_read_map $id $fd]}
             | {
-                # ignore attributes for now (nowhere to store them)
-                redis_read_map $id $fd
+                set attrib [redis_read_map $id $fd]
+                set ::redis::attributes($id) $attrib
                 continue
             }
             default {
@@ -296,6 +376,11 @@ proc ::redis::redis_read_reply {id fd} {
             }
         }
     }
+}
+
+proc ::redis::redis_read_reply {id fd} {
+    set response [redis_read_reply_logic $id $fd]
+    ::response_transformers::transform_response_if_needed $id $::redis::curr_argv($id) $response
 }
 
 proc ::redis::redis_reset_state id {
@@ -373,4 +458,9 @@ proc ::redis::redis_readable {fd id} {
             }
         }
     }
+}
+
+# when forcing resp3 some tests that rely on resp2 can fail, so we have to translate the resp3 response to resp2
+proc ::redis::should_transform_to_resp2 {id} {
+    return [expr {$::force_resp3 && !$::redis::testing_resp3($id)}]
 }

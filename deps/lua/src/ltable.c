@@ -364,6 +364,7 @@ Table *luaH_new (lua_State *L, int narray, int nhash) {
   t->array = NULL;
   t->sizearray = 0;
   t->lsizenode = 0;
+  t->readonly = 0;
   t->node = cast(Node *, dummynode);
   setarrayvector(L, t, narray);
   setnodevector(L, t, nhash);

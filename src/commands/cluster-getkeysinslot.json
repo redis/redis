@@ -1,0 +1,35 @@
+{
+    "GETKEYSINSLOT": {
+        "summary": "Returns the key names in a hash slot.",
+        "complexity": "O(N) where N is the number of requested keys",
+        "group": "cluster",
+        "since": "3.0.0",
+        "arity": 4,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "slot",
+                "type": "integer"
+            },
+            {
+                "name": "count",
+                "type": "integer"
+            }
+        ],
+        "reply_schema": {
+            "description": "an array with up to count elements",
+            "type": "array",
+            "items": {
+                "description": "key name",
+                "type": "string"
+            }
+        }
+    }
+}

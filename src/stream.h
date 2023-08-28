@@ -15,8 +15,11 @@ typedef struct streamID {
 
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
-    uint64_t length;        /* Number of elements inside this stream. */
+    uint64_t length;        /* Current number of elements inside this stream. */
     streamID last_id;       /* Zero if there are yet no items. */
+    streamID first_id;      /* The first non-tombstone entry, zero if empty. */
+    streamID max_deleted_entry_id;  /* The maximal ID that was deleted. */
+    uint64_t entries_added; /* All time count of elements added. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
 } stream;
 
@@ -34,6 +37,7 @@ typedef struct streamIterator {
     unsigned char *master_fields_ptr;   /* Master field to emit next. */
     int entry_flags;                    /* Flags of entry we are emitting. */
     int rev;                /* True if iterating end to start (reverse). */
+    int skip_tombstones;    /* True if not emitting tombstone entries. */
     uint64_t start_key[2];  /* Start key as 128 bit big endian. */
     uint64_t end_key[2];    /* End key as 128 bit big endian. */
     raxIterator ri;         /* Rax iterator. */
@@ -52,6 +56,11 @@ typedef struct streamCG {
     streamID last_id;       /* Last delivered (not acknowledged) ID for this
                                group. Consumers that will just ask for more
                                messages will served with IDs > than this. */
+    long long entries_read; /* In a perfect world (CG starts at 0-0, no dels, no
+                               XGROUP SETID, ...), this is the total number of
+                               group reads. In the real world, the reasoning behind
+                               this value is detailed at the top comment of
+                               streamEstimateDistanceFromFirstEverEntry(). */
     rax *pel;               /* Pending entries list. This is a radix tree that
                                has every message delivered to consumers (without
                                the NOACK option) that was yet not acknowledged
@@ -65,7 +74,8 @@ typedef struct streamCG {
 
 /* A specific consumer in a consumer group.  */
 typedef struct streamConsumer {
-    mstime_t seen_time;         /* Last time this consumer was active. */
+    mstime_t seen_time;         /* Last time this consumer tried to perform an action (attempted reading/claiming). */
+    mstime_t active_time;       /* Last time this consumer was active (successful reading/claiming). */
     sds name;                   /* Consumer name. This is how the consumer
                                    will be identified in the consumer group
                                    protocol. Case sensitive. */
@@ -96,14 +106,12 @@ typedef struct streamPropInfo {
 /* Prototypes of exported APIs. */
 struct client;
 
-/* Flags for streamLookupConsumer */
-#define SLC_DEFAULT      0
-#define SLC_NO_REFRESH   (1<<0) /* Do not update consumer's seen-time */
-
 /* Flags for streamCreateConsumer */
 #define SCC_DEFAULT       0
 #define SCC_NO_NOTIFY     (1<<0) /* Do not notify key space if consumer created */
 #define SCC_NO_DIRTIFY    (1<<1) /* Do not dirty++ if consumer created */
+
+#define SCG_INVALID_ENTRIES_READ -1
 
 stream *streamNew(void);
 void freeStream(stream *s);
@@ -115,9 +123,9 @@ void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsign
 void streamIteratorRemoveEntry(streamIterator *si, streamID *current);
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags);
+streamConsumer *streamLookupConsumer(streamCG *cg, sds name);
 streamConsumer *streamCreateConsumer(streamCG *cg, sds name, robj *key, int dbid, int flags);
-streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id);
+streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read);
 streamNACK *streamCreateNACK(streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
@@ -129,8 +137,10 @@ robj *streamDup(robj *o);
 int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep);
 int streamParseID(const robj *o, streamID *id);
 robj *createObjectFromStreamID(streamID *id);
-int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id);
+int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_id, streamID *use_id, int seq_given);
 int streamDeleteItem(stream *s, streamID *id);
+void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
+long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);
 

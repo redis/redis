@@ -144,7 +144,7 @@
  * In the example the sparse representation used just 7 bytes instead
  * of 12k in order to represent the HLL registers. In general for low
  * cardinality there is a big win in terms of space efficiency, traded
- * with CPU time since the sparse representation is slower to access:
+ * with CPU time since the sparse representation is slower to access.
  *
  * The following table shows average cardinality vs bytes used, 100
  * samples per cardinality (when the set was not representable because
@@ -350,10 +350,10 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
  * 'p' is an array of unsigned bytes. */
 #define HLL_DENSE_SET_REGISTER(p,regnum,val) do { \
     uint8_t *_p = (uint8_t*) p; \
-    unsigned long _byte = regnum*HLL_BITS/8; \
-    unsigned long _fb = regnum*HLL_BITS&7; \
+    unsigned long _byte = (regnum)*HLL_BITS/8; \
+    unsigned long _fb = (regnum)*HLL_BITS&7; \
     unsigned long _fb8 = 8 - _fb; \
-    unsigned long _v = val; \
+    unsigned long _v = (val); \
     _p[_byte] &= ~(HLL_REGISTER_MAX << _fb); \
     _p[_byte] |= _v << _fb; \
     _p[_byte+1] &= ~(HLL_REGISTER_MAX >> _fb8); \
@@ -393,6 +393,7 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 /* Our hash function is MurmurHash2, 64 bit version.
  * It was modified for Redis in order to provide the same result in
  * big and little endian archs (endian neutral). */
+REDIS_NO_SANITIZE("alignment")
 uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
     const uint64_t m = 0xc6a4a7935bd1e995;
     const int r = 47;
@@ -661,12 +662,22 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
      * switch to dense representation. */
     if (count > HLL_SPARSE_VAL_MAX_VALUE) goto promote;
 
-    /* When updating a sparse representation, sometimes we may need to
-     * enlarge the buffer for up to 3 bytes in the worst case (XZERO split
-     * into XZERO-VAL-XZERO). Make sure there is enough space right now
-     * so that the pointers we take during the execution of the function
-     * will be valid all the time. */
-    o->ptr = sdsMakeRoomFor(o->ptr,3);
+    /* When updating a sparse representation, sometimes we may need to enlarge the
+     * buffer for up to 3 bytes in the worst case (XZERO split into XZERO-VAL-XZERO),
+     * and the following code does the enlarge job.
+     * Actually, we use a greedy strategy, enlarge more than 3 bytes to avoid the need
+     * for future reallocates on incremental growth. But we do not allocate more than
+     * 'server.hll_sparse_max_bytes' bytes for the sparse representation.
+     * If the available size of hyperloglog sds string is not enough for the increment
+     * we need, we promote the hypreloglog to dense representation in 'step 3'.
+     */
+    if (sdsalloc(o->ptr) < server.hll_sparse_max_bytes && sdsavail(o->ptr) < 3) {
+        size_t newlen = sdslen(o->ptr) + 3;
+        newlen += min(newlen, 300); /* Greediness: double 'newlen' if it is smaller than 300, or add 300 to it when it exceeds 300 */
+        if (newlen > server.hll_sparse_max_bytes)
+            newlen = server.hll_sparse_max_bytes;
+        o->ptr = sdsResize(o->ptr, newlen, 1);
+    }
 
     /* Step 1: we need to locate the opcode we need to modify to check
      * if a value update is actually needed. */
@@ -823,17 +834,18 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
     /* Step 3: substitute the new sequence with the old one.
      *
      * Note that we already allocated space on the sds string
-     * calling sdsMakeRoomFor(). */
-     int seqlen = n-seq;
-     int oldlen = is_xzero ? 2 : 1;
-     int deltalen = seqlen-oldlen;
+     * calling sdsResize(). */
+    int seqlen = n-seq;
+    int oldlen = is_xzero ? 2 : 1;
+    int deltalen = seqlen-oldlen;
 
-     if (deltalen > 0 &&
-         sdslen(o->ptr)+deltalen > server.hll_sparse_max_bytes) goto promote;
-     if (deltalen && next) memmove(next+deltalen,next,end-next);
-     sdsIncrLen(o->ptr,deltalen);
-     memcpy(p,seq,seqlen);
-     end += deltalen;
+    if (deltalen > 0 &&
+        sdslen(o->ptr) + deltalen > server.hll_sparse_max_bytes) goto promote;
+    serverAssert(sdslen(o->ptr) + deltalen <= sdsalloc(o->ptr));
+    if (deltalen && next) memmove(next+deltalen,next,end-next);
+    sdsIncrLen(o->ptr,deltalen);
+    memcpy(p,seq,seqlen);
+    end += deltalen;
 
 updated:
     /* Step 4: Merge adjacent values if possible.
@@ -1257,8 +1269,15 @@ void pfcountCommand(client *c) {
     /* Case 2: cardinality of the single HLL.
      *
      * The user specified a single key. Either return the cached value
-     * or compute one and update the cache. */
-    o = lookupKeyWrite(c->db,c->argv[1]);
+     * or compute one and update the cache.
+     *
+     * Since a HLL is a regular Redis string type value, updating the cache does
+     * modify the value. We do a lookupKeyRead anyway since this is flagged as a
+     * read-only command. The difference is that with lookupKeyWrite, a
+     * logically expired key on a replica is deleted, while with lookupKeyRead
+     * it isn't, but the lookup returns NULL either way if the key is logically
+     * expired, which is what matters here. */
+    o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
         /* No key? Cardinality is zero since no element was added, otherwise
          * we would have a key as HLLADD creates it as a side effect. */
@@ -1295,8 +1314,7 @@ void pfcountCommand(client *c) {
             hdr->card[5] = (card >> 40) & 0xff;
             hdr->card[6] = (card >> 48) & 0xff;
             hdr->card[7] = (card >> 56) & 0xff;
-            /* This is not considered a read-only command even if the
-             * data structure is not modified, since the cached value
+            /* This is considered a read-only command even if the cached value
              * may be modified and given that the HLL is a Redis string
              * we need to propagate the change. */
             signalModifiedKey(c,c->db,c->argv[1]);
@@ -1488,8 +1506,13 @@ cleanup:
     if (o) decrRefCount(o);
 }
 
-/* PFDEBUG <subcommand> <key> ... args ...
- * Different debugging related operations about the HLL implementation. */
+/* Different debugging related operations about the HLL implementation.
+ *
+ * PFDEBUG GETREG <key>
+ * PFDEBUG DECODE <key>
+ * PFDEBUG ENCODING <key>
+ * PFDEBUG TODENSE <key>
+ */
 void pfdebugCommand(client *c) {
     char *cmd = c->argv[1]->ptr;
     struct hllhdr *hdr;

@@ -81,7 +81,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argc);
     if (RedisModule_Init(ctx, "hash", 1, REDISMODULE_APIVER_1) ==
         REDISMODULE_OK &&
-        RedisModule_CreateCommand(ctx, "hash.set", hash_set, "",
+        RedisModule_CreateCommand(ctx, "hash.set", hash_set, "write",
                                   1, 1, 1) == REDISMODULE_OK) {
         return REDISMODULE_OK;
     } else {

@@ -1,0 +1,85 @@
+{
+    "LINSERT": {
+        "summary": "Inserts an element before or after another element in a list.",
+        "complexity": "O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).",
+        "group": "list",
+        "since": "2.2.0",
+        "arity": 5,
+        "function": "linsertCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "List length after a successful insert operation.",
+                    "type": "integer",
+                    "minimum": 1
+                },
+                {
+                    "description": "in case key doesn't exist.",
+                    "const": 0
+                },
+                {
+                    "description": "when the pivot wasn't found.",
+                    "const": -1
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "where",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "before",
+                        "type": "pure-token",
+                        "token": "BEFORE"
+                    },
+                    {
+                        "name": "after",
+                        "type": "pure-token",
+                        "token": "AFTER"
+                    }
+                ]
+            },
+            {
+                "name": "pivot",
+                "type": "string"
+            },
+            {
+                "name": "element",
+                "type": "string"
+            }
+        ]
+    }
+}

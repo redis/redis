@@ -1,0 +1,61 @@
+{
+    "RPUSH": {
+        "summary": "Appends one or more elements to a list. Creates the key if it doesn't exist.",
+        "complexity": "O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.",
+        "group": "list",
+        "since": "1.0.0",
+        "arity": -3,
+        "function": "rpushCommand",
+        "history": [
+            [
+                "2.4.0",
+                "Accepts multiple `element` arguments."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "LIST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "INSERT"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Length of the list after the push operations.",
+            "type": "integer",
+            "minimum": 1
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "element",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

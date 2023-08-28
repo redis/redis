@@ -1,6 +1,5 @@
 set testmodule [file normalize tests/modules/basics.so]
 
-
 start_server {tags {"modules"}} {
     r module load $testmodule
 
@@ -22,13 +21,26 @@ start_server {tags {"modules"}} {
     }
 
     test {test get resp} {
-        r hello 2
-        set reply [r test.getresp]
-        assert_equal $reply 2
-        r hello 3
-        set reply [r test.getresp]
-        assert_equal $reply 3
+        foreach resp {3 2} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$resp == 3} {continue}
+            } elseif {$::force_resp3} {
+                if {$resp == 2} {continue}
+            }
+            r hello $resp
+            set reply [r test.getresp]
+            assert_equal $reply $resp
+            r hello 2
+        }
     }
 
-    r module unload test
+    test "Unload the module - test" {
+        assert_equal {OK} [r module unload test]
+    }
+}
+
+start_server {tags {"modules external:skip"} overrides {enable-module-command no}} {
+    test {module command disabled} {
+       assert_error "ERR *MODULE command not allowed*" {r module load $testmodule}
+    }
 }

@@ -1,0 +1,70 @@
+{
+    "TTL": {
+        "summary": "Returns the expiration time in seconds of a key.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "1.0.0",
+        "arity": 2,
+        "function": "ttlCommand",
+        "history": [
+            [
+                "2.8.0",
+                "Added the -2 reply."
+            ]
+        ],
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "TTL in seconds.",
+                    "type": "integer",
+                    "minimum": 0
+                },
+                {
+                    "description": "The key exists but has no associated expire.",
+                    "const": -1
+                },
+                {
+                    "description": "The key does not exist.",
+                    "const": -2
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ]
+    }
+}

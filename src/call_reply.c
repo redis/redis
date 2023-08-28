@@ -60,7 +60,7 @@ struct CallReply {
         double d;        /* Reply value for double reply. */
         struct CallReply *array; /* Array of sub-reply elements. used for set, array, map, and attribute */
     } val;
-
+    list *deferred_error_list;   /* list of errors in sds form or NULL */
     struct CallReply *attribute; /* attribute reply, NULL if not exists */
 };
 
@@ -145,9 +145,9 @@ static void callReplyParseCollection(ReplyParser *parser, CallReply *rep, size_t
     rep->val.array = zcalloc(elements_per_entry * len * sizeof(CallReply));
     for (size_t i = 0; i < len * elements_per_entry; i += elements_per_entry) {
         for (size_t j = 0 ; j < elements_per_entry ; ++j) {
+            rep->val.array[i + j].private_data = rep->private_data;
             parseReply(parser, rep->val.array + i + j);
             rep->val.array[i + j].flags |= REPLY_FLAG_PARSED;
-            rep->val.array[i + j].private_data = rep->private_data;
             if (rep->val.array[i + j].flags & REPLY_FLAG_RESP3) {
                 /* If one of the sub-replies is RESP3, then the current reply is also RESP3. */
                 rep->flags |= REPLY_FLAG_RESP3;
@@ -234,10 +234,27 @@ void freeCallReply(CallReply *rep) {
         return;
     }
     if (rep->flags & REPLY_FLAG_PARSED) {
+        if (rep->type == REDISMODULE_REPLY_PROMISE) {
+            zfree(rep);
+            return;
+        }
         freeCallReplyInternal(rep);
     }
     sdsfree(rep->original_proto);
+    if (rep->deferred_error_list)
+        listRelease(rep->deferred_error_list);
     zfree(rep);
+}
+
+CallReply *callReplyCreatePromise(void *private_data) {
+    CallReply *res = zmalloc(sizeof(*res));
+    res->type = REDISMODULE_REPLY_PROMISE;
+    /* Mark the reply as parsed so there will be not attempt to parse
+     * it when calling reply API such as freeCallReply.
+     * Also mark the reply as root so freeCallReply will not ignore it. */
+    res->flags |= REPLY_FLAG_PARSED | REPLY_FLAG_ROOT;
+    res->private_data = private_data;
+    return res;
 }
 
 static const ReplyParserCallbacks DefaultParserCallbacks = {
@@ -488,6 +505,11 @@ int callReplyIsResp3(CallReply *rep) {
     return rep->flags & REPLY_FLAG_RESP3;
 }
 
+/* Returns a list of errors in sds form, or NULL. */
+list *callReplyDeferredErrorList(CallReply *rep) {
+    return rep->deferred_error_list;
+}
+
 /* Create a new CallReply struct from the reply blob.
  *
  * The function will own the reply blob, so it must not be used or freed by
@@ -495,6 +517,9 @@ int callReplyIsResp3(CallReply *rep) {
  *
  * The reply blob will be freed when the returned CallReply struct is later
  * freed using freeCallReply().
+ *
+ * The deferred_error_list is an optional list of errors that are present
+ * in the reply blob, if given, this function will take ownership on it.
  *
  * The private_data is optional and can later be accessed using
  * callReplyGetPrivateData().
@@ -504,7 +529,7 @@ int callReplyIsResp3(CallReply *rep) {
  * DESIGNED TO HANDLE USER INPUT and using it to parse invalid replies is
  * unsafe.
  */
-CallReply *callReplyCreate(sds reply, void *private_data) {
+CallReply *callReplyCreate(sds reply, list *deferred_error_list, void *private_data) {
     CallReply *res = zmalloc(sizeof(*res));
     res->flags = REPLY_FLAG_ROOT;
     res->original_proto = reply;
@@ -512,5 +537,24 @@ CallReply *callReplyCreate(sds reply, void *private_data) {
     res->proto_len = sdslen(reply);
     res->private_data = private_data;
     res->attribute = NULL;
+    res->deferred_error_list = deferred_error_list;
     return res;
+}
+
+/* Create a new CallReply struct from the reply blob representing an error message.
+ * Automatically creating deferred_error_list and set a copy of the reply in it.
+ * Refer to callReplyCreate for detailed explanation.
+ * Reply string can come in one of two forms:
+ * 1. A protocol reply starting with "-CODE" and ending with "\r\n"
+ * 2. A plain string, in which case this function adds the protocol header and footer. */
+CallReply *callReplyCreateError(sds reply, void *private_data) {
+    sds err_buff = reply;
+    if (err_buff[0] != '-') {
+        err_buff = sdscatfmt(sdsempty(), "-ERR %S\r\n", reply);
+        sdsfree(reply);
+    }
+    list *deferred_error_list = listCreate();
+    listSetFreeMethod(deferred_error_list, (void (*)(void*))sdsfree);
+    listAddNodeTail(deferred_error_list, sdsnew(err_buff));
+    return callReplyCreate(err_buff, deferred_error_list, private_data);
 }

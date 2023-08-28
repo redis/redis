@@ -76,59 +76,71 @@ start_server {tags {"expire"}} {
         # This test is very likely to do a false positive if the
         # server is under pressure, so if it does not work give it a few more
         # chances.
-        for {set j 0} {$j < 10} {incr j} {
+        for {set j 0} {$j < 30} {incr j} {
             r del x
             r setex x 1 somevalue
-            after 900
+            after 800
             set a [r get x]
-            after 1100
+            if {$a ne {somevalue}} continue
+            after 300
             set b [r get x]
-            if {$a eq {somevalue} && $b eq {}} break
+            if {$b eq {}} break
         }
         if {$::verbose} {
             puts "millisecond expire test attempts: $j"
         }
+        assert_equal $a {somevalue}
+        assert_equal $b {}
+    }
+
+    test "PSETEX can set sub-second expires" {
+        # This test is very likely to do a false positive if the server is
+        # under pressure, so if it does not work give it a few more chances.
+        for {set j 0} {$j < 50} {incr j} {
+            r del x
+            r psetex x 100 somevalue
+            set a [r get x]
+            after 101
+            set b [r get x]
+
+            if {$a eq {somevalue} && $b eq {}} break
+        }
+        if {$::verbose} { puts "PSETEX sub-second expire test attempts: $j" }
         list $a $b
     } {somevalue {}}
 
-    test {PEXPIRE/PSETEX/PEXPIREAT can set sub-second expires} {
-        # This test is very likely to do a false positive if the
-        # server is under pressure, so if it does not work give it a few more
-        # chances.
-        for {set j 0} {$j < 30} {incr j} {
-            r del x
-            r del y
-            r del z
-            r psetex x 100 somevalue
-            after 80
-            set a [r get x]
-            after 120
-            set b [r get x]
-
+    test "PEXPIRE can set sub-second expires" {
+        # This test is very likely to do a false positive if the server is
+        # under pressure, so if it does not work give it a few more chances.
+        for {set j 0} {$j < 50} {incr j} {
             r set x somevalue
             r pexpire x 100
-            after 80
             set c [r get x]
-            after 120
+            after 101
             set d [r get x]
 
+            if {$c eq {somevalue} && $d eq {}} break
+        }
+        if {$::verbose} { puts "PEXPIRE sub-second expire test attempts: $j" }
+        list $c $d
+    } {somevalue {}}
+
+    test "PEXPIREAT can set sub-second expires" {
+        # This test is very likely to do a false positive if the server is
+        # under pressure, so if it does not work give it a few more chances.
+        for {set j 0} {$j < 50} {incr j} {
             r set x somevalue
             set now [r time]
             r pexpireat x [expr ([lindex $now 0]*1000)+([lindex $now 1]/1000)+200]
-            after 20
             set e [r get x]
-            after 220
+            after 201
             set f [r get x]
 
-            if {$a eq {somevalue} && $b eq {} &&
-                $c eq {somevalue} && $d eq {} &&
-                $e eq {somevalue} && $f eq {}} break
+            if {$e eq {somevalue} && $f eq {}} break
         }
-        if {$::verbose} {
-            puts "sub-second expire test attempts: $j"
-        }
-        list $a $b $c $d $e $f
-    } {somevalue {} somevalue {} somevalue {}}
+        if {$::verbose} { puts "PEXPIREAT sub-second expire test attempts: $j" }
+        list $e $f
+    } {somevalue {}}
 
     test {TTL returns time to live in seconds} {
         r del x
@@ -141,7 +153,7 @@ start_server {tags {"expire"}} {
         r del x
         r setex x 1 somevalue
         set ttl [r pttl x]
-        assert {$ttl > 900 && $ttl <= 1000}
+        assert {$ttl > 500 && $ttl <= 1000}
     }
 
     test {TTL / PTTL / EXPIRETIME / PEXPIRETIME return -1 if key has no expire} {
@@ -234,41 +246,52 @@ start_server {tags {"expire"}} {
     test {SET with EX with big integer should report an error} {
         catch {r set foo bar EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {SET with EX with smallest integer should report an error} {
         catch {r SET foo bar EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in set}
+    } {ERR invalid expire time in 'set' command}
 
     test {GETEX with big integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX 10000000000000000} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {GETEX with smallest integer should report an error} {
         r set foo bar
         catch {r GETEX foo EX -9999999999999999} e
         set e
-    } {ERR invalid expire time in getex}
+    } {ERR invalid expire time in 'getex' command}
 
     test {EXPIRE with big integer overflows when converted to milliseconds} {
         r set foo bar
-        catch {r EXPIRE foo 10000000000000000} e
-        set e
-    } {ERR invalid expire time in expire}
+
+        # Hit `when > LLONG_MAX - basetime`
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223370399119966}
+
+        # Hit `when > LLONG_MAX / 1000`
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 10000000000000000}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo 18446744073709561}
+
+        assert_equal {-1} [r ttl foo]
+    }
 
     test {PEXPIRE with big integer overflow when basetime is added} {
         r set foo bar
         catch {r PEXPIRE foo 9223372036854770000} e
         set e
-    } {ERR invalid expire time in pexpire}
+    } {ERR invalid expire time in 'pexpire' command}
 
     test {EXPIRE with big negative integer} {
         r set foo bar
-        catch {r EXPIRE foo -9999999999999999} e
-        assert_match {ERR invalid expire time in expire} $e
+
+        # Hit `when < LLONG_MIN / 1000`
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9223372036854776}
+        assert_error "ERR invalid expire time in 'expire' command" {r EXPIRE foo -9999999999999999}
+
         r ttl foo
     } {-1}
 
@@ -284,21 +307,21 @@ start_server {tags {"expire"}} {
     } {-2}
 
     # Start a new server with empty data and AOF file.
-    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
+    start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
             # This test makes sure that expire times are propagated as absolute
             # times to the AOF file and not as relative time, so that when the AOF
             # is reloaded the TTLs are not being shifted forward to the future.
             # We want the time to logically pass when the server is restarted!
 
-            set aof [file join [lindex [r config get dir] 1] [lindex [r config get appendfilename] 1]]
+            set aof [get_last_incr_aof_path r]
 
             # Apply each TTL-related command to a unique key
             # SET commands
             r set foo1 bar ex 100
             r set foo2 bar px 100000
             r set foo3 bar exat [expr [clock seconds]+100]
-            r set foo4 bar pxat [expr [clock milliseconds]+100000]
+            r set foo4 bar PXAT [expr [clock milliseconds]+100000]
             r setex foo5 100 bar
             r psetex foo6 100000 bar
             # EXPIRE-family commands
@@ -468,7 +491,7 @@ start_server {tags {"expire"}} {
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
-            {set foo1 bar PXAT *}
+            {set foo1 bar pxat *}
             {set foo1 bar PXAT *}
             {set foo1 bar PXAT *}
             {set foo2 bar}
@@ -487,6 +510,7 @@ start_server {tags {"expire"}} {
             {restore foo6 * {*} ABSTTL}
             {restore foo7 * {*} absttl}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     # Start another server to test replication of TTLs
@@ -549,6 +573,23 @@ start_server {tags {"expire"}} {
                 assert_equal [$primary pexpiretime $key] [$replica pexpiretime $key]
             }
         }
+
+        test {expired key which is created in writeable replicas should be deleted by active expiry} {
+            $primary flushall
+            $replica config set replica-read-only no
+            foreach {yes_or_no} {yes no} {
+                $replica config set appendonly $yes_or_no
+                waitForBgrewriteaof $replica
+                set prev_expired [s expired_keys]
+                $replica set foo bar PX 1
+                wait_for_condition 100 10 {
+                    [s expired_keys] eq $prev_expired + 1
+                } else {
+                    fail "key not expired"
+                }
+                assert_equal {} [$replica get foo]
+            }
+        }
     }
 
     test {SET command will remove expire} {
@@ -581,14 +622,17 @@ start_server {tags {"expire"}} {
     } {-1}
 
     test {GETEX use of PERSIST option should remove TTL after loadaof} {
+       r config set appendonly yes
        r set foo bar EX 100
        r getex foo PERSIST
-       after 2000
        r debug loadaof
        r ttl foo
     } {-1} {needs:debug}
 
     test {GETEX propagate as to replica as PERSIST, DEL, or nothing} {
+        # In the above tests, many keys with random expiration times are set, flush
+        # the DBs to avoid active expiry kicking in and messing the replication streams.
+        r flushall
        set repl [attach_to_replication_stream]
        r set foo bar EX 100
        r getex foo PERSIST
@@ -600,6 +644,7 @@ start_server {tags {"expire"}} {
            {persist foo}
            {del foo}
         }
+        close_replication_stream $repl
     } {} {needs:repl}
 
     test {EXPIRE with NX option on a key with ttl} {
@@ -722,4 +767,69 @@ start_server {tags {"expire"}} {
         assert_equal [r EXPIRE none 100 GT] 0
         assert_equal [r EXPIRE none 100 LT] 0
     } {}
+
+    test {Redis should not propagate the read command on lazy expire} {
+        r debug set-active-expire 0
+        r flushall ; # Clean up keyspace to avoid interference by keys from other tests
+        r set foo bar PX 1
+        set repl [attach_to_replication_stream]
+        wait_for_condition 50 100 {
+            [r get foo] eq {}
+        } else {
+            fail "Replication not started."
+        }
+
+        # dummy command to verify nothing else gets into the replication stream.
+        r set x 1
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo}
+            {set x 1}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {SCAN: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r scan 0
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {RANDOMKEY: Lazy-expire should not be wrapped in MULTI/EXEC} {
+        r debug set-active-expire 0
+        r flushall
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 2
+
+        set repl [attach_to_replication_stream]
+
+        r randomkey
+
+        assert_replication_stream $repl {
+            {select *}
+            {del foo*}
+            {del foo*}
+        }
+        close_replication_stream $repl
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
 }

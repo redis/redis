@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include <unistd.h>
+#include <fcntl.h>
 
 typedef struct {
     size_t keys;
@@ -42,11 +43,9 @@ typedef struct {
  * RDB / AOF saving process from the child to the parent (for instance
  * the amount of copy on write memory used) */
 void openChildInfoPipe(void) {
-    if (pipe(server.child_info_pipe) == -1) {
+    if (anetPipe(server.child_info_pipe, O_NONBLOCK, 0) == -1) {
         /* On error our two file descriptors should be still set to -1,
          * but we call anyway closeChildInfoPipe() since can't hurt. */
-        closeChildInfoPipe();
-    } else if (anetNonBlock(NULL,server.child_info_pipe[0]) != ANET_OK) {
         closeChildInfoPipe();
     } else {
         server.child_info_nread = 0;
@@ -113,7 +112,9 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
     ssize_t wlen = sizeof(data);
 
     if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
-        /* Nothing to do on error, this will be detected by the other side. */
+        /* Failed writing to parent, it could have been killed, exit. */
+        serverLog(LL_WARNING,"Child failed reporting info to parent, exiting. %s", strerror(errno));
+        exitFromChild(1);
     }
 }
 

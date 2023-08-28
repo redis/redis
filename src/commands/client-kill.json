@@ -1,0 +1,159 @@
+{
+    "KILL": {
+        "summary": "Terminates open connections.",
+        "complexity": "O(N) where N is the number of client connections",
+        "group": "connection",
+        "since": "2.4.0",
+        "arity": -3,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "history": [
+            [
+                "2.8.12",
+                "Added new filter format."
+            ],
+            [
+                "2.8.12",
+                "`ID` option."
+            ],
+            [
+                "3.2.0",
+                "Added `master` type in for `TYPE` option."
+            ],
+            [
+                "5.0.0",
+                "Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."
+            ],
+            [
+                "6.2.0",
+                "`LADDR` option."
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "arguments": [
+            {
+                "name": "filter",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "old-format",
+                        "display": "ip:port",
+                        "type": "string",
+                        "deprecated_since": "2.8.12"
+                    },
+                    {
+                        "name": "new-format",
+                        "type": "oneof",
+                        "multiple": true,
+                        "arguments": [
+                            {
+                                "token": "ID",
+                                "name": "client-id",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "2.8.12"
+                            },
+                            {
+                                "token": "TYPE",
+                                "name": "client-type",
+                                "type": "oneof",
+                                "optional": true,
+                                "since": "2.8.12",
+                                "arguments": [
+                                    {
+                                        "name": "normal",
+                                        "type": "pure-token",
+                                        "token": "normal"
+                                    },
+                                    {
+                                        "name": "master",
+                                        "type": "pure-token",
+                                        "token": "master",
+                                        "since": "3.2.0"
+                                    },
+                                    {
+                                        "name": "slave",
+                                        "type": "pure-token",
+                                        "token": "slave"
+                                    },
+                                    {
+                                        "name": "replica",
+                                        "type": "pure-token",
+                                        "token": "replica",
+                                        "since": "5.0.0"
+                                    },
+                                    {
+                                        "name": "pubsub",
+                                        "type": "pure-token",
+                                        "token": "pubsub"
+                                    }
+                                ]
+                            },
+                            {
+                                "token": "USER",
+                                "name": "username",
+                                "type": "string",
+                                "optional": true
+                            },
+                            {
+                                "token": "ADDR",
+                                "name": "addr",
+                                "display": "ip:port",
+                                "type": "string",
+                                "optional": true
+                            },
+                            {
+                                "token": "LADDR",
+                                "name": "laddr",
+                                "display": "ip:port",
+                                "type": "string",
+                                "optional": true,
+                                "since": "6.2.0"
+                            },
+                            {
+                                "token": "SKIPME",
+                                "name": "skipme",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "yes",
+                                        "type": "pure-token",
+                                        "token": "YES"
+                                    },
+                                    {
+                                        "name": "no",
+                                        "type": "pure-token",
+                                        "token": "NO"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "when called in 3 argument format",
+                    "const": "OK"
+                },
+                {
+                    "description": "when called in filter/value format, the number of clients killed",
+                    "type": "integer",
+                    "minimum": 0
+                }
+            ]
+        }
+    }
+}

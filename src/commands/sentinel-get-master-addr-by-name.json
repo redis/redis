@@ -1,0 +1,38 @@
+{
+    "GET-MASTER-ADDR-BY-NAME": {
+        "summary": "Returns the port and address of a master Redis instance.",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 3,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "type": "string",
+                    "description": "IP addr or hostname."
+                },
+                {
+                    "type": "string",
+                    "description": "Port.",
+                    "pattern": "[0-9]+"
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "master-name",
+                "type": "string"
+            }
+        ]
+    }
+}

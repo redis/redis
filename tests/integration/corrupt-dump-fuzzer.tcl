@@ -1,4 +1,4 @@
-# tests of corrupt ziplist payload with valid CRC
+# tests of corrupt listpack payload with valid CRC
 
 tags {"dump" "corruption" "external:skip"} {
 
@@ -32,6 +32,7 @@ proc generate_collections {suffix elements} {
 proc generate_types {} {
     r config set list-max-ziplist-size 5
     r config set hash-max-ziplist-entries 5
+    r config set set-max-listpack-entries 5
     r config set zset-max-ziplist-entries 5
     r config set stream-node-max-entries 5
 
@@ -146,10 +147,21 @@ foreach sanitize_dump {no yes} {
                         if {$dbsize != [r dbsize]} {
                             puts "unexpected keys"
                             puts "keys: [r keys *]"
-                            puts $sent
+                            puts "commands leading to it:"
+                            foreach cmd $sent {
+                                foreach arg $cmd {
+                                    puts -nonewline "[string2printable $arg] "
+                                }
+                                puts ""
+                            }
                             exit 1
                         }
                     } err ] } {
+                        set err [format "%s" $err] ;# convert to string for pattern matching
+                        if {[string match "*SIGTERM*" $err]} {
+                            puts "payload that caused test to hang: $printable_dump"
+                            exit 1
+                        }
                         # if the server terminated update stats and restart it
                         set report_and_restart true
                         incr stat_terminated_in_traffic
@@ -166,8 +178,9 @@ foreach sanitize_dump {no yes} {
                 # check valgrind report for invalid reads after each RESTORE
                 # payload so that we have a report that is easier to reproduce
                 set valgrind_errors [find_valgrind_errors [srv 0 stderr] false]
-                if {$valgrind_errors != ""} {
-                    puts "valgrind found an issue for payload: $printable_dump"
+                set asan_errors [sanitizer_errors_from_file [srv 0 stderr]]
+                if {$valgrind_errors != "" || $asan_errors != ""} {
+                    puts "valgrind or asan found an issue for payload: $printable_dump"
                     set report_and_restart true
                     set print_commands true
                 }

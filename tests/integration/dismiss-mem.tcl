@@ -46,12 +46,12 @@ start_server {tags {"dismiss external:skip"}} {
         # stream
         r xadd bigstream * entry1 $bigstr entry2 $bigstr
 
-        set digest [r debug digest]
+        set digest [debug_digest]
         r config set aof-use-rdb-preamble no
         r bgrewriteaof
         waitForBgrewriteaof r
         r debug loadaof
-        set newdigest [r debug digest]
+        set newdigest [debug_digest]
         assert {$digest eq $newdigest}
     }
 
