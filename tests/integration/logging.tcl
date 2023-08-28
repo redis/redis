@@ -63,7 +63,7 @@ if {!$::valgrind} {
             set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
             if {$::verbose} { puts $res }
         }
-    }  
+    }
 }
 
 }
