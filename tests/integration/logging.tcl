@@ -25,6 +25,12 @@ if {$backtrace_supported} {
         test "Server is able to generate a stack trace on selected systems" {
             r config set watchdog-period 200
             r debug sleep 1
+            if {$threads_mngr_supported} {
+                set pattern "*redis-server stacktraces-logging-handling-thread*"
+                set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+                if {$::verbose} { puts $res }
+            }
+            
             set pattern "*debugCommand*"
             set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
             if {$::verbose} { puts $res }
@@ -57,20 +63,7 @@ if {!$::valgrind} {
             set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
             if {$::verbose} { puts $res }
         }
-    }
-    if {$threads_mngr_supported} {
-        set server_path [tmpdir server3.log]
-        start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
-            test "Crash report generated on DEBUG get-threads-stacktraces" {
-                catch {r debug get-threads-stacktraces}
-                for {set i 0} {$i < 3} {incr i} {
-                    set crash_pattern [format "*thread %d output:*here is my backtrace!*" $i]
-                    set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
-                }
-                if {$::verbose} { puts $res }
-            }
-        }
-    }    
+    }  
 }
 
 }

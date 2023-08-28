@@ -78,14 +78,6 @@ void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
 void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret);
 
-/** This test creates 2 additional threads and calls ThreadsManager_runOnThreads
- * with a callback that returns a string from each thread. Then writes the outputs to the log file.
- * This test is called by sending "debug get-threads-stacktraces" command.
- * NOTE: if the system is not linux, it does nothing.
- * TODO: Once we implement getting the process's threads backtraces, replace dummy string with the actual backtraces.
-*/
-void ThreadsManager_test(void);
-
 /* ================================= Debugging ============================== */
 
 /* Compute the sha1 of string at 's' with 'len' bytes long.
@@ -1055,9 +1047,6 @@ NULL
             addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
         }
         addReply(c,shared.ok);
-    } else if(!strcasecmp(c->argv[1]->ptr,"get-threads-stacktraces") && c->argc == 2) {
-        ThreadsManager_test();
-        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1884,6 +1873,7 @@ static void writeStacktraces(int fd, int uplevel)  {
     /* ThreadsManager_runOnThreads returns NULL if it is already running */
     if(!stackraces_data) return;
 
+
     char buff[MAX_BUFF_LENGTH];
     pid_t calling_tid = syscall(SYS_gettid);
     /* for backtrace_data in backtraces_data: */
@@ -1896,18 +1886,23 @@ static void writeStacktraces(int fd, int uplevel)  {
         snprintf(buff, MAX_BUFF_LENGTH, "\n%d %s", curr_stacktrace_data->tid, curr_stacktrace_data->thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
-        /* Add an indication to the the line of the thread that handles the log file*/
+        /* skip kernel call to the signal handler, the signal handler and the callback addresses */
+        int curr_uplevel = 3;
+
         if(curr_stacktrace_data->tid == calling_tid) {
+            /*skip signal syscall and ThreadsManager_runOnThreads*/
+            curr_uplevel += uplevel + 2;
+            /* Add an indication to header of the thread that is handeling the log file*/
             snprintf(buff, MAX_BUFF_LENGTH, " stacktraces-logging-handling-thread\n");
-        } else { /*jusr add a new line*/
+        } else { 
+            /*just add a new line*/
             snprintf(buff, MAX_BUFF_LENGTH, "\n");
         }
 
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
         /* add the stacktrace*/
-        uplevel = 0;
-        backtrace_symbols_fd(curr_stacktrace_data->trace+uplevel, curr_stacktrace_data->trace_size-uplevel, fd);
+        backtrace_symbols_fd(curr_stacktrace_data->trace+curr_uplevel, curr_stacktrace_data->trace_size-curr_uplevel, fd);
 
         zfree(curr_stacktrace_data);
     }
@@ -2578,81 +2573,4 @@ static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *t
     *tids_len_output = tids_count;
     return tids;
 }
-
-
-
-
-
-
-
-
-
-
-#define THREADS_NUMBER 2
-static const size_t buff_len = 256;
-/* tids of additional threads + main thread */
-static pid_t test_tids[THREADS_NUMBER + 1];
-static volatile int wait_for_signal = 1;
-static redisAtomic size_t g_done = 0;
-
-
-static void *thread_do(void *arg) {
-    size_t thread_id = (size_t)arg;
-    test_tids[thread_id] = syscall(SYS_gettid);
-
-    atomicIncr(g_done, 1);
-    while(wait_for_signal) {}
-
-    return NULL;
-}
-
-static void *generate_string(void) {
-    void *buff = zmalloc(buff_len);
-    snprintf(buff, buff_len, "%ld: here is my backtrace!\n", syscall(SYS_gettid));
-    return buff;
-}
-
-
-void ThreadsManager_test(void) {
-    /* generate 2 threads that put their tids into a global array and wait on wait_for_signal*/
-    pthread_t pthread_t_ids[THREADS_NUMBER];
-    for (size_t i = 0; i < THREADS_NUMBER; i++) {
-        pthread_create(&(pthread_t_ids[i]), NULL, thread_do, (void *)i);
-    }
-
-    /* add main thread to tids */
-    test_tids[THREADS_NUMBER] = syscall(SYS_gettid);
-    size_t curr_done = 0;
-    while ((atomicIncrGet(g_done, curr_done, 0)) < THREADS_NUMBER) {}
-
-    /* call ThreadsManager_runOnThreads with a callback that generates a string from each thread */
-    void **outputs = ThreadsManager_runOnThreads(test_tids, THREADS_NUMBER + 1, generate_string); 
-    
-    /* print to the log file and release the outputs */
-    int fd = openDirectLogFiledes();
-
-    for (size_t i = 0; i < THREADS_NUMBER + 1; i++) {
-        char msg[buff_len];
-        snprintf(msg, buff_len,"thread %zu output:%s", i, (const char *)outputs[i]);
-        if (write(fd, msg, strlen(msg)) == -1) {/* Avoid warning. */};
-        zfree(outputs[i]);
-    }
-
-    zfree(outputs);
-
-    closeDirectLogFiledes(fd);
-
-    /* let the threads continue*/
-    wait_for_signal = 0;
-
-    /* wait for the threads to end*/
-    for (size_t i = 0; i < THREADS_NUMBER; i++) {
-        pthread_join(pthread_t_ids[i], NULL);
-    }
-}
-#else 
-void ThreadsManager_test(void) {
-    /* DO NOTHING */
-}
-
 #endif /* __linux__ */
