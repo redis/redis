@@ -1876,13 +1876,13 @@ static void writeStacktraces(int fd, int uplevel)  {
     pid_t *tids = get_ready_to_signal_threads_tids(pid, THREADS_SIGNAL, &len_tids);
 
     /* This call returns either NULL or the stacktraces data from all tids*/
-    stacktrace_data **stackraces_data = NULL;
+    stacktrace_data **stackraces_data = (stacktrace_data **)ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data);
 
     /* free tids */
     zfree(tids);
 
     /* ThreadsManager_runOnThreads returns NULL if it is already running */
-    if(NULL == (stackraces_data =  (stacktrace_data **)ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data))) return;
+    if(!stackraces_data) return;
 
     char buff[MAX_BUFF_LENGTH];
     pid_t calling_tid = syscall(SYS_gettid);
@@ -1906,6 +1906,7 @@ static void writeStacktraces(int fd, int uplevel)  {
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
         /* add the stacktrace*/
+        uplevel = 0;
         backtrace_symbols_fd(curr_stacktrace_data->trace+uplevel, curr_stacktrace_data->trace_size-uplevel, fd);
 
         zfree(curr_stacktrace_data);
