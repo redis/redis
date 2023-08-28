@@ -2471,6 +2471,7 @@ void debugDelay(int usec) {
     if (usec) usleep(usec);
 }
 
+#ifdef HAVE_BACKTRACE
 #ifdef __linux__
 
 /* =========================== Stacktrace Utils ============================ */
@@ -2574,3 +2575,4 @@ static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *t
     return tids;
 }
 #endif /* __linux__ */
+#endif /* HAVE_BACKTRACE */
