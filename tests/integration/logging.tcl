@@ -26,7 +26,7 @@ if {$backtrace_supported} {
             r config set watchdog-period 200
             r debug sleep 1
             if {$threads_mngr_supported} {
-                set pattern "*redis-server stacktraces-logging-handling-thread*"
+                set pattern "*stacktraces-logging-handling-thread*"
                 set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
                 if {$::verbose} { puts $res }
             }
