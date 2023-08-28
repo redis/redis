@@ -1892,7 +1892,7 @@ static void writeStacktraces(int fd, int uplevel)  {
         if(curr_stacktrace_data->tid == calling_tid) {
             /*skip signal syscall and ThreadsManager_runOnThreads*/
             curr_uplevel += uplevel + 2;
-            /* Add an indication to header of the thread that is handeling the log file*/
+            /* Add an indication to header of the thread that is handling the log file*/
             snprintf(buff, MAX_BUFF_LENGTH, " stacktraces-logging-handling-thread\n");
         } else { 
             /*just add a new line*/
