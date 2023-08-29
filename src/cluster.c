@@ -7399,12 +7399,14 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * is serving, we can reply without redirection. */
     int is_write_command = (cmd_flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
-        !is_write_command &&
-        nodeIsSlave(myself) &&
-        myself->slaveof == n)
-    {
-        return myself;
+    
+    if (nodeIsSlave(myself) && myself->slaveof == n) {
+        /* Allow writable replicas if replica-read-only config is set to false. */
+        if (is_write_command && server.repl_slave_ro)
+            return myself;
+        /* Allow client to read from replica if it's not a write command. */
+        else if ((c->flags & CLIENT_READONLY) || is_pubsubshard)
+            return myself;
     }
 
     /* Base case: just return the right node. However if this node is not
