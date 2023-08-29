@@ -2294,7 +2294,8 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     keys = getKeysPrepareResult(result, 1);
     keys[0].pos = 1; /* <sort-key> is always present. */
     keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-    return 1;
+    result->numkeys = 1;
+    return result->numkeys;
 }
 
 /* Helper function to extract keys from the SORT command.
