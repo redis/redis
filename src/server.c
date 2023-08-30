@@ -2522,6 +2522,8 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_reads_processed, 0);
     server.stat_io_writes_processed = 0;
     atomicSet(server.stat_total_writes_processed, 0);
+    server.stat_client_qbuf_limit_disconnections = 0;
+    server.stat_client_outbuf_limit_disconnections = 0;
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_base = 0;
@@ -5929,6 +5931,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n"
             "io_threaded_reads_processed:%lld\r\n"
             "io_threaded_writes_processed:%lld\r\n"
+            "client_query_buffer_limit_disconnections:%lld\r\n"
+            "client_output_buffer_limit_disconnections:%lld\r\n"
             "reply_buffer_shrinks:%lld\r\n"
             "reply_buffer_expands:%lld\r\n"
             "eventloop_cycles:%llu\r\n"
@@ -5984,6 +5988,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_total_writes_processed,
             server.stat_io_reads_processed,
             server.stat_io_writes_processed,
+            server.stat_client_qbuf_limit_disconnections,
+            server.stat_client_outbuf_limit_disconnections,
             server.stat_reply_buffer_shrinks,
             server.stat_reply_buffer_expands,
             server.duration_stats[EL_DURATION_TYPE_EL].cnt,
