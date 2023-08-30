@@ -128,7 +128,7 @@ start_server {tags {"benchmark network external:skip logreqres:skip"}} {
 
         test {benchmark: read last argument from stdin} {
             set base_cmd [redisbenchmark $master_host $master_port "-x -n 10 set key"]
-            set cmd "sh -c \"printf \\\"arg\\\" | $base_cmd\""
+            set cmd "printf arg | $base_cmd"
             common_bench_setup $cmd
             set cli_cmd [rediscli $master_host $master_port {get key}]
             assert_equal "arg" [exec {*}$cli_cmd]
