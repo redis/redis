@@ -96,14 +96,14 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         wait_for_condition 50 100 {
             [R 0 cluster countkeysinslot $key_slot] eq 0
         } else {
-            fail "master 'countkeysinslot $key_slot' did not eq 0"
+            fail "primary 'countkeysinslot $key_slot' did not eq 0"
         }
 
         # src replica will delete keys in the slot
         wait_for_condition 50 100 {
-            [R 0 cluster countkeysinslot $key_slot] eq 0
+            [R 2 cluster countkeysinslot $key_slot] eq 0
         } else {
-            fail "master 'countkeysinslot $key_slot' did not eq 0"
+            fail "replica 'countkeysinslot $key_slot' did not eq 0"
         }
     }
 }

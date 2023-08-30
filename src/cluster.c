@@ -2386,8 +2386,13 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 {
                     dirty_slots[dirty_slots_count] = j;
                     dirty_slots_count++;
+                } else if (server.cluster->slots[j] == curmaster && countKeysInSlot(j)) {
+                    /* If the slot belonged to the primary of the current node and has been
+                       migrated to some other node. In case of writeable replica scenario, it
+                       still might have keys created directly which should be cleaned up. */
+                    dirty_slots[dirty_slots_count] = j;
+                    dirty_slots_count++;
                 }
-
                 if (server.cluster->slots[j] == curmaster) {
                     newmaster = sender;
                     migrated_our_slots++;
