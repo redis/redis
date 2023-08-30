@@ -109,6 +109,10 @@ start_server {
     test "SORT extracts STORE correctly" {
         r command getkeys sort abc store def
     } {abc def}
+    
+    test "SORT_RO get keys" {
+        r command getkeys sort_ro abc
+    } {abc}
 
     test "SORT extracts multiple STORE correctly" {
         r command getkeys sort abc store invalid store stillbad store def
