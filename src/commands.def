@@ -6446,7 +6446,10 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG RESETSTAT tips */
-#define CONFIG_RESETSTAT_Tips NULL
+const char *CONFIG_RESETSTAT_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6463,7 +6466,10 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG REWRITE tips */
-#define CONFIG_REWRITE_Tips NULL
+const char *CONFIG_REWRITE_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6508,8 +6514,8 @@ struct COMMAND_ARG CONFIG_SET_Args[] = {
 struct COMMAND_STRUCT CONFIG_Subcommands[] = {
 {MAKE_CMD("get","Returns the effective values of configuration parameters.","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_GET_History,1,CONFIG_GET_Tips,0,configGetCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_GET_Keyspecs,0,NULL,1),.args=CONFIG_GET_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_HELP_History,0,CONFIG_HELP_Tips,0,configHelpCommand,2,CMD_LOADING|CMD_STALE,0,CONFIG_HELP_Keyspecs,0,NULL,0)},
-{MAKE_CMD("resetstat","Resets the server's statistics.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,0,CONFIG_RESETSTAT_Tips,0,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_RESETSTAT_Keyspecs,0,NULL,0)},
-{MAKE_CMD("rewrite","Persists the effective configuration to file.","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,0,CONFIG_REWRITE_Tips,0,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_REWRITE_Keyspecs,0,NULL,0)},
+{MAKE_CMD("resetstat","Resets the server's statistics.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,0,CONFIG_RESETSTAT_Tips,2,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_RESETSTAT_Keyspecs,0,NULL,0)},
+{MAKE_CMD("rewrite","Persists the effective configuration to file.","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,0,CONFIG_REWRITE_Tips,2,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_REWRITE_Keyspecs,0,NULL,0)},
 {MAKE_CMD("set","Sets configuration parameters in-flight.","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_SET_History,1,CONFIG_SET_Tips,2,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_SET_Keyspecs,0,NULL,1),.args=CONFIG_SET_Args},
 {0}
 };
