@@ -505,6 +505,10 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
+
+/* Common helper functions. */
+int moduleVerifyResourceName(const char *name);
+
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
  *
@@ -1447,6 +1451,45 @@ int populateArgsStructure(struct redisCommandArg *args) {
     return count;
 }
 
+/* RedisModule_AddACLCategory can be used to add new ACL command categories. Category names
+ * can only contain alphanumeric characters, underscores, or dashes. Categories can only be added
+ * during the RedisModule_OnLoad function. Once a category has been added, it can not be removed. 
+ * Any module can register a command to any added categories using RedisModule_SetCommandACLCategories.
+ * 
+ * Returns:
+ * - REDISMODULE_OK on successfully adding the new ACL category. 
+ * - REDISMODULE_ERR on failure.
+ * 
+ * On error the errno is set to:
+ * - EINVAL if the name contains invalid characters.
+ * - EBUSY if the category name already exists.
+ * - ENOMEM if the number of categories reached the max limit of 64 categories.
+ */
+int RM_AddACLCategory(RedisModuleCtx *ctx, const char *name) {
+    if (!ctx->module->onload) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    if (moduleVerifyResourceName(name) == REDISMODULE_ERR) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    if (ACLGetCommandCategoryFlagByName(name)) {
+        errno = EBUSY;
+        return REDISMODULE_ERR;
+    }
+
+    if (ACLAddCommandCategory(name, 0)) {
+        ctx->module->num_acl_categories_added++;
+        return REDISMODULE_OK;
+    } else {
+        errno = ENOMEM;
+        return REDISMODULE_ERR;
+    }
+}
+
 /* Helper for categoryFlagsFromString(). Attempts to find an acl flag representing the provided flag string
  * and adds that flag to acl_categories_flags if a match is found.
  *
@@ -2252,6 +2295,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->loadmod = NULL;
     module->num_commands_with_acl_categories = 0;
     module->onload = 1;
+    module->num_acl_categories_added = 0;
     ctx->module = module;
 }
 
@@ -11937,6 +11981,13 @@ void moduleRemoveConfigs(RedisModule *module) {
     }
 }
 
+/* Remove ACL categories added by the module when it fails to load. */
+void moduleRemoveCateogires(RedisModule *module) {
+    if (module->num_acl_categories_added) {
+        ACLCleanupCategoriesOnFailure(module->num_acl_categories_added);
+    }
+}
+
 /* Load all the modules in the server.loadmodule_queue list, which is
  * populated by `loadmodule` directives in the configuration file.
  * We can't load modules directly when processing the configuration file
@@ -12152,6 +12203,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleUnregisterCommands(ctx.module);
             moduleUnregisterSharedAPI(ctx.module);
             moduleUnregisterUsedAPI(ctx.module);
+            moduleRemoveCateogires(ctx.module);
             moduleRemoveConfigs(ctx.module);
             moduleUnregisterAuthCBs(ctx.module);
             moduleFreeModuleStructure(ctx.module);
@@ -12424,12 +12476,14 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
     return REDISMODULE_OK;
 }
 
-int moduleVerifyConfigName(sds name) {
-    if (sdslen(name) == 0) {
-        serverLogRaw(LL_WARNING, "Module config names cannot be an empty string.");
+/* Verify a module resource or name has only alphanumeric characters, underscores
+ * or dashes. */
+int moduleVerifyResourceName(const char *name) {
+    if (name[0] == '\0') {
         return REDISMODULE_ERR;
     }
-    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
+
+    for (size_t i = 0; name[i] != '\0'; i++) {
         char curr_char = name[i];
         if ((curr_char >= 'a' && curr_char <= 'z') ||
             (curr_char >= 'A' && curr_char <= 'Z') ||
@@ -12438,7 +12492,7 @@ int moduleVerifyConfigName(sds name) {
         {
             continue;
         }
-        serverLog(LL_WARNING, "Invalid character %c in Module Config name %s.", curr_char, name);
+        serverLog(LL_WARNING, "Invalid character %c in Module resource name %s.", curr_char, name);
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
@@ -12597,7 +12651,7 @@ int moduleConfigValidityCheck(RedisModule *module, sds name, unsigned int flags,
         errno = EBUSY;
         return REDISMODULE_ERR;
     }
-    if (moduleVerifyConfigFlags(flags, type) || moduleVerifyConfigName(name)) {
+    if (moduleVerifyConfigFlags(flags, type) || moduleVerifyResourceName(name)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -13505,6 +13559,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateSubcommand);
     REGISTER_API(SetCommandInfo);
     REGISTER_API(SetCommandACLCategories);
+    REGISTER_API(AddACLCategory);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);

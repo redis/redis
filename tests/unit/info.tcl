@@ -342,5 +342,26 @@ start_server {tags {"info" "external:skip"}} {
             assert {$duration_max2 >= $duration_max1}
         }
 
+        test {stats: client input and output buffer limit disconnections} {
+            r config resetstat
+            set info [r info stats]
+            assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {0}
+            assert_equal [getInfoProperty $info client_output_buffer_limit_disconnections] {0}
+            # set qbuf limit to minimum to test stat
+            set org_qbuf_limit [lindex [r config get client-query-buffer-limit] 1]
+            r config set client-query-buffer-limit 1048576
+            catch {r set key [string repeat a 1048576]}
+            set info [r info stats]
+            assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {1}
+            r config set client-query-buffer-limit $org_qbuf_limit
+            # set outbuf limit to just 10 to test stat
+            set org_outbuf_limit [lindex [r config get client-output-buffer-limit] 1]
+            r config set client-output-buffer-limit "normal 10 0 0"
+            r set key [string repeat a 100000] ;# to trigger output buffer limit check this needs to be big
+            catch {r get key}
+            set info [r info stats]
+            assert_equal [getInfoProperty $info client_output_buffer_limit_disconnections] {1}
+            r config set client-output-buffer-limit $org_outbuf_limit
+        }
     }
 }

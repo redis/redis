@@ -59,10 +59,12 @@ static rax *commandId = NULL; /* Command name to id mapping */
 
 static unsigned long nextid = 0; /* Next command id that has not been assigned */
 
+#define ACL_MAX_CATEGORIES 64 /* Maximum number of command categories  */
+
 struct ACLCategoryItem {
-    const char *name;
+    char *name;
     uint64_t flag;
-} ACLCommandCategories[] = { /* See redis.conf for details on each category. */
+} ACLDefaultCommandCategories[] = { /* See redis.conf for details on each category. */
     {"keyspace", ACL_CATEGORY_KEYSPACE},
     {"read", ACL_CATEGORY_READ},
     {"write", ACL_CATEGORY_WRITE},
@@ -86,6 +88,54 @@ struct ACLCategoryItem {
     {"scripting", ACL_CATEGORY_SCRIPTING},
     {NULL,0} /* Terminator. */
 };
+
+static struct ACLCategoryItem *ACLCommandCategories = NULL;
+static size_t nextCommandCategory = 0; /* Index of the next command category to be added */
+
+/* Implements the ability to add to the list of ACL categories at runtime. Since each ACL category
+ * also requires a bit in the acl_categories flag, there is a limit to the number that can be added.
+ * The new ACL categories occupy the remaining bits of acl_categories flag, other than the bits
+ * occupied by the default ACL command categories.
+ * 
+ * The optional `flag` argument allows the assignment of the `acl_categories` flag bit to the ACL category.
+ * When adding a new category, except for the default ACL command categories, this arguments should be `0`
+ * to allow the function to assign the next available `acl_categories` flag bit to the new ACL category.
+ *
+ * returns 1 -> Added, 0 -> Failed (out of space)
+ *
+ * This function is present here to gain access to the ACLCommandCategories array and add a new ACL category.
+ */
+int ACLAddCommandCategory(const char *name, uint64_t flag) {
+    if (nextCommandCategory >= ACL_MAX_CATEGORIES) return 0;
+    ACLCommandCategories[nextCommandCategory].name = zstrdup(name);
+    ACLCommandCategories[nextCommandCategory].flag = flag != 0 ? flag : (1ULL<<nextCommandCategory);
+    nextCommandCategory++;
+    return 1;
+}
+
+/* Initializes ACLCommandCategories with default ACL categories and allocates space for 
+ * new ACL categories.
+ */
+void ACLInitCommandCategories(void) {
+    ACLCommandCategories = zcalloc(sizeof(struct ACLCategoryItem) * (ACL_MAX_CATEGORIES + 1));
+    for (int j = 0; ACLDefaultCommandCategories[j].flag; j++) {
+        serverAssert(ACLAddCommandCategory(ACLDefaultCommandCategories[j].name, ACLDefaultCommandCategories[j].flag));
+    }
+}
+
+/* This function removes the specified number of categories from the trailing end of
+ * the `ACLCommandCategories` array.
+ * The purpose of this is to remove the categories added by modules that fail
+ * during the onload function.
+ */
+void ACLCleanupCategoriesOnFailure(size_t num_acl_categories_added) {
+    for (size_t j = nextCommandCategory - num_acl_categories_added; j < nextCommandCategory; j++) {
+        zfree(ACLCommandCategories[j].name);
+        ACLCommandCategories[j].name = NULL;
+        ACLCommandCategories[j].flag = 0;
+    }
+    nextCommandCategory -= num_acl_categories_added;
+}
 
 struct ACLUserFlag {
     const char *name;
@@ -1398,6 +1448,7 @@ user *ACLCreateDefaultUser(void) {
 void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
+    ACLInitCommandCategories();
     listSetMatchMethod(UsersToLoad, ACLListMatchLoadedUser);
     ACLLog = listCreate();
     DefaultUser = ACLCreateDefaultUser();

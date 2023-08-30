@@ -950,6 +950,11 @@ dictEntry *dictNext(dictIterator *iter)
                     dictPauseRehashing(iter->d);
                 else
                     iter->fingerprint = dictFingerprint(iter->d);
+
+                /* skip the rehashed slots in table[0] */
+                if (dictIsRehashing(iter->d)) {
+                    iter->index = iter->d->rehashidx - 1;
+                }
             }
             iter->index++;
             if (iter->index >= (long) DICTHT_SIZE(iter->d->ht_size_exp[iter->table])) {

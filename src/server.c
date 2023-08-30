@@ -2522,6 +2522,8 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_reads_processed, 0);
     server.stat_io_writes_processed = 0;
     atomicSet(server.stat_total_writes_processed, 0);
+    server.stat_client_qbuf_limit_disconnections = 0;
+    server.stat_client_outbuf_limit_disconnections = 0;
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_base = 0;
@@ -5929,6 +5931,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n"
             "io_threaded_reads_processed:%lld\r\n"
             "io_threaded_writes_processed:%lld\r\n"
+            "client_query_buffer_limit_disconnections:%lld\r\n"
+            "client_output_buffer_limit_disconnections:%lld\r\n"
             "reply_buffer_shrinks:%lld\r\n"
             "reply_buffer_expands:%lld\r\n"
             "eventloop_cycles:%llu\r\n"
@@ -5984,6 +5988,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_total_writes_processed,
             server.stat_io_reads_processed,
             server.stat_io_writes_processed,
+            server.stat_client_qbuf_limit_disconnections,
+            server.stat_client_outbuf_limit_disconnections,
             server.stat_reply_buffer_shrinks,
             server.stat_reply_buffer_expands,
             server.duration_stats[EL_DURATION_TYPE_EL].cnt,
@@ -6521,37 +6527,13 @@ static void sigShutdownHandler(int sig) {
 void setupSignalHandlers(void) {
     struct sigaction act;
 
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
-     * Otherwise, sa_handler is used. */
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
-    act.sa_sigaction = sigsegvHandler;
-    if(server.crashlog_enabled) {
-        sigaction(SIGSEGV, &act, NULL);
-        sigaction(SIGBUS, &act, NULL);
-        sigaction(SIGFPE, &act, NULL);
-        sigaction(SIGILL, &act, NULL);
-        sigaction(SIGABRT, &act, NULL);
-    }
-    return;
-}
-
-void removeSignalHandlers(void) {
-    struct sigaction act;
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_RESETHAND;
-    act.sa_handler = SIG_DFL;
-    sigaction(SIGSEGV, &act, NULL);
-    sigaction(SIGBUS, &act, NULL);
-    sigaction(SIGFPE, &act, NULL);
-    sigaction(SIGILL, &act, NULL);
-    sigaction(SIGABRT, &act, NULL);
+    setupSigSegvHandler();
 }
 
 /* This is the signal handler for children process. It is currently useful
