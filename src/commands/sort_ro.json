@@ -117,7 +117,15 @@
             "description": "a list of sorted elements",
             "type": "array",
             "items": {
-                "type": "string"
+                "oneOf": [
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "description": "GET option is specified, but no object was found",
+                        "type": "null"
+                    }
+                ]
             }
         }
     }

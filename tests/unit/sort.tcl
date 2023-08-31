@@ -75,12 +75,14 @@ start_server {
         assert_equal [lsort -integer $result] [r sort tosort GET #]
     } {} {cluster:skip}
 
-    test "SORT GET <const>" {
+foreach command {SORT SORT_RO} {
+    test "$command GET <const>" {
         r del foo
-        set res [r sort tosort GET foo]
+        set res [r $command tosort GET foo]
         assert_equal 16 [llength $res]
         foreach item $res { assert_equal {} $item }
     } {} {cluster:skip}
+}
 
     test "SORT GET (key and hash) with sanity check" {
         set l1 [r sort tosort GET # GET weight_*]
