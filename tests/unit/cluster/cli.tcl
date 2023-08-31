@@ -81,6 +81,23 @@ start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1_rd [redis_deferring_client 0]
 
+    test "use previous hostip in \"cluster-preferred-endpoint-type unknown-endpoint\" mode" {
+        
+        # backup and set cluster-preferred-endpoint-type unknown-endpoint
+        set endpoint_type_before_set [lindex [split [$node1 CONFIG GET cluster-preferred-endpoint-type] " "] 1]
+        $node1 CONFIG SET cluster-preferred-endpoint-type unknown-endpoint
+
+        # when redis-cli not in cluster mode, return MOVE with empty host
+        set slot_for_foo [$node1 CLUSTER KEYSLOT foo]
+        assert_error "*MOVED $slot_for_foo :*" {$node1 set foo bar}
+
+        # when in cluster mode, redirect using previous hostip
+        assert_equal "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] -c set foo bar]" {OK}
+        assert_match "[exec src/redis-cli -h 127.0.0.1 -p [srv 0 port] -c get foo]" {bar}
+
+        assert_equal [$node1 CONFIG SET cluster-preferred-endpoint-type "$endpoint_type_before_set"]  {OK}
+    }
+
     test "Sanity test push cmd after resharding" {
         assert_error {*MOVED*} {$node3 lpush key9184688 v1}
 

@@ -132,7 +132,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSET element can't be set to NaN with ZINCRBY - $encoding" {
-            assert_error "*not*float*" {r zadd myzset nan abc}
+            assert_error "*not*float*" {r zincrby myzset nan abc}
         }
 
         test "ZADD with options syntax error with incomplete pair - $encoding" {
@@ -450,7 +450,7 @@ start_server {tags {"zset"}} {
             assert_equal $nullres [r zrevrank zranktmp foo]
             r readraw 0
 
-            # withscores
+            # withscore
             set nullres {*-1}
             if {$::force_resp3} {
                 set nullres {_}

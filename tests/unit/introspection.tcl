@@ -61,6 +61,29 @@ start_server {tags {"introspection"}} {
         $rd4 close
     }
 
+    test {CLIENT command unhappy path coverage} {
+        assert_error "ERR*wrong number of arguments*" {r client caching}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching maybe}
+        assert_error "ERR*syntax*" {r client no-evict wrongInput}
+        assert_error "ERR*syntax*" {r client reply wrongInput}
+        assert_error "ERR*syntax*" {r client tracking wrongInput}
+        assert_error "ERR*syntax*" {r client tracking on wrongInput}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching off}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching on}
+
+        r CLIENT TRACKING ON optout
+        assert_error "ERR*syntax*" {r client caching on}
+
+        r CLIENT TRACKING off optout
+        assert_error "ERR*when the client is in tracking mode*" {r client caching on}
+
+        assert_error "ERR*No such*" {r client kill 000.123.321.567:0000}
+        assert_error "ERR*No such*" {r client kill 127.0.0.1:}
+
+        assert_error "ERR*timeout is not an integer*" {r client pause abc}
+        assert_error "ERR timeout is negative" {r client pause -1}
+    }
+
     test "CLIENT KILL close the client connection during bgsave" {
         # Start a slow bgsave, trigger an active fork.
         r flushall
@@ -271,30 +294,14 @@ start_server {tags {"introspection"}} {
         r client getname
     } {}
 
+    test {CLIENT GETNAME check if name set correctly} {
+        r client setname testName
+        r client getName
+    } {testName}
+
     test {CLIENT LIST shows empty fields for unassigned names} {
         r client list
     } {*name= *}
-
-    test {Coverage: Basic CLIENT CACHING} {
-        set rd_redirection [redis_deferring_client]
-        $rd_redirection client id
-        set redir_id [$rd_redirection read]
-        r CLIENT TRACKING on OPTIN REDIRECT $redir_id
-        r CLIENT CACHING yes
-        r CLIENT TRACKING off
-    } {OK}
-
-    test {Coverage: Basic CLIENT REPLY} {
-        r CLIENT REPLY on
-    } {OK}
-
-    test {Coverage: Basic CLIENT TRACKINGINFO} {
-        r CLIENT TRACKINGINFO
-    } {flags off redirect -1 prefixes {}}
-
-    test {Coverage: Basic CLIENT GETREDIR} {
-        r CLIENT GETREDIR
-    } {-1}
 
     test {CLIENT SETNAME does not accept spaces} {
         catch {r client setname "foo bar"} e
@@ -652,6 +659,10 @@ start_server {tags {"introspection"}} {
     }
 
     test {redis-server command line arguments - error cases} {
+        # Take '--invalid' as the option.
+        catch {exec src/redis-server --invalid} err
+        assert_match {*Bad directive or wrong number of arguments*} $err
+
         catch {exec src/redis-server --port} err
         assert_match {*'port'*wrong number of arguments*} $err
 

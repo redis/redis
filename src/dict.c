@@ -294,9 +294,12 @@ int dictTryExpand(dict *d, unsigned long size) {
  * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
+    unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
+    unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
     if (dict_can_resize == DICT_RESIZE_AVOID && 
-        (DICTHT_SIZE(d->ht_size_exp[1]) / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_resize_ratio))
+        ((s1 > s0 && s1 / s0 < dict_force_resize_ratio) ||
+         (s1 < s0 && s0 / s1 < dict_force_resize_ratio)))
     {
         return 0;
     }
@@ -947,6 +950,11 @@ dictEntry *dictNext(dictIterator *iter)
                     dictPauseRehashing(iter->d);
                 else
                     iter->fingerprint = dictFingerprint(iter->d);
+
+                /* skip the rehashed slots in table[0] */
+                if (dictIsRehashing(iter->d)) {
+                    iter->index = iter->d->rehashidx - 1;
+                }
             }
             iter->index++;
             if (iter->index >= (long) DICTHT_SIZE(iter->d->ht_size_exp[iter->table])) {
@@ -1095,19 +1103,30 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             } else {
                 emptylen = 0;
                 while (he) {
-                    /* Collect all the elements of the buckets found non
-                     * empty while iterating. */
-                    *des = he;
-                    des++;
+                    /* Collect all the elements of the buckets found non empty while iterating.
+                     * To avoid the issue of being unable to sample the end of a long chain,
+                     * we utilize the Reservoir Sampling algorithm to optimize the sampling process.
+                     * This means that even when the maximum number of samples has been reached,
+                     * we continue sampling until we reach the end of the chain.
+                     * See https://en.wikipedia.org/wiki/Reservoir_sampling. */
+                    if (stored < count) {
+                        des[stored] = he;
+                    } else {
+                        unsigned long r = randomULong() % (stored + 1);
+                        if (r < count) des[r] = he;
+                    }
+
                     he = dictGetNext(he);
                     stored++;
-                    if (stored == count) return stored;
                 }
+                if (stored >= count) goto end;
             }
         }
         i = (i+1) & maxsizemask;
     }
-    return stored;
+
+end:
+    return stored > count ? count : stored;
 }
 
 
@@ -1510,7 +1529,9 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dict *d, int htidx, int full) 
 
     if (d->ht_used[htidx] == 0) {
         return snprintf(buf,bufsize,
-            "No stats available for empty dictionaries\n");
+            "Hash table %d stats (%s):\n"
+            "No stats available for empty dictionaries\n",
+            htidx, (htidx == 0) ? "main hash table" : "rehashing target");
     }
 
     if (!full) {

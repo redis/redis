@@ -72,19 +72,30 @@ start_server {tags {"latency-monitor needs:latency"}} {
     }
 
 tags {"needs:debug"} {
+    set old_threshold_value [lindex [r config get latency-monitor-threshold] 1]
+
     test {Test latency events logging} {
+        r config set latency-monitor-threshold 200
+        r latency reset
         r debug sleep 0.3
         after 1100
         r debug sleep 0.4
         after 1100
         r debug sleep 0.5
+        r config set latency-monitor-threshold 0
         assert {[r latency history command] >= 3}
     }
 
     test {LATENCY HISTORY output is ok} {
+        set res [r latency history command]
+        if {$::verbose} {
+            puts "LATENCY HISTORY data:"
+            puts $res
+        }
+
         set min 250
         set max 450
-        foreach event [r latency history command] {
+        foreach event $res {
             lassign $event time latency
             if {!$::no_latency} {
                 assert {$latency >= $min && $latency <= $max}
@@ -96,7 +107,13 @@ tags {"needs:debug"} {
     }
 
     test {LATENCY LATEST output is ok} {
-        foreach event [r latency latest] {
+        set res [r latency latest]
+        if {$::verbose} {
+            puts "LATENCY LATEST data:"
+            puts $res
+        }
+
+        foreach event $res {
             lassign $event eventname time latency max
             assert {$eventname eq "command"}
             if {!$::no_latency} {
@@ -109,6 +126,10 @@ tags {"needs:debug"} {
 
     test {LATENCY GRAPH can output the event graph} {
         set res [r latency graph command]
+        if {$::verbose} {
+            puts "LATENCY GRAPH data:"
+            puts $res
+        }
         assert_match {*command*high*low*} $res
 
         # These numbers are taken from the "Test latency events logging" test.
@@ -117,6 +138,8 @@ tags {"needs:debug"} {
         assert_morethan_equal $high 500
         assert_morethan_equal $low 300
     }
+
+    r config set latency-monitor-threshold $old_threshold_value
 } ;# tag
 
     test {LATENCY of expire events are correctly collected} {
