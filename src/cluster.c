@@ -1364,6 +1364,36 @@ unsigned int keyHashSlot(char *key, int keylen) {
     return crc16(key+s+1,e-s-1) & 0x3FFF;
 }
 
+/* If it can be inferred that the given glob-style pattern, as implemented in
+ * stringmatchlen() in util.c, only can match keys belonging to a single slot,
+ * that slot is returned. Otherwise -1 is returned. */
+int patternHashSlot(char *pattern, int length) {
+    int s = -1; /* index of the first '{' */
+
+    for (int i = 0; i < length; i++) {
+        if (pattern[i] == '*' || pattern[i] == '?' || pattern[i] == '[') {
+            /* Wildcard or character class found. Keys can be in any slot. */
+            return -1;
+        } else if (pattern[i] == '\\') {
+            /* Escaped character. Computing slot in this case is not
+             * implemented. We would need a temp buffer. */
+            return -1;
+        } else if (s == -1 && pattern[i] == '{') {
+            /* Opening brace '{' found. */
+            s = i;
+        } else if (s >= 0 && pattern[i] == '}' && i == s + 1) {
+            /* Empty tag '{}' found. The whole key is hashed. Ignore braces. */
+            s = -2;
+        } else if (s >= 0 && pattern[i] == '}') {
+            /* Non-empty tag '{...}' found. Hash what's between braces. */
+            return crc16(pattern + s + 1, i - s - 1) & 0x3FFF;
+        }
+    }
+
+    /* The pattern matches a single key. Hash the whole pattern. */
+    return crc16(pattern, length) & 0x3FFF;
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER node API
  * -------------------------------------------------------------------------- */

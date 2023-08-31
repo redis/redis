@@ -403,6 +403,7 @@ unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 unsigned int keyHashSlot(char *key, int keylen);
+int patternHashSlot(char *pattern, int length);
 void clusterUpdateMyselfFlags(void);
 void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);

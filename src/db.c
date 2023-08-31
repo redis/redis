@@ -1262,11 +1262,17 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .pattern = use_pattern ? pat : NULL,
             .sampled = 0,
         };
+
+        /* A pattern may restrict all matching keys to one cluster slot. */
+        int onlyslot = -1;
+        if (o == NULL && use_pattern && server.cluster_enabled) {
+            onlyslot = patternHashSlot(pat, patlen);
+        }
         do {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL) {
-                cursor = dbScan(c->db, DB_MAIN, cursor, scanCallback, NULL, &data);
+                cursor = dbScan(c->db, DB_MAIN, cursor, onlyslot, scanCallback, NULL, &data);
             } else {
                 cursor = dictScan(ht, cursor, scanCallback, &data);
             }
@@ -1431,14 +1437,30 @@ dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType){
  *    it performs a dictScan over the appropriate `keyType` dictionary of `db`.
  * 3. If the slot is entirely scanned i.e. the cursor has reached 0, the next non empty slot is discovered. 
  *    The slot information is embedded into the cursor and returned.
+ *
+ * To restrict the scan to a single cluster slot, pass a valid slot as
+ * 'onlyslot', otherwise pass -1.
  */
-unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata) {
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v,
+                          int onlyslot, dictScanFunction *fn,
+                          int (dictScanValidFunction)(dict *d), void *privdata) {
     dict *d;
     unsigned long long cursor = 0;
     /* During main dictionary traversal in cluster mode, 48 lower bits in the cursor are used for positioning in the HT.
      * Following 14 bits are used for the slot number, ranging from 0 to 2^14-1.
      * Slot is always 0 at the start of iteration and can be incremented only in cluster mode. */
     int slot = getAndClearSlotIdFromCursor(&v);
+    if (onlyslot >= 0) {
+        if (slot < onlyslot) {
+            /* Fast-forward to onlyslot. */
+            serverAssert(onlyslot < CLUSTER_SLOTS);
+            slot = onlyslot;
+            v = 0;
+        } else if (slot > onlyslot) {
+            /* The cursor is already past onlyslot. */
+            return 0;
+        }
+    }
     if (keyType == DB_MAIN)
         d = db->dict[slot];
     else if (keyType == DB_EXPIRES)
@@ -1454,6 +1476,8 @@ unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, 
     }
     /* scanning done for the current dictionary or if the scanning wasn't possible, move to the next slot. */
     if (cursor == 0 || !is_dict_valid) {
+        if (onlyslot >= 0)
+            return 0;
         slot = dbGetNextNonEmptySlot(db, slot, keyType);
     }
     if (slot == -1) {
