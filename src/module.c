@@ -9548,7 +9548,7 @@ int RM_FreeModuleUser(RedisModuleUser *user) {
  *
  * Returns REDISMODULE_OK on success and REDISMODULE_ERR on failure
  * and will set an errno describing why the operation failed. */
-int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
+int RM_SetModuleUserACL(RedisModuleUser *user, const char *acl) {
     return ACLSetUser(user->user, acl, -1);
 }
 
@@ -10393,7 +10393,7 @@ void RM_FreeServerInfo(RedisModuleCtx *ctx, RedisModuleServerInfoData *data) {
  * need to pass the context pointer 'ctx' only if you want to use auto memory
  * mechanism to release the returned string. Return value will be NULL if the
  * field was not found. */
-RedisModuleString *RM_ServerInfoGetField(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char* field) {
+RedisModuleString *RM_ServerInfoGetField(RedisModuleCtx *ctx, RedisModuleServerInfoData *data, const char *field) {
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) return NULL;
     RedisModuleString *o = createStringObject(val,sdslen(val));
@@ -10402,7 +10402,7 @@ RedisModuleString *RM_ServerInfoGetField(RedisModuleCtx *ctx, RedisModuleServerI
 }
 
 /* Similar to RM_ServerInfoGetField, but returns a char* which should not be freed but the caller. */
-const char *RM_ServerInfoGetFieldC(RedisModuleServerInfoData *data, const char* field) {
+const char *RM_ServerInfoGetFieldC(RedisModuleServerInfoData *data, const char *field) {
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) return NULL;
     return val;
@@ -10411,7 +10411,7 @@ const char *RM_ServerInfoGetFieldC(RedisModuleServerInfoData *data, const char* 
 /* Get the value of a field from data collected with RM_GetServerInfo(). If the
  * field is not found, or is not numerical or out of range, return value will be
  * 0, and the optional out_err argument will be set to REDISMODULE_ERR. */
-long long RM_ServerInfoGetFieldSigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+long long RM_ServerInfoGetFieldSigned(RedisModuleServerInfoData *data, const char *field, int *out_err) {
     long long ll;
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) {
@@ -10429,7 +10429,7 @@ long long RM_ServerInfoGetFieldSigned(RedisModuleServerInfoData *data, const cha
 /* Get the value of a field from data collected with RM_GetServerInfo(). If the
  * field is not found, or is not numerical or out of range, return value will be
  * 0, and the optional out_err argument will be set to REDISMODULE_ERR. */
-unsigned long long RM_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+unsigned long long RM_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data, const char *field, int *out_err) {
     unsigned long long ll;
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) {
@@ -10447,7 +10447,7 @@ unsigned long long RM_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data
 /* Get the value of a field from data collected with RM_GetServerInfo(). If the
  * field is not found, or is not a double, return value will be 0, and the
  * optional out_err argument will be set to REDISMODULE_ERR. */
-double RM_ServerInfoGetFieldDouble(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+double RM_ServerInfoGetFieldDouble(RedisModuleServerInfoData *data, const char *field, int *out_err) {
     double dbl;
     sds val = raxFind(data->rax, (unsigned char *)field, strlen(field));
     if (val == raxNotFound) {
@@ -12447,7 +12447,7 @@ sds genModulesInfoString(sds info) {
  * -------------------------------------------------------------------------- */
 	 
 /* Check if the configuration name is already registered */
-int isModuleConfigNameRegistered(RedisModule *module, const char* name) {
+int isModuleConfigNameRegistered(RedisModule *module, const char *name) {
     listNode *match = listSearchKey(module->module_configs, (void *) name);
     return match != NULL;
 }
@@ -12637,7 +12637,7 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
  * -------------------------------------------------------------------------- */
 
 /* Create a module config object. */
-ModuleConfig *createModuleConfig(const char* name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
+ModuleConfig *createModuleConfig(const char *name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
     new_config->name = sdsnew(name);
     new_config->apply_fn = apply_fn;
@@ -12646,7 +12646,7 @@ ModuleConfig *createModuleConfig(const char* name, RedisModuleConfigApplyFunc ap
     return new_config;
 }
 
-int moduleConfigValidityCheck(RedisModule *module, const char* name, unsigned int flags, configType type) {
+int moduleConfigValidityCheck(RedisModule *module, const char *name, unsigned int flags, configType type) {
     if (!module->onload) {
         errno = EBUSY;
         return REDISMODULE_ERR;
