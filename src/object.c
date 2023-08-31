@@ -1594,16 +1594,13 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,3);
+            addReplyMapLen(c,2);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
-
-            addReplyBulkCString(c,"overhead.hashtable.slot-to-keys");
-            addReplyLongLong(c,mh->db[j].overhead_ht_slot_to_keys);
         }
 
 
