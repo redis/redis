@@ -5462,7 +5462,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     if (everything) all_sections = 1;
 
     /* Pre-allocate some memory, low estimate 16 lines per section, 16 bytes per line */
-    info = sdsMakeRoomFor(info, 16 * 16 * (all_sections ? 11 : dictSize(section_dict));
+    info = sdsMakeRoomFor(info, 16 * 16 * (all_sections ? 11 : dictSize(section_dict)));
 
     /* Server */
     if (all_sections || (dictFind(section_dict,"server") != NULL)) {
@@ -5808,8 +5808,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         info = sdscatprintf(info, "eventloop_cycles:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].cnt);
         info = sdscatprintf(info, "eventloop_duration_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].sum);
         info = sdscatprintf(info, "eventloop_duration_cmd_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CMD].sum);
-        info = sdscatprintf(info, "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE);
-        info = sdscatprintf(info, "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION);
+        info = sdscatprintf(info, "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE));
+        info = sdscatprintf(info, "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION));
         info = genRedisInfoStringACLStats(info);
     }
 
