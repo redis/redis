@@ -30,7 +30,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
+#include "redisassert.h"
 #include <limits.h>
 #include <errno.h>
 #include <termios.h>

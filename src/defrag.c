@@ -36,7 +36,6 @@
 #include "server.h"
 #include "cluster.h"
 #include <time.h>
-#include <assert.h>
 #include <stddef.h>
 
 #ifdef HAVE_DEFRAG
