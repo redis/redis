@@ -5461,8 +5461,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     int sections = 0;
     if (everything) all_sections = 1;
 
-    /* Pre-allocate some memory, low estimate 16 lines per section, 16 bytes per line */
-    info = sdsMakeRoomFor(info, 16 * 16 * (all_sections ? 11 : dictSize(section_dict)));
+    /* Pre-allocate some memory: 10 lines per section, 16 bytes per line */
+    info = sdsMakeRoomFor(info, 10 * 16 * (all_sections ? 11 : dictSize(section_dict)));
 
     /* Server */
     if (all_sections || (dictFind(section_dict,"server") != NULL)) {
