@@ -2815,40 +2815,39 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
-    sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
-        (unsigned long long) client->id,
-        getClientPeerId(client),
-        getClientSockname(client),
-        connGetInfo(client->conn, conninfo, sizeof(conninfo)),
-        client->name ? (char*)client->name->ptr : "",
-        (long long)(server.unixtime - client->ctime),
-        (long long)(server.unixtime - client->lastinteraction),
-        flags,
-        client->db->id,
-        (int) dictSize(client->pubsub_channels),
-        (int) dictSize(client->pubsub_patterns),
-        (int) dictSize(client->pubsubshard_channels),
-        (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
-        (unsigned long long) sdslen(client->querybuf),
-        (unsigned long long) sdsavail(client->querybuf),
-        (unsigned long long) client->argv_len_sum,
-        (unsigned long long) client->mstate.argv_len_sums,
-        (unsigned long long) client->buf_usable_size,
-        (unsigned long long) client->buf_peak,
-        (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
-        (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
-        (unsigned long long) total_mem,
-        events,
-        client->lastcmd ? client->lastcmd->fullname : "NULL",
-        client->user ? client->user->name : "(superuser)",
-        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
-        client->resp,
-        client->lib_name ? (char*)client->lib_name->ptr : "",
-        client->lib_ver ? (char*)client->lib_ver->ptr : ""
-        );
-    return ret;
+    s = sdsMakeRoomFor(s, 200); /* low estimate, the size of the fixed overhead */
+    s = sdscatfmt(s, "id=%U", (unsigned long long) client->id);
+    s = sdscatfmt(s, " addr=%s", getClientPeerId(client));
+    s = sdscatfmt(s, " laddr=%s", getClientSockname(client));
+    s = sdscatfmt(s, " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)));
+    s = sdscatfmt(s, " name=%s", client->name ? (char*)client->name->ptr : "");
+    s = sdscatfmt(s, " age=%I", (long long)(server.unixtime - client->ctime));
+    s = sdscatfmt(s, " idle=%I", (long long)(server.unixtime - client->lastinteraction));
+    s = sdscatfmt(s, " flags=%s", flags);
+    s = sdscatfmt(s, " db=%i", client->db->id);
+    s = sdscatfmt(s, " sub=%i", (int) dictSize(client->pubsub_channels));
+    s = sdscatfmt(s, " psub=%i", (int) dictSize(client->pubsub_patterns));
+    s = sdscatfmt(s, " ssub=%i", (int) dictSize(client->pubsubshard_channels));
+    s = sdscatfmt(s, " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1);
+    s = sdscatfmt(s, " qbuf=%U", (unsigned long long) sdslen(client->querybuf));
+    s = sdscatfmt(s, " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf));
+    s = sdscatfmt(s, " argv-mem=%U", (unsigned long long) client->argv_len_sum);
+    s = sdscatfmt(s, " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums);
+    s = sdscatfmt(s, " rbs=%U", (unsigned long long) client->buf_usable_size);
+    s = sdscatfmt(s, " rbp=%U", (unsigned long long) client->buf_peak);
+    s = sdscatfmt(s, " obl=%U", (unsigned long long) client->bufpos);
+    s = sdscatfmt(s, " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf);
+    s = sdscatfmt(s, " omem=%U", (unsigned long long) obufmem); /* should not include client->buf since we want to see 0 for static clients. */
+    s = sdscatfmt(s, " tot-mem=%U", (unsigned long long) total_mem);
+    s = sdscatfmt(s, " events=%s", events);
+    s = sdscatfmt(s, " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL");
+    s = sdscatfmt(s, " user=%s", client->user ? client->user->name : "(superuser)");
+    s = sdscatfmt(s, " redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1);
+    s = sdscatfmt(s, " resp=%i", client->resp);
+    s = sdscatfmt(s, " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "");
+    s = sdscatfmt(s, " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "");
+
+    return s;
 }
 
 sds getAllClientsInfoString(int type) {
