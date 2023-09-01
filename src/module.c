@@ -4199,7 +4199,7 @@ void RM_ResetDataset(int restart_aof, int async) {
 
 /* Returns the number of keys in the current db. */
 unsigned long long RM_DbSize(RedisModuleCtx *ctx) {
-    return dbSize(ctx->client->db);
+    return dbSize(ctx->client->db, MAIN_DICT);
 }
 
 /* Returns a name of a random key, or NULL if current db is empty. */
@@ -10940,7 +10940,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     dict *dict = ctx->client->db->dict[slot];
     cursor->cursor = dictScan(dict, cursor->cursor, moduleScanCallback, &data);
     if (cursor->cursor == 0) {
-        slot = dbGetNextNonEmptySlot(ctx->client->db, slot);
+        slot = dbGetNextNonEmptySlot(ctx->client->db, slot, MAIN_DICT);
         if (slot == -1) {
             cursor->done = 1;
             ret = 0;

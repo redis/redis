@@ -680,13 +680,14 @@ void defragKey(redisDb *db, dictEntry *de) {
     newsds = activeDefragSds(keysds);
     if (newsds) {
         dictSetKey(db->dict[calculateKeySlot(newsds)], de, newsds);
-        if (dictSize(db->expires)) {
+        if (dbSize(db, EXPIRE_DICT)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(db->dict[calculateKeySlot(newsds)], newsds);
-            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires, keysds, hash);
-            if (expire_de) dictSetKey(db->expires, expire_de, newsds);
+            int slot = calculateKeySlot(newsds);
+            uint64_t hash = dictGetHash(db->dict[slot], newsds);
+            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires[slot], keysds, hash);
+            if (expire_de) dictSetKey(db->expires[slot], expire_de, newsds);
         }
     }
 
@@ -1007,7 +1008,7 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
         }
-        int slot = findSlotByKeyIndex(db, 1);
+        int slot = findSlotByKeyIndex(db, 1, MAIN_DICT);
         do {
             dict *d = db->dict[slot];
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
@@ -1020,10 +1021,10 @@ void activeDefragCycle(void) {
             if (!expires_cursor)
                 cursor = dictScanDefrag(d, cursor, defragScanCallback,
                                         &defragfns, db);
-            if (!cursor) slot = dbGetNextNonEmptySlot(db, slot);
+            if (!cursor) slot = dbGetNextNonEmptySlot(db, slot, MAIN_DICT);
             /* When done scanning the keyspace dict, we scan the expire dict. */
             if (!cursor && slot > -1)
-                expires_cursor = dictScanDefrag(db->expires, expires_cursor,
+                expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor, //FIX_ME
                                                 scanCallbackCountScanned,
                                                 &defragfns, NULL);
 

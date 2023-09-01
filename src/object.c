@@ -1246,7 +1246,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        unsigned long long keyscount = dbSize(db);
+        unsigned long long keyscount = dbSize(db, MAIN_DICT);
         if (keyscount==0) continue;
 
         mh->total_keys += keyscount;
@@ -1254,13 +1254,18 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].dbid = j;
 
         mem = keyscount * dictEntryMemUsage() +
-              dbSlots(db) * sizeof(dictEntry*) +
+              dbSlots(db, MAIN_DICT) * sizeof(dictEntry*) +
               keyscount * sizeof(robj) +
               db->dict_count * sizeof(dict);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        mem = dictMemUsage(db->expires);
+        unsigned long long expire_keys_count = dbSize(db, EXPIRE_DICT);
+        if (expire_keys_count == 0) continue;
+        
+        mem = expire_keys_count * dictEntryMemUsage() +
+              dbSlots(db, EXPIRE_DICT) * sizeof(dictEntry*) +
+              db->dict_count * sizeof(dict);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 

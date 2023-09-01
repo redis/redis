@@ -2266,7 +2266,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
         redisDb *db = server.db + j;
         dbIterator dbit;
-        dbIteratorInit(&dbit, db);
+        dbIteratorInit(&dbit, db, MAIN_DICT);
         /* Iterate this DB writing every entry */
         while((de = dbIteratorNext(&dbit)) != NULL) {
             sds keystr;

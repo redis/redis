@@ -1305,7 +1305,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
-    unsigned long long db_size = dbSize(db);
+    unsigned long long int db_size = dbSize(db, MAIN_DICT);
     if (db_size == 0) return 0;
 
     /* Write the SELECT DB opcode */
@@ -1315,17 +1315,18 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     written += res;
 
     /* Write the RESIZE DB opcode. */
-    uint64_t expires_size;
-    expires_size = dictSize(db->expires);
-    if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
-    written += res;
-    if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
-    written += res;
-    if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
-    written += res;
+    if (!server.cluster_enabled) {
+        unsigned long long expires_size = dbSize(db, EXPIRE_DICT);
+        if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
+        written += res;
+        if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
+        written += res;
+        if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
+        written += res;
+    }
 
     dbIterator dbit;
-    dbIteratorInit(&dbit, db);
+    dbIteratorInit(&dbit, db, MAIN_DICT);
     int last_slot = -1;
     /* Iterate this DB writing every entry */
     while ((de = dbIteratorNext(&dbit)) != NULL) {
@@ -1337,6 +1338,8 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             if ((res = rdbSaveLen(rdb, dbit.slot)) < 0) goto werr;
             written += res;
             if ((res = rdbSaveLen(rdb, dictSize(db->dict[dbit.slot]))) < 0) goto werr;
+            written += res;
+            if ((res = rdbSaveLen(rdb, dictSize(db->expires[dbit.slot]))) < 0) goto werr;
             written += res;
             last_slot = dbit.slot;
         }
@@ -3031,7 +3034,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     uint64_t dbid = 0;
     int type, rdbver;
-    uint64_t db_size = 0;
+    uint64_t db_size = 0, expires_size = 0;
     int should_expand_db = 1;
     redisDb *db = rdb_loading_ctx->dbarray+0;
     char buf[1024];
@@ -3108,16 +3111,16 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
              * selected data base, in order to avoid useless rehashing. */
-            uint64_t expires_size;
             if ((db_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            /* Main dictionary will be resized after reading OPCODE set. Resizing only expires here. */
-            dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_SLOT_INFO) {
-            uint64_t slot_id, slot_size;
+            if (!server.cluster_enabled) {
+                continue; /* Ignore gracefully. */
+            }
+            uint64_t slot_id, slot_size, expires_slot_size;
             if ((slot_id = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if ((slot_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
@@ -3128,6 +3131,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             dictExpand(db->dict[slot_id], slot_size);
+            if ((expires_slot_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
+                goto eoferr;
+            dictExpand(db->expires[slot_id], expires_slot_size);
             should_expand_db = 0;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
@@ -3261,8 +3267,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            if (expandDb(db, db_size) == C_ERR) {
-                serverLog(LL_WARNING, "OOM in dict try expand");
+            if (expandDb(db, db_size, MAIN_DICT) == C_ERR) {
+                serverLog(LL_WARNING, "OOM in dict try expand of main dict");
+                return C_ERR;
+            }
+            if (expandDb(db, expires_size, EXPIRE_DICT) == C_ERR) {
+                serverLog(LL_WARNING, "OOM in dict try expand of expire dict");
                 return C_ERR;
             }
             should_expand_db = 0;

@@ -137,6 +137,21 @@ void expireScanCallback(void *privdata, const dictEntry *const_de) {
     data->sampled++;
 }
 
+/* Returns the non empty slot which is valid for expiration sampling. */
+int dbGetNextSlotForExpirySampling(redisDb *db, int slot) {
+    int next_slot = dbGetNextNonEmptySlot(db, slot, EXPIRE_DICT);
+    if (next_slot < 0) return -1;
+    long long numkeys = dictSize(db->expires[next_slot]);
+    unsigned long buckets = dictSlots(db->expires[next_slot]);
+    /* When there are less than 1% filled buckets, sampling the key
+     * space is expensive, so stop here waiting for better times...
+     * The dictionary will be resized asap. */
+    if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1)) {
+        return dbGetNextSlotForExpirySampling(db, next_slot);
+    }
+    return next_slot;
+}
+
 void activeExpireCycle(int type) {
     /* Adjust the running parameters according to the configured expire
      * effort. The default effort is 1, and the maximum configurable effort
@@ -229,22 +244,25 @@ void activeExpireCycle(int type) {
          * we scanned. The percentage, stored in config_cycle_acceptable_stale
          * is not fixed, but depends on the Redis configured "expire effort". */
         do {
-            unsigned long num, slots;
+            unsigned long num;
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
-            if ((num = dictSize(db->expires)) == 0) {
+            if ((num = dbSize(db, EXPIRE_DICT)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
-            slots = dictSlots(db->expires);
             data.now = mstime();
 
-            /* When there are less than 1% filled slots, sampling the key
+            /* When there are less than 1% filled buckets, sampling the key
              * space is expensive, so stop here waiting for better times...
              * The dictionary will be resized asap. */
-            if (slots > DICT_HT_INITIAL_SIZE &&
-                (num*100/slots < 1)) break;
+            if (!server.cluster_enabled) {
+                unsigned long buckets = dictSlots(db->expires[0]);
+                if (buckets > DICT_HT_INITIAL_SIZE && (num*100/buckets < 1)) {
+                    break;
+                }
+            }
 
             /* The main collection cycle. Scan through keys among keys
              * with an expire set, checking for expired ones. */
@@ -268,10 +286,16 @@ void activeExpireCycle(int type) {
              * than keys in the same time. */
             long max_buckets = num*20;
             long checked_buckets = 0;
-
+            
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = dictScan(db->expires, db->expires_cursor,
+                int slot = getAndClearSlotIdFromCursor((unsigned long long *)&db->expires_cursor);
+                db->expires_cursor = dictScan(db->expires[slot], db->expires_cursor,
                                               expireScanCallback, &data);
+                if (db->expires_cursor == 0) {
+                    slot = dbGetNextSlotForExpirySampling(db, slot);
+                    if (slot < 0) break;
+                }
+                addSlotIdToCursor(slot, (unsigned long long *)&db->expires_cursor);
                 checked_buckets++;
             }
             total_expired += data.expired;
@@ -378,7 +402,7 @@ void expireSlaveKeys(void) {
         while(dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
-                dictEntry *expire = dictFind(db->expires,keyname);
+                dictEntry *expire = dictFind(db->expires[getKeySlot(keyname)],keyname);
                 int expired = 0;
 
                 if (expire &&
