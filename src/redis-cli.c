@@ -3274,8 +3274,8 @@ static int isSensitiveCommand(int argc, char **argv) {
         !strcasecmp(argv[1],"set")) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
-		    !strcasecmp(argv[j],"masteruser") ||
-		    !strcasecmp(argv[j],"requirepass")) {
+                    !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"requirepass")) {
                     return 1;
                 }
             }

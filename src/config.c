@@ -2387,7 +2387,7 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
 static int isValidAnnouncedNodename(char *val,const char **err) {
     if (!(isValidAuxString(val,sdslen(val)))) {
         *err = "Announced human node name contained invalid character";
-	return 0;
+        return 0;
     }
     return 1;
 }
