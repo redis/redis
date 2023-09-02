@@ -25,10 +25,11 @@ proc default_set_get_checks {} {
     assert_match  {} [cmdstat lrange]
 }
 
-start_server {tags {"benchmark network external:skip logreqres:skip"}} {
+tags {"benchmark network external:skip logreqres:skip"} {
     start_server {} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
+        r select 0
 
         test {benchmark: set,get} {
             set cmd [redisbenchmark $master_host $master_port "-c 5 -n 10 -t set,get"]
@@ -130,9 +131,8 @@ start_server {tags {"benchmark network external:skip logreqres:skip"}} {
             set base_cmd [redisbenchmark $master_host $master_port "-x -n 10 set key"]
             set cmd "printf arg | $base_cmd"
             common_bench_setup $cmd
-            set cli_cmd [rediscli $master_host $master_port {get key}]
-            assert_equal "arg" [exec {*}$cli_cmd]
-        }
+            r get key
+        } {arg}
 
         # tls specific tests
         if {$::tls} {
