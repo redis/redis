@@ -938,13 +938,13 @@ static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
 
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
-    if (memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+    if (shard_id && memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
         clusterRemoveNodeFromShard(node);
         memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
         clusterAddNodeToShard(shard_id, node);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
     }
-    if (myself != node && myself->slaveof == node) {
+    if (shard_id && myself != node && myself->slaveof == node) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
             /* shard-id can diverge right after a rolling upgrade
              * from pre-7.2 releases */
