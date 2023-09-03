@@ -5886,7 +5886,10 @@ struct COMMAND_ARG ACL_CAT_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL DELUSER tips */
-#define ACL_DELUSER_Tips NULL
+const char *ACL_DELUSER_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6080,7 +6083,10 @@ commandHistory ACL_SETUSER_History[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SETUSER tips */
-#define ACL_SETUSER_Tips NULL
+const char *ACL_SETUSER_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6131,7 +6137,7 @@ struct COMMAND_ARG ACL_SETUSER_Args[] = {
 /* ACL command table */
 struct COMMAND_STRUCT ACL_Subcommands[] = {
 {MAKE_CMD("cat","Lists the ACL categories, or the commands inside a category.","O(1) since the categories and commands are a fixed set.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_CAT_History,0,ACL_CAT_Tips,0,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_CAT_Keyspecs,0,NULL,1),.args=ACL_CAT_Args},
-{MAKE_CMD("deluser","Deletes ACL users, and terminates their connections.","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DELUSER_History,0,ACL_DELUSER_Tips,0,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DELUSER_Keyspecs,0,NULL,1),.args=ACL_DELUSER_Args},
+{MAKE_CMD("deluser","Deletes ACL users, and terminates their connections.","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DELUSER_History,0,ACL_DELUSER_Tips,2,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DELUSER_Keyspecs,0,NULL,1),.args=ACL_DELUSER_Args},
 {MAKE_CMD("dryrun","Simulates the execution of a command by a user, without executing the command.","O(1).","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DRYRUN_History,0,ACL_DRYRUN_Tips,0,aclCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DRYRUN_Keyspecs,0,NULL,3),.args=ACL_DRYRUN_Args},
 {MAKE_CMD("genpass","Generates a pseudorandom, secure password that can be used to identify ACL users.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_GENPASS_History,0,ACL_GENPASS_Tips,0,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_GENPASS_Keyspecs,0,NULL,1),.args=ACL_GENPASS_Args},
 {MAKE_CMD("getuser","Lists the ACL rules of a user.","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_GETUSER_History,2,ACL_GETUSER_Tips,0,aclCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_GETUSER_Keyspecs,0,NULL,1),.args=ACL_GETUSER_Args},
@@ -6140,7 +6146,7 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 {MAKE_CMD("load","Reloads the rules from the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOAD_History,0,ACL_LOAD_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOAD_Keyspecs,0,NULL,0)},
 {MAKE_CMD("log","Lists recent security events generated due to ACL rules.","O(N) with N being the number of entries shown.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOG_History,1,ACL_LOG_Tips,0,aclCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOG_Keyspecs,0,NULL,1),.args=ACL_LOG_Args},
 {MAKE_CMD("save","Saves the effective ACL rules in the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SAVE_History,0,ACL_SAVE_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SAVE_Keyspecs,0,NULL,0)},
-{MAKE_CMD("setuser","Creates and modifies an ACL user and its rules.","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SETUSER_History,2,ACL_SETUSER_Tips,0,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SETUSER_Keyspecs,0,NULL,2),.args=ACL_SETUSER_Args},
+{MAKE_CMD("setuser","Creates and modifies an ACL user and its rules.","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SETUSER_History,2,ACL_SETUSER_Tips,2,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SETUSER_Keyspecs,0,NULL,2),.args=ACL_SETUSER_Args},
 {MAKE_CMD("users","Lists all ACL users.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_USERS_History,0,ACL_USERS_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_USERS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("whoami","Returns the authenticated username of the current connection.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_WHOAMI_History,0,ACL_WHOAMI_Tips,0,aclCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_WHOAMI_Keyspecs,0,NULL,0)},
 {0}
