@@ -1827,10 +1827,6 @@ void closeDirectLogFiledes(int fd) {
 #include <sys/syscall.h>
 #include <dirent.h>
 
-/** Returns a list of all the process's (pid) threads that can receive signal sig_num.
- * Also updates tids_len_output to the number of valid threads' ids in the returned array
- * NOTE: It is the caller responsibility to free the returned array with zfree().
-*/
 static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *tids_len_output);
 
 #define MAX_BUFF_LENGTH 256
@@ -1849,7 +1845,7 @@ static void *collect_stacktrace_data(void) {
     trace_data->trace_size = backtrace(trace_data->trace, BACKTRACE_MAX_SIZE);
     
     /* get the thread name*/
-    prctl(PR_GET_NAME,trace_data->thread_name);
+    prctl(PR_GET_NAME, trace_data->thread_name);
 
     /* get the thread id*/
     trace_data->tid = syscall(SYS_gettid);
@@ -2477,45 +2473,75 @@ void debugDelay(int usec) {
 /* =========================== Stacktrace Utils ============================ */
 #define TIDS_INITIAL_SIZE 50
 
+typedef struct {
+    const char* name;
+    size_t name_len;
+} status_file_field_attr;
+
+static int line_in_fields_list(const char* line, const status_file_field_attr* fields_list, size_t fields_list_len) {
+    for (size_t i = 0; i < fields_list_len; i++) {
+        if (!strncmp(line, fields_list[i].name, fields_list[i].name_len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /** If it doesn't block and doesn't ignore, return 1 (the thread will handle the signal) 
  * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
- * also returns 0 if it failed to open the thread's status file. **/
+ * also returns 0 if something is wrong and prints a warnning message to the log file **/
 static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
     /* open the threads status file */
     char buff[MAX_BUFF_LENGTH];
     snprintf(buff, MAX_BUFF_LENGTH, "/proc/%d/task/%d/status", pid, tid);
     FILE *thread_status_file = fopen(buff, "r");
     if (thread_status_file == NULL) {
+        serverLog(LL_WARNING,
+        "tid:%d: failed to open /proc/%d/task/%d/status file", tid, pid, tid);
         return 0;
     }
 
     int ret = 1;
-
-    size_t field_name_len = strlen("SigBlk:");
-    while (fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) {
-        /* iterate the file until we reach SigBlk field line*/
-        if (!strncmp(buff, "SigBlk:", field_name_len)) {
-            /* check if the signal is blocked by this thread */
-            unsigned long sig_block_mask = strtoul(buff + field_name_len, NULL, 16);
-            if(sig_block_mask & sig_num) {
+    size_t field_name_len = strlen("SigBlk:"); /* SigIgn has the same length */
+    size_t list_len = 2;
+    status_file_field_attr fields_list[] = {{.name = "SigBlk:", .name_len = field_name_len},
+                                            {.name = "SigIgn:", .name_len = field_name_len}};
+    char *line = NULL;
+    while ((line = fgets(buff, MAX_BUFF_LENGTH, thread_status_file))) {
+        /* iterate the file until we reach SigBlk or SigIgn field line*/
+        if (line_in_fields_list(buff, fields_list, list_len)) {
+            /* check if the signal exist in the mask */
+            unsigned long sig_mask = strtoul(buff + field_name_len, NULL, 16);
+            if(sig_mask & sig_num) { /* if the signal is blocked/ignored return 0*/
                 ret = 0;
-            } else {
-                /* get SigIgn field line and check if this thread ignores sig_num*/
-                if (fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) {/* Avoid warning. */};
-                unsigned long sig_ign_mask = strtoul(buff + field_name_len, NULL, 16);
-                if(sig_ign_mask & sig_num) {
-                    ret = 0;
-                }
+                break;
             }
 
-            break;
+            /* we found the second field and it doesn't include sig_num as well. stop seraching.*/
+            if (list_len == 1) break;
+            
+            /* if we found SigBlk, serach for SigIgn and vice versa. */
+            const char *field = !strncmp(buff, "SigBlk:", field_name_len) ? "SigIgn:" : "SigBlk:";
+            fields_list[0].name = field;
+            list_len = 1;
         }
     }
 
     fclose(thread_status_file);
+
+    /* if we reached EOF, it means we havn't found SigBlk or/and SigIgn, something is wrong  */
+    if (line == NULL)  {
+        ret = 0;
+        serverLog(LL_WARNING,
+        "tid:%d: failed to find SigBlk or/and SigIgn field(s) in /proc/%d/task/%d/status file", tid, pid, tid);
+    }
     return ret;    
 }
 
+/** Returns a list of all the process's (pid) threads that can receive signal sig_num.
+ * Also updates tids_len_output to the number of valid threads' ids in the returned array
+ * NOTE: It is the caller responsibility to free the returned array with zfree().
+*/
 static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *tids_len_output) {
     /* Initialize the path the process threads' directory.*/
     char path_buff[MAX_BUFF_LENGTH];

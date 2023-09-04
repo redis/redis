@@ -26,9 +26,9 @@ if {$backtrace_supported} {
             r config set watchdog-period 200
             r debug sleep 1
             if {$threads_mngr_supported} {
-                set pattern "*stacktraces-logging-handling-thread*"
-                set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
-                if {$::verbose} { puts $res }
+                assert_equal [count_log_message 0 "failed to open /proc/"] 0
+                assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
+                verify_log_message 0 "*stacktraces-logging-handling-thread*" 0
             }
             
             set pattern "*debugCommand*"
