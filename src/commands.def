@@ -1391,7 +1391,10 @@ struct COMMAND_ARG CLIENT_REPLY_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT SETINFO tips */
-#define CLIENT_SETINFO_Tips NULL
+const char *CLIENT_SETINFO_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -1419,7 +1422,10 @@ struct COMMAND_ARG CLIENT_SETINFO_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT SETNAME tips */
-#define CLIENT_SETNAME_Tips NULL
+const char *CLIENT_SETNAME_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -1543,8 +1549,8 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 {MAKE_CMD("no-touch","Controls whether commands sent by the client affect the LRU/LFU of accessed keys.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,0,CLIENT_NO_TOUCH_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,CLIENT_NO_TOUCH_Keyspecs,0,NULL,1),.args=CLIENT_NO_TOUCH_Args},
 {MAKE_CMD("pause","Suspends commands processing.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,1,CLIENT_PAUSE_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_PAUSE_Keyspecs,0,NULL,2),.args=CLIENT_PAUSE_Args},
 {MAKE_CMD("reply","Instructs the server whether to reply to commands.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,0,CLIENT_REPLY_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_REPLY_Keyspecs,0,NULL,1),.args=CLIENT_REPLY_Args},
-{MAKE_CMD("setinfo","Sets information specific to the client or connection.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,0,CLIENT_SETINFO_Tips,0,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETINFO_Keyspecs,0,NULL,1),.args=CLIENT_SETINFO_Args},
-{MAKE_CMD("setname","Sets the connection name.","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,0,CLIENT_SETNAME_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETNAME_Keyspecs,0,NULL,1),.args=CLIENT_SETNAME_Args},
+{MAKE_CMD("setinfo","Sets information specific to the client or connection.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,0,CLIENT_SETINFO_Tips,2,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETINFO_Keyspecs,0,NULL,1),.args=CLIENT_SETINFO_Args},
+{MAKE_CMD("setname","Sets the connection name.","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,0,CLIENT_SETNAME_Tips,2,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETNAME_Keyspecs,0,NULL,1),.args=CLIENT_SETNAME_Args},
 {MAKE_CMD("tracking","Controls server-assisted client-side caching for the connection.","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,0,CLIENT_TRACKING_Tips,0,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKING_Keyspecs,0,NULL,7),.args=CLIENT_TRACKING_Args},
 {MAKE_CMD("trackinginfo","Returns information about server-assisted client-side caching for the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,0,CLIENT_TRACKINGINFO_Tips,0,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKINGINFO_Keyspecs,0,NULL,0)},
 {MAKE_CMD("unblock","Unblocks a client blocked by a blocking command from a different connection.","O(log N) where N is the number of client connections","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_History,0,CLIENT_UNBLOCK_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_UNBLOCK_Keyspecs,0,NULL,2),.args=CLIENT_UNBLOCK_Args},
@@ -6063,7 +6069,10 @@ struct COMMAND_ARG ACL_LOG_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SAVE tips */
-#define ACL_SAVE_Tips NULL
+const char *ACL_SAVE_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6145,7 +6154,7 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 {MAKE_CMD("list","Dumps the effective rules in ACL file format.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LIST_History,0,ACL_LIST_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LIST_Keyspecs,0,NULL,0)},
 {MAKE_CMD("load","Reloads the rules from the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOAD_History,0,ACL_LOAD_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOAD_Keyspecs,0,NULL,0)},
 {MAKE_CMD("log","Lists recent security events generated due to ACL rules.","O(N) with N being the number of entries shown.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOG_History,1,ACL_LOG_Tips,0,aclCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOG_Keyspecs,0,NULL,1),.args=ACL_LOG_Args},
-{MAKE_CMD("save","Saves the effective ACL rules in the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SAVE_History,0,ACL_SAVE_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SAVE_Keyspecs,0,NULL,0)},
+{MAKE_CMD("save","Saves the effective ACL rules in the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SAVE_History,0,ACL_SAVE_Tips,2,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SAVE_Keyspecs,0,NULL,0)},
 {MAKE_CMD("setuser","Creates and modifies an ACL user and its rules.","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SETUSER_History,2,ACL_SETUSER_Tips,2,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SETUSER_Keyspecs,0,NULL,2),.args=ACL_SETUSER_Args},
 {MAKE_CMD("users","Lists all ACL users.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_USERS_History,0,ACL_USERS_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_USERS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("whoami","Returns the authenticated username of the current connection.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_WHOAMI_History,0,ACL_WHOAMI_Tips,0,aclCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_WHOAMI_Keyspecs,0,NULL,0)},
@@ -6874,7 +6883,7 @@ const char *LATENCY_LATEST_Tips[] = {
 /* LATENCY RESET tips */
 const char *LATENCY_RESET_Tips[] = {
 "request_policy:all_nodes",
-"response_policy:all_succeeded",
+"response_policy:agg_sum",
 };
 #endif
 
