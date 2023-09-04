@@ -15,7 +15,7 @@
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_NODES",
-            "RESPONSE_POLICY:ALL_SUCCEEDED"
+            "RESPONSE_POLICY:AGG_SUM"
         ],
         "reply_schema": {
             "type": "integer",
