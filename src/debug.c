@@ -2517,10 +2517,10 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
                 break;
             }
 
-            /* we found the second field and it doesn't include sig_num as well. stop seraching.*/
+            /* we found the second field and it doesn't include sig_num as well. stop searching.*/
             if (list_len == 1) break;
             
-            /* if we found SigBlk, serach for SigIgn and vice versa. */
+            /* if we found SigBlk, search for SigIgn and vice versa. */
             const char *field = !strncmp(buff, "SigBlk:", field_name_len) ? "SigIgn:" : "SigBlk:";
             fields_list[0].name = field;
             list_len = 1;
@@ -2529,7 +2529,7 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
 
     fclose(thread_status_file);
 
-    /* if we reached EOF, it means we havn't found SigBlk or/and SigIgn, something is wrong  */
+    /* if we reached EOF, it means we haven't found SigBlk or/and SigIgn, something is wrong  */
     if (line == NULL)  {
         ret = 0;
         serverLog(LL_WARNING,
