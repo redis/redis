@@ -1259,6 +1259,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             # To test this, use a timeout of 0 and wait a second.
             # The blocking pop should still be waiting for a push.
             set rd [redis_deferring_client]
+            r del blist1
             bpop_command $rd $pop blist1 0
             wait_for_blocked_client
             r rpush blist1 foo
@@ -1270,6 +1271,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             # Use a timeout of 0.001 and wait for the number of blocked clients to equal 0.
             # Validate the empty read from the deferring client.
             set rd [redis_deferring_client]
+            r del blist1
             bpop_command $rd $pop blist1 0.001
             wait_for_blocked_clients_count 0
             assert_equal {} [$rd read]
