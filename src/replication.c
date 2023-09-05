@@ -950,7 +950,7 @@ void syncCommand(client *c) {
         }
 
         if (!strcasecmp(c->argv[1]->ptr,server.replid)) {
-            replicationUnsetMaster();
+            clusterPromoteSelfToMaster();
             sds client = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE,
                 "MASTER MODE enabled (failover request from '%s')",client);
@@ -4059,9 +4059,7 @@ void abortFailover(const char *err) {
  * will attempt forever and must be manually aborted.
  */
 void failoverCommand(client *c) {
-    if (server.cluster_enabled) {
-        addReplyError(c,"FAILOVER not allowed in cluster mode. "
-                        "Use CLUSTER FAILOVER command instead.");
+    if (!clusterAllowFailoverCmd(c)) {
         return;
     }
     

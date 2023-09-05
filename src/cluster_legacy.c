@@ -6234,3 +6234,16 @@ int handleDebugClusterCommand(client *c) {
 
     return 1;
 }
+
+int clusterAllowFailoverCmd(client *c) {
+    if (!server.cluster_enabled) {
+        return 1;
+    }
+    addReplyError(c,"FAILOVER not allowed in cluster mode. "
+                    "Use CLUSTER FAILOVER command instead.");
+    return 0;
+}
+
+void clusterPromoteSelfToMaster() {
+    replicationUnsetMaster();
+}

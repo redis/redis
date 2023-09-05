@@ -131,5 +131,6 @@ void slotToKeyReplaceEntry(dict *d, dictEntry *entry);
 void slotToKeyInit(redisDb *db);
 void slotToKeyFlush(redisDb *db);
 void slotToKeyDestroy(redisDb *db);
-
+int clusterAllowFailoverCmd(client *c);
+void clusterPromoteSelfToMaster(void);
 #endif /* __CLUSTER_H */
