@@ -2473,23 +2473,9 @@ void debugDelay(int usec) {
 /* =========================== Stacktrace Utils ============================ */
 #define TIDS_INITIAL_SIZE 50
 
-typedef struct {
-    const char* name;
-    size_t name_len;
-} status_file_field_attr;
-
-static int line_in_fields_list(const char* line, const status_file_field_attr* fields_list, size_t fields_list_len) {
-    for (size_t i = 0; i < fields_list_len; i++) {
-        if (!strncmp(line, fields_list[i].name, fields_list[i].name_len)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /** If it doesn't block and doesn't ignore, return 1 (the thread will handle the signal) 
  * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
- * also returns 0 if something is wrong and prints a warnning message to the log file **/
+ * also returns 0 if something is wrong and prints a warning message to the log file **/
 static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
     /* open the threads status file */
     char buff[MAX_BUFF_LENGTH];
@@ -2503,27 +2489,18 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
 
     int ret = 1;
     size_t field_name_len = strlen("SigBlk:"); /* SigIgn has the same length */
-    size_t list_len = 2;
-    status_file_field_attr fields_list[] = {{.name = "SigBlk:", .name_len = field_name_len},
-                                            {.name = "SigIgn:", .name_len = field_name_len}};
     char *line = NULL;
-    while ((line = fgets(buff, MAX_BUFF_LENGTH, thread_status_file))) {
+    size_t fields_count = 2;
+    while ((line = fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) && fields_count) {
         /* iterate the file until we reach SigBlk or SigIgn field line*/
-        if (line_in_fields_list(buff, fields_list, list_len)) {
+        if (!strncmp(buff, "SigBlk:", field_name_len) ||  !strncmp(buff, "SigIgn:", field_name_len)) {
             /* check if the signal exist in the mask */
             unsigned long sig_mask = strtoul(buff + field_name_len, NULL, 16);
             if(sig_mask & sig_num) { /* if the signal is blocked/ignored return 0*/
                 ret = 0;
                 break;
             }
-
-            /* we found the second field and it doesn't include sig_num as well. stop searching.*/
-            if (list_len == 1) break;
-            
-            /* if we found SigBlk, search for SigIgn and vice versa. */
-            const char *field = !strncmp(buff, "SigBlk:", field_name_len) ? "SigIgn:" : "SigBlk:";
-            fields_list[0].name = field;
-            list_len = 1;
+            --fields_count;
         }
     }
 
