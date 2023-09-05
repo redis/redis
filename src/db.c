@@ -1148,7 +1148,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     /* During main dictionary traversal in cluster mode, 48 lower bits in the cursor are used for positioning in the HT.
      * Following 14 bits are used for the slot number, ranging from 0 to 2^14-1.
      * Slot is always 0 at the start of iteration and can be incremented only in cluster mode. */
-    int slot = getAndClearSlotIdFromCursor(&cursor);
+    int slot = (o == NULL) ? getAndClearSlotIdFromCursor(&cursor) : 0;
     if (o == NULL) {
         ht = c->db->dict[slot];
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
@@ -1209,7 +1209,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         } while ((cursor || slot > 0) && /* Continue iteration if there are more slots to visit, or cursor hasn't reached the end of dict yet. */
                  maxiterations-- &&
                  data.sampled < count);
-        addSlotIdToCursor(slot, &cursor);
+        if (o == NULL) {
+            addSlotIdToCursor(slot, &cursor);
+        }
     } else if (o->type == OBJ_SET) {
         char *str;
         char buf[LONG_STR_SIZE];
