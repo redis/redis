@@ -259,7 +259,7 @@ int calculateKeySlot(sds key) {
     return server.cluster_enabled ? keyHashSlot(key, (int) sdslen(key)) : 0;
 }
 
-/* Return slot-specific dictionary for key based on key's hash slot in CME, or 0 in CMD.*/
+/* Return slot-specific dictionary for key based on key's hash slot when cluster mode is enabled, else 0.*/
 int getKeySlot(sds key) {
     /* This is performance optimization, that uses pre-set slot id from the current command,
      * in order to avoid calculation of the key hash. Code paths that are using keys, that can be from different slots,
@@ -1018,14 +1018,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
  * returns C_OK. Otherwise return C_ERR and send an error to the
  * client. */
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
-    char *eptr;
-
-    /* Use strtouq() because we need an *unsigned* long long, so
-     * getLongLongFromObject() does not cover the whole cursor space. */
-    errno = 0;
-    *cursor = strtouq(o->ptr, &eptr, 10);
-    if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE)
-    {
+    if (!string2ull(o->ptr, cursor)) {
         addReplyError(c, "invalid cursor");
         return C_ERR;
     }
@@ -1302,14 +1295,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     listRelease(keys);
 }
 
-void addSlotIdToCursor(int slot, unsigned long long int *cursor) {
+void addSlotIdToCursor(int slot, unsigned long long *cursor) {
     if (!server.cluster_enabled) return;
     /* Slot id can be -1 when iteration is over and there are no more slots to visit. */
     if (slot < 0) return;
     *cursor = (*cursor << CLUSTER_SLOT_MASK_BITS) | slot;
 }
 
-int getAndClearSlotIdFromCursor(unsigned long long int *cursor) {
+int getAndClearSlotIdFromCursor(unsigned long long *cursor) {
     if (!server.cluster_enabled) return 0;
     int slot = (int) (*cursor & CLUSTER_SLOT_MASK);
     *cursor = ((*cursor) & ~CLUSTER_SLOT_MASK) >> CLUSTER_SLOT_MASK_BITS;
@@ -1325,11 +1318,11 @@ void scanCommand(client *c) {
 
 void dbsizeCommand(client *c) {
     redisDb *db = c->db;
-    unsigned long long int size = dbSize(db);
+    unsigned long long size = dbSize(db);
     addReplyLongLong(c, size);
 }
 
-unsigned long long int dbSize(redisDb *db) {
+unsigned long long dbSize(redisDb *db) {
     return db->key_count;
 }
 
@@ -2003,17 +1996,22 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
 
 /* Increases size of the main db to match desired number. In cluster mode resizes all individual dictionaries for slots that
  * this node owns. */
-void expandDb(const redisDb *db, uint64_t db_size) {
+int expandDb(const redisDb *db, uint64_t db_size) {
     if (server.cluster_enabled) {
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
             if (clusterNodeGetSlotBit(server.cluster->myself, i)) {
                 /* We don't know exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */
-                dictExpand(db->dict[i], (db_size / server.cluster->myself->numslots));
+                if (dictTryExpand(db->dict[i], (db_size / server.cluster->myself->numslots)) != DICT_OK) {
+                    return C_ERR;
+                }
             }
         }
     } else {
-        dictExpand(db->dict[0], db_size);
+        if (dictTryExpand(db->dict[0], db_size) != DICT_OK) {
+            return C_ERR;
+        }
     }
+    return C_OK;
 }
 
 /* -----------------------------------------------------------------------------
@@ -2766,15 +2764,18 @@ void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full) {
     dbIteratorInit(&dbit, db);
     while ((d = dbIteratorNextDict(&dbit))) {
         dictStats *stats = dictGetStatsHt(d, 0, full);
-        if (!mainHtStats) mainHtStats = stats;
+        if (!mainHtStats) {
+            mainHtStats = stats;
+        }
         else {
             dictCombineStats(stats, mainHtStats);
             dictFreeStats(stats);
         }
         if (dictIsRehashing(d)) {
             stats = dictGetStatsHt(d, 1, full);
-            if (!rehashHtStats) rehashHtStats = stats;
-            else {
+            if (!rehashHtStats) {
+                rehashHtStats = stats;
+            } else {
                 dictCombineStats(stats, rehashHtStats);
                 dictFreeStats(stats);
             }

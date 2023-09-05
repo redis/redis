@@ -1305,7 +1305,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
-    unsigned long long int db_size = dbSize(db);
+    unsigned long long db_size = dbSize(db);
     if (db_size == 0) return 0;
 
     /* Write the SELECT DB opcode */
@@ -3117,14 +3117,15 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_SLOT_INFO) {
-            if (!server.cluster_enabled) {
-                continue; /* Ignore gracefully. */
-            }
             uint64_t slot_id, slot_size;
             if ((slot_id = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if ((slot_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
+            if (!server.cluster_enabled) {
+                continue; /* Ignore gracefully. */
+            }
+
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             dictExpand(db->dict[slot_id], slot_size);
             should_expand_db = 0;
@@ -3260,7 +3261,10 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            expandDb(db, db_size);
+            if (expandDb(db, db_size) == C_ERR) {
+                serverLog(LL_WARNING, "OOM in dict try expand");
+                return C_ERR;
+            }
             should_expand_db = 0;
         }
 

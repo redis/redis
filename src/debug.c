@@ -711,7 +711,11 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        expandDb(c->db, keys);
+        if (expandDb(c->db, keys) == C_ERR) {
+            addReplyError(c, "OOM in dictTryExpand");
+            return;
+        }
+
         long valsize = 0;
         if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;

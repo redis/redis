@@ -4191,7 +4191,6 @@ int processCommand(client *c) {
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
-    
     return C_OK;
 }
 

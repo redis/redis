@@ -452,7 +452,7 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
             original_c->slot = hashslot;
         } else if (original_c->slot != hashslot) {
             *err = sdsnew("Script attempted to access keys that do not hash to "
-                                "the same slot");
+                    "the same slot");
             return C_ERR;
         }
     }

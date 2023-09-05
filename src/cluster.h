@@ -279,7 +279,7 @@ typedef struct {
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
     union {
         clusterMsgPingExtHostname hostname;
-	    clusterMsgPingExtHumanNodename human_nodename;
+        clusterMsgPingExtHumanNodename human_nodename;
         clusterMsgPingExtForgottenNode forgotten_node;
         clusterMsgPingExtShardId shard_id;
     } ext[]; /* Actual extension information, formatted so that the data is 8 

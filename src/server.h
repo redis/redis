@@ -2427,8 +2427,8 @@ int dbGetNextNonEmptySlot(redisDb *db, int slot);
 int findSlotByKeyIndex(redisDb *db, unsigned long target);
 
 /* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
-int getAndClearSlotIdFromCursor(unsigned long long int *cursor);
-void addSlotIdToCursor(int slot, unsigned long long int *cursor);
+int getAndClearSlotIdFromCursor(unsigned long long *cursor);
+void addSlotIdToCursor(int slot, unsigned long long *cursor);
 
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
@@ -3108,11 +3108,11 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
-unsigned long long int dbSize(redisDb *db);
+unsigned long long dbSize(redisDb *db);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 unsigned long dbSlots(redisDb *db);
-void expandDb(const redisDb *db, uint64_t db_size);
+int expandDb(const redisDb *db, uint64_t db_size);
 unsigned long long cumulativeKeyCountRead(redisDb *db, int idx);
 dict *getFairRandomDict(redisDb *db);
 

@@ -277,9 +277,6 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 goto eoferr;
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_SLOT_INFO) {
-            if (!server.cluster_enabled) {
-                continue; /* Ignore gracefully. */
-            }
             uint64_t slot_id, slot_size;
             if ((slot_id = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
