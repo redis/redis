@@ -64,7 +64,7 @@ void linenoiseSetHintsCallback(linenoiseHintsCallback *);
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
-char *linenoise(const char *prompt);
+char *linenoise(const char *prompt, const char *initial_buf, const int initial_buf_len);
 void linenoiseFree(void *ptr);
 int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
@@ -76,6 +76,7 @@ void linenoisePrintKeyCodes(void);
 void linenoiseMaskModeEnable(void);
 void linenoiseMaskModeDisable(void);
 int linenoiseReverseSearchModeEnabled(void);
+int linenoiseRequestOnlyPromptRefresh(void);
 
 #ifdef __cplusplus
 }

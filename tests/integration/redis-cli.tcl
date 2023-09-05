@@ -151,32 +151,15 @@ start_server {tags {"cli"}} {
         unset ::env(FAKETTY)
     }
 
-    proc flush_and_read { fd } {
-        flush $fd
-
-        while (1) {
-
-            # allow $fd to flush
-            after 1
-            
-            set result [read $fd]
-            if { $result != "" } {
-                break
-            }
-        }
-
-        return $result
-    }
-
     test_interactive_cli_with_prompt "should find first search result" {
         run_command $fd "keys one\x0D"
         run_command $fd "keys two\x0D"
 
         puts $fd "\x12"
-        flush_and_read $fd
+        read_cli $fd
 
         puts -nonewline $fd "ey"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
     }
 
@@ -186,21 +169,21 @@ start_server {tags {"cli"}} {
         run_command $fd "GET blah\x0D"
 
         puts $fd "\x12"
-        flush_and_read $fd
+        read_cli $fd
 
         puts -nonewline $fd "ET b"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)> \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
 
         puts $fd "\x0D"
-        set result2 [flush_and_read $fd]
+        set result2 [read_cli $fd]
         assert_equal 1 [regexp {.*"myvalue"\n} $result2]
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
         set now [clock seconds]
         puts $fd "\x12"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
 
         set result2 [run_command $fd "keys \"$now\"\x0D"]
@@ -212,10 +195,10 @@ start_server {tags {"cli"}} {
         run_command $fd "keys two\x0D"
 
         puts $fd "\x12"
-        flush_and_read $fd
+        read_cli $fd
 
         puts -nonewline $fd "ey"
-        flush_and_read $fd
+        read_cli $fd
 
         set max_retries 10
         set retries 0
@@ -225,7 +208,7 @@ start_server {tags {"cli"}} {
                 fail "exceeded max retries looking through history"
             }
             puts $fd "\x12"
-            set result [flush_and_read $fd]
+            set result [read_cli $fd]
             if {[regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]} {
                 break
             }
@@ -237,11 +220,11 @@ start_server {tags {"cli"}} {
         run_command $fd ""
 
         puts $fd "\x12"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
 
         puts $fd "\x07"
-        set result2 [flush_and_read $fd]
+        set result2 [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
     }
 
@@ -249,11 +232,11 @@ start_server {tags {"cli"}} {
         run_command $fd ""
 
         puts $fd "\x12"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
 
         puts $fd "\x1B\x5B\x41"
-        set result2 [flush_and_read $fd]
+        set result2 [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
     }
 
@@ -261,11 +244,11 @@ start_server {tags {"cli"}} {
         run_command $fd ""
 
         puts $fd "\x12"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
 
         puts $fd "\x1B\x5B\x42"
-        set result2 [flush_and_read $fd]
+        set result2 [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
     }
 
@@ -273,11 +256,11 @@ start_server {tags {"cli"}} {
         run_command $fd ""
 
         puts $fd "\x12"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
 
         puts $fd "\x1B\x5B\x43"
-        set result2 [flush_and_read $fd]
+        set result2 [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
     }
 
@@ -285,12 +268,61 @@ start_server {tags {"cli"}} {
         run_command $fd ""
 
         puts $fd "\x12"
-        set result [flush_and_read $fd]
+        set result [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
 
         puts $fd "\x1B\x5B\x44"
-        set result2 [flush_and_read $fd]
+        set result2 [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should disable and persist line if user presses tab" {
+        run_command $fd ""
+
+        puts $fd "\x12"
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts -nonewline $fd "GET blah"
+        read_cli $fd
+
+        puts -nonewline $fd "\x09"
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]> GET blah} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should disable and persist search result if user presses tab" {
+        run_command $fd "GET one"
+
+        puts $fd "\x12"
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts -nonewline $fd "one"
+        read_cli $fd
+
+        puts -nonewline $fd "\x09"
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]> GET one} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should disable and persist line and move the cursor if user presses tab" {
+        run_command $fd ""
+
+        puts $fd "\x12"
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]] \(reverse-i-search\)>} $result]
+
+        puts -nonewline $fd "GET blah"
+        read_cli $fd
+
+        puts -nonewline $fd "\x09"
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]> GET blah} $result2]
+
+        puts -nonewline $fd "suffix"
+        set result3 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*\[[0-9]]> GET blahsuffix} $result3]
     }
 
     test_interactive_cli "INFO response should be printed raw" {

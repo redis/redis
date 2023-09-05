@@ -3343,7 +3343,7 @@ static int isSensitiveCommand(int argc, char **argv) {
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
-    char *line;
+    char *line = NULL;
     int argc;
     sds *argv;
 
@@ -3373,8 +3373,25 @@ static void repl(void) {
     }
 
     while(1) {
+        static char * lineCpy = NULL;
         cliRefreshPrompt();
-        line = linenoise(context ? config.prompt : "not connected> ");
+        line = linenoise(context ? config.prompt : "not connected> ", lineCpy, lineCpy == NULL ? 0 : strlen(lineCpy));
+        if (lineCpy != NULL) {
+            free(lineCpy);
+            lineCpy = NULL;
+        }
+        
+        /*
+            there are cases where we only want to refresh the prompt, in these cases,
+            we should ensure that the line is persisted to the next call to linenoise
+        */
+        if (linenoiseRequestOnlyPromptRefresh()) {
+            lineCpy = calloc(sizeof(line), sizeof(char));
+            memcpy(lineCpy, line, strlen(line));
+            linenoiseFree(line);
+            continue;
+        }
+
         if (line == NULL) {
             /* ^C, ^D or similar. */
             if (config.pubsub_mode) {
@@ -9707,7 +9724,7 @@ static void intrinsicLatencyMode(void) {
 
 static sds askPassword(const char *msg) {
     linenoiseMaskModeEnable();
-    sds auth = linenoise(msg);
+    sds auth = linenoise(msg, NULL, 0);
     linenoiseMaskModeDisable();
     return auth;
 }

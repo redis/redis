@@ -143,6 +143,8 @@ static int search_result_history_index = 0;
 static int search_result_start_offset = 0;
 static int skip_search = 0;
 
+static int only_refresh_prompt = 0;
+
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
  * functionalities. */
@@ -681,7 +683,6 @@ static void refreshMultiLine(struct linenoiseState *l) {
 
     /* Set column. */
     col = (plen+(int)l->pos) % (int)l->cols;
-    // set col here Clayton
     if (search_result != NULL) {
         col += search_result_start_offset;
     }
@@ -855,13 +856,11 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     l.prompt = prompt;
     l.plen = strlen(prompt);
     l.oldpos = l.pos = 0;
-    l.len = 0;
+    l.len = strlen(buf);
     l.cols = getColumns(stdin_fd, stdout_fd);
     l.maxrows = 0;
     l.history_index = 0;
 
-    /* Buffer starts empty. */
-    l.buf[0] = '\0';
     l.buflen--; /* Make sure there is always space for the nulterm */
 
     /* The latest history entry is always our current buffer, that
@@ -869,6 +868,9 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     linenoiseHistoryAdd("");
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
+    if (write(l.ofd,buf,l.len) == -1) return -1;
+    l.oldpos = l.pos = l.len;
+
     while(1) {
         char c;
         int nread;
@@ -880,7 +882,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
-        if (c == 9 && completionCallback != NULL) {
+        if (c == TAB && completionCallback != NULL && !linenoiseReverseSearchModeEnabled()) {
             c = completeLine(&l);
             /* Return on errors */
             if (c < 0) return l.len;
@@ -891,6 +893,16 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         switch(c) {
         case NL:       /* enter, typed before raw mode was enabled */
             break;
+        case TAB:
+            if (linenoiseReverseSearchModeEnabled()) {
+                if (search_result) {
+                    memset(buf, 0, buflen);
+                    memcpy(buf, search_result, strlen(search_result));
+                }
+                disableReverseSearchMode();
+                only_refresh_prompt = 1;
+                return l.len;
+            }
         case ENTER:    /* enter */
             history_len--;
             free(history[history_len]);
@@ -1148,8 +1160,13 @@ static char *linenoiseNoTTY(void) {
  * for a blacklist of stupid terminals, and later either calls the line
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
-char *linenoise(const char *prompt) {
-    char buf[LINENOISE_MAX_LINE];
+char *linenoise(const char *prompt, const char *initial_buf, const int initial_buf_len) {
+    only_refresh_prompt = 0;
+    char buf[LINENOISE_MAX_LINE] = {0};
+    if (initial_buf_len) {
+        memcpy(buf, initial_buf, initial_buf_len);
+    }
+    
     int count;
 
     if (getenv("FAKETTY_WITH_PROMPT") == NULL && !isatty(STDIN_FILENO)) {
@@ -1408,4 +1425,8 @@ static void refreshSearchResult(struct linenoiseState * ls) {
 
         search_result_start_offset = sr.searchTermIndex;
     }
+}
+
+int linenoiseRequestOnlyPromptRefresh(void) {
+    return only_refresh_prompt;
 }
