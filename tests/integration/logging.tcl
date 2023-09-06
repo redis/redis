@@ -28,7 +28,8 @@ if {$backtrace_supported} {
             if {$threads_mngr_supported} {
                 assert_equal [count_log_message 0 "failed to open /proc/"] 0
                 assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
-                verify_log_message 0 "*stacktraces-logging-handling-thread*" 0
+                verify_log_message 0 "*redis-server *\(aeMain*" 0
+                assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
             }
             
             set pattern "*debugCommand*"

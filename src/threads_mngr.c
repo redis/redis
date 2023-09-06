@@ -34,6 +34,7 @@
 #ifdef __linux__
 #include "zmalloc.h"
 #include "atomicvar.h"
+#include "server.h"
 
 #include <signal.h>
 #include <time.h>
@@ -90,7 +91,7 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
     /* Update g_callback */
     g_callback = callback;
 
-    /* Set g_tids_len  */
+    /* Set g_tids_len */
     g_tids_len = tids_len;
 
     /* Allocate the output buffer */
@@ -98,7 +99,7 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
 
     /* Initialize a semaphore that we will be waiting on for the threads
     use pshared = 0 to indicate the semaphore is shared between the process's threads (and not between processes),
-    and value = 0 as the initial semaphore value.*/
+    and value = 0 as the initial semaphore value. */
     sem_init(&wait_for_threads_sem, 0, 0);
 
     /* Send signal to all the threads in tids */
@@ -139,7 +140,7 @@ static void invoke_callback(int sig) {
     size_t curr_done_count;
     atomicIncrGet(g_num_threads_done, curr_done_count, 1);
 
-    /* last thread shuts down the light  */
+    /* last thread shuts down the light */
     if (curr_done_count == g_tids_len) {
         sem_post(&wait_for_threads_sem);
     }
@@ -152,10 +153,19 @@ static void wait_threads(void) {
     /* calculate relative time until timeout */
     ts.tv_sec += RUN_ON_THREADS_TIMEOUT;
 
+    int status = 0;
+
     /* lock the semaphore until the semaphore value rises above zero or a signal
     handler interrupts the call. In the later case continue to wait. */
-    while ((sem_timedwait(&wait_for_threads_sem, &ts)) == -1 && errno == EINTR) {
+    while ((status = sem_timedwait(&wait_for_threads_sem, &ts)) == -1 && errno == EINTR) {
+        serverLog(LL_WARNING, "threads_mngr: waiting for threads' output was interrupted by signal. Continue waiting.");
         continue;
+    }
+
+    if (status == -1) {
+        if (errno == ETIMEDOUT) {
+            serverLog(LL_WARNING, "threads_mngr: waiting for threads' output timed out");
+        }
     }
 }
 
@@ -167,17 +177,17 @@ static void ThreadsManager_cleanups(void) {
     g_num_threads_done = 0;
     sem_destroy(&wait_for_threads_sem);
 
-    /* Lastly, turn off g_in_progress*/
+    /* Lastly, turn off g_in_progress */
     atomicSet(g_in_progress, 0);
 }
 #else
 
 void ThreadsManager_init(void) {
-    /* DO NOTHING*/
+    /* DO NOTHING */
 }
 
 void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
-    /* DO NOTHING*/
+    /* DO NOTHING */
     UNUSED(tids);
     UNUSED(tids_len);
     UNUSED(callback);

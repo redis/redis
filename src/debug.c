@@ -1844,70 +1844,70 @@ static void *collect_stacktrace_data(void) {
     /* Get the stack trace first! */
     trace_data->trace_size = backtrace(trace_data->trace, BACKTRACE_MAX_SIZE);
     
-    /* get the thread name*/
+    /* get the thread name */
     prctl(PR_GET_NAME, trace_data->thread_name);
 
-    /* get the thread id*/
+    /* get the thread id */
     trace_data->tid = syscall(SYS_gettid);
 
     /* return the trace data */
     return trace_data;
 }
 
-static void writeStacktraces(int fd, int uplevel)  {
+static void writeStacktraces(int fd, int uplevel) {
     /* get the list of all the process's threads that don't block or ignore the THREADS_SIGNAL */
     pid_t pid = getpid();
-    size_t len_tids = 0;    
+    size_t len_tids = 0;
     pid_t *tids = get_ready_to_signal_threads_tids(pid, THREADS_SIGNAL, &len_tids);
 
-    /* This call returns either NULL or the stacktraces data from all tids*/
-    stacktrace_data **stackraces_data = (stacktrace_data **)ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data);
+    /* This call returns either NULL or the stacktraces data from all tids */
+    stacktrace_data **stacktraces_data = (stacktrace_data **)ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data);
 
     /* free tids */
     zfree(tids);
 
     /* ThreadsManager_runOnThreads returns NULL if it is already running */
-    if(!stackraces_data) return;
+    if (!stacktraces_data) return;
 
 
     char buff[MAX_BUFF_LENGTH];
     pid_t calling_tid = syscall(SYS_gettid);
     /* for backtrace_data in backtraces_data: */
-    for(size_t i = 0; i < len_tids; i++) {
-        stacktrace_data *curr_stacktrace_data = stackraces_data[i];
-        /*ThreadsManager_runOnThreads might fail to collect the thread's data*/
-        if(!curr_stacktrace_data) continue;
+    for (size_t i = 0; i < len_tids; i++) {
+        stacktrace_data *curr_stacktrace_data = stacktraces_data[i];
+        /*ThreadsManager_runOnThreads might fail to collect the thread's data */
+        if (!curr_stacktrace_data) continue;
         
-        /* stacktrace header includes the tid and the thread's name*/
+        /* stacktrace header includes the tid and the thread's name */
         snprintf(buff, MAX_BUFF_LENGTH, "\n%d %s", curr_stacktrace_data->tid, curr_stacktrace_data->thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
         /* skip kernel call to the signal handler, the signal handler and the callback addresses */
         int curr_uplevel = 3;
 
-        if(curr_stacktrace_data->tid == calling_tid) {
-            /*skip signal syscall and ThreadsManager_runOnThreads*/
+        if (curr_stacktrace_data->tid == calling_tid) {
+            /* skip signal syscall and ThreadsManager_runOnThreads */
             curr_uplevel += uplevel + 2;
-            /* Add an indication to header of the thread that is handling the log file*/
-            snprintf(buff, MAX_BUFF_LENGTH, " stacktraces-logging-handling-thread\n");
+            /* Add an indication to header of the thread that is handling the log file */
+            snprintf(buff, MAX_BUFF_LENGTH, " *\n");
         } else { 
-            /*just add a new line*/
+            /* just add a new line */
             snprintf(buff, MAX_BUFF_LENGTH, "\n");
         }
 
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
-        /* add the stacktrace*/
+        /* add the stacktrace */
         backtrace_symbols_fd(curr_stacktrace_data->trace+curr_uplevel, curr_stacktrace_data->trace_size-curr_uplevel, fd);
 
         zfree(curr_stacktrace_data);
     }
-    zfree(stackraces_data);
+    zfree(stacktraces_data);
 }
 
 #else /* __linux__*/
 
-static void writeStacktraces(int fd, int uplevel)  {
+static void writeStacktraces(int fd, int uplevel) {
     void *trace[BACKTRACE_MAX_SIZE];
 
     int trace_size = backtrace(trace, BACKTRACE_MAX_SIZE);
@@ -1916,7 +1916,7 @@ static void writeStacktraces(int fd, int uplevel)  {
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
     backtrace_symbols_fd(trace+uplevel, trace_size-uplevel, fd);
 }
-#endif /* __linux__*/
+#endif /* __linux__ */
 
 /* Logs the stack trace using the backtrace() call. This function is designed
  * to be called from signal handlers safely.
@@ -2418,9 +2418,11 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(sig);
 
     /* SIGALRM can be sent explicitly to the process calling kill() to get the stacktraces,
-    or every watchdog_period interval. In the last case, si_pid is not set */
+       or every watchdog_period interval. In the last case, si_pid is not set */
     if(info->si_pid == 0) {
         serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+    } else {
+        serverLogFromHandler(LL_WARNING, "\nReceived SIGALRM");
     }
 #ifdef HAVE_BACKTRACE
     logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
@@ -2492,11 +2494,11 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
     char *line = NULL;
     size_t fields_count = 2;
     while ((line = fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) && fields_count) {
-        /* iterate the file until we reach SigBlk or SigIgn field line*/
+        /* iterate the file until we reach SigBlk or SigIgn field line */
         if (!strncmp(buff, "SigBlk:", field_name_len) ||  !strncmp(buff, "SigIgn:", field_name_len)) {
             /* check if the signal exist in the mask */
             unsigned long sig_mask = strtoul(buff + field_name_len, NULL, 16);
-            if(sig_mask & sig_num) { /* if the signal is blocked/ignored return 0*/
+            if(sig_mask & sig_num) { /* if the signal is blocked/ignored return 0 */
                 ret = 0;
                 break;
             }
@@ -2506,7 +2508,7 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
 
     fclose(thread_status_file);
 
-    /* if we reached EOF, it means we haven't found SigBlk or/and SigIgn, something is wrong  */
+    /* if we reached EOF, it means we haven't found SigBlk or/and SigIgn, something is wrong */
     if (line == NULL)  {
         ret = 0;
         serverLog(LL_WARNING,
@@ -2517,10 +2519,9 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
 
 /** Returns a list of all the process's (pid) threads that can receive signal sig_num.
  * Also updates tids_len_output to the number of valid threads' ids in the returned array
- * NOTE: It is the caller responsibility to free the returned array with zfree().
-*/
+ * NOTE: It is the caller responsibility to free the returned array with zfree(). */
 static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *tids_len_output) {
-    /* Initialize the path the process threads' directory.*/
+    /* Initialize the path the process threads' directory. */
     char path_buff[MAX_BUFF_LENGTH];
     snprintf(path_buff, MAX_BUFF_LENGTH, "/proc/%d/task", pid);
 
@@ -2550,15 +2551,14 @@ static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *t
                     current_thread_index = tids_count;
                 }
 
-                ++tids_count;
                 /* increase tids capacity if needed */
-                if(tids_count > tids_cap) {
+                if(tids_count >= tids_cap) {
                     tids_cap *= 2;
                     tids = zrealloc(tids, sizeof(pid_t) * tids_cap);
                 }
 
-                /* save the thread id*/
-                tids[tids_count - 1] = tid;
+                /* save the thread id */
+                tids[tids_count++] = tid;
             }
         }
     }
@@ -2567,7 +2567,7 @@ static pid_t *get_ready_to_signal_threads_tids(pid_t pid, int sig_num, size_t *t
     if(current_thread_index != -1) {
         pid_t last_tid = tids[tids_count - 1];
         
-        tids[tids_count - 1] = calling_tid;       
+        tids[tids_count - 1] = calling_tid;
         tids[current_thread_index] = last_tid;
     }
 
