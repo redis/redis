@@ -28,10 +28,14 @@ if {$backtrace_supported} {
             if {$threads_mngr_supported} {
                 assert_equal [count_log_message 0 "failed to open /proc/"] 0
                 assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
-                verify_log_message 0 "*redis-server *\(aeMain*" 0
+                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output was interrupted by signal"] 0
+                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output timed out"] 0
                 assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
             }
             
+            set pattern "*redis-server *main*"
+            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+            if {$::verbose} { puts $res }
             set pattern "*debugCommand*"
             set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
             if {$::verbose} { puts $res }
