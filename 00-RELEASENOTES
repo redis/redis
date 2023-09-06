@@ -11,8 +11,31 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
+
 ================================================================================
-Redis 7.2.0 GA   Released Mon Aug 15 12:00:00 IDT 2023
+Redis 7.2.1    Released Wed 06 Sep 2023 15:00:00 IDT
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security Fixes
+==============
+
+* (CVE-2023-41053) Redis does not correctly identify keys accessed by SORT_RO and,
+  as a result, may grant users executing this command access to keys that are not
+  explicitly authorized by the ACL configuration.
+
+
+Bug Fixes
+=========
+
+* Fix crashes when joining a node to an existing 7.0 Redis Cluster (#12538)
+* Correct request_policy and response_policy command tips on for some admin /
+  configuration commands (#12545, #12530)
+
+
+================================================================================
+Redis 7.2.0 GA   Released Tue Aug 15 12:00:00 IDT 2023
 ================================================================================
 
 Upgrade urgency LOW: This is the first stable Release for Redis 7.2.
