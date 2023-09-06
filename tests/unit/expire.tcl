@@ -378,8 +378,8 @@ start_server {tags {"expire"}} {
                 {set foo15 bar}
                 {pexpireat foo15 *}
                 {set foo16 bar}
-                {restore foo17 * {*} ABSTTL}
-                {restore foo18 * {*} absttl}
+                {restore foo17 * * ABSTTL}
+                {restore foo18 * * absttl}
             }
 
             # Remember the absolute TTLs of all the keys
@@ -507,8 +507,8 @@ start_server {tags {"expire"}} {
             {pexpireat foo4 *}
             {pexpireat foo4 *}
             {set foo5 bar}
-            {restore foo6 * {*} ABSTTL}
-            {restore foo7 * {*} absttl}
+            {restore foo6 * * ABSTTL}
+            {restore foo7 * * absttl}
         }
         close_replication_stream $repl
     } {} {needs:repl}
