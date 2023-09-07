@@ -23,8 +23,8 @@ if {$backtrace_supported} {
     set server_path [tmpdir server.log]
     start_server [list overrides [list dir $server_path]] {
         test "Server is able to generate a stack trace on selected systems" {
-            catch {r debug segfault}
-            wait_for_log_messages 0 {"*REDIS BUG REPORT END*"} 0 100 100
+            r config set watchdog-period 200
+            r debug sleep 1
             if {$threads_mngr_supported} {
                 assert_equal [count_log_message 0 "failed to open /proc/"] 0
                 assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
