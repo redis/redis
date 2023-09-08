@@ -309,7 +309,7 @@ void *ACLListDupSds(void *item) {
 /* Structure used for handling key patterns with different key
  * based permissions. */
 typedef struct {
-    int flags; /* The CMD_KEYS_* flags for this key pattern */
+    int flags; /* The ACL key permission types for this key pattern */
     sds pattern; /* The pattern to match keys against */
 } keyPattern;
 
@@ -963,7 +963,7 @@ void ACLResetFirstArgs(aclSelector *selector) {
     selector->allowed_firstargs = NULL;
 }
 
-/* Add a first-arh to the list of subcommands for the user 'u' and
+/* Add a first-arg to the list of subcommands for the user 'u' and
  * the command id specified. */
 void ACLAddAllowedFirstArg(aclSelector *selector, unsigned long id, const char *sub) {
     /* If this is the first first-arg to be configured for
@@ -1458,7 +1458,7 @@ void ACLInit(void) {
  * otherwise C_ERR is returned and errno is set to:
  *
  *  EINVAL: if the username-password do not match.
- *  ENONENT: if the specified user does not exist at all.
+ *  ENOENT: if the specified user does not exist at all.
  */
 int ACLCheckUserCredentials(robj *username, robj *password) {
     user *u = ACLGetUserByName(username->ptr,sdslen(username->ptr));

@@ -493,7 +493,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 set expected_frag 1.3
 
                 r debug mallctl-str thread.tcache.flush VOID
-                # fill the first slab containin 32 regs of 640 bytes.
+                # fill the first slab containing 32 regs of 640 bytes.
                 for {set j 0} {$j < 32} {incr j} {
                     r setrange "_$j" 600 x
                     r debug mallctl-str thread.tcache.flush VOID
