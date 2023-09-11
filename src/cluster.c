@@ -1435,6 +1435,14 @@ void clusterCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
         clusterReplySlots(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
+        /* CLUSTER INFO */
+
+        sds info = genClusterInfoString();
+
+        /* Produce the reply protocol. */
+        addReplyVerbatim(c,info,sdslen(info),"txt");
+        sdsfree(info);
     } else if (!strcasecmp(c->argv[1]->ptr,"keyslot") && c->argc == 3) {
         /* CLUSTER KEYSLOT <key> */
         sds key = c->argv[2]->ptr;

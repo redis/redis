@@ -5783,14 +5783,6 @@ int clusterCommandSpecial(client *c) {
                 (retval == C_OK) ? "BUMPED" : "STILL",
                 (unsigned long long) myself->configEpoch);
         addReplySds(c,reply);
-    } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
-        /* CLUSTER INFO */
-       
-        sds info = genClusterInfoString();
-
-        /* Produce the reply protocol. */
-        addReplyVerbatim(c,info,sdslen(info),"txt");
-        sdsfree(info);
     } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {
         int retval = clusterSaveConfig(1);
 
