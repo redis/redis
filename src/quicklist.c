@@ -180,7 +180,6 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     node->encoding = QUICKLIST_NODE_ENCODING_RAW;
     node->container = QUICKLIST_NODE_CONTAINER_PACKED;
     node->recompress = 0;
-    node->dont_compress = 0;
     return node;
 }
 
@@ -216,7 +215,6 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
 #ifdef REDIS_TEST
     node->attempted_compress = 1;
 #endif
-    if (node->dont_compress) return 0;
 
     /* validate that the node is neither
      * tail nor head (it has prev and next)*/
@@ -740,35 +738,43 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
 void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
                            void *data, size_t sz)
 {
-    quicklist* quicklist = iter->quicklist;
+    quicklist *quicklist = iter->quicklist;
+    quicklistNode *node = entry->node;
 
-    if (likely(!QL_NODE_IS_PLAIN(entry->node) && !isLargeElement(sz))) {
-        entry->node->entry = lpReplace(entry->node->entry, &entry->zi, data, sz);
-        quicklistNodeUpdateSz(entry->node);
+    if (likely(!isLargeElement(sz) && !QL_NODE_IS_PLAIN(entry->node) && 
+               (node->count == 1 || sz <= entry->sz ||
+                _quicklistNodeAllowInsert(node, quicklist->fill, sz - entry->sz)))) {
+        node->entry = lpReplace(node->entry, &entry->zi, data, sz);
+        quicklistNodeUpdateSz(node);
         /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
-        quicklistCompress(quicklist, entry->node);
-    } else if (QL_NODE_IS_PLAIN(entry->node)) {
-        if (isLargeElement(sz)) {
-            zfree(entry->node->entry);
-            entry->node->entry = zmalloc(sz);
-            entry->node->sz = sz;
-            memcpy(entry->node->entry, data, sz);
-            quicklistCompress(quicklist, entry->node);
+        quicklistCompress(quicklist, node);
+    } else if (isLargeElement(sz)) {
+        if (QL_NODE_IS_PLAIN(node) || node->count == 1) {
+            zfree(node->entry);
+            node->entry = zmalloc(sz);
+            memcpy(node->entry, data, sz);
+            node->sz = sz;
+            node->container = QUICKLIST_NODE_CONTAINER_PLAIN;
+            quicklistCompress(quicklist, node);
         } else {
-            quicklistInsertAfter(iter, entry, data, sz);
-            __quicklistDelNode(quicklist, entry->node);
+            /* node->count > 1, node will not be removed */
+            quicklistDelIndex(quicklist, node, &entry->zi);
+            __quicklistInsertPlainNode(quicklist, node, data, sz, 1);
         }
-    } else {
-        entry->node->dont_compress = 1; /* Prevent compression in quicklistInsertAfter() */
+    } else if (QL_NODE_IS_PLAIN(node)) {
         quicklistInsertAfter(iter, entry, data, sz);
-        if (entry->node->count == 1) {
-            __quicklistDelNode(quicklist, entry->node);
+        __quicklistDelNode(quicklist, node);
+    } else {
+        /* node->count > 1, node will not be removed */
+        quicklistDelIndex(quicklist, node, &entry->zi);
+        iter->zi = NULL;
+        if (entry->offset == node->count) {
+            iter->offset--;
+            quicklistNext(iter, entry);
+            quicklistInsertAfter(iter, entry, data, sz);
         } else {
-            unsigned char *p = lpSeek(entry->node->entry, -1);
-            quicklistDelIndex(quicklist, entry->node, &p);
-            entry->node->dont_compress = 0; /* Re-enable compression */
-            quicklistCompress(quicklist, entry->node);
-            quicklistCompress(quicklist, entry->node->next);
+            quicklistNext(iter, entry);
+            quicklistInsertBefore(iter, entry, data, sz);
         }
     }
 
@@ -810,84 +816,32 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
 REDIS_STATIC quicklistNode *_quicklistListpackMerge(quicklist *quicklist,
                                                     quicklistNode *a,
                                                     quicklistNode *b) {
+    if (!_quicklistNodeAllowMerge(a, b, quicklist->fill)) {
+        return NULL;
+    }                                                    
+
     D("Requested merge (a,b) (%u, %u)", a->count, b->count);
 
     quicklistDecompressNode(a);
     quicklistDecompressNode(b);
-    if ((lpMerge(&a->entry, &b->entry))) {
-        /* We merged listpacks! Now remove the unused quicklistNode. */
-        quicklistNode *keep = NULL, *nokeep = NULL;
-        if (!a->entry) {
-            nokeep = a;
-            keep = b;
-        } else if (!b->entry) {
-            nokeep = b;
-            keep = a;
-        }
-        keep->count = lpLength(keep->entry);
-        quicklistNodeUpdateSz(keep);
-
-        nokeep->count = 0;
-        __quicklistDelNode(quicklist, nokeep);
-        quicklistCompress(quicklist, keep);
-        return keep;
-    } else {
-        /* else, the merge returned NULL and nothing changed. */
-        return NULL;
+    unsigned int newCount = a->count + b->count;
+    lpMerge(&a->entry, &b->entry);
+    /* We merged listpacks! Now remove the unused quicklistNode. */
+    quicklistNode *keep = NULL, *nokeep = NULL;
+    if (!a->entry) {
+        nokeep = a;
+        keep = b;
+    } else if (!b->entry) {
+        nokeep = b;
+        keep = a;
     }
-}
+    keep->count = newCount;
+    quicklistNodeUpdateSz(keep);
 
-/* Attempt to merge listpacks within two nodes on either side of 'center'.
- *
- * We attempt to merge:
- *   - (center->prev->prev, center->prev)
- *   - (center->next, center->next->next)
- *   - (center->prev, center)
- *   - (center, center->next)
- */
-REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
-                                       quicklistNode *center) {
-    int fill = quicklist->fill;
-    quicklistNode *prev, *prev_prev, *next, *next_next, *target;
-    prev = prev_prev = next = next_next = target = NULL;
-
-    if (center->prev) {
-        prev = center->prev;
-        if (center->prev->prev)
-            prev_prev = center->prev->prev;
-    }
-
-    if (center->next) {
-        next = center->next;
-        if (center->next->next)
-            next_next = center->next->next;
-    }
-
-    /* Try to merge prev_prev and prev */
-    if (_quicklistNodeAllowMerge(prev, prev_prev, fill)) {
-        _quicklistListpackMerge(quicklist, prev_prev, prev);
-        prev_prev = prev = NULL; /* they could have moved, invalidate them. */
-    }
-
-    /* Try to merge next and next_next */
-    if (_quicklistNodeAllowMerge(next, next_next, fill)) {
-        _quicklistListpackMerge(quicklist, next, next_next);
-        next = next_next = NULL; /* they could have moved, invalidate them. */
-    }
-
-    /* Try to merge center node and previous node */
-    if (_quicklistNodeAllowMerge(center, center->prev, fill)) {
-        target = _quicklistListpackMerge(quicklist, center->prev, center);
-        center = NULL; /* center could have been deleted, invalidate it. */
-    } else {
-        /* else, we didn't merge here, but target needs to be valid below. */
-        target = center;
-    }
-
-    /* Use result of center merge (or original) to merge with next node. */
-    if (_quicklistNodeAllowMerge(target, target->next, fill)) {
-        _quicklistListpackMerge(quicklist, target, target->next);
-    }
+    nokeep->count = 0;
+    __quicklistDelNode(quicklist, nokeep);
+    quicklistCompress(quicklist, keep);
+    return keep;
 }
 
 /* Split 'node' into two parts, parameterized by 'offset' and 'after'.
@@ -941,6 +895,37 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
 
     D("After split lengths: orig (%d), new (%d)", node->count, new_node->count);
     return new_node;
+}
+
+REDIS_STATIC void _quicklistInsertIntoFullNode(quicklist *quicklist,
+                                               quicklistEntry *entry,
+                                               void *value, const size_t sz,
+                                               int after){              
+    quicklistNode *node = entry->node;       
+    quicklistNode *new_node = _quicklistSplitNode(node, entry->offset, after);
+    quicklistNode *front = after ? node : new_node;
+    quicklistNode *back = after ? new_node : node;
+
+    if (_quicklistNodeAllowInsert(front, quicklist->fill, sz)){
+        front->entry = lpAppend(front->entry, value, sz);
+        front->count++;
+        quicklistNodeUpdateSz(front);
+        __quicklistInsertNode(quicklist, node, new_node, after);
+    } else if (_quicklistNodeAllowInsert(back, quicklist->fill, sz)) {
+        back->entry = lpPrepend(back->entry, value, sz);
+        back->count++;
+        quicklistNodeUpdateSz(back);
+        __quicklistInsertNode(quicklist, node, new_node, after);
+    } else {
+        quicklistNode *mid = quicklistCreateNode();
+        mid->entry = lpPrepend(lpNew(0), value, sz);
+        mid->count++;
+        __quicklistInsertNode(quicklist, node, mid, after);
+        __quicklistInsertNode(quicklist, mid, new_node, after);
+    }
+
+    _quicklistListpackMerge(quicklist, front->prev, front);
+    _quicklistListpackMerge(quicklist, back, back->next);
 }
 
 /* Insert a new entry before or after existing entry 'entry'.
@@ -1017,14 +1002,14 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         node->entry = lpInsertString(node->entry, value, sz, entry->zi, LP_AFTER, NULL);
         node->count++;
         quicklistNodeUpdateSz(node);
-        quicklistRecompressOnly(node);
+        quicklistCompress(quicklist, node);
     } else if (!full && !after) {
         D("Not full, inserting before current position.");
         quicklistDecompressNodeForUse(node);
         node->entry = lpInsertString(node->entry, value, sz, entry->zi, LP_BEFORE, NULL);
         node->count++;
         quicklistNodeUpdateSz(node);
-        quicklistRecompressOnly(node);
+        quicklistCompress(quicklist, node);
     } else if (full && at_tail && avail_next && after) {
         /* If we are: at tail, next has free space, and inserting after:
          *   - insert entry at head of next node. */
@@ -1034,7 +1019,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         new_node->entry = lpPrepend(new_node->entry, value, sz);
         new_node->count++;
         quicklistNodeUpdateSz(new_node);
-        quicklistRecompressOnly(new_node);
+        quicklistCompress(quicklist, new_node);
         quicklistRecompressOnly(node);
     } else if (full && at_head && avail_prev && !after) {
         /* If we are: at head, previous has free space, and inserting before:
@@ -1045,7 +1030,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         new_node->entry = lpAppend(new_node->entry, value, sz);
         new_node->count++;
         quicklistNodeUpdateSz(new_node);
-        quicklistRecompressOnly(new_node);
+        quicklistCompress(quicklist, new_node);
         quicklistRecompressOnly(node);
     } else if (full && ((at_tail && !avail_next && after) ||
                         (at_head && !avail_prev && !after))) {
@@ -1057,20 +1042,11 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         new_node->count++;
         quicklistNodeUpdateSz(new_node);
         __quicklistInsertNode(quicklist, node, new_node, after);
-    } else if (full) {
+    } else {
         /* else, node is full we need to split it. */
         /* covers both after and !after cases */
         D("\tsplitting node...");
-        quicklistDecompressNodeForUse(node);
-        new_node = _quicklistSplitNode(node, entry->offset, after);
-        if (after)
-            new_node->entry = lpPrepend(new_node->entry, value, sz);
-        else
-            new_node->entry = lpAppend(new_node->entry, value, sz);
-        new_node->count++;
-        quicklistNodeUpdateSz(new_node);
-        __quicklistInsertNode(quicklist, node, new_node, after);
-        _quicklistMergeNodes(quicklist, node);
+        _quicklistInsertIntoFullNode(quicklist, entry, value, sz, after);
     }
 
     quicklist->count++;
@@ -1171,7 +1147,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
             quicklist->count -= del;
             quicklistDeleteIfEmpty(quicklist, node);
             if (node)
-                quicklistRecompressOnly(node);
+                quicklistCompress(quicklist, node);
         }
 
         extent -= del;
