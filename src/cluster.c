@@ -2394,7 +2394,6 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 }
                 clusterDelSlot(j);
                 clusterAddSlot(sender,j);
-                bitmapClearBit(server.cluster->owner_not_claiming_slot, j);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                      CLUSTER_TODO_UPDATE_STATE|
                                      CLUSTER_TODO_FSYNC_CONFIG);
