@@ -119,7 +119,13 @@ static inline int defaultClientPort(void) {
     return server.tls_cluster ? server.tls_port : server.port;
 }
 
-static int returnTLSInfo(void) {
+/* When a cluster command is called, we need to decide whether to return TLS info or
+ * non-TLS info by the client's connection type. However if the command is called by
+ * a Lua script or RM_call, there is no connection in the fake client, so we use 
+ * server.current_client here to get the real client if available. And if it is not 
+ * available (modules may call commands without a real client), we return the default
+ * info, which is determined by server.tls_cluster. */
+static int shouldReturnTlsInfo(void) {
     if (server.current_client && server.current_client->conn) {
         return connIsTLS(server.current_client->conn);
     } else {
@@ -5578,7 +5584,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     }
 
     /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-    addReplyLongLong(c, getNodeClientPort(node, returnTLSInfo()));
+    addReplyLongLong(c, getNodeClientPort(node, shouldReturnTlsInfo()));
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
@@ -5954,7 +5960,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-        sds nodes = clusterGenNodesDescription(c, 0, returnTLSInfo());
+        sds nodes = clusterGenNodesDescription(c, 0, shouldReturnTlsInfo());
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -6320,7 +6326,7 @@ NULL
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
-            sds ni = clusterGenNodeDescription(c, n->slaves[j], returnTLSInfo());
+            sds ni = clusterGenNodeDescription(c, n->slaves[j], shouldReturnTlsInfo());
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
@@ -7446,7 +7452,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
                error_code == CLUSTER_REDIR_ASK)
     {
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-        int port = getNodeClientPort(n, returnTLSInfo());
+        int port = getNodeClientPort(n, shouldReturnTlsInfo());
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
