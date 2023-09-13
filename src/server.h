@@ -132,7 +132,7 @@ struct hdr_histogram;
 #define CONFIG_DEFAULT_BINDADDR_COUNT 2
 #define CONFIG_DEFAULT_BINDADDR { "*", "-::*" }
 #define NET_HOST_STR_LEN 256 /* Longest valid hostname */
-#define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
+#define NET_IP_STR_LEN 256 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define NET_ADDR_STR_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define NET_HOST_PORT_STR_LEN (NET_HOST_STR_LEN+32) /* Must be enough for hostname:port */
 #define CONFIG_BINDADDR_MAX 16
