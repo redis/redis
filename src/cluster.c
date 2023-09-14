@@ -83,6 +83,7 @@ int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 const char *clusterGetMessageTypeString(int type);
 void removeChannelsInSlot(unsigned int slot);
+void removeAllShardChannelSubscription(void);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
@@ -6287,6 +6288,7 @@ NULL
             return;
         }
 
+        removeAllShardChannelSubscription();
         /* Set the master. */
         clusterSetMaster(n);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
@@ -6477,6 +6479,16 @@ void removeChannelsInSlot(unsigned int slot) {
 
     pubsubUnsubscribeShardChannels(channels, channelcount);
     zfree(channels);
+}
+
+/* Remove all the shard channels related information on the current node. */
+void removeAllShardChannelSubscription() {
+    clusterNode *currmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
+    for (int j = 0; j < CLUSTER_SLOTS; j++) {
+        if (server.cluster->slots[j] == currmaster) {
+            removeChannelsInSlot(j);
+        }
+    }
 }
 
 /* -----------------------------------------------------------------------------
