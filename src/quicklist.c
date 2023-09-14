@@ -741,29 +741,26 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
     quicklist *quicklist = iter->quicklist;
     quicklistNode *node = entry->node;
 
-    if (likely(!isLargeElement(sz) && !QL_NODE_IS_PLAIN(entry->node) && 
-               (node->count == 1 || sz <= entry->sz ||
-                _quicklistNodeAllowInsert(node, quicklist->fill, sz - entry->sz)))) {
+    if (likely(!QL_NODE_IS_PLAIN(node) && !isLargeElement(sz) && 
+               (node->count == 1 || !quicklistNodeExceedsLimit(quicklist->fill, 
+                node->sz - entry->sz + sz + SIZE_ESTIMATE_OVERHEAD, node->count)))) {
         node->entry = lpReplace(node->entry, &entry->zi, data, sz);
         quicklistNodeUpdateSz(node);
         /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
         quicklistCompress(quicklist, node);
-    } else if (isLargeElement(sz)) {
-        if (QL_NODE_IS_PLAIN(node) || node->count == 1) {
-            zfree(node->entry);
+    } else if (node->count == 1) {
+        zfree(node->entry);
+        if (isLargeElement(sz)) {
             node->entry = zmalloc(sz);
             memcpy(node->entry, data, sz);
             node->sz = sz;
             node->container = QUICKLIST_NODE_CONTAINER_PLAIN;
-            quicklistCompress(quicklist, node);
         } else {
-            /* node->count > 1, node will not be removed */
-            quicklistDelIndex(quicklist, node, &entry->zi);
-            __quicklistInsertPlainNode(quicklist, node, data, sz, 1);
+            node->entry = lpPrepend(lpNew(0), data, sz);
+            quicklistNodeUpdateSz(node);
+            node->container = QUICKLIST_NODE_CONTAINER_PACKED;
         }
-    } else if (QL_NODE_IS_PLAIN(node)) {
-        quicklistInsertAfter(iter, entry, data, sz);
-        __quicklistDelNode(quicklist, node);
+        quicklistCompress(quicklist, node);
     } else {
         /* node->count > 1, node will not be removed */
         quicklistDelIndex(quicklist, node, &entry->zi);
@@ -920,6 +917,7 @@ REDIS_STATIC void _quicklistInsertIntoFullNode(quicklist *quicklist,
         quicklistNode *mid = quicklistCreateNode();
         mid->entry = lpPrepend(lpNew(0), value, sz);
         mid->count++;
+        quicklistNodeUpdateSz(mid);
         __quicklistInsertNode(quicklist, node, mid, after);
         __quicklistInsertNode(quicklist, mid, new_node, after);
     }
@@ -1147,7 +1145,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
             quicklist->count -= del;
             quicklistDeleteIfEmpty(quicklist, node);
             if (node)
-                quicklistCompress(quicklist, node);
+                quicklistRecompressOnly(node);
         }
 
         extent -= del;
@@ -1836,6 +1834,64 @@ static int _ql_verify_compress(quicklist *ql) {
     return errors;
 }
 
+static int _ql_verify_listpack_limit(quicklist *ql) {
+    int errors = 0;
+    quicklistNode *node = ql->head;
+
+    for (unsigned int at = 0; at < ql->len; at++, node = node->next) {
+        if (node->count == 0) {
+            yell("Incorrect node: %d count: %u == 0", at, node->count);
+            errors++;
+            continue;
+        }
+        
+        if (QL_NODE_IS_PLAIN(node)) {
+            if (node->count != 1) {
+                yell("Incorrect plain node: %d count: %u != 1", at, node->count);
+                errors++;
+            }
+            if (!isLargeElement(node->sz)){
+                yell("Incorrect plain node: %d size: %zu is not large element",
+                     at, node->sz);
+                errors++;
+            }
+            continue;
+        } 
+
+        quicklistDecompressNodeForUse(node);
+        
+        if (node->sz != lpBytes(node->entry)) {
+            yell("Incorrect packed node: %d sz: %zu real_sz: %zu",
+                 at, node->sz, lpBytes(node->entry));
+            errors++;
+        }
+
+        if (node->count != lpLength(node->entry)) {
+            yell("Incorrect packed node: %d count: %u real_count: %zu",
+                 at, node->count, lpLength(node->entry));
+            errors++;
+        }
+
+        if (node->count == 1) {
+            if (isLargeElement(node->sz)) {
+                yell("Incorrect packed node: %d, count = 1, size: %zu"
+                     " is a large element", at, node->sz);
+                errors++;
+            }
+        } else{
+            if (quicklistNodeExceedsLimit(ql->fill, node->sz, node->count)) {
+                yell("Incorrect packed node: %d, fill: %d sz: %zu count: %u"
+                    " violate listpack limit",
+                    at, ql->fill, node->sz, node->count);
+                errors++;
+            }
+        } 
+
+        quicklistRecompressOnly(node);
+    }
+    return errors;
+}
+
 /* Verify list metadata matches physical list contents. */
 static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
                       uint32_t head_count, uint32_t tail_count) {
@@ -1889,6 +1945,8 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
     }
 
     errors += _ql_verify_compress(ql);
+
+    errors += _ql_verify_listpack_limit(ql);
     return errors;
 }
 
@@ -3033,6 +3091,43 @@ int quicklistTest(int argc, char *argv[], int flags) {
                 if (ql->count != 30)
                     ERR("Didn't delete exactly three elements!  Count is: %lu",
                         ql->count);
+                quicklistRelease(ql);
+            }
+        }
+
+        TEST_DESC("replace with limit size data at compress %d", options[_i]) {
+            for (int f = 0; f < fill_count; f++) {
+                int fill = fills[f];
+                quicklist *ql = quicklistNew(fill, options[_i]);
+                quicklistPushTail(ql, "a", 1);
+                quicklistPushTail(ql, "b", 1);
+                size_t sz = fill < 0 ? optimization_level[-fill-1] 
+                                     : SIZE_SAFETY_LIMIT;
+                void *s = zmalloc(sz);
+                quicklistReplaceAtIndex(ql, 0, s, sz);
+                ql_verify(ql, 2, 2, 1, 1);
+
+                zfree(s);
+                quicklistRelease(ql);
+            }
+        }
+
+        TEST_DESC("insert with limit size data at compress %d", options[_i]) {
+            for (int f = 0; f < fill_count; f++) {
+                int fill = fills[f];
+                quicklist *ql = quicklistNew(fill, options[_i]);
+                quicklistPushTail(ql, "a", 1);
+                quicklistPushTail(ql, "b", 1);
+                size_t sz = fill < 0 ? optimization_level[-fill-1] 
+                                     : SIZE_SAFETY_LIMIT;
+                void *s = zmalloc(sz);
+                quicklistEntry entry;
+                quicklistIter *iter = quicklistGetIteratorEntryAtIdx(ql, 0, &entry);
+                quicklistInsertAfter(iter, &entry, s, sz);
+                ql_verify(ql, 3, 3, 1, 1);
+
+                zfree(s);
+                quicklistReleaseIterator(iter);
                 quicklistRelease(ql);
             }
         }
