@@ -734,69 +734,6 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
      *  quicklistNext() will jump to the next node. */
 }
 
-/* Replace quicklist entry by 'data' with length 'sz'. */
-void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
-                           void *data, size_t sz)
-{
-    quicklist *quicklist = iter->quicklist;
-    quicklistNode *node = entry->node;
-
-    if (likely(!QL_NODE_IS_PLAIN(node) && !isLargeElement(sz) && 
-               (node->count == 1 || !quicklistNodeExceedsLimit(quicklist->fill, 
-                node->sz - entry->sz + sz + SIZE_ESTIMATE_OVERHEAD, node->count)))) {
-        node->entry = lpReplace(node->entry, &entry->zi, data, sz);
-        quicklistNodeUpdateSz(node);
-        /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
-        quicklistCompress(quicklist, node);
-    } else if (node->count == 1) {
-        zfree(node->entry);
-        if (isLargeElement(sz)) {
-            node->entry = zmalloc(sz);
-            memcpy(node->entry, data, sz);
-            node->sz = sz;
-            node->container = QUICKLIST_NODE_CONTAINER_PLAIN;
-        } else {
-            node->entry = lpPrepend(lpNew(0), data, sz);
-            quicklistNodeUpdateSz(node);
-            node->container = QUICKLIST_NODE_CONTAINER_PACKED;
-        }
-        quicklistCompress(quicklist, node);
-    } else {
-        /* node->count > 1, node will not be removed */
-        quicklistDelIndex(quicklist, node, &entry->zi);
-        iter->zi = NULL;
-        if (entry->offset == node->count) {
-            iter->offset--;
-            quicklistNext(iter, entry);
-            quicklistInsertAfter(iter, entry, data, sz);
-        } else {
-            quicklistNext(iter, entry);
-            quicklistInsertBefore(iter, entry, data, sz);
-        }
-    }
-
-    /* In any case, we reset iterator to forbid use of iterator after insert.
-     * Notice: iter->current has been compressed above. */
-    resetIterator(iter);
-}
-
-/* Replace quicklist entry at offset 'index' by 'data' with length 'sz'.
- *
- * Returns 1 if replace happened.
- * Returns 0 if replace failed and no changes happened. */
-int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
-                            size_t sz) {
-    quicklistEntry entry;
-    quicklistIter *iter = quicklistGetIteratorEntryAtIdx(quicklist, index, &entry);
-    if (likely(iter)) {
-        quicklistReplaceEntry(iter, &entry, data, sz);
-        quicklistReleaseIterator(iter);
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
 /* Given two nodes, try to merge their listpacks.
  *
  * This helps us not have a quicklist with 3 element listpacks if
@@ -948,6 +885,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         }
         new_node = quicklistCreateNode();
         new_node->entry = lpPrepend(lpNew(0), value, sz);
+        quicklistNodeUpdateSz(new_node);
         __quicklistInsertNode(quicklist, NULL, new_node, after);
         new_node->count++;
         quicklist->count++;
@@ -1064,6 +1002,70 @@ void quicklistInsertAfter(quicklistIter *iter, quicklistEntry *entry,
                           void *value, const size_t sz)
 {
     _quicklistInsert(iter, entry, value, sz, 1);
+}
+
+/* Replace quicklist entry by 'data' with length 'sz'. */
+void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
+                           void *data, size_t sz)
+{
+    quicklist *quicklist = iter->quicklist;
+    quicklistNode *node = entry->node;
+
+    if (likely(!QL_NODE_IS_PLAIN(node) && !isLargeElement(sz) && 
+               (node->count == 1 || !quicklistNodeExceedsLimit(quicklist->fill, 
+                node->sz - entry->sz + sz + SIZE_ESTIMATE_OVERHEAD, node->count)))) {
+        node->entry = lpReplace(node->entry, &entry->zi, data, sz);
+        quicklistNodeUpdateSz(node);
+        /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
+        quicklistCompress(quicklist, node);
+    } else if (node->count == 1) {
+        zfree(node->entry);
+        if (isLargeElement(sz)) {
+            node->entry = zmalloc(sz);
+            memcpy(node->entry, data, sz);
+            node->sz = sz;
+            node->container = QUICKLIST_NODE_CONTAINER_PLAIN;
+        } else {
+            node->entry = lpPrepend(lpNew(0), data, sz);
+            quicklistNodeUpdateSz(node);
+            node->container = QUICKLIST_NODE_CONTAINER_PACKED;
+        }
+        quicklistCompress(quicklist, node);
+    } else {
+        /* node->count > 1, node will not be removed */
+        quicklistDelEntry(iter, entry);
+        if (quicklistNext(iter, entry)) {
+            _quicklistInsert(iter, entry, data, sz, iter->direction == AL_START_HEAD);
+        } else {
+            int direction = iter->direction == AL_START_HEAD 
+                            ? AL_START_TAIL : AL_START_HEAD;
+            quicklistIter *rev_iter = quicklistGetIterator(quicklist, direction);
+            quicklistNext(rev_iter, entry);
+            _quicklistInsert(rev_iter, entry, data, sz, direction == AL_START_HEAD);
+            quicklistReleaseIterator(rev_iter);
+        }
+    }
+
+    /* In any case, we reset iterator to forbid use of iterator after insert.
+     * Notice: iter->current has been compressed above. */
+    resetIterator(iter);
+}
+
+/* Replace quicklist entry at offset 'index' by 'data' with length 'sz'.
+ *
+ * Returns 1 if replace happened.
+ * Returns 0 if replace failed and no changes happened. */
+int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
+                            size_t sz) {
+    quicklistEntry entry;
+    quicklistIter *iter = quicklistGetIteratorEntryAtIdx(quicklist, index, &entry);
+    if (likely(iter)) {
+        quicklistReplaceEntry(iter, &entry, data, sz);
+        quicklistReleaseIterator(iter);
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 /* Delete a range of elements from the quicklist.
@@ -3250,6 +3252,33 @@ int quicklistTest(int argc, char *argv[], int flags) {
         /* make sure the deleted ones are indeed gone */
         assert(!quicklistBookmarkFind(ql, "0"));
         assert(!quicklistBookmarkFind(ql, "_test"));
+        quicklistRelease(ql);
+    }
+
+    TEST("small listpack compress") {
+        quicklist *ql = quicklistNew(2, 1);
+        quicklistPushTail(ql, "0", 1);
+        quicklistPushTail(ql, "1", 1);
+        quicklistPushTail(ql, "2", 1);
+        quicklistPushTail(ql, "3", 1);
+        quicklistPushTail(ql, "4", 1);
+        quicklistPushTail(ql, "5", 1);
+        quicklistDelRange(ql, 2, 1);
+
+        size_t sz = (1 << 12);
+        unsigned char *s = zmalloc(sz);
+        memset(s, 'a', sz);
+        quicklistEntry entry;
+        quicklistIter *iter = quicklistGetIteratorEntryAtIdx(ql, 2, &entry);
+        quicklistInsertAfter(iter, &entry, s, sz);
+        quicklistReleaseIterator(iter);
+        quicklistNode *target = ql->head->next;
+        if (!quicklistNodeIsCompressed(target)) {
+            __quicklistCompress(ql, target);
+            assert(!quicklistNodeIsCompressed(target));
+        }
+
+        zfree(s);
         quicklistRelease(ql);
     }
 
