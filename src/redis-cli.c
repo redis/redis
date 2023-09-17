@@ -161,7 +161,7 @@
 #define CC_QUIET (1<<1)         /* Don't log connecting errors. */
 
 /* DNS lookup */
-#define NET_IP_STR_LEN 256       
+#define NET_IP_STR_LEN 46       /* INET6_ADDRSTRLEN is 46 */
 
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
