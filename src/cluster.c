@@ -3602,7 +3602,20 @@ void clusterSendPing(clusterLink *link, int type) {
     while(freshnodes > 0 && gossipcount < wanted && maxiterations--) {
         dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
-
+	    
+	/* In k8s cluster, ip may change when pod restart. We need to make sure the ip is correct. */    
+	char resolve_ip[NET_IP_STR_LEN];
+	if (anetResolve(NULL, this->hostname, resolve_ip, sizeof(resolve_ip), ANET NONE)== ANET_ERR)
+	{
+	    serverLog(LL_WARNING,“Invalid Ip address or hostname specified: %sin", this->hostname);
+	    continue:
+	}   
+	if (strcmp(resolve_ip,this->ip) != 0)
+	{
+	    serverLog(LL_WARNING，"node %.40s change ip from %s to %s",this->name,this->ip,resolve_ip);
+	    redis_strlcpy(this->ip,resolve_ip,sizeof(resolve_ip));
+	}
+	    
         /* Don't include this node: the whole packet header is about us
          * already, so we just gossip about other nodes. */
         if (this == myself) continue;
