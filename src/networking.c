@@ -2518,8 +2518,10 @@ int processPendingCommandAndInputBuffer(client *c) {
  * pending query buffer, already representing a full command, to process.
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
+    int pipeline_requests = 0;
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
+        pipeline_requests++;
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -2609,7 +2611,11 @@ int processInputBuffer(client *c) {
      * the above loop (because of partially sent big commands). */
     if (io_threads_op == IO_THREADS_OP_IDLE)
         updateClientMemUsageAndBucket(c);
-
+    
+    if (!((c->flags & CLIENT_MASTER) && (c->flags & CLIENT_SCRIPT))) {
+        atomicIncr(server.pipeline_requests, pipeline_requests);
+        atomicIncr(server.pipeline_received, 1);
+    }
     return C_OK;
 }
 
