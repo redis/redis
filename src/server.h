@@ -1720,7 +1720,7 @@ struct redisServer {
     durationStats duration_stats[EL_DURATION_TYPE_NUM];
     redisAtomic long long pipeline_requests; /* total number of requests received from the pipeline of clients */
     redisAtomic long long pipeline_received; /* total number of pipelines received */
-    double stat_requests_in_pipeline;  /* the average number of requests in per pipeline */
+    double stat_pipeline_average_last_sec;  /* the average number of requests in per pipeline */
 
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */

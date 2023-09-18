@@ -1309,17 +1309,20 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                                  current_time, factor);
         trackInstantaneousMetric(STATS_METRIC_EL_DURATION, server.duration_stats[EL_DURATION_TYPE_EL].sum,
                                  server.duration_stats[EL_DURATION_TYPE_EL].cnt, 1);
+    }
+    run_with_period(1000) {
         long long pipeline_requests, pipeline_received;
         static long long last_pipeline_requests = 0, last_pipeline_received = 0;
         atomicGet(server.pipeline_requests, pipeline_requests);
         atomicGet(server.pipeline_received, pipeline_received);
         if((pipeline_received - last_pipeline_received) != 0) {
-            server.stat_requests_in_pipeline = server.stat_requests_in_pipeline * 0.95 + 
-                (pipeline_requests - last_pipeline_requests ) / (double)(pipeline_received - last_pipeline_received) * 0.05;
-            last_pipeline_requests = pipeline_requests;
-            last_pipeline_received = pipeline_received;
-
+            server.stat_pipeline_average_last_sec = 
+                (pipeline_requests - last_pipeline_requests ) / (double)(pipeline_received - last_pipeline_received);
+        }else {
+            server.stat_pipeline_average_last_sec = 1;
         }
+        last_pipeline_requests = pipeline_requests;
+        last_pipeline_received = pipeline_received;
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -2559,7 +2562,7 @@ void resetServerStats(void) {
     server.el_cmd_cnt_max = 0;
     atomicSet(server.pipeline_requests, 0);
     atomicSet(server.pipeline_received, 0);
-    server.stat_requests_in_pipeline = 1;
+    server.stat_pipeline_average_last_sec = 1;
     lazyfreeResetStats();
 }
 
@@ -5954,7 +5957,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_cmd_sum:%llu\r\n"
             "instantaneous_eventloop_cycles_per_sec:%llu\r\n"
             "instantaneous_eventloop_duration_usec:%llu\r\n"
-            "requests_in_pipeline:%.2f\r\n",
+            "pipeline_average_last_sec:%.2f\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -6012,7 +6015,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.duration_stats[EL_DURATION_TYPE_CMD].sum,
             getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
             getInstantaneousMetric(STATS_METRIC_EL_DURATION),
-            server.stat_requests_in_pipeline);
+            server.stat_pipeline_average_last_sec);
         info = genRedisInfoStringACLStats(info);
     }
 

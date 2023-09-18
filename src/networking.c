@@ -2612,7 +2612,7 @@ int processInputBuffer(client *c) {
     if (io_threads_op == IO_THREADS_OP_IDLE)
         updateClientMemUsageAndBucket(c);
     
-    if (!((c->flags & CLIENT_MASTER) && (c->flags & CLIENT_SCRIPT))) {
+    if (c->conn && !(c->flags & CLIENT_MASTER)) {
         atomicIncr(server.pipeline_requests, pipeline_requests);
         atomicIncr(server.pipeline_received, 1);
     }
