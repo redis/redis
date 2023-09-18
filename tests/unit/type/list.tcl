@@ -194,6 +194,24 @@ start_server [list overrides [list save ""] ] {
         r debug quicklist-packed-threshold 0
     } {OK} {needs:debug}
 
+    test {Test LMOVE with the optional count argument} {
+        r flushdb
+        r debug quicklist-packed-threshold 1b
+        r RPUSH lst2{t} "aa"
+        r RPUSH lst2{t} "bb"
+        r LSET lst2{t} 0 xxxxxxxxxxx
+        r RPUSH lst2{t} "cc"
+        r RPUSH lst2{t} "dd"
+        r LMOVE lst2{t} lst{t} RIGHT LEFT 2
+        assert_equal [r llen lst{t}] 2
+        assert_equal [r llen lst2{t}] 2
+        assert_equal [r lpop lst2{t}] "xxxxxxxxxxx"
+        assert_equal [r lpop lst2{t}] "bb"
+        assert_equal [r lpop lst{t}] "cc"
+        assert_equal [r lpop lst{t}] "dd"
+        r debug quicklist-packed-threshold 0
+    } {OK} {needs:debug}
+
     # testing LSET with combinations of node types
     # plain->packed , packed->plain, plain->plain, packed->packed
     test {Test LSET with packed / plain combinations} {

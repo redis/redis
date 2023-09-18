@@ -4035,7 +4035,9 @@ struct COMMAND_ARG LLEN_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* LMOVE history */
-#define LMOVE_History NULL
+commandHistory LMOVE_History[] = {
+{"7.3.0","Added the `count` argument."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -4068,6 +4070,7 @@ struct COMMAND_ARG LMOVE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_wherefrom_Subargs},
 {MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_whereto_Subargs},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"7.3.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** LMPOP ********************/
@@ -10697,7 +10700,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lindex","Returns an element from a list by its index.","O(N) where N is the number of elements to traverse to get to the element at index. This makes asking for the first or the last element of the list O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LINDEX_History,0,LINDEX_Tips,0,lindexCommand,3,CMD_READONLY,ACL_CATEGORY_LIST,LINDEX_Keyspecs,1,NULL,2),.args=LINDEX_Args},
 {MAKE_CMD("linsert","Inserts an element before or after another element in a list.","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LINSERT_History,0,LINSERT_Tips,0,linsertCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LINSERT_Keyspecs,1,NULL,4),.args=LINSERT_Args},
 {MAKE_CMD("llen","Returns the length of a list.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LLEN_History,0,LLEN_Tips,0,llenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_LIST,LLEN_Keyspecs,1,NULL,1),.args=LLEN_Args},
-{MAKE_CMD("lmove","Returns an element after popping it from one list and pushing it to another. Deletes the list if the last element was moved.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMOVE_History,0,LMOVE_Tips,0,lmoveCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LMOVE_Keyspecs,2,NULL,4),.args=LMOVE_Args},
+{MAKE_CMD("lmove","Returns an element after popping it from one list and pushing it to another. Deletes the list if the last element was moved.","O(N) where N is the number of elements returned","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMOVE_History,1,LMOVE_Tips,0,lmoveCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LMOVE_Keyspecs,2,NULL,5),.args=LMOVE_Args},
 {MAKE_CMD("lmpop","Returns multiple elements from a list after removing them. Deletes the list if the last element was popped.","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMPOP_History,0,LMPOP_Tips,0,lmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_LIST,LMPOP_Keyspecs,1,lmpopGetKeys,4),.args=LMPOP_Args},
 {MAKE_CMD("lpop","Returns the first elements in a list after removing it. Deletes the list if the last element was popped.","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LPOP_History,1,LPOP_Tips,0,lpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,LPOP_Keyspecs,1,NULL,2),.args=LPOP_Args},
 {MAKE_CMD("lpos","Returns the index of matching elements in a list.","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LPOS_History,0,LPOS_Tips,0,lposCommand,-3,CMD_READONLY,ACL_CATEGORY_LIST,LPOS_Keyspecs,1,NULL,5),.args=LPOS_Args},
