@@ -2195,6 +2195,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
+		clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             }
         } else {
             /* If it's not in NOADDR state and we don't have it, we
@@ -2217,6 +2218,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 clusterAddNode(node);
+		clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             }
         }
 
