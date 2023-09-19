@@ -743,6 +743,34 @@ foreach {type large} [array get largevalue] {
                     }
                     $rd close
                 }
+
+                test "BLMOVE $wherefrom $whereto - $type with the optional count argument" {
+                    r del target{t}
+                    r rpush target{t} bar
+
+                    set rd [redis_deferring_client]
+                    create_$type blist{t} "a b $large c d"
+
+                    $rd blmove blist{t} target{t} $wherefrom $whereto 1 2
+                    set poppedelements [$rd read]
+
+                    if {$wherefrom eq "right"} {
+                        assert_equal "d c" $poppedelements
+                        assert_equal "a b $large" [r lrange blist{t} 0 -1]
+                    } else {
+                        assert_equal "a b" $poppedelements
+                        assert_equal "$large c d" [r lrange blist{t} 0 -1]
+                    }
+
+                    if {$whereto eq "right"} {
+                        r lpop target{t}
+                        assert_equal $poppedelements [r lpop target{t} 2]
+                    } else {
+                        r rpop target{t}
+                        assert_equal $poppedelements [r rpop target{t} 2]
+                    }
+                    $rd close
+                }
             }
         }
     }

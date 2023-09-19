@@ -1351,11 +1351,11 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
         /* The list exists and has elements, so
          * the regular lmoveCommand is executed. */
         serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-        lmoveGenericCommand(c,wherefrom,whereto,-1);
+        lmoveGenericCommand(c,wherefrom,whereto,6);
     }
 }
 
-/* BLMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) <timeout> */
+/* BLMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) <timeout> [count]*/
 void blmoveCommand(client *c) {
     mstime_t timeout;
     int wherefrom, whereto;
