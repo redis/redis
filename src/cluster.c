@@ -5147,7 +5147,11 @@ void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
-    removeAllShardChannelSubscription();
+    /* If the node is still in the same shard, don't need to unsubscribe the clients. */
+    if (memcmp(myself->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0) {
+            removeAllShardChannelSubscription();
+    }
+
     if (nodeIsMaster(myself)) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
