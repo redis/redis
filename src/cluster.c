@@ -3607,15 +3607,20 @@ void clusterSendPing(clusterLink *link, int type) {
 	    
 	/* In k8s cluster, ip may change when pod restart. We need to make sure the ip is correct. */    
 	char resolve_ip[NET_IP_STR_LEN];
-	if (anetResolve(NULL, this->hostname, resolve_ip, sizeof(resolve_ip), ANET NONE)== ANET_ERR)
+	if (anetResolve(NULL, this->hostname, resolve_ip, sizeof(resolve_ip), ANET_NONE)== ANET_ERR)
 	{
-	    serverLog(LL_WARNING,“Invalid Ip address or hostname specified: %sin", this->hostname);
-	    continue:
+	    serverLog(LL_WARNING,"Invalid Ip address or hostname specified: %s", this->hostname);
+	    continue;
 	}   
 	if (strcmp(resolve_ip,this->ip) != 0)
 	{
-	    serverLog(LL_WARNING，"node %.40s change ip from %s to %s",this->name,this->ip,resolve_ip);
+	    serverLog(LL_WARNING,"node %.40s change ip from %s to %s",this->name,this->ip,resolve_ip);
 	    redis_strlcpy(this->ip,resolve_ip,sizeof(resolve_ip));
+	}
+	if(this->tcp_port == 0 || this->cport == 0)
+	{
+	    serverLog(LL_WARNING,"tcp_port is %d, cport is %d.", this->tcp_port, this->cport);	
+	    continue;
 	}
 	    
         /* Don't include this node: the whole packet header is about us
