@@ -1152,6 +1152,15 @@ typedef struct {
 } clientReqResInfo;
 #endif
 
+#define CLIENT_CLOSED_REASON_NORMAL 0               /* client completes the request and shuts down normally */
+#define CLIENT_CLOSED_REASON_REJECT 1               /* client closed because reached the maxclient or in protect mode */
+#define CLIENT_CLOSED_REASON_MEMORY_EVICTION 2      /* client closed because reached the client-maxmeory eviction */
+#define CLIENT_CLOSED_REASON_OUTPUTBUF_LIMIT 3      /* client closed because reached output buf length limit */
+#define CLIENT_CLOSED_REASON_QBUF_LIMIT 4           /* client closed because reached query buf length limit */
+#define CLIENT_CLOSED_REASON_IDLE_TIMEOUT 5         /* client closed because reached the idle time limit */
+#define CLIENT_CLOSED_REASON_UNFINISHED 6           /* client still have unfinished requests when closed */
+#define CLIENT_CLOSED_REASON_COUNT 7                  
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
@@ -1275,6 +1284,7 @@ typedef struct client {
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
+    int closed_reason; /* The reason why the client was closed */
 } client;
 
 /* ACL information */
@@ -1647,7 +1657,6 @@ struct redisServer {
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
-    long long stat_evictedclients;  /* Number of evicted clients */
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
@@ -1697,8 +1706,7 @@ struct redisServer {
     long long stat_io_writes_processed; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_total_reads_processed; /* Total number of read events processed */
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
-    long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
-    long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
+    long long stat_client_disconnections[CLIENT_CLOSED_REASON_COUNT]; /* statistics on the causes of client closed */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {

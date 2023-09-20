@@ -2499,7 +2499,6 @@ void resetServerStats(void) {
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
-    server.stat_evictedclients = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -2514,7 +2513,6 @@ void resetServerStats(void) {
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_total_forks = 0;
-    server.stat_rejected_conn = 0;
     server.stat_sync_full = 0;
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
@@ -2522,8 +2520,9 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_reads_processed, 0);
     server.stat_io_writes_processed = 0;
     atomicSet(server.stat_total_writes_processed, 0);
-    server.stat_client_qbuf_limit_disconnections = 0;
-    server.stat_client_outbuf_limit_disconnections = 0;
+    for (j = 0; j < CLIENT_CLOSED_REASON_COUNT; j++) {
+        server.stat_client_disconnections[j] = 0;
+    }
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_base = 0;
@@ -5939,7 +5938,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_sum:%llu\r\n"
             "eventloop_duration_cmd_sum:%llu\r\n"
             "instantaneous_eventloop_cycles_per_sec:%llu\r\n"
-            "instantaneous_eventloop_duration_usec:%llu\r\n",
+            "instantaneous_eventloop_duration_usec:%llu\r\n"
+            "client_idle_timeout_disconnections:%lld\r\n"
+            "client_unfinished_requests_disconnections:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -5951,7 +5952,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION)/1024,
-            server.stat_rejected_conn,
+            server.stat_client_disconnections[CLIENT_CLOSED_REASON_REJECT],
             server.stat_sync_full,
             server.stat_sync_partial_ok,
             server.stat_sync_partial_err,
@@ -5960,7 +5961,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             server.stat_expired_time_cap_reached_count,
             server.stat_expire_cycle_time_used/1000,
             server.stat_evictedkeys,
-            server.stat_evictedclients,
+            server.stat_client_disconnections[CLIENT_CLOSED_REASON_MEMORY_EVICTION],
             (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             current_eviction_exceeded_time / 1000,
             server.stat_keyspace_hits,
@@ -5988,15 +5989,17 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_total_writes_processed,
             server.stat_io_reads_processed,
             server.stat_io_writes_processed,
-            server.stat_client_qbuf_limit_disconnections,
-            server.stat_client_outbuf_limit_disconnections,
+            server.stat_client_disconnections[CLIENT_CLOSED_REASON_QBUF_LIMIT],
+            server.stat_client_disconnections[CLIENT_CLOSED_REASON_OUTPUTBUF_LIMIT],
             server.stat_reply_buffer_shrinks,
             server.stat_reply_buffer_expands,
             server.duration_stats[EL_DURATION_TYPE_EL].cnt,
             server.duration_stats[EL_DURATION_TYPE_EL].sum,
             server.duration_stats[EL_DURATION_TYPE_CMD].sum,
             getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
-            getInstantaneousMetric(STATS_METRIC_EL_DURATION));
+            getInstantaneousMetric(STATS_METRIC_EL_DURATION),
+            server.stat_client_disconnections[CLIENT_CLOSED_REASON_IDLE_TIMEOUT],
+            server.stat_client_disconnections[CLIENT_CLOSED_REASON_UNFINISHED]);
         info = genRedisInfoStringACLStats(info);
     }
 
