@@ -257,16 +257,19 @@ start_server {tags {"scripting"}} {
         run_script {return redis.pcall('wait','1','0')} 0
     } {0}
 
-    test {EVAL - Scripts can't run XREAD and XREADGROUP with BLOCK option} {
+    test {EVAL - Scripts do not block on XREAD with BLOCK option} {
         r del s
         r xgroup create s g $ MKSTREAM
         set res [run_script {return redis.pcall('xread','STREAMS','s','$')} 1 s]
         assert {$res eq {}}
-        assert_error "*xread command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s}
+        run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s
+    } {}
+
+    test {EVAL - Scripts do not block on XREADGROUP with BLOCK option} {
         set res [run_script {return redis.pcall('xreadgroup','group','g','c','STREAMS','s','>')} 1 s]
         assert {$res eq {}}
-        assert_error "*xreadgroup command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s}
-    }
+        run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s
+    } {}
 
     test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
