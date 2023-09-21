@@ -2815,39 +2815,42 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
-    s = sdsMakeRoomFor(s, 200); /* low estimate, the size of the fixed overhead */
-    s = sdscatfmt(s, "id=%U", (unsigned long long) client->id);
-    s = sdscatfmt(s, " addr=%s", getClientPeerId(client));
-    s = sdscatfmt(s, " laddr=%s", getClientSockname(client));
-    s = sdscatfmt(s, " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)));
-    s = sdscatfmt(s, " name=%s", client->name ? (char*)client->name->ptr : "");
-    s = sdscatfmt(s, " age=%I", (long long)(server.unixtime - client->ctime));
-    s = sdscatfmt(s, " idle=%I", (long long)(server.unixtime - client->lastinteraction));
-    s = sdscatfmt(s, " flags=%s", flags);
-    s = sdscatfmt(s, " db=%i", client->db->id);
-    s = sdscatfmt(s, " sub=%i", (int) dictSize(client->pubsub_channels));
-    s = sdscatfmt(s, " psub=%i", (int) dictSize(client->pubsub_patterns));
-    s = sdscatfmt(s, " ssub=%i", (int) dictSize(client->pubsubshard_channels));
-    s = sdscatfmt(s, " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1);
-    s = sdscatfmt(s, " qbuf=%U", (unsigned long long) sdslen(client->querybuf));
-    s = sdscatfmt(s, " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf));
-    s = sdscatfmt(s, " argv-mem=%U", (unsigned long long) client->argv_len_sum);
-    s = sdscatfmt(s, " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums);
-    s = sdscatfmt(s, " rbs=%U", (unsigned long long) client->buf_usable_size);
-    s = sdscatfmt(s, " rbp=%U", (unsigned long long) client->buf_peak);
-    s = sdscatfmt(s, " obl=%U", (unsigned long long) client->bufpos);
-    s = sdscatfmt(s, " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf);
-    s = sdscatfmt(s, " omem=%U", (unsigned long long) obufmem); /* should not include client->buf since we want to see 0 for static clients. */
-    s = sdscatfmt(s, " tot-mem=%U", (unsigned long long) total_mem);
-    s = sdscatfmt(s, " events=%s", events);
-    s = sdscatfmt(s, " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL");
-    s = sdscatfmt(s, " user=%s", client->user ? client->user->name : "(superuser)");
-    s = sdscatfmt(s, " redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1);
-    s = sdscatfmt(s, " resp=%i", client->resp);
-    s = sdscatfmt(s, " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "");
-    s = sdscatfmt(s, " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "");
-
-    return s;
+#define FMTARGS                                                         \
+    FMTARG("id=%U", (unsigned long long) client->id)                    \
+    FMTARG(" addr=%s", getClientPeerId(client))                         \
+    FMTARG(" laddr=%s", getClientSockname(client))                      \
+    FMTARG(" %s", connGetInfo(client->conn, conninfo, sizeof(conninfo))) \
+    FMTARG(" name=%s", client->name ? (char*)client->name->ptr : "")    \
+    FMTARG(" age=%I", (long long)(server.unixtime - client->ctime))     \
+    FMTARG(" idle=%I", (long long)(server.unixtime - client->lastinteraction)) \
+    FMTARG(" flags=%s", flags)                                          \
+    FMTARG(" db=%i", client->db->id)                                    \
+    FMTARG(" sub=%i", (int) dictSize(client->pubsub_channels))          \
+    FMTARG(" psub=%i", (int) dictSize(client->pubsub_patterns))         \
+    FMTARG(" ssub=%i", (int) dictSize(client->pubsubshard_channels))    \
+    FMTARG(" multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1) \
+    FMTARG(" qbuf=%U", (unsigned long long) sdslen(client->querybuf))   \
+    FMTARG(" qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf)) \
+    FMTARG(" argv-mem=%U", (unsigned long long) client->argv_len_sum)   \
+    FMTARG(" multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums) \
+    FMTARG(" rbs=%U", (unsigned long long) client->buf_usable_size)     \
+    FMTARG(" rbp=%U", (unsigned long long) client->buf_peak)            \
+    FMTARG(" obl=%U", (unsigned long long) client->bufpos)              \
+    FMTARG(" oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf) \
+    FMTARG(" omem=%U", (unsigned long long) obufmem) /* should not include client->buf since we want to see 0 for static clients. */ \
+    FMTARG(" tot-mem=%U", (unsigned long long) total_mem)               \
+    FMTARG(" events=%s", events)                                        \
+    FMTARG(" cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL") \
+    FMTARG(" user=%s", client->user ? client->user->name : "(superuser)") \
+    FMTARG(" redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1) \
+    FMTARG(" resp=%i", client->resp)                                    \
+    FMTARG(" lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "") \
+    FMTARG(" lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "")
+    sds ret = sdscatfmt(s,
+                        #include "fmtargs.h"
+                        );
+#undef FMTARGS
+    return ret;
 }
 
 sds getAllClientsInfoString(int type) {
