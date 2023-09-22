@@ -55,7 +55,7 @@
 #define _POSIX_C_SOURCE 199506L
 #endif
 
-#ifdef __APPLE__
+#if defined(__APPLE__)
 #define _DARWIN_C_SOURCE
 #endif
 
