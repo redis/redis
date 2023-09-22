@@ -260,16 +260,30 @@ start_server {tags {"scripting"}} {
     test {EVAL - Scripts do not block on XREAD with BLOCK option} {
         r del s
         r xgroup create s g $ MKSTREAM
-        set res [run_script {return redis.pcall('xread','STREAMS','s','$')} 1 s]
+        set res [run_script {return redis.pcall('xread','STREAMS','s','$')} 0]
         assert {$res eq {}}
-        run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s
+        run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 0
     } {}
 
     test {EVAL - Scripts do not block on XREADGROUP with BLOCK option} {
-        set res [run_script {return redis.pcall('xreadgroup','group','g','c','STREAMS','s','>')} 1 s]
+        set res [run_script {return redis.pcall('xreadgroup','group','g','c','STREAMS','s','>')} 0]
         assert {$res eq {}}
-        run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s
+        run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 0
     } {}
+
+    test {EVAL - Scripts do not block on XREAD with BLOCK option -- non empty stream} {
+        r XADD s * a 1
+        run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 0
+    } {}
+
+    test {EVAL - Scripts do not block on XREADGROUP with BLOCK option -- non empty stream} {
+        r XADD s * b 2
+        set res [
+            run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 0
+        ]
+        assert {[llength [lindex $res 0 1]] == 2}
+        lindex $res 0 1 0 1
+    } {a 1}
 
     test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
