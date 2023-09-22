@@ -55,6 +55,10 @@
 #define _POSIX_C_SOURCE 199506L
 #endif
 
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE
+#endif
+
 #define _LARGEFILE_SOURCE
 #define _FILE_OFFSET_BITS 64
 
