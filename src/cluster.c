@@ -72,6 +72,7 @@ void bitmapClearBit(unsigned char *bitmap, int pos);
 void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
 void resetManualFailover(void);
+void resetFailoverState(void);
 void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
@@ -4150,6 +4151,9 @@ void clusterFailoverReplaceYourMaster(void) {
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
+
+    /* 6) initialize the failover state. */
+    resetFailoverState();
 }
 
 /* This function is called if we are a slave node and our master serving
@@ -4291,6 +4295,7 @@ void clusterHandleSlaveFailover(void) {
 
     /* Return ASAP if the election is too old to be valid. */
     if (auth_age > auth_timeout) {
+        resetFailoverState();
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_EXPIRED);
         return;
     }
@@ -4487,6 +4492,15 @@ void resetManualFailover(void) {
     server.cluster->mf_can_start = 0;
     server.cluster->mf_slave = NULL;
     server.cluster->mf_master_offset = -1;
+}
+
+/* This function is called if we nedd to initialize and reset fields which
+   is seted by last round of failure election */
+void resetFailoverState(void) {
+    server.cluster->failover_auth_time = 0;
+    server.cluster->failover_auth_count = 0;
+    server.cluster->failover_auth_rank = 0;
+    server.cluster->failover_auth_epoch = 0;
 }
 
 /* If a manual failover timed out, abort it. */
