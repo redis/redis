@@ -133,7 +133,7 @@ client *createClient(connection *conn) {
     c->buf = zmalloc_usable(PROTO_REPLY_CHUNK_BYTES, &c->buf_usable_size);
     selectDb(c,0);
     uint64_t client_id;
-    atomicGetIncr(server.next_client_id, client_id, 1);
+    atomicGetIncrWithSync(server.next_client_id, client_id, 1);
     c->id = client_id;
 #ifdef LOG_REQ_RES
     reqresReset(c, 0);
