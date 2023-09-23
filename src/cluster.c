@@ -3617,9 +3617,14 @@ void clusterSendPing(clusterLink *link, int type) {
         dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
 
-        /* Don't include this node: the whole packet header is about us
-         * already, so we just gossip about other nodes. */
-        if (this == myself) continue;
+        /* Don't include:
+         * 1) this node, because the whole packet header is about us
+         *    already, so we just gossip about other nodes.
+         * 2) target node, the node we are sending the message to already
+         *    knows about itself.
+         */
+        if (this == myself || this->name == link->node->name)
+            continue;
 
         /* PFAIL nodes will be added later. */
         if (this->flags & CLUSTER_NODE_PFAIL) continue;
