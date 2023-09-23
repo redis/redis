@@ -6806,7 +6806,7 @@ void migrateCloseTimedoutSockets(void) {
  *         AUTH2 username password] KEYS key1 key2 ... keyN */
 void migrateCommand(client *c) {
     migrateCachedSocket *cs;
-    int copy = 0, replace = 0, j;
+    int copy = 0, replace = 0, j, idletime = 0;
     char *username = NULL;
     char *password = NULL;
     long timeout;
@@ -6862,6 +6862,10 @@ void migrateCommand(client *c) {
             return;
         }
     }
+
+    /* Eviction policy check */
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU)
+        idletime = 1;
 
     /* Sanity check */
     if (getLongFromObjectOrReply(c,c->argv[5],&timeout,NULL) != C_OK ||
@@ -6950,8 +6954,9 @@ try_again:
         ov[non_expired] = ov[j];
         kv[non_expired++] = kv[j];
 
+        int bulkCount = (replace ? 5 : 4) + (idletime ? 2 : 0);
         serverAssertWithInfo(c,NULL,
-            rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
+            rioWriteBulkCount(&cmd,'*',bulkCount));
 
         if (server.cluster_enabled)
             serverAssertWithInfo(c,NULL,
@@ -6975,6 +6980,16 @@ try_again:
          * as a MIGRATE option. */
         if (replace)
             serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"REPLACE",7));
+
+        /* Add the IDLETIME to the RESTORE command if eviction policy is
+         * configured as lru. */
+        if (idletime) {
+            serverAssertWithInfo(c, NULL,
+                                 rioWriteBulkString(&cmd, "IDLETIME", 8));
+            robj *o = lookupKey(c->db, kv[j], LOOKUP_NOTOUCH);
+            unsigned long long idle = estimateObjectIdleTime(o) / 1000;
+            serverAssertWithInfo(c, NULL, rioWriteBulkLongLong(&cmd, idle));
+        }
     }
 
     /* Fix the actual number of keys we are migrating. */
