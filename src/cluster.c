@@ -4923,10 +4923,14 @@ int clusterDelSlot(int slot) {
 
     /* Cleanup the channels in master/replica as part of slot deletion. */
     list *nodes_for_slot = clusterGetNodesInMyShard(n);
-    serverAssert(nodes_for_slot != NULL);
-    listNode *ln = listSearchKey(nodes_for_slot, myself);
-    if (ln != NULL) {
-        removeChannelsInSlot(slot);
+    /* Some older versions of servers doesn't gossip shard_id, so we will
+     * not add the node to cluster->shards, and node->shard_id is filled in
+     * randomly and may not be found here. */
+    if (nodes_for_slot) {
+        listNode *ln = listSearchKey(nodes_for_slot, myself);
+        if (ln != NULL) {
+            removeChannelsInSlot(slot);
+        }
     }
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
