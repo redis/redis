@@ -333,7 +333,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             processed++;
             now = getMonotonicUs();
             if (retval != AE_NOMORE) {
-                te->when = now + retval * 1000;
+                te->when = now + (monotime)retval * 1000;
             } else {
                 te->id = AE_DELETED_EVENT_ID;
             }
