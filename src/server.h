@@ -3707,6 +3707,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...)
 void _serverPanic(const char *file, int line, const char *msg, ...);
 #endif
 void serverLogObjectDebugInfo(const robj *o);
+void setupDebugSigHandlers(void);
 void setupSigSegvHandler(void);
 void removeSigSegvHandlers(void);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
