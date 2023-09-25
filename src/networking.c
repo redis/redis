@@ -32,6 +32,7 @@
 #include "cluster.h"
 #include "script.h"
 #include "fpconv_dtoa.h"
+#include "fmtargs.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -2815,41 +2816,37 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
-#define FMTARGS                                                         \
-    FMTARG("id=%U", (unsigned long long) client->id)                    \
-    FMTARG(" addr=%s", getClientPeerId(client))                         \
-    FMTARG(" laddr=%s", getClientSockname(client))                      \
-    FMTARG(" %s", connGetInfo(client->conn, conninfo, sizeof(conninfo))) \
-    FMTARG(" name=%s", client->name ? (char*)client->name->ptr : "")    \
-    FMTARG(" age=%I", (long long)(server.unixtime - client->ctime))     \
-    FMTARG(" idle=%I", (long long)(server.unixtime - client->lastinteraction)) \
-    FMTARG(" flags=%s", flags)                                          \
-    FMTARG(" db=%i", client->db->id)                                    \
-    FMTARG(" sub=%i", (int) dictSize(client->pubsub_channels))          \
-    FMTARG(" psub=%i", (int) dictSize(client->pubsub_patterns))         \
-    FMTARG(" ssub=%i", (int) dictSize(client->pubsubshard_channels))    \
-    FMTARG(" multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1) \
-    FMTARG(" qbuf=%U", (unsigned long long) sdslen(client->querybuf))   \
-    FMTARG(" qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf)) \
-    FMTARG(" argv-mem=%U", (unsigned long long) client->argv_len_sum)   \
-    FMTARG(" multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums) \
-    FMTARG(" rbs=%U", (unsigned long long) client->buf_usable_size)     \
-    FMTARG(" rbp=%U", (unsigned long long) client->buf_peak)            \
-    FMTARG(" obl=%U", (unsigned long long) client->bufpos)              \
-    FMTARG(" oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf) \
-    FMTARG(" omem=%U", (unsigned long long) obufmem) /* should not include client->buf since we want to see 0 for static clients. */ \
-    FMTARG(" tot-mem=%U", (unsigned long long) total_mem)               \
-    FMTARG(" events=%s", events)                                        \
-    FMTARG(" cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL") \
-    FMTARG(" user=%s", client->user ? client->user->name : "(superuser)") \
-    FMTARG(" redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1) \
-    FMTARG(" resp=%i", client->resp)                                    \
-    FMTARG(" lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "") \
-    FMTARG(" lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "")
-    sds ret = sdscatfmt(s,
-                        #include "fmtargs.h"
-                        );
-#undef FMTARGS
+    sds ret = sdscatfmt(s, FMTARGS(
+        "id=%U", (unsigned long long) client->id,
+        " addr=%s", getClientPeerId(client),
+        " laddr=%s", getClientSockname(client),
+        " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)),
+        " name=%s", client->name ? (char*)client->name->ptr : "",
+        " age=%I", (long long)(server.unixtime - client->ctime),
+        " idle=%I", (long long)(server.unixtime - client->lastinteraction),
+        " flags=%s", flags,
+        " db=%i", client->db->id,
+        " sub=%i", (int) dictSize(client->pubsub_channels),
+        " psub=%i", (int) dictSize(client->pubsub_patterns),
+        " ssub=%i", (int) dictSize(client->pubsubshard_channels),
+        " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
+        " qbuf=%U", (unsigned long long) sdslen(client->querybuf),
+        " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf),
+        " argv-mem=%U", (unsigned long long) client->argv_len_sum,
+        " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
+        " rbs=%U", (unsigned long long) client->buf_usable_size,
+        " rbp=%U", (unsigned long long) client->buf_peak,
+        " obl=%U", (unsigned long long) client->bufpos,
+        " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
+        " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
+        " tot-mem=%U", (unsigned long long) total_mem,
+        " events=%s", events,
+        " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
+        " user=%s", client->user ? client->user->name : "(superuser)",
+        " redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
+        " resp=%i", client->resp,
+        " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "",
+        " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : ""));
     return ret;
 }
 
