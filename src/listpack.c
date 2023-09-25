@@ -1112,6 +1112,44 @@ unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned lon
     return lpShrinkToFit(lp);
 }
 
+/* Trim a listpack, remove 'ltrim' elements from left and 'rtrim' elements from right. */
+unsigned char *lpTrim(unsigned char *lp, unsigned long ltrim, unsigned long rtrim) {
+    if (ltrim == 0 && rtrim == 0) return lp;
+    size_t bytes = lpBytes(lp);
+    unsigned long llen = lpLength(lp);
+    if (ltrim + rtrim >= llen) {
+        /* Remove all elements */
+        lp[LP_HDR_SIZE] = LP_EOF;
+        lpSetTotalBytes(lp, LP_HDR_SIZE + 1);
+        lpSetNumElements(lp, 0);
+        return lpShrinkToFit(lp);
+    }
+    unsigned long rangelen = llen - ltrim - rtrim;
+    unsigned char *first, *tail; /* first points to the first byte we want to save, 
+                                    and tail points to the byte after the last byte we want to save */
+    first = lpSeek(lp, ltrim);
+    tail = lp + bytes - 1; /* When rtrim is zero, tail points to the EOF char */
+    if (rtrim) {
+        if (rangelen < rtrim) {
+            tail = first;
+            unsigned long num = rangelen;
+            while (num--) {
+                tail = lpSkip(tail);
+            }
+            assert(tail[0] != LP_EOF);
+            lpAssertValidEntry(lp, bytes, tail);
+        } else {
+            tail = lpSeek(lp, llen - (int)rtrim);
+        }
+    }
+    size_t rangebytes = tail - first;
+    memmove(lp + LP_HDR_SIZE, first, rangebytes);
+    lp[LP_HDR_SIZE + rangebytes] = LP_EOF;
+    lpSetTotalBytes(lp, LP_HDR_SIZE + rangebytes + 1);
+    lpSetNumElements(lp, rangelen);
+    return lpShrinkToFit(lp);
+}
+
 /* Merge listpacks 'first' and 'second' by appending 'second' to 'first'.
  *
  * NOTE: The larger listpack is reallocated to contain the new merged listpack.
