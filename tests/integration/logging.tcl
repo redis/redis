@@ -2,11 +2,13 @@ tags {"external:skip"} {
 
 set system_name [string tolower [exec uname -s]]
 set backtrace_supported 0
+set threads_mngr_supported 0
 
 # We only support darwin or Linux with glibc
 if {$system_name eq {darwin}} {
     set backtrace_supported 1
 } elseif {$system_name eq {linux}} {
+    set threads_mngr_supported 1
     # Avoid the test on libmusl, which does not support backtrace
     # and on static binaries (ldd exit code 1) where we can't detect libmusl
     catch {
@@ -23,6 +25,17 @@ if {$backtrace_supported} {
         test "Server is able to generate a stack trace on selected systems" {
             r config set watchdog-period 200
             r debug sleep 1
+            if {$threads_mngr_supported} {
+                assert_equal [count_log_message 0 "failed to open /proc/"] 0
+                assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
+                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output was interrupted by signal"] 0
+                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output timed out"] 0
+                assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
+            }
+            
+            set pattern "*redis-server *main*"
+            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+            if {$::verbose} { puts $res }
             set pattern "*debugCommand*"
             set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
             if {$::verbose} { puts $res }

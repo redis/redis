@@ -38,6 +38,7 @@
 #include "functions.h"
 #include "hdr_histogram.h"
 #include "syscheck.h"
+#include "threads_mngr.h"
 #include "fmtargs.h"
 
 #include <time.h>
@@ -2570,6 +2571,7 @@ void initServer(void) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
+    ThreadsManager_init();
     makeThreadKillable();
 
     if (server.syslog_enabled) {
@@ -6311,7 +6313,7 @@ void setupSignalHandlers(void) {
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-    setupSigSegvHandler();
+    setupDebugSigHandlers();
 }
 
 /* This is the signal handler for children process. It is currently useful
