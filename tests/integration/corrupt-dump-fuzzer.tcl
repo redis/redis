@@ -170,7 +170,7 @@ foreach sanitize_dump {no yes} {
 
                         if {$by_signal != 0 || $sanitize_dump == yes} {
                             if {$::dump_logs} {
-                                set srv [get_server 0]
+                                set srv [get_srv 0]
                                 dump_server_log $srv
                             }
 
