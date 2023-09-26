@@ -735,8 +735,13 @@ proc start_multiple_servers {num options code} {
     uplevel 1 $code
 }
 
-proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigterm}} {
+proc get_server {level} {
     set srv [lindex $::servers end+$level]
+    return $srv
+}
+
+proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigterm}} {
+    set srv [get_server $level]
     if {$shutdown ne {sigterm}} {
         catch {[dict get $srv "client"] shutdown $shutdown}
     }
