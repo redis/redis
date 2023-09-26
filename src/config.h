@@ -41,8 +41,8 @@
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */
-#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MIN_REQUIRED)
-  #if __MAC_OS_X_VERSION_MIN_REQUIRED < __MAC_10_6
+#if defined(__APPLE__)
+  #if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 1060
     #define redis_fstat fstat64
     #define redis_stat stat64
   #else
@@ -98,7 +98,8 @@
 #define HAVE_ACCEPT4 1
 #endif
 
-#if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
+#if (defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 1060) || \
+    defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
 #define HAVE_KQUEUE 1
 #endif
 
