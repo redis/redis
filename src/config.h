@@ -41,12 +41,14 @@
 #endif
 
 /* Define redis_fstat to fstat or fstat64() */
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
-#define redis_fstat fstat64
-#define redis_stat stat64
-#else
-#define redis_fstat fstat
-#define redis_stat stat
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MIN_REQUIRED)
+  #if __MAC_OS_X_VERSION_MIN_REQUIRED < __MAC_10_6
+    #define redis_fstat fstat64
+    #define redis_stat stat64
+  #else
+    #define redis_fstat fstat
+    #define redis_stat stat
+  #endif
 #endif
 
 /* Test for proc filesystem */
