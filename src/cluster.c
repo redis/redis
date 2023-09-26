@@ -2408,7 +2408,6 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 }
                 clusterDelSlot(j);
                 clusterAddSlot(sender,j);
-                bitmapClearBit(server.cluster->owner_not_claiming_slot, j);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                      CLUSTER_TODO_UPDATE_STATE|
                                      CLUSTER_TODO_FSYNC_CONFIG);
@@ -4944,6 +4943,8 @@ int clusterDelSlot(int slot) {
     }
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
+    /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
+    bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
     return C_OK;
 }
 
