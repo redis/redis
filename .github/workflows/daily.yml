@@ -790,15 +790,12 @@ jobs:
         ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-macos-latest:
-    runs-on: macos-13
+    runs-on: macos-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'macos') && !(contains(github.event.inputs.skiptests, 'redis') && contains(github.event.inputs.skiptests, 'modules'))
     timeout-minutes: 14400
     steps:
-    - uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: latest
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
@@ -822,15 +819,12 @@ jobs:
       run: ./runtest-moduleapi --verbose --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
 
   test-macos-latest-sentinel:
-    runs-on: macos-13
+    runs-on: macos-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skiptests, 'sentinel')
     timeout-minutes: 14400
     steps:
-    - uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: latest
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
@@ -851,15 +845,12 @@ jobs:
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
 
   test-macos-latest-cluster:
-    runs-on: macos-13
+    runs-on: macos-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skiptests, 'cluster')
     timeout-minutes: 14400
     steps:
-    - uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: latest
     - name: prep
       if: github.event_name == 'workflow_dispatch'
       run: |
