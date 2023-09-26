@@ -30,7 +30,7 @@
 #include "server.h"
 #include "monotonic.h"
 #include "cluster.h"
-#include "slowlog.h"
+#include "slowfatlog.h"
 #include "bio.h"
 #include "latency.h"
 #include "atomicvar.h"
@@ -2848,7 +2848,7 @@ void initServer(void) {
 
     scriptingInit(1);
     functionsInit();
-    slowlogInit();
+    slowfatlogInit();
     latencyMonitorInit();
 
     /* Initialize ACL default password if it exists */
@@ -3431,6 +3431,19 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     slowlogPushEntryIfNeeded(c,argv,argc,duration);
 }
 
+/* Log the last command a client executed into the fatlog. */
+void fatlogPushCurrentCommand(client *c, struct redisCommand *cmd, size_t size) {
+    /* Some commands may contain sensitive data that should not be available in the slowlog. */
+    if (cmd->flags & CMD_SKIP_FATLOG)
+        return;
+
+    /* If command argument vector was rewritten, use the original
+     * arguments. */
+    robj **argv = c->original_argv ? c->original_argv : c->argv;
+    int argc = c->original_argv ? c->original_argc : c->argc;
+    fatlogPushEntryIfNeeded(c,argv,argc,size);
+}
+
 /* This function is called in order to update the total command histogram duration.
  * The latency unit is nano-seconds.
  * If needed it will allocate the histogram memory and trim the duration to the upper/lower tracking limits*/
@@ -3622,6 +3635,8 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    size_t reply_bytes_start = c->reply_bytes;
+
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
@@ -3680,8 +3695,10 @@ void call(client *c, int flags) {
 
     /* Log the command into the Slow log if needed.
      * If the client is blocked we will handle slowlog when it is unblocked. */
-    if (update_command_stats && !(c->flags & CLIENT_BLOCKED))
+    if (update_command_stats && !(c->flags & CLIENT_BLOCKED)) {
         slowlogPushCurrentCommand(c, real_cmd, c->duration);
+        fatlogPushCurrentCommand(c, real_cmd, c->reply_bytes - reply_bytes_start);
+    }
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
@@ -4685,6 +4702,7 @@ void addReplyFlagsForCommand(client *c, struct redisCommand *cmd) {
         {CMD_STALE,             "stale"},
         {CMD_SKIP_MONITOR,      "skip_monitor"},
         {CMD_SKIP_SLOWLOG,      "skip_slowlog"},
+        {CMD_SKIP_FATLOG,       "skip_fatlog"},
         {CMD_ASKING,            "asking"},
         {CMD_FAST,              "fast"},
         {CMD_NO_AUTH,           "no_auth"},

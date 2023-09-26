@@ -1,11 +1,11 @@
 {
     "RESET": {
-        "summary": "Clears all entries from the slow log.",
-        "complexity": "O(N) where N is the number of entries in the slowlog",
+        "summary": "Clears all entries from the fat log.",
+        "complexity": "O(N) where N is the number of entries in the fatlog",
         "group": "server",
-        "since": "2.2.12",
+        "since": "7.2.2",
         "arity": 2,
-        "container": "SLOWLOG",
+        "container": "FATLOG",
         "function": "slowfatlogCommand",
         "command_flags": [
             "ADMIN",

@@ -186,6 +186,7 @@ client *createClient(connection *conn) {
     c->slave_req = SLAVE_REQ_NONE;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
+    c->reply_list_buf_size = 0;
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
@@ -348,7 +349,7 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len) {
     listNode *ln = listLast(reply_list);
-    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
+    clientReplyBlock *tail = ln? listNodeValue(ln): NULL; 
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
@@ -376,7 +377,7 @@ void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len
         tail->used = len;
         memcpy(tail->buf, s, len);
         listAddNodeTail(reply_list, tail);
-        c->reply_bytes += tail->size;
+        c->reply_list_buf_size += tail->size;
 
         closeClientOnOutputBufferLimitReached(c, 1);
     }
@@ -415,9 +416,9 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * after the command's reply (specifically important during multi-exec). the exception is
      * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
      * The check for executing_client also avoids affecting push messages that are part of eviction. */
-    if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&
-        server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
-    {
+    c->reply_bytes += len;
+    if (c == server.current_client && (c->flags & CLIENT_PUSHING) && server.executing_client &&
+        !cmdHasPushAsReply(server.executing_client->cmd)) {
         _addReplyProtoToList(c,server.pending_push_messages,s,len);
         return;
     }
@@ -723,7 +724,7 @@ void trimReplyUnusedTailSpace(client *c) {
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
         tail->size = usable_size - sizeof(clientReplyBlock);
-        c->reply_bytes = c->reply_bytes + tail->size - old_size;
+        c->reply_list_buf_size = c->reply_list_buf_size + tail->size - old_size;
         listNodeValue(ln) = tail;
     }
 }
@@ -764,6 +765,8 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
      * we return NULL in addReplyDeferredLen() */
     if (node == NULL) return;
     serverAssert(!listNodeValue(ln));
+
+    c->reply_bytes += length;
 
     /* Normally we fill this dummy NULL node, added by addReplyDeferredLen(),
      * with a new buffer structure containing the protocol needed to specify
@@ -809,7 +812,7 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         buf->used = length;
         memcpy(buf->buf, s, length);
         listNodeValue(ln) = buf;
-        c->reply_bytes += buf->size;
+        c->reply_list_buf_size += buf->size;
 
         closeClientOnOutputBufferLimitReached(c, 1);
     }
@@ -1200,6 +1203,8 @@ void AddReplyFromClient(client *dst, client *src) {
     /* Concatenate the reply list into the dest */
     if (listLength(src->reply))
         listJoin(dst->reply,src->reply);
+    dst->reply_list_buf_size += src->reply_list_buf_size;
+    src->reply_list_buf_size = 0;
     dst->reply_bytes += src->reply_bytes;
     src->reply_bytes = 0;
     src->bufpos = 0;
@@ -1841,7 +1846,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     while ((next = listNext(&iter)) && iovcnt < iovmax && iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
         o = listNodeValue(next);
         if (o->used == 0) { /* empty node, just release it and skip. */
-            c->reply_bytes -= o->size;
+            c->reply_list_buf_size -= o->size;
             listDelNode(c->reply, next);
             offset = 0;
             continue;
@@ -1869,6 +1874,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
             c->sentlen = 0;
         }
         remaining -= buf_len;
+        c->reply_bytes -= buf_len;
     }
     listRewind(c->reply, &iter);
     while (remaining > 0) {
@@ -1879,7 +1885,8 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
             break;
         }
         remaining -= (ssize_t)(o->used - c->sentlen);
-        c->reply_bytes -= o->size;
+        c->reply_list_buf_size -= o->size;
+        c->reply_bytes -= o->used;
         listDelNode(c->reply, next);
         c->sentlen = 0;
     }
@@ -1928,11 +1935,12 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         /* If there are no longer objects in the list, we expect
          * the count of reply bytes to be exactly zero. */
         if (listLength(c->reply) == 0)
-            serverAssert(c->reply_bytes == 0);
+            serverAssert(c->reply_list_buf_size == 0);
     } else if (c->bufpos > 0) {
         *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
         if (*nwritten <= 0) return C_ERR;
         c->sentlen += *nwritten;
+        c->reply_bytes -= *nwritten;
 
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
@@ -3789,7 +3797,7 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
         return repl_buf_size + (repl_node_size*repl_node_num);
     } else { 
         size_t list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
-        return c->reply_bytes + (list_item_size*listLength(c->reply));
+        return c->reply_list_buf_size + (list_item_size*listLength(c->reply));
     }
 }
 
@@ -3925,10 +3933,10 @@ int checkClientOutputBufferLimits(client *c) {
  * Returns 1 if client was (flagged) closed. */
 int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (!c->conn) return 0; /* It is unsafe to free fake clients. */
-    serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
-    /* Note that c->reply_bytes is irrelevant for replica clients
+    serverAssert(c->reply_list_buf_size < SIZE_MAX-(1024*64));
+    /* Note that c->reply_list_buf_size is irrelevant for replica clients
      * (they use the global repl buffers). */
-    if ((c->reply_bytes == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
+    if ((c->reply_list_buf_size == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);

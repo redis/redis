@@ -6620,6 +6620,115 @@ struct COMMAND_ARG FAILOVER_Args[] = {
 {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"TIMEOUT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
+/********** FATLOG GET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* FATLOG GET history */
+#define FATLOG_GET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* FATLOG GET tips */
+const char *FATLOG_GET_Tips[] = {
+"request_policy:all_nodes",
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* FATLOG GET key specs */
+#define FATLOG_GET_Keyspecs NULL
+#endif
+
+/* FATLOG GET argument table */
+struct COMMAND_ARG FATLOG_GET_Args[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/********** FATLOG HELP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* FATLOG HELP history */
+#define FATLOG_HELP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* FATLOG HELP tips */
+#define FATLOG_HELP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* FATLOG HELP key specs */
+#define FATLOG_HELP_Keyspecs NULL
+#endif
+
+/********** FATLOG LEN ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* FATLOG LEN history */
+#define FATLOG_LEN_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* FATLOG LEN tips */
+const char *FATLOG_LEN_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:agg_sum",
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* FATLOG LEN key specs */
+#define FATLOG_LEN_Keyspecs NULL
+#endif
+
+/********** FATLOG RESET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* FATLOG RESET history */
+#define FATLOG_RESET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* FATLOG RESET tips */
+const char *FATLOG_RESET_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* FATLOG RESET key specs */
+#define FATLOG_RESET_Keyspecs NULL
+#endif
+
+/* FATLOG command table */
+struct COMMAND_STRUCT FATLOG_Subcommands[] = {
+{MAKE_CMD("get","Returns the fat log's entries.","O(N) where N is the number of entries returned","7.2.2",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FATLOG_GET_History,0,FATLOG_GET_Tips,2,slowfatlogCommand,-2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,FATLOG_GET_Keyspecs,0,NULL,1),.args=FATLOG_GET_Args},
+{MAKE_CMD("help","Show helpful text about the different subcommands","O(1)","7.2.2",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FATLOG_HELP_History,0,FATLOG_HELP_Tips,0,slowfatlogCommand,2,CMD_LOADING|CMD_STALE,0,FATLOG_HELP_Keyspecs,0,NULL,0)},
+{MAKE_CMD("len","Returns the number of entries in the fat log.","O(1)","7.2.2",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FATLOG_LEN_History,0,FATLOG_LEN_Tips,3,slowfatlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,FATLOG_LEN_Keyspecs,0,NULL,0)},
+{MAKE_CMD("reset","Clears all entries from the fat log.","O(N) where N is the number of entries in the fatlog","7.2.2",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FATLOG_RESET_History,0,FATLOG_RESET_Tips,2,slowfatlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,FATLOG_RESET_Keyspecs,0,NULL,0)},
+{0}
+};
+
+/********** FATLOG ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* FATLOG history */
+#define FATLOG_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* FATLOG tips */
+#define FATLOG_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* FATLOG key specs */
+#define FATLOG_Keyspecs NULL
+#endif
+
 /********** FLUSHALL ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -7564,10 +7673,10 @@ const char *SLOWLOG_RESET_Tips[] = {
 
 /* SLOWLOG command table */
 struct COMMAND_STRUCT SLOWLOG_Subcommands[] = {
-{MAKE_CMD("get","Returns the slow log's entries.","O(N) where N is the number of entries returned","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_GET_History,1,SLOWLOG_GET_Tips,2,slowlogCommand,-2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,SLOWLOG_GET_Keyspecs,0,NULL,1),.args=SLOWLOG_GET_Args},
-{MAKE_CMD("help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_HELP_History,0,SLOWLOG_HELP_Tips,0,slowlogCommand,2,CMD_LOADING|CMD_STALE,0,SLOWLOG_HELP_Keyspecs,0,NULL,0)},
-{MAKE_CMD("len","Returns the number of entries in the slow log.","O(1)","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_LEN_History,0,SLOWLOG_LEN_Tips,3,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,SLOWLOG_LEN_Keyspecs,0,NULL,0)},
-{MAKE_CMD("reset","Clears all entries from the slow log.","O(N) where N is the number of entries in the slowlog","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_RESET_History,0,SLOWLOG_RESET_Tips,2,slowlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,SLOWLOG_RESET_Keyspecs,0,NULL,0)},
+{MAKE_CMD("get","Returns the slow log's entries.","O(N) where N is the number of entries returned","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_GET_History,1,SLOWLOG_GET_Tips,2,slowfatlogCommand,-2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,SLOWLOG_GET_Keyspecs,0,NULL,1),.args=SLOWLOG_GET_Args},
+{MAKE_CMD("help","Show helpful text about the different subcommands","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_HELP_History,0,SLOWLOG_HELP_Tips,0,slowfatlogCommand,2,CMD_LOADING|CMD_STALE,0,SLOWLOG_HELP_Keyspecs,0,NULL,0)},
+{MAKE_CMD("len","Returns the number of entries in the slow log.","O(1)","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_LEN_History,0,SLOWLOG_LEN_Tips,3,slowfatlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,SLOWLOG_LEN_Keyspecs,0,NULL,0)},
+{MAKE_CMD("reset","Clears all entries from the slow log.","O(N) where N is the number of entries in the slowlog","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_RESET_History,0,SLOWLOG_RESET_Tips,2,slowfatlogCommand,2,CMD_ADMIN|CMD_LOADING|CMD_STALE,0,SLOWLOG_RESET_Keyspecs,0,NULL,0)},
 {0}
 };
 
@@ -10775,6 +10884,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("dbsize","Returns the number of keys in the database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,DBSIZE_History,0,DBSIZE_Tips,2,dbsizeCommand,1,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,DBSIZE_Keyspecs,0,NULL,0)},
 {MAKE_CMD("debug","A container for debugging commands.","Depends on subcommand.","1.0.0",CMD_DOC_SYSCMD,NULL,NULL,"server",COMMAND_GROUP_SERVER,DEBUG_History,0,DEBUG_Tips,0,debugCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_PROTECTED,0,DEBUG_Keyspecs,0,NULL,0)},
 {MAKE_CMD("failover","Starts a coordinated failover from a server to one of its replicas.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FAILOVER_History,0,FAILOVER_Tips,0,failoverCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,FAILOVER_Keyspecs,0,NULL,3),.args=FAILOVER_Args},
+{MAKE_CMD("fatlog","A container for fat log commands.","Depends on subcommand.","7.2.2",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FATLOG_History,0,FATLOG_Tips,0,NULL,-2,0,0,FATLOG_Keyspecs,0,NULL,0),.subcommands=FATLOG_Subcommands},
 {MAKE_CMD("flushall","Removes all keys from all databases.","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FLUSHALL_History,2,FLUSHALL_Tips,2,flushallCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,FLUSHALL_Keyspecs,0,NULL,1),.args=FLUSHALL_Args},
 {MAKE_CMD("flushdb","Remove all keys from the current database.","O(N) where N is the number of keys in the selected database","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,FLUSHDB_History,2,FLUSHDB_Tips,2,flushdbCommand,-1,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,FLUSHDB_Keyspecs,0,NULL,1),.args=FLUSHDB_Args},
 {MAKE_CMD("info","Returns information and statistics about the server.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,INFO_History,1,INFO_Tips,3,infoCommand,-1,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_DANGEROUS,INFO_Keyspecs,0,NULL,1),.args=INFO_Args},
@@ -10891,7 +11001,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("substr","Returns a substring from a string value.","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","1.0.0",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0","string",COMMAND_GROUP_STRING,SUBSTR_History,0,SUBSTR_Tips,0,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,SUBSTR_Keyspecs,1,NULL,3),.args=SUBSTR_Args},
 /* transactions */
 {MAKE_CMD("discard","Discards a transaction.","O(N), when N is the number of queued commands","2.0.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,DISCARD_History,0,DISCARD_Tips,0,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,DISCARD_Keyspecs,0,NULL,0)},
-{MAKE_CMD("exec","Executes all commands in a transaction.","Depends on commands in the transaction","1.2.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,EXEC_History,0,EXEC_Tips,0,execCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SKIP_SLOWLOG,ACL_CATEGORY_TRANSACTION,EXEC_Keyspecs,0,NULL,0)},
+{MAKE_CMD("exec","Executes all commands in a transaction.","Depends on commands in the transaction","1.2.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,EXEC_History,0,EXEC_Tips,0,execCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SKIP_SLOWLOG|CMD_SKIP_FATLOG,ACL_CATEGORY_TRANSACTION,EXEC_Keyspecs,0,NULL,0)},
 {MAKE_CMD("multi","Starts a transaction.","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,MULTI_History,0,MULTI_Tips,0,multiCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,MULTI_Keyspecs,0,NULL,0)},
 {MAKE_CMD("unwatch","Forgets about watched keys of a transaction.","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,UNWATCH_History,0,UNWATCH_Tips,0,unwatchCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,UNWATCH_Keyspecs,0,NULL,0)},
 {MAKE_CMD("watch","Monitors changes to keys to determine the execution of a transaction.","O(1) for every key.","2.2.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,WATCH_History,0,WATCH_Tips,0,watchCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,WATCH_Keyspecs,1,NULL,1),.args=WATCH_Args},

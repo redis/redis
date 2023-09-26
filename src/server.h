@@ -232,6 +232,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CMD_ALLOW_BUSY ((1ULL<<26))
 #define CMD_MODULE_GETCHANNELS (1ULL<<27)  /* Use the modules getchannels interface. */
 #define CMD_TOUCHES_ARBITRARY_KEYS (1ULL<<28)
+#define CMD_SKIP_FATLOG (1ULL<<29)
 
 /* Command flags that describe ACLs categories. */
 #define ACL_CATEGORY_KEYSPACE (1ULL<<0)
@@ -1201,6 +1202,7 @@ typedef struct client {
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
     list *reply;            /* List of reply objects to send to the client. */
+    unsigned long long reply_list_buf_size; /* Total bytes allocated for objects in reply list. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     size_t sentlen;         /* Amount of bytes already sent in the current
@@ -1693,6 +1695,10 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+    list *fatlog;                  /* FATLOG list of commands */
+    long long fatlog_entry_id;     /* FATLOG current entry ID */
+    long long fatlog_log_bigger_than; /* FATLOG size limit (to get logged) */
+    unsigned long fatlog_max_len;     /* FATLOG max number of items logged */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
     redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
@@ -2309,6 +2315,8 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  *
  * CMD_TOUCHES_ARBITRARY_KEYS: The command may touch (and cause lazy-expire)
  *                             arbitrary key (i.e not provided in argv)
+ * 
+ * CMD_SKIP_FATLOG: Do not automatically propagate the command to the fatlog.
  *
  * The following additional flags are only used in order to put commands
  * in a specific ACL category. Commands can have multiple ACL categories.
@@ -3079,6 +3087,7 @@ void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
+void fatlogPushCurrentCommand(client *c, struct redisCommand *cmd, size_t size);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
@@ -3528,7 +3537,7 @@ void saveCommand(client *c);
 void bgsaveCommand(client *c);
 void bgrewriteaofCommand(client *c);
 void shutdownCommand(client *c);
-void slowlogCommand(client *c);
+void slowfatlogCommand(client *c);
 void moveCommand(client *c);
 void copyCommand(client *c);
 void renameCommand(client *c);

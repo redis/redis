@@ -27,25 +27,27 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __SLOWLOG_H__
-#define __SLOWLOG_H__
+#ifndef __SLOWFATLOG_H__
+#define __SLOWFATLOG_H__
 
-#define SLOWLOG_ENTRY_MAX_ARGC 32
-#define SLOWLOG_ENTRY_MAX_STRING 128
+#define SLOWFATLOG_ENTRY_MAX_ARGC 32
+#define SLOWFATLOG_ENTRY_MAX_STRING 128
 
 /* This structure defines an entry inside the slow log list */
-typedef struct slowlogEntry {
+typedef struct slowfatlogEntry {
     robj **argv;
     int argc;
-    long long id;       /* Unique entry identifier. */
-    long long duration; /* Time spent by the query, in microseconds. */
-    time_t time;        /* Unix time at which the query was executed. */
-    sds cname;          /* Client name. */
-    sds peerid;         /* Client network address. */
-} slowlogEntry;
+    long long id;        /* Unique entry identifier. */
+    long long statistic; /* Time spent by the query in microseconds, if it is slowlog,
+                            or response size in bytes, if it is fatlog. */
+    time_t time;         /* Unix time at which the query was executed. */
+    sds cname;           /* Client name. */
+    sds peerid;          /* Client network address. */
+} slowfatlogEntry;
 
 /* Exported API */
-void slowlogInit(void);
+void slowfatlogInit(void);
 void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration);
+void fatlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long size);
 
-#endif /* __SLOWLOG_H__ */
+#endif /* __SLOWFATLOG_H__ */

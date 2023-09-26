@@ -970,6 +970,7 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         ldbLogRedisReply(reply);
 
     if (reply != c->buf) sdsfree(reply);
+    c->reply_list_buf_size = 0;
     c->reply_bytes = 0;
 
 cleanup:

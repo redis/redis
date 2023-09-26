@@ -10,7 +10,8 @@
             "NOSCRIPT",
             "LOADING",
             "STALE",
-            "SKIP_SLOWLOG"
+            "SKIP_SLOWLOG",
+            "SKIP_FATLOG"
         ],
         "acl_categories": [
             "TRANSACTION"

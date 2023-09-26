@@ -1,11 +1,11 @@
 {
     "LEN": {
-        "summary": "Returns the number of entries in the slow log.",
+        "summary": "Returns the number of entries in the fat log.",
         "complexity": "O(1)",
         "group": "server",
-        "since": "2.2.12",
+        "since": "7.2.2",
         "arity": 2,
-        "container": "SLOWLOG",
+        "container": "FATLOG",
         "function": "slowfatlogCommand",
         "command_flags": [
             "ADMIN",
@@ -19,7 +19,7 @@
         ],
         "reply_schema": {
             "type": "integer",
-            "description": "Number of entries in the slow log.",
+            "description": "Number of entries in the fat log.",
             "minimum": 0
         }
     }

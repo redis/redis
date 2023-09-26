@@ -53,7 +53,7 @@
 
 #include "server.h"
 #include "cluster.h"
-#include "slowlog.h"
+#include "slowfatlog.h"
 #include "rdb.h"
 #include "monotonic.h"
 #include "script.h"
@@ -657,6 +657,7 @@ void moduleReleaseTempClient(client *c) {
     }
     clearClientConnectionState(c);
     listEmpty(c->reply);
+    c->reply_list_buf_size = 0;
     c->reply_bytes = 0;
     c->duration = 0;
     resetClient(c);
@@ -1142,6 +1143,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
         else if (!strcasecmp(t,"no-slowlog")) flags |= CMD_SKIP_SLOWLOG;
+        else if (!strcasecmp(t,"no-fatlog")) flags |= CMD_SKIP_FATLOG;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
         else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"may-replicate")) flags |= CMD_MAY_REPLICATE;

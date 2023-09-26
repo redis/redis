@@ -3,9 +3,9 @@
         "summary": "Show helpful text about the different subcommands",
         "complexity": "O(1)",
         "group": "server",
-        "since": "6.2.0",
+        "since": "7.2.2",
         "arity": 2,
-        "container": "SLOWLOG",
+        "container": "FATLOG",
         "function": "slowfatlogCommand",
         "command_flags": [
             "LOADING",
