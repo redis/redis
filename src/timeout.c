@@ -65,6 +65,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         (now - c->lastinteraction > server.maxidletime))
     {
         serverLog(LL_VERBOSE,"Closing idle client");
+        c->closed_reason = CLIENT_CLOSED_REASON_IDLE_TIMEOUT;
         freeClient(c);
         return 1;
     } else if (c->flags & CLIENT_BLOCKED) {

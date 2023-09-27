@@ -214,6 +214,7 @@ client *createClient(connection *conn) {
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
     initClientMultiState(c);
+    c->closed_reason = CLIENT_CLOSED_REASON_NORMAL;
     return c;
 }
 
@@ -1284,7 +1285,7 @@ void clientAcceptHandler(connection *conn) {
             if (connWrite(c->conn,err,strlen(err)) == -1) {
                 /* Nothing to do, Just to avoid the warning... */
             }
-            server.stat_rejected_conn++;
+            c->closed_reason = CLIENT_CLOSED_REASON_REJECT;
             freeClientAsync(c);
             return;
         }
@@ -1333,7 +1334,7 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
         if (connWrite(conn,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
-        server.stat_rejected_conn++;
+        server.stat_client_disconnections[CLIENT_CLOSED_REASON_REJECT]++;
         connClose(conn);
         return;
     }
@@ -1595,6 +1596,15 @@ void freeClient(client *c) {
         serverLog(LL_NOTICE,"Connection with replica %s lost.",
             replicationGetSlaveName(c));
     }
+    /* When the reason for the client shutdown is not specified (the default is normal), 
+     * we continue to check if the client has any outstanding requests, usually due to 
+     * latency in the network or redis itself, and then users actively close the client */
+    if (c->closed_reason == CLIENT_CLOSED_REASON_NORMAL) {
+        if (sdslen(c->querybuf) || !c->bufpos || listLength(c->reply)) {
+            c->closed_reason = CLIENT_CLOSED_REASON_UNFINISHED;
+        }
+    }
+    server.stat_client_disconnections[c->closed_reason]++;
 
     /* Free the query buffer */
     sdsfree(c->querybuf);
@@ -2704,8 +2714,8 @@ void readQueryFromClient(connection *conn) {
         serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
         sdsfree(ci);
         sdsfree(bytes);
+        c->closed_reason = CLIENT_CLOSED_REASON_QBUF_LIMIT;
         freeClientAsync(c);
-        server.stat_client_qbuf_limit_disconnections++;
         goto done;
     }
 
@@ -3918,6 +3928,7 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
 
+        c->closed_reason = CLIENT_CLOSED_REASON_OUTPUTBUF_LIMIT;
         if (async) {
             freeClientAsync(c);
             serverLog(LL_WARNING,
@@ -3930,7 +3941,6 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
                       client);
         }
         sdsfree(client);
-        server.stat_client_outbuf_limit_disconnections++;
         return  1;
     }
     return 0;
@@ -4565,9 +4575,9 @@ void evictClients(void) {
             client *c = ln->value;
             sds ci = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE, "Evicting client: %s", ci);
+            c->closed_reason = CLIENT_CLOSED_REASON_MEMORY_EVICTION;
             freeClient(c);
             sdsfree(ci);
-            server.stat_evictedclients++;
         } else {
             curr_bucket--;
             if (curr_bucket < 0) {
