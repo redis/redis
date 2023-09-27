@@ -2176,18 +2176,18 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 }
             }
 
-            /* If we already know this node, but it is not reachable, and
-             * we see a different address in the gossip section of a node that
-             * can talk with this other node, update the address, disconnect
+            /* We see a different address in the gossip section of a node that 
+	     * can talk with this other node, or we already know this node, 
+	     * but it is not reachable, update the address, disconnect
              * the old link if any, so that we'll attempt to connect with the
              * new address. */
-            if (node->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL) &&
-                !(flags & CLUSTER_NODE_NOADDR) &&
-                !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
-                (strcasecmp(node->ip,g->ip) ||
+	    if ((strcasecmp(node->ip,g->ip) ||
                  node->tls_port != (server.tls_cluster ? ntohs(g->port) : ntohs(g->pport)) ||
                  node->tcp_port != (server.tls_cluster ? ntohs(g->pport) : ntohs(g->port)) ||
-                 node->cport != ntohs(g->cport)))
+                 node->cport != ntohs(g->cport)) ||
+		 (node->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL) &&
+                !(flags & CLUSTER_NODE_NOADDR) &&
+                !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL))))
             {
                 if (node->link) freeClusterLink(node->link);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
@@ -2195,6 +2195,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
+		clusterSaveConfigOrDie(1);
             }
         } else {
             /* If it's not in NOADDR state and we don't have it, we
@@ -2217,6 +2218,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 clusterAddNode(node);
+		clusterSaveConfigOrDie(1);
             }
         }
 
