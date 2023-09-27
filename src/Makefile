@@ -435,11 +435,16 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
 
-# The file commands.def is checked in and doesn't normally need to be rebuilt. It
-# is built only if python is available and its prereqs are modified.
+# The following files are checked in and don't normally need to be rebuilt. They
+# are built only if python is available and their prereqs are modified.
 ifneq (,$(PYTHON))
 $(COMMANDS_DEF_FILENAME).def: commands/*.json ../utils/generate-command-code.py
 	$(QUIET_GEN)$(PYTHON) ../utils/generate-command-code.py $(GEN_COMMANDS_FLAGS)
+
+fmtargs.h: ../utils/generate-fmtargs.py
+	$(QUITE_GEN)sed '/Everything below this line/,$$d' $@ > $@.tmp
+	$(QUITE_GEN)$(PYTHON) ../utils/generate-fmtargs.py >> $@.tmp
+	$(QUITE_GEN)mv $@.tmp $@
 endif
 
 commands.c: $(COMMANDS_DEF_FILENAME).def
