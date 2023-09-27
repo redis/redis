@@ -6,7 +6,7 @@
  * To make it easier to map each part of the format string with each argument,
  * this file provides a way to write
  *
- *     printf("a = %s, b = %s, c= %s\n",
+ *     printf("a = %s, b = %s, c = %s\n",
  *            arg1, arg2, arg3);
  *
  * as
