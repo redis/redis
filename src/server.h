@@ -1718,6 +1718,9 @@ struct redisServer {
        but excluding read, write and AOF, which are counted by other sets of metrics. */
     monotime el_cron_duration; 
     durationStats duration_stats[EL_DURATION_TYPE_NUM];
+    redisAtomic long long pipeline_requests; /* total number of requests received from the pipeline of clients */
+    redisAtomic long long pipeline_received; /* total number of pipelines received */
+    double stat_pipeline_average_last_sec;  /* the average number of requests in per pipeline */
 
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
