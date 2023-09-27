@@ -14,11 +14,19 @@
  *     printf(FMTARGS("a = %s, ", arg1,
  *                    "b = %s, ", arg2,
  *                    "c = %s\n", arg3));
+ *
+ * FMTARGS is variadic macro which is implemented by passing on its arguments to
+ * two other variadic macros of which one extracts the odd (the formats) and the
+ * other extracts the even (the arguments). The definitions of these macros
+ * include counting the number of macro arguments. Therefore, they don't accept
+ * an unlimited number of arguments. Currently it is fixed to a maximum of 120
+ * formats and arguments.
  */
 #ifndef FMTARGS_H
 #define FMTARGS_H
 
-#define NARG(...)  NARG_I(__VA_ARGS__,RSEQ_N())
+/* A macro to count the number of arguments. */
+#define NARG(...) NARG_I(__VA_ARGS__,RSEQ_N())
 #define NARG_I(...) ARG_N(__VA_ARGS__)
 
 /* Define a macro which will call an arbitrary macro appended with a number indicating
@@ -27,6 +35,8 @@
 #define VFUNC_N(name, n) VFUNC_N_(name, n)
 #define VFUNC(func, ...) VFUNC_N(func, NARG(__VA_ARGS__)) (__VA_ARGS__)
 
+/* Macros to extract the formats and the arguments from the fmt-arg pairs and
+ * then combine them again with all formats first and the arguments last. */
 #define COMPACT_FMT(...) VFUNC(COMPACT_FMT_, __VA_ARGS__)
 #define COMPACT_VALUES(...) VFUNC(COMPACT_VALUES_, __VA_ARGS__)
 #define FMTARGS(...) COMPACT_FMT(__VA_ARGS__), COMPACT_VALUES(__VA_ARGS__)
