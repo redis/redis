@@ -976,18 +976,6 @@ void stopAppendOnly(void) {
 int startAppendOnly(void) {
     serverAssert(server.aof_state == AOF_OFF);
 
-    /* Wait for all bio jobs related to AOF to drain. This prevents a race
-     * between updates to `fsynced_reploff_pending` of the worker thread, belonging
-     * to the previous AOF, and the new one. This concern is specific for a full
-     * sync scenario where we don't wanna risk the ACKed replication offset
-     * jumping backwards or forward when switching to a different master. */
-    bioDrainWorker(BIO_AOF_FSYNC);
-
-    /* Set the initial repl_offset, which will be applied to fsynced_reploff
-     * when AOFRW finishes (after possibly being updated by a bio thread) */
-    atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
-    server.fsynced_reploff = 0;
-
     server.aof_state = AOF_WAIT_REWRITE;
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
         server.aof_rewrite_scheduled = 1;
@@ -2454,7 +2442,23 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
     }
+
+    if (server.aof_state == AOF_WAIT_REWRITE) {
+        /* Wait for all bio jobs related to AOF to drain. This prevents a race
+         * between updates to `fsynced_reploff_pending` of the worker thread, belonging
+         * to the previous AOF, and the new one. This concern is specific for a full
+         * sync scenario where we don't wanna risk the ACKed replication offset
+         * jumping backwards or forward when switching to a different master. */
+        bioDrainWorker(BIO_AOF_FSYNC);
+
+        /* Set the initial repl_offset, which will be applied to fsynced_reploff
+         * when AOFRW finishes (after possibly being updated by a bio thread) */
+        atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
+        server.fsynced_reploff = 0;
+    }
+
     server.stat_aof_rewrites++;
+
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
