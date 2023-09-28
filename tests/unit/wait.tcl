@@ -121,10 +121,10 @@ tags {"wait aof network external:skip"} {
             r config set appendfsync always
             $master incr foo
             assert_equal [$master waitaof 1 0 0] {1 0}
-            r config set appendfsync everysec
         }
 
         test {WAITAOF local wait and then stop aof} {
+            r config set appendfsync no
             set rd [redis_deferring_client]
             $rd incr foo
             $rd read
