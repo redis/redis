@@ -64,7 +64,7 @@ static void invoke_callback(int sig);
 /* returns 0 if it is safe to start, IN_PROGRESS otherwise. */
 static int test_and_start(void);
 static void wait_threads(void);
-/* Clean up global variable. 
+/* Clean up global variable.
 Assuming we are under the g_in_progress protection, this is not a thread-safe function */
 static void ThreadsManager_cleanups(void);
 
@@ -95,7 +95,7 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
     g_tids_len = tids_len;
 
     /* Allocate the output buffer */
-    g_output_array = zmalloc(sizeof(void*) * tids_len);
+    g_output_array = zcalloc(sizeof(void*) * tids_len);
 
     /* Initialize a semaphore that we will be waiting on for the threads
     use pshared = 0 to indicate the semaphore is shared between the process's threads (and not between processes),
@@ -160,12 +160,6 @@ static void wait_threads(void) {
     while ((status = sem_timedwait(&wait_for_threads_sem, &ts)) == -1 && errno == EINTR) {
         serverLog(LL_WARNING, "threads_mngr: waiting for threads' output was interrupted by signal. Continue waiting.");
         continue;
-    }
-
-    if (status == -1) {
-        if (errno == ETIMEDOUT) {
-            serverLog(LL_WARNING, "threads_mngr: waiting for threads' output timed out");
-        }
     }
 }
 

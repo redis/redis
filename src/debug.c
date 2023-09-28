@@ -1869,6 +1869,8 @@ static void writeStacktraces(int fd, int uplevel) {
     /* ThreadsManager_runOnThreads returns NULL if it is already running */
     if (!stacktraces_data) return;
 
+    size_t skipped = 0;
+
 
     char buff[MAX_BUFF_LENGTH];
     pid_t calling_tid = syscall(SYS_gettid);
@@ -1876,8 +1878,11 @@ static void writeStacktraces(int fd, int uplevel) {
     for (size_t i = 0; i < len_tids; i++) {
         stacktrace_data *curr_stacktrace_data = stacktraces_data[i];
         /*ThreadsManager_runOnThreads might fail to collect the thread's data */
-        if (!curr_stacktrace_data) continue;
-        
+        if (!curr_stacktrace_data) {
+            skipped++;
+            continue;
+        }
+
         /* stacktrace header includes the tid and the thread's name */
         snprintf(buff, MAX_BUFF_LENGTH, "\n%d %s", curr_stacktrace_data->tid, curr_stacktrace_data->thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
@@ -1890,7 +1895,7 @@ static void writeStacktraces(int fd, int uplevel) {
             curr_uplevel += uplevel + 2;
             /* Add an indication to header of the thread that is handling the log file */
             snprintf(buff, MAX_BUFF_LENGTH, " *\n");
-        } else { 
+        } else {
             /* just add a new line */
             snprintf(buff, MAX_BUFF_LENGTH, "\n");
         }
@@ -1903,6 +1908,10 @@ static void writeStacktraces(int fd, int uplevel) {
         zfree(curr_stacktrace_data);
     }
     zfree(stacktraces_data);
+
+    snprintf(buff, MAX_BUFF_LENGTH, "\n%lu/%lu expected stacktraces.\n", len_tids - skipped, len_tids);
+    if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
+
 }
 
 #else /* __linux__*/
