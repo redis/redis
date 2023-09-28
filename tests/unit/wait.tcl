@@ -150,6 +150,7 @@ tags {"wait aof network external:skip"} {
             r set x y
             r config set rdb-key-save-delay 100000000  ;# 100 seconds
             r bgsave
+            assert_equal [s rdb_bgsave_in_progress] 1
 
             # turn on AOF
             r config set appendonly yes
@@ -162,8 +163,12 @@ tags {"wait aof network external:skip"} {
             r config set rdb-key-save-delay 0
             catch {exec kill -9 [get_child_pid 0]}
 
-            # wait for AOF
-            assert_equal [r waitaof 1 0 1000] {1 0}
+            # wait for AOF (will unblock after AOFRW finishes)
+            assert_equal [r waitaof 1 0 10000] {1 0}
+
+            # make sure AOFRW finished
+            assert_equal [s aof_rewrite_in_progress] 0
+            assert_equal [s aof_rewrite_scheduled] 0
         }
 
         $master config set appendonly yes
