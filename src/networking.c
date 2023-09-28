@@ -32,6 +32,7 @@
 #include "cluster.h"
 #include "script.h"
 #include "fpconv_dtoa.h"
+#include "fmtargs.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -2815,39 +2816,37 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
-    sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
-        (unsigned long long) client->id,
-        getClientPeerId(client),
-        getClientSockname(client),
-        connGetInfo(client->conn, conninfo, sizeof(conninfo)),
-        client->name ? (char*)client->name->ptr : "",
-        (long long)(server.unixtime - client->ctime),
-        (long long)(server.unixtime - client->lastinteraction),
-        flags,
-        client->db->id,
-        (int) dictSize(client->pubsub_channels),
-        (int) dictSize(client->pubsub_patterns),
-        (int) dictSize(client->pubsubshard_channels),
-        (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
-        (unsigned long long) sdslen(client->querybuf),
-        (unsigned long long) sdsavail(client->querybuf),
-        (unsigned long long) client->argv_len_sum,
-        (unsigned long long) client->mstate.argv_len_sums,
-        (unsigned long long) client->buf_usable_size,
-        (unsigned long long) client->buf_peak,
-        (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
-        (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
-        (unsigned long long) total_mem,
-        events,
-        client->lastcmd ? client->lastcmd->fullname : "NULL",
-        client->user ? client->user->name : "(superuser)",
-        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
-        client->resp,
-        client->lib_name ? (char*)client->lib_name->ptr : "",
-        client->lib_ver ? (char*)client->lib_ver->ptr : ""
-        );
+    sds ret = sdscatfmt(s, FMTARGS(
+        "id=%U", (unsigned long long) client->id,
+        " addr=%s", getClientPeerId(client),
+        " laddr=%s", getClientSockname(client),
+        " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)),
+        " name=%s", client->name ? (char*)client->name->ptr : "",
+        " age=%I", (long long)(server.unixtime - client->ctime),
+        " idle=%I", (long long)(server.unixtime - client->lastinteraction),
+        " flags=%s", flags,
+        " db=%i", client->db->id,
+        " sub=%i", (int) dictSize(client->pubsub_channels),
+        " psub=%i", (int) dictSize(client->pubsub_patterns),
+        " ssub=%i", (int) dictSize(client->pubsubshard_channels),
+        " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
+        " qbuf=%U", (unsigned long long) sdslen(client->querybuf),
+        " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf),
+        " argv-mem=%U", (unsigned long long) client->argv_len_sum,
+        " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
+        " rbs=%U", (unsigned long long) client->buf_usable_size,
+        " rbp=%U", (unsigned long long) client->buf_peak,
+        " obl=%U", (unsigned long long) client->bufpos,
+        " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
+        " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
+        " tot-mem=%U", (unsigned long long) total_mem,
+        " events=%s", events,
+        " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
+        " user=%s", client->user ? client->user->name : "(superuser)",
+        " redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
+        " resp=%i", client->resp,
+        " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "",
+        " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : ""));
     return ret;
 }
 
