@@ -145,6 +145,8 @@ start_server {tags {"modules usercall"}} {
 
         $master config set appendonly yes
         $master config set appendfsync everysec
+        $slave config set appendonly yes
+        $slave config set appendfsync everysec
 
         test {Setup slave} {
             $slave slaveof $master_host $master_port
@@ -157,9 +159,10 @@ start_server {tags {"modules usercall"}} {
 
         test {test module replicate only to replicas and WAITAOF} {
             $master set x 1
-            assert_equal [$master waitaof 1 0 1000] {1 0}
-            $master usercall.call_with_user_flag A! incr x
-            assert_equal [$master waitaof 1 0 1000] {1 0}
+            assert_equal [$master waitaof 1 1 10000] {1 1}
+            $master usercall.call_with_user_flag A! config set loglevel notice
+            # Make sure WAITAOF doesn't hang
+            assert_equal [$master waitaof 1 1 10000] {1 1}
         }
     }
 }
