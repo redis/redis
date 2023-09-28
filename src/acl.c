@@ -1537,6 +1537,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err) {
     if (result == AUTH_NOT_HANDLED) {
         result = checkPasswordBasedAuth(c, username, password);
     }
+    if (result == AUTH_OK) c->last_auth_time = server.unixtime;
     return result;
 }
 

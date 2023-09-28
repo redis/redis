@@ -67,6 +67,19 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
         serverLog(LL_VERBOSE,"Closing idle client");
         freeClient(c);
         return 1;
+    } else if (!(c->flags & (CLIENT_CLOSE_AFTER_COMMAND | CLIENT_CLOSE_AFTER_REPLY | CLIENT_CLOSE_ASAP)) && /* Client is alive */
+               c->user != NULL && /* Client is asocciated with a user */
+               c->authenticated && /* Client is currently authenticated*/
+               userAuthRequired(c->user) && /* Authentication is required for the user*/
+               server.max_auth_age && /* max-auth-age policy enabled */
+               (now - c->last_auth_time > server.max_auth_age)) /* Reauth window times out */
+    {
+        /* Log the event at the NOTICE LEVEL to aid in auditting */
+        serverLog(LL_NOTICE,
+                  "Disconnecting client due to it "
+                  "failing to re-authenticate within allotted time");
+        freeClient(c);
+        return 1;
     } else if (c->flags & CLIENT_BLOCKED) {
         /* Cluster: handle unblock & redirect of clients blocked
          * into keys no longer served by this server. */

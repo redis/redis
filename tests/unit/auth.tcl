@@ -45,6 +45,23 @@ start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
         assert_match {*unauthenticated bulk length*} $e
         $rr close
     }
+
+    test {Default max-auth-age is 0} {
+        assert {[r config get max-auth-age] == "max-auth-age 0"}
+    }
+
+    test {Authenticated clients gets disconnected after max-auth-age} {
+        assert_equal {OK} [r config set max-auth-age 1]
+        after 2000
+        catch {r set foo bar} e
+        assert_match {I/O error reading reply} $e
+    }
+
+    test {Reconnect and reauthentication brings back access} {
+        assert_equal {OK} [r auth foobar]
+        assert_equal {OK} [r set foo bar]
+        assert_match {server*} [r hello]
+    }
 }
 
 start_server {tags {"auth_binary_password external:skip"}} {
@@ -85,5 +102,18 @@ start_server {tags {"auth_binary_password external:skip"}} {
                 fail "Can't turn the instance into a replica"
             }
         }
+    }
+}
+
+start_server {tags {"auth external:skip"}} {
+    test {Default user can access Redis} {
+        assert_equal {OK} [r set foo bar]
+    }
+
+    test {Enabling max-auth-age does not un-authenticates default users} {
+        assert_equal {OK} [r config set max-auth-age 1]
+        after 2000
+        assert_equal {OK} [r set foo bar]
+        assert_match {server*} [r hello]
     }
 }

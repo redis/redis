@@ -1186,6 +1186,7 @@ typedef struct client {
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
+    time_t last_auth_time;  /* Client last authenticated time */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
@@ -1722,6 +1723,8 @@ struct redisServer {
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
+    int max_auth_age;               /* max duration in seconds a client can remain connected before requiring
+                                       re-authentication for security purposes. */
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
@@ -2646,6 +2649,7 @@ void protectClient(client *c);
 void unprotectClient(client *c);
 void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
+int userAuthRequired (user *u);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
 
