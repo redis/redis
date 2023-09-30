@@ -169,6 +169,7 @@ run_solo {defrag} {
     }
 
     start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+        if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag eval scripts" {
             r flushdb
             r script flush sync
@@ -584,5 +585,6 @@ run_solo {defrag} {
                 r save ;# saving an rdb iterates over all the data / pointers
             }
         }
+    }
     }
 } ;# run_solo
