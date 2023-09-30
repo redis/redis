@@ -9,3 +9,8 @@ install:
 	cd src && $(MAKE) $@
 
 .PHONY: install
+
+build-deps:
+	cd deps && $(MAKE) all
+
+.PHONY: build-deps

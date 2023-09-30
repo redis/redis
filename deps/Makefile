@@ -116,3 +116,7 @@ jemalloc: .make-prerequisites
 	cd jemalloc && $(MAKE) lib/libjemalloc.a
 
 .PHONY: jemalloc
+
+all: distclean hiredis linenoise hdr_histogram fpconv lua jemalloc
+
+.PHONY: all
