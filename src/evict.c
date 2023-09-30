@@ -58,6 +58,7 @@ struct evictionPoolEntry {
     sds key;                    /* Key name. */
     sds cached;                 /* Cached SDS object for key name. */
     int dbid;                   /* Key DB number. */
+    int slot;                   /* Slot. */
 };
 
 static struct evictionPoolEntry *EvictionPoolLRU;
@@ -143,7 +144,7 @@ void evictionPoolAlloc(void) {
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
 
-void evictionPoolPopulate(int dbid, dict *sampledict, redisDb *db, struct evictionPoolEntry *pool) {
+void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
@@ -237,6 +238,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, redisDb *db, struct evicti
         }
         pool[k].idle = idle;
         pool[k].dbid = dbid;
+        pool[k].slot = slot;
     }
 }
 
@@ -594,10 +596,16 @@ int performEvictions(void) {
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
                     do {
-                        dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
-                               db->dict[getFairRandomSlot(db, MAIN_DICT)] : db->expires[getFairRandomSlot(db, EXPIRE_DICT)];
+                        int slot = 0;
+                        if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
+                            slot = getFairRandomSlot(db, DICT_MAIN);
+                            dict = db->dict[slot];
+                        } else {
+                            slot = getFairRandomSlot(db, DICT_EXPIRES);
+                            dict = db->expires[slot];
+                        }
                         if ((keys = dictSize(dict)) != 0) {
-                            evictionPoolPopulate(i, dict, db, pool);
+                            evictionPoolPopulate(i, slot, dict, db, pool);
                             total_keys += keys;
                         }
                     /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
@@ -614,10 +622,10 @@ int performEvictions(void) {
                     bestdbid = pool[k].dbid;
 
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(server.db[bestdbid].dict[calculateKeySlot(pool[k].key)],
+                        de = dictFind(server.db[bestdbid].dict[pool[k].slot],
                                       pool[k].key);
                     } else {
-                        de = dictFind(server.db[bestdbid].expires[calculateKeySlot(pool[k].key)],
+                        de = dictFind(server.db[bestdbid].expires[pool[k].slot],
                                       pool[k].key);
                     }
 
@@ -650,7 +658,7 @@ int performEvictions(void) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
                 dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
-                       db->dict[getFairRandomSlot(db, MAIN_DICT)] : db->expires[getFairRandomSlot(db, EXPIRE_DICT)];
+                       db->dict[getFairRandomSlot(db, DICT_MAIN)] : db->expires[getFairRandomSlot(db, DICT_EXPIRES)];
                 if (dictSize(dict) != 0) {
                     de = dictGetRandomKey(dict);
                     bestkey = dictGetKey(de);

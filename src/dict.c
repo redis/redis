@@ -1552,8 +1552,10 @@ dictStats* dictGetStatsHt(dict *d, int htidx, int full) {
 /* Generates human readable stats. */
 size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full) {
     if (stats->htUsed == 0) {
-        return snprintf(buf, bufsize,
-                        "No stats available for empty dictionaries\n");
+        return snprintf(buf,bufsize,
+            "Hash table %d stats (%s):\n"
+            "No stats available for empty dictionaries\n",
+            stats->htidx, (stats->htidx == 0) ? "main hash table" : "rehashing target");
     }
     size_t l = 0;
     l += snprintf(buf + l, bufsize - l,

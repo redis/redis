@@ -192,8 +192,8 @@ start_server {tags {"expire"}} {
         # two seconds.
         wait_for_condition 20 100 {
             [r dbsize] eq 0
-        } fail {
-            "Keys did not actively expire."
+        } else {
+            fail "Keys did not actively expire."
         }
     }
 

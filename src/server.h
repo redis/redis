@@ -116,7 +116,6 @@ struct hdr_histogram;
 #define CONFIG_MAX_HZ            500
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
 #define CRON_DBS_PER_CALL 16
-#define CRON_DICTS_PER_CALL 1024 /* Number of dictionaries that can be resized by cron job during one call. */
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
 #define OBJ_SHARED_INTEGERS 10000
@@ -960,22 +959,24 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
-typedef struct dbState {
+typedef struct dbDictState {
     list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
+    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
     unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
-} dbState;
+} dbDictState;
 
-#define DICT_TYPE_MAX 2
-#define MAIN_DICT 0
-#define EXPIRE_DICT 1
+typedef enum dbKeyType {
+    DICT_MAIN,
+    DICT_EXPIRES
+} dbKeyType;
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
     dict **dict;                /* The keyspace for this DB */
-    dict **expires;              /* Timeout of keys with a timeout set */
+    dict **expires;             /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
@@ -985,10 +986,9 @@ typedef struct redisDb {
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
-    int resize_cursor;          /* Cron job uses this cursor to gradually resize dictionaries. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
     int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
-    dbState db_type[DICT_TYPE_MAX];  /* Metadata for main and expires dictionaries */
+    dbDictState sub_dict[2];  /* Metadata for main and expires dictionaries */
 } redisDb;
 
 /* forward declaration for functions ctx */
@@ -2419,22 +2419,14 @@ typedef struct {
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
-/* Structure for DB iterator that allows iterating across multiple slot specific dictionaries in cluster mode. */
-typedef struct dbIterator {
-    redisDb *db;
-    int slot;
-    int next_slot;
-    dictIterator di;
-    int dictType;
-} dbIterator;
+typedef struct dbIterator dbIterator;
 
 /* DB iterator specific functions */
-void dbIteratorInit(dbIterator *dbit, redisDb *db, unsigned dictType);
+dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
+dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
 dict *dbIteratorNextDict(dbIterator *dbit);
-int dbIteratorNextSlot(dbIterator *dbit);
+int dbIteratorGetCurrentSlot(dbIterator *dbit);
 dictEntry *dbIteratorNext(dbIterator *iter);
-int dbGetNextNonEmptySlot(redisDb *db, int slot, unsigned dictType);
-int findSlotByKeyIndex(redisDb *db, unsigned long target, unsigned dictType);
 
 /* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
 int getAndClearSlotIdFromCursor(unsigned long long *cursor);
@@ -3118,13 +3110,18 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
-unsigned long long int dbSize(redisDb *db, unsigned dictType);
+unsigned long long int dbSize(redisDb *db, dbKeyType keyType);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
-unsigned long dbSlots(redisDb *db, unsigned dictType);
-int expandDb(const redisDb *db, uint64_t db_size, unsigned dictType);
-unsigned long long cumulativeKeyCountRead(redisDb *db, int idx, unsigned dictType);
-int getFairRandomSlot(redisDb *db, unsigned dictType);
+unsigned long dbSlots(redisDb *db, dbKeyType keyType);
+size_t dbMemUsage(redisDb *db, dbKeyType keyType);
+dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType);
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor, dictScanFunction *fn, dictScanValidFunction *valid, void *privdata);
+int expandDb(const redisDb *db, uint64_t db_size, dbKeyType keyType);
+unsigned long long cumulativeKeyCountRead(redisDb *db, int idx, dbKeyType keyType);
+int getFairRandomSlot(redisDb *db, dbKeyType keyType);
+int dbGetNextNonEmptySlot(redisDb *db, int slot, dbKeyType keyType);
+int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType);
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);

@@ -675,12 +675,12 @@ void defragKey(redisDb *db, dictEntry *de) {
     robj *newob, *ob;
     unsigned char *newzl;
     sds newsds;
-
+    int slot = calculateKeySlot(keysds);
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
-        dictSetKey(db->dict[calculateKeySlot(newsds)], de, newsds);
-        if (dbSize(db, EXPIRE_DICT)) {
+        dictSetKey(db->dict[slot], de, newsds);
+        if (dbSize(db, DICT_EXPIRES)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
@@ -694,7 +694,7 @@ void defragKey(redisDb *db, dictEntry *de) {
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[calculateKeySlot(newsds)], de, newob);
+        dictSetVal(db->dict[slot], de, newob);
         ob = newob;
     }
 
@@ -920,6 +920,7 @@ void computeDefragCycles(void) {
  * This works in a similar way to activeExpireCycle, in the sense that
  * we do incremental work across calls. */
 void activeDefragCycle(void) {
+    static int slot = -1;
     static int current_db = -1;
     static unsigned long cursor = 0;
     static unsigned long expires_cursor = 0;
@@ -942,6 +943,7 @@ void activeDefragCycle(void) {
             defrag_later_cursor = 0;
             current_db = -1;
             cursor = 0;
+            slot = -1;
             db = NULL;
             goto update_metrics;
         }
@@ -969,7 +971,7 @@ void activeDefragCycle(void) {
     dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
-        if (!cursor && !expires_cursor) {
+        if (!cursor && !expires_cursor && (slot < 0)) {
             /* finish any leftovers from previous db before moving to the next one */
             if (db && defragLaterStep(db, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -991,6 +993,7 @@ void activeDefragCycle(void) {
                 start_scan = now;
                 current_db = -1;
                 cursor = 0;
+                slot = -1;
                 db = NULL;
                 server.active_defrag_running = 0;
 
@@ -1007,8 +1010,8 @@ void activeDefragCycle(void) {
 
             db = &server.db[current_db];
             cursor = 0;
+            slot = findSlotByKeyIndex(db, 1, DICT_MAIN);
         }
-        int slot = findSlotByKeyIndex(db, 1, MAIN_DICT);
         do {
             dict *d = db->dict[slot];
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
@@ -1021,19 +1024,20 @@ void activeDefragCycle(void) {
             if (!expires_cursor)
                 cursor = dictScanDefrag(d, cursor, defragScanCallback,
                                         &defragfns, db);
-            if (!cursor) slot = dbGetNextNonEmptySlot(db, slot, MAIN_DICT);
             /* When done scanning the keyspace dict, we scan the expire dict. */
-            if (!cursor && slot > -1)
-                expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor, //FIX_ME
+            if (!cursor)
+                expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
                                                 scanCallbackCountScanned,
                                                 &defragfns, NULL);
+            if (!(cursor || expires_cursor))
+                slot = dbGetNextNonEmptySlot(db, slot, DICT_MAIN);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
              * the last db we call defragOtherGlobals, which must be done in one cycle */
-            if (!(cursor || expires_cursor) ||
+            if ((!(cursor || expires_cursor) && slot == -1) ||
                 ++iterations > 16 ||
                 server.stat_active_defrag_hits - prev_defragged > 512 ||
                 server.stat_active_defrag_scanned - prev_scanned > 64)
@@ -1046,7 +1050,7 @@ void activeDefragCycle(void) {
                 prev_defragged = server.stat_active_defrag_hits;
                 prev_scanned = server.stat_active_defrag_scanned;
             }
-        } while(((cursor || slot > 0) || expires_cursor) && !quit);
+        } while(((cursor || expires_cursor) || slot > 0) && !quit);
     } while(!quit);
 
     latencyEndMonitor(latency);

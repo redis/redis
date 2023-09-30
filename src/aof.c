@@ -2249,6 +2249,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     int j;
     long key_count = 0;
     long long updated_time = 0;
+    dbIterator *dbit = NULL;
 
     /* Record timestamp at the beginning of rewriting AOF. */
     if (server.aof_timestamp_enabled) {
@@ -2265,10 +2266,9 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
         redisDb *db = server.db + j;
-        dbIterator dbit;
-        dbIteratorInit(&dbit, db, MAIN_DICT);
+        dbit = dbIteratorInit(db, DICT_MAIN);
         /* Iterate this DB writing every entry */
-        while((de = dbIteratorNext(&dbit)) != NULL) {
+        while((de = dbIteratorNext(dbit)) != NULL) {
             sds keystr;
             robj key, *o;
             long long expiretime;
@@ -2333,10 +2333,12 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             if (server.rdb_key_save_delay)
                 debugDelay(server.rdb_key_save_delay);
         }
+        zfree(dbit);
     }
     return C_OK;
 
 werr:
+    if (dbit) zfree(dbit);
     return C_ERR;
 }
 

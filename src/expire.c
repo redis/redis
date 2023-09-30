@@ -137,19 +137,16 @@ void expireScanCallback(void *privdata, const dictEntry *const_de) {
     data->sampled++;
 }
 
-/* Returns the non empty slot which is valid for expiration sampling. */
-int dbGetNextSlotForExpirySampling(redisDb *db, int slot) {
-    int next_slot = dbGetNextNonEmptySlot(db, slot, EXPIRE_DICT);
-    if (next_slot < 0) return -1;
-    long long numkeys = dictSize(db->expires[next_slot]);
-    unsigned long buckets = dictSlots(db->expires[next_slot]);
+static inline int isExpiryDictValidForSamplingCb(dict *d) {
+    long long numkeys = dictSize(d);
+    unsigned long buckets = dictSlots(d);
     /* When there are less than 1% filled buckets, sampling the key
      * space is expensive, so stop here waiting for better times...
      * The dictionary will be resized asap. */
     if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1)) {
-        return dbGetNextSlotForExpirySampling(db, next_slot);
+        return C_ERR;
     }
-    return next_slot;
+    return C_OK;
 }
 
 void activeExpireCycle(int type) {
@@ -248,21 +245,11 @@ void activeExpireCycle(int type) {
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
-            if ((num = dbSize(db, EXPIRE_DICT)) == 0) {
+            if ((num = dbSize(db, DICT_EXPIRES)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
             data.now = mstime();
-
-            /* When there are less than 1% filled buckets, sampling the key
-             * space is expensive, so stop here waiting for better times...
-             * The dictionary will be resized asap. */
-            if (!server.cluster_enabled) {
-                unsigned long buckets = dictSlots(db->expires[0]);
-                if (buckets > DICT_HT_INITIAL_SIZE && (num*100/buckets < 1)) {
-                    break;
-                }
-            }
 
             /* The main collection cycle. Scan through keys among keys
              * with an expire set, checking for expired ones. */
@@ -286,16 +273,12 @@ void activeExpireCycle(int type) {
              * than keys in the same time. */
             long max_buckets = num*20;
             long checked_buckets = 0;
-            
+
             while (data.sampled < num && checked_buckets < max_buckets) {
-                int slot = getAndClearSlotIdFromCursor((unsigned long long *)&db->expires_cursor);
-                db->expires_cursor = dictScan(db->expires[slot], db->expires_cursor,
-                                              expireScanCallback, &data);
+                db->expires_cursor = dbScan(db, DICT_EXPIRES, db->expires_cursor, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
                 if (db->expires_cursor == 0) {
-                    slot = dbGetNextSlotForExpirySampling(db, slot);
-                    if (slot < 0) break;
+                    break;
                 }
-                addSlotIdToCursor(slot, (unsigned long long *)&db->expires_cursor);
                 checked_buckets++;
             }
             total_expired += data.expired;

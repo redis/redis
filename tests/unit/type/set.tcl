@@ -1058,6 +1058,7 @@ foreach type {single multiple single_multiple} {
 
         # 5) Let the set hash to start rehashing
         r spop myset 1
+        assert [is_rehashing myset]
 
         # 6) Verify that when rdb saving is in progress, rehashing will still be performed (because
         # the ratio is extreme) by waiting for it to finish during an active bgsave.
@@ -1098,6 +1099,7 @@ foreach type {single multiple single_multiple} {
         #    otherwise we would need more iterations.
         rem_hash_set_top_N myset [expr {[r scard myset] - 30}]
         assert_equal [r scard myset] 30
+        assert {[is_rehashing myset]}
 
         # Now that we have a hash set with only one long chain bucket.
         set htstats [r debug HTSTATS-KEY myset full]

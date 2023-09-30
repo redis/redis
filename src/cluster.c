@@ -4090,13 +4090,13 @@ void clusterLogCantFailover(int reason) {
     }
     lastlog_time = time(NULL);
     serverLog(LL_NOTICE,"Currently unable to failover: %s", msg);
-
+    
     int cur_vote = server.cluster->failover_auth_count;
     int cur_quorum = (server.cluster->size / 2) + 1;
     /* Emits a log when an election is in progress and waiting for votes or when the failover attempt expired. */
     if (reason == CLUSTER_CANT_FAILOVER_WAITING_VOTES || reason == CLUSTER_CANT_FAILOVER_EXPIRED) {
         serverLog(LL_NOTICE, "Needed quorum: %d. Number of votes received so far: %d", cur_quorum, cur_vote);
-    }
+    } 
 }
 
 /* This function implements the final part of automatic and manual failovers,
@@ -5099,7 +5099,7 @@ int verifyClusterConfigWithData(void) {
 
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
-        if (dbSize(&server.db[j], MAIN_DICT)) return C_ERR;
+        if (dbSize(&server.db[j], DICT_MAIN)) return C_ERR;
     }
 
     /* Check that all the slots we see populated memory have a corresponding
@@ -5227,6 +5227,7 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary) {
     if (sdslen(node->hostname) != 0) {
         ci = sdscatfmt(ci,",%s", node->hostname);
     }
+
     /* Don't expose aux fields to any clients yet but do allow them
      * to be persisted to nodes.conf */
     if (c == NULL) {
@@ -5960,7 +5961,7 @@ NULL
         clusterReplyShards(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
-        if (dbSize(&server.db[0], MAIN_DICT) != 0) {
+        if (dbSize(&server.db[0], DICT_MAIN) != 0) {
             addReplyError(c,"DB must be empty to perform CLUSTER FLUSHSLOTS.");
             return;
         }
@@ -6280,7 +6281,7 @@ NULL
          * slots nor keys to accept to replicate some other node.
          * Slaves can switch to another master without issues. */
         if (nodeIsMaster(myself) &&
-            (myself->numslots != 0 || dbSize(&server.db[0], MAIN_DICT) != 0)) {
+            (myself->numslots != 0 || dbSize(&server.db[0], DICT_MAIN) != 0)) {
             addReplyError(c,
                 "To set a master the node must be empty and "
                 "without assigned slots.");
@@ -6438,7 +6439,7 @@ NULL
 
         /* Slaves can be reset while containing data, but not master nodes
          * that must be empty. */
-        if (nodeIsMaster(myself) && dbSize(c->db, MAIN_DICT) != 0) {
+        if (nodeIsMaster(myself) && dbSize(c->db, DICT_MAIN) != 0) {
             addReplyError(c,"CLUSTER RESET can't be called with "
                             "master nodes containing keys");
             return;

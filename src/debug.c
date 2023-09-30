@@ -72,7 +72,7 @@ void bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
-void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, unsigned dictType);
+void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, dbKeyType keyType);
 
 /* ================================= Debugging ============================== */
 
@@ -285,16 +285,15 @@ void computeDatasetDigest(unsigned char *final) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        if (dbSize(db, MAIN_DICT) == 0) continue;
-        dbIterator dbit;
-        dbIteratorInit(&dbit, db, MAIN_DICT);
+        if (dbSize(db, DICT_MAIN) == 0) continue;
+        dbIterator *dbit = dbIteratorInit(db, DICT_MAIN);
 
         /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
         mixDigest(final, &aux, sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while((de = dbIteratorNext(&dbit)) != NULL) {
+        while((de = dbIteratorNext(dbit)) != NULL) {
             sds key;
             robj *keyobj, *o;
 
@@ -311,6 +310,7 @@ void computeDatasetDigest(unsigned char *final) {
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
+        zfree(dbit);
     }
 }
 
@@ -603,7 +603,7 @@ NULL
         robj *val;
         char *strenc;
 
-        if ((de = dictFind(c->db->dict[getKeySlot(c->argv[2]->ptr)], c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DICT_MAIN)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -655,7 +655,7 @@ NULL
         robj *val;
         sds key;
 
-        if ((de = dictFind(c->db->dict[getKeySlot(c->argv[2]->ptr)], c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DICT_MAIN)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -711,7 +711,7 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        if (expandDb(c->db, keys, MAIN_DICT) == C_ERR) {
+        if (expandDb(c->db, keys, DICT_MAIN) == C_ERR) {
             addReplyError(c, "OOM in dictTryExpand");
             return;
         }
@@ -760,7 +760,7 @@ NULL
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
             dictEntry *de;
-            robj *o = ((de = dictFind(c->db->dict[getKeySlot(c->argv[j]->ptr)], c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
+            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr, DICT_MAIN)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -904,11 +904,11 @@ NULL
             full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, MAIN_DICT);
+        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DICT_MAIN);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, EXPIRE_DICT);
+        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DICT_EXPIRES);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
@@ -1935,7 +1935,7 @@ void logCurrentClient(client *cc, const char *title) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dictFind(cc->db->dict[getKeySlot(key->ptr)], key->ptr);
+        de = dbFind(cc->db, key->ptr, DICT_MAIN);
         if (de) {
             val = dictGetVal(de);
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);

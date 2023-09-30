@@ -1246,28 +1246,23 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        unsigned long long keyscount = dbSize(db, MAIN_DICT);
-        if (keyscount==0) continue;
+        unsigned long long keyscount = dbSize(db, DICT_MAIN);
+       if (keyscount==0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = keyscount * dictEntryMemUsage() +
-              dbSlots(db, MAIN_DICT) * sizeof(dictEntry*) +
-              keyscount * sizeof(robj) +
-              db->dict_count * sizeof(dict);
+        mem = dbMemUsage(db, DICT_MAIN);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        unsigned long long expire_keys_count = dbSize(db, EXPIRE_DICT);
-        if (expire_keys_count == 0) continue;
-        
-        mem = expire_keys_count * dictEntryMemUsage() +
-              dbSlots(db, EXPIRE_DICT) * sizeof(dictEntry*) +
-              db->dict_count * sizeof(dict);
-        mh->db[mh->num_dbs].overhead_ht_expires = mem;
-        mem_total+=mem;
+        unsigned long long expire_keys_count = dbSize(db, DICT_EXPIRES);
+        if (expire_keys_count) {       
+            mem = dbMemUsage(db, DICT_EXPIRES);
+            mh->db[mh->num_dbs].overhead_ht_expires = mem;
+            mem_total+=mem;
+        }
 
         mh->num_dbs++;
     }
@@ -1552,7 +1547,7 @@ NULL
                 return;
             }
         }
-        if ((de = dictFind(c->db->dict[getKeySlot(c->argv[2]->ptr)], c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DICT_MAIN)) == NULL) {
             addReplyNull(c);
             return;
         }

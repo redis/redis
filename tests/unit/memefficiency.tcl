@@ -37,9 +37,9 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
-start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
-    if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
-        test "Active defrag" {
+    proc test_active_defrag {type} {
+        if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
+        test "Active defrag main dictionary: $type" {
             r config set hz 100
             r config set activedefrag no
             r config set active-defrag-threshold-lower 5
@@ -115,7 +115,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r save ;# saving an rdb iterates over all the data / pointers
 
             # if defrag is supported, test AOF loading too
-            if {[r config get activedefrag] eq "activedefrag yes"} {
+            if {[r config get activedefrag] eq "activedefrag yes" && $type eq "standalone"} {
             test "Active defrag - AOF loading" {
                 # reset stats and load the AOF file
                 r config resetstat
@@ -157,9 +157,18 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             }
             } ;# Active defrag - AOF loading
         }
-        r config set appendonly no
-        r config set key-load-delay 0
-        
+    }
+    }
+
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+        test_active_defrag "cluster"
+    }
+
+    start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+        test_active_defrag "standalone"
+    }
+
+    start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
         test "Active defrag eval scripts" {
             r flushdb
             r script flush sync
@@ -576,5 +585,4 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             }
         }
     }
-}
 } ;# run_solo
