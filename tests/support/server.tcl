@@ -416,9 +416,8 @@ proc start_server {options {code undefined}} {
     set keep_persistence false
     set config_lines {}
 
-    # The server is expected to exit on startup (e.g. loading corrupted AOF/RDB), so some
-    # checks about server liveness/client connectivity are skipped.
-    set short_life false
+    # Wait for the server to be ready and check for server liveness/client connectivity before starting the test.
+    set wait_ready true
 
     # parse options
     foreach {option value} $options {
@@ -447,8 +446,8 @@ proc start_server {options {code undefined}} {
             "keep_persistence" {
                 set keep_persistence $value
             }
-            "short_life" {
-                set short_life $value
+            "wait_ready" {
+                set wait_ready $value
             }
             default {
                 error "Unknown option $option"
@@ -590,7 +589,7 @@ proc start_server {options {code undefined}} {
         }
 
         if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
-        if {$code ne "undefined" && !$short_life} {
+        if {$code ne "undefined" && $wait_ready} {
             set serverisup [server_is_up $::host $port $retrynum]
         } else {
             set serverisup 1
@@ -639,7 +638,7 @@ proc start_server {options {code undefined}} {
         # append the server to the stack
         lappend ::servers $srv
 
-        if {!$short_life} {
+        if {$wait_ready} {
             while 1 {
                 # check that the server actually started and is ready for connections
                 if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {

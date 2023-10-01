@@ -73,7 +73,7 @@ tags {"aof external:skip"} {
         append_to_aof [formatCommand set foo hello]
     }
 
-    start_server_aof_ex [list dir $server_path aof-load-truncated yes] [list short_life true] {
+    start_server_aof_ex [list dir $server_path aof-load-truncated yes] [list wait_ready false] {
         test "Bad format: Server should have logged an error" {
             wait_for_log_messages 0 {"*Bad file format reading the append only file*"} 0 10 1000
         }
@@ -86,7 +86,7 @@ tags {"aof external:skip"} {
         append_to_aof [formatCommand set bar world]
     }
 
-    start_server_aof_ex [list dir $server_path aof-load-truncated no] [list short_life true] {
+    start_server_aof_ex [list dir $server_path aof-load-truncated no] [list wait_ready false] {
         test "Unfinished MULTI: Server should have logged an error" {
             wait_for_log_messages 0 {"*Unexpected end of file reading the append only file*"} 0 10 1000
         }
@@ -98,7 +98,7 @@ tags {"aof external:skip"} {
         append_to_aof [string range [formatCommand set bar world] 0 end-1]
     }
 
-    start_server_aof_ex [list dir $server_path aof-load-truncated no] [list short_life true] {
+    start_server_aof_ex [list dir $server_path aof-load-truncated no] [list wait_ready false] {
         test "Short read: Server should have logged an error" {
             wait_for_log_messages 0 {"*Unexpected end of file reading the append only file*"} 0 10 1000
         }
@@ -257,7 +257,7 @@ tags {"aof external:skip"} {
         append_to_aof [formatCommand set foo hello]
     }
 
-    start_server_aof_ex [list dir $server_path aof-load-truncated yes] [list short_life true] {
+    start_server_aof_ex [list dir $server_path aof-load-truncated yes] [list wait_ready false] {
         test "Unknown command: Server should have logged an error" {
             wait_for_log_messages 0 {"*Unknown command 'bla' reading the append only file*"} 0 10 1000
         }

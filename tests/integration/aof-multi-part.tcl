@@ -38,7 +38,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.2.incr.aof seq 2 type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -65,7 +65,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -93,7 +93,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -125,7 +125,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -152,7 +152,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -179,7 +179,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -206,7 +206,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -233,7 +233,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -260,7 +260,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i newkey\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -277,7 +277,7 @@ tags {"external:skip"} {
         create_aof_manifest $aof_dirpath $aof_manifest_file {
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
@@ -577,7 +577,7 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof seq 1 type b\n"
         }
 
-        start_server_aof_ex [list dir $server_path] [list short_life true] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
                 ! [is_alive [srv pid]]
             } else {
