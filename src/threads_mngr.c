@@ -58,6 +58,7 @@ static sem_t wait_for_threads_sem;
 /* This flag is set while ThreadsManager_runOnThreads is running */
 static redisAtomic int g_in_progress = 0;
 
+static pthread_rwlock_t globals_rw_lock = PTHREAD_RWLOCK_INITIALIZER;
 /*============================ Internal prototypes ========================== */
 
 static void invoke_callback(int sig);
@@ -134,16 +135,26 @@ static int test_and_start(void) {
 static void invoke_callback(int sig) {
     UNUSED(sig);
 
-    size_t thread_id;
-    atomicGetIncr(g_thread_ids, thread_id, 1);
-    g_output_array[thread_id] = g_callback();
-    size_t curr_done_count;
-    atomicIncrGet(g_num_threads_done, curr_done_count, 1);
-
-    /* last thread shuts down the light */
-    if (curr_done_count == g_tids_len) {
-        sem_post(&wait_for_threads_sem);
+    /* If the lock is already locked for write, we are running cleanups, no reason to proceed. */
+    if(0 != pthread_rwlock_tryrdlock(&globals_rw_lock)) {
+        serverLog(LL_WARNING, "threads_mngr: ThreadsManager_cleanups() is in progress, can't invoke signal handler.");
+        return;
     }
+
+    if (g_output_array) {
+        size_t thread_id;
+        atomicGetIncr(g_thread_ids, thread_id, 1);
+        g_output_array[thread_id] = g_callback();
+        size_t curr_done_count;
+        atomicIncrGet(g_num_threads_done, curr_done_count, 1);
+
+        /* last thread shuts down the light */
+        if (curr_done_count == g_tids_len) {
+            sem_post(&wait_for_threads_sem);
+        }
+    }
+
+    pthread_rwlock_unlock(&globals_rw_lock);
 }
 
 static void wait_threads(void) {
@@ -164,6 +175,8 @@ static void wait_threads(void) {
 }
 
 static void ThreadsManager_cleanups(void) {
+    pthread_rwlock_wrlock(&globals_rw_lock);
+
     g_callback = NULL;
     g_tids_len = 0;
     g_output_array = NULL;
@@ -173,6 +186,8 @@ static void ThreadsManager_cleanups(void) {
 
     /* Lastly, turn off g_in_progress */
     atomicSet(g_in_progress, 0);
+    pthread_rwlock_unlock(&globals_rw_lock);
+
 }
 #else
 

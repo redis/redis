@@ -1871,7 +1871,6 @@ static void writeStacktraces(int fd, int uplevel) {
 
     size_t skipped = 0;
 
-
     char buff[MAX_BUFF_LENGTH];
     pid_t calling_tid = syscall(SYS_gettid);
     /* for backtrace_data in backtraces_data: */
@@ -1909,7 +1908,7 @@ static void writeStacktraces(int fd, int uplevel) {
     }
     zfree(stacktraces_data);
 
-    snprintf(buff, MAX_BUFF_LENGTH, "\n%lu/%lu expected stacktraces.\n", len_tids - skipped, len_tids);
+    snprintf(buff, MAX_BUFF_LENGTH, "\n%zu/%zu expected stacktraces.\n", len_tids - skipped, len_tids);
     if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
 }
