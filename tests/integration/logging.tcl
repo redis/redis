@@ -44,7 +44,7 @@ if {$backtrace_supported} {
 
     set server_path [tmpdir server3.log]
     # Use exit() instead of abort() upon assertion so Valgrind tests won't fail.
-    start_server [list overrides [list dir $server_path use-exit-on-panic yes]] {
+    start_server [list overrides [list dir $server_path use-exit-on-panic yes crash-memcheck-enabled no]] {
         test "Generate stacktrace on assertion" {
             catch {r debug assert}
             # If the stacktrace is printed more than once, it means we crashed.
