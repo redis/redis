@@ -41,6 +41,23 @@ if {$backtrace_supported} {
             if {$::verbose} { puts $res }
         }
     }
+
+    set server_path [tmpdir server3.log]
+    start_server [list overrides [list dir $server_path]] {
+        test "Generate stacktrace on assertion" {
+            catch {r debug assert}
+            # If the stacktrace is printed more than once, it means we crashed.
+            assert_equal [count_log_message 0 "STACK TRACE"] 1
+
+            set pattern "*redis-server *main*"
+            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+            if {$::verbose} { puts $res }
+            set pattern "*debugCommand*"
+            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+            if {$::verbose} { puts $res }
+        }
+            
+    }
 }
 
 # Valgrind will complain that the process terminated by a signal, skip it.
