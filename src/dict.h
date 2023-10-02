@@ -110,7 +110,6 @@ typedef struct dictStats {
 } dictStats;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
-typedef int (dictScanValidFunction)(dict *d);
 typedef void *(dictDefragAllocFunction)(void *ptr);
 typedef struct {
     dictDefragAllocFunction *defragAlloc; /* Used for entries etc. */

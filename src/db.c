@@ -1424,7 +1424,7 @@ dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType){
  * 3. If the slot is entirely scanned i.e. the cursor has reached 0, the next non empty slot is discovered. 
  *    The slot information is embedded into the cursor and returned.
  */
-unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, dictScanFunction *fn, dictScanValidFunction *valid, void *privdata) {
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata) {
     dict *d;
     unsigned long long cursor = 0;
     /* During main dictionary traversal in cluster mode, 48 lower bits in the cursor are used for positioning in the HT.
@@ -1437,7 +1437,7 @@ unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, 
         d = db->expires[slot];
     else
         serverAssert(0);
-    if (valid == NULL || valid(d) == C_OK) {
+    if (dictScanValidFunction == NULL || dictScanValidFunction(d) == C_OK) {
         cursor = dictScan(d, v, fn, privdata);
     }
     if (cursor == 0) {
@@ -2136,7 +2136,7 @@ int expandDb(const redisDb *db, uint64_t db_size, dbKeyType keyType) {
                 } else {
                     d = db->expires[i];
                 }
-                if (dictTryExpand(d, (db_size / server.cluster->myself->numslots))!= DICT_OK) {
+                if (dictTryExpand(d, (db_size / server.cluster->myself->numslots)) != DICT_OK) {
                     serverLog(LL_WARNING, "Trying to expand dict of slot number %d", i );
                     return C_ERR;
                 }
@@ -2148,7 +2148,7 @@ int expandDb(const redisDb *db, uint64_t db_size, dbKeyType keyType) {
         } else {
             d = db->expires[0];
         }
-        if (dictTryExpand(d, db_size)!=DICT_OK) return C_ERR;
+        if (dictTryExpand(d, db_size) != DICT_OK) return C_ERR;
     }
     return C_OK;
 }

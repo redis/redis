@@ -1247,7 +1247,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         unsigned long long keyscount = dbSize(db, DICT_MAIN);
-       if (keyscount==0) continue;
+        if (keyscount==0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
