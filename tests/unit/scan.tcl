@@ -436,6 +436,6 @@ start_server {tags {"scan network"}} {
     test_scan "standalone"
 }
 
-start_cluster 1 0 {tags {"scan"}} {
+start_cluster 1 0 {tags {"external:skip cluster scan"}} {
     test_scan "cluster"
 }
