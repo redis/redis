@@ -1055,6 +1055,7 @@ NULL
 
 /* =========================== Crash handling  ============================== */
 
+__attribute__ ((noinline)) 
 void _serverAssert(const char *estr, const char *file, int line) {
     bugReportStart();
     serverLog(LL_WARNING,"=== ASSERTION FAILED ===");
@@ -1144,6 +1145,7 @@ void _serverAssertWithInfo(const client *c, const robj *o, const char *estr, con
     _serverAssert(estr,file,line);
 }
 
+__attribute__ ((noinline)) 
 void _serverPanic(const char *file, int line, const char *msg, ...) {
     va_list ap;
     va_start(ap,msg);
@@ -1837,7 +1839,7 @@ typedef struct {
     void *trace[BACKTRACE_MAX_SIZE];
 } stacktrace_data;
 
-static void *collect_stacktrace_data(void) {
+__attribute__ ((noinline)) static void *collect_stacktrace_data(void) {
     /* allocate stacktrace_data struct */
     stacktrace_data *trace_data = zmalloc(sizeof(stacktrace_data));
 
@@ -1854,6 +1856,7 @@ static void *collect_stacktrace_data(void) {
     return trace_data;
 }
 
+__attribute__ ((noinline)) 
 static void writeStacktraces(int fd, int uplevel) {
     /* get the list of all the process's threads that don't block or ignore the THREADS_SIGNAL */
     pid_t pid = getpid();
@@ -1869,6 +1872,7 @@ static void writeStacktraces(int fd, int uplevel) {
     /* ThreadsManager_runOnThreads returns NULL if it is already running */
     if (!stacktraces_data) return;
 
+    size_t skipped = 0;
 
     char buff[MAX_BUFF_LENGTH];
     pid_t calling_tid = syscall(SYS_gettid);
@@ -1876,8 +1880,11 @@ static void writeStacktraces(int fd, int uplevel) {
     for (size_t i = 0; i < len_tids; i++) {
         stacktrace_data *curr_stacktrace_data = stacktraces_data[i];
         /*ThreadsManager_runOnThreads might fail to collect the thread's data */
-        if (!curr_stacktrace_data) continue;
-        
+        if (!curr_stacktrace_data) {
+            skipped++;
+            continue;
+        }
+
         /* stacktrace header includes the tid and the thread's name */
         snprintf(buff, MAX_BUFF_LENGTH, "\n%d %s", curr_stacktrace_data->tid, curr_stacktrace_data->thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
@@ -1890,7 +1897,7 @@ static void writeStacktraces(int fd, int uplevel) {
             curr_uplevel += uplevel + 2;
             /* Add an indication to header of the thread that is handling the log file */
             snprintf(buff, MAX_BUFF_LENGTH, " *\n");
-        } else { 
+        } else {
             /* just add a new line */
             snprintf(buff, MAX_BUFF_LENGTH, "\n");
         }
@@ -1903,10 +1910,14 @@ static void writeStacktraces(int fd, int uplevel) {
         zfree(curr_stacktrace_data);
     }
     zfree(stacktraces_data);
+
+    snprintf(buff, MAX_BUFF_LENGTH, "\n%zu/%zu expected stacktraces.\n", len_tids - skipped, len_tids);
+    if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
+
 }
 
 #else /* __linux__*/
-
+__attribute__ ((noinline))
 static void writeStacktraces(int fd, int uplevel) {
     void *trace[BACKTRACE_MAX_SIZE];
 
@@ -1922,7 +1933,10 @@ static void writeStacktraces(int fd, int uplevel) {
  * to be called from signal handlers safely.
  * The eip argument is optional (can take NULL).
  * The uplevel argument indicates how many of the calling functions to skip.
+ * Functions that are taken in consideration in "uplevel" should be declared with
+ * __attribute__ ((noinline)) to make sure the compiler won't inline them.
  */
+__attribute__ ((noinline)) 
 void logStackTrace(void *eip, int uplevel) {
     int fd = openDirectLogFiledes();
     char *msg;
@@ -2212,6 +2226,7 @@ void invalidFunctionWasCalled(void) {}
 
 typedef void (*invalidFunctionWasCalledType)(void);
 
+__attribute__ ((noinline)) 
 static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
