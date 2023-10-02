@@ -83,6 +83,7 @@ void ThreadsManager_init(void) {
     sigaction(SIGUSR2, &act, NULL);
 }
 
+__attribute__ ((noinline)) 
 void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
     /* Check if it is safe to start running. If not - return */
     if(test_and_start() == IN_PROGRESS) {
@@ -132,6 +133,7 @@ static int test_and_start(void) {
     return prev_state;
 }
 
+__attribute__ ((noinline)) 
 static void invoke_callback(int sig) {
     UNUSED(sig);
 

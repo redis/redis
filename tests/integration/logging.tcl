@@ -19,6 +19,18 @@ if {$system_name eq {darwin}} {
     }
 }
 
+proc check_log_backtrace {} {
+    # If the stacktrace is printed more than once, it means we crashed.
+    assert_equal [count_log_message 0 "STACK TRACE"] 1
+
+    set pattern "*redis-server *main*"
+    set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+    if {$::verbose} { puts $res }
+    set pattern "*debugCommand*"
+    set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+    if {$::verbose} { puts $res}    
+}
+
 if {$backtrace_supported} {
     set server_path [tmpdir server.log]
     start_server [list overrides [list dir $server_path]] {
@@ -33,12 +45,7 @@ if {$backtrace_supported} {
                 assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
             }
             
-            set pattern "*redis-server *main*"
-            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
-            if {$::verbose} { puts $res }
-            set pattern "*debugCommand*"
-            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
-            if {$::verbose} { puts $res }
+            check_log_backtrace
         }
     }
 
@@ -47,15 +54,7 @@ if {$backtrace_supported} {
     start_server [list overrides [list dir $server_path use-exit-on-panic yes crash-memcheck-enabled no]] {
         test "Generate stacktrace on assertion" {
             catch {r debug assert}
-            # If the stacktrace is printed more than once, it means we crashed.
-            assert_equal [count_log_message 0 "STACK TRACE"] 1
-
-            set pattern "*redis-server *main*"
-            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
-            if {$::verbose} { puts $res }
-            set pattern "*debugCommand*"
-            set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
-            if {$::verbose} { puts $res }
+            check_log_backtrace
         }
             
     }
@@ -83,8 +82,12 @@ if {!$::valgrind} {
     start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Crash report generated on DEBUG SEGFAULT" {
             catch {r debug segfault}
-            set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
-            if {$::verbose} { puts $res }
+            if {$backtrace_supported} {
+                check_log_backtrace
+            } else {
+                set res [wait_for_log_messages 0 \"$crash_pattern\" 0 50 100]
+                if {$::verbose} { puts $res }
+            }
         }
     }
 }
