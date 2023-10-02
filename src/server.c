@@ -1654,7 +1654,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     connTypeProcessPendingData();
 
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
-    aeSetDontWait(server.el, connTypeHasPendingData());
+    int dont_sleep = connTypeHasPendingData();
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -1716,6 +1716,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     monotime aof_start_time = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
     monotime duration_before_aof = aof_start_time - cron_start_time_before_aof;
+    /* Record the fsync'd offset before flushAppendOnly */
+    long long prev_fsynced_reploff = server.fsynced_reploff;
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
@@ -1733,6 +1735,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         long long fsynced_reploff_pending;
         atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
         server.fsynced_reploff = fsynced_reploff_pending;
+
+        /* If we have blocked [WAIT]AOF clients, and fsynced_reploff changed, we want to try to
+         * wake them up ASAP. */
+        if (listLength(server.clients_waiting_acks) && prev_fsynced_reploff != server.fsynced_reploff)
+            dont_sleep = 1;
     }
 
     /* Handle writes with pending output buffers. */
@@ -1770,6 +1777,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
             server.el_cmd_cnt_max = el_command_cnt;
         }
     }
+
+    /* Don't sleep at all before the next beforeSleep() if needed (e.g. a
+     * connection has pending data) */
+    aeSetDontWait(server.el, dont_sleep);
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
