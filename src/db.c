@@ -1437,10 +1437,15 @@ unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, 
         d = db->expires[slot];
     else
         serverAssert(0);
-    if (dictScanValidFunction == NULL || dictScanValidFunction(d) == C_OK) {
+
+    int is_dict_valid = (dictScanValidFunction == NULL || dictScanValidFunction(d) == C_OK);
+    if (is_dict_valid) {
         cursor = dictScan(d, v, fn, privdata);
+    } else {
+        serverLog(LL_DEBUG, "Slot [%d] not valid for scanning, skipping.", slot);
     }
-    if (cursor == 0) {
+    /* scanning done for the current dictionary or if the scanning wasn't possible, move to the next slot. */
+    if (cursor == 0 || !is_dict_valid) {
         slot = dbGetNextNonEmptySlot(db, slot, keyType);
     }
     if (slot == -1) {
