@@ -2580,7 +2580,7 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
             clusterMsgPingExtHumanNodename *ext = preparePingExt(cursor, CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME, getHumanNodenamePingExtSize());
             memcpy(ext->human_nodename, myself->human_nodename, sdslen(myself->human_nodename));
         
-	    /* Move the write cursor */
+            /* Move the write cursor */
             cursor = nextPingExt(cursor);
         }
 
@@ -2646,7 +2646,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         if (type == CLUSTERMSG_EXT_TYPE_HOSTNAME) {
             clusterMsgPingExtHostname *hostname_ext = (clusterMsgPingExtHostname *) &(ext->ext[0].hostname);
             ext_hostname = hostname_ext->hostname;
-	} else if (type == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
+        } else if (type == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
             clusterMsgPingExtHumanNodename *humannodename_ext = (clusterMsgPingExtHumanNodename *) &(ext->ext[0].human_nodename);
             ext_humannodename = humannodename_ext->human_nodename;
         } else if (type == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
@@ -4247,7 +4247,7 @@ void clusterHandleSlaveFailover(void) {
         if (server.cluster->mf_end) {
             server.cluster->failover_auth_time = mstime();
             server.cluster->failover_auth_rank = 0;
-	    clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
+            clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
         }
         serverLog(LL_NOTICE,
             "Start of election delayed for %lld milliseconds "
@@ -4783,7 +4783,7 @@ void clusterCron(void) {
          * a migration if there is no master with at least *two* working
          * slaves. */
         if (orphaned_masters && max_slaves >= 2 && this_slaves == max_slaves &&
-		server.cluster_allow_replica_migration)
+            server.cluster_allow_replica_migration)
             clusterHandleSlaveMigration(max_slaves);
     }
 

@@ -608,7 +608,7 @@ size_t zmalloc_get_rss(void) {
     if ((fd = open(filename,O_RDONLY)) == -1) return 0;
     if (ioctl(fd, PIOCPSINFO, &info) == -1) {
         close(fd);
-	return 0;
+        return 0;
     }
 
     close(fd);
