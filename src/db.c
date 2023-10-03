@@ -1014,16 +1014,16 @@ typedef struct {
 /* Helper function to compare key type in scan commands */
 int objectTypeCompare(robj *o, long long target) {
     if (o->type != OBJ_MODULE) {
-        if (o->type != target)
+        if (o->type != target) 
             return 0;
-        else
+        else 
             return 1;
     }
     /* module type compare */
     long long mt = (long long)REDISMODULE_TYPE_SIGN(((moduleValue *)o->ptr)->type->id);
     if (target != -mt)
         return 0;
-    else
+    else 
         return 1;
 }
 /* This callback is used by scanGenericCommand in order to collect elements
@@ -1087,11 +1087,11 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
 }
 
 char *obj_type_name[OBJ_TYPE_MAX] = {
-    "string",
-    "list",
-    "set",
-    "zset",
-    "hash",
+    "string", 
+    "list", 
+    "set", 
+    "zset", 
+    "hash", 
     NULL, /* module type is special */
     "stream"
 };

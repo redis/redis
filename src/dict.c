@@ -300,7 +300,7 @@ int dictRehash(dict *d, int n) {
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    if (dict_can_resize == DICT_RESIZE_AVOID &&
+    if (dict_can_resize == DICT_RESIZE_AVOID && 
         ((s1 > s0 && s1 / s0 < dict_force_resize_ratio) ||
          (s1 < s0 && s0 / s1 < dict_force_resize_ratio)))
     {
@@ -1517,7 +1517,7 @@ void dictCombineStats(dictStats *from, dictStats *into) {
     }
 }
 
-dictStats* dictGetStatsHt(dict *d, int htidx, int full) {
+dictStats *dictGetStatsHt(dict *d, int htidx, int full) {
     unsigned long *clvector = zcalloc(sizeof(unsigned long) * DICT_STATS_VECTLEN);
     dictStats *stats = zcalloc(sizeof(dictStats));
     stats->htidx = htidx;
@@ -1584,7 +1584,7 @@ size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full) {
     }
 
     /* Make sure there is a NULL term at the end. */
-    buf[bufsize - 1] = '\0';
+    buf[bufsize-1] = '\0';
     /* Unlike snprintf(), return the number of characters actually written. */
     return strlen(buf);
 }

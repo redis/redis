@@ -923,7 +923,7 @@ int clientEvictionAllowed(client *c) {
 
 /* This function is used to cleanup the client's previously tracked memory usage.
  * This is called during incremental client memory usage tracking as well as
- * used to reset when client to bucket allocation is not required when
+ * used to reset when client to bucket allocation is not required when 
  * client eviction is disabled.  */
 void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {

@@ -71,7 +71,7 @@ start_server {
         r del zmscoretest
         r zadd zmscoretest 10 x
         r zadd zmscoretest 20 y
-
+        
         catch {r smismember zmscoretest} e
         assert_match {*ERR*wrong*number*arg*} $e
     }

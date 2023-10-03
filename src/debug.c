@@ -290,7 +290,7 @@ void computeDatasetDigest(unsigned char *final) {
 
         /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
-        mixDigest(final, &aux, sizeof(aux));
+        mixDigest(final,&aux,sizeof(aux));
 
         /* Iterate this DB writing every entry */
         while((de = dbIteratorNext(dbit)) != NULL) {
@@ -715,7 +715,6 @@ NULL
             addReplyError(c, "OOM in dictTryExpand");
             return;
         }
-
         long valsize = 0;
         if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
