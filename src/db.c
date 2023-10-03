@@ -1959,16 +1959,20 @@ int removeExpire(redisDb *db, robj *key) {
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
  * after which the key will no longer be considered valid. */
 void setExpire(client *c, redisDb *db, robj *key, long long when) {
-    dictEntry *kde, *de;
+    dictEntry *kde, *de, *existing;
 
     /* Reuse the sds from the main dict in the expire dict */
-    int slot = getKeySlot(key->ptr);
-    kde = dictFind(db->dict[slot], key->ptr);
+    kde = dbFind(db, key->ptr, DB_MAIN);
     serverAssertWithInfo(NULL,key,kde != NULL);
-    de = dictAddOrFind(db->expires[slot],dictGetKey(kde));
-    dictSetSignedIntegerVal(de,when);
-    db->sub_dict[DB_EXPIRES].key_count++;
-    cumulativeKeyCountAdd(db, slot, 1, DB_EXPIRES);
+    int slot = getKeySlot(key->ptr);
+    de = dictAddRaw(db->expires[slot], dictGetKey(kde), &existing);
+    if (existing) {
+        dictSetSignedIntegerVal(existing, when);
+    } else {
+        dictSetSignedIntegerVal(de, when);
+        db->sub_dict[DB_EXPIRES].key_count++;
+        cumulativeKeyCountAdd(db, slot, 1, DB_EXPIRES);
+    }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
