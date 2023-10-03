@@ -1381,7 +1381,7 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
     return db->sub_dict[keyType].key_count;
 }
 
-/* This method proivdes the cummulative sum of all the dictionary buckets
+/* This method proivdes the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
     unsigned long buckets = 0;
