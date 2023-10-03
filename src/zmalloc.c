@@ -36,7 +36,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <assert.h>
 
 #ifdef __linux__
 #include <sys/mman.h>
