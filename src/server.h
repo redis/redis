@@ -3113,7 +3113,7 @@ int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db, dbKeyType keyType);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
-unsigned long dbSlots(redisDb *db, dbKeyType keyType);
+unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
 size_t dbMemUsage(redisDb *db, dbKeyType keyType);
 dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType);
 unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata);

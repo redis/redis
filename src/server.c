@@ -584,7 +584,7 @@ dictType sdsHashDictType = {
 int htNeedsResize(dict *dict) {
     long long size, used;
 
-    size = dictSlots(dict);
+    size = dictBuckets(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
             (used*100/size < HASHTABLE_MIN_FILL));
@@ -1380,7 +1380,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             for (j = 0; j < server.dbnum; j++) {
                 long long size, used, vkeys;
 
-                size = dbSlots(&server.db[j], DB_MAIN);
+                size = dbBuckets(&server.db[j], DB_MAIN);
                 used = dbSize(&server.db[j], DB_MAIN);
                 vkeys = dbSize(&server.db[j], DB_EXPIRES);
                 if (used || vkeys) {

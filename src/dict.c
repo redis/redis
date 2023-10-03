@@ -844,7 +844,7 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
  * and values. */
 size_t dictMemUsage(const dict *d) {
     return dictSize(d) * sizeof(dictEntry) +
-        dictSlots(d) * sizeof(dictEntry*);
+        dictBuckets(d) * sizeof(dictEntry*);
 }
 
 size_t dictEntryMemUsage(void) {
@@ -983,7 +983,7 @@ dictEntry *dictGetRandomKey(dict *d)
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
-            h = d->rehashidx + (randomULong() % (dictSlots(d) - d->rehashidx));
+            h = d->rehashidx + (randomULong() % (dictBuckets(d) - d->rehashidx));
             he = (h >= s0) ? d->ht_table[1][h - s0] : d->ht_table[0][h];
         } while(he == NULL);
     } else {

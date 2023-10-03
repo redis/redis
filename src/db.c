@@ -1381,22 +1381,24 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
     return db->sub_dict[keyType].key_count;
 }
 
-unsigned long dbSlots(redisDb *db, dbKeyType keyType) {
-    unsigned long slots = 0;
+/* This method proivdes the cummulative sum of all the dictionary buckets
+ * across dictionaries in a database. */
+unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
+    unsigned long buckets = 0;
     dict *d;
     dbIterator *dbit = dbIteratorInit(db, keyType);
     while ((d = dbIteratorNextDict(dbit))) {
-        slots += dictSlots(d);
+        buckets += dictBuckets(d);
     }
     zfree(dbit);
-    return slots;
+    return buckets;
 }
 
 size_t dbMemUsage(redisDb *db, dbKeyType keyType) {
     size_t mem = 0;
     unsigned long long keys_count = dbSize(db, keyType);
     mem += keys_count * dictEntryMemUsage() +
-            dbSlots(db, keyType) * sizeof(dictEntry*) +
+            dbBuckets(db, keyType) * sizeof(dictEntry*) +
             db->dict_count * sizeof(dict);
     if (keyType == DB_MAIN) {
         mem+=keys_count * sizeof(robj);
