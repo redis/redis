@@ -3127,7 +3127,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             if (!server.cluster_enabled) {
                 continue; /* Ignore gracefully. */
             }
-            serverLog(LL_NOTICE, "Slot :%lu Size: %lu Expire Size: %lu", slot_id, slot_size, expires_slot_size);
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             dictExpand(db->dict[slot_id], slot_size);
             dictExpand(db->expires[slot_id], expires_slot_size);
