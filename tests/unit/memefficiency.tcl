@@ -51,6 +51,8 @@ run_solo {defrag} {
 
             populate 700000 asdf1 150
             populate 170000 asdf2 300
+            # Some volatile keys
+            populate 10000 asdf3 10 0 false 1000
             after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
             if {$::verbose} {
