@@ -1360,7 +1360,7 @@ void addSlotIdToCursor(int slot, unsigned long long *cursor) {
 int getAndClearSlotIdFromCursor(unsigned long long *cursor) {
     if (!server.cluster_enabled) return 0;
     int slot = (int) (*cursor & CLUSTER_SLOT_MASK);
-    *cursor = ((*cursor) & ~CLUSTER_SLOT_MASK) >> CLUSTER_SLOT_MASK_BITS;
+    *cursor = *cursor >> CLUSTER_SLOT_MASK_BITS;
     return slot;
 }
 
