@@ -300,7 +300,7 @@ int getKeySlot(sds key) {
     /* This is performance optimization, that uses pre-set slot id from the current command,
      * in order to avoid calculation of the key hash. Code paths that are using keys, that can be from different slots,
      * MUST unset current client's slot value before calling any db functions, otherwise wrong dictionary can be used. */
-    if (server.current_client && server.current_client->slot >= 0) {
+    if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
         return server.current_client->slot;
     }
     return calculateKeySlot(key);
@@ -491,7 +491,7 @@ int getFairRandomSlot(redisDb *db, dbKeyType keyType) {
     return slot;
 }
 
-static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyType){
+static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyType) {
     if (keyType == DB_MAIN)
         return dictSize(db->dict[slot]);
     else if (keyType == DB_EXPIRES)
@@ -537,7 +537,7 @@ int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType) {
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     dictEntry **plink;
     int table;
-    int slot = (flags & DB_FLAG_KEY_EVICTED) ? calculateKeySlot(key->ptr) : getKeySlot(key->ptr);
+    int slot = getKeySlot(key->ptr);
     dict *d = db->dict[slot];
     dictEntry *de = dictTwoPhaseUnlinkFind(d,key->ptr,&plink,&table);
     if (de) {
