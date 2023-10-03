@@ -2132,9 +2132,17 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     return 1;
 }
 
-/* Increases size of the main db to match desired number. In cluster mode resizes all individual dictionaries for slots that
- * this node owns. */
-int expandDb(const redisDb *db, uint64_t db_size, dbKeyType keyType) {
+/*
+ * This functions increases size of the main/expires db to match desired number.
+ * In cluster mode resizes all individual dictionaries for slots that this node owns.
+ *
+ * Based on the parameter `try_expand`, appropriate dict expand API is invoked.
+ * if try_expand is set to 1, `dictTryExpand` is used else `dictExpand`.
+ * The return code is either `DICT_OK`/`DICT_ERR` for both the API(s).
+ * `DICT_OK` response is for successful expansion. However ,`DICT_ERR` response signifies failure in allocation in
+ * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
+ */
+int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand) {
     dict *d;
     if (server.cluster_enabled) {
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
@@ -2145,9 +2153,14 @@ int expandDb(const redisDb *db, uint64_t db_size, dbKeyType keyType) {
                 } else {
                     d = db->expires[i];
                 }
-                if (dictTryExpand(d, (db_size / server.cluster->myself->numslots)) != DICT_OK) {
-                    serverLog(LL_WARNING, "Trying to expand dict of slot number %d", i );
+                int result = try_expand ? dictTryExpand(d, db_size) : dictExpand(d, db_size);
+                if (try_expand && result == DICT_ERR) {
+                    serverLog(LL_WARNING, "Dict expansion failed for type :%s slot: %d",
+                                keyType == DB_MAIN ? "main" : "expires", i);
                     return C_ERR;
+                } else {
+                    serverLog(LL_DEBUG, "Dict expansion skipped for type :%s slot: %d",
+                                keyType == DB_MAIN ? "main" : "expires", i);
                 }
             }
         }
@@ -2157,7 +2170,12 @@ int expandDb(const redisDb *db, uint64_t db_size, dbKeyType keyType) {
         } else {
             d = db->expires[0];
         }
-        if (dictTryExpand(d, db_size) != DICT_OK) return C_ERR;
+        int result = try_expand ? dictTryExpand(d, db_size) : dictExpand(d, db_size);
+        if (try_expand && result == DICT_ERR) {
+            serverLog(LL_WARNING, "Dict expansion failed for db type: %s",
+                        keyType == DB_MAIN ? "main" : "expires");
+            return C_ERR;
+        }
     }
     return C_OK;
 }

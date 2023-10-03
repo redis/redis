@@ -3122,14 +3122,14 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if ((slot_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
+            if ((expires_slot_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
+                goto eoferr;
             if (!server.cluster_enabled) {
                 continue; /* Ignore gracefully. */
             }
-
+            serverLog(LL_NOTICE, "Slot :%lu Size: %lu Expire Size: %lu", slot_id, slot_size, expires_slot_size);
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             dictExpand(db->dict[slot_id], slot_size);
-            if ((expires_slot_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
-                goto eoferr;
             dictExpand(db->expires[slot_id], expires_slot_size);
             should_expand_db = 0;
             continue; /* Read next opcode. */
@@ -3264,12 +3264,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            if (expandDb(db, db_size, DB_MAIN) == C_ERR) {
-                serverLog(LL_WARNING, "OOM in dict try expand of main dict");
+            if (dbExpand(db, db_size, DB_MAIN, 0) == C_ERR) {
+                serverLog(LL_WARNING, "OOM in dict expand of main dict");
                 return C_ERR;
             }
-            if (expandDb(db, expires_size, DB_EXPIRES) == C_ERR) {
-                serverLog(LL_WARNING, "OOM in dict try expand of expire dict");
+            if (dbExpand(db, expires_size, DB_EXPIRES, 0) == C_ERR) {
+                serverLog(LL_WARNING, "OOM in dict expand of expire dict");
                 return C_ERR;
             }
             should_expand_db = 0;
