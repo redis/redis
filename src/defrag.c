@@ -40,6 +40,11 @@
 
 #ifdef HAVE_DEFRAG
 
+typedef struct defragCtx {
+    redisDb *db;
+    int slot;
+} defragCtx;
+
 /* this method was added to jemalloc in order to help us understand which
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
@@ -669,12 +674,13 @@ void defragModule(redisDb *db, dictEntry *kde) {
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. Returns a stat of how many pointers were
  * moved. */
-void defragKey(redisDb *db, dictEntry *de) {
+void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
     unsigned char *newzl;
     sds newsds;
-    int slot = calculateKeySlot(keysds);
+    redisDb *db = ctx->db;
+    int slot = ctx->slot;
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
@@ -683,7 +689,6 @@ void defragKey(redisDb *db, dictEntry *de) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            int slot = calculateKeySlot(newsds);
             uint64_t hash = dictGetHash(db->dict[slot], newsds);
             dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires[slot], keysds, hash);
             if (expire_de) dictSetKey(db->expires[slot], expire_de, newsds);
@@ -750,7 +755,7 @@ void defragKey(redisDb *db, dictEntry *de) {
 /* Defrag scan callback for the main db dictionary. */
 void defragScanCallback(void *privdata, const dictEntry *de) {
     long long hits_before = server.stat_active_defrag_hits;
-    defragKey((redisDb*)privdata, (dictEntry*)de);
+    defragKey((defragCtx*)privdata, (dictEntry*)de);
     if (server.stat_active_defrag_hits != hits_before)
         server.stat_active_defrag_key_hits++;
     else
@@ -919,6 +924,7 @@ void computeDefragCycles(void) {
  * This works in a similar way to activeExpireCycle, in the sense that
  * we do incremental work across calls. */
 void activeDefragCycle(void) {
+    static defragCtx ctx;
     static int slot = -1;
     static int current_db = -1;
     static unsigned long cursor = 0;
@@ -994,6 +1000,7 @@ void activeDefragCycle(void) {
                 cursor = 0;
                 slot = -1;
                 db = NULL;
+                memset(&ctx, -1, sizeof(ctx));
                 server.active_defrag_running = 0;
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
@@ -1010,6 +1017,8 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
             slot = findSlotByKeyIndex(db, 1, DB_MAIN);
+            ctx.db = db;
+            ctx.slot = slot;
         }
         do {
             dict *d = db->dict[slot];
@@ -1022,15 +1031,17 @@ void activeDefragCycle(void) {
             /* Scan the keyspace dict unless we're scanning the expire dict. */
             if (!expires_cursor)
                 cursor = dictScanDefrag(d, cursor, defragScanCallback,
-                                        &defragfns, db);
+                                        &defragfns, &ctx);
             /* When done scanning the keyspace dict, we scan the expire dict. */
             if (!cursor)
                 expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
                                                 scanCallbackCountScanned,
                                                 &defragfns, NULL);
-            if (!(cursor || expires_cursor))
+            if (!(cursor || expires_cursor)) {
                 slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
-
+                ctx.slot = slot;
+            }
+    
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),
              * check if we reached the time limit.
