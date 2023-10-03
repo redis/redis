@@ -300,7 +300,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
 
-        if ((ln = zslFirstInRange(zsl, &range)) == NULL) {
+        if ((ln = zslNthInRange(zsl, &range, 0)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
             return 0;
         }

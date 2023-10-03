@@ -2387,7 +2387,7 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
 static int isValidAnnouncedNodename(char *val,const char **err) {
     if (!(isValidAuxString(val,sdslen(val)))) {
         *err = "Announced human node name contained invalid character";
-	return 0;
+        return 0;
     }
     return 1;
 }
@@ -2528,9 +2528,9 @@ static int updateAofAutoGCEnabled(const char **err) {
 static int updateSighandlerEnabled(const char **err) {
     UNUSED(err);
     if (server.crashlog_enabled)
-        setupSignalHandlers();
+        setupSigSegvHandler();
     else
-        removeSignalHandlers();
+        removeSigSegvHandlers();
     return 1;
 }
 

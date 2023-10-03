@@ -197,6 +197,9 @@ int commandBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int result = RedisModule_CreateCommand(ctx,"command.that.should.fail", module_test_acl_category, "", 0, 0, 0);
     response_ok |= (result == REDISMODULE_OK);
 
+    result = RedisModule_AddACLCategory(ctx,"blockedcategory");
+    response_ok |= (result == REDISMODULE_OK);
+    
     RedisModuleCommand *parent = RedisModule_GetCommand(ctx,"block.commands.outside.onload");
     result = RedisModule_SetCommandACLCategories(parent, "write");
     response_ok |= (result == REDISMODULE_OK);
@@ -204,7 +207,8 @@ int commandBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     result = RedisModule_CreateSubcommand(parent,"subcommand.that.should.fail",module_test_acl_category,"",0,0,0);
     response_ok |= (result == REDISMODULE_OK);
     
-    /* This validates that it's not possible to create commands outside OnLoad,
+    /* This validates that it's not possible to create commands or add
+     * a new ACL Category outside OnLoad function.
      * thus returns an error if they succeed. */
     if (response_ok) {
         RedisModule_ReplyWithError(ctx, "UNEXPECTEDOK");
@@ -215,11 +219,30 @@ int commandBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
 
     if (RedisModule_Init(ctx,"aclcheck",1,REDISMODULE_APIVER_1)== REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    if (argc > 1) return RedisModule_WrongArity(ctx);
+    
+    /* When that flag is passed, we try to create too many categories,
+     * and the test expects this to fail. In this case redis returns REDISMODULE_ERR
+     * and set errno to ENOMEM*/
+    if (argc == 1) {
+        long long fail_flag = 0;
+        RedisModule_StringToLongLong(argv[0], &fail_flag);
+        if (fail_flag) {
+            for (size_t j = 0; j < 45; j++) {
+                RedisModuleString* name =  RedisModule_CreateStringPrintf(ctx, "customcategory%zu", j);
+                if (RedisModule_AddACLCategory(ctx, RedisModule_StringPtrLen(name, NULL)) == REDISMODULE_ERR) {
+                    RedisModule_Assert(errno == ENOMEM);
+                    RedisModule_FreeString(ctx, name);
+                    return REDISMODULE_ERR;
+                }
+                RedisModule_FreeString(ctx, name);
+            }
+        }
+    }
 
     if (RedisModule_CreateCommand(ctx,"aclcheck.set.check.key", set_aclcheck_key,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -265,5 +288,29 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                       "write",0,0,0) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
+    /* This validates that, when module tries to add a category with invalid characters,
+     * redis returns REDISMODULE_ERR and set errno to `EINVAL` */
+    if (RedisModule_AddACLCategory(ctx,"!nval!dch@r@cter$") == REDISMODULE_ERR)
+        RedisModule_Assert(errno == EINVAL);
+    else 
+        return REDISMODULE_ERR;
+    
+    /* This validates that, when module tries to add a category that already exists,
+     * redis returns REDISMODULE_ERR and set errno to `EBUSY` */
+    if (RedisModule_AddACLCategory(ctx,"write") == REDISMODULE_ERR)
+        RedisModule_Assert(errno == EBUSY);
+    else 
+        return REDISMODULE_ERR;
+    
+    if (RedisModule_AddACLCategory(ctx,"foocategory") == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    
+    if (RedisModule_CreateCommand(ctx,"aclcheck.module.command.test.add.new.aclcategories", module_test_acl_category,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    RedisModuleCommand *test_add_new_aclcategories = RedisModule_GetCommand(ctx,"aclcheck.module.command.test.add.new.aclcategories");
+
+    if (RedisModule_SetCommandACLCategories(test_add_new_aclcategories, "foocategory") == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    
     return REDISMODULE_OK;
 }

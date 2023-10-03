@@ -37,7 +37,6 @@
 #include "atomicvar.h"
 #include "commands.h"
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -522,6 +521,7 @@ typedef enum {
 
 #define ZSKIPLIST_MAXLEVEL 32 /* Should be enough for 2^64 elements */
 #define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
+#define ZSKIPLIST_MAX_SEARCH 10
 
 /* Append only defines */
 #define AOF_FSYNC_NO 0
@@ -669,8 +669,8 @@ typedef enum {
 #define run_with_period(_ms_) if (((_ms_) <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
-#define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
-#define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverAssertWithInfo(_c,_o,_e) (likely(_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
 /* latency histogram per command init settings */
@@ -822,6 +822,7 @@ struct RedisModule {
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
     int num_commands_with_acl_categories; /* Number of commands in this module included in acl categories */
     int onload;     /* Flag to identify if the call is being made from Onload (0 or 1) */
+    size_t num_acl_categories_added; /* Number of acl categories added by this module. */
 };
 typedef struct RedisModule RedisModule;
 
@@ -1705,6 +1706,8 @@ struct redisServer {
     long long stat_io_writes_processed; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_total_reads_processed; /* Total number of read events processed */
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
+    long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
+    long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -2009,7 +2012,7 @@ struct redisServer {
     /* Scripting */
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
     int pre_command_oom_state;         /* OOM before command (script?) was started */
-    int script_disable_deny_script;    /* Allow running commands marked "no-script" inside a script. */
+    int script_disable_deny_script;    /* Allow running commands marked "noscript" inside a script. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -2948,6 +2951,8 @@ int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
+int ACLAddCommandCategory(const char *name, uint64_t flag);
+void ACLCleanupCategoriesOnFailure(size_t num_acl_categories_added);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
@@ -2999,8 +3004,7 @@ void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);
 unsigned char *zzlInsert(unsigned char *zl, sds ele, double score);
 int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node);
-zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range);
-zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range);
+zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n);
 double zzlGetScore(unsigned char *sptr);
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
@@ -3023,8 +3027,7 @@ void zslFreeLexRange(zlexrangespec *spec);
 int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec);
 unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range);
 unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range);
-zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range);
-zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range);
+zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n);
 int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec);
 int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
@@ -3039,7 +3042,6 @@ int processCommand(client *c);
 int processPendingCommandAndInputBuffer(client *c);
 int processCommandAndResetClient(client *c);
 void setupSignalHandlers(void);
-void removeSignalHandlers(void);
 int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
 connListener *listenerByType(const char *typename);
 int changeListener(connListener *listener);
@@ -3739,7 +3741,9 @@ void _serverPanic(const char *file, int line, const char *msg, ...)
 void _serverPanic(const char *file, int line, const char *msg, ...);
 #endif
 void serverLogObjectDebugInfo(const robj *o);
-void sigsegvHandler(int sig, siginfo_t *info, void *secret);
+void setupDebugSigHandlers(void);
+void setupSigSegvHandler(void);
+void removeSigSegvHandlers(void);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
 dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything);
 void releaseInfoSectionDict(dict *sec);

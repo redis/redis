@@ -350,7 +350,7 @@ start_server {tags {"expire"}} {
             r restore foo17 100000 $encoded
             r restore foo18 [expr [clock milliseconds]+100000] $encoded absttl
 
-            # Assert that each TTL-relatd command are persisted with absolute timestamps in AOF
+            # Assert that each TTL-related command are persisted with absolute timestamps in AOF
             assert_aof_content $aof {
                 {select *}
                 {set foo1 bar PXAT *}

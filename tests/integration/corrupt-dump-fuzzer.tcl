@@ -169,6 +169,11 @@ foreach sanitize_dump {no yes} {
                         incr stat_terminated_by_signal $by_signal
 
                         if {$by_signal != 0 || $sanitize_dump == yes} {
+                            if {$::dump_logs} {
+                                set srv [get_srv 0]
+                                dump_server_log $srv
+                            }
+
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }

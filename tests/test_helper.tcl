@@ -197,6 +197,12 @@ proc srv {args} {
     dict get $srv $property
 }
 
+# Take an index to get a srv.
+proc get_srv {level} {
+    set srv [lindex $::servers end+$level]
+    return $srv
+}
+
 # Provide easy access to the client for the inner server. It's possible to
 # prepend the argument list with a negative level to access clients for
 # servers running in outer blocks.

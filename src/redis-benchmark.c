@@ -1888,8 +1888,12 @@ int main(int argc, char **argv) {
             sds_args[argc] = readArgFromStdin();
             argc++;
         }
+        /* Setup argument length */
+        size_t *argvlen = zmalloc(argc*sizeof(size_t));
+        for (i = 0; i < argc; i++)
+            argvlen[i] = sdslen(sds_args[i]);
         do {
-            len = redisFormatCommandArgv(&cmd,argc,(const char**)sds_args,NULL);
+            len = redisFormatCommandArgv(&cmd,argc,(const char**)sds_args,argvlen);
             // adjust the datasize to the parsed command
             config.datasize = len;
             benchmark(title,cmd,len);
@@ -1899,6 +1903,7 @@ int main(int argc, char **argv) {
 
         sdsfree(title);
         if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
+        zfree(argvlen);
         return 0;
     }
 
