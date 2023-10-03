@@ -398,12 +398,12 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
  * In non-cluster mode, we don't need this list as there is only one dictionary per DB. */
 void dictRehashingStarted(dict *d) {
     if (!server.cluster_enabled || !server.activerehashing) return;
-    listAddNodeTail(server.db[0].sub_dict[DICT_MAIN].rehashing, d);
+    listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
 }
 
 void dictRehashingStartedForExpires(dict *d) {
     if (!server.cluster_enabled || !server.activerehashing) return;
-    listAddNodeTail(server.db[0].sub_dict[DICT_EXPIRES].rehashing, d);
+    listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -595,7 +595,7 @@ int htNeedsResize(dict *dict) {
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
     int slot = 0;
-    for (dbKeyType subdict = DICT_MAIN; subdict <= DICT_EXPIRES; subdict++) {
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         dbIterator *dbit = dbIteratorInitFromSlot(db, subdict, db->sub_dict[subdict].resize_cursor);
         for (int i = 0; i < CRON_DBS_PER_CALL; i++) {
             dict *d = dbIteratorNextDict(dbit);
@@ -625,7 +625,7 @@ int incrementallyRehash(int dbid) {
         elapsedStart(&timer);
         /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
          * while removing those that already finished rehashing from the queue. */
-        for (dbKeyType subdict = DICT_MAIN; subdict <= DICT_EXPIRES; subdict++) {
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
             serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.db[dbid].sub_dict[subdict].rehashing));
             while ((node = listFirst(server.db[dbid].sub_dict[subdict].rehashing))) {
                 if (dictIsRehashing((dict *) listNodeValue(node))) {
@@ -1380,9 +1380,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             for (j = 0; j < server.dbnum; j++) {
                 long long size, used, vkeys;
 
-                size = dbSlots(&server.db[j], DICT_MAIN);
-                used = dbSize(&server.db[j], DICT_MAIN);
-                vkeys = dbSize(&server.db[j], DICT_EXPIRES);
+                size = dbSlots(&server.db[j], DB_MAIN);
+                used = dbSize(&server.db[j], DB_MAIN);
+                vkeys = dbSize(&server.db[j], DB_EXPIRES);
                 if (used || vkeys) {
                     serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
@@ -2587,7 +2587,7 @@ void makeThreadKillable(void) {
 }
 
 void initDbState(redisDb *db){
-    for (dbKeyType subdict = DICT_MAIN; subdict <= DICT_EXPIRES; subdict++) {
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         db->sub_dict[subdict].rehashing = listCreate();
         db->sub_dict[subdict].key_count = 0;
         db->sub_dict[subdict].resize_cursor = 0;
@@ -6257,8 +6257,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
 
-            keys = dbSize(&server.db[j], DICT_MAIN);
-            vkeys = dbSize(&server.db[j], DICT_EXPIRES);
+            keys = dbSize(&server.db[j], DB_MAIN);
+            vkeys = dbSize(&server.db[j], DB_EXPIRES);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
                     "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",

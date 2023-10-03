@@ -181,7 +181,7 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
 void emptyDbAsync(redisDb *db) {
     dict **oldDict = db->dict;
     dict **oldExpires = db->expires;
-    atomicIncr(lazyfree_objects,dbSize(db, DICT_MAIN));
+    atomicIncr(lazyfree_objects,dbSize(db, DB_MAIN));
     db->dict = dictCreateMultiple(&dbDictType, db->dict_count);
     db->expires = dictCreateMultiple(&dbExpiresDictType, db->dict_count);
     int *count = zmalloc(sizeof(int));

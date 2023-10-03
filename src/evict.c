@@ -598,10 +598,10 @@ int performEvictions(void) {
                     do {
                         int slot = 0;
                         if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                            slot = getFairRandomSlot(db, DICT_MAIN);
+                            slot = getFairRandomSlot(db, DB_MAIN);
                             dict = db->dict[slot];
                         } else {
-                            slot = getFairRandomSlot(db, DICT_EXPIRES);
+                            slot = getFairRandomSlot(db, DB_EXPIRES);
                             dict = db->expires[slot];
                         }
                         if ((keys = dictSize(dict)) != 0) {
@@ -658,7 +658,7 @@ int performEvictions(void) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
                 dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
-                       db->dict[getFairRandomSlot(db, DICT_MAIN)] : db->expires[getFairRandomSlot(db, DICT_EXPIRES)];
+                       db->dict[getFairRandomSlot(db, DB_MAIN)] : db->expires[getFairRandomSlot(db, DB_EXPIRES)];
                 if (dictSize(dict) != 0) {
                     de = dictGetRandomKey(dict);
                     bestkey = dictGetKey(de);

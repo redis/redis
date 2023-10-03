@@ -1246,20 +1246,20 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        unsigned long long keyscount = dbSize(db, DICT_MAIN);
+        unsigned long long keyscount = dbSize(db, DB_MAIN);
         if (keyscount == 0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = dbMemUsage(db, DICT_MAIN);
+        mem = dbMemUsage(db, DB_MAIN);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        unsigned long long expire_keys_count = dbSize(db, DICT_EXPIRES);
+        unsigned long long expire_keys_count = dbSize(db, DB_EXPIRES);
         if (expire_keys_count) {       
-            mem = dbMemUsage(db, DICT_EXPIRES);
+            mem = dbMemUsage(db, DB_EXPIRES);
             mh->db[mh->num_dbs].overhead_ht_expires = mem;
             mem_total+=mem;
         }
@@ -1547,7 +1547,7 @@ NULL
                 return;
             }
         }
-        if ((de = dbFind(c->db, c->argv[2]->ptr, DICT_MAIN)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
             addReplyNull(c);
             return;
         }

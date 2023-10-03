@@ -680,7 +680,7 @@ void defragKey(redisDb *db, dictEntry *de) {
     newsds = activeDefragSds(keysds);
     if (newsds) {
         dictSetKey(db->dict[slot], de, newsds);
-        if (dbSize(db, DICT_EXPIRES)) {
+        if (dbSize(db, DB_EXPIRES)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
@@ -1010,7 +1010,7 @@ void activeDefragCycle(void) {
 
             db = &server.db[current_db];
             cursor = 0;
-            slot = findSlotByKeyIndex(db, 1, DICT_MAIN);
+            slot = findSlotByKeyIndex(db, 1, DB_MAIN);
         }
         do {
             dict *d = db->dict[slot];
@@ -1030,7 +1030,7 @@ void activeDefragCycle(void) {
                                                 scanCallbackCountScanned,
                                                 &defragfns, NULL);
             if (!(cursor || expires_cursor))
-                slot = dbGetNextNonEmptySlot(db, slot, DICT_MAIN);
+                slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
 
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),

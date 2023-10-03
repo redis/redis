@@ -1306,7 +1306,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
-    unsigned long long int db_size = dbSize(db, DICT_MAIN);
+    unsigned long long int db_size = dbSize(db, DB_MAIN);
     if (db_size == 0) return 0;
 
     /* Write the SELECT DB opcode */
@@ -1316,7 +1316,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     written += res;
 
     /* Write the RESIZE DB opcode. */
-    unsigned long long expires_size = dbSize(db, DICT_EXPIRES);
+    unsigned long long expires_size = dbSize(db, DB_EXPIRES);
     if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
     written += res;
     if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
@@ -1324,7 +1324,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    dbit = dbIteratorInit(db, DICT_MAIN);
+    dbit = dbIteratorInit(db, DB_MAIN);
     int last_slot = -1;
     /* Iterate this DB writing every entry */
     while ((de = dbIteratorNext(dbit)) != NULL) {
@@ -3264,11 +3264,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            if (expandDb(db, db_size, DICT_MAIN) == C_ERR) {
+            if (expandDb(db, db_size, DB_MAIN) == C_ERR) {
                 serverLog(LL_WARNING, "OOM in dict try expand of main dict");
                 return C_ERR;
             }
-            if (expandDb(db, expires_size, DICT_EXPIRES) == C_ERR) {
+            if (expandDb(db, expires_size, DB_EXPIRES) == C_ERR) {
                 serverLog(LL_WARNING, "OOM in dict try expand of expire dict");
                 return C_ERR;
             }

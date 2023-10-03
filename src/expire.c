@@ -245,7 +245,7 @@ void activeExpireCycle(int type) {
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
-            if ((num = dbSize(db, DICT_EXPIRES)) == 0) {
+            if ((num = dbSize(db, DB_EXPIRES)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
@@ -275,7 +275,7 @@ void activeExpireCycle(int type) {
             long checked_buckets = 0;
 
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = dbScan(db, DICT_EXPIRES, db->expires_cursor, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
+                db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
                 if (db->expires_cursor == 0) {
                     break;
                 }

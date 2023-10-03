@@ -285,8 +285,8 @@ void computeDatasetDigest(unsigned char *final) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        if (dbSize(db, DICT_MAIN) == 0) continue;
-        dbIterator *dbit = dbIteratorInit(db, DICT_MAIN);
+        if (dbSize(db, DB_MAIN) == 0) continue;
+        dbIterator *dbit = dbIteratorInit(db, DB_MAIN);
 
         /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
@@ -603,7 +603,7 @@ NULL
         robj *val;
         char *strenc;
 
-        if ((de = dbFind(c->db, c->argv[2]->ptr, DICT_MAIN)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -655,7 +655,7 @@ NULL
         robj *val;
         sds key;
 
-        if ((de = dbFind(c->db, c->argv[2]->ptr, DICT_MAIN)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -711,7 +711,7 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        if (expandDb(c->db, keys, DICT_MAIN) == C_ERR) {
+        if (expandDb(c->db, keys, DB_MAIN) == C_ERR) {
             addReplyError(c, "OOM in dictTryExpand");
             return;
         }
@@ -759,7 +759,7 @@ NULL
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
             dictEntry *de;
-            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr, DICT_MAIN)) == NULL) ? NULL : dictGetVal(de);
+            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr, DB_MAIN)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -903,11 +903,11 @@ NULL
             full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DICT_MAIN);
+        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DB_MAIN);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DICT_EXPIRES);
+        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DB_EXPIRES);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
@@ -1934,7 +1934,7 @@ void logCurrentClient(client *cc, const char *title) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dbFind(cc->db, key->ptr, DICT_MAIN);
+        de = dbFind(cc->db, key->ptr, DB_MAIN);
         if (de) {
             val = dictGetVal(de);
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);

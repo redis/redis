@@ -967,8 +967,8 @@ typedef struct dbDictState {
 } dbDictState;
 
 typedef enum dbKeyType {
-    DICT_MAIN,
-    DICT_EXPIRES
+    DB_MAIN,
+    DB_EXPIRES
 } dbKeyType;
 
 /* Redis database representation. There are multiple databases identified
