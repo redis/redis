@@ -342,8 +342,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  *
  * The program is aborted if the key was not already present. */
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de) {
-    dict *d = db->dict[getKeySlot(key->ptr)];
-    if (!de) de = dictFind(d,key->ptr);
+    if (!de) de = dbFind(db, key->ptr, DB_MAIN);
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
 
@@ -363,6 +362,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
     }
+    dict *d = db->dict[getKeySlot(key->ptr)];
     dictSetVal(d, de, val);
 
     if (server.lazyfree_lazy_server_del) {

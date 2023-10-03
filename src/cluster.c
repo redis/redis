@@ -5227,7 +5227,6 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary) {
     if (sdslen(node->hostname) != 0) {
         ci = sdscatfmt(ci,",%s", node->hostname);
     }
-
     /* Don't expose aux fields to any clients yet but do allow them
      * to be persisted to nodes.conf */
     if (c == NULL) {

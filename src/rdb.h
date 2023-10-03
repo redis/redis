@@ -35,7 +35,6 @@
 
 /* TBD: include only necessary headers. */
 #include "server.h"
-#include "cluster.h"
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
