@@ -491,7 +491,7 @@ int getFairRandomSlot(redisDb *db, dbKeyType keyType) {
     return slot;
 }
 
-static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyType){
+static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyType) {
     if (keyType == DB_MAIN)
         return dictSize(db->dict[slot]);
     else if (keyType == DB_EXPIRES)
