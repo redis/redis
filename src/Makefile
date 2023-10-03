@@ -517,3 +517,12 @@ install: all
 
 uninstall:
 	rm -f $(INSTALL_BIN)/{$(REDIS_SERVER_NAME),$(REDIS_BENCHMARK_NAME),$(REDIS_CLI_NAME),$(REDIS_CHECK_RDB_NAME),$(REDIS_CHECK_AOF_NAME),$(REDIS_SENTINEL_NAME)}
+
+build-with-deps: persist-settings all
+
+.PHONY: build-with-deps
+
+clean-build-with-deps: distclean build-with-deps
+
+.PHONY: clean-build-with-deps
+
