@@ -2160,7 +2160,7 @@ int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_exp
                     serverLog(LL_WARNING, "Dict expansion failed for type :%s slot: %d",
                                 keyType == DB_MAIN ? "main" : "expires", i);
                     return C_ERR;
-                } else {
+                } else if (result == DICT_ERR) {
                     serverLog(LL_DEBUG, "Dict expansion skipped for type :%s slot: %d",
                                 keyType == DB_MAIN ? "main" : "expires", i);
                 }
