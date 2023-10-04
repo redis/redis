@@ -50,9 +50,11 @@ run_solo {defrag} {
             r config set maxmemory-policy allkeys-lru
 
             populate 700000 asdf1 150
+            populate 100 asdf1 150 0 false 1000
             populate 170000 asdf2 300
-            # Some volatile keys
-            populate 10000 asdf3 10 0 false 1000
+            populate 100 asdf2 300 0 false 1000
+
+            assert {[scan [regexp -inline {expires\=([\d]*)} [r info keyspace]] expires=%d] > 0}
             after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
             if {$::verbose} {
