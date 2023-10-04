@@ -297,9 +297,12 @@ int calculateKeySlot(sds key) {
 
 /* Return slot-specific dictionary for key based on key's hash slot when cluster mode is enabled, else 0.*/
 int getKeySlot(sds key) {
-    /* This is performance optimization, that uses pre-set slot id from the current command,
-     * in order to avoid calculation of the key hash. Code paths that are using keys, that can be from different slots,
-     * MUST unset current client's slot value before calling any db functions, otherwise wrong dictionary can be used. */
+    /* This is performance optimization that uses pre-set slot id from the current command,
+     * in order to avoid calculation of the key hash.
+     * This optimization is only used when current_client flag `CLIENT_EXECUTING_COMMAND` is set.
+     * It only gets set during the execution of command under `call` method. Other flows requesting
+     * the key slot would fallback to calculateKeySlot.
+     */
     if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
         return server.current_client->slot;
     }
