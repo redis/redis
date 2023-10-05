@@ -38,7 +38,7 @@ start_server {tags {"memefficiency external:skip"}} {
 
 run_solo {defrag} {
     proc test_active_defrag {type} {
-        if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
+    if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
             r config set hz 100
             r config set activedefrag no
@@ -161,20 +161,10 @@ run_solo {defrag} {
             }
             } ;# Active defrag - AOF loading
         }
-    }
-    }
+        r config set appendonly no
+        r config set key-load-delay 0
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
-        test_active_defrag "cluster"
-    }
-
-    start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
-        test_active_defrag "standalone"
-    }
-
-    start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
-        if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
-        test "Active defrag eval scripts" {
+        test "Active defrag eval scripts: $type" {
             r flushdb
             r script flush sync
             r config resetstat
@@ -185,7 +175,7 @@ run_solo {defrag} {
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
-            
+
             set n 50000
 
             # Populate memory with interleaving script-key pattern of same size
@@ -206,9 +196,9 @@ run_solo {defrag} {
                 puts "rss [s allocator_active]"
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
-            }                    
+            }
             assert_lessthan [s allocator_frag_ratio] 1.05
-            
+
             # Delete all the keys to create fragmentation
             for {set j 0} {$j < $n} {incr j} { $rd del k$j }
             for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
@@ -219,7 +209,7 @@ run_solo {defrag} {
                 puts "rss [s allocator_active]"
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
-            }                    
+            }
             assert_morethan [s allocator_frag_ratio] 1.4
 
             catch {r config set activedefrag yes} e
@@ -249,14 +239,14 @@ run_solo {defrag} {
                     puts "rss [s allocator_active]"
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
-                }                    
+                }
                 assert_lessthan_equal [s allocator_frag_ratio] 1.05
-            }                
+            }
             # Flush all script to make sure we don't crash after defragging them
             r script flush sync
         } {OK}
 
-        test "Active defrag big keys" {
+    test "Active defrag big keys: $type" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -384,8 +374,9 @@ run_solo {defrag} {
             assert {$digest eq $newdigest}
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
+    }
 
-        test "Active defrag big list" {
+    test "Active defrag big list: $type" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -487,7 +478,7 @@ run_solo {defrag} {
             r del biglist1 ;# coverage for quicklistBookmarksClear
         } {1}
 
-        test "Active defrag edge case" {
+        test "Active defrag edge case: $type" {
             # there was an edge case in defrag where all the slabs of a certain bin are exact the same
             # % utilization, with the exception of the current slab from which new allocations are made
             # if the current slab is lower in utilization the defragger would have ended up in stagnation,
@@ -590,5 +581,12 @@ run_solo {defrag} {
             }
         }
     }
+
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+        test_active_defrag "cluster"
+    }
+
+    start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+        test_active_defrag "standalone"
     }
 } ;# run_solo
