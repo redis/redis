@@ -8763,11 +8763,12 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             /* mark the handler as active to avoid reentrant loops.
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
+            int prev_active = sub->active;
             sub->active = 1;
             server.lazy_expire_disabled++;
             sub->notify_callback(&ctx, type, event, key);
             server.lazy_expire_disabled--;
-            sub->active = 0;
+            sub->active = prev_active;
             moduleFreeContext(&ctx);
         }
     }
