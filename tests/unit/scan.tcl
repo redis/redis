@@ -432,7 +432,7 @@ proc test_scan {type} {
     }
 }
 
-start_server {tags {"scan network"}} {
+start_server {tags {"scan network standalone"}} {
     test_scan "standalone"
 }
 
