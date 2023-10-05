@@ -826,7 +826,7 @@ static sds defrag_later_current_key = NULL;
 static unsigned long defrag_later_cursor = 0;
 
 /* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
-int defragLaterStep(redisDb *db, int slot, long long endtime) {
+int defragLaterStep(redisDb *db, long long endtime) {
     unsigned int iterations = 0;
     unsigned long long prev_defragged = server.stat_active_defrag_hits;
     unsigned long long prev_scanned = server.stat_active_defrag_scanned;
@@ -856,7 +856,7 @@ int defragLaterStep(redisDb *db, int slot, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(db->dict[slot], defrag_later_current_key);
+        dictEntry *de = dictFind(db->dict[calculateKeySlot(defrag_later_current_key)], defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
@@ -929,7 +929,6 @@ void activeDefragCycle(void) {
     static int current_db = -1;
     static unsigned long cursor = 0;
     static unsigned long expires_cursor = 0;
-    static int scan_pending = 1;
     static redisDb *db = NULL;
     static long long start_scan, start_stat;
     unsigned int iterations = 0;
@@ -950,7 +949,6 @@ void activeDefragCycle(void) {
             current_db = -1;
             cursor = 0;
             slot = -1;
-            scan_pending = 1;
             db = NULL;
             goto update_metrics;
         }
@@ -979,9 +977,12 @@ void activeDefragCycle(void) {
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
         if (!cursor && !expires_cursor && (slot < 0)) {
-            if (db) {
-                serverAssert(listLength(db->defrag_later) == 0);
+            /* finish any leftovers from previous db before moving to the next one */
+            if (db && defragLaterStep(db, endtime)) {
+                quit = 1; /* time is up, we didn't finish all the work */
+                break; /* this will exit the function and we'll continue on the next cycle */
             }
+
             /* Move on to next database, and stop if we reached the last one. */
             if (++current_db >= server.dbnum) {
                 /* defrag other items not part of the db / keys */
@@ -998,7 +999,6 @@ void activeDefragCycle(void) {
                 current_db = -1;
                 cursor = 0;
                 slot = -1;
-                scan_pending = 1;
                 db = NULL;
                 memset(&ctx, -1, sizeof(ctx));
                 server.active_defrag_running = 0;
@@ -1023,31 +1023,23 @@ void activeDefragCycle(void) {
         do {
             dict *d = db->dict[slot];
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
-            if (defragLaterStep(db, slot, endtime)) {
+            if (defragLaterStep(db, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
             /* Scan the keyspace dict unless we're scanning the expire dict. */
-            if (scan_pending && !expires_cursor)
+            if (!expires_cursor)
                 cursor = dictScanDefrag(d, cursor, defragScanCallback,
                                         &defragfns, &ctx);
             /* When done scanning the keyspace dict, we scan the expire dict. */
-            if (scan_pending && !cursor)
+            if (!cursor)
                 expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
                                                 scanCallbackCountScanned,
                                                 &defragfns, NULL);
             if (!(cursor || expires_cursor)) {
-                scan_pending = 0;
-                /* finish any leftovers from previous slot before moving to the next one */
-                if (db && defragLaterStep(db, slot, endtime)) {
-                    quit = 1; /* time is up, we didn't finish all the work */
-                    break; /* this will exit the function and we'll continue on the next cycle */
-                } else {
-                    slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
-                    ctx.slot = slot;
-                    scan_pending = 1;
-                }
+                slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
+                ctx.slot = slot;
             }
     
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
