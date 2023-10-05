@@ -246,7 +246,7 @@ run_solo {defrag} {
             r script flush sync
         } {OK}
 
-    test "Active defrag big keys: $type" {
+        test "Active defrag big keys: $type" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -374,9 +374,8 @@ run_solo {defrag} {
             assert {$digest eq $newdigest}
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
-    }
 
-    test "Active defrag big list: $type" {
+        test "Active defrag big list: $type" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -580,6 +579,7 @@ run_solo {defrag} {
                 r save ;# saving an rdb iterates over all the data / pointers
             }
         }
+    }
     }
 
     start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
