@@ -1037,9 +1037,10 @@ void activeDefragCycle(void) {
                 expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
                                                 scanCallbackCountScanned,
                                                 &defragfns, NULL);
-            if (!(cursor || expires_cursor)) {
-                slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
-                ctx.slot = slot;
+            /* Move to the next slot only if regular and large item scanning has been completed. */
+            if (!(cursor || expires_cursor) && listLength(db->defrag_later) == 0) {
+                    slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
+                    ctx.slot = slot;                   
             }
     
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
