@@ -949,6 +949,7 @@ void activeDefragCycle(void) {
             defrag_later_cursor = 0;
             current_db = -1;
             cursor = 0;
+            expires_cursor = 0;
             slot = -1;
             defrag_later_item_in_progress = 0;
             db = NULL;
@@ -1000,6 +1001,7 @@ void activeDefragCycle(void) {
                 start_scan = now;
                 current_db = -1;
                 cursor = 0;
+                expires_cursor = 0;
                 slot = -1;
                 defrag_later_item_in_progress = 0;
                 db = NULL;
@@ -1019,6 +1021,7 @@ void activeDefragCycle(void) {
 
             db = &server.db[current_db];
             cursor = 0;
+            expires_cursor = 0;
             slot = findSlotByKeyIndex(db, 1, DB_MAIN);
             defrag_later_item_in_progress = 0;
             ctx.db = db;
