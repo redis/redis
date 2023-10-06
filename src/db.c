@@ -488,23 +488,13 @@ unsigned long long cumulativeKeyCountRead(redisDb *db, int slot, dbKeyType keyTy
 }
 
 /* Returns fair random slot, probability of each slot being returned is proportional to the number of elements that slot dictionary holds.
- * Implementation uses binary search on top of binary index tree.
  * This function guarantees that it returns a slot whose dict is non-empty, unless the entire db is empty.
- * Time complexity of this function is O(log^2(CLUSTER_SLOTS)). */
+ * Time complexity of this function is O(log(CLUSTER_SLOTS)). */
 int getFairRandomSlot(redisDb *db, dbKeyType keyType) {
     unsigned long target = dbSize(db, keyType) ? (randomULong() % dbSize(db, keyType)) + 1 : 0;
     int slot = findSlotByKeyIndex(db, target, keyType);
     return slot;
 }
-
-static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyType) {
-    if (keyType == DB_MAIN)
-        return dictSize(db->dict[slot]);
-    else if (keyType == DB_EXPIRES)
-        return dictSize(db->expires[slot]);
-    else
-        serverAssert(0);
-}   
 
 /* Finds a slot containing target element in a key space ordered by slot id.
  * Consider this example. Slots are represented by brackets and keys by dots:
@@ -516,27 +506,32 @@ static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyT
  * In this case slot #3 contains key that we are trying to find.
  * 
  * This function is 1 based and the range of the target is [1..dbSize], dbSize inclusive.
- * Time complexity of this function is O(log^2(CLUSTER_SLOTS))
- * */
+ * 
+ * To find the slot, we start with the root node of the binary index tree and search through its children from the highest index (2^14 in our case) to the lowest index. 
+ * At each node, we check if the target value is greater than the node's value. 
+ * If it is, we remove the node's value from the target and recursively search for the new target using the current node as the parent.
+ * Time complexity of this function is O(log(CLUSTER_SLOTS))
+ */
 int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType) {
     if (!server.cluster_enabled || dbSize(db, keyType) == 0) return 0;
     serverAssert(target <= dbSize(db, keyType));
-    int lo = 0, hi = CLUSTER_SLOTS - 1;
-    /* We use binary search to find a slot, we are allowed to do this, because we have a quick way to find a total number of keys
-     * up until certain slot, using binary index tree. */
-    while (lo <= hi) {
-        int mid = lo + (hi - lo) / 2;
-        unsigned long keys_up_to_mid = cumulativeKeyCountRead(db, mid, keyType); /* Total number of keys up until a given slot (inclusive). */
-        unsigned long keys_in_mid = dictSizebySlot(db, mid, keyType);
-        if (target > keys_up_to_mid) { /* Target is to the right from mid. */
-            lo = mid + 1;
-        } else if (target <= keys_up_to_mid - keys_in_mid)  { /* Target is to the left from mid. */
-            hi = mid - 1;
-        } else { /* Located target. */
-            return mid;
+
+    int result = 0, bit_mask = 1 << CLUSTER_SLOT_MASK_BITS;
+    for (int i = bit_mask; i != 0; i >>= 1) {
+        int current = result + i;
+        /* When the target index is greater than 'current' node value the we will update
+         * the target and serach in the 'current' node tree. */
+        if (target > db->sub_dict[keyType].slot_size_index[current]) {
+            target -= db->sub_dict[keyType].slot_size_index[current];
+            result = current;
         }
     }
-    serverPanic("Unable to find a slot that contains target key.");
+    /* After the search if the target index is non zero, the target key at the index will be in the next node. */
+    if (target != 0) {
+        result++;
+    }
+
+    return result-1; /* Unlike BIT, slots are 0-based, so we need to subtract 1. */
 }
 
 /* Helper for sync and async delete. */
