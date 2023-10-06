@@ -826,7 +826,7 @@ static sds defrag_later_current_key = NULL;
 static unsigned long defrag_later_cursor = 0;
 
 /* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
-int defragLaterStep(redisDb *db, long long endtime) {
+int defragLaterStep(redisDb *db, int slot, long long endtime) {
     unsigned int iterations = 0;
     unsigned long long prev_defragged = server.stat_active_defrag_hits;
     unsigned long long prev_scanned = server.stat_active_defrag_scanned;
@@ -856,7 +856,7 @@ int defragLaterStep(redisDb *db, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(db->dict[calculateKeySlot(defrag_later_current_key)], defrag_later_current_key);
+        dictEntry *de = dictFind(db->dict[slot], defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
@@ -978,7 +978,7 @@ void activeDefragCycle(void) {
         /* if we're not continuing a scan from the last call or loop, start a new one */
         if (!cursor && !expires_cursor && (slot < 0)) {
             /* finish any leftovers from previous db before moving to the next one */
-            if (db && defragLaterStep(db, endtime)) {
+            if (db && defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
@@ -1023,7 +1023,7 @@ void activeDefragCycle(void) {
         do {
             dict *d = db->dict[slot];
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
-            if (defragLaterStep(db, endtime)) {
+            if (defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
