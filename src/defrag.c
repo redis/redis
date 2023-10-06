@@ -927,6 +927,7 @@ void activeDefragCycle(void) {
     static defragCtx ctx;
     static int slot = -1;
     static int current_db = -1;
+    static int defrag_later_item_in_progress = 0;
     static unsigned long cursor = 0;
     static unsigned long expires_cursor = 0;
     static redisDb *db = NULL;
@@ -949,6 +950,7 @@ void activeDefragCycle(void) {
             current_db = -1;
             cursor = 0;
             slot = -1;
+            defrag_later_item_in_progress = 0;
             db = NULL;
             goto update_metrics;
         }
@@ -999,6 +1001,7 @@ void activeDefragCycle(void) {
                 current_db = -1;
                 cursor = 0;
                 slot = -1;
+                defrag_later_item_in_progress = 0;
                 db = NULL;
                 memset(&ctx, -1, sizeof(ctx));
                 server.active_defrag_running = 0;
@@ -1017,6 +1020,7 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
             slot = findSlotByKeyIndex(db, 1, DB_MAIN);
+            defrag_later_item_in_progress = 0;
             ctx.db = db;
             ctx.slot = slot;
         }
@@ -1028,19 +1032,25 @@ void activeDefragCycle(void) {
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
-            /* Scan the keyspace dict unless we're scanning the expire dict. */
-            if (!expires_cursor)
-                cursor = dictScanDefrag(d, cursor, defragScanCallback,
-                                        &defragfns, &ctx);
-            /* When done scanning the keyspace dict, we scan the expire dict. */
-            if (!cursor)
-                expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
-                                                scanCallbackCountScanned,
-                                                &defragfns, NULL);
-            /* Move to the next slot only if regular and large item scanning has been completed. */
-            if (!(cursor || expires_cursor) && listLength(db->defrag_later) == 0) {
-                    slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
-                    ctx.slot = slot;                   
+            if (!defrag_later_item_in_progress) {
+                /* Scan the keyspace dict unless we're scanning the expire dict. */
+                if (!expires_cursor)
+                    cursor = dictScanDefrag(d, cursor, defragScanCallback,
+                                            &defragfns, &ctx);
+                /* When done scanning the keyspace dict, we scan the expire dict. */
+                if (!cursor)
+                    expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
+                                                    scanCallbackCountScanned,
+                                                    &defragfns, NULL);
+            }
+            if (!(cursor || expires_cursor)) {
+                /* Move to the next slot only if regular and large item scanning has been completed. */
+                if (listLength(db->defrag_later) > 0) {
+                    defrag_later_item_in_progress = 1;
+                    continue;
+                }
+                slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
+                ctx.slot = slot;                   
             }
     
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys

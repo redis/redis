@@ -281,6 +281,14 @@ run_solo {defrag} {
                 $rd read ; # Discard replies
             }
 
+            # create some small items (effective in cluster-enabled)
+            r set "{bighash}smallitem" val
+            r set "{biglist}smallitem" val
+            r set "{bigzset}smallitem" val
+            r set "{bigset}smallitem" val
+            r set "{bigstream}smallitem" val
+
+
             set expected_frag 1.7
             if {$::accurate} {
                 # scale the hash to 1m fields in order to have a measurable the latency
@@ -301,7 +309,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 500010
+            assert_equal [r dbsize] 500015
 
             # create some fragmentation
             for {set j 0} {$j < 500000} {incr j 2} {
@@ -310,7 +318,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 250010
+            assert_equal [r dbsize] 250015
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms
