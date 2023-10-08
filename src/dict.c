@@ -42,6 +42,7 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <math.h>
 
 #include "dict.h"
 #include "zmalloc.h"
@@ -60,14 +61,16 @@ static unsigned int dict_force_resize_ratio = 5;
 
 /* -------------------------- types ----------------------------------------- */
 
+typedef union {
+    void *val;
+    uint64_t u64;
+    int64_t s64;
+    double d;
+} dictValue;
+
 struct dictEntry {
     void *key;
-    union {
-        void *val;
-        uint64_t u64;
-        int64_t s64;
-        double d;
-    } v;
+    dictValue v;
     struct dictEntry *next;     /* Next entry in the same hash bucket. */
     void *metadata[];           /* An arbitrary number of bytes (starting at a
                                  * pointer-aligned address) of size as returned
@@ -79,6 +82,12 @@ typedef struct {
     dictEntry *next;
 } dictEntryNoValue;
 
+typedef struct {
+    void *key;
+    dictValue v;
+    void *metadata[];
+} dictEntryNoNext;
+
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *d);
@@ -86,7 +95,7 @@ static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntry **dictGetNextRef(dictEntry *de);
-static void dictSetNext(dictEntry *de, dictEntry *next);
+static dictEntry *dictSetNext(dict *d, dictEntry *de, dictEntry *next);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -117,12 +126,21 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
 /* --------------------- dictEntry pointer bit tricks ----------------------  */
 
 /* The 3 least significant bits in a pointer to a dictEntry determines what the
- * pointer actually points to. If the least bit is set, it's a key. Otherwise,
- * the bit pattern of the least 3 significant bits mark the kind of entry. */
+ * pointer actually points to. If the least bit is set, it's a key without an
+ * entry. Otherwise, the the least 3 significant bits mark the kind of entry.
+ *
+ *     Pointer | What it actually points to
+ *     --------|----------------------------------------------
+ *     ....000 | dictEntry { key, value, next, (metadata) }
+ *     ....100 | dictEntryNoNext { key, value, (metadata) }
+ *     ....010 | dictEntryNoValue { key, next }
+ *     ....xx1 | key
+ */
 
 #define ENTRY_PTR_MASK     7 /* 111 */
 #define ENTRY_PTR_NORMAL   0 /* 000 */
 #define ENTRY_PTR_NO_VALUE 2 /* 010 */
+#define ENTRY_PTR_NO_NEXT  4 /* 100 */
 
 /* Returns 1 if the entry pointer is a pointer to a key, rather than to an
  * allocated entry. Returns 0 otherwise. */
@@ -142,12 +160,10 @@ static inline int entryIsNoValue(const dictEntry *de) {
     return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NO_VALUE;
 }
 
-/* Creates an entry without a value field. */
-static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
-    dictEntryNoValue *entry = zmalloc(sizeof(*entry));
-    entry->key = key;
-    entry->next = next;
-    return (dictEntry *)(void *)((uintptr_t)(void *)entry | ENTRY_PTR_NO_VALUE);
+/* Returns 1 if the entry is a special entry with key and value, but without a
+ * next pointer. Returns 0 otherwise. */
+static inline int entryIsNoNext(const dictEntry *de) {
+    return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NO_NEXT;
 }
 
 static inline dictEntry *encodeMaskedPtr(const void *ptr, unsigned int bits) {
@@ -166,9 +182,147 @@ static inline dictEntryNoValue *decodeEntryNoValue(const dictEntry *de) {
     return decodeMaskedPtr(de);
 }
 
-/* Returns 1 if the entry has a value field and 0 otherwise. */
-static inline int entryHasValue(const dictEntry *de) {
-    return entryIsNormal(de);
+/* Decodes the pointer to an entry without next, when you know it is an entry
+ * without next. Hint: Use entryIsNoNext to check. */
+static inline dictEntryNoNext *decodeEntryNoNext(const dictEntry *de) {
+    return decodeMaskedPtr(de);
+}
+
+/* Returns the value field in an entry which has one. Due to 'const', this is
+ * almost a copy of entryValueRef(). */
+static inline dictValue entryValue(const dictEntry *de) {
+    if (entryIsNoNext(de)) return decodeEntryNoNext(de)->v;
+    assert(entryIsNormal(de));
+    return de->v;
+}
+
+/* Returns a pointer to the value field in an entry which has one. */
+static inline dictValue *entryValueRef(dictEntry *de) {
+    if (entryIsNoNext(de)) return &decodeEntryNoNext(de)->v;
+    assert(entryIsNormal(de));
+    return &de->v;
+}
+
+/* Creates a dict entry and sets the key and next pointers. */
+static dictEntry *createEntry(dict *d, void *key, dictEntry *next) {
+    size_t metasize = dictEntryMetadataSize(d);
+    dictEntry *de;
+    if (d->type->no_value) {
+        assert(!metasize); /* Entry metadata + no value not supported. */
+        if (d->type->keys_are_odd && !next) {
+            /* We can store the key directly in the destination bucket without the
+             * allocated entry.
+             *
+             * TODO: Add a flag 'keys_are_even' and if set, we can use this
+             * optimization for these dicts too. We can set the LSB bit when
+             * stored as a dict entry and clear it again when we need the key
+             * back. */
+            de = key;
+            assert(entryIsKey(de));
+        } else {
+            /* Allocate an entry without value. */
+            dictEntryNoValue *entry = zmalloc(sizeof(*entry));
+            entry->key = key;
+            entry->next = next;
+            de = encodeMaskedPtr(entry, ENTRY_PTR_NO_VALUE);
+        }
+    } else if (!next) {
+        /* Allocate an entry without next. */
+        dictEntryNoNext *entry = zmalloc(sizeof(*entry) + metasize);
+        entry->key = key;
+        de = encodeMaskedPtr(entry, ENTRY_PTR_NO_NEXT);
+    } else {
+        /* Allocate a normal dictEntry. */
+        de = zmalloc(sizeof(*de) + metasize);
+        assert(entryIsNormal(de));
+        de->key = key;
+        de->next = next;
+    }
+    if (metasize > 0) {
+        memset(dictEntryMetadata(de), 0, metasize);
+    }
+    return de;
+}
+
+/* Returns the 'next' field of the entry or NULL if the entry doesn't have a
+ * 'next' field. */
+static dictEntry *dictGetNext(const dictEntry *de) {
+    if (entryIsKey(de)) return NULL;
+    if (entryIsNoNext(de)) return NULL;
+    if (entryIsNoValue(de)) return decodeEntryNoValue(de)->next;
+    assert(entryIsNormal(de));
+    return de->next;
+}
+
+/* Returns a pointer to the 'next' field in the entry or NULL if the entry
+ * doesn't have a next field. */
+static dictEntry **dictGetNextRef(dictEntry *de) {
+    if (entryIsKey(de)) return NULL;
+    if (entryIsNoNext(de)) return NULL;
+    if (entryIsNoValue(de)) return &decodeEntryNoValue(de)->next;
+    assert(entryIsNormal(de));
+    return &de->next;
+}
+
+/* Sets the 'next' field and possibly reallocates the entry. Returns the entry
+ * with the next field set. */
+static dictEntry *dictSetNext(dict *d, dictEntry *de, dictEntry *next) {
+    if (entryIsKey(de)) {
+        if (!next) return de;
+        /* We need an allocated an entry with a next field. */
+        void *key = de;
+        dictEntryNoValue *entry = zmalloc(sizeof(*entry));
+        entry->key = key;
+        entry->next = next;
+        de = encodeMaskedPtr(entry, ENTRY_PTR_NO_VALUE);
+    } else if (entryIsNoValue(de)) {
+        dictEntryNoValue *entry = decodeEntryNoValue(de);
+        if (!next && d->type->keys_are_odd) {
+            /* The key alone can serve as an entry. Free the entry. */
+            void *key = entry->key;
+            zfree(entry);
+            de = key;
+            assert(entryIsKey(de));
+        } else {
+            entry->next = next;
+        }
+    } else if (entryIsNoNext(de)) {
+        if (!next) return de;
+        /* Convert to normal entry */
+        dictEntryNoNext *entry = decodeEntryNoNext(de);
+        size_t metasize = dictEntryMetadataSize(d);
+        dictEntry *newde = zmalloc(sizeof(*newde) + metasize);
+        newde->key = entry->key;
+        newde->v.u64 = entry->v.u64;
+        newde->next = next;
+        if (metasize) {
+            memcpy(&newde->metadata, &entry->metadata, metasize);
+            if (d->type->afterReplaceEntry)
+                d->type->afterReplaceEntry(d, newde);
+        }
+        zfree(entry);
+        de = newde;
+    } else {
+        assert(entryIsNormal(de));
+        if (next) {
+            de->next = next;
+        } else {
+            /* Convert to dictEntryNoNext. */
+            size_t metasize = dictEntryMetadataSize(d);
+            dictEntryNoNext *entry = zmalloc(sizeof(*entry) + metasize);
+            entry->key = de->key;
+            entry->v.u64 = de->v.u64;
+            dictEntry *newde = encodeMaskedPtr(entry, ENTRY_PTR_NO_NEXT);
+            if (metasize) {
+                memcpy(&entry->metadata, &de->metadata, metasize);
+                if (d->type->afterReplaceEntry)
+                    d->type->afterReplaceEntry(d, newde);
+            }
+            zfree(de);
+            de = newde;
+        }
+    }
+    return de;
 }
 
 /* ----------------------------- API implementation ------------------------- */
@@ -330,31 +484,7 @@ int dictRehash(dict *d, int n) {
                  * to get the bucket index in the smaller table. */
                 h = d->rehashidx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
             }
-            if (d->type->no_value) {
-                if (d->type->keys_are_odd && !d->ht_table[1][h]) {
-                    /* Destination bucket is empty and we can store the key
-                     * directly without an allocated entry. Free the old entry
-                     * if it's an allocated entry.
-                     *
-                     * TODO: Add a flag 'keys_are_even' and if set, we can use
-                     * this optimization for these dicts too. We can set the LSB
-                     * bit when stored as a dict entry and clear it again when
-                     * we need the key back. */
-                    assert(entryIsKey(key));
-                    if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
-                    de = key;
-                } else if (entryIsKey(de)) {
-                    /* We don't have an allocated entry but we need one. */
-                    de = createEntryNoValue(key, d->ht_table[1][h]);
-                } else {
-                    /* Just move the existing entry to the destination table and
-                     * update the 'next' field. */
-                    assert(entryIsNoValue(de));
-                    dictSetNext(de, d->ht_table[1][h]);
-                }
-            } else {
-                dictSetNext(de, d->ht_table[1][h]);
-            }
+            de = dictSetNext(d, de, d->ht_table[1][h]);
             d->ht_table[1][h] = de;
             d->ht_used[0]--;
             d->ht_used[1]++;
@@ -466,45 +596,14 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
  * used instead. */
 dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
     dictEntry **bucket = position; /* It's a bucket, but the API hides that. */
-    dictEntry *entry;
     /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
      * Assert that the provided bucket is the right table. */
     int htidx = dictIsRehashing(d) ? 1 : 0;
     assert(bucket >= &d->ht_table[htidx][0] &&
            bucket <= &d->ht_table[htidx][DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
-    size_t metasize = dictEntryMetadataSize(d);
-    if (d->type->no_value) {
-        assert(!metasize); /* Entry metadata + no value not supported. */
-        if (d->type->keys_are_odd && !*bucket) {
-            /* We can store the key directly in the destination bucket without the
-             * allocated entry.
-             *
-             * TODO: Add a flag 'keys_are_even' and if set, we can use this
-             * optimization for these dicts too. We can set the LSB bit when
-             * stored as a dict entry and clear it again when we need the key
-             * back. */
-            entry = key;
-            assert(entryIsKey(entry));
-        } else {
-            /* Allocate an entry without value. */
-            entry = createEntryNoValue(key, *bucket);
-        }
-    } else {
-        /* Allocate the memory and store the new entry.
-         * Insert the element in top, with the assumption that in a database
-         * system it is more likely that recently added entries are accessed
-         * more frequently. */
-        entry = zmalloc(sizeof(*entry) + metasize);
-        assert(entryIsNormal(entry)); /* Check alignment of allocation */
-        if (metasize > 0) {
-            memset(dictEntryMetadata(entry), 0, metasize);
-        }
-        entry->key = key;
-        entry->next = *bucket;
-    }
+    dictEntry *entry = createEntry(d, key, *bucket);
     *bucket = entry;
     d->ht_used[htidx]++;
-
     return entry;
 }
 
@@ -555,7 +654,6 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     uint64_t h, idx;
-    dictEntry *he, *prevHe;
     int table;
 
     /* dict is empty */
@@ -564,26 +662,53 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
 
+    /* When we delete an entry, we need to update the 'next' field in the
+     * previous entry. When we set the next field, it may happen that the
+     * previous entry is reallocated, so we need to update the pointer to it. We
+     * keep this pointer in 'prevref'.
+     *
+     * Before deleting 'he':
+     *
+     *     ht_table[i][h]      prev              he
+     *       +--------+        +--------+        +-------+
+     *       |   *------------>| key    |    ,-->| key   |
+     *       +--------+        | value  |   /    | value |
+     *           ^             | next -----'     +-------+
+     *           |             +--------+
+     *          prevref
+     *
+     * After deleting 'he':
+     *
+     *     ht_table[i][h]      prev (reallocated, without next field)
+     *       +--------+        +--------+
+     *       |   *------------>| key    |
+     *       +--------+        | value  |
+     *           ^             +--------+
+     *           |
+     *          prevref (updated when prev is reallocated)
+     */
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        he = d->ht_table[table][idx];
-        prevHe = NULL;
-        while(he) {
+        dictEntry **ref = &d->ht_table[table][idx];
+        dictEntry **prevref = NULL;
+        while (ref && *ref) {
+            dictEntry *he = *ref;
             void *he_key = dictGetKey(he);
             if (key == he_key || dictCompareKeys(d, key, he_key)) {
                 /* Unlink the element from the list */
-                if (prevHe)
-                    dictSetNext(prevHe, dictGetNext(he));
+                dictEntry *next = dictGetNext(he);
+                if (prevref)
+                    *prevref = dictSetNext(d, *prevref, next);
                 else
-                    d->ht_table[table][idx] = dictGetNext(he);
+                    d->ht_table[table][idx] = next;
                 if (!nofree) {
                     dictFreeUnlinkedEntry(d, he);
                 }
                 d->ht_used[table]--;
                 return he;
             }
-            prevHe = he;
-            he = dictGetNext(he);
+            prevref = ref;
+            ref = dictGetNextRef(he);
         }
         if (!dictIsRehashing(d)) break;
     }
@@ -720,14 +845,16 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         dictEntry **ref = &d->ht_table[table][idx];
+        dictEntry **prevref = NULL;
         while (ref && *ref) {
             void *de_key = dictGetKey(*ref);
             if (key == de_key || dictCompareKeys(d, key, de_key)) {
                 *table_index = table;
-                *plink = ref;
+                *plink = prevref ? prevref : ref;
                 dictPauseRehashing(d);
                 return *ref;
             }
+            prevref = ref;
             ref = dictGetNextRef(*ref);
         }
         if (!dictIsRehashing(d)) return NULL;
@@ -738,7 +865,14 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
 void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table_index) {
     if (he == NULL) return;
     d->ht_used[table_index]--;
-    *plink = dictGetNext(he);
+    if (*plink == he) {
+        /* plink points to the bucket. There's no prev entry. */
+        *plink = dictGetNext(he);
+    } else {
+        /* plink points to the entry before the entry to be removed. */
+        assert(dictGetNext(*plink) == he);
+        *plink = dictSetNext(d, *plink, dictGetNext(he));
+    }
     dictFreeKey(d, he);
     dictFreeVal(d, he);
     if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
@@ -754,111 +888,115 @@ void dictSetKey(dict *d, dictEntry* de, void *key) {
 }
 
 void dictSetVal(dict *d, dictEntry *de, void *val) {
-    assert(entryHasValue(de));
-    de->v.val = d->type->valDup ? d->type->valDup(d, val) : val;
+    entryValueRef(de)->val = d->type->valDup ? d->type->valDup(d, val) : val;
 }
 
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val) {
-    assert(entryHasValue(de));
-    de->v.s64 = val;
+    entryValueRef(de)->s64 = val;
 }
 
 void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val) {
-    assert(entryHasValue(de));
-    de->v.u64 = val;
+    entryValueRef(de)->u64 = val;
 }
 
 void dictSetDoubleVal(dictEntry *de, double val) {
-    assert(entryHasValue(de));
-    de->v.d = val;
+    entryValueRef(de)->d = val;
 }
 
 int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val) {
-    assert(entryHasValue(de));
-    return de->v.s64 += val;
+    return entryValueRef(de)->s64 += val;
 }
 
 uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val) {
-    assert(entryHasValue(de));
-    return de->v.u64 += val;
+    return entryValueRef(de)->u64 += val;
 }
 
 double dictIncrDoubleVal(dictEntry *de, double val) {
-    assert(entryHasValue(de));
-    return de->v.d += val;
+    return entryValueRef(de)->d += val;
 }
 
 /* A pointer to the metadata section within the dict entry. */
 void *dictEntryMetadata(dictEntry *de) {
-    assert(entryHasValue(de));
+    if (entryIsNoNext(de)) {
+        dictEntryNoNext *entry_no_next = decodeEntryNoNext(de);
+        return &entry_no_next->metadata;
+    }
+    assert(entryIsNormal(de));
     return &de->metadata;
 }
 
 void *dictGetKey(const dictEntry *de) {
     if (entryIsKey(de)) return (void*)de;
     if (entryIsNoValue(de)) return decodeEntryNoValue(de)->key;
+    if (entryIsNoNext(de)) return decodeEntryNoNext(de)->key;
+    assert(entryIsNormal(de));
     return de->key;
 }
 
 void *dictGetVal(const dictEntry *de) {
-    assert(entryHasValue(de));
-    return de->v.val;
+    return entryValue(de).val;
 }
 
 int64_t dictGetSignedIntegerVal(const dictEntry *de) {
-    assert(entryHasValue(de));
-    return de->v.s64;
+    return entryValue(de).s64;
 }
 
 uint64_t dictGetUnsignedIntegerVal(const dictEntry *de) {
-    assert(entryHasValue(de));
-    return de->v.u64;
+    return entryValue(de).u64;
 }
 
 double dictGetDoubleVal(const dictEntry *de) {
-    assert(entryHasValue(de));
-    return de->v.d;
+    return entryValue(de).d;
 }
 
 /* Returns a mutable reference to the value as a double within the entry. */
 double *dictGetDoubleValPtr(dictEntry *de) {
-    assert(entryHasValue(de));
-    return &de->v.d;
-}
-
-/* Returns the 'next' field of the entry or NULL if the entry doesn't have a
- * 'next' field. */
-static dictEntry *dictGetNext(const dictEntry *de) {
-    if (entryIsKey(de)) return NULL; /* there's no next */
-    if (entryIsNoValue(de)) return decodeEntryNoValue(de)->next;
-    return de->next;
-}
-
-/* Returns a pointer to the 'next' field in the entry or NULL if the entry
- * doesn't have a next field. */
-static dictEntry **dictGetNextRef(dictEntry *de) {
-    if (entryIsKey(de)) return NULL;
-    if (entryIsNoValue(de)) return &decodeEntryNoValue(de)->next;
-    return &de->next;
-}
-
-static void dictSetNext(dictEntry *de, dictEntry *next) {
-    assert(!entryIsKey(de));
-    if (entryIsNoValue(de)) {
-        dictEntryNoValue *entry = decodeEntryNoValue(de);
-        entry->next = next;
-    } else {
-        de->next = next;
-    }
+    return &entryValueRef(de)->d;
 }
 
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    return dictSize(d) * sizeof(dictEntry) +
-        dictSlots(d) * sizeof(dictEntry*);
+    /* Since some entries contain a 'next' pointer and some don't, the memory
+     * usage of the dict depends on the number of the different kinds of
+     * entries. We calculate the statistically expected number of empty slots
+     * and use this to calculate the number of each kind of entries.
+     *
+     * The reasoning below was inspired by the answer to this question:
+     * https://stackoverflow.com/questions/22354914/expected-number-of-empty-slots-when-hashing
+     *
+     * If the number of keys is n and the number of slots is t, the expected
+     * number of empty slots is E = t * P, where P is the probability that each
+     * single slot ends up empty. The probability Q that a single key does not
+     * land in this slot is Q = (t - 1) / t.
+     *
+     * Since there are n keys, the probability P that no key lands in a fixed
+     * slot is P = Q ^ n.
+     *
+     * Summing up, E = t * ((t - 1)/t)^n.
+     */
+    unsigned long n = dictSize(d), t = dictSlots(d);
+    double E = t * pow((t - 1)/(double)t, n);
+    double num_entries_without_next = t - E; /* One per non-empty slot */
+    double num_entries_with_next = n - num_entries_without_next;
+    size_t ht_size = dictSlots(d) * sizeof(dictEntry*); /* the table itself */
+    if (!d->type->no_value) {
+        /* A dict with keys and values. */
+        return num_entries_with_next * sizeof(dictEntry) +
+            num_entries_without_next * sizeof(dictEntryNoNext) +
+            ht_size;
+    } else if (d->type->keys_are_odd) {
+        /* No values. Keys without 'next' have no allocated entry. */
+        return num_entries_with_next * sizeof(dictEntryNoValue) + ht_size;
+    } else {
+        /* All keys have a dictEntryNoValue, even if 'next' is NULL. */
+        return dictSize(d) * sizeof(dictEntryNoValue) + ht_size;
+    }
 }
 
+/* This is inaccurate. The size of an entry depends on the type of dict and the
+ * number of collisions. TODO: Delete this function and use dictMemUsage()
+ * instead. */
 size_t dictEntryMemUsage(void) {
     return sizeof(dictEntry);
 }
