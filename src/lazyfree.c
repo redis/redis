@@ -6,66 +6,55 @@
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
 
+/* lazyfree generic function is to call free function, then decrease
+ * lazyfree_objects and increase lazyfreed_objects by specific size. */
+#define lazyfreeGeneric(freeFunction, arg, size) do {  \
+    size_t original_size = size;                       \
+    freeFunction(arg);                                 \
+    atomicDecr(lazyfree_objects, original_size);       \
+    atomicIncr(lazyfreed_objects, original_size);      \
+} while (0)
+
+#define lazyfreeDict(d) lazyfreeGeneric(dictRelease, d, dictSize(d))
+#define lazyfreeList(l) lazyfreeGeneric(listRelease, l, listLength(l))
+#define lazyfreeRax(r)  lazyfreeGeneric(raxFree, r, raxSize(r))
+
 /* Release objects from the lazyfree thread. It's just decrRefCount()
  * updating the count of objects to release. */
-void lazyfreeFreeObject(void *args[]) {
-    robj *o = (robj *) args[0];
-    decrRefCount(o);
-    atomicDecr(lazyfree_objects,1);
-    atomicIncr(lazyfreed_objects,1);
+void lazyfreeObject(void *args[]) {
+    lazyfreeGeneric(decrRefCount, (robj *)args[0], 1);
 }
 
 /* Release a database from the lazyfree thread. The 'db' pointer is the
  * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. */
-void lazyfreeFreeDatabase(void *args[]) {
-    dict *ht1 = (dict *) args[0];
-    dict *ht2 = (dict *) args[1];
-
-    size_t numkeys = dictSize(ht1);
-    dictRelease(ht1);
-    dictRelease(ht2);
-    atomicDecr(lazyfree_objects,numkeys);
-    atomicIncr(lazyfreed_objects,numkeys);
+void lazyfreeDatabase(void *args[]) {
+    lazyfreeDict((dict *)args[0]);
+    lazyfreeDict((dict *)args[1]);
 }
 
 /* Release the key tracking table. */
 void lazyFreeTrackingTable(void *args[]) {
     rax *rt = args[0];
-    size_t len = rt->numele;
-    freeTrackingRadixTree(rt);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+    lazyfreeGeneric(freeTrackingRadixTree, rt, raxSize(rt));
 }
 
 /* Release the lua_scripts dict. */
 void lazyFreeLuaScripts(void *args[]) {
-    dict *lua_scripts = args[0];
-    long long len = dictSize(lua_scripts);
-    dictRelease(lua_scripts);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+    lazyfreeDict((dict *)args[0]);
 }
 
 /* Release the functions ctx. */
 void lazyFreeFunctionsCtx(void *args[]) {
     functionsLibCtx *functions_lib_ctx = args[0];
-    size_t len = functionsLibCtxfunctionsLen(functions_lib_ctx);
-    functionsLibCtxFree(functions_lib_ctx);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+    lazyfreeGeneric(functionsLibCtxFree, functions_lib_ctx,
+        functionsLibCtxfunctionsLen(functions_lib_ctx));
 }
 
 /* Release replication backlog referencing memory. */
 void lazyFreeReplicationBacklogRefMem(void *args[]) {
-    list *blocks = args[0];
-    rax *index = args[1];
-    long long len = listLength(blocks);
-    len += raxSize(index);
-    listRelease(blocks);
-    raxFree(index);
-    atomicDecr(lazyfree_objects,len);
-    atomicIncr(lazyfreed_objects,len);
+    lazyfreeList((list *)args[0]);
+    lazyfreeRax((rax *)args[1]);
 }
 
 /* Return the number of currently pending objects to free. */
@@ -164,7 +153,7 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
      * objects, and then call dbDelete(). */
     if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
         atomicIncr(lazyfree_objects,1);
-        bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
+        bioCreateLazyFreeJob(lazyfreeObject,1,obj);
     } else {
         decrRefCount(obj);
     }
@@ -177,8 +166,8 @@ void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires;
     db->dict = dictCreate(&dbDictType);
     db->expires = dictCreate(&dbExpiresDictType);
-    atomicIncr(lazyfree_objects,dictSize(oldht1));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
+    atomicIncr(lazyfree_objects,dictSize(oldht1)+dictSize(oldht2));
+    bioCreateLazyFreeJob(lazyfreeDatabase,2,oldht1,oldht2);
 }
 
 /* Free the key tracking table.
@@ -186,7 +175,7 @@ void emptyDbAsync(redisDb *db) {
 void freeTrackingRadixTreeAsync(rax *tracking) {
     /* Because this rax has only keys and no values so we use numnodes. */
     if (tracking->numnodes > LAZYFREE_THRESHOLD) {
-        atomicIncr(lazyfree_objects,tracking->numele);
+        atomicIncr(lazyfree_objects,raxSize(tracking));
         bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
     } else {
         freeTrackingRadixTree(tracking);
