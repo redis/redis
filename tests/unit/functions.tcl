@@ -282,15 +282,53 @@ start_server {tags {"scripting"}} {
         r function flush
         assert_match {} [r function list]
 
-        r function load REPLACE [get_function_code lua test test {local a = 1 while true do a = a + 1 end}]
-        assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
+        r config resetstat
+        # We require at least 64 functions to be loaded to actually async flush them, even with the async argument
+        for {set i 0} {$i < 70} {incr i} {
+            r function load [get_function_code LUA test$i test$i {return redis.call('set', 'x', '$i')}]
+        }
         r function flush async
         assert_match {} [r function list]
+        wait_for_condition 50 100 {
+            [s lazyfreed_objects] > 0
+        } else {
+            fail "Async function flush did not clear any functions asynchronously in the timeframe"
+        }
 
         r function load REPLACE [get_function_code lua test test {local a = 1 while true do a = a + 1 end}]
         assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
         r function flush sync
         assert_match {} [r function list]
+    }
+
+    test {FUNCTION - test lazyfree-lazy-user-flush force} {
+        r config set lazyfree-lazy-user-flush force
+        r config resetstat
+
+        # We require at least 64 functions to be loaded to actually async flush them, even with the async argument
+        for {set i 0} {$i < 70} {incr i} {
+            r function load [get_function_code LUA test$i test$i {return redis.call('set', 'x', '$i')}]
+        }
+        r function flush sync
+        assert_match {} [r function list]
+        wait_for_condition 50 100 {
+            [s lazyfreed_objects] > 0
+        } else {
+            fail "Async function flush did not clear any functions asynchronously in the timeframe"
+        }
+        
+        r config resetstat
+        for {set i 0} {$i < 70} {incr i} {
+            r function load [get_function_code LUA test$i test$i {return redis.call('set', 'x', '$i')}]
+        }
+        r function flush
+        assert_match {} [r function list]
+        wait_for_condition 50 100 {
+            [s lazyfreed_objects] > 0
+        } else {
+            fail "Async function flush did not clear any functions asynchronously in the timeframe"
+        }
+        r config set lazyfree-lazy-user-flush no
     }
 
     test {FUNCTION - test function wrong argument} {

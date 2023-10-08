@@ -811,11 +811,12 @@ void functionFlushCommand(client *c) {
     }
     int async = 0;
     if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"sync")) {
-        async = 0;
+        async = (server.lazyfree_lazy_user_flush == ASYNC_FLUSH_FORCE) ? 1 : 0;
     } else if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"async")) {
         async = 1;
     } else if (c->argc == 2) {
-        async = server.lazyfree_lazy_user_flush ? 1 : 0;
+        async = (server.lazyfree_lazy_user_flush == ASYNC_FLUSH_FORCE || server.lazyfree_lazy_user_flush == ASYNC_FLUSH_DEFAULT_ON)
+                ? 1 : 0;
     } else {
         addReplyError(c,"FUNCTION FLUSH only supports SYNC|ASYNC option");
         return;

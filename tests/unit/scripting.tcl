@@ -558,6 +558,37 @@ start_server {tags {"scripting"}} {
         assert { [string match "*number_of_cached_scripts:100*" [r info Memory]] }
         r script flush async
         assert { [string match "*number_of_cached_scripts:0*" [r info Memory]] }
+        assert_equal [s lazyfreed_objects] 100
+    }
+
+    test {SCRIPTING flush lazyfree-lazy-user-flush force async} {
+        r config resetstat
+        r config set lazyfree-lazy-user-flush force
+        for {set j 0} {$j < 100} {incr j} {
+            r script load "return $j"
+        }
+        assert_match "*number_of_cached_scripts:100*" [r info memory]
+        r script flush sync
+        assert_match "*number_of_cached_scripts:0*" [r info memory]
+        assert_equal [s lazyfreed_objects] 100
+        wait_for_condition 50 100 {
+            [s lazyfreed_objects == 100]
+        } else {
+            fail "Did not lazyflush when lazyfree-lazy-user-flush was set to force"
+        }
+        for {set j 0} {$j < 100} {incr j} {
+            r script load "return $j"
+        }
+        r config resetstat
+        assert_match "*number_of_cached_scripts:100*" [r info memory]
+        r script flush
+        assert_match "*number_of_cached_scripts:0*" [r info memory]
+        wait_for_condition 50 100 {
+            [s lazyfreed_objects == 100]
+        } else {
+            fail "Did not lazyflush when lazyfree-lazy-user-flush was set to force"
+        }
+        r config set lazyfree-lazy-user-flush no
     }
 
     test {SCRIPT EXISTS - can detect already defined scripts?} {

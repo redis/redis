@@ -642,11 +642,12 @@ void signalFlushedDb(int dbid, int async) {
 int getFlushCommandFlags(client *c, int *flags) {
     /* Parse the optional ASYNC option. */
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"sync")) {
-        *flags = EMPTYDB_NO_FLAGS;
+        *flags = (server.lazyfree_lazy_user_flush == ASYNC_FLUSH_FORCE) ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"async")) {
         *flags = EMPTYDB_ASYNC;
     } else if (c->argc == 1) {
-        *flags = server.lazyfree_lazy_user_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
+        *flags = (server.lazyfree_lazy_user_flush == ASYNC_FLUSH_FORCE || server.lazyfree_lazy_user_flush == ASYNC_FLUSH_DEFAULT_ON)
+                 ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
     } else {
         addReplyErrorObject(c,shared.syntaxerr);
         return C_ERR;

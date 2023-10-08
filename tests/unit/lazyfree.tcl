@@ -87,4 +87,28 @@ start_server {tags {"lazyfree"}} {
         }
         assert_equal [s lazyfreed_objects] 0
     } {} {needs:config-resetstat}
+
+    test "lazyfree-lazy-user-flush force forces async flushall in all circumstances" {
+        r config resetstat
+        r set key val
+        r set key1 val1
+        r set key2 val2
+
+        r config set lazyfree-lazy-user-flush force
+        r flushall sync
+        wait_lazyfree_done r
+
+        assert_equal [s lazyfreed_objects] 3
+
+        r config resetstat
+        r set key val
+        r set key1 val1
+        r set key2 val2
+        
+        r flushall
+        wait_lazyfree_done r
+
+        assert_equal [s lazyfreed_objects] 3
+        r config set lazyfree-lazy-user-flush no
+    }
 }

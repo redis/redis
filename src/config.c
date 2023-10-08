@@ -115,6 +115,13 @@ configEnum repl_diskless_load_enum[] = {
     {NULL, 0}
 };
 
+configEnum lazyfree_lazy_user_flush_enum[] = {
+    {"yes", ASYNC_FLUSH_DEFAULT_ON},
+    {"no", ASYNC_FLUSH_DEFAULT_OFF},
+    {"force", ASYNC_FLUSH_FORCE},
+    {NULL, 0}
+};
+
 configEnum tls_auth_clients_enum[] = {
     {"no", TLS_CLIENT_AUTH_NO},
     {"yes", TLS_CLIENT_AUTH_YES},
@@ -3064,7 +3071,7 @@ standardConfig static_configs[] = {
     createBoolConfig("lazyfree-lazy-expire", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-server-del", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-user-del", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_user_del , 0, NULL, NULL),
-    createBoolConfig("lazyfree-lazy-user-flush", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_user_flush , 0, NULL, NULL),
+    createEnumConfig("lazyfree-lazy-user-flush", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, lazyfree_lazy_user_flush_enum, server.lazyfree_lazy_user_flush, ASYNC_FLUSH_DEFAULT_OFF, NULL, NULL),
     createBoolConfig("repl-disable-tcp-nodelay", NULL, MODIFIABLE_CONFIG, server.repl_disable_tcp_nodelay, 0, NULL, NULL),
     createBoolConfig("repl-diskless-sync", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.repl_diskless_sync, 1, NULL, NULL),
     createBoolConfig("aof-rewrite-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.aof_rewrite_incremental_fsync, 1, NULL, NULL),

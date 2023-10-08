@@ -557,6 +557,11 @@ typedef enum {
 #define OOM_SCORE_RELATIVE 1
 #define OOM_SCORE_ADJ_ABSOLUTE 2
 
+/* lazyfree-lazy-user-flush enum configs */
+#define ASYNC_FLUSH_DEFAULT_ON 0
+#define ASYNC_FLUSH_DEFAULT_OFF 1
+#define ASYNC_FLUSH_FORCE 2
+
 /* Redis maxmemory strategies. Instead of using just incremental number
  * for this defines, we use a set of flags so that testing for certain
  * properties common to multiple policies is faster. */

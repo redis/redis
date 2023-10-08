@@ -159,6 +159,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
         }
         r config set appendonly no
         r config set key-load-delay 0
+        r config set lazyfree-lazy-user-flush no
         
         test "Active defrag eval scripts" {
             r flushdb
