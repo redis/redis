@@ -160,6 +160,10 @@ foreach sanitize_dump {no yes} {
                         set err [format "%s" $err] ;# convert to string for pattern matching
                         if {[string match "*SIGTERM*" $err]} {
                             puts "payload that caused test to hang: $printable_dump"
+                            if {$::dump_logs} {
+                                set srv [get_srv 0]
+                                dump_server_log $srv
+                            }
                             exit 1
                         }
                         # if the server terminated update stats and restart it
