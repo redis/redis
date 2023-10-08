@@ -617,21 +617,21 @@ void tryResizeHashTables(int dbid) {
 
 /* Our hash table implementation performs rehashing incrementally while
  * we write/read from the hash table. Still if the server is idle, the hash
- * table will use two tables for a long time. So we try to use 1 millisecond
+ * table will use two tables for a long time. So we try to use some microseconds
  * of CPU time at every call of this function to perform some rehashing.
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
-int incrementallyRehash(int dbid) {
+int incrementallyRehash(int dbid, int us) {
     /* Keys dictionary */
     if (dictIsRehashing(server.db[dbid].dict)) {
-        dictRehashMilliseconds(server.db[dbid].dict,1);
-        return 1; /* already used our millisecond for this loop... */
+        dictRehashMicroseconds(server.db[dbid].dict, us);
+        return 1; /* already used our microseconds for this loop... */
     }
     /* Expires */
     if (dictIsRehashing(server.db[dbid].expires)) {
-        dictRehashMilliseconds(server.db[dbid].expires,1);
-        return 1; /* already used our millisecond for this loop... */
+        dictRehashMicroseconds(server.db[dbid].expires, us);
+        return 1; /* already used our microseconds for this loop... */
     }
     return 0;
 }
@@ -1049,6 +1049,8 @@ void clientsCron(void) {
     }
 }
 
+#define DATABASE_REHASH_TIME_PERC 1 /* Max % of CPU to use for databases rehash. */
+
 /* This function handles 'background' operations we are required to do
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
@@ -1086,11 +1088,14 @@ void databasesCron(void) {
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;
         }
-
+        /* use at max 'DATABASE_REHASH_TIME_PERC' percentage of CPU
+         * time per iteration, ensure that the service throughput capacity
+         * will not change during rehash due to dynamic hz*/
+        int rehashtime = DATABASE_REHASH_TIME_PERC * 1000000 / server.hz / 100;
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehash(rehash_db);
+                int work_done = incrementallyRehash(rehash_db, rehashtime);
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */

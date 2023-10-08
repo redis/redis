@@ -380,25 +380,30 @@ int dictRehash(dict *d, int n) {
     return 1;
 }
 
-long long timeInMilliseconds(void) {
+long long timeInMicroseconds(void) {
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
+    return (((long long)tv.tv_sec) * 1000 * 1000) + tv.tv_usec;
 }
 
 /* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
  * than 0, and is smaller than 1 in most cases. The exact upper bound 
  * depends on the running time of dictRehash(d,100).*/
 int dictRehashMilliseconds(dict *d, int ms) {
+    return dictRehashMicroseconds(d, ms * 1000);
+}
+
+/* similar with dictRehashMilliseconds, but running time unit is microsecond */
+int dictRehashMicroseconds(dict *d, int us) {
     if (d->pauserehash > 0) return 0;
 
-    long long start = timeInMilliseconds();
+    long long start = timeInMicroseconds();
     int rehashes = 0;
 
     while(dictRehash(d,100)) {
         rehashes += 100;
-        if (timeInMilliseconds()-start > ms) break;
+        if (timeInMicroseconds() - start > us) break;
     }
     return rehashes;
 }
