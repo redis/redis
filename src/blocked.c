@@ -107,6 +107,7 @@ void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_err
     const ustime_t total_cmd_duration = c->duration + blocked_us + reply_us;
     c->lastcmd->microseconds += total_cmd_duration;
     c->lastcmd->calls++;
+    c->commands_processed++;
     server.stat_numcommands++;
     if (had_errors)
         c->lastcmd->failed_calls++;

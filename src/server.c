@@ -3675,8 +3675,10 @@ void call(client *c, int flags) {
         }
     }
 
-    if (!(c->flags & CLIENT_BLOCKED))
+    if (!(c->flags & CLIENT_BLOCKED)) {
         server.stat_numcommands++;
+        c->commands_processed++;
+    }
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
