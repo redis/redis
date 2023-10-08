@@ -458,22 +458,32 @@ start_server {tags {"string"}} {
 
     test "GETRANGE against string value" {
         r set mykey "Hello World"
-        assert_equal "Hell" [r getrange mykey 0 3]
+        assert_equal "Hel" [r getrange mykey 0 3]
         assert_equal "Hello World" [r getrange mykey 0 -1]
         assert_equal "orld" [r getrange mykey -4 -1]
         assert_equal "" [r getrange mykey 5 3]
         assert_equal " World" [r getrange mykey 5 5000]
         assert_equal "Hello World" [r getrange mykey -5000 10000]
+        assert_equal "" [r getrange mykey 0 0]
+        assert_equal "" [r getrange mykey 0 -100]
+        assert_equal "" [r getrange mykey -100 -99]
+        assert_equal "" [r getrange mykey -100 -100]
+        assert_equal "" [r getrange mykey -100 -101]
     }
 
     test "GETRANGE against integer-encoded value" {
         r set mykey 1234
-        assert_equal "123" [r getrange mykey 0 2]
+        assert_equal "12" [r getrange mykey 0 2]
         assert_equal "1234" [r getrange mykey 0 -1]
         assert_equal "234" [r getrange mykey -3 -1]
         assert_equal "" [r getrange mykey 5 3]
         assert_equal "4" [r getrange mykey 3 5000]
         assert_equal "1234" [r getrange mykey -5000 10000]
+        assert_equal "" [r getrange mykey 0 0]
+        assert_equal "" [r getrange mykey 0 -100]
+        assert_equal "" [r getrange mykey -100 -99]
+        assert_equal "" [r getrange mykey -100 -100]
+        assert_equal "" [r getrange mykey -100 -101]
     }
 
     test "GETRANGE fuzzing" {
@@ -483,14 +493,14 @@ start_server {tags {"string"}} {
             set _end [set end [randomInt 1500]]
             if {$_start < 0} {set _start "end-[abs($_start)-1]"}
             if {$_end < 0} {set _end "end-[abs($_end)-1]"}
-            assert_equal [string range $bin $_start $_end] [r getrange bin $start $end]
+            assert_equal [string range $bin $_start [expr $_end-1]] [r getrange bin $start $end]
         }
     }
 
     test "Coverage: SUBSTR" {
         r set key abcde
-        assert_equal "a" [r substr key 0 0]
-        assert_equal "abcd" [r substr key 0 3]
+        assert_equal "" [r substr key 0 0]
+        assert_equal "abc" [r substr key 0 3]
         assert_equal "bcde" [r substr key -4 -1]
         assert_equal "" [r substr key -1 -3]
         assert_equal "" [r substr key 7 8]
