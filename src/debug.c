@@ -1176,7 +1176,7 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     } \
     return old_val; \
 } while(0)
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
     GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
@@ -1185,7 +1185,7 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     #else
     GET_SET_RETURN(uc->uc_mcontext->__ss.__srr0, eip);
     #endif
-#elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+#elif defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)
     /* OSX >= 10.6 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
@@ -1272,7 +1272,7 @@ void logRegisters(ucontext_t *uc) {
 } while(0)
 
 /* OSX */
-#if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)
   /* OSX AMD64 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     serverLog(LL_WARNING,
