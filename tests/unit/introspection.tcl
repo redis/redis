@@ -7,7 +7,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT LIST} {
         r client list
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* tot-input=* tot-output=* cmd-proc=*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
@@ -17,7 +17,33 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT INFO} {
         r client info
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* tot-input=* tot-output=* cmd-proc=*}
+
+    proc get_field_in_client_info {info field} {
+        set info [string trim $info]
+        foreach item [split $info " "] {
+            set kv [split $item "="]
+            set k [lindex $kv 0]
+            if {[string match $field $k]} {
+                return [lindex $kv 1]   
+            }
+        }
+        return ""
+    }
+    
+    test {client input output and command process statistics} {
+        set info1 [r client info]
+        set input1 [get_field_in_client_info $info1 "tot-input"]
+        set output1 [get_field_in_client_info $info1 "tot-output"]
+        set cmd1 [get_field_in_client_info $info1 "cmd-proc"]
+        set info2 [r client info]
+        set input2 [get_field_in_client_info $info2 "tot-input"]
+        set output2 [get_field_in_client_info $info2 "tot-output"]
+        set cmd2 [get_field_in_client_info $info2 "cmd-proc"]
+        assert_equal [expr $input1+26] $input2
+        assert {[expr $output1+300] < $output2}
+        assert_equal [expr $cmd1+1] $cmd2
+    }
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
