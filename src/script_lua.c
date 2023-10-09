@@ -602,7 +602,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
          * to push 4 elements to the stack. On failure, return error.
          * Notice that we need, in the worst case, 4 elements because returning a map might
          * require push 4 elements to the Lua stack.*/
-        addReplyErrorFormat(c, "reached lua stack limit");
+        addReplyError(c, "reached lua stack limit");
         lua_pop(lua,1); /* pop the element from the stack */
         return;
     }
