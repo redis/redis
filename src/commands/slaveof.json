@@ -19,12 +19,40 @@
         ],
         "arguments": [
             {
-                "name": "host",
-                "type": "string"
-            },
-            {
-                "name": "port",
-                "type": "integer"
+                "name": "args",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "host-port",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "host",
+                                "type": "string"
+                            },
+                            {
+                                "name": "port",
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "no-one",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "no",
+                                "type": "pure-token",
+                                "token": "NO"
+                            },
+                            {
+                                "name": "one",
+                                "type": "pure-token",
+                                "token": "ONE"
+                            }
+                        ]
+                    }
+                ]
             }
         ],
         "reply_schema": {
