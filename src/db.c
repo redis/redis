@@ -463,6 +463,9 @@ void cumulativeKeyCountAdd(redisDb *db, int slot, long delta, dbKeyType keyType)
     if (!server.cluster_enabled) return;
     int idx = slot + 1; /* Unlike slots, BIT is 1-based, so we need to add 1. */
     while (idx <= CLUSTER_SLOTS) {
+        if (delta < 0) {
+            serverAssert(db->sub_dict[keyType].slot_size_index[idx] >= abs(delta));
+        }
         db->sub_dict[keyType].slot_size_index[idx] += delta;
         idx += (idx & -idx);
     }
