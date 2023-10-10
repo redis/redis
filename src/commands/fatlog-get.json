@@ -11,7 +11,8 @@
         "command_flags": [
             "ADMIN",
             "LOADING",
-            "STALE"
+            "STALE",
+            "SKIP_FATLOG"
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_NODES",

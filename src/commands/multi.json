@@ -11,7 +11,8 @@
             "LOADING",
             "STALE",
             "FAST",
-            "ALLOW_BUSY"
+            "ALLOW_BUSY",
+            "SKIP_FATLOG"
         ],
         "acl_categories": [
             "TRANSACTION"

@@ -9,7 +9,8 @@
         "function": "slowfatlogCommand",
         "command_flags": [
             "LOADING",
-            "STALE"
+            "STALE",
+            "SKIP_FATLOG"
         ],
         "reply_schema": {
             "type": "array",
