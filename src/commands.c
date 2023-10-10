@@ -4917,10 +4917,30 @@ struct redisCommandArg PSYNC_Args[] = {
 /* REPLICAOF tips */
 #define REPLICAOF_tips NULL
 
-/* REPLICAOF argument table */
-struct redisCommandArg REPLICAOF_Args[] = {
+/* REPLICAOF args host_port argument table */
+struct redisCommandArg REPLICAOF_args_host_port_Subargs[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* REPLICAOF args no_one argument table */
+struct redisCommandArg REPLICAOF_args_no_one_Subargs[] = {
+{"no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE},
+{"one",ARG_TYPE_PURE_TOKEN,-1,"ONE",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* REPLICAOF args argument table */
+struct redisCommandArg REPLICAOF_args_Subargs[] = {
+{"host-port",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=REPLICAOF_args_host_port_Subargs},
+{"no-one",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=REPLICAOF_args_no_one_Subargs},
+{0}
+};
+
+/* REPLICAOF argument table */
+struct redisCommandArg REPLICAOF_Args[] = {
+{"args",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=REPLICAOF_args_Subargs},
 {0}
 };
 
@@ -5000,10 +5020,30 @@ struct redisCommandArg SHUTDOWN_Args[] = {
 /* SLAVEOF tips */
 #define SLAVEOF_tips NULL
 
-/* SLAVEOF argument table */
-struct redisCommandArg SLAVEOF_Args[] = {
+/* SLAVEOF args host_port argument table */
+struct redisCommandArg SLAVEOF_args_host_port_Subargs[] = {
 {"host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
 {"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SLAVEOF args no_one argument table */
+struct redisCommandArg SLAVEOF_args_no_one_Subargs[] = {
+{"no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE},
+{"one",ARG_TYPE_PURE_TOKEN,-1,"ONE",NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/* SLAVEOF args argument table */
+struct redisCommandArg SLAVEOF_args_Subargs[] = {
+{"host-port",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SLAVEOF_args_host_port_Subargs},
+{"no-one",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SLAVEOF_args_no_one_Subargs},
+{0}
+};
+
+/* SLAVEOF argument table */
+struct redisCommandArg SLAVEOF_Args[] = {
+{"args",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,.subargs=SLAVEOF_args_Subargs},
 {0}
 };
 
