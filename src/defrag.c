@@ -1053,7 +1053,7 @@ void activeDefragCycle(void) {
                     continue;
                 }
                 slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
-                ctx.slot = slot;                   
+                ctx.slot = slot;
             }
     
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys

@@ -659,7 +659,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
-            for (int k=0; k<dbarray[j].dict_count;k++) {
+            for (int k = 0; k < dbarray[j].dict_count; k++) {
                 dictEmpty(dbarray[j].dict[k],callback);
                 dictEmpty(dbarray[j].expires[k],callback);
             }
