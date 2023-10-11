@@ -273,8 +273,12 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Scripts do not block on XREAD with BLOCK option -- non empty stream} {
         r XADD s * a 1
-        run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 0
-    } {}
+        set res [run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 0]
+        assert {$res eq {}}
+
+        set res [run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','0-0')} 0]
+        assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {a 1}}
+    }
 
     test {EVAL - Scripts do not block on XREADGROUP with BLOCK option -- non empty stream} {
         r XADD s * b 2
