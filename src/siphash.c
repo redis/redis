@@ -39,7 +39,6 @@
       the function in the new form (returning an uint64_t) using just the
       relevant test vector.
  */
-#include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>

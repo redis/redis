@@ -37,7 +37,6 @@
 #include "atomicvar.h"
 #include "commands.h"
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -669,8 +668,8 @@ typedef enum {
 #define run_with_period(_ms_) if (((_ms_) <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
-#define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
-#define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverAssertWithInfo(_c,_o,_e) (likely(_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
 /* latency histogram per command init settings */
@@ -3707,6 +3706,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...)
 void _serverPanic(const char *file, int line, const char *msg, ...);
 #endif
 void serverLogObjectDebugInfo(const robj *o);
+void setupDebugSigHandlers(void);
 void setupSigSegvHandler(void);
 void removeSigSegvHandlers(void);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
