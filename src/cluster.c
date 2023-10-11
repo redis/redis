@@ -83,7 +83,7 @@ int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 const char *clusterGetMessageTypeString(int type);
 void removeChannelsInSlot(unsigned int slot);
-void removeAllShardChannelSubscription(void);
+void removeAllShardChannelSubscriptions(void);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
@@ -5164,7 +5164,7 @@ void clusterSetMaster(clusterNode *n) {
 
     /* If the node is still in the same shard, don't need to unsubscribe the clients. */
     if (memcmp(myself->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0) {
-            removeAllShardChannelSubscription();
+            removeAllShardChannelSubscriptions();
     }
 
     if (nodeIsMaster(myself)) {
@@ -6500,8 +6500,8 @@ void removeChannelsInSlot(unsigned int slot) {
     zfree(channels);
 }
 
-/* Remove all the shard channels related information on the current node. */
-void removeAllShardChannelSubscription() {
+/* Remove all the shard channel related information on the current node. */
+void removeAllShardChannelSubscriptions() {
     clusterNode *currmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] == currmaster) {
