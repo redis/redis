@@ -5,8 +5,15 @@
  * using the 'slowlog-log-slower-than' config directive, that is also
  * readable and writable using the CONFIG SET/GET command.
  *
- * The slow queries log is actually not "logged" in the Redis log file
- * but is accessible thanks to the SLOWLOG command.
+ * Similarly, fatlog remembers the latest N queries that has a response
+ * larger than K bytes.
+ *
+ * The size of the response to reach to be logged in the fat lof is set
+ * using the 'fatlog-log-bigger-than' config directive, that is also
+ * readable and writable using the CONFIG SET/GET command.
+ *
+ * Both logs are actually not "logged" in the Redis log file but are
+ * accessible thanks to the SLOWLOG/FATLOG command.
  *
  * ----------------------------------------------------------------------------
  *
@@ -38,11 +45,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include "server.h"
 #include "slowfatlog.h"
 
-/* Create a new slowlog entry.
+/* Create a new slowlog/fatlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
 slowfatlogEntry *slowfatlogCreateEntry(client *c, robj **argv, int argc, long long statistic, long long id) {
@@ -93,7 +99,7 @@ slowfatlogEntry *slowfatlogCreateEntry(client *c, robj **argv, int argc, long lo
     return se;
 }
 
-/* Free a slow log entry. The argument is void so that the prototype of this
+/* Free a slow/fat log entry. The argument is void so that the prototype of this
  * function matches the one of the 'free' method of adlist.c.
  *
  * This function will take care to release all the retained object. */
@@ -134,8 +140,8 @@ void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long durati
         listDelNode(server.slowlog,listLast(server.slowlog));
 }
 
-/* Push a new entry into the slow log.
- * This function will make sure to trim the slow log accordingly to the
+/* Push a new entry into the fat log.
+ * This function will make sure to trim the fat log accordingly to the
  * configured max length. */
 void fatlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long statistic) {
     if (server.fatlog_log_bigger_than < 0) return; /* Fatlog disabled */
