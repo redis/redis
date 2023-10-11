@@ -188,8 +188,8 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
  *
- * If the update_if_existing argument is false, the the program is aborted
- * if the key already exists, otherwise, it can fall back to dbOverwite. */
+ * If the update_if_existing argument is false, the program is aborted
+ * if the key already exists, otherwise, it can fall back to dbOverwrite. */
 static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
     dictEntry *existing;
     dictEntry *de = dictAddRaw(db->dict, key->ptr, &existing);
@@ -2294,7 +2294,8 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     keys = getKeysPrepareResult(result, 1);
     keys[0].pos = 1; /* <sort-key> is always present. */
     keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-    return 1;
+    result->numkeys = 1;
+    return result->numkeys;
 }
 
 /* Helper function to extract keys from the SORT command.
