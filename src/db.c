@@ -630,7 +630,7 @@ void signalFlushedDb(int dbid, int async) {
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 
-/* Return the set of flags to use for the emptyDb() call for FLUSHALL
+/* Return the set of flags to use for the emptyData() call for FLUSHALL
  * and FLUSHDB commands.
  *
  * sync: flushes the database in an sync manner.
