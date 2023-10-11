@@ -4935,16 +4935,8 @@ int clusterDelSlot(int slot) {
     if (!n) return C_ERR;
 
     /* Cleanup the channels in master/replica as part of slot deletion. */
-    list *nodes_for_slot = clusterGetNodesInMyShard(n);
-    /* Some older versions of servers doesn't gossip shard_id, so we will
-     * not add the node to cluster->shards, and node->shard_id is filled in
-     * randomly and may not be found here. */
-    if (nodes_for_slot) {
-        listNode *ln = listSearchKey(nodes_for_slot, myself);
-        if (ln != NULL) {
-            removeChannelsInSlot(slot);
-        }
-    }
+    removeChannelsInSlot(slot);
+    /* Clear the slot bit. */
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
