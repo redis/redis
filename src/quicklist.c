@@ -2111,8 +2111,8 @@ int quicklistTest(int argc, char *argv[], int flags) {
             memcpy(buf, "plain", 5);
             quicklistPushHead(ql, buf, large_limit);
             quicklistPushHead(ql, buf, large_limit);
-            quicklistPushHead(ql, "h3", 2);
-            quicklistPushHead(ql, "h4", 2);
+            quicklistPushHead(ql, "packed3", 7);
+            quicklistPushHead(ql, "packed4", 7);
             quicklistPushHead(ql, buf, large_limit);
 
             quicklistEntry entry;
@@ -2120,7 +2120,10 @@ int quicklistTest(int argc, char *argv[], int flags) {
             int j = 0;
 
             while(quicklistNext(iter, &entry) != 0) {
-                if (!memcmp(entry.value, "plain", 5)) assert(QL_NODE_IS_PLAIN(entry.node));
+                if (QL_NODE_IS_PLAIN(entry.node))
+                    assert(!memcmp(entry.value, "plain", 5));
+                else
+                    assert(!memcmp(entry.value, "packed", 6));
                 j++;
             }
             ql_release_iterator(iter);
