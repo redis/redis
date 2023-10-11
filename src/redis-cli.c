@@ -1657,6 +1657,7 @@ static int cliConnect(int flags) {
             redisFree(context);
             config.dbnum = 0;
             config.in_multi = 0;
+            config.pubsub_mode = 0;
             cliRefreshPrompt();
         }
 
