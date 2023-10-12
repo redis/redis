@@ -11,7 +11,7 @@ jobs:
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
-      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+      run: make REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS' BUILD_TLS=yes
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: make
         # build with TLS module just for compilation coverage
-        run: make SANITIZER=address REDIS_CFLAGS='-Werror' BUILD_TLS=module
+        run: make SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS' BUILD_TLS=module
       - name: testprep
         run: sudo apt-get install tcl8.6 tclx -y
       - name: test
