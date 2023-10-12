@@ -83,7 +83,6 @@ int clusterBumpConfigEpochWithoutConsensus(void);
 void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 const char *clusterGetMessageTypeString(int type);
 void removeChannelsInSlot(unsigned int slot);
-void removeAllShardChannelSubscriptions(void);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
@@ -5152,6 +5151,16 @@ int verifyClusterConfigWithData(void) {
     return C_OK;
 }
 
+/* Remove all the shard channel related information not owned by the current shard. */
+static inline void removeAllNotOwnedShardChannelSubscriptions() {
+    clusterNode *currmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
+    for (int j = 0; j < CLUSTER_SLOTS; j++) {
+        if (server.cluster->slots[j] != currmaster) {
+            removeChannelsInSlot(j);
+        }
+    }
+}
+
 /* -----------------------------------------------------------------------------
  * SLAVE nodes handling
  * -------------------------------------------------------------------------- */
@@ -5161,11 +5170,6 @@ int verifyClusterConfigWithData(void) {
 void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
-
-    /* If the node is still in the same shard, don't need to unsubscribe the clients. */
-    if (memcmp(myself->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0) {
-            removeAllShardChannelSubscriptions();
-    }
 
     if (nodeIsMaster(myself)) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
@@ -5179,6 +5183,7 @@ void clusterSetMaster(clusterNode *n) {
     updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
+    removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
 }
 
@@ -6498,16 +6503,6 @@ void removeChannelsInSlot(unsigned int slot) {
 
     pubsubUnsubscribeShardChannels(channels, channelcount);
     zfree(channels);
-}
-
-/* Remove all the shard channel related information on the current node. */
-void removeAllShardChannelSubscriptions() {
-    clusterNode *currmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
-    for (int j = 0; j < CLUSTER_SLOTS; j++) {
-        if (server.cluster->slots[j] == currmaster) {
-            removeChannelsInSlot(j);
-        }
-    }
 }
 
 /* -----------------------------------------------------------------------------
