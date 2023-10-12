@@ -5149,6 +5149,7 @@ int verifyClusterConfigWithData(void) {
 
 /* Remove all the shard channel related information not owned by the current shard. */
 static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
+    if (!dictSize(server.pubsubshard_channels)) return;
     clusterNode *currmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] != currmaster) {
