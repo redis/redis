@@ -5147,6 +5147,17 @@ int verifyClusterConfigWithData(void) {
     return C_OK;
 }
 
+/* Remove all the shard channel related information not owned by the current shard. */
+static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
+    if (!dictSize(server.pubsubshard_channels)) return;
+    clusterNode *currmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
+    for (int j = 0; j < CLUSTER_SLOTS; j++) {
+        if (server.cluster->slots[j] != currmaster) {
+            removeChannelsInSlot(j);
+        }
+    }
+}
+
 /* -----------------------------------------------------------------------------
  * SLAVE nodes handling
  * -------------------------------------------------------------------------- */
@@ -5169,6 +5180,7 @@ void clusterSetMaster(clusterNode *n) {
     updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
+    removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
 }
 
