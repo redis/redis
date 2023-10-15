@@ -1869,7 +1869,7 @@ static void writeStacktraces(int fd, int uplevel) {
     pid_t tids[TIDS_MAX_SIZE];
     size_t len_tids = get_ready_to_signal_threads_tids(pid, THREADS_SIGNAL, tids);
     if (!len_tids) {
-        (LL_WARNING, "writeStacktraces(): Failed to get the process's threads.");
+        serverLogFromHandler(LL_WARNING, "writeStacktraces(): Failed to get the process's threads.");
     }
 
     stacktrace_data stacktraces[len_tids];
