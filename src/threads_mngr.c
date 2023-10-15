@@ -191,7 +191,7 @@ int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb c
     UNUSED(tids);
     UNUSED(tids_len);
     UNUSED(callback);
-    return NULL;
+    return 1;
 }
 
 #endif /* __linux__ */
