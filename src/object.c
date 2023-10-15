@@ -1257,12 +1257,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        unsigned long long expire_keys_count = dbSize(db, DB_EXPIRES);
-        if (expire_keys_count) {       
-            mem = dbMemUsage(db, DB_EXPIRES);
-            mh->db[mh->num_dbs].overhead_ht_expires = mem;
-            mem_total+=mem;
-        }
+        mem = dbMemUsage(db, DB_EXPIRES);
+        mh->db[mh->num_dbs].overhead_ht_expires = mem;
+        mem_total+=mem;
 
         mh->num_dbs++;
     }
