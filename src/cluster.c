@@ -1050,9 +1050,6 @@ void clusterInit(void) {
         exit(1);
     }
 
-    /* Initialize data for the Slot to key API. */
-    slotToKeyInit(server.db);
-
     /* The slots -> channels map is a radix tree. Initialize it here. */
     server.cluster->slots_to_channels = raxNew();
 
@@ -5113,7 +5110,7 @@ int verifyClusterConfigWithData(void) {
 
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
-        if (dictSize(server.db[j].dict)) return C_ERR;
+        if (dbSize(&server.db[j], DB_MAIN)) return C_ERR;
     }
 
     /* Check that all the slots we see populated memory have a corresponding
@@ -5986,7 +5983,7 @@ NULL
         clusterReplyShards(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
-        if (dictSize(server.db[0].dict) != 0) {
+        if (dbSize(&server.db[0], DB_MAIN) != 0) {
             addReplyError(c,"DB must be empty to perform CLUSTER FLUSHSLOTS.");
             return;
         }
@@ -6248,13 +6245,16 @@ NULL
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        dictEntry *de = (*server.db->slots_to_keys).by_slot[slot].head;
-        for (unsigned int j = 0; j < numkeys; j++) {
+        dictIterator *iter = NULL;
+        dictEntry *de = NULL;
+        iter = dictGetIterator(server.db->dict[slot]);
+        for (unsigned int i = 0; i < numkeys; i++) {
+            de = dictNext(iter);
             serverAssert(de != NULL);
             sds sdskey = dictGetKey(de);
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
-            de = dictEntryNextInSlot(de);
         }
+        dictReleaseIterator(iter);
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
@@ -6303,7 +6303,7 @@ NULL
          * slots nor keys to accept to replicate some other node.
          * Slaves can switch to another master without issues. */
         if (nodeIsMaster(myself) &&
-            (myself->numslots != 0 || dictSize(server.db[0].dict) != 0)) {
+            (myself->numslots != 0 || dbSize(&server.db[0], DB_MAIN) != 0)) {
             addReplyError(c,
                 "To set a master the node must be empty and "
                 "without assigned slots.");
@@ -6462,7 +6462,7 @@ NULL
 
         /* Slaves can be reset while containing data, but not master nodes
          * that must be empty. */
-        if (nodeIsMaster(myself) && dictSize(c->db->dict) != 0) {
+        if (nodeIsMaster(myself) && dbSize(c->db, DB_MAIN) != 0) {
             addReplyError(c,"CLUSTER RESET can't be called with "
                             "master nodes containing keys");
             return;
@@ -7544,98 +7544,16 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     return 0;
 }
 
-/* Slot to Key API. This is used by Redis Cluster in order to obtain in
- * a fast way a key that belongs to a specified hash slot. This is useful
- * while rehashing the cluster and in other conditions when we need to
- * understand if we have keys for a given hash slot. */
-
-void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
-    sds key = dictGetKey(entry);
-    unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
-    slot_to_keys->count++;
-
-    /* Insert entry before the first element in the list. */
-    dictEntry *first = slot_to_keys->head;
-    dictEntryNextInSlot(entry) = first;
-    if (first != NULL) {
-        serverAssert(dictEntryPrevInSlot(first) == NULL);
-        dictEntryPrevInSlot(first) = entry;
-    }
-    serverAssert(dictEntryPrevInSlot(entry) == NULL);
-    slot_to_keys->head = entry;
-}
-
-void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
-    sds key = dictGetKey(entry);
-    unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
-    slot_to_keys->count--;
-
-    /* Connect previous and next entries to each other. */
-    dictEntry *next = dictEntryNextInSlot(entry);
-    dictEntry *prev = dictEntryPrevInSlot(entry);
-    if (next != NULL) {
-        dictEntryPrevInSlot(next) = prev;
-    }
-    if (prev != NULL) {
-        dictEntryNextInSlot(prev) = next;
-    } else {
-        /* The removed entry was the first in the list. */
-        serverAssert(slot_to_keys->head == entry);
-        slot_to_keys->head = next;
-    }
-}
-
-/* Updates neighbour entries when an entry has been replaced (e.g. reallocated
- * during active defrag). */
-void slotToKeyReplaceEntry(dict *d, dictEntry *entry) {
-    dictEntry *next = dictEntryNextInSlot(entry);
-    dictEntry *prev = dictEntryPrevInSlot(entry);
-    if (next != NULL) {
-        dictEntryPrevInSlot(next) = entry;
-    }
-    if (prev != NULL) {
-        dictEntryNextInSlot(prev) = entry;
-    } else {
-        /* The replaced entry was the first in the list. */
-        sds key = dictGetKey(entry);
-        unsigned int hashslot = keyHashSlot(key, sdslen(key));
-        clusterDictMetadata *dictmeta = dictMetadata(d);
-        redisDb *db = dictmeta->db;
-        slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
-        slot_to_keys->head = entry;
-    }
-}
-
-/* Initialize slots-keys map of given db. */
-void slotToKeyInit(redisDb *db) {
-    db->slots_to_keys = zcalloc(sizeof(clusterSlotToKeyMapping));
-    clusterDictMetadata *dictmeta = dictMetadata(db->dict);
-    dictmeta->db = db;
-}
-
-/* Empty slots-keys map of given db. */
-void slotToKeyFlush(redisDb *db) {
-    memset(db->slots_to_keys, 0,
-        sizeof(clusterSlotToKeyMapping));
-}
-
-/* Free slots-keys map of given db. */
-void slotToKeyDestroy(redisDb *db) {
-    zfree(db->slots_to_keys);
-    db->slots_to_keys = NULL;
-}
-
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
 
-    dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
-    while (de != NULL) {
+    dictIterator *iter = NULL;
+    dictEntry *de = NULL;
+    iter = dictGetSafeIterator(server.db->dict[hashslot]);
+    while((de = dictNext(iter)) != NULL) {
         sds sdskey = dictGetKey(de);
-        de = dictEntryNextInSlot(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
@@ -7646,12 +7564,13 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
+    dictReleaseIterator(iter);
 
     return j;
 }
 
-unsigned int countKeysInSlot(unsigned int hashslot) {
-    return (*server.db->slots_to_keys).by_slot[hashslot].count;
+unsigned int countKeysInSlot(unsigned int slot) {
+    return dictSize(server.db->dict[slot]);
 }
 
 /* -----------------------------------------------------------------------------

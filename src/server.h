@@ -137,6 +137,7 @@ struct hdr_histogram;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
+#define INCREMENTAL_REHASHING_THRESHOLD_MS 1
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -959,15 +960,24 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
-/* Opaque type for the Slot to Key API. */
-typedef struct clusterSlotToKeyMapping clusterSlotToKeyMapping;
+typedef struct dbDictState {
+    list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
+    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries. */
+    unsigned long long key_count;          /* Total number of keys in this DB. */
+    unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
+} dbDictState;
+
+typedef enum dbKeyType {
+    DB_MAIN,
+    DB_EXPIRES
+} dbKeyType;
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
-    dict *expires;              /* Timeout of keys with a timeout set */
+    dict **dict;                /* The keyspace for this DB */
+    dict **expires;             /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
@@ -978,7 +988,8 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    clusterSlotToKeyMapping *slots_to_keys; /* Array of slots to keys. Only used in cluster mode (db 0). */
+    int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
+    dbDictState sub_dict[2];  /* Metadata for main and expires dictionaries */
 } redisDb;
 
 /* forward declaration for functions ctx */
@@ -1418,7 +1429,6 @@ struct redisMemOverhead {
         size_t dbid;
         size_t overhead_ht_main;
         size_t overhead_ht_expires;
-        size_t overhead_ht_slot_to_keys;
     } *db;
 };
 
@@ -2412,6 +2422,19 @@ typedef struct {
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
+typedef struct dbIterator dbIterator;
+
+/* DB iterator specific functions */
+dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
+dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
+dict *dbIteratorNextDict(dbIterator *dbit);
+int dbIteratorGetCurrentSlot(dbIterator *dbit);
+dictEntry *dbIteratorNext(dbIterator *iter);
+
+/* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
+int getAndClearSlotIdFromCursor(unsigned long long *cursor);
+void addSlotIdToCursor(int slot, unsigned long long *cursor);
+
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
  * not both are required, store pointers in the iterator to avoid
@@ -3089,6 +3112,18 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
+unsigned long long int dbSize(redisDb *db, dbKeyType keyType);
+int getKeySlot(sds key);
+int calculateKeySlot(sds key);
+unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
+size_t dbMemUsage(redisDb *db, dbKeyType keyType);
+dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType);
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata);
+int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand);
+unsigned long long cumulativeKeyCountRead(redisDb *db, int idx, dbKeyType keyType);
+int getFairRandomSlot(redisDb *db, dbKeyType keyType);
+int dbGetNextNonEmptySlot(redisDb *db, int slot, dbKeyType keyType);
+int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType);
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);
@@ -3278,8 +3313,8 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*));
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid, int async);
-void scanGenericCommand(client *c, robj *o, unsigned long cursor);
-int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
+void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
+int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 size_t lazyfreeGetPendingObjectsCount(void);

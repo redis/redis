@@ -1035,7 +1035,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);
-            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
+            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictBuckets(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 elesize += dictEntryMemUsage() + sdsZmallocSize(ele);
@@ -1058,7 +1058,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             zskiplist *zsl = ((zset*)o->ptr)->zsl;
             zskiplistNode *znode = zsl->header->level[0].forward;
             asize = sizeof(*o)+sizeof(zset)+sizeof(zskiplist)+sizeof(dict)+
-                    (sizeof(struct dictEntry*)*dictSlots(d))+
+                    (sizeof(struct dictEntry*)*dictBuckets(d))+
                     zmalloc_size(zsl->header);
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsZmallocSize(znode->ele);
@@ -1076,7 +1076,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);
-            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
+            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictBuckets(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
@@ -1246,26 +1246,19 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        long long keyscount = dictSize(db->dict);
-        if (keyscount==0) continue;
+        unsigned long long keyscount = dbSize(db, DB_MAIN);
+        if (keyscount == 0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = dictMemUsage(db->dict) +
-              dictSize(db->dict) * sizeof(robj);
+        mem = dbMemUsage(db, DB_MAIN);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        mem = dictMemUsage(db->expires);
+        mem = dbMemUsage(db, DB_EXPIRES);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
-        mem_total+=mem;
-
-        /* Account for the slot to keys map in cluster mode */
-        mem = dictSize(db->dict) * dictEntryMetadataSize(db->dict) +
-              dictMetadataSize(db->dict);
-        mh->db[mh->num_dbs].overhead_ht_slot_to_keys = mem;
         mem_total+=mem;
 
         mh->num_dbs++;
@@ -1551,14 +1544,13 @@ NULL
                 return;
             }
         }
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
             addReplyNull(c);
             return;
         }
         size_t usage = objectComputeSize(c->argv[2],dictGetVal(de),samples,c->db->id);
         usage += sdsZmallocSize(dictGetKey(de));
         usage += dictEntryMemUsage();
-        usage += dictMetadataSize(c->db->dict);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
@@ -1599,16 +1591,13 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,3);
+            addReplyMapLen(c,2);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
-
-            addReplyBulkCString(c,"overhead.hashtable.slot-to-keys");
-            addReplyLongLong(c,mh->db[j].overhead_ht_slot_to_keys);
         }
 
 

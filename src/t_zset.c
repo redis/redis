@@ -3901,7 +3901,7 @@ void zrevrankCommand(client *c) {
 
 void zscanCommand(client *c) {
     robj *o;
-    unsigned long cursor;
+    unsigned long long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
