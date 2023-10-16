@@ -13495,7 +13495,7 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
 /* --------------------------------------------------------------------------
  * ## Key API for Set type
  *
- * See also RM_ValueLength(), which returns the length of a set.
+ * See also RM_ValueLength(), which returns the cardinality of a set.
  * -------------------------------------------------------------------------- */
 
 /* Add new elements into a set.
