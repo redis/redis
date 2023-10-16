@@ -493,7 +493,7 @@ int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count) {
 /* Determines whether a given size qualifies as a large element based on a threshold
  * determined by the 'fill'. If the size is considered large, it will be stored in
  * a plain node. */
-int isLargeElement(size_t sz, int fill) {
+static int isLargeElement(size_t sz, int fill) {
     if (unlikely(packed_threshold != 0)) return sz >= packed_threshold;
     if (fill >= 0)
         return !sizeMeetsSafetyLimit(sz);
