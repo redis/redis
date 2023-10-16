@@ -1,95 +1,54 @@
-# check functionality compression of plain and zipped nodes
+# check functionality compression of plain and packed nodes
 start_server [list overrides [list save ""] ] {
     r config set list-compress-depth 2
     r config set list-max-ziplist-size 1
 
-    # 3 test to check compression with regular ziplist nodes
+    # 3 test to check compression with plain and packed nodes
     # 1. using push + insert
     # 2. using push + insert + trim
     # 3. using push + insert + set
 
-    test {reg node check compression with insert and pop} {
-        r lpush list1 [string repeat a 500]
-        r lpush list1 [string repeat b 500]
-        r lpush list1 [string repeat c 500]
-        r lpush list1 [string repeat d 500]
-        r linsert list1 after [string repeat d 500] [string repeat e 500]
-        r linsert list1 after [string repeat d 500] [string repeat f 500]
-        r linsert list1 after [string repeat d 500] [string repeat g 500]
-        r linsert list1 after [string repeat d 500] [string repeat j 500]
-        assert_equal [r lpop list1] [string repeat d 500]
-        assert_equal [r lpop list1] [string repeat j 500]
-        assert_equal [r lpop list1] [string repeat g 500]
-        assert_equal [r lpop list1] [string repeat f 500]
-        assert_equal [r lpop list1] [string repeat e 500]
-        assert_equal [r lpop list1] [string repeat c 500]
-        assert_equal [r lpop list1] [string repeat b 500]
-        assert_equal [r lpop list1] [string repeat a 500]
+    foreach {container size} {packed 500 plain 8193} {
+    test "$container node check compression with insert and pop" {
+        r flushdb
+        r lpush list1 [string repeat a $size]
+        r lpush list1 [string repeat b $size]
+        r lpush list1 [string repeat c $size]
+        r lpush list1 [string repeat d $size]
+        r linsert list1 after [string repeat d $size] [string repeat e $size]
+        r linsert list1 after [string repeat d $size] [string repeat f $size]
+        r linsert list1 after [string repeat d $size] [string repeat g $size]
+        r linsert list1 after [string repeat d $size] [string repeat j $size]
+        assert_equal [r lpop list1] [string repeat d $size]
+        assert_equal [r lpop list1] [string repeat j $size]
+        assert_equal [r lpop list1] [string repeat g $size]
+        assert_equal [r lpop list1] [string repeat f $size]
+        assert_equal [r lpop list1] [string repeat e $size]
+        assert_equal [r lpop list1] [string repeat c $size]
+        assert_equal [r lpop list1] [string repeat b $size]
+        assert_equal [r lpop list1] [string repeat a $size]
     };
 
-    test {reg node check compression combined with trim} {
-        r lpush list2 [string repeat a 500]
-        r linsert list2 after  [string repeat a 500] [string repeat b 500]
-        r rpush list2 [string repeat c 500]
-        assert_equal [string repeat b 500] [r lindex list2 1]
+    test "$container node check compression combined with trim" {
+        r flushdb
+        r lpush list2 [string repeat a $size]
+        r linsert list2 after  [string repeat a $size] [string repeat b $size]
+        r rpush list2 [string repeat c $size]
+        assert_equal [string repeat b $size] [r lindex list2 1]
         r LTRIM list2 1 -1
         r llen list2
     } {2}
 
-    test {reg node check compression with lset} {
-        r lpush list3 [string repeat a 500]
-        r LSET list3 0 [string repeat b 500]
-        assert_equal [string repeat b 500] [r lindex list3 0]
-        r lpush list3 [string repeat c 500]
-        r LSET list3 0 [string repeat d 500]
-        assert_equal [string repeat d 500] [r lindex list3 0]
+    test "$container node check compression with lset" {
+        r flushdb
+        r lpush list3 [string repeat a $size]
+        r LSET list3 0 [string repeat b $size]
+        assert_equal [string repeat b $size] [r lindex list3 0]
+        r lpush list3 [string repeat c $size]
+        r LSET list3 0 [string repeat d $size]
+        assert_equal [string repeat d $size] [r lindex list3 0]
     }
-
-    # repeating the 3 tests with plain nodes
-    # (by adjusting quicklist-packed-threshold)
-
-    test {plain node check compression} {
-        r debug quicklist-packed-threshold 1b
-        r lpush list4 [string repeat a 500]
-        r lpush list4 [string repeat b 500]
-        r lpush list4 [string repeat c 500]
-        r lpush list4 [string repeat d 500]
-        r linsert list4 after [string repeat d 500] [string repeat e 500]
-        r linsert list4 after [string repeat d 500] [string repeat f 500]
-        r linsert list4 after [string repeat d 500] [string repeat g 500]
-        r linsert list4 after [string repeat d 500] [string repeat j 500]
-        assert_equal [r lpop list4] [string repeat d 500]
-        assert_equal [r lpop list4] [string repeat j 500]
-        assert_equal [r lpop list4] [string repeat g 500]
-        assert_equal [r lpop list4] [string repeat f 500]
-        assert_equal [r lpop list4] [string repeat e 500]
-        assert_equal [r lpop list4] [string repeat c 500]
-        assert_equal [r lpop list4] [string repeat b 500]
-        assert_equal [r lpop list4] [string repeat a 500]
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
-
-    test {plain node check compression with ltrim} {
-        r debug quicklist-packed-threshold 1b
-        r lpush list5 [string repeat a 500]
-        r linsert list5 after  [string repeat a 500] [string repeat b 500]
-        r rpush list5 [string repeat c 500]
-        assert_equal [string repeat b 500] [r lindex list5 1]
-        r LTRIM list5 1 -1
-        assert_equal [r llen list5] 2
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
-
-    test {plain node check compression using lset} {
-        r debug quicklist-packed-threshold 1b
-        r lpush list6 [string repeat a 500]
-        r LSET list6 0 [string repeat b 500]
-        assert_equal [string repeat b 500] [r lindex list6 0]
-        r lpush list6 [string repeat c 500]
-        r LSET list6 0 [string repeat d 500]
-        assert_equal [string repeat d 500] [r lindex list6 0]
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+    } ;# foreach
 
     # revert config for external mode tests.
     r config set list-compress-depth 0
