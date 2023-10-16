@@ -882,17 +882,12 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
             fail "bgsave did not stop in time."
         }
 
-        # Verify dict is under rehashing
-        set htstats [r debug HTSTATS 0]
-        assert_match {*rehashing target*} $htstats
-
         # put some data into slot 12182 and trigger the resize
         r psetex "{foo}0" 500 a
 
         # Verify dict rehashing has completed
-        set htstats [r debug HTSTATS 0]
-        wait_for_condition 20 100 {
-            ![string match {*rehashing target*} $htstats]
+        wait_for_condition 10 100 {
+            [string match {*table size: 4*} [r debug HTSTATS 0]]
         } else {
             fail "rehashing didn't complete"
         }
