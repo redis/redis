@@ -38,12 +38,10 @@
 
 #include <signal.h>
 #include <time.h>
-#include <errno.h>
-#include <semaphore.h>
 #include <sys/syscall.h>
 
 #define IN_PROGRESS 1
-static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
+static const clock_t RUN_ON_THREADS_TIMEOUT = 10;
 
 /*================================= Globals ================================= */
 
@@ -51,12 +49,9 @@ static run_on_thread_cb g_callback = NULL;
 static volatile size_t g_tids_len = 0;
 static redisAtomic size_t g_num_threads_done = 0;
 
-static sem_t wait_for_threads_sem;
-
 /* This flag is set while ThreadsManager_runOnThreads is running */
 static redisAtomic int g_in_progress = 0;
 
-static pthread_rwlock_t globals_rw_lock = PTHREAD_RWLOCK_INITIALIZER;
 /*============================ Internal prototypes ========================== */
 
 static void invoke_callback(int sig);
@@ -94,11 +89,6 @@ int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb c
     /* Set g_tids_len */
     g_tids_len = tids_len;
 
-    /* Initialize a semaphore that we will be waiting on for the threads
-    use pshared = 0 to indicate the semaphore is shared between the process's threads (and not between processes),
-    and value = 0 as the initial semaphore value. */
-    sem_init(&wait_for_threads_sem, 0, 0);
-
     /* Send signal to all the threads in tids */
     pid_t pid = getpid();
     for (size_t i = 0; i < tids_len ; ++i) {
@@ -130,54 +120,41 @@ __attribute__ ((noinline))
 static void invoke_callback(int sig) {
     UNUSED(sig);
 
-    /* If the lock is already locked for write, we are running cleanups, no reason to proceed. */
-    if(0 != pthread_rwlock_tryrdlock(&globals_rw_lock)) {
-        serverLog(LL_WARNING, "threads_mngr: ThreadsManager_cleanups() is in progress, can't invoke signal handler.");
-        return;
-    }
-
-    if (g_callback) {
-        g_callback();
-        size_t curr_done_count;
-        atomicIncrGet(g_num_threads_done, curr_done_count, 1);
-
-        /* last thread shuts down the light */
-        if (curr_done_count == g_tids_len) {
-            sem_post(&wait_for_threads_sem);
-        }
-    }
-
-    pthread_rwlock_unlock(&globals_rw_lock);
+    g_callback();
+    atomicIncr(g_num_threads_done, 1);
 }
 
 static void wait_threads(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
+    struct timespec timeout_time;
+    clock_gettime(CLOCK_REALTIME, &timeout_time);
 
     /* calculate relative time until timeout */
-    ts.tv_sec += RUN_ON_THREADS_TIMEOUT;
+    timeout_time.tv_sec += RUN_ON_THREADS_TIMEOUT;
 
-    int status = 0;
+    /* Wait until all threads are done to invoke the callback or until we reached the timeout */
+    size_t curr_done_count;
+    struct timespec curr_time;
 
-    /* lock the semaphore until the semaphore value rises above zero or a signal
-    handler interrupts the call. In the later case continue to wait. */
-    while ((status = sem_timedwait(&wait_for_threads_sem, &ts)) == -1 && errno == EINTR) {
-        serverLog(LL_WARNING, "threads_mngr: waiting for threads' output was interrupted by signal. Continue waiting.");
-        continue;
+    do
+    {
+        atomicGet(g_num_threads_done, curr_done_count);
+        clock_gettime(CLOCK_REALTIME, &curr_time);
+    } while (curr_done_count < g_tids_len &&
+            curr_time.tv_sec <= timeout_time.tv_sec);
+
+    if (curr_time.tv_sec > timeout_time.tv_sec) {
+        serverLogFromHandler(LL_WARNING, "wait_threads(): waiting threads timed out");
     }
+
 }
 
 static void ThreadsManager_cleanups(void) {
-    pthread_rwlock_wrlock(&globals_rw_lock);
-
     g_callback = NULL;
     g_tids_len = 0;
     g_num_threads_done = 0;
-    sem_destroy(&wait_for_threads_sem);
 
     /* Lastly, turn off g_in_progress */
     atomicSet(g_in_progress, 0);
-    pthread_rwlock_unlock(&globals_rw_lock);
 
 }
 #else

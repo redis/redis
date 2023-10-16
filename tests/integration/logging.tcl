@@ -47,8 +47,7 @@ if {$backtrace_supported} {
             if {$threads_mngr_supported} {
                 assert_equal [count_log_message 0 "failed to open /proc/"] 0
                 assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
-                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output was interrupted by signal"] 0
-                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output timed out"] 0
+                assert_equal [count_log_message 0 "wait_threads(): waiting threads timed out"] 0
                 assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
             }
             check_log_backtrace_for_debug "*WATCHDOG TIMER EXPIRED*"
