@@ -1831,7 +1831,6 @@ void closeDirectLogFiledes(int fd) {
 #define TIDS_MAX_SIZE 50
 static size_t get_ready_to_signal_threads_tids(pid_t pid, int sig_num, pid_t tids[TIDS_MAX_SIZE]);
 
-#define MAX_BUFF_LENGTH 256
 typedef struct {
     char thread_name[16];
     int trace_size;
@@ -1884,7 +1883,7 @@ static void writeStacktraces(int fd, int uplevel) {
 
     size_t skipped = 0;
 
-    char buff[MAX_BUFF_LENGTH];
+    char buff[PATH_MAX];
     pid_t calling_tid = syscall(SYS_gettid);
     /* for backtrace_data in backtraces_data: */
     for (size_t i = 0; i < len_tids; i++) {
@@ -1896,7 +1895,7 @@ static void writeStacktraces(int fd, int uplevel) {
         }
 
         /* stacktrace header includes the tid and the thread's name */
-        snprintf(buff, MAX_BUFF_LENGTH, "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
+        snprintf(buff, PATH_MAX, "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
         /* skip kernel call to the signal handler, the signal handler and the callback addresses */
@@ -1906,10 +1905,10 @@ static void writeStacktraces(int fd, int uplevel) {
             /* skip signal syscall and ThreadsManager_runOnThreads */
             curr_uplevel += uplevel + 2;
             /* Add an indication to header of the thread that is handling the log file */
-            snprintf(buff, MAX_BUFF_LENGTH, " *\n");
+            snprintf(buff, PATH_MAX, " *\n");
         } else {
             /* just add a new line */
-            snprintf(buff, MAX_BUFF_LENGTH, "\n");
+            snprintf(buff, PATH_MAX, "\n");
         }
 
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
@@ -1918,7 +1917,7 @@ static void writeStacktraces(int fd, int uplevel) {
         backtrace_symbols_fd(curr_stacktrace_data.trace+curr_uplevel, curr_stacktrace_data.trace_size-curr_uplevel, fd);
     }
 
-    snprintf(buff, MAX_BUFF_LENGTH, "\n%zu/%zu expected stacktraces.\n", len_tids - skipped, len_tids);
+    snprintf(buff, PATH_MAX, "\n%zu/%zu expected stacktraces.\n", len_tids - skipped, len_tids);
     if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
 }
@@ -2501,8 +2500,8 @@ void debugDelay(int usec) {
  * also returns 0 if something is wrong and prints a warning message to the log file **/
 static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
     /* open the threads status file */
-    char buff[MAX_BUFF_LENGTH];
-    snprintf(buff, MAX_BUFF_LENGTH, "/proc/%d/task/%d/status", pid, tid);
+    char buff[PATH_MAX];
+    snprintf(buff, PATH_MAX, "/proc/%d/task/%d/status", pid, tid);
     FILE *thread_status_file = fopen(buff, "r");
     if (thread_status_file == NULL) {
         serverLog(LL_WARNING,
@@ -2514,7 +2513,7 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
     size_t field_name_len = strlen("SigBlk:"); /* SigIgn has the same length */
     char *line = NULL;
     size_t fields_count = 2;
-    while ((line = fgets(buff, MAX_BUFF_LENGTH, thread_status_file)) && fields_count) {
+    while ((line = fgets(buff, PATH_MAX, thread_status_file)) && fields_count) {
         /* iterate the file until we reach SigBlk or SigIgn field line */
         if (!strncmp(buff, "SigBlk:", field_name_len) ||  !strncmp(buff, "SigIgn:", field_name_len)) {
             /* check if the signal exist in the mask */
@@ -2544,8 +2543,8 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
 */
 static size_t get_ready_to_signal_threads_tids(pid_t pid, int sig_num, pid_t tids[TIDS_MAX_SIZE]) {
     /* Initialize the path the process threads' directory. */
-    char path_buff[MAX_BUFF_LENGTH];
-    snprintf(path_buff, MAX_BUFF_LENGTH, "/proc/%d/task", pid);
+    char path_buff[PATH_MAX];
+    snprintf(path_buff, PATH_MAX, "/proc/%d/task", pid);
 
     /* Get the directory handler. */
     DIR *dir;
