@@ -13,6 +13,20 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 6.2.14    Released Wed 18 Oct 2023 10:33:40 IDT
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security fixes
+==============
+
+* (CVE-2023-45145) The wrong order of listen(2) and chmod(2) calls creates a
+  race condition that can be used by another process to bypass desired Unix
+  socket permissions on startup.
+
+
+================================================================================
 Redis 6.2.13   Released Mon July 10 12:00:00 IDT 2023
 ================================================================================
 
