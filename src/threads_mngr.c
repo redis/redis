@@ -49,8 +49,6 @@ static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
 
 static run_on_thread_cb g_callback = NULL;
 static volatile size_t g_tids_len = 0;
-static void **g_output_array = NULL;
-static redisAtomic size_t g_thread_ids = 0;
 static redisAtomic size_t g_num_threads_done = 0;
 
 static sem_t wait_for_threads_sem;
@@ -83,11 +81,11 @@ void ThreadsManager_init(void) {
     sigaction(SIGUSR2, &act, NULL);
 }
 
-__attribute__ ((noinline)) 
-void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
+__attribute__ ((noinline))
+int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
     /* Check if it is safe to start running. If not - return */
     if(test_and_start() == IN_PROGRESS) {
-        return NULL;
+        return 0;
     }
 
     /* Update g_callback */
@@ -95,9 +93,6 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
 
     /* Set g_tids_len */
     g_tids_len = tids_len;
-
-    /* Allocate the output buffer */
-    g_output_array = zcalloc(sizeof(void*) * tids_len);
 
     /* Initialize a semaphore that we will be waiting on for the threads
     use pshared = 0 to indicate the semaphore is shared between the process's threads (and not between processes),
@@ -113,12 +108,10 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
     /* Wait for all the threads to write to the output array, or until timeout is reached */
     wait_threads();
 
-    void **ret = g_output_array;
-
     /* Cleanups to allow next execution */
     ThreadsManager_cleanups();
 
-    return ret;
+    return 1;
 }
 
 /*============================ Internal functions implementations ========================== */
@@ -133,7 +126,7 @@ static int test_and_start(void) {
     return prev_state;
 }
 
-__attribute__ ((noinline)) 
+__attribute__ ((noinline))
 static void invoke_callback(int sig) {
     UNUSED(sig);
 
@@ -143,10 +136,8 @@ static void invoke_callback(int sig) {
         return;
     }
 
-    if (g_output_array) {
-        size_t thread_id;
-        atomicGetIncr(g_thread_ids, thread_id, 1);
-        g_output_array[thread_id] = g_callback();
+    if (g_callback) {
+        g_callback();
         size_t curr_done_count;
         atomicIncrGet(g_num_threads_done, curr_done_count, 1);
 
@@ -181,8 +172,6 @@ static void ThreadsManager_cleanups(void) {
 
     g_callback = NULL;
     g_tids_len = 0;
-    g_output_array = NULL;
-    g_thread_ids = 0;
     g_num_threads_done = 0;
     sem_destroy(&wait_for_threads_sem);
 
@@ -197,12 +186,12 @@ void ThreadsManager_init(void) {
     /* DO NOTHING */
 }
 
-void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
+int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
     /* DO NOTHING */
     UNUSED(tids);
     UNUSED(tids_len);
     UNUSED(callback);
-    return NULL;
+    return 1;
 }
 
 #endif /* __linux__ */

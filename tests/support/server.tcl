@@ -60,6 +60,10 @@ proc kill_server config {
         }
 
         check_sanitizer_errors [dict get $config stderr]
+
+        # Remove this pid from the set of active pids in the test server.
+        send_data_packet $::test_server_fd server-killed $pid
+
         return
     }
 

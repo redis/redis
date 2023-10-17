@@ -400,25 +400,17 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
- * metadata is used for constructing a doubly linked list of the dict entries
- * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
-size_t dbDictEntryMetadataSize(dict *d) {
-    UNUSED(d);
-    /* NOTICE: this also affects overhead_ht_slot_to_keys in getMemoryOverheadData.
-     * If we ever add non-cluster related data here, that code must be modified too. */
-    return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
+/* Adds dictionary to the rehashing list in cluster mode, which allows us
+ * to quickly find rehash targets during incremental rehashing.
+ * In non-cluster mode, we don't need this list as there is only one dictionary per DB. */
+void dictRehashingStarted(dict *d) {
+    if (!server.cluster_enabled || !server.activerehashing) return;
+    listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
 }
 
-/* Returns the size of the DB dict metadata in bytes. In cluster mode, we store
- * a pointer to the db in the main db dict, used for updating the slot-to-key
- * mapping when a dictEntry is reallocated. */
-size_t dbDictMetadataSize(void) {
-    return server.cluster_enabled ? sizeof(clusterDictMetadata) : 0;
-}
-
-void dbDictAfterReplaceEntry(dict *d, dictEntry *de) {
-    if (server.cluster_enabled) slotToKeyReplaceEntry(d, de);
+void dictRehashingStartedForExpires(dict *d) {
+    if (!server.cluster_enabled || !server.activerehashing) return;
+    listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -476,9 +468,7 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    .dictEntryMetadataBytes = dbDictEntryMetadataSize,
-    .dictMetadataBytes = dbDictMetadataSize,
-    .afterReplaceEntry = dbDictAfterReplaceEntry
+    dictRehashingStarted,
 };
 
 /* Db->expires */
@@ -489,7 +479,8 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictExpandAllowed           /* allow to expand */
+    dictExpandAllowed,           /* allow to expand */
+    dictRehashingStartedForExpires,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -600,19 +591,33 @@ dictType sdsHashDictType = {
 int htNeedsResize(dict *dict) {
     long long size, used;
 
-    size = dictSlots(dict);
+    size = dictBuckets(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
             (used*100/size < HASHTABLE_MIN_FILL));
 }
 
-/* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
- * we resize the hash table to save memory */
+/* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
+ * and triggers a resize if the percentage of used buckets in the HT reaches HASHTABLE_MIN_FILL
+ * we resize the hash table to save memory.
+ *
+ * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
-    if (htNeedsResize(server.db[dbid].dict))
-        dictResize(server.db[dbid].dict);
-    if (htNeedsResize(server.db[dbid].expires))
-        dictResize(server.db[dbid].expires);
+    redisDb *db = &server.db[dbid];
+    int slot = 0;
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        dbIterator *dbit = dbIteratorInitFromSlot(db, subdict, db->sub_dict[subdict].resize_cursor);
+        for (int i = 0; i < CRON_DBS_PER_CALL; i++) {
+            dict *d = dbIteratorNextDict(dbit);
+            slot = dbIteratorGetCurrentSlot(dbit);
+            if (!d) break;
+            if (htNeedsResize(d))
+                dictResize(d);
+        }
+        /* Save current iterator position in the resize_cursor. */
+        db->sub_dict[subdict].resize_cursor = slot;
+        zfree(dbit);
+    }
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -623,15 +628,42 @@ void tryResizeHashTables(int dbid) {
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
 int incrementallyRehash(int dbid) {
-    /* Keys dictionary */
-    if (dictIsRehashing(server.db[dbid].dict)) {
-        dictRehashMilliseconds(server.db[dbid].dict,1);
-        return 1; /* already used our millisecond for this loop... */
-    }
-    /* Expires */
-    if (dictIsRehashing(server.db[dbid].expires)) {
-        dictRehashMilliseconds(server.db[dbid].expires,1);
-        return 1; /* already used our millisecond for this loop... */
+    /* Rehash main and expire dictionary . */
+    if (server.cluster_enabled) {
+        listNode *node, *nextNode;
+        monotime timer;
+        elapsedStart(&timer);
+        /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
+         * while removing those that already finished rehashing from the queue. */
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.db[dbid].sub_dict[subdict].rehashing));
+            while ((node = listFirst(server.db[dbid].sub_dict[subdict].rehashing))) {
+                if (dictIsRehashing((dict *) listNodeValue(node))) {
+                    dictRehashMilliseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_MS);
+                    if (elapsedMs(timer) >= INCREMENTAL_REHASHING_THRESHOLD_MS) {
+                        return 1;  /* Reached the time limit. */
+                    }
+                } else { /* It is possible that rehashing has already completed for this dictionary, simply remove it from the queue. */
+                    nextNode = listNextNode(node);
+                    listDelNode(server.db[dbid].sub_dict[subdict].rehashing, node);
+                    node = nextNode;
+                }
+            }
+        }
+        /* When cluster mode is disabled, only one dict is used for the entire DB and rehashing list isn't populated. */
+    } else {
+        /* Rehash main dict. */
+        dict *main_dict = server.db[dbid].dict[0];
+        if (main_dict) {
+            dictRehashMilliseconds(main_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
+            return 1; /* already used our millisecond for this loop... */
+        }
+        /* Rehash expires. */
+        dict *expires_dict = server.db[dbid].expires[0];
+        if (expires_dict) {
+            dictRehashMilliseconds(expires_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
+            return 1; /* already used our millisecond for this loop... */
+        }
     }
     return 0;
 }
@@ -1356,9 +1388,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             for (j = 0; j < server.dbnum; j++) {
                 long long size, used, vkeys;
 
-                size = dictSlots(server.db[j].dict);
-                used = dictSize(server.db[j].dict);
-                vkeys = dictSize(server.db[j].expires);
+                size = dbBuckets(&server.db[j], DB_MAIN);
+                used = dbSize(&server.db[j], DB_MAIN);
+                vkeys = dbSize(&server.db[j], DB_EXPIRES);
                 if (used || vkeys) {
                     serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
@@ -2564,6 +2596,15 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+void initDbState(redisDb *db){
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        db->sub_dict[subdict].rehashing = listCreate();
+        db->sub_dict[subdict].key_count = 0;
+        db->sub_dict[subdict].resize_cursor = 0;
+        db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+    }
+}
+
 void initServer(void) {
     int j;
 
@@ -2640,8 +2681,9 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType);
-        server.db[j].expires = dictCreate(&dbExpiresDictType);
+        int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+        server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
+        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slotCount);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2650,7 +2692,8 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
-        server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
+        server.db[j].dict_count = slotCount;
+        initDbState(&server.db[j]);
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
@@ -4171,7 +4214,6 @@ int processCommand(client *c) {
         if (listLength(server.ready_keys) && !isInsideYieldingLongCommand())
             handleClientsBlockedOnKeys();
     }
-
     return C_OK;
 }
 
@@ -6013,8 +6055,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
 
-            keys = dictSize(server.db[j].dict);
-            vkeys = dictSize(server.db[j].expires);
+            keys = dbSize(&server.db[j], DB_MAIN);
+            vkeys = dbSize(&server.db[j], DB_EXPIRES);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
                     "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
@@ -6805,6 +6847,7 @@ int main(int argc, char **argv) {
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
+    monotonicInit(); /* Required for dict tests, that are relying on monotime during dict rehashing. */
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
         int flags = 0;
         for (j = 3; j < argc; j++) {

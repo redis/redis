@@ -4243,7 +4243,7 @@ void RM_ResetDataset(int restart_aof, int async) {
 
 /* Returns the number of keys in the current db. */
 unsigned long long RM_DbSize(RedisModuleCtx *ctx) {
-    return dictSize(ctx->client->db->dict);
+    return dbSize(ctx->client->db, DB_MAIN);
 }
 
 /* Returns a name of a random key, or NULL if current db is empty. */
@@ -10879,7 +10879,7 @@ typedef struct {
 } ScanCBData;
 
 typedef struct RedisModuleScanCursor{
-    unsigned long cursor;
+    unsigned long long cursor;
     int done;
 }RedisModuleScanCursor;
 
@@ -10981,7 +10981,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     }
     int ret = 1;
     ScanCBData data = { ctx, privdata, fn };
-    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, moduleScanCallback, &data);
+    cursor->cursor = dbScan(ctx->client->db, DB_MAIN, cursor->cursor, moduleScanCallback, NULL, &data);
     if (cursor->cursor == 0) {
         cursor->done = 1;
         ret = 0;
