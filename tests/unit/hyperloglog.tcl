@@ -262,10 +262,10 @@ start_server {tags {"hll"}} {
         r del hll
         r pfadd hll a b c
         r pfcount hll
-        assert {[r getrange hll 15 16] eq "\x00"}
+        assert {[r getrange hll 15 15] eq "\x00"}
         r pfadd hll a b c
-        assert {[r getrange hll 15 16] eq "\x00"}
+        assert {[r getrange hll 15 15] eq "\x00"}
         r pfadd hll 1 2 3
-        assert {[r getrange hll 15 16] eq "\x80"}
+        assert {[r getrange hll 15 15] eq "\x80"}
     }
 }
