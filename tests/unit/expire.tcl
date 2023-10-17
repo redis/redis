@@ -192,8 +192,8 @@ start_server {tags {"expire"}} {
         # two seconds.
         wait_for_condition 20 100 {
             [r dbsize] eq 0
-        } fail {
-            "Keys did not actively expire."
+        } else {
+            fail "Keys did not actively expire."
         }
     }
 
@@ -378,8 +378,8 @@ start_server {tags {"expire"}} {
                 {set foo15 bar}
                 {pexpireat foo15 *}
                 {set foo16 bar}
-                {restore foo17 * {*} ABSTTL}
-                {restore foo18 * {*} absttl}
+                {restore foo17 * * ABSTTL}
+                {restore foo18 * * absttl}
             }
 
             # Remember the absolute TTLs of all the keys
@@ -507,8 +507,8 @@ start_server {tags {"expire"}} {
             {pexpireat foo4 *}
             {pexpireat foo4 *}
             {set foo5 bar}
-            {restore foo6 * {*} ABSTTL}
-            {restore foo7 * {*} absttl}
+            {restore foo6 * * ABSTTL}
+            {restore foo7 * * absttl}
         }
         close_replication_stream $repl
     } {} {needs:repl}
@@ -832,4 +832,76 @@ start_server {tags {"expire"}} {
         close_replication_stream $repl
         assert_equal [r debug set-active-expire 1] {OK}
     } {} {needs:debug}
+}
+
+start_cluster 1 0 {tags {"expire external:skip cluster"}} {
+    test "expire scan should skip dictionaries with lot's of empty buckets" {
+        # Collect two slots to help determine the expiry scan logic is able
+        # to go past certain slots which aren't valid for scanning at the given point of time.
+        # And the next non empyt slot after that still gets scanned and expiration happens.
+
+        # hashslot(alice) is 749
+        r psetex alice 500 val
+
+        # hashslot(foo) is 12182
+        # fill data across different slots with expiration
+        for {set j 1} {$j <= 100} {incr j} {
+            r psetex "{foo}$j" 500 a
+        }
+        # hashslot(key) is 12539
+        r psetex key 500 val
+
+        assert_equal 102 [r dbsize]
+
+        # disable resizing
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+
+        # delete data to have lot's (99%) of empty buckets (slot 12182 should be skipped)
+        for {set j 1} {$j <= 99} {incr j} {
+            r del "{foo}$j"
+        }
+
+        # Verify {foo}5 still exists and remaining got cleaned up
+        wait_for_condition 20 100 {
+            [r dbsize] eq 1
+        } else {
+            if {[r dbsize] eq 0} {
+                fail "scan didn't handle slot skipping logic."
+            } else {
+                fail "scan didn't process all valid slots."
+            }
+        }
+
+        # Enable resizing
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time."
+        }
+
+        # Verify dict is under rehashing
+        set htstats [r debug HTSTATS 0]
+        assert_match {*rehashing target*} $htstats
+
+        # put some data into slot 12182 and trigger the resize
+        r psetex "{foo}0" 500 a
+
+        # Verify dict rehashing has completed
+        set htstats [r debug HTSTATS 0]
+        wait_for_condition 20 100 {
+            ![string match {*rehashing target*} $htstats]
+        } else {
+            fail "rehashing didn't complete"
+        }
+
+        # Verify all keys have expired
+        wait_for_condition 20 100 {
+            [r dbsize] eq 0
+        } else {
+            fail "Keys did not actively expire."
+        }
+    }
 }

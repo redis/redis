@@ -5,7 +5,9 @@
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
 
-#define CLUSTER_SLOTS 16384
+#define CLUSTER_SLOT_MASK_BITS 14 /* Number of bits used for slot id. */
+#define CLUSTER_SLOTS (1<<CLUSTER_SLOT_MASK_BITS) /* Total number of slots in cluster mode, which is 16384. */
+#define CLUSTER_SLOT_MASK ((unsigned long long)(CLUSTER_SLOTS - 1)) /* Bit mask for slot id stored in LSB. */
 #define CLUSTER_OK 0            /* Everything looks ok */
 #define CLUSTER_FAIL 1          /* The cluster can't work */
 #define CLUSTER_NAMELEN 40      /* sha1 hex length */
@@ -150,29 +152,6 @@ typedef struct clusterNode {
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
 
-/* Slot to keys for a single slot. The keys in the same slot are linked together
- * using dictEntry metadata. */
-typedef struct slotToKeys {
-    uint64_t count;             /* Number of keys in the slot. */
-    dictEntry *head;            /* The first key-value entry in the slot. */
-} slotToKeys;
-
-/* Slot to keys mapping for all slots, opaque outside this file. */
-struct clusterSlotToKeyMapping {
-    slotToKeys by_slot[CLUSTER_SLOTS];
-};
-
-/* Dict entry metadata for cluster mode, used for the Slot to Key API to form a
- * linked list of the entries belonging to the same slot. */
-typedef struct clusterDictEntryMetadata {
-    dictEntry *prev;            /* Prev entry with key in the same slot */
-    dictEntry *next;            /* Next entry with key in the same slot */
-} clusterDictEntryMetadata;
-
-typedef struct {
-    redisDb *db;                /* A link back to the db this dict belongs to */
-} clusterDictMetadata;
-
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
     uint64_t currentEpoch;
@@ -300,7 +279,7 @@ typedef struct {
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
     union {
         clusterMsgPingExtHostname hostname;
-	clusterMsgPingExtHumanNodename human_nodename;
+        clusterMsgPingExtHumanNodename human_nodename;
         clusterMsgPingExtForgottenNode forgotten_node;
         clusterMsgPingExtShardId shard_id;
     } ext[]; /* Actual extension information, formatted so that the data is 8 
@@ -424,12 +403,6 @@ unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 unsigned int keyHashSlot(char *key, int keylen);
-void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
-void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
-void slotToKeyReplaceEntry(dict *d, dictEntry *entry);
-void slotToKeyInit(redisDb *db);
-void slotToKeyFlush(redisDb *db);
-void slotToKeyDestroy(redisDb *db);
 void clusterUpdateMyselfFlags(void);
 void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);
@@ -439,6 +412,7 @@ void clusterUpdateMyselfAnnouncedPorts(void);
 sds clusterGenNodesDescription(client *c, int filter, int tls_primary);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
+int clusterNodeGetSlotBit(clusterNode *n, int slot);
 void clusterUpdateMyselfHumanNodename(void);
 int isValidAuxString(char *s, unsigned int length);
 int getNodeDefaultClientPort(clusterNode *n);
