@@ -13,6 +13,52 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.2.2    Released Wed 18 Oct 2023 10:33:40 IDT
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security fixes
+==============
+
+* (CVE-2023-45145) The wrong order of listen(2) and chmod(2) calls creates a
+  race condition that can be used by another process to bypass desired Unix
+  socket permissions on startup.
+
+
+Platform / toolchain support related changes
+=================================================
+
+* Fix compilation error on MacOS 13 (#12611)
+
+Bug fixes
+=========
+
+* WAITAOF could timeout in the absence of write traffic in case a new AOF is
+  created and an AOF rewrite can't immediately start (#12620)
+
+Redis cluster
+=============
+
+* Fix crash when running rebalance command in a mixed cluster of 7.0 and 7.2
+  nodes (#12604)
+* Fix the return type of the slot number in cluster shards to integer, which
+  makes it consistent with past behavior (#12561)
+* Fix CLUSTER commands are called from modules or scripts to return TLS info
+  appropriately (#12569)
+
+Changes in CLI tools
+====================
+
+* redis-cli, fix crash on reconnect when in SUBSCRIBE mode (#12571)
+
+Module API changes
+==================
+
+* Fix overflow calculation for next timer event (#12474)
+
+
+================================================================================
 Redis 7.2.1    Released Wed 06 Sep 2023 15:00:00 IDT
 ================================================================================
 
