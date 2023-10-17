@@ -331,9 +331,9 @@ start_server {tags {"scripting"}} {
     test {EVAL - JSON string encoding a string larger than 2GB} {
         run_script {
             local s = string.rep("a", 1024 * 1024 * 1024)
-            return #cjson.encode(s..s..s)
+            return #cjson.encode(s..s..'foo')
         } 0
-    } {3221225474} {large-memory} ;# length includes two double quotes at both ends
+    } {2147483653} {large-memory} ;# length includes two double quotes at both ends
 
     test {EVAL - JSON numeric decoding} {
         # We must return the table as a string because otherwise
