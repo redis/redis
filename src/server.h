@@ -673,7 +673,8 @@ typedef enum {
 #define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
-/* We can custom log/assert only for debugging operations when complied with REDIS_CFLAGS set to "-DDEBUG_ASSERTIONS" */
+/* The following macros provide assertions that are only executed during test builds and should be used to add 
+ * assertions that are too computationally expensive or dangerous to run during normal operations.  */
 #ifdef DEBUG_ASSERTIONS
 #define serverAssertWithInfoDebug(...) serverAssertWithInfo(__VA_ARGS__)
 #define serverLogDebug(...) serverLog(__VA_ARGS__)
