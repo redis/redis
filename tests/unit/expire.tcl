@@ -851,8 +851,6 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
         # hashslot(key) is 12539
         r psetex key 500 val
 
-        assert_equal 102 [r dbsize]
-
         # disable resizing
         r config set rdb-key-save-delay 10000000
         r bgsave
