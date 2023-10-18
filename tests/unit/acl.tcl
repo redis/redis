@@ -615,6 +615,10 @@ start_server {tags {"acl external:skip"}} {
         # Unnecessary categories are retained for potentional future compatibility
         r ACL SETUSER adv-test -@all -@dangerous
         assert_equal "-@all -@dangerous" [dict get [r ACL getuser adv-test] commands]
+
+        # Duplicate categories are compressed, regression test for #12470
+        r ACL SETUSER adv-test -@all +config +config|get -config|set +config
+        assert_equal "-@all +config" [dict get [r ACL getuser adv-test] commands]
     }
 
     test "ACL CAT with illegal arguments" {

@@ -28,8 +28,8 @@ void InfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
     if (for_crash_report) {
         RedisModule_InfoAddSection(ctx, "Klingon");
-        RedisModule_InfoAddFieldCString(ctx, "one", "wa’");
-        RedisModule_InfoAddFieldCString(ctx, "two", "cha’");
+        RedisModule_InfoAddFieldCString(ctx, "one", "wa'");
+        RedisModule_InfoAddFieldCString(ctx, "two", "cha'");
         RedisModule_InfoAddFieldCString(ctx, "three", "wej");
     }
 

@@ -1,16 +1,41 @@
 /* This file implements atomic counters using c11 _Atomic, __atomic or __sync
  * macros if available, otherwise we will throw an error when compile.
  *
- * The exported interface is composed of three macros:
+ * The exported interface is composed of the following macros:
  *
  * atomicIncr(var,count) -- Increment the atomic counter
  * atomicGetIncr(var,oldvalue_var,count) -- Get and increment the atomic counter
+ * atomicIncrGet(var,newvalue_var,count) -- Increment and get the atomic counter new value
  * atomicDecr(var,count) -- Decrement the atomic counter
  * atomicGet(var,dstvar) -- Fetch the atomic counter value
  * atomicSet(var,value)  -- Set the atomic counter value
  * atomicGetWithSync(var,value)  -- 'atomicGet' with inter-thread synchronization
  * atomicSetWithSync(var,value)  -- 'atomicSet' with inter-thread synchronization
- *
+ * 
+ * Atomic operations on flags. 
+ * Flag type can be int, long, long long or their unsigned counterparts.
+ * The value of the flag can be 1 or 0.
+ * 
+ * atomicFlagGetSet(var,oldvalue_var) -- Get and set the atomic counter value
+ * 
+ * NOTE1: __atomic* and _Atomic implementations can be actually elaborated to support any value by changing the 
+ * hardcoded new value passed to __atomic_exchange* from 1 to @param count
+ * i.e oldvalue_var = atomic_exchange_explicit(&var, count).
+ * However, in order to be compatible with the __sync functions family, we can use only 0 and 1.
+ * The only exchange alternative suggested by __sync is __sync_lock_test_and_set, 
+ * But as described by the gnu manual for __sync_lock_test_and_set():
+ * https://gcc.gnu.org/onlinedocs/gcc/_005f_005fsync-Builtins.html
+ * "A target may support reduced functionality here by which the only valid value to store is the immediate constant 1. The exact value
+ * actually stored in *ptr is implementation defined."
+ * Hence, we can't rely on it for a any value other than 1.
+ * We eventually chose to implement this method with __sync_val_compare_and_swap since it satisfies functionality needed for atomicFlagGetSet
+ * (if the flag was 0 -> set to 1, if it's already 1 -> do nothing, but the final result is that the flag is set), 
+ * and also it has a full barrier (__sync_lock_test_and_set has acquire barrier).
+ * 
+ * NOTE2: Unlike other atomic type, which aren't guaranteed to be lock free, c11 atmoic_flag does.
+ * To check whether a type is lock free, atomic_is_lock_free() can be used. 
+ * It can be considered to limit the flag type to atomic_flag to improve performance.
+ * 
  * Never use return value from the macros, instead use the AtomicGetIncr()
  * if you need to get the current value and increment it atomically, like
  * in the following example:
@@ -93,6 +118,8 @@
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = atomic_fetch_add_explicit(&var,(count),memory_order_relaxed); \
 } while(0)
+#define atomicIncrGet(var, newvalue_var, count) \
+    newvalue_var = atomicIncr(var,count) + count
 #define atomicDecr(var,count) atomic_fetch_sub_explicit(&var,(count),memory_order_relaxed)
 #define atomicGet(var,dstvar) do { \
     dstvar = atomic_load_explicit(&var,memory_order_relaxed); \
@@ -103,6 +130,8 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     atomic_store_explicit(&var,value,memory_order_seq_cst)
+#define atomicFlagGetSet(var,oldvalue_var) \
+    oldvalue_var = atomic_exchange_explicit(&var,1,memory_order_relaxed)
 #define REDIS_ATOMIC_API "c11-builtin"
 
 #elif !defined(__ATOMIC_VAR_FORCE_SYNC_MACROS) && \
@@ -111,6 +140,8 @@
 /* Implementation using __atomic macros. */
 
 #define atomicIncr(var,count) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
+#define atomicIncrGet(var, newvalue_var, count) \
+    newvalue_var = __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __atomic_fetch_add(&var,(count),__ATOMIC_RELAXED); \
 } while(0)
@@ -124,12 +155,16 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     __atomic_store_n(&var,value,__ATOMIC_SEQ_CST)
+#define atomicFlagGetSet(var,oldvalue_var) \
+    oldvalue_var = __atomic_exchange_n(&var,1,__ATOMIC_RELAXED)
 #define REDIS_ATOMIC_API "atomic-builtin"
 
 #elif defined(HAVE_ATOMIC)
 /* Implementation using __sync macros. */
 
 #define atomicIncr(var,count) __sync_add_and_fetch(&var,(count))
+#define atomicIncrGet(var, newvalue_var, count) \
+    newvalue_var = __sync_add_and_fetch(&var,(count))
 #define atomicGetIncr(var,oldvalue_var,count) do { \
     oldvalue_var = __sync_fetch_and_add(&var,(count)); \
 } while(0)
@@ -149,6 +184,8 @@
     ANNOTATE_HAPPENS_BEFORE(&var);  \
     while(!__sync_bool_compare_and_swap(&var,var,value,__sync_synchronize)); \
 } while(0)
+#define atomicFlagGetSet(var,oldvalue_var) \
+    oldvalue_var = __sync_val_compare_and_swap(&var,0,1)
 #define REDIS_ATOMIC_API "sync-builtin"
 
 #else

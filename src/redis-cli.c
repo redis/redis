@@ -1657,6 +1657,7 @@ static int cliConnect(int flags) {
             redisFree(context);
             config.dbnum = 0;
             config.in_multi = 0;
+            config.pubsub_mode = 0;
             cliRefreshPrompt();
         }
 
@@ -2291,8 +2292,12 @@ static int cliReadReply(int output_raw_strings) {
         slot = atoi(s+1);
         s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
-        sdsfree(config.conn_info.hostip);
-        config.conn_info.hostip = sdsnew(p+1);
+        if (p+1 != s) {
+            /* Host might be empty, like 'MOVED 3999 :6381', if endpoint type is unknown. Only update the
+             * host if it's non-empty. */
+            sdsfree(config.conn_info.hostip);
+            config.conn_info.hostip = sdsnew(p+1);
+        }
         config.conn_info.hostport = atoi(s+1);
         if (config.interactive)
             printf("-> Redirected to slot [%d] located at %s:%d\n",
@@ -3274,8 +3279,8 @@ static int isSensitiveCommand(int argc, char **argv) {
         !strcasecmp(argv[1],"set")) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
-		    !strcasecmp(argv[j],"masteruser") ||
-		    !strcasecmp(argv[j],"requirepass")) {
+                    !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"requirepass")) {
                     return 1;
                 }
             }
@@ -4573,7 +4578,7 @@ static void clusterManagerShowNodes(void) {
 
 static void clusterManagerShowClusterInfo(void) {
     int masters = 0;
-    int keys = 0;
+    long long keys = 0;
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
@@ -4582,7 +4587,7 @@ static void clusterManagerShowClusterInfo(void) {
         if (!(node->flags & CLUSTER_MANAGER_FLAG_SLAVE)) {
             if (!node->name) continue;
             int replicas = 0;
-            int dbsize = -1;
+            long long dbsize = -1;
             char name[9];
             memcpy(name, node->name, 8);
             name[8] = '\0';
@@ -4608,14 +4613,14 @@ static void clusterManagerShowClusterInfo(void) {
                 return;
             };
             if (reply != NULL) freeReplyObject(reply);
-            printf("%s:%d (%s...) -> %d keys | %d slots | %d slaves.\n",
+            printf("%s:%d (%s...) -> %lld keys | %d slots | %d slaves.\n",
                    node->ip, node->port, name, dbsize,
                    node->slots_count, replicas);
             masters++;
             keys += dbsize;
         }
     }
-    clusterManagerLogOk("[OK] %d keys in %d masters.\n", keys, masters);
+    clusterManagerLogOk("[OK] %lld keys in %d masters.\n", keys, masters);
     float keys_per_slot = keys / (float) CLUSTER_MANAGER_SLOTS;
     printf("%.2f keys per slot on average.\n", keys_per_slot);
 }
@@ -8885,6 +8890,28 @@ static int getDbSize(void) {
     return size;
 }
 
+static int getDatabases(void) {
+    redisReply *reply;
+    int dbnum;
+
+    reply = redisCommand(context, "CONFIG GET databases");
+
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        dbnum = 16;
+        fprintf(stderr, "CONFIG GET databases fails: %s, use default value 16 instead\n", reply->str);
+    } else {
+        assert(reply->type == (config.current_resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+        assert(reply->elements == 2);
+        dbnum = atoi(reply->element[1]->str);
+    }
+
+    freeReplyObject(reply);
+    return dbnum;
+}
+
 typedef struct {
     char *name;
     char *sizecmd;
@@ -9367,6 +9394,7 @@ void bytesToHuman(char *s, size_t size, long long n) {
 static void statMode(void) {
     redisReply *reply;
     long aux, requests = 0;
+    int dbnum = getDatabases();
     int i = 0;
 
     while(1) {
@@ -9390,7 +9418,7 @@ static void statMode(void) {
 
         /* Keys */
         aux = 0;
-        for (j = 0; j < 20; j++) {
+        for (j = 0; j < dbnum; j++) {
             long k;
 
             snprintf(buf,sizeof(buf),"db%d:keys",j);
@@ -9782,6 +9810,7 @@ int main(int argc, char **argv) {
     config.pipe_mode = 0;
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
+    config.memkeys = 0;
     config.hotkeys = 0;
     config.stdin_lastarg = 0;
     config.stdin_tag_arg = 0;

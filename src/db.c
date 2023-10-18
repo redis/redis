@@ -37,6 +37,15 @@
 #include <signal.h>
 #include <ctype.h>
 
+/* Structure for DB iterator that allows iterating across multiple slot specific dictionaries in cluster mode. */
+struct dbIterator {
+    redisDb *db;
+    int slot;
+    int next_slot;
+    dictIterator di;
+    dbKeyType keyType;
+};
+
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
@@ -47,7 +56,72 @@
 
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
+void cumulativeKeyCountAdd(redisDb *db, int idx, long delta, dbKeyType keyType);
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
+
+dict *dbGetDictFromIterator(dbIterator *dbit) {
+    if (dbit->keyType == DB_MAIN)
+        return dbit->db->dict[dbit->slot];
+    else if (dbit->keyType == DB_EXPIRES)
+        return dbit->db->expires[dbit->slot];
+    else
+        serverAssert(0);
+}
+
+/* Returns next dictionary from the iterator, or NULL if iteration is complete. */
+dict *dbIteratorNextDict(dbIterator *dbit) {
+    if (dbit->next_slot == -1) return NULL;
+    dbit->slot = dbit->next_slot;
+    dbit->next_slot = dbGetNextNonEmptySlot(dbit->db, dbit->slot, dbit->keyType);
+    return dbGetDictFromIterator(dbit);
+}
+
+int dbIteratorGetCurrentSlot(dbIterator *dbit) {
+    serverAssert(dbit->slot >= 0 && dbit->slot < CLUSTER_SLOTS);
+    return dbit->slot;
+}
+
+/* Returns next entry from the multi slot db. */
+dictEntry *dbIteratorNext(dbIterator *dbit) {
+    dictEntry *de = dbit->di.d ? dictNext(&dbit->di) : NULL;
+    if (!de) { /* No current dict or reached the end of the dictionary. */
+        dict *d = dbIteratorNextDict(dbit);
+        if (!d) return NULL;
+        dictInitSafeIterator(&dbit->di, d);
+        de = dictNext(&dbit->di);
+    }
+    return de;
+}
+
+/* Returns DB iterator that can be used to iterate through sub-dictionaries.
+ * Primary database contains only one dictionary when node runs without cluster mode,
+ * or 16k dictionaries (one per slot) when node runs with cluster mode enabled. */
+dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType) {
+    dbIterator *dbit = zmalloc(sizeof(*dbit));
+    dbit->db = db;
+    dbit->slot = -1;
+    dbit->keyType = keyType;
+    dbit->next_slot = findSlotByKeyIndex(dbit->db, 1, dbit->keyType); /* Finds first non-empty slot. */
+    dictInitSafeIterator(&dbit->di, NULL);
+    return dbit;
+}
+
+dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot) {
+    dbIterator *dbit = zmalloc(sizeof(*dbit));
+    dbit->db = db;
+    dbit->slot = slot;
+    dbit->keyType = keyType;
+    dbit->next_slot = dbGetNextNonEmptySlot(dbit->db, dbit->slot, dbit->keyType);
+    dictInitSafeIterator(&dbit->di, NULL);
+    return dbit;
+}
+
+/* Returns next non-empty slot strictly after given one, or -1 if provided slot is the last one. */
+int dbGetNextNonEmptySlot(redisDb *db, int slot, dbKeyType keyType) {
+    unsigned long long next_key = cumulativeKeyCountRead(db, slot, keyType) + 1;
+    return next_key <= dbSize(db, keyType) ? findSlotByKeyIndex(db, next_key, keyType) : -1;
+}
+
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -86,7 +160,7 @@ void updateLFU(robj *val) {
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
-    dictEntry *de = dictFind(db->dict,key->ptr);
+    dictEntry *de = dbFind(db, key->ptr, DB_MAIN);
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
@@ -188,26 +262,51 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
  *
- * If the update_if_existing argument is false, the the program is aborted
- * if the key already exists, otherwise, it can fall back to dbOverwite. */
+ * If the update_if_existing argument is false, the program is aborted
+ * if the key already exists, otherwise, it can fall back to dbOverwrite. */
 static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
     dictEntry *existing;
-    dictEntry *de = dictAddRaw(db->dict, key->ptr, &existing);
+    int slot = getKeySlot(key->ptr);
+    dict *d = db->dict[slot];
+    dictEntry *de = dictAddRaw(d, key->ptr, &existing);
     if (update_if_existing && existing) {
         dbSetValue(db, key, val, 1, existing);
         return;
     }
     serverAssertWithInfo(NULL, key, de != NULL);
-    dictSetKey(db->dict, de, sdsdup(key->ptr));
+    dictSetKey(d, de, sdsdup(key->ptr));
     initObjectLRUOrLFU(val);
-    dictSetVal(db->dict, de, val);
+    dictSetVal(d, de, val);
+    db->sub_dict[DB_MAIN].key_count++;
+    cumulativeKeyCountAdd(db, slot, 1, DB_MAIN);
     signalKeyAsReady(db, key, val->type);
-    if (server.cluster_enabled) slotToKeyAddEntry(de, db);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
 
 void dbAdd(redisDb *db, robj *key, robj *val) {
     dbAddInternal(db, key, val, 0);
+}
+
+/* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
+ * The only difference between this function and getKeySlot, is that it's not using cached key slot from the current_client
+ * and always calculates CRC hash.
+ * This is useful when slot needs to be calculated for a key that user didn't request for, such as in case of eviction. */
+int calculateKeySlot(sds key) {
+    return server.cluster_enabled ? keyHashSlot(key, (int) sdslen(key)) : 0;
+}
+
+/* Return slot-specific dictionary for key based on key's hash slot when cluster mode is enabled, else 0.*/
+int getKeySlot(sds key) {
+    /* This is performance optimization that uses pre-set slot id from the current command,
+     * in order to avoid calculation of the key hash.
+     * This optimization is only used when current_client flag `CLIENT_EXECUTING_COMMAND` is set.
+     * It only gets set during the execution of command under `call` method. Other flows requesting
+     * the key slot would fallback to calculateKeySlot.
+     */
+    if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
+        return server.current_client->slot;
+    }
+    return calculateKeySlot(key);
 }
 
 /* This is a special version of dbAdd() that is used only when loading
@@ -222,11 +321,14 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
  * ownership of the SDS string, otherwise 0 is returned, and is up to the
  * caller to free the SDS string. */
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
-    dictEntry *de = dictAddRaw(db->dict, key, NULL);
+    int slot = getKeySlot(key);
+    dict *d = db->dict[slot];
+    dictEntry *de = dictAddRaw(d, key, NULL);
     if (de == NULL) return 0;
     initObjectLRUOrLFU(val);
-    dictSetVal(db->dict, de, val);
-    if (server.cluster_enabled) slotToKeyAddEntry(de, db);
+    dictSetVal(d, de, val);
+    db->sub_dict[DB_MAIN].key_count++;
+    cumulativeKeyCountAdd(db, slot, 1, DB_MAIN);
     return 1;
 }
 
@@ -243,7 +345,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  *
  * The program is aborted if the key was not already present. */
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de) {
-    if (!de) de = dictFind(db->dict,key->ptr);
+    if (!de) de = dbFind(db, key->ptr, DB_MAIN);
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
 
@@ -263,13 +365,14 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
     }
-    dictSetVal(db->dict, de, val);
+    dict *d = db->dict[getKeySlot(key->ptr)];
+    dictSetVal(d, de, val);
 
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key,old,db->id);
     } else {
         /* This is just decrRefCount(old); */
-        db->dict->type->valDestructor(db->dict, old);
+        d->type->valDestructor(d, old);
     }
 }
 
@@ -321,18 +424,18 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
-    int allvolatile = dictSize(db->dict) == dictSize(db->expires);
+    int allvolatile = dbSize(db, DB_MAIN) == dbSize(db, DB_EXPIRES);
 
     while(1) {
         sds key;
         robj *keyobj;
-
-        de = dictGetFairRandomKey(db->dict);
+        int randomSlot = getFairRandomSlot(db, DB_MAIN);
+        de = dictGetFairRandomKey(db->dict[randomSlot]);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (dictFind(db->expires,key)) {
+        if (dbFind(db, key, DB_EXPIRES)) {
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -353,11 +456,96 @@ robj *dbRandomKey(redisDb *db) {
     }
 }
 
+/* Updates binary index tree (also known as Fenwick tree), increasing key count for a given slot.
+ * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
+ * Time complexity is O(log(CLUSTER_SLOTS)). */
+void cumulativeKeyCountAdd(redisDb *db, int slot, long delta, dbKeyType keyType) {
+    if (!server.cluster_enabled) return;
+    int idx = slot + 1; /* Unlike slots, BIT is 1-based, so we need to add 1. */
+    while (idx <= CLUSTER_SLOTS) {
+        if (delta < 0) {
+            serverAssert(db->sub_dict[keyType].slot_size_index[idx] >= (unsigned long long)labs(delta));
+        }
+        db->sub_dict[keyType].slot_size_index[idx] += delta;
+        idx += (idx & -idx);
+    }
+}
+
+/* Returns total (cumulative) number of keys up until given slot (inclusive).
+ * Time complexity is O(log(CLUSTER_SLOTS)). */
+unsigned long long cumulativeKeyCountRead(redisDb *db, int slot, dbKeyType keyType) {
+    if (!server.cluster_enabled) {
+        serverAssert(slot == 0);
+        return dbSize(db, keyType);
+    }
+    int idx = slot + 1;
+    unsigned long long sum = 0;
+    while (idx > 0) {
+        sum += db->sub_dict[keyType].slot_size_index[idx];
+        idx -= (idx & -idx);
+    }
+    return sum;
+}
+
+/* Returns fair random slot, probability of each slot being returned is proportional to the number of elements that slot dictionary holds.
+ * Implementation uses binary search on top of binary index tree.
+ * This function guarantees that it returns a slot whose dict is non-empty, unless the entire db is empty.
+ * Time complexity of this function is O(log^2(CLUSTER_SLOTS)). */
+int getFairRandomSlot(redisDb *db, dbKeyType keyType) {
+    unsigned long target = dbSize(db, keyType) ? (randomULong() % dbSize(db, keyType)) + 1 : 0;
+    int slot = findSlotByKeyIndex(db, target, keyType);
+    return slot;
+}
+
+static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyType) {
+    if (keyType == DB_MAIN)
+        return dictSize(db->dict[slot]);
+    else if (keyType == DB_EXPIRES)
+        return dictSize(db->expires[slot]);
+    else
+        serverAssert(0);
+}   
+
+/* Finds a slot containing target element in a key space ordered by slot id.
+ * Consider this example. Slots are represented by brackets and keys by dots:
+ *  #0   #1   #2     #3    #4
+ * [..][....][...][.......][.]
+ *                    ^
+ *                 target
+ *
+ * In this case slot #3 contains key that we are trying to find.
+ * 
+ * This function is 1 based and the range of the target is [1..dbSize], dbSize inclusive.
+ * Time complexity of this function is O(log^2(CLUSTER_SLOTS))
+ * */
+int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType) {
+    if (!server.cluster_enabled || dbSize(db, keyType) == 0) return 0;
+    serverAssert(target <= dbSize(db, keyType));
+    int lo = 0, hi = CLUSTER_SLOTS - 1;
+    /* We use binary search to find a slot, we are allowed to do this, because we have a quick way to find a total number of keys
+     * up until certain slot, using binary index tree. */
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        unsigned long keys_up_to_mid = cumulativeKeyCountRead(db, mid, keyType); /* Total number of keys up until a given slot (inclusive). */
+        unsigned long keys_in_mid = dictSizebySlot(db, mid, keyType);
+        if (target > keys_up_to_mid) { /* Target is to the right from mid. */
+            lo = mid + 1;
+        } else if (target <= keys_up_to_mid - keys_in_mid)  { /* Target is to the left from mid. */
+            hi = mid - 1;
+        } else { /* Located target. */
+            return mid;
+        }
+    }
+    serverPanic("Unable to find a slot that contains target key.");
+}
+
 /* Helper for sync and async delete. */
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     dictEntry **plink;
     int table;
-    dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink,&table);
+    int slot = getKeySlot(key->ptr);
+    dict *d = db->dict[slot];
+    dictEntry *de = dictTwoPhaseUnlinkFind(d,key->ptr,&plink,&table);
     if (de) {
         robj *val = dictGetVal(de);
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
@@ -373,14 +561,19 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         if (async) {
             /* Because of dbUnshareStringValue, the val in de may change. */
             freeObjAsync(key, dictGetVal(de), db->id);
-            dictSetVal(db->dict, de, NULL);
+            dictSetVal(d, de, NULL);
         }
-        if (server.cluster_enabled) slotToKeyDelEntry(de, db);
-
         /* Deleting an entry from the expires dict will not free the sds of
         * the key, because it is shared with the main dictionary. */
-        if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-        dictTwoPhaseUnlinkFree(db->dict,de,plink,table);
+        if (dictSize(db->expires[slot]) > 0) {
+            if (dictDelete(db->expires[slot],key->ptr) == DICT_OK) {
+                cumulativeKeyCountAdd(db, slot, -1, DB_EXPIRES);
+                db->sub_dict[DB_EXPIRES].key_count--;
+            }
+        } 
+        dictTwoPhaseUnlinkFree(d,de,plink,table);
+        cumulativeKeyCountAdd(db, slot, -1, DB_MAIN);
+        db->sub_dict[DB_MAIN].key_count--;
         return 1;
     } else {
         return 0;
@@ -462,16 +655,26 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        removed += dictSize(dbarray[j].dict);
+        removed += dbSize(&dbarray[j], DB_MAIN);
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
-            dictEmpty(dbarray[j].dict,callback);
-            dictEmpty(dbarray[j].expires,callback);
+            for (int k = 0; k < dbarray[j].dict_count; k++) {
+                dictEmpty(dbarray[j].dict[k],callback);
+                dictEmpty(dbarray[j].expires[k],callback);
+            }
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            dbarray[j].sub_dict[subdict].key_count = 0;
+            dbarray[j].sub_dict[subdict].resize_cursor = 0;
+            if (server.cluster_enabled) {
+                unsigned long long *slot_size_index = dbarray[j].sub_dict[subdict].slot_size_index;
+                memset(slot_size_index, 0, sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
+            }
+        }
     }
 
     return removed;
@@ -516,11 +719,6 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
 
-    /* Flush slots to keys map if enable cluster, we can flush entire
-     * slots to keys map whatever dbnum because only support one DB
-     * in cluster mode. */
-    if (server.cluster_enabled) slotToKeyFlush(server.db);
-
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
     if (with_functions) {
@@ -541,14 +739,12 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
 redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
-        tempDb[i].dict = dictCreate(&dbDictType);
-        tempDb[i].expires = dictCreate(&dbExpiresDictType);
-        tempDb[i].slots_to_keys = NULL;
-    }
-
-    if (server.cluster_enabled) {
-        /* Prepare temp slot to key map to be written during async diskless replication. */
-        slotToKeyInit(tempDb);
+        tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+        tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
+        tempDb[i].expires = dictCreateMultiple(&dbExpiresDictType, tempDb[i].dict_count);
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            tempDb[i].sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+        }
     }
 
     return tempDb;
@@ -561,13 +757,17 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
     /* Release temp DBs. */
     emptyDbStructure(tempDb, -1, async, callback);
     for (int i=0; i<server.dbnum; i++) {
-        dictRelease(tempDb[i].dict);
-        dictRelease(tempDb[i].expires);
-    }
-
-    if (server.cluster_enabled) {
-        /* Release temp slot to key map. */
-        slotToKeyDestroy(tempDb);
+        for (int j=0; j<tempDb[i].dict_count; j++) {
+            dictRelease(tempDb[i].dict[j]);
+            dictRelease(tempDb[i].expires[j]);
+        }
+        zfree(tempDb[i].dict);
+        zfree(tempDb[i].expires);
+        if (server.cluster_enabled) {
+            for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+                zfree(tempDb[i].sub_dict[subdict].slot_size_index);
+            }
+        }
     }
 
     zfree(tempDb);
@@ -584,7 +784,7 @@ long long dbTotalServerKeyCount(void) {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
-        total += dictSize(server.db[j].dict);
+        total += dbSize(&server.db[j], DB_MAIN);
     }
     return total;
 }
@@ -630,7 +830,7 @@ void signalFlushedDb(int dbid, int async) {
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 
-/* Return the set of flags to use for the emptyDb() call for FLUSHALL
+/* Return the set of flags to use for the emptyData() call for FLUSHALL
  * and FLUSHDB commands.
  *
  * sync: flushes the database in an sync manner.
@@ -783,17 +983,15 @@ void randomkeyCommand(client *c) {
 }
 
 void keysCommand(client *c) {
-    dictIterator *di;
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
-    unsigned long numkeys = 0;
+    long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-
-    di = dictGetSafeIterator(c->db->dict);
+    dbIterator *dbit = dbIteratorInit(c->db, DB_MAIN);
     allkeys = (pattern[0] == '*' && plen == 1);
     robj keyobj;
-    while((de = dictNext(di)) != NULL) {
+    while ((de = dbIteratorNext(dbit)) != NULL) {
         sds key = dictGetKey(de);
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -806,7 +1004,7 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    dictReleaseIterator(di);
+    zfree(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -886,15 +1084,8 @@ void scanCallback(void *privdata, const dictEntry *de) {
  * if the cursor is valid, store it as unsigned integer into *cursor and
  * returns C_OK. Otherwise return C_ERR and send an error to the
  * client. */
-int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor) {
-    char *eptr;
-
-    /* Use strtoul() because we need an *unsigned* long, so
-     * getLongLongFromObject() does not cover the whole cursor space. */
-    errno = 0;
-    *cursor = strtoul(o->ptr, &eptr, 10);
-    if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE)
-    {
+int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
+    if (!string2ull(o->ptr, cursor)) {
         addReplyError(c, "invalid cursor");
         return C_ERR;
     }
@@ -952,7 +1143,7 @@ char *getObjectTypeName(robj *o) {
  *
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
-void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
+void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     int i, j;
     listNode *node;
     long count = 10;
@@ -1022,7 +1213,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
-        ht = c->db->dict;
+        ht = NULL;
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
@@ -1045,7 +1236,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         listSetFreeMethod(keys, (void (*)(void*))sdsfree);
     }
 
-    if (ht) {
+    /* For main dictionary scan or data structure using hashtable. */
+    if (!o || ht) {
         /* We set the max number of iterations to ten times the specified
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
@@ -1071,7 +1263,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             .sampled = 0,
         };
         do {
-            cursor = dictScan(ht, cursor, scanCallback, &data);
+            /* In cluster mode there is a separate dictionary for each slot.
+             * If cursor is empty, we should try exploring next non-empty slot. */
+            if (o == NULL) {
+                cursor = dbScan(c->db, DB_MAIN, cursor, scanCallback, NULL, &data);
+            } else {
+                cursor = dictScan(ht, cursor, scanCallback, &data);
+            }
         } while (cursor && maxiterations-- && data.sampled < count);
     } else if (o->type == OBJ_SET) {
         char *str;
@@ -1158,15 +1356,111 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     listRelease(keys);
 }
 
+void addSlotIdToCursor(int slot, unsigned long long *cursor) {
+    if (!server.cluster_enabled) return;
+    /* Slot id can be -1 when iteration is over and there are no more slots to visit. */
+    if (slot < 0) return;
+    *cursor = (*cursor << CLUSTER_SLOT_MASK_BITS) | slot;
+}
+
+int getAndClearSlotIdFromCursor(unsigned long long *cursor) {
+    if (!server.cluster_enabled) return 0;
+    int slot = (int) (*cursor & CLUSTER_SLOT_MASK);
+    *cursor = *cursor >> CLUSTER_SLOT_MASK_BITS;
+    return slot;
+}
+
 /* The SCAN command completely relies on scanGenericCommand. */
 void scanCommand(client *c) {
-    unsigned long cursor;
+    unsigned long long cursor;
     if (parseScanCursorOrReply(c,c->argv[1],&cursor) == C_ERR) return;
     scanGenericCommand(c,NULL,cursor);
 }
 
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,dictSize(c->db->dict));
+    redisDb *db = c->db;
+    unsigned long long int size = dbSize(db, DB_MAIN);
+    addReplyLongLong(c, size);
+}
+
+unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
+    return db->sub_dict[keyType].key_count;
+}
+
+/* This method proivdes the cumulative sum of all the dictionary buckets
+ * across dictionaries in a database. */
+unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
+    unsigned long buckets = 0;
+    dict *d;
+    dbIterator *dbit = dbIteratorInit(db, keyType);
+    while ((d = dbIteratorNextDict(dbit))) {
+        buckets += dictBuckets(d);
+    }
+    zfree(dbit);
+    return buckets;
+}
+
+size_t dbMemUsage(redisDb *db, dbKeyType keyType) {
+    size_t mem = 0;
+    unsigned long long keys_count = dbSize(db, keyType);
+    mem += keys_count * dictEntryMemUsage() +
+            dbBuckets(db, keyType) * sizeof(dictEntry*) +
+            db->dict_count * sizeof(dict);
+    if (keyType == DB_MAIN) {
+        mem+=keys_count * sizeof(robj);
+    }
+    return mem;
+}
+
+dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType){
+    int slot = getKeySlot(key);
+    if (keyType == DB_MAIN)
+        return dictFind(db->dict[slot], key);
+    else if (keyType == DB_EXPIRES)
+        return dictFind(db->expires[slot], key);
+    else
+        serverAssert(0);
+}
+
+/* 
+ * This method is used to iterate over the elements of the entire database specifically across slots.
+ * It's a three pronged approach. 
+ *
+ * 1. It uses the provided cursor `v` to retrieve the slot from it. 
+ * 2. If the dictionary is in a valid state checked through the provided callback `dictScanValidFunction`,
+ *    it performs a dictScan over the appropriate `keyType` dictionary of `db`.
+ * 3. If the slot is entirely scanned i.e. the cursor has reached 0, the next non empty slot is discovered. 
+ *    The slot information is embedded into the cursor and returned.
+ */
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata) {
+    dict *d;
+    unsigned long long cursor = 0;
+    /* During main dictionary traversal in cluster mode, 48 lower bits in the cursor are used for positioning in the HT.
+     * Following 14 bits are used for the slot number, ranging from 0 to 2^14-1.
+     * Slot is always 0 at the start of iteration and can be incremented only in cluster mode. */
+    int slot = getAndClearSlotIdFromCursor(&v);
+    if (keyType == DB_MAIN)
+        d = db->dict[slot];
+    else if (keyType == DB_EXPIRES)
+        d = db->expires[slot];
+    else
+        serverAssert(0);
+
+    int is_dict_valid = (dictScanValidFunction == NULL || dictScanValidFunction(d) == C_OK);
+    if (is_dict_valid) {
+        cursor = dictScan(d, v, fn, privdata);
+    } else {
+        serverLog(LL_DEBUG, "Slot [%d] not valid for scanning, skipping.", slot);
+    }
+    /* scanning done for the current dictionary or if the scanning wasn't possible, move to the next slot. */
+    if (cursor == 0 || !is_dict_valid) {
+        slot = dbGetNextNonEmptySlot(db, slot, keyType);
+    }
+    if (slot == -1) {
+        return 0;
+    }
+    addSlotIdToCursor(slot, &cursor);
+    return cursor;
 }
 
 void lastsaveCommand(client *c) {
@@ -1463,7 +1757,7 @@ void scanDatabaseForReadyKeys(redisDb *db) {
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        dictEntry *kde = dictFind(db->dict,key->ptr);
+        dictEntry *kde = dbFind(db, key->ptr, DB_MAIN);
         if (kde) {
             robj *value = dictGetVal(kde);
             signalKeyAsReady(db, key, value->type);
@@ -1483,7 +1777,7 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
         int existed = 0, exists = 0;
         int original_type = -1, curr_type = -1;
 
-        dictEntry *kde = dictFind(emptied->dict, key->ptr);
+        dictEntry *kde = dbFind(emptied, key->ptr, DB_MAIN);
         if (kde) {
             robj *value = dictGetVal(kde);
             original_type = value->type;
@@ -1491,7 +1785,7 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
         }
 
         if (replaced_with) {
-            dictEntry *kde = dictFind(replaced_with->dict, key->ptr);
+            kde = dbFind(replaced_with, key->ptr, DB_MAIN);
             if (kde) {
                 robj *value = dictGetVal(kde);
                 curr_type = value->type;
@@ -1536,11 +1830,23 @@ int dbSwapDatabases(int id1, int id2) {
     db1->expires = db2->expires;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
+    db1->dict_count = db2->dict_count;
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        db1->sub_dict[subdict].key_count = db2->sub_dict[subdict].key_count;
+        db1->sub_dict[subdict].resize_cursor = db2->sub_dict[subdict].resize_cursor;
+        db1->sub_dict[subdict].slot_size_index = db2->sub_dict[subdict].slot_size_index;
+    }
 
     db2->dict = aux.dict;
     db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
+    db2->dict_count = aux.dict_count;
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        db2->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
+        db2->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
+        db2->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;
+    }
 
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
@@ -1560,13 +1866,6 @@ int dbSwapDatabases(int id1, int id2) {
  * database (temp) as the main (active) database, the actual freeing of old database
  * (which will now be placed in the temp one) is done later. */
 void swapMainDbWithTempDb(redisDb *tempDb) {
-    if (server.cluster_enabled) {
-        /* Swap slots_to_keys from tempdb just loaded with main db slots_to_keys. */
-        clusterSlotToKeyMapping *aux = server.db->slots_to_keys;
-        server.db->slots_to_keys = tempDb->slots_to_keys;
-        tempDb->slots_to_keys = aux;
-    }
-
     for (int i=0; i<server.dbnum; i++) {
         redisDb aux = server.db[i];
         redisDb *activedb = &server.db[i], *newdb = &tempDb[i];
@@ -1585,12 +1884,23 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->expires = newdb->expires;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
+        activedb->dict_count = newdb->dict_count;
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            activedb->sub_dict[subdict].key_count = newdb->sub_dict[subdict].key_count;
+            activedb->sub_dict[subdict].resize_cursor = newdb->sub_dict[subdict].resize_cursor;
+            activedb->sub_dict[subdict].slot_size_index = newdb->sub_dict[subdict].slot_size_index;
+        }
 
         newdb->dict = aux.dict;
         newdb->expires = aux.expires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
-
+        newdb->dict_count = aux.dict_count;
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            newdb->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
+            newdb->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
+            newdb->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;
+        }
         /* Now we need to handle clients blocked on lists: as an effect
          * of swapping the two DBs, a client that was waiting for list
          * X in a given DB, may now actually be unblocked if X happens
@@ -1643,7 +1953,13 @@ void swapdbCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 int removeExpire(redisDb *db, robj *key) {
-    return dictDelete(db->expires,key->ptr) == DICT_OK;
+    if (dictDelete(db->expires[(getKeySlot(key->ptr))],key->ptr) == DICT_OK) {
+        db->sub_dict[DB_EXPIRES].key_count--;
+        cumulativeKeyCountAdd(db, getKeySlot(key->ptr), -1, DB_EXPIRES);
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 /* Set an expire to the specified key. If the expire is set in the context
@@ -1651,13 +1967,20 @@ int removeExpire(redisDb *db, robj *key) {
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
  * after which the key will no longer be considered valid. */
 void setExpire(client *c, redisDb *db, robj *key, long long when) {
-    dictEntry *kde, *de;
+    dictEntry *kde, *de, *existing;
 
     /* Reuse the sds from the main dict in the expire dict */
-    kde = dictFind(db->dict,key->ptr);
+    kde = dbFind(db, key->ptr, DB_MAIN);
     serverAssertWithInfo(NULL,key,kde != NULL);
-    de = dictAddOrFind(db->expires,dictGetKey(kde));
-    dictSetSignedIntegerVal(de,when);
+    int slot = getKeySlot(key->ptr);
+    de = dictAddRaw(db->expires[slot], dictGetKey(kde), &existing);
+    if (existing) {
+        dictSetSignedIntegerVal(existing, when);
+    } else {
+        dictSetSignedIntegerVal(de, when);
+        db->sub_dict[DB_EXPIRES].key_count++;
+        cumulativeKeyCountAdd(db, slot, 1, DB_EXPIRES);
+    }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
@@ -1670,8 +1993,8 @@ long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
-    if (dictSize(db->expires) == 0 ||
-       (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
+    if (dictSize(db->expires[getKeySlot(key->ptr)]) == 0 ||
+       (de = dbFind(db,key->ptr, DB_EXPIRES)) == NULL) return -1;
 
     return dictGetSignedIntegerVal(de);
 }
@@ -1815,6 +2138,54 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
         decrRefCount(key);
     }
     return 1;
+}
+
+/*
+ * This functions increases size of the main/expires db to match desired number.
+ * In cluster mode resizes all individual dictionaries for slots that this node owns.
+ *
+ * Based on the parameter `try_expand`, appropriate dict expand API is invoked.
+ * if try_expand is set to 1, `dictTryExpand` is used else `dictExpand`.
+ * The return code is either `DICT_OK`/`DICT_ERR` for both the API(s).
+ * `DICT_OK` response is for successful expansion. However ,`DICT_ERR` response signifies failure in allocation in
+ * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
+ */
+int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand) {
+    dict *d;
+    if (server.cluster_enabled) {
+        for (int i = 0; i < CLUSTER_SLOTS; i++) {
+            if (clusterNodeGetSlotBit(server.cluster->myself, i)) {
+                /* We don't know exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */ 
+                if (keyType == DB_MAIN) {
+                    d = db->dict[i];
+                } else {
+                    d = db->expires[i];
+                }
+                int result = try_expand ? dictTryExpand(d, db_size) : dictExpand(d, db_size);
+                if (try_expand && result == DICT_ERR) {
+                    serverLog(LL_WARNING, "Dict expansion failed for type :%s slot: %d",
+                                keyType == DB_MAIN ? "main" : "expires", i);
+                    return C_ERR;
+                } else if (result == DICT_ERR) {
+                    serverLog(LL_DEBUG, "Dict expansion skipped for type :%s slot: %d",
+                                keyType == DB_MAIN ? "main" : "expires", i);
+                }
+            }
+        }
+    } else {
+        if (keyType == DB_MAIN) {
+            d = db->dict[0];
+        } else {
+            d = db->expires[0];
+        }
+        int result = try_expand ? dictTryExpand(d, db_size) : dictExpand(d, db_size);
+        if (try_expand && result == DICT_ERR) {
+            serverLog(LL_WARNING, "Dict expansion failed for db type: %s",
+                        keyType == DB_MAIN ? "main" : "expires");
+            return C_ERR;
+        }
+    }
+    return C_OK;
 }
 
 /* -----------------------------------------------------------------------------
@@ -2294,7 +2665,8 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
     keys = getKeysPrepareResult(result, 1);
     keys[0].pos = 1; /* <sort-key> is always present. */
     keys[0].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-    return 1;
+    result->numkeys = 1;
+    return result->numkeys;
 }
 
 /* Helper function to extract keys from the SORT command.
@@ -2554,4 +2926,43 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
         keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
     }
     return 1;
+}
+
+void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, dbKeyType keyType) {
+    size_t l;
+    char *orig_buf = buf;
+    size_t orig_bufsize = bufsize;
+    dictStats *mainHtStats = NULL;
+    dictStats *rehashHtStats = NULL;
+    dict *d;
+    dbIterator *dbit = dbIteratorInit(db, keyType);
+    while ((d = dbIteratorNextDict(dbit))) {
+        dictStats *stats = dictGetStatsHt(d, 0, full);
+        if (!mainHtStats) {
+            mainHtStats = stats;
+        } else {
+            dictCombineStats(stats, mainHtStats);
+            dictFreeStats(stats);
+        }
+        if (dictIsRehashing(d)) {
+            stats = dictGetStatsHt(d, 1, full);
+            if (!rehashHtStats) {
+                rehashHtStats = stats;
+            } else {
+                dictCombineStats(stats, rehashHtStats);
+                dictFreeStats(stats);
+            }
+        }
+    }
+    zfree(dbit);
+    l = dictGetStatsMsg(buf, bufsize, mainHtStats, full);
+    dictFreeStats(mainHtStats);
+    buf += l;
+    bufsize -= l;
+    if (rehashHtStats && bufsize > 0) {
+        dictGetStatsMsg(buf, bufsize, rehashHtStats, full);
+        dictFreeStats(rehashHtStats);
+    }
+    /* Make sure there is a NULL term at the end. */
+    if (orig_bufsize) orig_buf[orig_bufsize - 1] = '\0';
 }

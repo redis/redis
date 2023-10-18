@@ -34,8 +34,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <assert.h>
 #include <limits.h>
+#include "redisassert.h"
 #include "sds.h"
 #include "sdsalloc.h"
 #include "util.h"
