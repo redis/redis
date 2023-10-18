@@ -13553,10 +13553,8 @@ int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
 
     size_t i, numdeleted = 0;
     for (i = 0; i < numeles; i++) {
-        if (key->value != NULL) {
-            numdeleted += setTypeRemove(key->value,eles[i]->ptr);
-            moduleDelKeyIfEmpty(key);
-        }
+        numdeleted += setTypeRemove(key->value,eles[i]->ptr);
+        if (moduleDelKeyIfEmpty(key)) break;
     }
     if (deleted) *deleted = numdeleted;
     return REDISMODULE_OK;
