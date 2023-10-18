@@ -6084,6 +6084,10 @@ NULL
                     (char*)c->argv[4]->ptr);
                 return;
             }
+            if (n == myself) {
+                addReplyErrorFormat(c,"Can't migrate hash slot %u to myself",slot);
+                return;
+            }
             if (nodeIsSlave(n)) {
                 addReplyError(c,"Target node is not a master");
                 return;
@@ -6099,6 +6103,10 @@ NULL
             if (n == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
                     (char*)c->argv[4]->ptr);
+                return;
+            }
+            if (n == myself) {
+                addReplyErrorFormat(c,"Can't import hash slot %u to myself",slot);
                 return;
             }
             if (nodeIsSlave(n)) {
