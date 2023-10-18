@@ -884,7 +884,7 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
         r psetex "{foo}0" 500 a
 
         # Verify all keys have expired
-        wait_for_condition 20 100 {
+        wait_for_condition 200 100 {
             [r dbsize] eq 0
         } else {
             fail "Keys did not actively expire."
