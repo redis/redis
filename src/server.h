@@ -2428,6 +2428,7 @@ typedef struct dbIterator dbIterator;
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
 dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
 dict *dbIteratorNextDict(dbIterator *dbit);
+dict *dbGetDictFromIterator(dbIterator *dbit);
 int dbIteratorGetCurrentSlot(dbIterator *dbit);
 dictEntry *dbIteratorNext(dbIterator *iter);
 

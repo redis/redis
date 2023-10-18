@@ -834,7 +834,7 @@ start_server {tags {"expire"}} {
     } {} {needs:debug}
 }
 
-start_cluster 1 0 {tags {"expire external:skip cluster"}} {
+start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
     test "expire scan should skip dictionaries with lot's of empty buckets" {
         # Collect two slots to help determine the expiry scan logic is able
         # to go past certain slots which aren't valid for scanning at the given point of time.
@@ -884,7 +884,7 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
         r psetex "{foo}0" 500 a
 
         # Verify all keys have expired
-        wait_for_condition 200 100 {
+        wait_for_condition 20 100 {
             [r dbsize] eq 0
         } else {
             fail "Keys did not actively expire."
