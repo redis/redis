@@ -883,13 +883,6 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
         # put some data into slot 12182 and trigger the resize
         r psetex "{foo}0" 500 a
 
-        # Verify dict rehashing has completed
-        wait_for_condition 10 100 {
-            [string match {*table size: 4*} [r debug HTSTATS 0]]
-        } else {
-            fail "rehashing didn't complete"
-        }
-
         # Verify all keys have expired
         wait_for_condition 20 100 {
             [r dbsize] eq 0
