@@ -4696,9 +4696,7 @@ void clusterCron(void) {
             server.cluster_node_timeout && /* was not already reconnected */
             node->ping_sent && /* we already sent a ping */
             /* and we are waiting for the pong more than timeout/2 */
-            ping_delay > server.cluster_node_timeout/2 &&
-            /* and in such interval we are not seeing any traffic at all. */
-            data_delay > server.cluster_node_timeout/2)
+            ping_delay > server.cluster_node_timeout/2)
         {
             /* Disconnect the link, it will be reconnected automatically. */
             freeClusterLink(node->link);
