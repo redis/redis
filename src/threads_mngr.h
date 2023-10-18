@@ -42,7 +42,7 @@
 #define THREADS_SIGNAL SIGUSR2
 
 /* Callback signature */
-typedef void*(*run_on_thread_cb)(void);
+typedef void(*run_on_thread_cb)(void);
 
 /* Register the process to THREADS_SIGNAL */
 void ThreadsManager_init(void);
@@ -62,15 +62,8 @@ void ThreadsManager_init(void);
  *
  * The function returns only when @param tids_len threads have returned from @param callback.
  *
- * @return NULL If ThreadsManager_runOnThreads is already in the middle of execution.
- * Otherwise, it returns an array of the threads return value from @param callback.
- * NOTES:
- * The indices of the outputs in the output array are NOT associated with the threads indices in @param tids.
+ * @return 1 if successful, 0 If ThreadsManager_runOnThreads is already in the middle of execution.
  *
- * The returned array length will be @param tids_len, but some of the entries might be set to NULL if the
- * invocation of @param callback was unsuccessful.
- *
- * The output array should be freed by the caller by calling zfree().
 **/
 
-void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback);
+int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback);
