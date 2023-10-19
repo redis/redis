@@ -13543,11 +13543,11 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
 
 /* Add new elements into a set.
  *
- * On success the function returns REDISMODULE_OK. On the following errors
- * REDISMODULE_ERR is returned:
+ * Returns REDISMODULE_OK if an element has been added. On failure,
+ * REDISMODULE_ERR is returned and `errno` is set as follows:
  *
- * * The key was not opened for writing.
- * * The key is of the wrong type.
+ * - EBADF if the key was not opened for writing
+ * - ENOTSUP if the key is of another type than set.
  *
  * In order to know the number of elements were added, the additional argument
  * 'added' must be passed, that populates the integer by reference
@@ -13557,8 +13557,14 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
  *
  * Empty keys will be created with set key type and continue. */
 int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, size_t *added) {
-    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
-    if (key->value && key->value->type != OBJ_SET) return REDISMODULE_ERR;
+    if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+    if (key->value && key->value->type != OBJ_SET) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    }
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
     size_t i, numadded = 0;
     for (i = 0; i < numeles; i++) {
@@ -13571,11 +13577,13 @@ int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
 
 /* Remove the specified element from the set and the key will be
  * removed if has no any element in after remove elements operation.
- * The function returns REDISMODULE_OK on success, and REDISMODULE_ERR
- * on one of the following conditions:
+
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and `errno` is set as follows:
  *
- * * The key was not opened for writing.
- * * The key is of the wrong type.
+ * - EINVAL if called with invalid arguments
+ * - ENOTSUP if the key refers to a value of a type other than set
+ * - EBADF if the key was not opened for writing
  *
  * Key will be removed if has no any element in after remove elements operation
  *
@@ -13591,11 +13599,22 @@ int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
  *
  * Empty keys will be handled correctly by doing nothing. */
 int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, size_t *deleted) {
-    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
-    if (key->value && key->value->type != OBJ_SET) return REDISMODULE_ERR;
-
-    size_t i, numdeleted = 0;
-    for (i = 0; i < numeles; i++) {
+    size_t numdeleted = 0;
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value) {
+        /*return 0 for empty key*/
+        if (deleted) *deleted = numdeleted;
+        return REDISMODULE_OK;
+    } else if (key->value->type != OBJ_SET) {
+        errno = ENOTSUP; /* wrong type */
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF; /* key not opened for writing */
+        return REDISMODULE_ERR;
+    }
+    for (size_t i = 0; i < numeles; i++) {
         numdeleted += setTypeRemove(key->value,eles[i]->ptr);
         if (moduleDelKeyIfEmpty(key)) break;
     }
@@ -13605,7 +13624,7 @@ int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
 
 /* Return 1 as member of the key or 0 as not member of the key. */
 int RM_SetIsMember(RedisModuleKey *key, RedisModuleString *ele) {
-    if (!key->value || key->value->type != OBJ_SET) return 0;
+    if (!key || !key->value || key->value->type != OBJ_SET) return 0;
     return setTypeIsMember(key->value,ele->ptr);
 }
 

@@ -22,5 +22,8 @@ start_server {tags {"modules"}} {
         # Check that removing the last element deletes the key
         assert_equal 1 [r set.rem k world]
         assert_equal 0 [r exists k]
+        # Removing element from empty key shall work.
+        assert_equal 0 [r set.rem k world]
+        assert_equal 0 [r exists k]
     }
 }
