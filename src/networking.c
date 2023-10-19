@@ -2464,7 +2464,10 @@ int processCommandAndResetClient(client *c) {
     int deadclient = 0;
     client *old_client = server.current_client;
     server.current_client = c;
+    long long old_dirty = server.dirty;
     if (processCommand(c) == C_OK) {
+        /* Call command post filters */
+        moduleCallCommandPostFilters(c, server.dirty == old_dirty ? 0 : 1);
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */

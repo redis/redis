@@ -357,6 +357,7 @@ typedef struct RedisModuleCommandFilterCtx {
     int argv_len;
     int argc;
     client *c;
+    int is_dirty;
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -364,8 +365,10 @@ typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filte
 typedef struct RedisModuleCommandFilter {
     /* The module that registered the filter */
     RedisModule *module;
-    /* Filter callback function */
-    RedisModuleCommandFilterFunc callback;
+    /* Filter callback function before command is executed */
+    RedisModuleCommandFilterFunc pre_callback;
+    /* Filter callback function after command is executed*/
+    RedisModuleCommandFilterFunc post_callback;
     /* REDISMODULE_CMDFILTER_* flags */
     int flags;
 } RedisModuleCommandFilter;
@@ -10674,10 +10677,12 @@ int moduleUnregisterFilters(RedisModule *module) {
  * If multiple filters are registered (by the same or different modules), they
  * are executed in the order of registration.
  */
-RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
+RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc pre_callback,
+                                                   RedisModuleCommandFilterFunc post_callback,  int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
-    filter->callback = callback;
+    filter->pre_callback = pre_callback;
+    filter->post_callback = post_callback;
     filter->flags = flags;
 
     listAddNodeTail(moduleCommandFilters, filter);
@@ -10729,12 +10734,50 @@ void moduleCallCommandFilters(client *c) {
         if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
 
         /* Call filter */
-        f->callback(&filter);
+        if (f->pre_callback != NULL) {
+            f->pre_callback(&filter);
+        }
     }
 
     c->argv = filter.argv;
     c->argv_len = filter.argv_len;
     c->argc = filter.argc;
+}
+
+void moduleCallCommandPostFilters(client *c, int is_dirty) {
+    if (listLength(moduleCommandFilters) == 0) return;
+
+    listIter li;
+    listNode *ln;
+    listRewind(moduleCommandFilters,&li);
+
+    RedisModuleCommandFilterCtx ctx = {
+        .argv = c->argv,
+        .argv_len = c->argv_len,
+        .argc = c->argc,
+        .c = c,
+        .is_dirty = is_dirty
+    };
+
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *f = ln->value;
+
+        /* Skip filter if REDISMODULE_CMDFILTER_NOSELF is set and module is
+         * currently processing a command.
+         */
+        if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
+
+        /* RedisModuleCtx out_ctx;
+        moduleCreateContext(&out_ctx, f->module, REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_NEW_CLIENT);
+        ctx.module_ctx = &out_ctx; */
+
+        /* Call filter */
+        if (f->post_callback != NULL) {
+            f->post_callback(&ctx);
+        }
+
+        //moduleFreeContext(&out_ctx);
+    }
 }
 
 /* Return the number of arguments a filtered command has.  The number of
