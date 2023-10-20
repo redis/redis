@@ -357,7 +357,7 @@ typedef struct RedisModuleCommandFilterCtx {
     int argv_len;
     int argc;
     client *c;
-    int is_dirty;
+    int is_dirty;  /* indicates the data has been changed. */
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
