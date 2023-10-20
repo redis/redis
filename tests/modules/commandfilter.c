@@ -222,11 +222,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 CommandFilter_UnfilteredClientdId, "admin", 1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
-    if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, 
+    if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, NULL, 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
 
-    if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlmoveSwap, 0)) == NULL)
+    if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlmoveSwap, NULL, 0)) == NULL)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

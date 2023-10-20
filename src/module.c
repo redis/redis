@@ -10749,7 +10749,7 @@ void moduleCallCommandPostFilters(client *c, int is_dirty) {
 
     listIter li;
     listNode *ln;
-    listRewind(moduleCommandFilters,&li);
+    listRewindTail(moduleCommandFilters,&li);
 
     RedisModuleCommandFilterCtx ctx = {
         .argv = c->argv,
@@ -10767,16 +10767,10 @@ void moduleCallCommandPostFilters(client *c, int is_dirty) {
          */
         if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
 
-        /* RedisModuleCtx out_ctx;
-        moduleCreateContext(&out_ctx, f->module, REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_NEW_CLIENT);
-        ctx.module_ctx = &out_ctx; */
-
         /* Call filter */
         if (f->post_callback != NULL) {
             f->post_callback(&ctx);
         }
-
-        //moduleFreeContext(&out_ctx);
     }
 }
 
