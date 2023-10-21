@@ -1127,7 +1127,8 @@ unsigned char *lpTrim(unsigned char *lp, unsigned long ltrim, unsigned long rtri
     unsigned long rangelen = llen - ltrim - rtrim;
     unsigned char *first, *tail; /* first points to the first byte we want to save, 
                                     and tail points to the byte after the last byte we want to save */
-    if ((first = lpSeek(lp, ltrim)) == NULL) return lp;
+    first = lpSeek(lp, ltrim);
+    assert(first != NULL);
     tail = lp + bytes - 1; /* When rtrim is zero, tail points to the EOF char */
     if (rtrim) {
         if (rangelen < rtrim) {
