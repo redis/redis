@@ -608,8 +608,9 @@ void tryResizeHashTables(int dbid) {
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         dbIterator *dbit = dbIteratorInitFromSlot(db, subdict, db->sub_dict[subdict].resize_cursor);
         for (int i = 0; i < CRON_DBS_PER_CALL; i++) {
-            dict *d = dbIteratorNextDict(dbit);
+            dict *d = dbGetDictFromIterator(dbit);
             slot = dbIteratorGetCurrentSlot(dbit);
+            dbIteratorNextDict(dbit);
             if (!d) break;
             if (htNeedsResize(d))
                 dictResize(d);
