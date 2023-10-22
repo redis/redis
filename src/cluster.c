@@ -7558,6 +7558,9 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         dbDelete(&server.db[0], key);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         signalModifiedKey(NULL, &server.db[0], key);
+        /* The keys are not actually deleted from the database, just moved. The modules need
+         * to know that these keys are no longer available locally, so just send the keyspace
+         * notification to the modules. */
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
         postExecutionUnitOperations();
         decrRefCount(key);
