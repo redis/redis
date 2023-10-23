@@ -1149,7 +1149,7 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 }
 
 /** An async signal safe version of fgets().
- * Has the same behaviour as standart fgets():  reads a line from fd and stores it into the dest buffer. 
+ * Has the same behaviour as standard fgets():  reads a line from fd and stores it into the dest buffer. 
  * It stops when either (buff_size-1) characters are read, the newline character is read, or the end-of-file is reached,
  *  whichever comes first. */
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd) {

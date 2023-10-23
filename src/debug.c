@@ -2630,7 +2630,11 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
 
             /* the thread's directory name is equivalent to its tid. */
             pid_t tid;
-            string2l(entry->d_name, strlen(entry->d_name), (long *)&tid);
+            if (!string2l(entry->d_name, strlen(entry->d_name), (long *)&tid)) {
+            printf("can't convert %s wih len = %zu\n", entry->d_name, strlen(entry->d_name));
+
+            }
+            printf("entry->d_name = %s, strlen(entry->d_name) = %zu\n", entry->d_name, strlen(entry->d_name));
 
             if(!is_thread_ready_to_signal(path_buff, entry->d_name, sig_num)) continue;
 
