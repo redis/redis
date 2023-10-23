@@ -9,9 +9,9 @@ start_server {tags {"modules"}} {
         assert_error "ERR wrong number of arguments for 'set.add' command" {r set.add k}
         assert_equal 0 [r exists k]
 
-        assert_equal {1} [r set.add k hello]
-        assert_equal {1} [r set.ismember k hello]
-        assert_equal {0} [r set.ismember k world]
+        assert_equal 1 [r set.add k hello]
+        assert_equal 1 [r set.ismember k hello]
+        assert_equal 0 [r set.ismember k world]
     }
 
     test {Module set rem} {
@@ -25,5 +25,17 @@ start_server {tags {"modules"}} {
         # Removing element from empty key shall work.
         assert_equal 0 [r set.rem k world]
         assert_equal 0 [r exists k]
+    }
+
+    test {Module set ismember} {
+        r del k
+        assert_equal 0 [r set.ismember k hello]
+        assert_equal 1 [r set.add k hello]
+        assert_equal 1 [r set.ismember k hello]
+        assert_equal 0 [r set.ismember k world]
+
+        r del k
+        assert_equal OK [r set k hello]
+        assert_equal -1 [r set.ismember k hello]
     }
 }

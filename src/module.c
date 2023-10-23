@@ -13622,9 +13622,21 @@ int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
     return REDISMODULE_OK;
 }
 
-/* Return 1 as member of the key or 0 as not member of the key. */
+/* Query if member is a member of the set stored at key
+
+ * Returns 0 if member is not a member of the set stored at key.
+ * Returns 1 if member is a member of the set stored at key. 
+ * On failure, -1 is returned and `errno` is set as follows:
+ *
+ * - ENOTSUP if the key refers to a value of a type other than set */
 int RM_SetIsMember(RedisModuleKey *key, RedisModuleString *ele) {
-    if (!key || !key->value || key->value->type != OBJ_SET) return 0;
+    if (!key || !key->value) {
+        /*return 0 for empty key*/
+        return 0;
+    } else if (key->value->type != OBJ_SET) {
+        errno = ENOTSUP; /* wrong type */
+        return -1;
+    }
     return setTypeIsMember(key->value,ele->ptr);
 }
 
