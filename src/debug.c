@@ -1824,12 +1824,15 @@ void closeDirectLogFiledes(int fd) {
 #define BACKTRACE_MAX_SIZE 100
 
 #ifdef __linux__
+//#define _GNU_SOURCE
 #include <sys/prctl.h>
+#include <unistd.h>
 #include <sys/syscall.h>
+//#include <sys/types.h>
 #include <dirent.h>
 
 #define TIDS_MAX_SIZE 50
-static size_t get_ready_to_signal_threads_tids(pid_t pid, int sig_num, pid_t tids[TIDS_MAX_SIZE]);
+static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_SIZE]);
 
 typedef struct {
     char thread_name[16];
@@ -1864,9 +1867,8 @@ __attribute__ ((noinline)) static void collect_stacktrace_data(void) {
 __attribute__ ((noinline))
 static void writeStacktraces(int fd, int uplevel) {
     /* get the list of all the process's threads that don't block or ignore the THREADS_SIGNAL */
-    pid_t pid = getpid();
     pid_t tids[TIDS_MAX_SIZE];
-    size_t len_tids = get_ready_to_signal_threads_tids(pid, THREADS_SIGNAL, tids);
+    size_t len_tids = get_ready_to_signal_threads_tids(THREADS_SIGNAL, tids);
     if (!len_tids) {
         serverLogFromHandler(LL_WARNING, "writeStacktraces(): Failed to get the process's threads.");
     }
@@ -2495,29 +2497,84 @@ void debugDelay(int usec) {
 
 /* =========================== Stacktrace Utils ============================ */
 
+
+int is_digit(char c) {
+    if (c >= '0' && c <= '9') return 1;
+    return 0;
+}
+
+int is_a_to_f(char c) {
+    if (c >='a' && c <='f') {
+            return 1;
+    }
+    return 0;
+}
+int is_A_to_F(char c) {
+    if (c >= 'A' && c <= 'F') {
+            return 1;
+    }
+    return 0;
+}
+
+int is_in_range_base_16(char c) {
+    if (is_digit(c)) return 0;
+    if (is_a_to_f(c)) return 1;
+    if (is_A_to_F(c)) return 2;
+    return -1;
+}
+
+static int string_to_hex(char *src, unsigned long *result_output) {
+    static char ascii_to_dec[] = {'0', 'a' - 10, 'A' - 10};            
+
+    /* check if the signal exist in the mask */
+    int curr_char = 0;
+    unsigned long result = 0;
+    int base = 16;
+    while (-1 != (curr_char = is_in_range_base_16(src[0]))) {
+        unsigned long curr_val = src[0] - ascii_to_dec[curr_char];
+        if ((result > ULONG_MAX / base) || (result > (ULONG_MAX - curr_val)/base)) /* Overflow. */
+            return -1;
+        result = result * base + curr_val;
+        ++src;
+    }
+
+    *result_output = result;
+    return 1;
+}
 /** If it doesn't block and doesn't ignore, return 1 (the thread will handle the signal)
  * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
  * also returns 0 if something is wrong and prints a warning message to the log file **/
-static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
-    /* open the threads status file */
-    char buff[PATH_MAX];
-    snprintf(buff, PATH_MAX, "/proc/%d/task/%d/status", pid, tid);
-    FILE *thread_status_file = fopen(buff, "r");
-    if (thread_status_file == NULL) {
+static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char *tid, int sig_num) {
+    /* generate the threads status file path /proc/<pid>>/task/<tid>/status */
+    char path_buff[PATH_MAX];
+    memcpy(path_buff, proc_pid_task_path, PATH_MAX);
+    redis_strlcat(path_buff, "/", PATH_MAX);
+    redis_strlcat(path_buff, tid, PATH_MAX);
+    redis_strlcat(path_buff, "/status", PATH_MAX);
+
+    int thread_status_file = open(path_buff, O_RDONLY);
+    if (thread_status_file == -1) {
         serverLog(LL_WARNING,
-        "tid:%d: failed to open /proc/%d/task/%d/status file", tid, pid, tid);
+        "tid:%s: failed to open %s file", tid, path_buff);
         return 0;
     }
 
     int ret = 1;
-    size_t field_name_len = strlen("SigBlk:"); /* SigIgn has the same length */
+    size_t field_name_len = strlen("SigBlk:\t"); /* SigIgn has the same length */
     char *line = NULL;
     size_t fields_count = 2;
-    while ((line = fgets(buff, PATH_MAX, thread_status_file)) && fields_count) {
+    char buff[PATH_MAX];
+    while ((line = fgets_async_signal_safe(buff, PATH_MAX, thread_status_file)) && fields_count) {
         /* iterate the file until we reach SigBlk or SigIgn field line */
-        if (!strncmp(buff, "SigBlk:", field_name_len) ||  !strncmp(buff, "SigIgn:", field_name_len)) {
-            /* check if the signal exist in the mask */
-            unsigned long sig_mask = strtoul(buff + field_name_len, NULL, 16);
+        if (!strncmp(buff, "SigBlk:\t", field_name_len) ||  !strncmp(buff, "SigIgn:\t", field_name_len)) {
+            line = buff + field_name_len;
+            unsigned long sig_mask;
+            if (-1 == string_to_hex(line, &sig_mask)) {
+                serverLogFromHandler(LL_WARNING, "Can't convert signal mask to an unsigned long due to an overflow");
+                ret = 0;
+                break;
+            }
+
             if(sig_mask & sig_num) { /* if the signal is blocked/ignored return 0 */
                 ret = 0;
                 break;
@@ -2526,13 +2583,13 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
         }
     }
 
-    fclose(thread_status_file);
+    close(thread_status_file);
 
     /* if we reached EOF, it means we haven't found SigBlk or/and SigIgn, something is wrong */
     if (line == NULL)  {
         ret = 0;
         serverLog(LL_WARNING,
-        "tid:%d: failed to find SigBlk or/and SigIgn field(s) in /proc/%d/task/%d/status file", tid, pid, tid);
+        "tid:%s: failed to find SigBlk or/and SigIgn field(s) in %s/%s/status file", tid, proc_pid_task_path, tid);
     }
     return ret;
 }
@@ -2541,37 +2598,48 @@ static int is_thread_ready_to_signal(pid_t pid, pid_t tid, int sig_num) {
  * Writes into tids the tids of these threads.
  * If it fails, returns 0.
 */
-static size_t get_ready_to_signal_threads_tids(pid_t pid, int sig_num, pid_t tids[TIDS_MAX_SIZE]) {
+static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_SIZE]) {
     /* Initialize the path the process threads' directory. */
-    char path_buff[PATH_MAX];
-    snprintf(path_buff, PATH_MAX, "/proc/%d/task", pid);
+    char path_buff[PATH_MAX] = "/proc/";
+    ll2string(path_buff + strlen("/proc/"), PATH_MAX, getpid());
+    redis_strlcat(path_buff, "/task", PATH_MAX);
 
     /* Get the directory handler. */
-    DIR *dir;
-    if (!(dir = opendir(path_buff))) return 0;
+    int dir;
+    if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) return 0;
 
     size_t tids_count = 0;
-    struct dirent *entry;
     pid_t calling_tid = syscall(SYS_gettid);
     int current_thread_index = -1;
+    long nread;
+
+    char buff[PATH_MAX];
 
     /* Each thread is represented by a directory */
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_DIR) {
+    while ((nread = syscall(SYS_getdents64, dir, buff, PATH_MAX))) {
+        if (nread == -1) {
+            serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory\n");
+            return 0;
+        }
+        for (long pos = 0; pos < nread;) {
+            struct dirent64 *entry = (struct dirent64 *)(buff + pos);
+            printf("Inode: %ld, Name: %s\n", entry->d_ino, entry->d_name);
+            pos += entry->d_reclen;
             /* Skip irrelevant directories. */
-            if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
-                /* the thread's directory name is equivalent to its tid. */
-                pid_t tid = atoi(entry->d_name);
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
-                if(!is_thread_ready_to_signal(pid, tid, sig_num)) continue;
+            /* the thread's directory name is equivalent to its tid. */
+            pid_t tid;
+            string2l(entry->d_name, strlen(entry->d_name), (long *)&tid);
 
-                if(tid == calling_tid) {
-                    current_thread_index = tids_count;
-                }
+            if(!is_thread_ready_to_signal(path_buff, entry->d_name, sig_num)) continue;
 
-                /* save the thread id */
-                tids[tids_count++] = tid;
+            if(tid == calling_tid) {
+                current_thread_index = tids_count;
             }
+
+            /* save the thread id */
+            tids[tids_count++] = tid;
         }
         /* Stop if we reached the maximum threads number. */
         if(tids_count == TIDS_MAX_SIZE) {
@@ -2588,7 +2656,7 @@ static size_t get_ready_to_signal_threads_tids(pid_t pid, int sig_num, pid_t tid
         tids[current_thread_index] = last_tid;
     }
 
-    closedir(dir);
+    close(dir);
 
     return tids_count;
 }

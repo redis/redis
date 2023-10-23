@@ -32,7 +32,6 @@
 #define UNUSED(V) ((void) V)
 
 #ifdef __linux__
-#include "zmalloc.h"
 #include "atomicvar.h"
 #include "server.h"
 
