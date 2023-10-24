@@ -2012,12 +2012,13 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     server.stat_expiredkeys++;
 }
 
-/* Propagate deletion into replicas and the AOF file.
- * When a key was deleted in the master, a DEL/UNLINK operation for this key is sent
+/* Propagate an implicit key deletion into replicas and the AOF file.
+ * When a key was deleted in the master by eviction, expiration or a similar
+ * mechanism a DEL/UNLINK operation for this key is sent
  * to all the replicas and the AOF file if enabled.
  *
  * This way the key deletion is centralized in one place, and since both
- * AOF and the master->slave link guarantee operation ordering, everything
+ * AOF and the replication link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against deleted
  * keys.
  *
