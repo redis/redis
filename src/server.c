@@ -2681,8 +2681,8 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
+    int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
     for (j = 0; j < server.dbnum; j++) {
-        int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
         server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slotCount);
         server.db[j].expires_cursor = 0;
