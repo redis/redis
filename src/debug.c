@@ -2623,7 +2623,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
         }
         for (long pos = 0; pos < nread;) {
             struct dirent64 *entry = (struct dirent64 *)(buff + pos);
-            printf("Inode: %ld, Name: %s\n", entry->d_ino, entry->d_name);
+            printf("Inode: %lu, Name: %s\n", entry->d_ino, entry->d_name);
             pos += entry->d_reclen;
             /* Skip irrelevant directories. */
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
