@@ -400,6 +400,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                                     auth had been authenticated from the Module. */
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
+#define CLIENT_RETRY_COMMAND_ON_MAIN_THREAD (1ULL<<50) /* Used when client is pinned to an I/O thread */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -1234,7 +1235,6 @@ typedef struct client {
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
     listNode *postponed_list_node; /* list node within the postponed list */
-    listNode *pending_read_list_node; /* list node in clients pending read list */
     void *module_blocked_client; /* Pointer to the RedisModuleBlockedClient associated with this
                                   * client. This is set in case of module authentication before the
                                   * unblocked client is reprocessed to handle reply callbacks. */
@@ -1282,6 +1282,14 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+    /* I/O Threads */
+    int io_thread_index;           /* Index in io_threads array; -1 = main. */
+    int io_thread_flags;           /* Flags local to the I/O thread. */
+    redisAtomic int io_reply_lock; /* Spinlock guarding io_reply_list. */
+    redisAtomic size_t io_reply_bytes; /* Num bytes in io_reply_list. */
+    list *io_reply_list;           /* Replies to be sent by io thread. */
+    size_t io_reply_sentlen;       /* Bytes in io_reply_list already sent. */
+
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
@@ -1606,7 +1614,6 @@ struct redisServer {
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
-    list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
@@ -1632,8 +1639,8 @@ struct redisServer {
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     int io_threads_num;         /* Number of IO threads to use. */
-    int io_threads_do_reads;    /* Read and parse from IO threads? */
-    int io_threads_active;      /* Is IO threads currently active? */
+    int io_threads_do_reads;    /* Read and parse from IO threads? DELETEME */
+    int io_threads_active;      /* Is IO threads currently active? DELETEME */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
     int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
@@ -1706,7 +1713,7 @@ struct redisServer {
     long long stat_io_writes_processed; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_total_reads_processed; /* Total number of read events processed */
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
-    long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
+    redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
@@ -2454,11 +2461,6 @@ typedef struct {
 
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
-
-#define IO_THREADS_OP_IDLE 0
-#define IO_THREADS_OP_READ 1
-#define IO_THREADS_OP_WRITE 2
-extern int io_threads_op;
 
 /*-----------------------------------------------------------------------------
  * Extern declarations

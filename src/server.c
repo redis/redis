@@ -964,7 +964,6 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
 int updateClientMemUsageAndBucket(client *c) {
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 
@@ -1676,7 +1675,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * events to handle. */
     if (ProcessingEventsWhileBlocked) {
         uint64_t processed = 0;
-        processed += handleClientsWithPendingReadsUsingThreads();
         processed += connTypeProcessPendingData(server.el);
         if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
             flushAppendOnlyFile(0);
@@ -1685,9 +1683,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         server.events_processed_while_blocked += processed;
         return;
     }
-
-    /* We should handle pending reads clients ASAP after event loop. */
-    handleClientsWithPendingReadsUsingThreads();
 
     /* Handle pending data(typical TLS). (must be done before flushAppendOnlyFile) */
     connTypeProcessPendingData(server.el);
@@ -1757,7 +1752,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     monotime duration_before_aof = aof_start_time - cron_start_time_before_aof;
 
     /* Write the AOF buffer on disk,
-     * must be done before handleClientsWithPendingWritesUsingThreads,
+     * must be done before handleClientsWithPendingWrites,
      * in case of appendfsync=always. */
     if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
         flushAppendOnlyFile(0);
@@ -1775,7 +1770,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* Handle writes with pending output buffers. */
-    handleClientsWithPendingWritesUsingThreads();
+    handleClientsWithPendingWrites();
 
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing above. */
     monotime cron_start_time_after_write = getMonotonicUs();
@@ -2636,7 +2631,6 @@ void initServer(void) {
     server.slaves = listCreate();
     server.monitors = listCreate();
     server.clients_pending_write = listCreate();
-    server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */

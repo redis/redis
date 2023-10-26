@@ -992,6 +992,13 @@ void syncCommand(client *c) {
         return;
     }
 
+    /* If client is pinned to an I/O thread, we need to get the client back to
+     * the main thread and then retry the command. */
+    if (c->io_thread_index >= 0) {
+        c->flags |= CLIENT_RETRY_COMMAND_ON_MAIN_THREAD;
+        return;
+    }
+
     serverLog(LL_NOTICE,"Replica %s asks for synchronization",
         replicationGetSlaveName(c));
 
