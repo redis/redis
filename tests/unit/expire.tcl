@@ -836,6 +836,8 @@ start_server {tags {"expire"}} {
 
 start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
     test "expire scan should skip dictionaries with lot's of empty buckets" {
+        r debug set-active-expire 0
+
         # Collect two slots to help determine the expiry scan logic is able
         # to go past certain slots which aren't valid for scanning at the given point of time.
         # And the next non empyt slot after that still gets scanned and expiration happens.
@@ -860,7 +862,9 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
             r del "{foo}$j"
         }
 
-        # Verify {foo}5 still exists and remaining got cleaned up
+        r debug set-active-expire 1
+
+        # Verify {foo}100 still exists and remaining got cleaned up
         wait_for_condition 20 100 {
             [r dbsize] eq 1
         } else {
@@ -889,5 +893,5 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
         } else {
             fail "Keys did not actively expire."
         }
-    }
+    } {} {needs:debug}
 }
