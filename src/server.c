@@ -405,12 +405,22 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
  * In non-cluster mode, we don't need this list as there is only one dictionary per DB. */
 void dictRehashingStarted(dict *d) {
     if (!server.cluster_enabled || !server.activerehashing) return;
+    server.db[0].sub_dict[DB_MAIN].bucket_count += DICTHT_SIZE(d->ht_size_exp[1]); /* Started rehashing (Add the new ht size) */
     listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+}
+
+void dictRehashingCompleted(dict *d) {
+    server.db[0].sub_dict[DB_MAIN].bucket_count -= DICTHT_SIZE(d->ht_size_exp[0]); /* Finished rehashing (Remove the old ht size) */
 }
 
 void dictRehashingStartedForExpires(dict *d) {
     if (!server.cluster_enabled || !server.activerehashing) return;
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count += DICTHT_SIZE(d->ht_size_exp[1]); /* Started rehashing (Add the new ht size) */
     listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+}
+
+void dictRehashingCompletedForExpires(dict *d) {
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= DICTHT_SIZE(d->ht_size_exp[0]); /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -469,6 +479,7 @@ dictType dbDictType = {
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictRehashingStarted,
+    dictRehashingCompleted,
 };
 
 /* Db->expires */
@@ -481,6 +492,7 @@ dictType dbExpiresDictType = {
     NULL,                       /* val destructor */
     dictExpandAllowed,           /* allow to expand */
     dictRehashingStartedForExpires,
+    dictRehashingCompletedForExpires,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -2602,6 +2614,7 @@ void initDbState(redisDb *db){
         db->sub_dict[subdict].key_count = 0;
         db->sub_dict[subdict].resize_cursor = 0;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+        db->sub_dict[subdict].bucket_count = (CLUSTER_SLOTS * DICT_HT_INITIAL_SIZE);
     }
 }
 

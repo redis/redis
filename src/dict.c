@@ -369,6 +369,7 @@ int dictRehash(dict *d, int n) {
 
     /* Check if we already rehashed the whole table... */
     if (d->ht_used[0] == 0) {
+        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
         zfree(d->ht_table[0]);
         /* Copy the new ht onto the old one */
         d->ht_table[0] = d->ht_table[1];

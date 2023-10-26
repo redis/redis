@@ -964,6 +964,7 @@ typedef struct dbDictState {
     list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
+    unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries. */
     unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
 } dbDictState;
 

@@ -56,6 +56,7 @@ typedef struct dictType {
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
     void (*rehashingStarted)(dict *d);
+    void (*rehashingCompleted)(dict *d);
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
