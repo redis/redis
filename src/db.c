@@ -1390,7 +1390,16 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
 /* This method proivdes the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
-    return db->sub_dict[keyType].bucket_count;
+    if (server.cluster_enabled) {
+        return db->sub_dict[keyType].bucket_count;
+    } else {
+        if (keyType == DB_MAIN)
+            return dictBuckets(db->dict[0]);
+        else if (keyType == DB_EXPIRES)
+            return dictBuckets(db->expires[0]);
+        else
+            serverAssert(0);
+    }
 }
 
 size_t dbMemUsage(redisDb *db, dbKeyType keyType) {

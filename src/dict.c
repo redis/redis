@@ -1505,6 +1505,11 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
     return NULL;
 }
 
+void dictRehashingInfo(dict *d, unsigned long long *from_size, unsigned long long *to_size) {
+    *from_size = DICTHT_SIZE(d->ht_size_exp[0]);
+    *to_size = DICTHT_SIZE(d->ht_size_exp[1]);
+}
+
 /* ------------------------------- Debugging ---------------------------------*/
 #define DICT_STATS_VECTLEN 50
 void dictFreeStats(dictStats *stats) {

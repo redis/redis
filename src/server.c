@@ -400,27 +400,44 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* Adds dictionary to the rehashing list in cluster mode, which allows us
+/* Updates the bucket count for the given dictionary in a DB.
+ * And adds dictionary to the rehashing list in cluster mode, which allows us
  * to quickly find rehash targets during incremental rehashing.
  * In non-cluster mode, we don't need this list as there is only one dictionary per DB. */
 void dictRehashingStarted(dict *d) {
     if (!server.cluster_enabled || !server.activerehashing) return;
-    server.db[0].sub_dict[DB_MAIN].bucket_count += DICTHT_SIZE(d->ht_size_exp[1]); /* Started rehashing (Add the new ht size) */
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count += to; /* Started rehashing (Add the new ht size) */
     listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
 }
 
+/* Updates the bucket count for the given dictionary in a DB. 
+ * Removes the ht old size of the dictionary from the total sum of buckets for a DB.  */
 void dictRehashingCompleted(dict *d) {
-    server.db[0].sub_dict[DB_MAIN].bucket_count -= DICTHT_SIZE(d->ht_size_exp[0]); /* Finished rehashing (Remove the old ht size) */
+    if (!server.cluster_enabled || !server.activerehashing) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 void dictRehashingStartedForExpires(dict *d) {
     if (!server.cluster_enabled || !server.activerehashing) return;
-    server.db[0].sub_dict[DB_EXPIRES].bucket_count += DICTHT_SIZE(d->ht_size_exp[1]); /* Started rehashing (Add the new ht size) */
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count += to; /* Started rehashing (Add the new ht size) */
     listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
 }
 
 void dictRehashingCompletedForExpires(dict *d) {
-    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= DICTHT_SIZE(d->ht_size_exp[0]); /* Finished rehashing (Remove the old ht size) */
+    if (!server.cluster_enabled || !server.activerehashing) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -2614,7 +2631,7 @@ void initDbState(redisDb *db){
         db->sub_dict[subdict].key_count = 0;
         db->sub_dict[subdict].resize_cursor = 0;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
-        db->sub_dict[subdict].bucket_count = (CLUSTER_SLOTS * DICT_HT_INITIAL_SIZE);
+        db->sub_dict[subdict].bucket_count = server.cluster_enabled ? (db->dict_count * dictBuckets(db->dict[0])) : 0;
     }
 }
 
