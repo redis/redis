@@ -400,17 +400,52 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* Adds dictionary to the rehashing list in cluster mode, which allows us
+/* Updates the bucket count in cluster-mode for the given dictionary in a DB. bucket count
+ * incremented with the new ht size during the rehashing phase.
+ * And also adds dictionary to the rehashing list in cluster mode, which allows us
  * to quickly find rehash targets during incremental rehashing.
- * In non-cluster mode, we don't need this list as there is only one dictionary per DB. */
+ * 
+ * In non-cluster mode, bucket count can be retrieved directly from single dict bucket and
+ * we don't need this list as there is only one dictionary per DB. */
 void dictRehashingStarted(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
-    listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    if (from == 0) return; /* No entries are to be moved. */
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+    }
+}
+
+/* Updates the bucket count for the given dictionary in a DB. It removes
+ * the old ht size of the dictionary from the total sum of buckets for a DB.  */
+void dictRehashingCompleted(dict *d) {
+    if (!server.cluster_enabled) return;
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 void dictRehashingStartedForExpires(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
-    listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    if (from == 0) return; /* No entries are to be moved. */
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+    }
+}
+
+void dictRehashingCompletedForExpires(dict *d) {
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -469,6 +504,7 @@ dictType dbDictType = {
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictRehashingStarted,
+    dictRehashingCompleted,
 };
 
 /* Db->expires */
@@ -481,6 +517,7 @@ dictType dbExpiresDictType = {
     NULL,                       /* val destructor */
     dictExpandAllowed,           /* allow to expand */
     dictRehashingStartedForExpires,
+    dictRehashingCompletedForExpires,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -608,8 +645,9 @@ void tryResizeHashTables(int dbid) {
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         dbIterator *dbit = dbIteratorInitFromSlot(db, subdict, db->sub_dict[subdict].resize_cursor);
         for (int i = 0; i < CRON_DBS_PER_CALL; i++) {
-            dict *d = dbIteratorNextDict(dbit);
+            dict *d = dbGetDictFromIterator(dbit);
             slot = dbIteratorGetCurrentSlot(dbit);
+            dbIteratorNextDict(dbit);
             if (!d) break;
             if (htNeedsResize(d))
                 dictResize(d);
@@ -2602,6 +2640,7 @@ void initDbState(redisDb *db){
         db->sub_dict[subdict].key_count = 0;
         db->sub_dict[subdict].resize_cursor = 0;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+        db->sub_dict[subdict].bucket_count = 0;
     }
 }
 

@@ -65,7 +65,7 @@ dict *dbGetDictFromIterator(dbIterator *dbit) {
     else if (dbit->keyType == DB_EXPIRES)
         return dbit->db->expires[dbit->slot];
     else
-        serverAssert(0);
+        serverPanic("Unknown keyType");
 }
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete. */
@@ -1385,14 +1385,16 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
 /* This method proivdes the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
-    unsigned long buckets = 0;
-    dict *d;
-    dbIterator *dbit = dbIteratorInit(db, keyType);
-    while ((d = dbIteratorNextDict(dbit))) {
-        buckets += dictBuckets(d);
+    if (server.cluster_enabled) {
+        return db->sub_dict[keyType].bucket_count;
+    } else {
+        if (keyType == DB_MAIN)
+            return dictBuckets(db->dict[0]);
+        else if (keyType == DB_EXPIRES)
+            return dictBuckets(db->expires[0]);
+        else
+            serverPanic("Unknown keyType");
     }
-    zfree(dbit);
-    return buckets;
 }
 
 size_t dbMemUsage(redisDb *db, dbKeyType keyType) {
@@ -1414,7 +1416,7 @@ dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType){
     else if (keyType == DB_EXPIRES)
         return dictFind(db->expires[slot], key);
     else
-        serverAssert(0);
+        serverPanic("Unknown keyType");
 }
 
 /* 
@@ -1439,7 +1441,7 @@ unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, 
     else if (keyType == DB_EXPIRES)
         d = db->expires[slot];
     else
-        serverAssert(0);
+        serverPanic("Unknown keyType");
 
     int is_dict_valid = (dictScanValidFunction == NULL || dictScanValidFunction(d) == C_OK);
     if (is_dict_valid) {
@@ -2007,23 +2009,24 @@ void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
     server.stat_expiredkeys++;
 }
 
-/* Propagate expires into slaves and the AOF file.
- * When a key expires in the master, a DEL operation for this key is sent
- * to all the slaves and the AOF file if enabled.
+/* Propagate an implicit key deletion into replicas and the AOF file.
+ * When a key was deleted in the master by eviction, expiration or a similar
+ * mechanism a DEL/UNLINK operation for this key is sent
+ * to all the replicas and the AOF file if enabled.
  *
- * This way the key expiry is centralized in one place, and since both
- * AOF and the master->slave link guarantee operation ordering, everything
- * will be consistent even if we allow write operations against expiring
+ * This way the key deletion is centralized in one place, and since both
+ * AOF and the replication link guarantee operation ordering, everything
+ * will be consistent even if we allow write operations against deleted
  * keys.
  *
  * This function may be called from:
  * 1. Within call(): Example: Lazy-expire on key access.
  *    In this case the caller doesn't have to do anything
  *    because call() handles server.also_propagate(); or
- * 2. Outside of call(): Example: Active-expire, eviction.
+ * 2. Outside of call(): Example: Active-expire, eviction, slot ownership changed.
  *    In this the caller must remember to call
  *    postExecutionUnitOperations, preferably just after a
- *    single deletion batch, so that DELs will NOT be wrapped
+ *    single deletion batch, so that DEL/UNLINK will NOT be wrapped
  *    in MULTI/EXEC */
 void propagateDeletion(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
@@ -2033,7 +2036,7 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
-    /* If the master decided to expire a key we must propagate it to replicas no matter what..
+    /* If the master decided to delete a key we must propagate it to replicas no matter what.
      * Even if module executed a command without asking for propagation. */
     int prev_replication_allowed = server.replication_allowed;
     server.replication_allowed = 1;
