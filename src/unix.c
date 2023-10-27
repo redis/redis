@@ -74,18 +74,19 @@ static int connUnixListen(connListener *listener) {
     return C_OK;
 }
 
-static connection *connCreateUnix(void) {
+static connection *connCreateUnix(aeEventLoop *el) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Unix;
     conn->fd = -1;
     conn->iovcnt = IOV_MAX;
+    conn->el = el;
 
     return conn;
 }
 
-static connection *connCreateAcceptedUnix(int fd, void *priv) {
+static connection *connCreateAcceptedUnix(int fd, void *priv, aeEventLoop *el) {
     UNUSED(priv);
-    connection *conn = connCreateUnix();
+    connection *conn = connCreateUnix(el);
     conn->fd = fd;
     conn->state = CONN_STATE_ACCEPTING;
     return conn;
@@ -106,7 +107,7 @@ static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int m
             return;
         }
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(connCreateAcceptedUnix(cfd, NULL),CLIENT_UNIX_SOCKET,NULL);
+        acceptCommonHandler(connCreateAcceptedUnix(cfd, NULL, el), CLIENT_UNIX_SOCKET, NULL);
     }
 }
 

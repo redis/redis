@@ -74,11 +74,12 @@ static ConnectionType CT_Socket;
  * be embedded in different structs, not just client.
  */
 
-static connection *connCreateSocket(void) {
+static connection *connCreateSocket(struct aeEventLoop *el) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
     conn->iovcnt = IOV_MAX;
+    conn->el = el;
 
     return conn;
 }
@@ -93,9 +94,9 @@ static connection *connCreateSocket(void) {
  * is not in an error state (which is not possible for a socket connection,
  * but could but possible with other protocols).
  */
-static connection *connCreateAcceptedSocket(int fd, void *priv) {
+static connection *connCreateAcceptedSocket(int fd, void *priv, struct aeEventLoop *el) {
     UNUSED(priv);
-    connection *conn = connCreateSocket();
+    connection *conn = connCreateSocket(el);
     conn->fd = fd;
     conn->state = CONN_STATE_ACCEPTING;
     return conn;
@@ -114,7 +115,7 @@ static int connSocketConnect(connection *conn, const char *addr, int port, const
     conn->state = CONN_STATE_CONNECTING;
 
     conn->conn_handler = connect_handler;
-    aeCreateFileEvent(server.el, conn->fd, AE_WRITABLE,
+    aeCreateFileEvent(conn->el, conn->fd, AE_WRITABLE,
             conn->type->ae_handler, conn);
 
     return C_OK;
@@ -135,7 +136,7 @@ static void connSocketShutdown(connection *conn) {
 /* Close the connection and free resources. */
 static void connSocketClose(connection *conn) {
     if (conn->fd != -1) {
-        aeDeleteFileEvent(server.el,conn->fd, AE_READABLE | AE_WRITABLE);
+        aeDeleteFileEvent(conn->el, conn->fd, AE_READABLE | AE_WRITABLE);
         close(conn->fd);
         conn->fd = -1;
     }
@@ -228,9 +229,9 @@ static int connSocketSetWriteHandler(connection *conn, ConnectionCallbackFunc fu
     else
         conn->flags &= ~CONN_FLAG_WRITE_BARRIER;
     if (!conn->write_handler)
-        aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
+        aeDeleteFileEvent(conn->el, conn->fd, AE_WRITABLE);
     else
-        if (aeCreateFileEvent(server.el,conn->fd,AE_WRITABLE,
+        if (aeCreateFileEvent(conn->el, conn->fd, AE_WRITABLE,
                     conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
     return C_OK;
 }
@@ -243,9 +244,9 @@ static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc fun
 
     conn->read_handler = func;
     if (!conn->read_handler)
-        aeDeleteFileEvent(server.el,conn->fd,AE_READABLE);
+        aeDeleteFileEvent(conn->el, conn->fd, AE_READABLE);
     else
-        if (aeCreateFileEvent(server.el,conn->fd,
+        if (aeCreateFileEvent(conn->el, conn->fd,
                     AE_READABLE,conn->type->ae_handler,conn) == AE_ERR) return C_ERR;
     return C_OK;
 }
@@ -256,9 +257,9 @@ static const char *connSocketGetLastError(connection *conn) {
 
 static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask)
 {
-    UNUSED(el);
     UNUSED(fd);
     connection *conn = clientData;
+    serverAssert(el == conn->el);
 
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
@@ -271,7 +272,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
             conn->state = CONN_STATE_CONNECTED;
         }
 
-        if (!conn->write_handler) aeDeleteFileEvent(server.el,conn->fd,AE_WRITABLE);
+        if (!conn->write_handler) aeDeleteFileEvent(el, conn->fd, AE_WRITABLE);
 
         if (!callHandler(conn, conn->conn_handler)) return;
         conn->conn_handler = NULL;
@@ -324,7 +325,7 @@ static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(connCreateAcceptedSocket(cfd, NULL),0,cip);
+        acceptCommonHandler(connCreateAcceptedSocket(cfd, NULL, el), 0, cip);
     }
 }
 

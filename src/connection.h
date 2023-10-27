@@ -82,8 +82,8 @@ typedef struct ConnectionType {
     int (*listen)(connListener *listener);
 
     /* create/shutdown/close connection */
-    connection* (*conn_create)(void);
-    connection* (*conn_create_accepted)(int fd, void *priv);
+    connection* (*conn_create)(struct aeEventLoop *el);
+    connection* (*conn_create_accepted)(int fd, void *priv, struct aeEventLoop *el);
     void (*shutdown)(struct connection *conn);
     void (*close)(struct connection *conn);
 
@@ -104,8 +104,8 @@ typedef struct ConnectionType {
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
 
     /* pending data */
-    int (*has_pending_data)(void);
-    int (*process_pending_data)(void);
+    int (*has_pending_data)(struct aeEventLoop *el);
+    int (*process_pending_data)(struct aeEventLoop *el);
 
     /* TLS specified methods */
     sds (*get_peer_cert)(struct connection *conn);
@@ -123,6 +123,7 @@ struct connection {
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
+    struct aeEventLoop *el;
 };
 
 #define CONFIG_BINDADDR_MAX 16
@@ -401,14 +402,14 @@ ConnectionType *connectionTypeUnix(void);
 int connectionIndexByType(const char *typename);
 
 /* Create a connection of specified type */
-static inline connection *connCreate(ConnectionType *ct) {
-    return ct->conn_create();
+static inline connection *connCreate(ConnectionType *ct, aeEventLoop *el) {
+    return ct->conn_create(el);
 }
 
 /* Create an accepted connection of specified type.
  * priv is connection type specified argument */
-static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv) {
-    return ct->conn_create_accepted(fd, priv);
+static inline connection *connCreateAccepted(ConnectionType *ct, int fd, void *priv, aeEventLoop *el) {
+    return ct->conn_create_accepted(fd, priv, el);
 }
 
 /* Configure a connection type. A typical case is to configure TLS.
@@ -422,10 +423,10 @@ static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfig
 void connTypeCleanupAll(void);
 
 /* Test all the connection type has pending data or not. */
-int connTypeHasPendingData(void);
+int connTypeHasPendingData(struct aeEventLoop *el);
 
 /* walk all the connection types and process pending data for each connection type */
-int connTypeProcessPendingData(void);
+int connTypeProcessPendingData(struct aeEventLoop *el);
 
 /* Listen on an initialized listener */
 static inline int connListen(connListener *listener) {

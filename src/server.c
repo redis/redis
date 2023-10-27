@@ -1677,7 +1677,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (ProcessingEventsWhileBlocked) {
         uint64_t processed = 0;
         processed += handleClientsWithPendingReadsUsingThreads();
-        processed += connTypeProcessPendingData();
+        processed += connTypeProcessPendingData(server.el);
         if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
             flushAppendOnlyFile(0);
         processed += handleClientsWithPendingWrites();
@@ -1690,10 +1690,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     handleClientsWithPendingReadsUsingThreads();
 
     /* Handle pending data(typical TLS). (must be done before flushAppendOnlyFile) */
-    connTypeProcessPendingData();
+    connTypeProcessPendingData(server.el);
 
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
-    aeSetDontWait(server.el, connTypeHasPendingData());
+    aeSetDontWait(server.el, connTypeHasPendingData(server.el));
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
