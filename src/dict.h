@@ -55,7 +55,11 @@ typedef struct dictType {
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
+    /* Invoked at the start of dict initialization/rehashing (old and new ht are already created) */
     void (*rehashingStarted)(dict *d);
+    /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists
+     * and are cleaned up after this callback.  */
+    void (*rehashingCompleted)(dict *d);
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -218,6 +222,7 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *pri
 unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
+void dictRehashingInfo(dict *d, unsigned long long *from, unsigned long long *to);
 
 size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full);
 dictStats* dictGetStatsHt(dict *d, int htidx, int full);
