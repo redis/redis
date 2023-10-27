@@ -1394,8 +1394,7 @@ unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
     if (!empty_dict)
         empty_dict = dictCreate(&dbDictType);
     if (server.cluster_enabled) {
-        int numslots_not_owned = CLUSTER_SLOTS - server.cluster->myself->numslots;
-        return db->sub_dict[keyType].bucket_count - (numslots_not_owned * DICT_HT_INITIAL_SIZE);
+        return db->sub_dict[keyType].bucket_count;
     } else {
         if (keyType == DB_MAIN)
             return dictBuckets(db->dict[0]);
