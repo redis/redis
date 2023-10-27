@@ -420,7 +420,7 @@ void dictRehashingStarted(dict *d) {
 /* Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
 void dictRehashingCompleted(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
+    if (!server.cluster_enabled) return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
     server.db[0].sub_dict[DB_MAIN].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
@@ -437,7 +437,7 @@ void dictRehashingStartedForExpires(dict *d) {
 }
 
 void dictRehashingCompletedForExpires(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
+    if (!server.cluster_enabled) return;
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
