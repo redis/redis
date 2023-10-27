@@ -1053,6 +1053,7 @@ void activeDefragCycle(void) {
                     continue;
                 }
                 slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
+                defrag_later_item_in_progress = 0;
                 ctx.slot = slot;
             }
     
