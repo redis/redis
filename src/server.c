@@ -408,13 +408,15 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
  * In non-cluster mode, bucket count can be retrieved directly from single dict bucket and
  * we don't need this list as there is only one dictionary per DB. */
 void dictRehashingStarted(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
+    if (!server.cluster_enabled) return;
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
     server.db[0].sub_dict[DB_MAIN].bucket_count += to; /* Started rehashing (Add the new ht size) */
     if (from == 0) return; /* No entries are to be moved. */
-    listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+    }
 }
 
 /* Updates the bucket count for the given dictionary in a DB. It removes
@@ -427,13 +429,15 @@ void dictRehashingCompleted(dict *d) {
 }
 
 void dictRehashingStartedForExpires(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
+    if (!server.cluster_enabled) return;
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
     server.db[0].sub_dict[DB_EXPIRES].bucket_count += to; /* Started rehashing (Add the new ht size) */
     if (from == 0) return; /* No entries are to be moved. */
-    listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+    }
 }
 
 void dictRehashingCompletedForExpires(dict *d) {
