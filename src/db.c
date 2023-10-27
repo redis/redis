@@ -526,12 +526,9 @@ int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType) {
             result = current;
         }
     }
-    /* After the search if the target index is non zero, the target key at the index will be in the next node. */
-    if (target != 0) {
-        result++;
-    }
-
-    return result-1; /* Unlike BIT, slots are 0-based, so we need to subtract 1. */
+    /* Unlike BIT, slots are 0-based, so we need to subtract 1, but we also need to add 1,
+     * since we want the next slot. */
+    return result;
 }
 
 /* Helper for sync and async delete. */
