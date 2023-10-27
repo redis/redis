@@ -520,7 +520,7 @@ int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType) {
     for (int i = bit_mask; i != 0; i >>= 1) {
         int current = result + i;
         /* When the target index is greater than 'current' node value the we will update
-         * the target and serach in the 'current' node tree. */
+         * the target and search in the 'current' node tree. */
         if (target > db->sub_dict[keyType].slot_size_index[current]) {
             target -= db->sub_dict[keyType].slot_size_index[current];
             result = current;
