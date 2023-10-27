@@ -65,7 +65,7 @@ dict *dbGetDictFromIterator(dbIterator *dbit) {
     else if (dbit->keyType == DB_EXPIRES)
         return dbit->db->expires[dbit->slot];
     else
-        serverAssert(0);
+        serverPanic("Unknown keyType");
 }
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete. */
@@ -503,7 +503,7 @@ static inline unsigned long dictSizebySlot(redisDb *db, int slot, dbKeyType keyT
     else if (keyType == DB_EXPIRES)
         return dictSize(db->expires[slot]);
     else
-        serverAssert(0);
+        serverPanic("Unknown keyType");
 }   
 
 /* Finds a slot containing target element in a key space ordered by slot id.
@@ -1402,7 +1402,7 @@ unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
         else if (keyType == DB_EXPIRES)
             return dictBuckets(db->expires[0]);
         else
-            serverAssert(0);
+            serverPanic("Unknown keyType");
     }
 }
 
@@ -1425,7 +1425,7 @@ dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType){
     else if (keyType == DB_EXPIRES)
         return dictFind(db->expires[slot], key);
     else
-        serverAssert(0);
+        serverPanic("Unknown keyType");
 }
 
 /* 
@@ -1450,7 +1450,7 @@ unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long v, 
     else if (keyType == DB_EXPIRES)
         d = db->expires[slot];
     else
-        serverAssert(0);
+        serverPanic("Unknown keyType");
 
     int is_dict_valid = (dictScanValidFunction == NULL || dictScanValidFunction(d) == C_OK);
     if (is_dict_valid) {
