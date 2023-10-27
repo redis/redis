@@ -57,7 +57,7 @@ typedef struct dictType {
     int (*expandAllowed)(size_t moreMem, double usedRatio);
     /* Invoked at the start of dict initialization/rehashing (old and new ht are already created) */
     void (*rehashingStarted)(dict *d);
-    /* Invoked at the end of dict intialization/rehashing of all the entries from old to new ht. Both ht still exists
+    /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists
      * and are cleaned up after this callback.  */
     void (*rehashingCompleted)(dict *d);
     /* Flags */
