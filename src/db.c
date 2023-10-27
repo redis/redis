@@ -507,9 +507,10 @@ int getFairRandomSlot(redisDb *db, dbKeyType keyType) {
  * 
  * This function is 1 based and the range of the target is [1..dbSize], dbSize inclusive.
  * 
- * To find the slot, we start with the root node of the binary index tree and search through its children from the highest index (2^14 in our case) to the lowest index. 
- * At each node, we check if the target value is greater than the node's value. 
- * If it is, we remove the node's value from the target and recursively search for the new target using the current node as the parent.
+ * To find the slot, we start with the root node of the binary index tree and search through its children
+ * from the highest index (2^14 in our case) to the lowest index. At each node, we check if the target 
+ * value is greater than the node's value. If it is, we remove the node's value from the target and recursively
+ * search for the new target using the current node as the parent.
  * Time complexity of this function is O(log(CLUSTER_SLOTS))
  */
 int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType) {
