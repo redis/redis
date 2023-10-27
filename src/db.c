@@ -742,7 +742,7 @@ redisDb *initTempDb(void) {
         tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreateMultiple(&dbExpiresDictType, tempDb[i].dict_count);
-        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
             tempDb[i].sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         }
     }
@@ -1387,11 +1387,15 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
     return db->sub_dict[keyType].key_count;
 }
 
+static dict *empty_dict = NULL;
 /* This method proivdes the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
+    if (!empty_dict)
+        empty_dict = dictCreate(&dbDictType);
     if (server.cluster_enabled) {
-        return db->sub_dict[keyType].bucket_count;
+        int numslots_not_owned = CLUSTER_SLOTS - server.cluster->myself->numslots;
+        return db->sub_dict[keyType].bucket_count - (numslots_not_owned * DICT_HT_INITIAL_SIZE);
     } else {
         if (keyType == DB_MAIN)
             return dictBuckets(db->dict[0]);
