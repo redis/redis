@@ -2651,7 +2651,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
             if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
                 sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
-                dictEntry *de = dictAddRaw(server.cluster->nodes_black_list, id, NULL);
+                dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
                 serverAssert(de != NULL);
                 uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
                 dictSetUnsignedIntegerVal(de, expire);
