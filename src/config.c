@@ -2474,6 +2474,31 @@ static int updateJemallocBgThread(const char **err) {
     return 1;
 }
 
+static int updateActiveRehashing(const char **err) {
+    UNUSED(err);
+    if (!server.cluster_enabled) return 1;
+
+    if (server.activerehashing) {
+        /* Add the dictionaries which are undergoing rehashing to the `rehashing` list.
+        * It will be picked up by the incremental rehash logic in the serverCron. */
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            dict *d;
+            dbIterator *dbit = dbIteratorInit(&server.db[0], subdict);
+            while ((d = dbIteratorNextDict(dbit))) {
+                if (dictIsRehashing(d)) {
+                    listAddNodeTail(server.db->sub_dict[subdict].rehashing, d);
+                }
+            }
+            zfree(dbit);
+        }
+    } else {
+        /* Empty the rehashing list as incremental rehash is disabled via this config. */
+        listEmpty(server.db->sub_dict[DB_MAIN].rehashing);
+        listEmpty(server.db->sub_dict[DB_EXPIRES].rehashing);
+    }
+    return 1;
+}
+
 static int updateReplBacklogSize(const char **err) {
     UNUSED(err);
     resizeReplicationBacklog();
@@ -3056,7 +3081,7 @@ standardConfig static_configs[] = {
     createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, 1, NULL, NULL),
     createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, 1, NULL, NULL),
     createBoolConfig("rdb-del-sync-files", NULL, MODIFIABLE_CONFIG, server.rdb_del_sync_files, 0, NULL, NULL),
-    createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, 1, NULL, NULL),
+    createBoolConfig("activerehashing", NULL, MODIFIABLE_CONFIG, server.activerehashing, 1, NULL, updateActiveRehashing),
     createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, 1, NULL, NULL),
     createBoolConfig("set-proc-title", NULL, IMMUTABLE_CONFIG, server.set_proc_title, 1, NULL, NULL), /* Should setproctitle be used? */
     createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, 1, NULL, NULL), /* Adapt hz to # of clients.*/
