@@ -436,8 +436,9 @@ proc test_scan {type} {
         # which implies that all matching keys belong to one slot.
         r flushdb
         for {set j 0} {$j < 100} {incr j} {
-            r set "{foo}-$j" "foo"
-            r set "{bar}-$j" "bar"
+            r set "{foo}-$j" "foo"; # slot 12182
+            r set "{bar}-$j" "bar"; # slot 5061
+            r set "{boo}-$j" "boo"; # slot 13142
         }
 
         set cursor 0
