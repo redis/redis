@@ -431,7 +431,9 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     int hashslot = -1;
     if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != server.cluster->myself) {
         if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
-            *err = sdsnew("Script attempted to access keys don't hash to the same slot");
+            *err = sdscatfmt(sdsempty(), 
+                             "Command '%S' in script attempted to access keys don't hash to the same slot",
+                             c->argv[0]->ptr);
         } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
             /* The request spawns multiple keys in the same slot,
              * but the slot is not "stable" currently as there is
