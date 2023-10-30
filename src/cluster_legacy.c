@@ -103,6 +103,7 @@ int auxTlsPortSetter(clusterNode *n, void *value, int length);
 sds auxTlsPortGetter(clusterNode *n, sds s);
 int auxTlsPortPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
+void freeClusterLink(clusterLink *link);
 
 int getNodeDefaultClientPort(clusterNode *n) {
     return server.tls_cluster ? n->tls_port : n->tcp_port;
