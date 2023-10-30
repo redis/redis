@@ -7696,3 +7696,84 @@ char** getClusterNodesList(size_t *numnodes) {
     dictReleaseIterator(di);
     return ids;
 }
+
+int nodeIsMaster(clusterNode *n) {
+    return n->flags & CLUSTER_NODE_MASTER;
+}
+
+int handleDebugClusterCommand(client *c) {
+    if (strcasecmp(c->argv[1]->ptr, "CLUSTERLINK") ||
+        strcasecmp(c->argv[2]->ptr, "KILL") ||
+        c->argc != 5) {
+        return 0;
+    }
+
+    if (!server.cluster_enabled) {
+        addReplyError(c, "Debug option only available for cluster mode enabled setup!");
+        return 1;
+    }
+
+    /* Find the node. */
+    clusterNode *n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
+    if (!n) {
+        addReplyErrorFormat(c, "Unknown node %s", (char *) c->argv[4]->ptr);
+        return 1;
+    }
+
+    /* Terminate the link based on the direction or all. */
+    if (!strcasecmp(c->argv[3]->ptr, "from")) {
+        freeClusterLink(n->inbound_link);
+    } else if (!strcasecmp(c->argv[3]->ptr, "to")) {
+        freeClusterLink(n->link);
+    } else if (!strcasecmp(c->argv[3]->ptr, "all")) {
+        freeClusterLink(n->link);
+        freeClusterLink(n->inbound_link);
+    } else {
+        addReplyErrorFormat(c, "Unknown direction %s", (char *) c->argv[3]->ptr);
+    }
+    addReply(c, shared.ok);
+
+    return 1;
+}
+
+int clusterNodeConfirmedReachable(clusterNode  *node) {
+    return !(node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE));
+}
+
+char* clusterNodeIp(clusterNode *node) {
+    return node->ip;
+}
+
+int clusterNodeIsSlave(clusterNode *node) {
+    return !nodeIsMaster(node);
+}
+
+clusterNode *clusterNodeGetSlaveof(clusterNode *node) {
+    return node->slaveof;
+}
+
+char* clusterNodeGetName(clusterNode *node) {
+    return node->name;
+}
+
+int clusterNodeTimedOut(clusterNode *node) {
+    return nodeTimedOut(node);
+}
+
+int clusterNodeIsFailing(clusterNode *node) {
+    return nodeFailed(node);
+}
+
+int clusterNodeIsNoFailover(clusterNode *node) {
+    return node->flags & CLUSTER_NODE_NOFAILOVER;
+}
+
+char **clusterDebugCommandHelp(void) {
+    const char *help[] = {
+        "CLUSTERLINK KILL <to|from|all> <node-id>",
+        "    Kills the link based on the direction to/from (both) with the provided node." ,
+        NULL
+    };
+
+    return help;
+}

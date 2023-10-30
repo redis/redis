@@ -23,7 +23,8 @@
 #define CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
 #define CLUSTER_REDIR_DOWN_RO_STATE 7 /* -CLUSTERDOWN, allow reads. */
 
-struct clusterNode;
+typedef struct _clusterNode clusterNode;
+struct clusterState;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
@@ -35,7 +36,7 @@ typedef struct clusterLink {
     char *rcvbuf;               /* Packet reception buffer */
     size_t rcvbuf_len;          /* Used size of rcvbuf */
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
-    struct clusterNode *node;   /* Node related to this link. Initialized to NULL when unknown */
+    clusterNode *node;          /* Node related to this link. Initialized to NULL when unknown */
     int inbound;                /* 1 if this link is an inbound link accepted from the related node */
 } clusterLink;
 
@@ -52,7 +53,6 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
-#define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
 #define nodeIsSlave(n) ((n)->flags & CLUSTER_NODE_SLAVE)
 #define nodeInHandshake(n) ((n)->flags & CLUSTER_NODE_HANDSHAKE)
 #define nodeHasAddr(n) (!((n)->flags & CLUSTER_NODE_NOADDR))
@@ -89,47 +89,10 @@ typedef struct clusterLink {
 
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
-    struct clusterNode *node;  /* Node reporting the failure condition. */
+    clusterNode *node;         /* Node reporting the failure condition. */
     mstime_t time;             /* Time of the last report from this node. */
 } clusterNodeFailReport;
 
-typedef struct clusterNode {
-    mstime_t ctime; /* Node object creation time. */
-    char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
-    char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
-    int flags;      /* CLUSTER_NODE_... */
-    uint64_t configEpoch; /* Last configEpoch observed for this node */
-    unsigned char slots[CLUSTER_SLOTS/8]; /* slots handled by this node */
-    uint16_t *slot_info_pairs; /* Slots info represented as (start/end) pair (consecutive index). */
-    int slot_info_pairs_count; /* Used number of slots in slot_info_pairs */
-    int numslots;   /* Number of slots handled by this node */
-    int numslaves;  /* Number of slave nodes, if this is a master */
-    struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node. Note that it
-                                    may be NULL even if the node is a slave
-                                    if we don't have the master node in our
-                                    tables. */
-    unsigned long long last_in_ping_gossip; /* The number of the last carried in the ping gossip section */
-    mstime_t ping_sent;      /* Unix time we sent latest ping */
-    mstime_t pong_received;  /* Unix time we received the pong */
-    mstime_t data_received;  /* Unix time we received any data */
-    mstime_t fail_time;      /* Unix time when FAIL flag was set */
-    mstime_t voted_time;     /* Last time we voted for a slave of this master */
-    mstime_t repl_offset_time;  /* Unix time we received offset for this node */
-    mstime_t orphaned_time;     /* Starting time of orphaned master condition */
-    long long repl_offset;      /* Last known repl offset for this node. */
-    char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
-    sds hostname;               /* The known hostname for this node */
-    sds human_nodename;         /* The known human readable nodename for this node */
-    int tcp_port;               /* Latest known clients TCP port. */
-    int tls_port;               /* Latest known clients TLS port */
-    int cport;                  /* Latest known cluster port of this node. */
-    clusterLink *link;          /* TCP/IP link established toward this node */
-    clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
-    list *fail_reports;         /* List of nodes signaling this as failing */
-} clusterNode;
-
-struct clusterState;
 
 
 /* ---------------------- API exported outside cluster.c -------------------- */
@@ -168,5 +131,16 @@ int clusterManualFailoverTimeLimit(void);
 char* getMyClusterId(void);
 int getClusterSize(void);
 char** getClusterNodesList(size_t *numnodes);
+int nodeIsMaster(clusterNode *n);
+int handleDebugClusterCommand(client *c);
+int clusterNodeConfirmedReachable(clusterNode  *node);
+char* clusterNodeIp(clusterNode *node);
+int clusterNodeIsSlave(clusterNode *node);
+clusterNode *clusterNodeGetSlaveof(clusterNode *node);
+char* clusterNodeGetName(clusterNode *node);
+int clusterNodeTimedOut(clusterNode *node);
+int clusterNodeIsFailing(clusterNode *node);
+int clusterNodeIsNoFailover(clusterNode *node);
 
+char **clusterDebugCommandHelp(void);
 #endif /* __CLUSTER_H */
