@@ -985,7 +985,7 @@ void clusterUpdateMyselfHumanNodename(void) {
 void clusterInit(void) {
     int saveconf = 0;
 
-    server.cluster = zmalloc(sizeof(clusterState));
+    server.cluster = zmalloc(sizeof(struct clusterState));
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;
     server.cluster->state = CLUSTER_FAIL;
@@ -7655,4 +7655,44 @@ unsigned int countChannelsInSlot(unsigned int hashslot) {
     }
     raxStop(&iter);
     return j;
+}
+
+int clusterNodeIsMyself(clusterNode *n) {
+    return n == server.cluster->myself;
+}
+
+clusterNode* getMyClusterNode(void) {
+    return server.cluster->myself;
+}
+
+int clusterManualFailoverTimeLimit(void) {
+    return server.cluster->mf_end;
+}
+
+char* getMyClusterId(void) {
+    return server.cluster->myself->name;
+}
+
+int getClusterSize(void) {
+    return dictSize(server.cluster->nodes);
+}
+
+char** getClusterNodesList(size_t *numnodes) {
+    size_t count = dictSize(server.cluster->nodes);
+    char **ids = zmalloc((count+1)*CLUSTER_NAMELEN);
+    dictIterator *di = dictGetIterator(server.cluster->nodes);
+    dictEntry *de;
+    int j = 0;
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE)) continue;
+        ids[j] = zmalloc(CLUSTER_NAMELEN);
+        memcpy(ids[j],node->name,CLUSTER_NAMELEN);
+        j++;
+    }
+    *numnodes = j;
+    ids[j] = NULL; /* Null term so that FreeClusterNodesList does not need
+                    * to also get the count argument. */
+    dictReleaseIterator(di);
+    return ids;
 }

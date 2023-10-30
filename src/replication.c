@@ -3774,7 +3774,7 @@ void replicationCron(void) {
          * match the one stored into 'mf_master_offset' state. */
         int manual_failover_in_progress =
             ((server.cluster_enabled &&
-              server.cluster->mf_end) ||
+              clusterManualFailoverTimeLimit()) ||
             server.failover_end_time) &&
             isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA);
 
