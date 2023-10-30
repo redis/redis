@@ -1131,6 +1131,9 @@ void clusterReset(int hard) {
     }
     dictReleaseIterator(di);
 
+    /* Empty the nodes blacklist. */
+    dictEmpty(server.cluster->nodes_black_list, NULL);
+
     /* Hard reset only: set epochs to 0, change node ID. */
     if (hard) {
         sds oldname;
