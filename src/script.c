@@ -430,14 +430,24 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
     int hashslot = -1;
     if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != server.cluster->myself) {
-        if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
-            *err = sdsnew(
-                    "Script attempted to execute a write command while the "
-                            "cluster is down and readonly");
+        if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
+            *err = sdsnew("Script attempted to access keys don't hash to the same slot");
+        } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
+            /* The request spawns multiple keys in the same slot,
+             * but the slot is not "stable" currently as there is
+             * a migration or import in progress. */
+            *err = sdsnew("Script requested multiple keys during rehashing of slot");
         } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
             *err = sdsnew("Script attempted to execute a command while the "
                     "cluster is down");
+        } else if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
+            *err = sdsnew(
+                    "Script attempted to execute a write command while the "
+                            "cluster is down and readonly");
+        } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
+            *err = sdsnew("Script attempted to access a slot not served"); 
         } else {
+            /* error_code == CLUSTER_REDIR_MOVED || error_code == CLUSTER_REDIR_ASK */
             *err = sdsnew("Script attempted to access a non local key in a "
                     "cluster node");
         }
