@@ -721,7 +721,7 @@ NULL
             return;
         }
         long valsize = 0;
-        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
+        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK )
             return;
 
         for (j = 0; j < keys; j++) {
@@ -1053,7 +1053,7 @@ NULL
 
 /* =========================== Crash handling  ============================== */
 
-__attribute__ ((noinline)) 
+__attribute__ ((noinline))
 void _serverAssert(const char *estr, const char *file, int line) {
     bugReportStart();
     serverLog(LL_WARNING,"=== ASSERTION FAILED ===");
@@ -1143,7 +1143,7 @@ void _serverAssertWithInfo(const client *c, const robj *o, const char *estr, con
     _serverAssert(estr,file,line);
 }
 
-__attribute__ ((noinline)) 
+__attribute__ ((noinline))
 void _serverPanic(const char *file, int line, const char *msg, ...) {
     va_list ap;
     va_start(ap,msg);
@@ -1171,8 +1171,8 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 void bugReportStart(void) {
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
-        serverLogRaw(LL_WARNING|LL_RAW,
-        "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
+        serverLogFromHandler(LL_WARNING|LL_RAW,
+        "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
         bug_report_start = 1;
     }
     pthread_mutex_unlock(&bug_report_start_mutex);
@@ -1944,7 +1944,7 @@ static void writeStacktraces(int fd, int uplevel) {
  * Functions that are taken in consideration in "uplevel" should be declared with
  * __attribute__ ((noinline)) to make sure the compiler won't inline them.
  */
-__attribute__ ((noinline)) 
+__attribute__ ((noinline))
 void logStackTrace(void *eip, int uplevel) {
     int fd = openDirectLogFiledes();
     char *msg;
@@ -1974,10 +1974,10 @@ void logStackTrace(void *eip, int uplevel) {
 
 sds genClusterDebugString(sds infostring) {
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
-    infostring = sdscatsds(infostring, genClusterInfoString()); 
+    infostring = sdscatsds(infostring, genClusterInfoString());
     infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
     infostring = sdscatsds(infostring, clusterGenNodesDescription(NULL, 0, 0));
-    
+
     return infostring;
 }
 
@@ -2234,7 +2234,7 @@ void invalidFunctionWasCalled(void) {}
 
 typedef void (*invalidFunctionWasCalledType)(void);
 
-__attribute__ ((noinline)) 
+__attribute__ ((noinline))
 static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
@@ -2242,7 +2242,7 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     if(pthread_mutex_lock(&signal_handler_lock) == EDEADLK) {
         /* If this thread already owns the lock (meaning we crashed during handling a signal)
          * log that the crash report can't be generated. */
-        serverLog(LL_WARNING,
+        serverLogFromHandler(LL_WARNING,
             "Crashed running signal handler. Can't continue to generate the crash report");
         /* gracefully exit */
         bugReportEnd(1, sig);
@@ -2250,6 +2250,22 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     }
 
     bugReportStart();
+    char buf[64];
+
+    /* "Redis <REDIS_VERSION> crashed by signal: <sig>, si_code: <info->si_code>", REDIS_VERSION */
+    int fd = serverLogFromHandler_Start(LL_WARNING);
+    while (1) {
+        if (-1 == serverLogFromHandler_WriteMsg(fd, "Redis ")) break;
+        if (-1 == serverLogFromHandler_WriteMsg(fd, REDIS_VERSION)) break;
+        if (-1 == serverLogFromHandler_WriteMsg(fd,"  crashed by signal: ")) break;
+        ll2string(buf,sizeof(buf),sig);
+        if (-1 == serverLogFromHandler_WriteMsg(fd, buf)) break;
+        if (-1 == serverLogFromHandler_WriteMsg(fd,", si_code: ")) break;
+        ll2string(buf,sizeof(buf),info->si_code);
+        if (-1 == serverLogFromHandler_WriteMsg(fd,buf)) break;
+        serverLogFromHandler_End(fd); break;
+    }
+
     serverLog(LL_WARNING,
         "Redis %s crashed by signal: %d, si_code: %d", REDIS_VERSION, sig, info->si_code);
     if (sig == SIGSEGV || sig == SIGBUS) {
@@ -2312,7 +2328,7 @@ void setupDebugSigHandlers(void) {
 }
 
 void setupSigSegvHandler(void) {
-    /* Initialize the signal handler lock. 
+    /* Initialize the signal handler lock.
     Attempting to initialize an already initialized mutex or mutexattr results in undefined behavior. */
     if (!signal_handler_lock_initialized) {
         /* Set signal handler with error checking attribute. re-lock within the same thread will error. */
@@ -2374,13 +2390,13 @@ void printCrashReport(void) {
 void bugReportEnd(int killViaSignal, int sig) {
     struct sigaction act;
 
-    serverLogRaw(LL_WARNING|LL_RAW,
+    serverLogFromHandler(LL_WARNING|LL_RAW,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/redis/redis/issues\n\n"
 "  If a Redis module was involved, please open in the module's repo instead.\n\n"
 "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
-"  Some other issues could be detected by redis-server --check-system\n"
+"  Some other issues could be detected by redis-server --check-system"
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */
@@ -2524,7 +2540,7 @@ int is_in_range_base_16(char c) {
 }
 
 static int string_to_hex(char *src, unsigned long *result_output) {
-    static char ascii_to_dec[] = {'0', 'a' - 10, 'A' - 10};            
+    static char ascii_to_dec[] = {'0', 'a' - 10, 'A' - 10};
 
     /* check if the signal exist in the mask */
     int curr_char = 0;
