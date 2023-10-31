@@ -563,6 +563,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue;
         he = d->ht_table[table][idx];
         prevHe = NULL;
         while(he) {
@@ -672,6 +673,7 @@ dictEntry *dictFind(dict *d, const void *key)
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue; 
         he = d->ht_table[table][idx];
         while(he) {
             void *he_key = dictGetKey(he);
@@ -1450,6 +1452,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
         return NULL;
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue; 
         /* Search if this slot does not already contain the given key */
         he = d->ht_table[table][idx];
         while(he) {
@@ -1496,6 +1499,7 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue;
         he = d->ht_table[table][idx];
         while(he) {
             if (oldptr == dictGetKey(he))
