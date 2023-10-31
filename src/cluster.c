@@ -1134,6 +1134,9 @@ void clusterReset(int hard) {
     }
     dictReleaseIterator(di);
 
+    /* Empty the nodes blacklist. */
+    dictEmpty(server.cluster->nodes_black_list, NULL);
+
     /* Hard reset only: set epochs to 0, change node ID. */
     if (hard) {
         sds oldname;
@@ -2655,8 +2658,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
             if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
                 sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
-                dictEntry *de = dictAddRaw(server.cluster->nodes_black_list, id, NULL);
-                serverAssert(de != NULL);
+                dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
                 uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
                 dictSetUnsignedIntegerVal(de, expire);
                 clusterDelNode(n);
