@@ -433,12 +433,15 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
         if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
             *err = sdscatfmt(sdsempty(), 
                              "Command '%S' in script attempted to access keys don't hash to the same slot",
-                             c->argv[0]->ptr);
+                             c->cmd->fullname);
         } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
             /* The request spawns multiple keys in the same slot,
              * but the slot is not "stable" currently as there is
              * a migration or import in progress. */
-            *err = sdsnew("Script requested multiple keys during rehashing of slot");
+            *err = sdscatfmt(sdsempty(),
+                             "Unable to execute command '%S' in script "
+                             "because undeclared keys were accessed during rehashing of slot",
+                             c->cmd->fullname);
         } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
             *err = sdsnew("Script attempted to execute a command while the "
                     "cluster is down");
