@@ -1,7 +1,6 @@
 /* A module that implements defrag callback mechanisms.
  */
 
-#define REDISMODULE_EXPERIMENTAL_API
 #include "redismodule.h"
 #include <stdlib.h>
 
@@ -36,7 +35,7 @@ static void createGlobalStrings(RedisModuleCtx *ctx, int count)
     }
 }
 
-static int defragGlobalStrings(RedisModuleDefragCtx *ctx)
+static void defragGlobalStrings(RedisModuleDefragCtx *ctx)
 {
     for (int i = 0; i < global_strings_len; i++) {
         RedisModuleString *new = RedisModule_DefragRedisModuleString(ctx, global_strings[i]);
@@ -46,8 +45,6 @@ static int defragGlobalStrings(RedisModuleDefragCtx *ctx)
             global_defragged++;
         }
     }
-
-    return 0;
 }
 
 static void FragInfo(RedisModuleInfoCtx *ctx, int for_crash_report) {

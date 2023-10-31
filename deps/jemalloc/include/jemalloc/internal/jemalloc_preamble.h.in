@@ -4,8 +4,14 @@
 #include "jemalloc_internal_defs.h"
 #include "jemalloc/internal/jemalloc_internal_decls.h"
 
-#ifdef JEMALLOC_UTRACE
+#if defined(JEMALLOC_UTRACE) || defined(JEMALLOC_UTRACE_LABEL)
 #include <sys/ktrace.h>
+#  if defined(JEMALLOC_UTRACE)
+#    define UTRACE_CALL(p, l) utrace(p, l)
+#  else
+#    define UTRACE_CALL(p, l) utrace("jemalloc_process", p, l)
+#    define JEMALLOC_UTRACE
+#  endif
 #endif
 
 #define JEMALLOC_NO_DEMANGLE
@@ -180,6 +186,35 @@ static const bool config_opt_safety_checks =
 #endif
     ;
 
+/*
+ * Extra debugging of sized deallocations too onerous to be included in the
+ * general safety checks.
+ */
+static const bool config_opt_size_checks =
+#if defined(JEMALLOC_OPT_SIZE_CHECKS) || defined(JEMALLOC_DEBUG)
+    true
+#else
+    false
+#endif
+    ;
+
+static const bool config_uaf_detection =
+#if defined(JEMALLOC_UAF_DETECTION) || defined(JEMALLOC_DEBUG)
+    true
+#else
+    false
+#endif
+    ;
+
+/* Whether or not the C++ extensions are enabled. */
+static const bool config_enable_cxx =
+#ifdef JEMALLOC_ENABLE_CXX
+    true
+#else
+    false
+#endif
+;
+
 #if defined(_WIN32) || defined(JEMALLOC_HAVE_SCHED_GETCPU)
 /* Currently percpu_arena depends on sched_getcpu. */
 #define JEMALLOC_PERCPU_ARENA
@@ -204,6 +239,21 @@ static const bool force_ivsalloc =
     ;
 static const bool have_background_thread =
 #ifdef JEMALLOC_BACKGROUND_THREAD
+    true
+#else
+    false
+#endif
+    ;
+static const bool config_high_res_timer =
+#ifdef JEMALLOC_HAVE_CLOCK_REALTIME
+    true
+#else
+    false
+#endif
+    ;
+
+static const bool have_memcntl =
+#ifdef JEMALLOC_HAVE_MEMCNTL
     true
 #else
     false

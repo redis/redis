@@ -108,7 +108,7 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
 
 int main(void) {
     /* Obtain timezone and daylight info. */
-    tzset(); /* Now 'timezome' global is populated. */
+    tzset(); /* Now 'timezone' global is populated. */
     time_t t = time(NULL);
     struct tm *aux = localtime(&t);
     int daylight_active = aux->tm_isdst;

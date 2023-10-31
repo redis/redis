@@ -58,6 +58,7 @@ struct evictionPoolEntry {
     sds key;                    /* Key name. */
     sds cached;                 /* Cached SDS object for key name. */
     int dbid;                   /* Key DB number. */
+    int slot;                   /* Slot. */
 };
 
 static struct evictionPoolEntry *EvictionPoolLRU;
@@ -80,7 +81,7 @@ unsigned int getLRUClock(void) {
 unsigned int LRU_CLOCK(void) {
     unsigned int lruclock;
     if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
-        atomicGet(server.lruclock,lruclock);
+        lruclock = server.lruclock;
     } else {
         lruclock = getLRUClock();
     }
@@ -143,7 +144,7 @@ void evictionPoolAlloc(void) {
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
 
-void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
@@ -161,13 +162,13 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (sampledict != keydict) de = dictFind(keydict, key);
+            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[calculateKeySlot(key)], key);
             o = dictGetVal(de);
         }
 
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
-         * just a score where an higher score means better candidate. */
+         * just a score where a higher score means better candidate. */
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
             idle = estimateObjectIdleTime(o);
         } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
@@ -237,6 +238,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
         }
         pool[k].idle = idle;
         pool[k].dbid = dbid;
+        pool[k].slot = slot;
     }
 }
 
@@ -266,14 +268,14 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * has a low value.
  *
  * New keys don't start at zero, in order to have the ability to collect
- * some accesses before being trashed away, so they start at COUNTER_INIT_VAL.
- * The logarithmic increment performed on LOG_C takes care of COUNTER_INIT_VAL
- * when incrementing the key, so that keys starting at COUNTER_INIT_VAL
+ * some accesses before being trashed away, so they start at LFU_INIT_VAL.
+ * The logarithmic increment performed on LOG_C takes care of LFU_INIT_VAL
+ * when incrementing the key, so that keys starting at LFU_INIT_VAL
  * (or having a smaller value) have a very high chance of being incremented
  * on access.
  *
  * During decrement, the value of the logarithmic counter is halved if
- * its current value is greater than two times the COUNTER_INIT_VAL, otherwise
+ * its current value is greater than two times the LFU_INIT_VAL, otherwise
  * it is just decremented by one.
  * --------------------------------------------------------------------------*/
 
@@ -295,7 +297,7 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 }
 
 /* Logarithmically increment a counter. The greater is the current counter value
- * the less likely is that it gets really implemented. Saturate it at 255. */
+ * the less likely is that it gets really incremented. Saturate it at 255. */
 uint8_t LFULogIncr(uint8_t counter) {
     if (counter == 255) return 255;
     double r = (double)rand()/RAND_MAX;
@@ -365,7 +367,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
     }
 
     if (server.aof_state != AOF_OFF) {
-        overhead += sdsAllocSize(server.aof_buf)+aofRewriteBufferMemoryUsage();
+        overhead += sdsAllocSize(server.aof_buf);
     }
     return overhead;
 }
@@ -466,6 +468,14 @@ static int evictionTimeProc(
     return AE_NOMORE;
 }
 
+void startEvictionTimeProc(void) {
+    if (!isEvictionProcRunning) {
+        isEvictionProcRunning = 1;
+        aeCreateTimeEvent(server.el, 0,
+                evictionTimeProc, NULL, NULL);
+    }
+}
+
 /* Check if it's safe to perform evictions.
  *   Returns 1 if evictions can be performed
  *   Returns 0 if eviction processing should be skipped
@@ -473,22 +483,20 @@ static int evictionTimeProc(
 static int isSafeToPerformEvictions(void) {
     /* - There must be no script in timeout condition.
      * - Nor we are loading data right now.  */
-    if (scriptIsTimedout() || server.loading) return 0;
+    if (isInsideYieldingLongCommand() || server.loading) return 0;
 
     /* By default replicas should ignore maxmemory
      * and just be masters exact copies. */
     if (server.masterhost && server.repl_slave_ignore_maxmemory) return 0;
 
-    /* When clients are paused the dataset should be static not just from the
-     * POV of clients not being able to write, but also from the POV of
-     * expires and evictions of keys not being performed. */
-    if (checkClientPauseTimeoutAndReturnIfPaused()) return 0;
+    /* If 'evict' action is paused, for whatever reason, then return false */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EVICT)) return 0;
 
     return 1;
 }
 
 /* Algorithm for converting tenacity (0-100) to a time limit.  */
-static unsigned long evictionTimeLimitUs() {
+static unsigned long evictionTimeLimitUs(void) {
     serverAssert(server.maxmemory_eviction_tenacity >= 0);
     serverAssert(server.maxmemory_eviction_tenacity <= 100);
 
@@ -561,6 +569,10 @@ int performEvictions(void) {
     monotime evictionTimer;
     elapsedStart(&evictionTimer);
 
+    /* Try to smoke-out bugs (server.also_propagate should be empty here) */
+    serverAssert(server.also_propagate.numops == 0);
+    /* Evictions are performed on random keys that have nothing to do with the current command slot. */
+
     while (mem_freed < (long long)mem_tofree) {
         int j, k, i;
         static unsigned int next_db = 0;
@@ -575,7 +587,7 @@ int performEvictions(void) {
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
-            while(bestkey == NULL) {
+            while (bestkey == NULL) {
                 unsigned long total_keys = 0, keys;
 
                 /* We don't want to make local-db choices when expiring keys,
@@ -583,12 +595,24 @@ int performEvictions(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
-                            db->dict : db->expires;
-                    if ((keys = dictSize(dict)) != 0) {
-                        evictionPoolPopulate(i, dict, db->dict, pool);
-                        total_keys += keys;
-                    }
+                    do {
+                        int slot = 0;
+                        if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
+                            slot = getFairRandomSlot(db, DB_MAIN);
+                            dict = db->dict[slot];
+                        } else {
+                            slot = getFairRandomSlot(db, DB_EXPIRES);
+                            dict = db->expires[slot];
+                        }
+                        if ((keys = dictSize(dict)) != 0) {
+                            evictionPoolPopulate(i, slot, dict, db, pool);
+                            total_keys += keys;
+                        }
+                    /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
+                     * visit more than one dictionary in order to populate required number of samples into eviction pool. */
+                    } while (server.cluster_enabled && keys != 0 && server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS &&
+                        total_keys < (unsigned long) server.maxmemory_samples
+                    );
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
@@ -598,11 +622,11 @@ int performEvictions(void) {
                     bestdbid = pool[k].dbid;
 
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(server.db[bestdbid].dict,
-                            pool[k].key);
+                        de = dictFind(server.db[bestdbid].dict[pool[k].slot],
+                                      pool[k].key);
                     } else {
-                        de = dictFind(server.db[bestdbid].expires,
-                            pool[k].key);
+                        de = dictFind(server.db[bestdbid].expires[pool[k].slot],
+                                      pool[k].key);
                     }
 
                     /* Remove the entry from the pool. */
@@ -634,7 +658,7 @@ int performEvictions(void) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
                 dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
-                        db->dict : db->expires;
+                       db->dict[getFairRandomSlot(db, DB_MAIN)] : db->expires[getFairRandomSlot(db, DB_EXPIRES)];
                 if (dictSize(dict) != 0) {
                     de = dictGetRandomKey(dict);
                     bestkey = dictGetKey(de);
@@ -648,7 +672,6 @@ int performEvictions(void) {
         if (bestkey) {
             db = server.db+bestdbid;
             robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
-            propagateExpire(db,keyobj,server.lazyfree_lazy_eviction);
             /* We compute the amount of memory freed by db*Delete() alone.
              * It is possible that actually the memory needed to propagate
              * the DEL in AOF and replication link is greater than the one
@@ -661,10 +684,7 @@ int performEvictions(void) {
              * we only care about memory used by the key space. */
             delta = (long long) zmalloc_used_memory();
             latencyStartMonitor(eviction_latency);
-            if (server.lazyfree_lazy_eviction)
-                dbAsyncDelete(db,keyobj);
-            else
-                dbSyncDelete(db,keyobj);
+            dbGenericDelete(db,keyobj,server.lazyfree_lazy_eviction,DB_FLAG_KEY_EVICTED);
             latencyEndMonitor(eviction_latency);
             latencyAddSampleIfNeeded("eviction-del",eviction_latency);
             delta -= (long long) zmalloc_used_memory();
@@ -673,6 +693,8 @@ int performEvictions(void) {
             signalModifiedKey(NULL,db,keyobj);
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
+            propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
+            postExecutionUnitOperations();
             decrRefCount(keyobj);
             keys_freed++;
 
@@ -701,11 +723,7 @@ int performEvictions(void) {
                  * memory, don't want to spend too much time here.  */
                 if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
                     // We still need to free memory - start eviction timer proc
-                    if (!isEvictionProcRunning) {
-                        isEvictionProcRunning = 1;
-                        aeCreateTimeEvent(server.el, 0,
-                                evictionTimeProc, NULL, NULL);
-                    }
+                    startEvictionTimeProc();
                     break;
                 }
             }
@@ -721,12 +739,18 @@ cant_free:
         /* At this point, we have run out of evictable items.  It's possible
          * that some items are being freed in the lazyfree thread.  Perform a
          * short wait here if such jobs exist, but don't wait long.  */
-        if (bioPendingJobsOfType(BIO_LAZY_FREE)) {
-            usleep(eviction_time_limit_us);
+        mstime_t lazyfree_latency;
+        latencyStartMonitor(lazyfree_latency);
+        while (bioPendingJobsOfType(BIO_LAZY_FREE) &&
+              elapsedUs(evictionTimer) < eviction_time_limit_us) {
             if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
                 result = EVICT_OK;
+                break;
             }
+            usleep(eviction_time_limit_us < 1000 ? eviction_time_limit_us : 1000);
         }
+        latencyEndMonitor(lazyfree_latency);
+        latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
     }
 
     latencyEndMonitor(latency);

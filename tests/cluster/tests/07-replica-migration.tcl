@@ -18,7 +18,7 @@ test "Each master should have two replicas attached" {
     foreach_redis_id id {
         if {$id < 5} {
             wait_for_condition 1000 50 {
-                [llength [lindex [R 0 role] 2]] == 2
+                [llength [lindex [R $id role] 2]] == 2
             } else {
                 fail "Master #$id does not have 2 slaves as expected"
             }

@@ -40,8 +40,12 @@
 #include <fcntl.h>
 #endif
 
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+#define MAC_OS_10_6_DETECTED
+#endif
+
 /* Define redis_fstat to fstat or fstat64() */
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else
@@ -63,9 +67,16 @@
 #define HAVE_TASKINFO 1
 #endif
 
+/* Test for somaxconn check */
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#define HAVE_SYSCTL_KIPC_SOMAXCONN 1
+#elif defined(__OpenBSD__)
+#define HAVE_SYSCTL_KERN_SOMAXCONN 1
+#endif
+
 /* Test for backtrace() */
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)) || \
-    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__)) && defined(USE_BACKTRACE))\
+    defined(__FreeBSD__) || ((defined(__OpenBSD__) || defined(__NetBSD__) || defined(__sun)) && defined(USE_BACKTRACE))\
  || defined(__DragonFly__) || (defined(__UCLIBC__) && defined(__UCLIBC_HAS_BACKTRACE__))
 #define HAVE_BACKTRACE 1
 #endif
@@ -73,6 +84,10 @@
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
+#if defined(SO_MARK)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_MARK
+#endif
 #endif
 
 /* Test for polling API */
@@ -85,7 +100,7 @@
 #define HAVE_ACCEPT4 1
 #endif
 
-#if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
+#if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
 #define HAVE_KQUEUE 1
 #endif
 
@@ -106,7 +121,21 @@
 #define redis_fsync(fd) fsync(fd)
 #endif
 
-#if __GNUC__ >= 4
+#if defined(__FreeBSD__)
+#if defined(SO_USER_COOKIE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_USER_COOKIE
+#endif
+#endif
+
+#if defined(__OpenBSD__)
+#if defined(SO_RTABLE)
+#define HAVE_SOCKOPTMARKID 1
+#define SOCKOPTMARKID SO_RTABLE
+#endif
+#endif
+
+#if __GNUC__ >= 5 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #define redis_unreachable __builtin_unreachable
 #else
 #define redis_unreachable abort
@@ -268,7 +297,7 @@ void setproctitle(const char *fmt, ...);
 #include <kernel/OS.h>
 #define redis_set_thread_title(name) rename_thread(find_thread(0), name)
 #else
-#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+#if (defined __APPLE__ && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1070)
 int pthread_setname_np(const char *name);
 #include <pthread.h>
 #define redis_set_thread_title(name) pthread_setname_np(name)
@@ -282,6 +311,11 @@ int pthread_setname_np(const char *name);
 #if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ || defined __DragonFly__)
 #define USE_SETCPUAFFINITY
 void setcpuaffinity(const char *cpulist);
+#endif
+
+/* Test for posix_fadvise() */
+#if defined(__linux__) || __FreeBSD__ >= 10
+#define HAVE_FADVISE
 #endif
 
 #endif

@@ -11,6 +11,20 @@ start_server {} {
 
     set sub_replica [srv -2 client]
 
+    # Make sure the server saves an RDB on shutdown
+    $master config set save "3600 1"
+
+    # Because we will test partial resync later, we don't want a timeout to cause
+    # the master-replica disconnect, then the extra reconnections will break the
+    # sync_partial_ok stat test
+    $master config set repl-timeout 3600
+    $replica config set repl-timeout 3600
+    $sub_replica config set repl-timeout 3600
+
+    # Avoid PINGs
+    $master config set repl-ping-replica-period 3600
+    $master config rewrite
+
     # Build replication chain
     $replica replicaof $master_host $master_port
     $sub_replica replicaof $replica_host $replica_port
@@ -22,14 +36,43 @@ start_server {} {
         fail "Replication not started."
     }
 
-    # Avoid PINGs
-    $master config set repl-ping-replica-period 3600
-    $master config rewrite
+    test "PSYNC2: Partial resync after Master restart using RDB aux fields when offset is 0" {
+        assert {[status $master master_repl_offset] == 0}
+
+        set replid [status $master master_replid]
+        $replica config resetstat
+
+        catch {
+            restart_server 0 true false true now
+            set master [srv 0 client]
+        }
+        wait_for_condition 50 1000 {
+            [status $replica master_link_status] eq {up} &&
+            [status $sub_replica master_link_status] eq {up}
+        } else {
+            fail "Replicas didn't sync after master restart"
+        }
+
+        # Make sure master restore replication info correctly
+        assert {[status $master master_replid] != $replid}
+        assert {[status $master master_repl_offset] == 0}
+        assert {[status $master master_replid2] eq $replid}
+        assert {[status $master second_repl_offset] == 1}
+
+        # Make sure master set replication backlog correctly
+        assert {[status $master repl_backlog_active] == 1}
+        assert {[status $master repl_backlog_first_byte_offset] == 1}
+        assert {[status $master repl_backlog_histlen] == 0}
+
+        # Partial resync after Master restart
+        assert {[status $master sync_partial_ok] == 1}
+        assert {[status $replica sync_partial_ok] == 1}
+    }
 
     # Generate some data
     createComplexDataset $master 1000
 
-    test "PSYNC2: Partial resync after Master restart using RDB aux fields" {
+    test "PSYNC2: Partial resync after Master restart using RDB aux fields with data" {
         wait_for_condition 500 100 {
             [status $master master_repl_offset] == [status $replica master_repl_offset] &&
             [status $master master_repl_offset] == [status $sub_replica master_repl_offset]
@@ -42,7 +85,9 @@ start_server {} {
         $replica config resetstat
 
         catch {
-            restart_server 0 true false
+            # SHUTDOWN NOW ensures master doesn't send GETACK to replicas before
+            # shutting down which would affect the replication offset.
+            restart_server 0 true false true now
             set master [srv 0 client]
         }
         wait_for_condition 50 1000 {
@@ -77,9 +122,14 @@ start_server {} {
 
         after 20
 
+        # Wait until master has received ACK from replica. If the master thinks
+        # that any replica is lagging when it shuts down, master would send
+        # GETACK to the replicas, affecting the replication offset.
+        set offset [status $master master_repl_offset]
         wait_for_condition 500 100 {
-            [status $master master_repl_offset] == [status $replica master_repl_offset] &&
-            [status $master master_repl_offset] == [status $sub_replica master_repl_offset]
+            [string match "*slave0:*,offset=$offset,*" [$master info replication]] &&
+            $offset == [status $replica master_repl_offset] &&
+            $offset == [status $sub_replica master_repl_offset]
         } else {
             show_cluster_status
             fail "Replicas and master offsets were unable to match *exactly*."
@@ -89,6 +139,11 @@ start_server {} {
         $replica config resetstat
 
         catch {
+            # Unlike the test above, here we use SIGTERM, which behaves
+            # differently compared to SHUTDOWN NOW if there are lagging
+            # replicas. This is just to increase coverage and let each test use
+            # a different shutdown approach. In this case there are no lagging
+            # replicas though.
             restart_server 0 true false
             set master [srv 0 client]
         }
@@ -136,6 +191,9 @@ start_server {} {
         $replica config resetstat
 
         catch {
+            # Unlike the test above, here we use SIGTERM. This is just to
+            # increase coverage and let each test use a different shutdown
+            # approach.
             restart_server 0 true false
             set master [srv 0 client]
         }

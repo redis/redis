@@ -1,0 +1,24 @@
+{
+    "RESETSTAT": {
+        "summary": "Resets the server's statistics.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.0.0",
+        "arity": 2,
+        "container": "CONFIG",
+        "function": "configResetStatCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "command_tips": [
+          "REQUEST_POLICY:ALL_NODES",
+          "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

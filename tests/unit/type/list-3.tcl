@@ -93,6 +93,32 @@ start_server {
         r ping
     }
 
+    test {LINSERT correctly recompress full quicklistNode after inserting a element before it} {
+        r del key
+        config_set list-compress-depth 1
+        r rpush key b
+        r rpush key c
+        r lset key -1 [string repeat x 8192]"969"
+        r lpush key a
+        r rpush key d
+        r linsert key before b f
+        r rpop key
+        r ping
+    }
+
+    test {LINSERT correctly recompress full quicklistNode after inserting a element after it} {
+        r del key
+        config_set list-compress-depth 1
+        r rpush key b
+        r rpush key c
+        r lset key 0 [string repeat x 8192]"969"
+        r lpush key a
+        r rpush key d
+        r linsert key after c f
+        r lpop key
+        r ping
+    }
+
 foreach comp {2 1 0} {
     set cycles 1000
     if {$::accurate} { set cycles 10000 }

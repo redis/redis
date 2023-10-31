@@ -11,4 +11,6 @@ test -f release.h || touch release.h
 echo "#define REDIS_GIT_SHA1 \"$GIT_SHA1\"" > release.h
 echo "#define REDIS_GIT_DIRTY \"$GIT_DIRTY\"" >> release.h
 echo "#define REDIS_BUILD_ID \"$BUILD_ID\"" >> release.h
+echo "#include \"version.h\"" >> release.h
+echo "#define REDIS_BUILD_ID_RAW REDIS_VERSION REDIS_BUILD_ID REDIS_GIT_DIRTY REDIS_GIT_SHA1" >> release.h
 touch release.c # Force recompile of release.c

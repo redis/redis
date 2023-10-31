@@ -24,7 +24,6 @@ proc ensure_master_up {} {
     }
 }
 
-
 proc ensure_master_down {} {
     S $::alive_sentinel sentinel debug info-period 1000
     S $::alive_sentinel sentinel debug ping-period 100
@@ -45,10 +44,14 @@ test "Crash the majority of Sentinels to prevent failovers for this unit" {
 }
 
 test "SDOWN is triggered by non-responding but not crashed instance" {
-    lassign [S $::alive_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] host port
     ensure_master_up
-    exec ../../../src/redis-cli -h $host -p $port {*}[rediscli_tls_config "../../../tests"] debug sleep 3 > /dev/null &
+    set master_addr [S $::alive_sentinel SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
+    set master_id [get_instance_id_by_port redis [lindex $master_addr 1]]
+
+    set pid [get_instance_attrib redis $master_id pid]
+    pause_process $pid
     ensure_master_down
+    resume_process $pid
     ensure_master_up
 }
 
@@ -69,6 +72,7 @@ test "SDOWN is triggered by masters advertising as slaves" {
     ensure_master_up
 }
 
+if {!$::log_req_res} { # this test changes 'dir' config to '/' and logreqres.c cannot open protocol dump file under the root directory.
 test "SDOWN is triggered by misconfigured instance replying with errors" {
     ensure_master_up
     set orig_dir [lindex [R 0 config get dir] 1]
@@ -86,6 +90,7 @@ test "SDOWN is triggered by misconfigured instance replying with errors" {
     R 0 config set dbfilename dump.rdb
     R 0 bgsave
     ensure_master_up
+}
 }
 
 # We use this test setup to also test command renaming, as a side

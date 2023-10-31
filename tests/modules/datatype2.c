@@ -627,7 +627,7 @@ void MemAllocDigest(RedisModuleDigest *md, void *value) {
 
         struct MemBlock *block = mem;
         while (block) {
-            RedisModule_DigestAddStringBuffer(md, (unsigned char *)block->block, BLOCK_SIZE);
+            RedisModule_DigestAddStringBuffer(md, (const char *)block->block, BLOCK_SIZE);
             block = block->next;
         }
     }

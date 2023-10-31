@@ -63,8 +63,6 @@ struct latencyStats {
 
 void latencyMonitorInit(void);
 void latencyAddSample(const char *event, mstime_t latency);
-int THPIsEnabled(void);
-int THPDisable(void);
 
 /* Latency monitoring macros. */
 
@@ -90,5 +88,21 @@ int THPDisable(void);
 /* Remove time from a nested event. */
 #define latencyRemoveNestedEvent(event_var,nested_var) \
     event_var += nested_var;
+
+typedef struct durationStats {
+    unsigned long long cnt;
+    unsigned long long sum;
+    unsigned long long max;
+} durationStats;
+
+typedef enum {
+    EL_DURATION_TYPE_EL = 0, // cumulative time duration metric of the whole eventloop
+    EL_DURATION_TYPE_CMD,    // cumulative time duration metric of executing commands
+    EL_DURATION_TYPE_AOF,    // cumulative time duration metric of flushing AOF in eventloop
+    EL_DURATION_TYPE_CRON,   // cumulative time duration metric of cron (serverCron and beforeSleep, but excluding IO and AOF)
+    EL_DURATION_TYPE_NUM
+} DurationType;
+
+void durationAddSample(int type, monotime duration);
 
 #endif /* __LATENCY_H */

@@ -86,9 +86,9 @@ extent_alloc_hook(extent_hooks_t *extent_hooks, void *new_addr, size_t size,
 	    "*zero=%s, *commit=%s, arena_ind=%u)\n", __func__, extent_hooks,
 	    new_addr, size, alignment, *zero ?  "true" : "false", *commit ?
 	    "true" : "false", arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->alloc, extent_alloc_hook,
+	expect_ptr_eq(extent_hooks->alloc, extent_alloc_hook,
 	    "Wrong hook function");
 	called_alloc = true;
 	if (!try_alloc) {
@@ -108,9 +108,9 @@ extent_dalloc_hook(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	TRACE_HOOK("%s(extent_hooks=%p, addr=%p, size=%zu, committed=%s, "
 	    "arena_ind=%u)\n", __func__, extent_hooks, addr, size, committed ?
 	    "true" : "false", arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->dalloc, extent_dalloc_hook,
+	expect_ptr_eq(extent_hooks->dalloc, extent_dalloc_hook,
 	    "Wrong hook function");
 	called_dalloc = true;
 	if (!try_dalloc) {
@@ -127,9 +127,9 @@ extent_destroy_hook(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	TRACE_HOOK("%s(extent_hooks=%p, addr=%p, size=%zu, committed=%s, "
 	    "arena_ind=%u)\n", __func__, extent_hooks, addr, size, committed ?
 	    "true" : "false", arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->destroy, extent_destroy_hook,
+	expect_ptr_eq(extent_hooks->destroy, extent_destroy_hook,
 	    "Wrong hook function");
 	called_destroy = true;
 	if (!try_destroy) {
@@ -147,9 +147,9 @@ extent_commit_hook(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	TRACE_HOOK("%s(extent_hooks=%p, addr=%p, size=%zu, offset=%zu, "
 	    "length=%zu, arena_ind=%u)\n", __func__, extent_hooks, addr, size,
 	    offset, length, arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->commit, extent_commit_hook,
+	expect_ptr_eq(extent_hooks->commit, extent_commit_hook,
 	    "Wrong hook function");
 	called_commit = true;
 	if (!try_commit) {
@@ -169,9 +169,9 @@ extent_decommit_hook(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	TRACE_HOOK("%s(extent_hooks=%p, addr=%p, size=%zu, offset=%zu, "
 	    "length=%zu, arena_ind=%u)\n", __func__, extent_hooks, addr, size,
 	    offset, length, arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->decommit, extent_decommit_hook,
+	expect_ptr_eq(extent_hooks->decommit, extent_decommit_hook,
 	    "Wrong hook function");
 	called_decommit = true;
 	if (!try_decommit) {
@@ -191,9 +191,9 @@ extent_purge_lazy_hook(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	TRACE_HOOK("%s(extent_hooks=%p, addr=%p, size=%zu, offset=%zu, "
 	    "length=%zu arena_ind=%u)\n", __func__, extent_hooks, addr, size,
 	    offset, length, arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->purge_lazy, extent_purge_lazy_hook,
+	expect_ptr_eq(extent_hooks->purge_lazy, extent_purge_lazy_hook,
 	    "Wrong hook function");
 	called_purge_lazy = true;
 	if (!try_purge_lazy) {
@@ -214,9 +214,9 @@ extent_purge_forced_hook(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	TRACE_HOOK("%s(extent_hooks=%p, addr=%p, size=%zu, offset=%zu, "
 	    "length=%zu arena_ind=%u)\n", __func__, extent_hooks, addr, size,
 	    offset, length, arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->purge_forced, extent_purge_forced_hook,
+	expect_ptr_eq(extent_hooks->purge_forced, extent_purge_forced_hook,
 	    "Wrong hook function");
 	called_purge_forced = true;
 	if (!try_purge_forced) {
@@ -238,9 +238,9 @@ extent_split_hook(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	    "size_b=%zu, committed=%s, arena_ind=%u)\n", __func__, extent_hooks,
 	    addr, size, size_a, size_b, committed ? "true" : "false",
 	    arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->split, extent_split_hook,
+	expect_ptr_eq(extent_hooks->split, extent_split_hook,
 	    "Wrong hook function");
 	called_split = true;
 	if (!try_split) {
@@ -262,11 +262,11 @@ extent_merge_hook(extent_hooks_t *extent_hooks, void *addr_a, size_t size_a,
 	    "size_b=%zu, committed=%s, arena_ind=%u)\n", __func__, extent_hooks,
 	    addr_a, size_a, addr_b, size_b, committed ? "true" : "false",
 	    arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->merge, extent_merge_hook,
+	expect_ptr_eq(extent_hooks->merge, extent_merge_hook,
 	    "Wrong hook function");
-	assert_ptr_eq((void *)((uintptr_t)addr_a + size_a), addr_b,
+	expect_ptr_eq((void *)((uintptr_t)addr_a + size_a), addr_b,
 	    "Extents not mergeable");
 	called_merge = true;
 	if (!try_merge) {
@@ -284,6 +284,6 @@ extent_hooks_prep(void) {
 	size_t sz;
 
 	sz = sizeof(default_hooks);
-	assert_d_eq(mallctl("arena.0.extent_hooks", (void *)&default_hooks, &sz,
+	expect_d_eq(mallctl("arena.0.extent_hooks", (void *)&default_hooks, &sz,
 	    NULL, 0), 0, "Unexpected mallctl() error");
 }

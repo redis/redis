@@ -9,7 +9,7 @@ proc wait_for_dbsize {size} {
 }
 
 start_server {tags {"multi"}} {
-    test {MUTLI / EXEC basics} {
+    test {MULTI / EXEC basics} {
         r del mylist
         r rpush mylist a
         r rpush mylist b
@@ -132,18 +132,61 @@ start_server {tags {"multi"}} {
     } {} {cluster:skip}
 
     test {EXEC fail on lazy expired WATCHed key} {
-        r flushall
+        r del key
         r debug set-active-expire 0
 
-        r del key
-        r set key 1 px 2
-        r watch key
+        for {set j 0} {$j < 10} {incr j} {
+            r set key 1 px 100
+            r watch key
+            after 101
+            r multi
+            r incr key
 
-        after 100
+            set res [r exec]
+            if {$res eq {}} break
+        }
+        if {$::verbose} { puts "EXEC fail on lazy expired WATCHed key attempts: $j" }
 
+        r debug set-active-expire 1
+        set _ $res
+    } {} {needs:debug}
+
+    test {WATCH stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
         r multi
-        r incr key
-        assert_equal [r exec] {}
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test {Delete WATCHed stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        # EXISTS triggers lazy expiry/deletion
+        assert_equal 0 [r exists x]
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test {FLUSHDB while watching stale keys should not fail EXEC} {
+        r del x
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        r flushdb
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
@@ -245,6 +288,52 @@ start_server {tags {"multi"}} {
         r exec
     } {} {singledb:skip}
 
+    test {SWAPDB does not touch watched stale keys} {
+        r flushall
+        r select 1
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r watch x
+        r swapdb 0 1 ; # expired key replaced with no key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
+
+    test {SWAPDB does not touch non-existing key replaced with stale key} {
+        r flushall
+        r select 0
+        r debug set-active-expire 0
+        r set x foo px 1
+        after 2
+        r select 1
+        r watch x
+        r swapdb 0 1 ; # no key replaced with expired key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
+
+    test {SWAPDB does not touch stale key replaced with another stale key} {
+        r flushall
+        r debug set-active-expire 0
+        r select 1
+        r set x foo px 1
+        r select 0
+        r set x bar px 1
+        after 2
+        r select 1
+        r watch x
+        r swapdb 0 1 ; # no key replaced with expired key => no change
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+        r debug set-active-expire 1
+    } {OK} {singledb:skip needs:debug}
+
     test {WATCH is able to remember the DB a key belongs to} {
         r select 5
         r set x 30
@@ -306,19 +395,68 @@ start_server {tags {"multi"}} {
         r exec
     } {11}
 
-    test {MULTI / EXEC is propagated correctly (single write command)} {
+    test {MULTI / EXEC is not propagated (single write command)} {
         set repl [attach_to_replication_stream]
         r multi
         r set foo bar
         r exec
+        r set foo2 bar
         assert_replication_stream $repl {
             {select *}
-            {multi}
             {set foo bar}
+            {set foo2 bar}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {MULTI / EXEC is propagated correctly (multiple commands)} {
+        set repl [attach_to_replication_stream]
+        r multi
+        r set foo{t} bar
+        r get foo{t}
+        r set foo2{t} bar2
+        r get foo2{t}
+        r set foo3{t} bar3
+        r get foo3{t}
+        r exec
+
+        assert_replication_stream $repl {
+            {multi}
+            {select *}
+            {set foo{t} bar}
+            {set foo2{t} bar2}
+            {set foo3{t} bar3}
             {exec}
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {MULTI / EXEC is propagated correctly (multiple commands with SELECT)} {
+        set repl [attach_to_replication_stream]
+        r multi
+        r select 1
+        r set foo{t} bar
+        r get foo{t}
+        r select 2
+        r set foo2{t} bar2
+        r get foo2{t}
+        r select 3
+        r set foo3{t} bar3
+        r get foo3{t}
+        r exec
+
+        assert_replication_stream $repl {
+            {multi}
+            {select *}
+            {set foo{t} bar}
+            {select *}
+            {set foo2{t} bar2}
+            {select *}
+            {set foo3{t} bar3}
+            {exec}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl singledb:skip}
 
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
         set repl [attach_to_replication_stream]
@@ -364,6 +502,25 @@ start_server {tags {"multi"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test {MULTI / EXEC with REPLICAOF} {
+        # This test verifies that if we demote a master to replica inside a transaction, the
+        # entire transaction is not propagated to the already-connected replica
+        set repl [attach_to_replication_stream]
+        r set foo bar
+        r multi
+        r set foo2 bar
+        r replicaof localhost 9999
+        r set foo3 bar
+        r exec
+        catch {r set foo4 bar} e
+        assert_match {READONLY*} $e
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+        }
+        r replicaof no one
+    } {OK} {needs:repl cluster:skip}
 
     test {DISCARD should not fail during OOM} {
         set rd [redis_deferring_client]
@@ -585,16 +742,13 @@ start_server {tags {"multi"}} {
     test {MULTI propagation of PUBLISH} {
         set repl [attach_to_replication_stream]
 
-        # make sure that PUBLISH inside MULTI is propagated in a transaction
         r multi
         r publish bla bla
         r exec
 
         assert_replication_stream $repl {
             {select *}
-            {multi}
             {publish bla bla}
-            {exec}
         }
         close_replication_stream $repl
     } {} {needs:repl cluster:skip}
@@ -602,57 +756,75 @@ start_server {tags {"multi"}} {
     test {MULTI propagation of SCRIPT LOAD} {
         set repl [attach_to_replication_stream]
 
-        # make sure that SCRIPT LOAD inside MULTI is propagated in a transaction
+        # make sure that SCRIPT LOAD inside MULTI isn't propagated
         r multi
         r script load {redis.call('set', KEYS[1], 'foo')}
+        r set foo bar
         set res [r exec]
         set sha [lindex $res 0]
 
         assert_replication_stream $repl {
             {select *}
-            {multi}
-            {script load *}
-            {exec}
+            {set foo bar}
         }
         close_replication_stream $repl
     } {} {needs:repl}
 
-    test {MULTI propagation of SCRIPT LOAD} {
+    test {MULTI propagation of EVAL} {
         set repl [attach_to_replication_stream]
 
-        # make sure that EVAL inside MULTI is propagated in a transaction
-        r config set lua-replicate-commands no
+        # make sure that EVAL inside MULTI is propagated in a transaction in effects
         r multi
         r eval {redis.call('set', KEYS[1], 'bar')} 1 bar
         r exec
 
         assert_replication_stream $repl {
             {select *}
-            {multi}
-            {eval *}
-            {exec}
+            {set bar bar}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {MULTI propagation of SCRIPT FLUSH} {
+        set repl [attach_to_replication_stream]
+
+        # make sure that SCRIPT FLUSH isn't propagated
+        r multi
+        r script flush
+        r set foo bar
+        r exec
+
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
         }
         close_replication_stream $repl
     } {} {needs:repl}
 
     tags {"stream"} {
         test {MULTI propagation of XREADGROUP} {
-            # stream is a special case because it calls propagate() directly for XREADGROUP
             set repl [attach_to_replication_stream]
 
             r XADD mystream * foo bar
+            r XADD mystream * foo2 bar2
+            r XADD mystream * foo3 bar3
             r XGROUP CREATE mystream mygroup 0
 
             # make sure the XCALIM (propagated by XREADGROUP) is indeed inside MULTI/EXEC
             r multi
+            r XREADGROUP GROUP mygroup consumer1 COUNT 2 STREAMS mystream ">"
             r XREADGROUP GROUP mygroup consumer1 STREAMS mystream ">"
             r exec
 
             assert_replication_stream $repl {
                 {select *}
                 {xadd *}
+                {xadd *}
+                {xadd *}
                 {xgroup CREATE *}
                 {multi}
+                {xclaim *}
+                {xclaim *}
                 {xclaim *}
                 {exec}
             }
@@ -660,4 +832,92 @@ start_server {tags {"multi"}} {
         } {} {needs:repl}
     }
 
+    foreach {cmd} {SAVE SHUTDOWN} {
+        test "MULTI with $cmd" {
+            r del foo
+            r multi
+            r set foo bar
+            catch {r $cmd} e1
+            catch {r exec} e2
+            assert_match {*Command not allowed inside a transaction*} $e1
+            assert_match {EXECABORT*} $e2
+            r get foo
+        } {}
+    }
+
+    test "MULTI with BGREWRITEAOF" {
+        set forks [s total_forks]
+        r multi
+        r set foo bar
+        r BGREWRITEAOF
+        set res [r exec]
+        assert_match "*rewriting scheduled*" [lindex $res 1]
+        wait_for_condition 50 100 {
+            [s total_forks] > $forks
+        } else {
+            fail "aofrw didn't start"
+        }
+        waitForBgrewriteaof r
+    } {} {external:skip}
+
+    test "MULTI with config set appendonly" {
+        set lines [count_log_lines 0]
+        set forks [s total_forks]
+        r multi
+        r set foo bar
+        r config set appendonly yes
+        r exec
+        verify_log_message 0 "*AOF background was scheduled*" $lines
+        wait_for_condition 50 100 {
+            [s total_forks] > $forks
+        } else {
+            fail "aofrw didn't start"
+        }
+        waitForBgrewriteaof r
+    } {} {external:skip}
+
+    test "MULTI with config error" {
+        r multi
+        r set foo bar
+        r config set maxmemory bla
+
+        # letting the redis parser read it, it'll throw an exception instead of
+        # reply with an array that contains an error, so we switch to reading
+        # raw RESP instead
+        r readraw 1
+
+        set res [r exec]
+        assert_equal $res "*2"
+        set res [r read]
+        assert_equal $res "+OK"
+        set res [r read]
+        r readraw 0
+        set _ $res
+    } {*CONFIG SET failed*}
+    
+    test "Flushall while watching several keys by one client" {
+        r flushall
+        r mset a{t} a b{t} b
+        r watch b{t} a{t}
+        r flushall
+        r ping
+     }
+}
+
+start_server {overrides {appendonly {yes} appendfilename {appendonly.aof} appendfsync always} tags {external:skip}} {
+    test {MULTI with FLUSHALL and AOF} {
+        set aof [get_last_incr_aof_path r]
+        r multi
+        r set foo bar
+        r flushall
+        r exec
+        assert_aof_content $aof {
+            {multi}
+            {select *}
+            {set *}
+            {flushall}
+            {exec}
+        }
+        r get foo
+    } {}
 }

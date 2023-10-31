@@ -2,7 +2,12 @@ start_server {tags {"auth external:skip"}} {
     test {AUTH fails if there is no password configured server side} {
         catch {r auth foo} err
         set _ $err
-    } {ERR*any password*}
+    } {ERR *any password*}
+
+    test {Arity check for auth command} {
+        catch {r auth a b c} err
+        set _ $err
+    } {*syntax error*}
 }
 
 start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
@@ -65,8 +70,8 @@ start_server {tags {"auth_binary_password external:skip"}} {
 
             # Configure the replica with masterauth
             set loglines [count_log_lines 0]
-            $slave slaveof $master_host $master_port
             $slave config set masterauth "abc"
+            $slave slaveof $master_host $master_port
 
             # Verify replica is not able to sync with master
             wait_for_log_messages 0 {"*Unable to AUTH to MASTER*"} $loglines 1000 10

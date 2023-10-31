@@ -16,7 +16,8 @@ doc-tools
 release
 misc/*
 src/release.h
-appendonly.aof
+appendonly.aof*
+appendonlydir
 SHORT_TERM_TODO
 release.h
 src/transfer.sh
@@ -27,6 +28,8 @@ src/nodes.conf
 deps/lua/src/lua
 deps/lua/src/luac
 deps/lua/src/liblua.a
+deps/hdr_histogram/libhdrhistogram.a
+deps/fpconv/libfpconv.a
 tests/tls/*
 .make-*
 .prerequisites

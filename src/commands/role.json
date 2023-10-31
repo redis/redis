@@ -1,0 +1,134 @@
+{
+    "ROLE": {
+        "summary": "Returns the replication role.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.8.12",
+        "arity": 1,
+        "function": "roleCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "ADMIN",
+            "DANGEROUS"
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": [
+                        {
+                            "const": "master"
+                        },
+                        {
+                            "description": "current replication master offset",
+                            "type": "integer"
+                        },
+                        {
+                            "description": "connected replicas",
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "minItems": 3,
+                                "maxItems": 3,
+                                "items": [
+                                    {
+                                        "description": "replica ip",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "description": "replica port",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "description": "last acknowledged replication offset",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "array",
+                    "minItems": 5,
+                    "maxItems": 5,
+                    "items": [
+                        {
+                            "const": "slave"
+                        },
+                        {
+                            "description": "ip of master",
+                            "type": "string"
+                        },
+                        {
+                            "description": "port number of master",
+                            "type": "integer"
+                        },
+                        {
+                            "description": "state of the replication from the point of view of the master",
+                            "oneOf": [
+                                {
+                                    "description": "the instance is in handshake with its master",
+                                    "const": "handshake"
+                                },
+                                {
+                                    "description": "the instance in not active",
+                                    "const": "none"
+                                },
+                                {
+                                    "description": "the instance needs to connect to its master",
+                                    "const": "connect"
+                                },
+                                {
+                                    "description": "the master-replica connection is in progress",
+                                    "const": "connecting"
+                                },
+                                {
+                                    "description": "the master and replica are trying to perform the synchronization",
+                                    "const": "sync"
+                                },
+                                {
+                                    "description": "the replica is online",
+                                    "const": "connected"
+                                },
+                                {
+                                    "description": "instance state is unknown",
+                                    "const": "unknown"
+                                }
+                            ]
+                        },
+                        {
+                            "description": "the amount of data received from the replica so far in terms of master replication offset",
+                            "type": "integer"
+                        }
+                    ]
+                },
+                {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "const": "sentinel"
+                        },
+                        {
+                            "description": "list of master names monitored by this sentinel instance",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}

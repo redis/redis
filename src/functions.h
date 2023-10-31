@@ -47,13 +47,20 @@
 #include "script.h"
 #include "redismodule.h"
 
+typedef struct functionLibInfo functionLibInfo;
+
 typedef struct engine {
     /* engine specific context */
     void *engine_ctx;
 
-    /* Create function callback, get the engine_ctx, and function code.
+    /* Create function callback, get the engine_ctx, and function code
+     * engine_ctx - opaque struct that was created on engine initialization
+     * li - library information that need to be provided and when add functions
+     * code - the library code
+     * timeout - timeout for the library creation (0 for no timeout)
+     * err - description of error (if occurred)
      * returns NULL on error and set sds to be the error message */
-    void* (*create)(void *engine_ctx, sds code, sds *err);
+    int (*create)(void *engine_ctx, functionLibInfo *li, sds code, size_t timeout, sds *err);
 
     /* Invoking a function, r_ctx is an opaque object (from engine POV).
      * The r_ctx should be used by the engine to interaction with Redis,
@@ -89,38 +96,41 @@ typedef struct engineInfo {
 /* Hold information about the specific function.
  * Used on rdb.c so it must be declared here. */
 typedef struct functionInfo {
-    sds name;       /* Function name */
-    void *function; /* Opaque object that set by the function's engine and allow it
-                       to run the function, usually it's the function compiled code. */
-    engineInfo *ei; /* Pointer to the function engine */
-    sds code;       /* Function code */
-    sds desc;       /* Function description */
+    sds name;            /* Function name */
+    void *function;      /* Opaque object that set by the function's engine and allow it
+                            to run the function, usually it's the function compiled code. */
+    functionLibInfo* li; /* Pointer to the library created the function */
+    sds desc;            /* Function description */
+    uint64_t f_flags;    /* Function flags */
 } functionInfo;
 
-int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
-int functionsCreateWithFunctionCtx(sds function_name, sds engine_name, sds desc, sds code,
-                                   int replace, sds* err, functionsCtx *functions);
-void functionsCreateCommand(client *c);
-void fcallCommand(client *c);
-void fcallCommandReadOnly(client *c);
-void functionsDeleteCommand(client *c);
-void functionsKillCommand(client *c);
-void functionsStatsCommand(client *c);
-void functionsInfoCommand(client *c);
-void functionsListCommand(client *c);
-void functionsHelpCommand(client *c);
-unsigned long functionsMemory();
-unsigned long functionsMemoryOverhead();
-int functionsLoad(rio *rdb, int ver);
-unsigned long functionsNum();
-dict* functionsGet();
-functionsCtx* functionsCtxGetCurrent();
-functionsCtx* functionsCtxCreate();
-void functionsCtxFree(functionsCtx *functions_ctx);
-void functionsCtxClear(functionsCtx *functions_ctx);
-void functionsCtxSwapWithCurrent(functionsCtx *functions_ctx);
+/* Hold information about the specific library.
+ * Used on rdb.c so it must be declared here. */
+struct functionLibInfo {
+    sds name;        /* Library name */
+    dict *functions; /* Functions dictionary */
+    engineInfo *ei;  /* Pointer to the function engine */
+    sds code;        /* Library code */
+};
 
-int luaEngineInitEngine();
-int functionsInit();
+int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx, size_t timeout);
+unsigned long functionsMemory(void);
+unsigned long functionsMemoryOverhead(void);
+unsigned long functionsNum(void);
+unsigned long functionsLibNum(void);
+dict* functionsLibGet(void);
+size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx);
+functionsLibCtx* functionsLibCtxGetCurrent(void);
+functionsLibCtx* functionsLibCtxCreate(void);
+void functionsLibCtxClearCurrent(int async);
+void functionsLibCtxFree(functionsLibCtx *lib_ctx);
+void functionsLibCtxClear(functionsLibCtx *lib_ctx);
+void functionsLibCtxSwapWithCurrent(functionsLibCtx *lib_ctx);
+
+int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err);
+
+int luaEngineInitEngine(void);
+int functionsInit(void);
 
 #endif /* __FUNCTIONS_H_ */

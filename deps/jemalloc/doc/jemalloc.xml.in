@@ -630,7 +630,7 @@ for (i = 0; i < nbins; i++) {
         </row>
         <row>
           <entry>8 KiB</entry>
-          <entry>[40 KiB, 48 KiB, 54 KiB, 64 KiB]</entry>
+          <entry>[40 KiB, 48 KiB, 56 KiB, 64 KiB]</entry>
         </row>
         <row>
           <entry>16 KiB</entry>
@@ -936,6 +936,22 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
         </para></listitem>
       </varlistentry>
 
+      <varlistentry id="opt.cache_oblivious">
+        <term>
+          <mallctl>opt.cache_oblivious</mallctl>
+          (<type>bool</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Enable / Disable cache-oblivious large allocation
+        alignment, for large requests with no alignment constraints.  If this
+        feature is disabled, all large allocations are page-aligned as an
+        implementation artifact, which can severely harm CPU cache utilization.
+        However, the cache-oblivious layout comes at the cost of one extra page
+        per large allocation, which in the most extreme case increases physical
+        memory usage for the 16 KiB size class to 20 KiB. This option is enabled
+        by default.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="opt.metadata_thp">
         <term>
           <mallctl>opt.metadata_thp</mallctl>
@@ -948,6 +964,17 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
         allows such usage.  <quote>auto</quote> uses no THP initially, but may
         begin to do so when metadata usage reaches certain level.  The default
         is <quote>disabled</quote>.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="opt.trust_madvise">
+        <term>
+          <mallctl>opt.trust_madvise</mallctl>
+          (<type>bool</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>If true, do not perform runtime check for MADV_DONTNEED,
+        to check that it actually zeros pages.  The default is disabled on Linux
+        and enabled elsewhere.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.retain">
@@ -1185,6 +1212,41 @@ mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".decay",
         enabled.  The default is <quote></quote>.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="opt.stats_interval">
+        <term>
+          <mallctl>opt.stats_interval</mallctl>
+          (<type>int64_t</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Average interval between statistics outputs, as measured
+        in bytes of allocation activity.  The actual interval may be sporadic
+        because decentralized event counters are used to avoid synchronization
+        bottlenecks.  The output may be triggered on any thread, which then
+        calls <function>malloc_stats_print()</function>.  <link
+        linkend="opt.stats_interval_opts"><mallctl>opt.stats_interval_opts</mallctl></link>
+        can be combined to specify output options.  By default,
+        interval-triggered stats output is disabled (encoded as
+        -1).</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="opt.stats_interval_opts">
+        <term>
+          <mallctl>opt.stats_interval_opts</mallctl>
+          (<type>const char *</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Options (the <parameter>opts</parameter> string) to pass
+        to the <function>malloc_stats_print()</function> for interval based
+	statistics printing (enabled
+        through <link
+        linkend="opt.stats_interval"><mallctl>opt.stats_interval</mallctl></link>). See
+        available options in <link
+        linkend="malloc_stats_print_opts"><function>malloc_stats_print()</function></link>.
+        Has no effect unless <link
+        linkend="opt.stats_interval"><mallctl>opt.stats_interval</mallctl></link> is
+        enabled.  The default is <quote></quote>.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="opt.junk">
         <term>
           <mallctl>opt.junk</mallctl>
@@ -1266,21 +1328,23 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         a certain size.  Thread-specific caching allows many allocations to be
         satisfied without performing any thread synchronization, at the cost of
         increased memory use.  See the <link
-        linkend="opt.lg_tcache_max"><mallctl>opt.lg_tcache_max</mallctl></link>
+        linkend="opt.tcache_max"><mallctl>opt.tcache_max</mallctl></link>
         option for related tuning information.  This option is enabled by
         default.</para></listitem>
       </varlistentry>
 
-      <varlistentry id="opt.lg_tcache_max">
+      <varlistentry id="opt.tcache_max">
         <term>
-          <mallctl>opt.lg_tcache_max</mallctl>
+          <mallctl>opt.tcache_max</mallctl>
           (<type>size_t</type>)
           <literal>r-</literal>
         </term>
-        <listitem><para>Maximum size class (log base 2) to cache in the
-        thread-specific cache (tcache).  At a minimum, all small size classes
-        are cached, and at a maximum all large size classes are cached.  The
-        default maximum is 32 KiB (2^15).</para></listitem>
+        <listitem><para>Maximum size class to cache in the thread-specific cache
+        (tcache).  At a minimum, the first size class is cached; and at a
+        maximum, size classes up to 8 MiB can be cached.  The default maximum is
+        32 KiB (2^15).  As a convenience, this may also be set by specifying
+        lg_tcache_max, which will be taken to be the base-2 logarithm of the
+        setting of tcache_max.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.thp">
@@ -1344,7 +1408,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         set to the empty string, no automatic dumps will occur; this is
         primarily useful for disabling the automatic final heap dump (which
         also disables leak reporting, if enabled).  The default prefix is
-        <filename>jeprof</filename>.</para></listitem>
+        <filename>jeprof</filename>.  This prefix value can be overridden by
+        <link linkend="prof.prefix"><mallctl>prof.prefix</mallctl></link>.
+        </para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.prof_active">
@@ -1423,8 +1489,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <filename>&lt;prefix&gt;.&lt;pid&gt;.&lt;seq&gt;.i&lt;iseq&gt;.heap</filename>,
         where <literal>&lt;prefix&gt;</literal> is controlled by the
         <link
-        linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link>
-        option.  By default, interval-triggered profile dumping is disabled
+        linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link> and
+        <link linkend="prof.prefix"><mallctl>prof.prefix</mallctl></link>
+        options.  By default, interval-triggered profile dumping is disabled
         (encoded as -1).
         </para></listitem>
       </varlistentry>
@@ -1456,8 +1523,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         usage to a file named according to the pattern
         <filename>&lt;prefix&gt;.&lt;pid&gt;.&lt;seq&gt;.f.heap</filename>,
         where <literal>&lt;prefix&gt;</literal> is controlled by the <link
-        linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link>
-        option.  Note that <function>atexit()</function> may allocate
+        linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link> and
+        <link linkend="prof.prefix"><mallctl>prof.prefix</mallctl></link>
+        options.  Note that <function>atexit()</function> may allocate
         memory during application initialization and then deadlock internally
         when jemalloc in turn calls <function>atexit()</function>, so
         this option is not universally usable (though the application can
@@ -1478,8 +1546,57 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <manvolnum>3</manvolnum></citerefentry> function to report memory leaks
         detected by allocation sampling.  See the
         <link linkend="opt.prof"><mallctl>opt.prof</mallctl></link> option for
-        information on analyzing heap profile output.  This option is disabled
-        by default.</para></listitem>
+        information on analyzing heap profile output.  Works only when combined
+        with <link linkend="opt.prof_final"><mallctl>opt.prof_final</mallctl>
+        </link>, otherwise does nothing.  This option is disabled by default.
+        </para></listitem>
+      </varlistentry>
+
+      <varlistentry id="opt.prof_leak_error">
+        <term>
+          <mallctl>opt.prof_leak_error</mallctl>
+          (<type>bool</type>)
+          <literal>r-</literal>
+          [<option>--enable-prof</option>]
+        </term>
+        <listitem><para>Similar to <link linkend="opt.prof_leak"><mallctl>
+        opt.prof_leak</mallctl></link>, but makes the process exit with error
+        code 1 if a memory leak is detected.  This option supersedes
+        <link linkend="opt.prof_leak"><mallctl>opt.prof_leak</mallctl></link>,
+        meaning that if both are specified, this option takes precedence.  When
+        enabled, also enables <link linkend="opt.prof_leak"><mallctl>
+        opt.prof_leak</mallctl></link>.  Works only when combined with
+        <link linkend="opt.prof_final"><mallctl>opt.prof_final</mallctl></link>,
+        otherwise does nothing.  This option is disabled by default.
+        </para></listitem>
+      </varlistentry>
+
+      <varlistentry id="opt.zero_realloc">
+        <term>
+          <mallctl>opt.zero_realloc</mallctl>
+          (<type>const char *</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para> Determines the behavior of
+        <function>realloc()</function> when passed a value of zero for the new
+        size.  <quote>alloc</quote> treats this as an allocation of size zero
+        (and returns a non-null result except in case of resource exhaustion).
+        <quote>free</quote> treats this as a deallocation of the pointer, and
+        returns <constant>NULL</constant> without setting
+        <varname>errno</varname>.  <quote>abort</quote> aborts the process if
+        zero is passed.  The default is <quote>free</quote> on Linux and
+        Windows, and <quote>alloc</quote> elsewhere.</para>
+
+	<para>There is considerable divergence of behaviors across
+	implementations in handling this case. Many have the behavior of
+	<quote>free</quote>. This can introduce security vulnerabilities, since
+	a <constant>NULL</constant> return value indicates failure, and the
+	continued validity of the passed-in pointer (per POSIX and C11).
+	<quote>alloc</quote> is safe, but can cause leaks in programs that
+	expect the common behavior.  Programs intended to be portable and
+	leak-free cannot assume either behavior, and must therefore never call
+	realloc with a size of 0.  The <quote>abort</quote> option enables these
+	testing this behavior.</para></listitem>
       </varlistentry>
 
       <varlistentry id="thread.arena">
@@ -1520,7 +1637,8 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <link
         linkend="thread.allocated"><mallctl>thread.allocated</mallctl></link>
         mallctl.  This is useful for avoiding the overhead of repeated
-        <function>mallctl*()</function> calls.</para></listitem>
+        <function>mallctl*()</function> calls.  Note that the underlying counter
+        should not be modified by the application.</para></listitem>
       </varlistentry>
 
       <varlistentry id="thread.deallocated">
@@ -1547,7 +1665,44 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <link
         linkend="thread.deallocated"><mallctl>thread.deallocated</mallctl></link>
         mallctl.  This is useful for avoiding the overhead of repeated
-        <function>mallctl*()</function> calls.</para></listitem>
+        <function>mallctl*()</function> calls.  Note that the underlying counter
+        should not be modified by the application.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="thread.peak.read">
+        <term>
+          <mallctl>thread.peak.read</mallctl>
+          (<type>uint64_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Get an approximation of the maximum value of the
+        difference between the number of bytes allocated and the number of bytes
+        deallocated by the calling thread since the last call to <link
+        linkend="thread.peak.reset"><mallctl>thread.peak.reset</mallctl></link>,
+        or since the thread's creation if it has not called <link
+        linkend="thread.peak.reset"><mallctl>thread.peak.reset</mallctl></link>.
+        No guarantees are made about the quality of the approximation, but
+        jemalloc currently endeavors to maintain accuracy to within one hundred
+        kilobytes.
+        </para></listitem>
+      </varlistentry>
+
+      <varlistentry id="thread.peak.reset">
+        <term>
+          <mallctl>thread.peak.reset</mallctl>
+          (<type>void</type>)
+          <literal>--</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Resets the counter for net bytes allocated in the calling
+        thread to zero. This affects subsequent calls to <link
+        linkend="thread.peak.read"><mallctl>thread.peak.read</mallctl></link>,
+        but not the values returned by <link
+        linkend="thread.allocated"><mallctl>thread.allocated</mallctl></link>
+        or <link
+        linkend="thread.deallocated"><mallctl>thread.deallocated</mallctl></link>.
+        </para></listitem>
       </varlistentry>
 
       <varlistentry id="thread.tcache.enabled">
@@ -1618,6 +1773,28 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         default.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="thread.idle">
+        <term>
+          <mallctl>thread.idle</mallctl>
+          (<type>void</type>)
+          <literal>--</literal>
+        </term>
+        <listitem><para>Hints to jemalloc that the calling thread will be idle
+	for some nontrivial period of time (say, on the order of seconds), and
+	that doing some cleanup operations may be beneficial.  There are no
+	guarantees as to what specific operations will be performed; currently
+	this flushes the caller's tcache and may (according to some heuristic)
+	purge its associated arena.</para>
+	<para>This is not intended to be a general-purpose background activity
+	mechanism, and threads should not wake up multiple times solely to call
+	it.  Rather, a thread waiting for a task should do a timed wait first,
+	call <link linkend="thread.idle"><mallctl>thread.idle</mallctl></link>
+	if no task appears in the timeout interval, and then do an untimed wait.
+	For such a background activity mechanism, see
+	<link linkend="background_thread"><mallctl>background_thread</mallctl></link>.
+	</para></listitem>
+      </varlistentry>
+
       <varlistentry id="tcache.create">
         <term>
           <mallctl>tcache.create</mallctl>
@@ -1631,7 +1808,16 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         automatically managed one that is used by default.  Each explicit cache
         can be used by only one thread at a time; the application must assure
         that this constraint holds.
+        </para>
+
+        <para>If the amount of space supplied for storing the thread-specific
+        cache identifier does not equal
+        <code language="C">sizeof(<type>unsigned</type>)</code>, no
+        thread-specific cache will be created, no data will be written to the
+        space pointed by <parameter>oldp</parameter>, and
+        <parameter>*oldlenp</parameter> will be set to 0.
         </para></listitem>
+
       </varlistentry>
 
       <varlistentry id="tcache.flush">
@@ -2171,7 +2357,14 @@ struct extent_hooks_s {
         </term>
         <listitem><para>Explicitly create a new arena outside the range of
         automatically managed arenas, with optionally specified extent hooks,
-        and return the new arena index.</para></listitem>
+        and return the new arena index.</para>
+
+        <para>If the amount of space supplied for storing the arena index does
+        not equal <code language="C">sizeof(<type>unsigned</type>)</code>, no
+        arena will be created, no data will be written to the space pointed by
+        <parameter>oldp</parameter>, and <parameter>*oldlenp</parameter> will
+        be set to 0.
+        </para></listitem>
       </varlistentry>
 
       <varlistentry id="arenas.lookup">
@@ -2223,9 +2416,24 @@ struct extent_hooks_s {
         is specified, to a file according to the pattern
         <filename>&lt;prefix&gt;.&lt;pid&gt;.&lt;seq&gt;.m&lt;mseq&gt;.heap</filename>,
         where <literal>&lt;prefix&gt;</literal> is controlled by the
+        <link linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link>
+        and <link linkend="prof.prefix"><mallctl>prof.prefix</mallctl></link>
+        options.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="prof.prefix">
+        <term>
+          <mallctl>prof.prefix</mallctl>
+          (<type>const char *</type>)
+          <literal>-w</literal>
+          [<option>--enable-prof</option>]
+        </term>
+        <listitem><para>Set the filename prefix for profile dumps. See
         <link
         linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link>
-        option.</para></listitem>
+        for the default setting.  This can be useful to differentiate profile
+        dumps such as from forked processes.
+        </para></listitem>
       </varlistentry>
 
       <varlistentry id="prof.gdump">
@@ -2240,8 +2448,9 @@ struct extent_hooks_s {
         dumped to files named according to the pattern
         <filename>&lt;prefix&gt;.&lt;pid&gt;.&lt;seq&gt;.u&lt;useq&gt;.heap</filename>,
         where <literal>&lt;prefix&gt;</literal> is controlled by the <link
-        linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link>
-        option.</para></listitem>
+        linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link> and
+        <link linkend="prof.prefix"><mallctl>prof.prefix</mallctl></link>
+        options.</para></listitem>
       </varlistentry>
 
       <varlistentry id="prof.reset">
@@ -2398,6 +2607,21 @@ struct extent_hooks_s {
         </para></listitem>
       </varlistentry>
 
+      <varlistentry id="stats.zero_reallocs">
+        <term>
+          <mallctl>stats.zero_reallocs</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Number of times that the <function>realloc()</function>
+        was called with a non-<constant>NULL</constant> pointer argument and a
+        <constant>0</constant> size argument.  This is a fundamentally unsafe
+        pattern in portable programs; see <link linkend="opt.zero_realloc">
+        <mallctl>opt.zero_realloc</mallctl></link> for details.
+        </para></listitem>
+      </varlistentry>
+
       <varlistentry id="stats.background_thread.num_threads">
         <term>
           <mallctl>stats.background_thread.num_threads</mallctl>
@@ -2506,6 +2730,30 @@ struct extent_hooks_s {
         <listitem><para>Statistics on <varname>prof</varname> mutex (global
         scope; profiling related).  <mallctl>{counter}</mallctl> is one of the
         counters in <link linkend="mutex_counters">mutex profiling
+        counters</link>.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.mutexes.prof_thds_data">
+        <term>
+          <mallctl>stats.mutexes.prof_thds_data.{counter}</mallctl>
+	  (<type>counter specific type</type>) <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+	<listitem><para>Statistics on <varname>prof</varname> threads data mutex
+	(global scope; profiling related).  <mallctl>{counter}</mallctl> is one
+	of the counters in <link linkend="mutex_counters">mutex profiling
+        counters</link>.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.mutexes.prof_dump">
+        <term>
+          <mallctl>stats.mutexes.prof_dump.{counter}</mallctl>
+	  (<type>counter specific type</type>) <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+	<listitem><para>Statistics on <varname>prof</varname> dumping mutex
+	(global scope; profiling related).  <mallctl>{counter}</mallctl> is one
+	of the counters in <link linkend="mutex_counters">mutex profiling
         counters</link>.</para></listitem>
       </varlistentry>
 
@@ -3250,7 +3498,7 @@ heap_v2/524288
   [...]
 @ 0x5f86da8 0x5f5a1dc [...] 0x29e4d4e 0xa200316 0xabb2988 [...]
   t*: 13: 6688 [0: 0]
-  t3: 12: 6496 [0: ]
+  t3: 12: 6496 [0: 0]
   t99: 1: 192 [0: 0]
 [...]
 
@@ -3261,9 +3509,9 @@ descriptions of the corresponding fields.  <programlisting><![CDATA[
 <heap_profile_format_version>/<mean_sample_interval>
   <aggregate>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
   [...]
-  <thread_3_aggregate>: <curobjs>: <curbytes>[<cumobjs>: <cumbytes>]
+  <thread_3_aggregate>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
   [...]
-  <thread_99_aggregate>: <curobjs>: <curbytes>[<cumobjs>: <cumbytes>]
+  <thread_99_aggregate>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
   [...]
 @ <top_frame> <frame> [...] <frame> <frame> <frame> [...]
   <backtrace_aggregate>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
@@ -3420,8 +3668,10 @@ MAPPED_LIBRARIES:
             <listitem><para><parameter>newp</parameter> is not
             <constant>NULL</constant>, and <parameter>newlen</parameter> is too
             large or too small.  Alternatively, <parameter>*oldlenp</parameter>
-            is too large or too small; in this case as much data as possible
-            are read despite the error.</para></listitem>
+            is too large or too small; when it happens, except for a very few
+            cases explicitly documented otherwise, as much data as possible
+            are read despite the error, with the amount of data read being
+            recorded in <parameter>*oldlenp</parameter>.</para></listitem>
           </varlistentry>
           <varlistentry>
             <term><errorname>ENOENT</errorname></term>

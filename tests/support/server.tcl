@@ -30,10 +30,16 @@ proc clean_persistence config {
     # we may wanna keep the logs for later, but let's clean the persistence
     # files right away, since they can accumulate and take up a lot of space
     set config [dict get $config "config"]
-    set rdb [format "%s/%s" [dict get $config "dir"] "dump.rdb"]
-    set aof [format "%s/%s" [dict get $config "dir"] "appendonly.aof"]
+    set dir [dict get $config "dir"]
+    set rdb [format "%s/%s" $dir "dump.rdb"]
+    if {[dict exists $config "appenddirname"]} {
+        set aofdir [dict get $config "appenddirname"]
+    } else {
+        set aofdir "appendonlydir"
+    }
+    set aof_dirpath [format "%s/%s" $dir $aofdir]
+    clean_aof_persistence $aof_dirpath
     catch {exec rm -rf $rdb}
-    catch {exec rm -rf $aof}
 }
 
 proc kill_server config {
@@ -46,16 +52,20 @@ proc kill_server config {
     }
 
     # nevermind if its already dead
-    if {![is_alive $config]} {
+    set pid [dict get $config pid]
+    if {![is_alive $pid]} {
         # Check valgrind errors if needed
         if {$::valgrind} {
             check_valgrind_errors [dict get $config stderr]
         }
 
         check_sanitizer_errors [dict get $config stderr]
+
+        # Remove this pid from the set of active pids in the test server.
+        send_data_packet $::test_server_fd server-killed $pid
+
         return
     }
-    set pid [dict get $config pid]
 
     # check for leaks
     if {![dict exists $config "skipleaks"]} {
@@ -93,7 +103,7 @@ proc kill_server config {
     } else {
         set max_wait 10000
     }
-    while {[is_alive $config]} {
+    while {[is_alive $pid]} {
         incr wait 10
 
         if {$wait == $max_wait} {
@@ -119,8 +129,7 @@ proc kill_server config {
     send_data_packet $::test_server_fd server-killed $pid
 }
 
-proc is_alive config {
-    set pid [dict get $config pid]
+proc is_alive pid {
     if {[catch {exec kill -0 $pid} err]} {
         return 0
     } else {
@@ -201,6 +210,12 @@ proc tags_acceptable {tags err_return} {
         }
     }
 
+    # some units mess with the client output buffer so we can't really use the req-res logging mechanism.
+    if {$::log_req_res && [lsearch $tags "logreqres:skip"] >= 0} {
+        set err "Not supported when running in log-req-res mode"
+        return 0
+    }
+
     if {$::external && [lsearch $tags "external:skip"] >= 0} {
         set err "Not supported on external server"
         return 0
@@ -247,25 +262,34 @@ proc tags {tags code} {
 
 # Write the configuration in the dictionary 'config' in the specified
 # file name.
-proc create_server_config_file {filename config} {
+proc create_server_config_file {filename config config_lines} {
     set fp [open $filename w+]
     foreach directive [dict keys $config] {
         puts -nonewline $fp "$directive "
         puts $fp [dict get $config $directive]
     }
+    foreach {config_line_directive config_line_args} $config_lines {
+        puts $fp "$config_line_directive $config_line_args"
+    }
     close $fp
 }
 
-proc spawn_server {config_file stdout stderr} {
+proc spawn_server {config_file stdout stderr args} {
+    set cmd [list src/redis-server $config_file]
+    set args {*}$args
+    if {[llength $args] > 0} {
+        lappend cmd {*}$args
+    }
+
     if {$::valgrind} {
-        set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file >> $stdout 2>> $stderr &]
+        set pid [exec valgrind --track-origins=yes --trace-children=yes --suppressions=[pwd]/src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full {*}$cmd >> $stdout 2>> $stderr &]
     } elseif ($::stack_logging) {
-        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file >> $stdout 2>> $stderr &]
+        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt {*}$cmd >> $stdout 2>> $stderr &]
     } else {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 src/redis-server $config_file >> $stdout 2>> $stderr &]
+        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 {*}$cmd >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -285,7 +309,7 @@ proc wait_server_started {config_file stdout pid} {
     set maxiter [expr {120*1000/$checkperiod}] ; # Wait up to 2 minutes.
     set port_busy 0
     while 1 {
-        if {[regexp -- " PID: $pid" [exec cat $stdout]]} {
+        if {[regexp -- " PID: $pid.*Server initialized" [exec cat $stdout]]} {
             break
         }
         after $checkperiod
@@ -343,6 +367,7 @@ proc run_external_server_test {code overrides} {
     }
 
     r flushall
+    r function flush
 
     # store overrides
     set saved_config {}
@@ -391,7 +416,12 @@ proc start_server {options {code undefined}} {
     set overrides {}
     set omit {}
     set tags {}
+    set args {}
     set keep_persistence false
+    set config_lines {}
+
+    # Wait for the server to be ready and check for server liveness/client connectivity before starting the test.
+    set wait_ready true
 
     # parse options
     foreach {option value} $options {
@@ -400,7 +430,13 @@ proc start_server {options {code undefined}} {
                 set baseconfig $value
             }
             "overrides" {
-                set overrides $value
+                set overrides [concat $overrides $value]
+            }
+            "config_lines" {
+                set config_lines $value
+            }
+            "args" {
+                set args $value
             }
             "omit" {
                 set omit $value
@@ -413,6 +449,9 @@ proc start_server {options {code undefined}} {
             }
             "keep_persistence" {
                 set keep_persistence $value
+            }
+            "wait_ready" {
+                set wait_ready $value
             }
             default {
                 error "Unknown option $option"
@@ -440,6 +479,9 @@ proc start_server {options {code undefined}} {
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     if {$::tls} {
+        if {$::tls_module} {
+            lappend config_lines [list "loadmodule" [format "%s/src/redis-tls.so" [pwd]]]
+        }
         dict set config "tls-cert-file" [format "%s/tests/tls/server.crt" [pwd]]
         dict set config "tls-key-file" [format "%s/tests/tls/server.key" [pwd]]
         dict set config "tls-client-cert-file" [format "%s/tests/tls/client.crt" [pwd]]
@@ -463,7 +505,8 @@ proc start_server {options {code undefined}} {
     # start every server on a different port
     set port [find_available_port $::baseport $::portcount]
     if {$::tls} {
-        dict set config "port" 0
+        set pport [find_available_port $::baseport $::portcount]
+        dict set config "port" $pport
         dict set config "tls-port" $port
         dict set config "tls-cluster" "yes"
         dict set config "tls-replication" "yes"
@@ -484,9 +527,17 @@ proc start_server {options {code undefined}} {
         dict unset config $directive
     }
 
+    if {$::log_req_res} {
+        dict set config "req-res-logfile" "stdout.reqres"
+    }
+
+    if {$::force_resp3} {
+        dict set config "client-default-resp" "3"
+    }
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
-    create_server_config_file $config_file $config
+    create_server_config_file $config_file $config $config_lines
 
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
@@ -496,7 +547,14 @@ proc start_server {options {code undefined}} {
         set fd [open $stdout "a+"]
         puts $fd "### Starting server for test $::cur_test"
         close $fd
+        if {$::verbose > 1} {
+            puts "### Starting server $stdout for test - $::cur_test"
+        }
     }
+
+    # We may have a stdout left over from the previous tests, so we need
+    # to get the current count of ready logs
+    set previous_ready_count [count_message_lines $stdout "Ready to accept"]
 
     # We need a loop here to retry with different ports.
     set server_started 0
@@ -507,7 +565,7 @@ proc start_server {options {code undefined}} {
 
         send_data_packet $::test_server_fd "server-spawning" "port $port"
 
-        set pid [spawn_server $config_file $stdout $stderr]
+        set pid [spawn_server $config_file $stdout $stderr $args]
 
         # check that the server actually started
         set port_busy [wait_server_started $config_file $stdout $pid]
@@ -519,11 +577,13 @@ proc start_server {options {code undefined}} {
             puts "Port $port was already busy, trying another port..."
             set port [find_available_port $::baseport $::portcount]
             if {$::tls} {
+                set pport [find_available_port $::baseport $::portcount]
+                dict set config port $pport
                 dict set config "tls-port" $port
             } else {
                 dict set config port $port
             }
-            create_server_config_file $config_file $config
+            create_server_config_file $config_file $config $config_lines
 
             # Truncate log so wait_server_started will not be looking at
             # output of the failed server.
@@ -533,7 +593,7 @@ proc start_server {options {code undefined}} {
         }
 
         if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
-        if {$code ne "undefined"} {
+        if {$code ne "undefined" && $wait_ready} {
             set serverisup [server_is_up $::host $port $retrynum]
         } else {
             set serverisup 1
@@ -567,6 +627,9 @@ proc start_server {options {code undefined}} {
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
     dict set srv "unixsocket" $unixsocket
+    if {$::tls} {
+        dict set srv "pport" $pport
+    }
 
     # if a block of code is supplied, we wait for the server to become
     # available, create a client object and kill the server afterwards
@@ -576,19 +639,21 @@ proc start_server {options {code undefined}} {
             error_and_quit $config_file $line
         }
 
-        while 1 {
-            # check that the server actually started and is ready for connections
-            if {[count_message_lines $stdout "Ready to accept"] > 0} {
-                break
-            }
-            after 10
-        }
-
         # append the server to the stack
         lappend ::servers $srv
 
-        # connect client (after server dict is put on the stack)
-        reconnect
+        if {$wait_ready} {
+            while 1 {
+                # check that the server actually started and is ready for connections
+                if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {
+                    break
+                }
+                after 10
+            }
+
+            # connect client (after server dict is put on the stack)
+            reconnect
+        }
 
         # remember previous num_failed to catch new errors
         set prev_num_failed $::num_failed
@@ -673,8 +738,20 @@ proc start_server {options {code undefined}} {
     }
 }
 
-proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
+# Start multiple servers with the same options, run code, then stop them.
+proc start_multiple_servers {num options code} {
+    for {set i 0} {$i < $num} {incr i} {
+        set code [list start_server $options $code]
+    }
+    uplevel 1 $code
+}
+
+proc restart_server {level wait_ready rotate_logs {reconnect 1} {shutdown sigterm}} {
     set srv [lindex $::servers end+$level]
+    if {$shutdown ne {sigterm}} {
+        catch {[dict get $srv "client"] shutdown $shutdown}
+    }
+    # Kill server doesn't mind if the server is already dead
     kill_server $srv
     # Remove the default client from the server
     dict unset srv "client"
@@ -698,7 +775,7 @@ proc restart_server {level wait_ready rotate_logs {reconnect 1}} {
 
     set config_file [dict get $srv "config_file"]
 
-    set pid [spawn_server $config_file $stdout $stderr]
+    set pid [spawn_server $config_file $stdout $stderr {}]
 
     # check that the server actually started
     wait_server_started $config_file $stdout $pid

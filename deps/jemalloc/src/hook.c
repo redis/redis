@@ -130,9 +130,9 @@ hook_reentrantp() {
 	 */
 	static bool in_hook_global = true;
 	tsdn_t *tsdn = tsdn_fetch();
-	tcache_t *tcache = tsdn_tcachep_get(tsdn);
-	if (tcache != NULL) {
-		return &tcache->in_hook;
+	bool *in_hook = tsdn_in_hookp_get(tsdn);
+	if (in_hook!= NULL) {
+		return in_hook;
 	}
 	return &in_hook_global;
 }

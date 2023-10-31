@@ -1,0 +1,32 @@
+{
+    "GETNAME": {
+        "summary": "Returns the name of the connection.",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "2.6.9",
+        "arity": 2,
+        "container": "CLIENT",
+        "function": "clientCommand",
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "SENTINEL"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "string",
+                    "description": "The connection name of the current connection"
+                },
+                {
+                    "type": "null",
+                    "description": "Connection name was not set"
+                }
+            ]
+        }
+    }
+}

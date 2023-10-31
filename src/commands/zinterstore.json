@@ -1,0 +1,108 @@
+{
+    "ZINTERSTORE": {
+        "summary": "Stores the intersect of multiple sorted sets in a key.",
+        "complexity": "O(N*K)+O(M*log(M)) worst case with N being the smallest input sorted set, K being the number of input sorted sets and M being the number of elements in the resulting sorted set.",
+        "group": "sorted_set",
+        "since": "2.0.0",
+        "arity": -4,
+        "function": "zinterstoreCommand",
+        "get_keys_function": "zunionInterDiffStoreGetKeys",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "keynum": {
+                        "keynumidx": 0,
+                        "firstkey": 1,
+                        "step": 1
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Number of elements in the resulting sorted set.",
+            "type": "integer",
+            "minimum": 0
+        },
+        "arguments": [
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "numkeys",
+                "type": "integer"
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 1,
+                "multiple": true
+            },
+            {
+                "token": "WEIGHTS",
+                "name": "weight",
+                "type": "integer",
+                "optional": true,
+                "multiple": true
+            },
+            {
+                "token": "AGGREGATE",
+                "name": "aggregate",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "sum",
+                        "type": "pure-token",
+                        "token": "SUM"
+                    },
+                    {
+                        "name": "min",
+                        "type": "pure-token",
+                        "token": "MIN"
+                    },
+                    {
+                        "name": "max",
+                        "type": "pure-token",
+                        "token": "MAX"
+                    }
+                ]
+            }
+        ]
+    }
+}

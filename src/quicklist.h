@@ -39,7 +39,7 @@
  * We use bit fields keep the quicklistNode at 32 bytes.
  * count: 16 bits, max 65536 (max lp bytes is 65k, so max count actually < 32k).
  * encoding: 2 bits, RAW=1, LZF=2.
- * container: 2 bits, PLAIN=1, PACKED=2.
+ * container: 2 bits, PLAIN=1 (a single item as char array), PACKED=2 (listpack with multiple items).
  * recompress: 1 bit, bool, true if node is temporary decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
  * extra: 10 bits, free for future use; pads out the remainder of 32 bits */
@@ -53,7 +53,8 @@ typedef struct quicklistNode {
     unsigned int container : 2;  /* PLAIN==1 or PACKED==2 */
     unsigned int recompress : 1; /* was this node previous compressed? */
     unsigned int attempted_compress : 1; /* node can't compress; too small */
-    unsigned int extra : 10; /* more bits to steal for future usage */
+    unsigned int dont_compress : 1; /* prevent compression of entry that will be used later */
+    unsigned int extra : 9; /* more bits to steal for future usage */
 } quicklistNode;
 
 /* quicklistLZF is a 8+N byte struct holding 'sz' followed by 'compressed'.
@@ -107,7 +108,7 @@ typedef struct quicklist {
     quicklistNode *tail;
     unsigned long count;        /* total count of all entries in all listpacks */
     unsigned long len;          /* number of quicklistNodes */
-    int fill : QL_FILL_BITS;              /* fill factor for individual nodes */
+    signed int fill : QL_FILL_BITS;       /* fill factor for individual nodes */
     unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
     unsigned int bookmark_count: QL_BM_BITS;
     quicklistBookmark bookmarks[];
@@ -116,7 +117,7 @@ typedef struct quicklist {
 typedef struct quicklistIter {
     quicklist *quicklist;
     quicklistNode *current;
-    unsigned char *zi;
+    unsigned char *zi; /* points to the current element */
     long offset; /* offset in current listpack */
     int direction;
 } quicklistIter;
@@ -141,7 +142,7 @@ typedef struct quicklistEntry {
 /* quicklist compression disable */
 #define QUICKLIST_NOCOMPRESS 0
 
-/* quicklist container formats */
+/* quicklist node container formats */
 #define QUICKLIST_NODE_CONTAINER_PLAIN 1
 #define QUICKLIST_NODE_CONTAINER_PACKED 2
 
@@ -191,6 +192,8 @@ int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
 unsigned long quicklistCount(const quicklist *ql);
 int quicklistCompare(quicklistEntry *entry, unsigned char *p2, const size_t p2_len);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
+void quicklistNodeLimit(int fill, size_t *size, unsigned int *count);
+int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count);
 void quicklistRepr(unsigned char *ql, int full);
 
 /* bookmarks */

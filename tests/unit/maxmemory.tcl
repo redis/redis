@@ -147,14 +147,14 @@ start_server {tags {"maxmemory external:skip"}} {
     test "Without maxmemory small integers are shared" {
         r config set maxmemory 0
         r set a 1
-        assert {[r object refcount a] > 1}
+        assert_refcount_morethan a 1
     }
 
     test "With maxmemory and non-LRU policy integers are still shared" {
         r config set maxmemory 1073741824
         r config set maxmemory-policy allkeys-random
         r set a 1
-        assert {[r object refcount a] > 1}
+        assert_refcount_morethan a 1
     }
 
     test "With maxmemory and LRU policy integers are not shared" {
@@ -163,8 +163,8 @@ start_server {tags {"maxmemory external:skip"}} {
         r set a 1
         r config set maxmemory-policy volatile-lru
         r set b 1
-        assert {[r object refcount a] == 1}
-        assert {[r object refcount b] == 1}
+        assert_refcount 1 a
+        assert_refcount 1 b
         r config set maxmemory 0
     }
 
@@ -326,6 +326,10 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             $master config set client-output-buffer-limit "replica 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
 
+            # disable latency tracking
+            $master config set latency-tracking no
+            $slave config set latency-tracking no
+
             $slave slaveof $master_host $master_port
             wait_for_condition 50 100 {
                 [s 0 master_link_status] eq {up}
@@ -346,7 +350,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             # put the slave to sleep
             set rd_slave [redis_deferring_client]
-            exec kill -SIGSTOP $slave_pid
+            pause_process $slave_pid
 
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
@@ -395,7 +399,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
         }
         # unfreeze slave process (after the 'test' succeeded or failed, but before we attempt to terminate the server
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         }
     }
 }
@@ -412,6 +416,7 @@ test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
 start_server {tags {"maxmemory external:skip"}} {
     test {Don't rehash if used memory exceeds maxmemory after rehash} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
 
@@ -432,6 +437,7 @@ start_server {tags {"maxmemory external:skip"}} {
 
 start_server {tags {"maxmemory external:skip"}} {
     test {client tracking don't cause eviction feedback loop} {
+        r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lru
         r config set maxmemory-eviction-tenacity 100
@@ -491,5 +497,94 @@ start_server {tags {"maxmemory external:skip"}} {
         # have feedback loop
         set evicted [s evicted_keys]
         if {$::verbose} { puts "evicted: $evicted" }
+    }
+}
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {propagation with eviction} {
+        set repl [attach_to_replication_stream]
+
+        r set asdf1 1
+        r set asdf2 2
+        r set asdf3 3
+
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory 1
+
+        wait_for_condition 5000 10 {
+            [r dbsize] eq 0
+        } else {
+            fail "Not all keys have been evicted"
+        }
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+
+        r set asdf4 4
+
+        assert_replication_stream $repl {
+            {select *}
+            {set asdf1 1}
+            {set asdf2 2}
+            {set asdf3 3}
+            {del asdf*}
+            {del asdf*}
+            {del asdf*}
+            {set asdf4 4}
+        }
+        close_replication_stream $repl
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+    }
+}
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {propagation with eviction in MULTI} {
+        set repl [attach_to_replication_stream]
+
+        r config set maxmemory-policy allkeys-lru
+
+        r multi
+        r incr x
+        r config set maxmemory 1
+        r incr x
+        assert_equal [r exec] {1 OK 2}
+
+        wait_for_condition 5000 10 {
+            [r dbsize] eq 0
+        } else {
+            fail "Not all keys have been evicted"
+        }
+
+        assert_replication_stream $repl {
+            {multi}
+            {select *}
+            {incr x}
+            {incr x}
+            {exec}
+            {del x}
+        }
+        close_replication_stream $repl
+
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+    }
+}
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {lru/lfu value of the key just added} {
+        r config set maxmemory-policy allkeys-lru
+        r set foo a
+        assert {[r object idletime foo] <= 2}
+        r del foo
+        r set foo 1
+        r get foo
+        assert {[r object idletime foo] <= 2}
+
+        r config set maxmemory-policy allkeys-lfu
+        r del foo 
+        r set foo a
+        assert {[r object freq foo] == 5}
     }
 }

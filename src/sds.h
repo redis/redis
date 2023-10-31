@@ -253,6 +253,7 @@ sds *sdssplitargs(const char *line, int *argc);
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen);
 sds sdsjoin(char **argv, int argc, char *sep);
 sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen);
+int sdsneedsrepr(const sds s);
 
 /* Callback for sdstemplate. The function gets called by sdstemplate
  * every time a variable needs to be expanded. The variable name is
@@ -266,8 +267,8 @@ sds sdstemplate(const char *template, sdstemplate_callback_t cb_func, void *cb_a
 sds sdsMakeRoomFor(sds s, size_t addlen);
 sds sdsMakeRoomForNonGreedy(sds s, size_t addlen);
 void sdsIncrLen(sds s, ssize_t incr);
-sds sdsRemoveFreeSpace(sds s);
-sds sdsResize(sds s, size_t size);
+sds sdsRemoveFreeSpace(sds s, int would_regrow);
+sds sdsResize(sds s, size_t size, int would_regrow);
 size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
 

@@ -24,8 +24,11 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {10}
 
     test {SLOWLOG - GET optional argument to limit output len works} {
-        llength [r slowlog get 5]
-    } {5}
+        
+        assert_equal 5  [llength [r slowlog get 5]]
+        assert_equal 10 [llength [r slowlog get -1]]
+        assert_equal 10 [llength [r slowlog get 20]]
+    }
 
     test {SLOWLOG - RESET subcommand works} {
         r config set slowlog-log-slower-than 100000
@@ -39,7 +42,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         set e [lindex [r slowlog get] 0]
         assert_equal [llength $e] 6
         if {!$::external} {
-            assert_equal [lindex $e 0] 105
+            assert_equal [lindex $e 0] 107
         }
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
@@ -49,19 +52,21 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
         r config set slowlog-log-slower-than 0
         r slowlog reset
+        catch {r acl setuser "slowlog test user" +get +set} _
         r config set masterauth ""
         r acl setuser slowlog-test-user +get +set
         r config set slowlog-log-slower-than 0
-        r config set slowlog-log-slower-than 10000
+        r config set slowlog-log-slower-than -1
         set slowlog_resp [r slowlog get]
 
         # Make sure normal configs work, but the two sensitive
         # commands are omitted or redacted
-        assert_equal 4 [llength $slowlog_resp]
-        assert_equal {slowlog reset} [lindex [lindex [r slowlog get] 3] 3]
-        assert_equal {config set masterauth (redacted)} [lindex [lindex [r slowlog get] 2] 3]
-        assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex [r slowlog get] 1] 3]
-        assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex [r slowlog get] 0] 3]
+        assert_equal 5 [llength $slowlog_resp]
+        assert_equal {slowlog reset} [lindex [lindex $slowlog_resp 4] 3]
+        assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 3] 3]
+        assert_equal {config set masterauth (redacted)} [lindex [lindex $slowlog_resp 2] 3]
+        assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 1] 3]
+        assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex $slowlog_resp 0] 3]
     } {} {needs:repl}
 
     test {SLOWLOG - Some commands can redact sensitive fields} {
@@ -70,13 +75,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r migrate [srv 0 host] [srv 0 port] key 9 5000
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH user
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH2 user password
+        r config set slowlog-log-slower-than -1
+        set slowlog_resp [r slowlog get]
 
-        r config set slowlog-log-slower-than 10000
         # Make sure all 3 commands were logged, but the sensitive fields are omitted
-        assert_equal 4 [llength [r slowlog get]]
-        assert_match {* key 9 5000} [lindex [lindex [r slowlog get] 2] 3]
-        assert_match {* key 9 5000 AUTH (redacted)} [lindex [lindex [r slowlog get] 1] 3]
-        assert_match {* key 9 5000 AUTH2 (redacted) (redacted)} [lindex [lindex [r slowlog get] 0] 3]
+        assert_equal 4 [llength $slowlog_resp]
+        assert_match {* key 9 5000} [lindex [lindex $slowlog_resp 2] 3]
+        assert_match {* key 9 5000 AUTH (redacted)} [lindex [lindex $slowlog_resp 1] 3]
+        assert_match {* key 9 5000 AUTH2 (redacted) (redacted)} [lindex [lindex $slowlog_resp 0] 3]
     } {} {needs:repl}
 
     test {SLOWLOG - Rewritten commands are logged as their original command} {
@@ -196,5 +202,27 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal 1 [llength [r slowlog get 1]]
         assert_equal 3 [llength [r slowlog get -1]]
         assert_equal 3 [llength [r slowlog get 3]]
+    }
+    
+     test {SLOWLOG - blocking command is reported only after unblocked} {
+        # Cleanup first
+        r del mylist
+        # create a test client
+        set rd [redis_deferring_client]
+        
+        # config the slowlog and reset
+        r config set slowlog-log-slower-than 0
+        r config set slowlog-max-len 110
+        r slowlog reset
+        
+        $rd BLPOP mylist 0
+        wait_for_blocked_clients_count 1 50 20
+        assert_equal 0 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
+        
+        r LPUSH mylist 1
+        wait_for_blocked_clients_count 0 50 20
+        assert_equal 1 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
+        
+        $rd close
     }
 }

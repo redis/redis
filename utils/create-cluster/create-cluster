@@ -28,7 +28,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        $BIN_PATH/redis-server --port $PORT  --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
+        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
 fi
@@ -95,20 +95,25 @@ fi
 
 if [ "$1" == "clean" ]
 then
+    echo "Cleaning *.log"
     rm -rf *.log
-    rm -rf appendonly*.aof
-    rm -rf dump*.rdb
-    rm -rf nodes*.conf
+    echo "Cleaning appendonlydir-*"
+    rm -rf appendonlydir-*
+    echo "Cleaning dump-*.rdb"
+    rm -rf dump-*.rdb
+    echo "Cleaning nodes-*.conf"
+    rm -rf nodes-*.conf
     exit 0
 fi
 
 if [ "$1" == "clean-logs" ]
 then
+    echo "Cleaning *.log"
     rm -rf *.log
     exit 0
 fi
 
-echo "Usage: $0 [start|create|stop|watch|tail|clean|call]"
+echo "Usage: $0 [start|create|stop|watch|tail|tailall|clean|clean-logs|call]"
 echo "start       -- Launch Redis Cluster instances."
 echo "create [-f] -- Create a cluster using redis-cli --cluster create."
 echo "stop        -- Stop Redis Cluster instances."

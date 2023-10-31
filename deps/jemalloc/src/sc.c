@@ -13,9 +13,7 @@
  * at least the damage is compartmentalized to this file.
  */
 
-sc_data_t sc_data_global;
-
-static size_t
+size_t
 reg_size_compute(int lg_base, int lg_delta, int ndelta) {
 	return (ZU(1) << lg_base) + (ZU(ndelta) << lg_delta);
 }
@@ -64,9 +62,8 @@ size_class(
 	sc->lg_base = lg_base;
 	sc->lg_delta = lg_delta;
 	sc->ndelta = ndelta;
-	sc->psz = (reg_size_compute(lg_base, lg_delta, ndelta)
-	    % (ZU(1) << lg_page) == 0);
-	size_t size = (ZU(1) << lg_base) + (ZU(ndelta) << lg_delta);
+	size_t size = reg_size_compute(lg_base, lg_delta, ndelta);
+	sc->psz = (size % (ZU(1) << lg_page) == 0);
 	if (index == 0) {
 		assert(!sc->psz);
 	}
@@ -245,7 +242,7 @@ size_classes(
 	assert(sc_data->lg_large_minclass == SC_LG_LARGE_MINCLASS);
 	assert(sc_data->large_maxclass == SC_LARGE_MAXCLASS);
 
-	/* 
+	/*
 	 * In the allocation fastpath, we want to assume that we can
 	 * unconditionally subtract the requested allocation size from
 	 * a ssize_t, and detect passing through 0 correctly.  This
@@ -257,12 +254,8 @@ size_classes(
 
 void
 sc_data_init(sc_data_t *sc_data) {
-	assert(!sc_data->initialized);
-
-	int lg_max_lookup = 12;
-
 	size_classes(sc_data, LG_SIZEOF_PTR, LG_QUANTUM, SC_LG_TINY_MIN,
-	    lg_max_lookup, LG_PAGE, 2);
+	    SC_LG_MAX_LOOKUP, LG_PAGE, SC_LG_NGROUP);
 
 	sc_data->initialized = true;
 }

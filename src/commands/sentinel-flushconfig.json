@@ -1,0 +1,20 @@
+{
+    "FLUSHCONFIG": {
+        "summary": "Rewrites the Redis Sentinel configuration file.",
+        "complexity": "O(1)",
+        "group": "sentinel",
+        "since": "2.8.4",
+        "arity": 2,
+        "container": "SENTINEL",
+        "function": "sentinelCommand",
+        "command_flags": [
+            "ADMIN",
+            "SENTINEL",
+            "ONLY_SENTINEL"
+        ],
+        "reply_schema": {
+            "const": "OK",
+            "description": "Force Sentinel to rewrite its configuration on disk, including the current Sentinel state."
+        }
+    }
+}
