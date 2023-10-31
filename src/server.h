@@ -676,11 +676,11 @@ typedef enum {
 /* The following macros provide assertions that are only executed during test builds and should be used to add 
  * assertions that are too computationally expensive or dangerous to run during normal operations.  */
 #ifdef DEBUG_ASSERTIONS
-#define serverAssertWithInfoDebug(...) serverAssertWithInfo(__VA_ARGS__)
-#define serverLogDebug(...) serverLog(__VA_ARGS__)
+#define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#define debugServerLog(...) serverLog(__VA_ARGS__)
 #else
-#define serverAssertWithInfoDebug(...)
-#define serverLogDebug(...)
+#define debugServerAssertWithInfo(...)
+#define debugServerLog(...)
 #endif
 
 /* latency histogram per command init settings */
