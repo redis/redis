@@ -38,7 +38,6 @@ void clusterInitListeners(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
-int verifyClusterNodeId(const char *name, int length);
 clusterNode *clusterLookupNode(const char *name, int length);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
