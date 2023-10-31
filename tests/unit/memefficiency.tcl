@@ -168,7 +168,6 @@ run_solo {defrag} {
         r config set appendonly no
         r config set key-load-delay 0
 
-        if {$type eq "standalone"} {
         test "Active defrag eval scripts: $type" {
             r flushdb
             r script flush sync
@@ -607,7 +606,6 @@ run_solo {defrag} {
                 assert {$digest eq $newdigest}
                 r save ;# saving an rdb iterates over all the data / pointers
             }
-        }
         }
     }
     }
