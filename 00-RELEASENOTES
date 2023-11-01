@@ -13,6 +13,20 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.2.3    Released Wed 01 Nov 2023 12:00:00 IST
+================================================================================
+
+Upgrade urgency: HIGH, Fixes critical bugs affecting most users.
+
+Bug fixes
+=========
+
+* Fix file descriptor leak preventing deleted files from freeing disk space on
+  replicas (#12693)
+* Fix a possible crash after cluster node removal (#12702)
+
+
+================================================================================
 Redis 7.2.2    Released Wed 18 Oct 2023 10:33:40 IDT
 ================================================================================
 
