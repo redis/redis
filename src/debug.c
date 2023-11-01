@@ -2611,7 +2611,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     char buff[PATH_MAX];
 
     /* Each thread is represented by a directory */
-    while ((nread =  getdents64(dir, buff, PATH_MAX))) {
+    while ((nread = syscall(SYS_getdents64, dir, buff, PATH_MAX))) {
         if (nread == -1) {
             serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory\n");
             return 0;
