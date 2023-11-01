@@ -161,9 +161,13 @@ proc create_aof_dir {dir_path} {
 }
 
 proc start_server_aof {overrides code} {
+    upvar defaults defaults srv srv server_path server_path aof_basename aof_basename aof_dirpath aof_dirpath aof_manifest_file aof_manifest_file aof_manifest_file2 aof_manifest_file2
+    set config [concat $defaults $overrides]
+    start_server [list overrides $config keep_persistence true] $code
+}
+
+proc start_server_aof_ex {overrides options code} {
     upvar defaults defaults srv srv server_path server_path
     set config [concat $defaults $overrides]
-    set srv [start_server [list overrides $config]]
-    uplevel 1 $code
-    kill_server $srv
+    start_server [concat [list overrides $config keep_persistence true] $options] $code
 }

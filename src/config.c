@@ -38,6 +38,7 @@
 #include <glob.h>
 #include <string.h>
 #include <locale.h>
+#include <ctype.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -79,6 +80,7 @@ configEnum loglevel_enum[] = {
     {"verbose", LL_VERBOSE},
     {"notice", LL_NOTICE},
     {"warning", LL_WARNING},
+    {"nothing", LL_NOTHING},
     {NULL,0}
 };
 
@@ -453,14 +455,13 @@ void loadServerConfigFromString(char *config) {
     const char *err = NULL;
     int linenum = 0, totlines, i;
     sds *lines;
+    sds *argv = NULL;
+    int argc;
 
     reading_config_file = 1;
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
-        sds *argv;
-        int argc;
-
         linenum = i+1;
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
@@ -477,6 +478,7 @@ void loadServerConfigFromString(char *config) {
         /* Skip this line if the resulting command vector is empty. */
         if (argc == 0) {
             sdsfreesplitres(argv,argc);
+            argv = NULL;
             continue;
         }
         sdstolower(argv[0]);
@@ -499,6 +501,7 @@ void loadServerConfigFromString(char *config) {
                 int new_argc;
                 new_argv = sdssplitargs(argv[1], &new_argc);
                 if (!config->interface.set(config, new_argv, new_argc, &err)) {
+                    if(new_argv) sdsfreesplitres(new_argv, new_argc);
                     goto loaderr;
                 }
                 sdsfreesplitres(new_argv, new_argc);
@@ -510,6 +513,7 @@ void loadServerConfigFromString(char *config) {
             }
 
             sdsfreesplitres(argv,argc);
+            argv = NULL;
             continue;
         } else {
             int match = 0;
@@ -524,6 +528,7 @@ void loadServerConfigFromString(char *config) {
             }
             if (match) {
                 sdsfreesplitres(argv,argc);
+                argv = NULL;
                 continue;
             }
         }
@@ -590,6 +595,7 @@ void loadServerConfigFromString(char *config) {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
+        argv = NULL;
     }
 
     if (server.logfile[0] != '\0') {
@@ -627,6 +633,7 @@ void loadServerConfigFromString(char *config) {
     return;
 
 loaderr:
+    if (argv) sdsfreesplitres(argv,argc);
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR (Redis %s) ***\n",
         REDIS_VERSION);
     if (i < totlines) {
@@ -1684,7 +1691,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         return retval;
     }
 
-#ifdef _GNU_SOURCE
+#if defined(_GNU_SOURCE) && !defined(__HAIKU__)
     fd = mkostemp(tmp_conffile, O_CLOEXEC);
 #else
     /* There's a theoretical chance here to leak the FD if a module thread forks & execv in the middle */
@@ -2377,6 +2384,14 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
     return 1;
 }
 
+static int isValidAnnouncedNodename(char *val,const char **err) {
+    if (!(isValidAuxString(val,sdslen(val)))) {
+        *err = "Announced human node name contained invalid character";
+        return 0;
+    }
+    return 1;
+}
+
 static int isValidAnnouncedHostname(char *val, const char **err) {
     if (strlen(val) >= NET_HOST_STR_LEN) {
         *err = "Hostnames must be less than "
@@ -2513,9 +2528,9 @@ static int updateAofAutoGCEnabled(const char **err) {
 static int updateSighandlerEnabled(const char **err) {
     UNUSED(err);
     if (server.crashlog_enabled)
-        setupSignalHandlers();
+        setupSigSegvHandler();
     else
-        removeSignalHandlers();
+        removeSigSegvHandlers();
     return 1;
 }
 
@@ -2625,6 +2640,12 @@ static int updateClusterIp(const char **err) {
 int updateClusterHostname(const char **err) {
     UNUSED(err);
     clusterUpdateMyselfHostname();
+    return 1;
+}
+
+int updateClusterHumanNodename(const char **err) {
+    UNUSED(err);
+    clusterUpdateMyselfHumanNodename();
     return 1;
 }
 
@@ -3072,7 +3093,7 @@ standardConfig static_configs[] = {
     createBoolConfig("cluster-allow-replica-migration", NULL, MODIFIABLE_CONFIG, server.cluster_allow_replica_migration, 1, NULL, NULL),
     createBoolConfig("replica-announced", NULL, MODIFIABLE_CONFIG, server.replica_announced, 1, NULL, NULL),
     createBoolConfig("latency-tracking", NULL, MODIFIABLE_CONFIG, server.latency_tracking_enabled, 1, NULL, NULL),
-    createBoolConfig("aof-disable-auto-gc", NULL, MODIFIABLE_CONFIG, server.aof_disable_auto_gc, 0, NULL, updateAofAutoGCEnabled),
+    createBoolConfig("aof-disable-auto-gc", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.aof_disable_auto_gc, 0, NULL, updateAofAutoGCEnabled),
     createBoolConfig("replica-ignore-disk-write-errors", NULL, MODIFIABLE_CONFIG, server.repl_ignore_disk_write_error, 0, NULL, NULL),
 
     /* String Configs */
@@ -3084,6 +3105,7 @@ standardConfig static_configs[] = {
     createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
     createStringConfig("cluster-announce-hostname", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_hostname, NULL, isValidAnnouncedHostname, updateClusterHostname),
+    createStringConfig("cluster-announce-human-nodename", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_human_nodename, NULL, isValidAnnouncedNodename, updateClusterHumanNodename),
     createStringConfig("syslog-ident", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.syslog_ident, "redis", NULL, NULL),
     createStringConfig("dbfilename", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG, ALLOW_EMPTY_STRING, server.rdb_filename, "dump.rdb", isValidDBfilename, NULL),
     createStringConfig("appendfilename", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.aof_filename, "appendonly.aof", isValidAOFfilename, NULL),

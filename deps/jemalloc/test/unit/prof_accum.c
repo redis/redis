@@ -1,12 +1,15 @@
 #include "test/jemalloc_test.h"
 
+#include "jemalloc/internal/prof_data.h"
+#include "jemalloc/internal/prof_sys.h"
+
 #define NTHREADS		4
 #define NALLOCS_PER_THREAD	50
 #define DUMP_INTERVAL		1
 #define BT_COUNT_CHECK_INTERVAL	5
 
 static int
-prof_dump_open_intercept(bool propagate_err, const char *filename) {
+prof_dump_open_file_intercept(const char *filename, int mode) {
 	int fd;
 
 	fd = open("/dev/null", O_WRONLY);
@@ -32,14 +35,14 @@ thd_start(void *varg) {
 		void *p = alloc_from_permuted_backtrace(thd_ind, i);
 		dallocx(p, 0);
 		if (i % DUMP_INTERVAL == 0) {
-			assert_d_eq(mallctl("prof.dump", NULL, NULL, NULL, 0),
+			expect_d_eq(mallctl("prof.dump", NULL, NULL, NULL, 0),
 			    0, "Unexpected error while dumping heap profile");
 		}
 
 		if (i % BT_COUNT_CHECK_INTERVAL == 0 ||
 		    i+1 == NALLOCS_PER_THREAD) {
 			bt_count = prof_bt_count();
-			assert_zu_le(bt_count_prev+(i-i_prev), bt_count,
+			expect_zu_le(bt_count_prev+(i-i_prev), bt_count,
 			    "Expected larger backtrace count increase");
 			i_prev = i;
 			bt_count_prev = bt_count;
@@ -58,11 +61,11 @@ TEST_BEGIN(test_idump) {
 	test_skip_if(!config_prof);
 
 	active = true;
-	assert_d_eq(mallctl("prof.active", NULL, NULL, (void *)&active,
+	expect_d_eq(mallctl("prof.active", NULL, NULL, (void *)&active,
 	    sizeof(active)), 0,
 	    "Unexpected mallctl failure while activating profiling");
 
-	prof_dump_open = prof_dump_open_intercept;
+	prof_dump_open_file = prof_dump_open_file_intercept;
 
 	for (i = 0; i < NTHREADS; i++) {
 		thd_args[i] = i;

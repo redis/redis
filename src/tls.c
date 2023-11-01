@@ -211,6 +211,7 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
     SSL_CTX *ctx = NULL;
 
     ctx = SSL_CTX_new(SSLv23_method());
+    if (!ctx) goto error;
 
     SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 
@@ -462,6 +463,7 @@ static connection *createTLSConnection(int client_side) {
     tls_connection *conn = zcalloc(sizeof(tls_connection));
     conn->c.type = &CT_TLS;
     conn->c.fd = -1;
+    conn->c.iovcnt = IOV_MAX;
     conn->ssl = SSL_new(ctx);
     return (connection *) conn;
 }

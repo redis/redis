@@ -1,7 +1,7 @@
 {
     "PSUBSCRIBE": {
         "summary": "Listens for messages published to channels that match one or more patterns.",
-        "complexity": "O(N) where N is the number of patterns the client is already subscribed to.",
+        "complexity": "O(N) where N is the number of patterns to subscribe to.",
         "group": "pubsub",
         "since": "2.0.0",
         "arity": -2,

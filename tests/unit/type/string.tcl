@@ -234,6 +234,11 @@ start_server {tags {"string"}} {
         assert_error {*wrong number of arguments for 'msetnx' command} {r msetnx x{t} 20 y{t} "foo bar" z{t}}
     }
 
+    test {MSET with already existing - same key twice} {
+        r set x{t} x
+        list [r mset x{t} xxx x{t} yyy] [r get x{t}]
+    } {OK yyy}
+
     test {MSETNX with already existent key} {
         list [r msetnx x1{t} xxx y2{t} yyy x{t} 20] [r exists x1{t}] [r exists y2{t}]
     } {0 0 0}
@@ -651,4 +656,19 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
            }
         }
     }
+
+    test {APPEND modifies the encoding from int to raw} {
+        r del foo
+        r set foo 1
+        assert_encoding "int" foo
+        r append foo 2
+
+        set res {}
+        lappend res [r get foo]
+        assert_encoding "raw" foo
+        
+        r set bar 12
+        assert_encoding "int" bar
+        lappend res [r get bar]
+    } {12 12}
 }

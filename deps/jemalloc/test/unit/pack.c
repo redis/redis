@@ -22,7 +22,7 @@ binind_compute(void) {
 	unsigned nbins, i;
 
 	sz = sizeof(nbins);
-	assert_d_eq(mallctl("arenas.nbins", (void *)&nbins, &sz, NULL, 0), 0,
+	expect_d_eq(mallctl("arenas.nbins", (void *)&nbins, &sz, NULL, 0), 0,
 	    "Unexpected mallctl failure");
 
 	for (i = 0; i < nbins; i++) {
@@ -30,12 +30,12 @@ binind_compute(void) {
 		size_t miblen = sizeof(mib)/sizeof(size_t);
 		size_t size;
 
-		assert_d_eq(mallctlnametomib("arenas.bin.0.size", mib,
+		expect_d_eq(mallctlnametomib("arenas.bin.0.size", mib,
 		    &miblen), 0, "Unexpected mallctlnametomb failure");
 		mib[2] = (size_t)i;
 
 		sz = sizeof(size);
-		assert_d_eq(mallctlbymib(mib, miblen, (void *)&size, &sz, NULL,
+		expect_d_eq(mallctlbymib(mib, miblen, (void *)&size, &sz, NULL,
 		    0), 0, "Unexpected mallctlbymib failure");
 		if (size == SZ) {
 			return i;
@@ -54,11 +54,11 @@ nregs_per_run_compute(void) {
 	size_t mib[4];
 	size_t miblen = sizeof(mib)/sizeof(size_t);
 
-	assert_d_eq(mallctlnametomib("arenas.bin.0.nregs", mib, &miblen), 0,
+	expect_d_eq(mallctlnametomib("arenas.bin.0.nregs", mib, &miblen), 0,
 	    "Unexpected mallctlnametomb failure");
 	mib[2] = (size_t)binind;
 	sz = sizeof(nregs);
-	assert_d_eq(mallctlbymib(mib, miblen, (void *)&nregs, &sz, NULL,
+	expect_d_eq(mallctlbymib(mib, miblen, (void *)&nregs, &sz, NULL,
 	    0), 0, "Unexpected mallctlbymib failure");
 	return nregs;
 }
@@ -69,7 +69,7 @@ arenas_create_mallctl(void) {
 	size_t sz;
 
 	sz = sizeof(arena_ind);
-	assert_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz, NULL, 0),
+	expect_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz, NULL, 0),
 	    0, "Error in arenas.create");
 
 	return arena_ind;
@@ -80,10 +80,10 @@ arena_reset_mallctl(unsigned arena_ind) {
 	size_t mib[3];
 	size_t miblen = sizeof(mib)/sizeof(size_t);
 
-	assert_d_eq(mallctlnametomib("arena.0.reset", mib, &miblen), 0,
+	expect_d_eq(mallctlnametomib("arena.0.reset", mib, &miblen), 0,
 	    "Unexpected mallctlnametomib() failure");
 	mib[1] = (size_t)arena_ind;
-	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
+	expect_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
 	    "Unexpected mallctlbymib() failure");
 }
 
@@ -105,7 +105,7 @@ TEST_BEGIN(test_pack) {
 		for (j = 0; j < nregs_per_run; j++) {
 			void *p = mallocx(SZ, MALLOCX_ARENA(arena_ind) |
 			    MALLOCX_TCACHE_NONE);
-			assert_ptr_not_null(p,
+			expect_ptr_not_null(p,
 			    "Unexpected mallocx(%zu, MALLOCX_ARENA(%u) |"
 			    " MALLOCX_TCACHE_NONE) failure, run=%zu, reg=%zu",
 			    SZ, arena_ind, i, j);
@@ -148,7 +148,7 @@ TEST_BEGIN(test_pack) {
 			}
 			p = mallocx(SZ, MALLOCX_ARENA(arena_ind) |
 			    MALLOCX_TCACHE_NONE);
-			assert_ptr_eq(p, ptrs[(i * nregs_per_run) + j],
+			expect_ptr_eq(p, ptrs[(i * nregs_per_run) + j],
 			    "Unexpected refill discrepancy, run=%zu, reg=%zu\n",
 			    i, j);
 		}

@@ -1,7 +1,7 @@
 {
     "UNSUBSCRIBE": {
         "summary": "Stops listening to messages posted to channels.",
-        "complexity": "O(N) where N is the number of clients already subscribed to a channel.",
+        "complexity": "O(N) where N is the number of channels to unsubscribe.",
         "group": "pubsub",
         "since": "2.0.0",
         "arity": -1,

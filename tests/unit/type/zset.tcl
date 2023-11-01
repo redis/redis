@@ -132,7 +132,7 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSET element can't be set to NaN with ZINCRBY - $encoding" {
-            assert_error "*not*float*" {r zadd myzset nan abc}
+            assert_error "*not*float*" {r zincrby myzset nan abc}
         }
 
         test "ZADD with options syntax error with incomplete pair - $encoding" {
@@ -450,7 +450,7 @@ start_server {tags {"zset"}} {
             assert_equal $nullres [r zrevrank zranktmp foo]
             r readraw 0
 
-            # withscores
+            # withscore
             set nullres {*-1}
             if {$::force_resp3} {
                 set nullres {_}
@@ -504,6 +504,13 @@ start_server {tags {"zset"}} {
 
         proc create_default_zset {} {
             create_zset zset {-inf a 1 b 2 c 3 d 4 e 5 f +inf g}
+        }
+
+        proc create_long_zset {key length} {
+            r del $key
+            for {set i 0} {$i < $length} {incr i 1} {
+                r zadd $key $i i$i
+            }
         }
 
         test "ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZCOUNT basics - $encoding" {
@@ -574,6 +581,16 @@ start_server {tags {"zset"}} {
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 3]
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 10]
             assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT 20 10]
+            # zrangebyscore uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            create_long_zset zset 30
+            assert_equal {i12 i13 i14} [r zrangebyscore zset 0 20 LIMIT 12 3]
+            assert_equal {i14 i15}     [r zrangebyscore zset 0 20 LIMIT 14 2]
+            assert_equal {i19 i20 i21} [r zrangebyscore zset 0 30 LIMIT 19 3]
+            assert_equal {i29}     [r zrangebyscore zset 10 30 LIMIT 19 2]
+            assert_equal {i17 i16 i15} [r zrevrangebyscore zset 30 10 LIMIT 12 3]
+            assert_equal {i6 i5}       [r zrevrangebyscore zset 20 0 LIMIT 14 2]
+            assert_equal {i2 i1 i0}    [r zrevrangebyscore zset 20 0 LIMIT 18 5]
+            assert_equal {i0}          [r zrevrangebyscore zset 20 0 LIMIT 20 5]
         }
 
         test "ZRANGEBYSCORE with LIMIT and WITHSCORES - $encoding" {
@@ -593,6 +610,14 @@ start_server {tags {"zset"}} {
             create_zset zset {0 alpha 0 bar 0 cool 0 down
                               0 elephant 0 foo 0 great 0 hill
                               0 omega}
+        }
+
+        proc create_long_lex_zset {} {
+            create_zset zset {0 alpha 0 bar 0 cool 0 down
+                              0 elephant 0 foo 0 great 0 hill
+                              0 island 0 jacket 0 key 0 lip 
+                              0 max 0 null 0 omega 0 point
+                              0 query 0 result 0 sea 0 tree}
         }
 
         test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics - $encoding" {
@@ -640,7 +665,7 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zlexcount zset (maxstring +]
         }
 
-        test "ZRANGEBYSLEX with LIMIT - $encoding" {
+        test "ZRANGEBYLEX with LIMIT - $encoding" {
             create_default_lex_zset
             assert_equal {alpha bar} [r zrangebylex zset - \[cool LIMIT 0 2]
             assert_equal {bar cool} [r zrangebylex zset - \[cool LIMIT 1 2]
@@ -651,6 +676,22 @@ start_server {tags {"zset"}} {
             assert_equal {bar cool down} [r zrangebylex zset \[bar \[down LIMIT 0 100]
             assert_equal {omega hill great foo elephant} [r zrevrangebylex zset + \[d LIMIT 0 5]
             assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
+            assert_equal {great foo elephant} [r zrevrangebylex zset + \[d LIMIT 2 3]
+            # zrangebylex uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            create_long_lex_zset
+            assert_equal {max null} [r zrangebylex zset - \[tree LIMIT 12 2]
+            assert_equal {point query} [r zrangebylex zset - \[tree LIMIT 15 2]
+            assert_equal {} [r zrangebylex zset \[max \[tree LIMIT 10 0]
+            assert_equal {} [r zrangebylex zset \[max \[tree LIMIT 12 0]
+            assert_equal {max} [r zrangebylex zset \[max \[null LIMIT 0 1]
+            assert_equal {null} [r zrangebylex zset \[max \[null LIMIT 1 1]
+            assert_equal {max null omega point} [r zrangebylex zset \[max \[point LIMIT 0 100]
+            assert_equal {tree sea result query point} [r zrevrangebylex zset + \[o LIMIT 0 5]
+            assert_equal {tree sea result query} [r zrevrangebylex zset + \[o LIMIT 0 4]
+            assert_equal {omega null max lip} [r zrevrangebylex zset + \[l LIMIT 5 4]
+            assert_equal {elephant down} [r zrevrangebylex zset + \[a LIMIT 15 2]
+            assert_equal {bar alpha} [r zrevrangebylex zset + - LIMIT 18 6]
+            assert_equal {hill great foo} [r zrevrangebylex zset + \[c LIMIT 12 3]
         }
 
         test "ZRANGEBYLEX with invalid lex range specifiers - $encoding" {
@@ -2285,7 +2326,9 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries 0
         r del z1{t} z2{t}
         r zadd z1{t} 1 a
+        assert_encoding skiplist z1{t}
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
+        assert_encoding skiplist z2{t}
         r config set zset-max-listpack-entries $original_max
     }
 
@@ -2615,5 +2658,38 @@ start_server {tags {"zset"}} {
         r config set set-max-intset-entries 512
         r config set set-max-listpack-entries 128
         r config set zset-max-listpack-entries 128
+    }
+
+    foreach type {single multiple single_multiple} {
+        test "ZADD overflows the maximum allowed elements in a listpack - $type" {
+            r del myzset
+
+            set max_entries 64
+            set original_max [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries $max_entries
+
+            if {$type == "single"} {
+                # All are single zadd commands.
+                for {set i 0} {$i < $max_entries} {incr i} { r zadd myzset $i $i }
+            } elseif {$type == "multiple"} {
+                # One zadd command to add all elements.
+                set args {}
+                for {set i 0} {$i < $max_entries * 2} {incr i} { lappend args $i }
+                r zadd myzset {*}$args
+            } elseif {$type == "single_multiple"} {
+                # First one zadd adds an element (creates a key) and then one zadd adds all elements.
+                r zadd myzset 1 1
+                set args {}
+                for {set i 0} {$i < $max_entries * 2} {incr i} { lappend args $i }
+                r zadd myzset {*}$args
+            }
+
+            assert_encoding listpack myzset
+            assert_equal $max_entries [r zcard myzset]
+            assert_equal 1 [r zadd myzset 1 b]
+            assert_encoding skiplist myzset
+
+            r config set zset-max-listpack-entries $original_max
+        }
     }
 }

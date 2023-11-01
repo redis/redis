@@ -219,7 +219,7 @@ int serverPubsubShardSubscriptionCount(void) {
 
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
-    return dictSize(c->pubsub_channels) + listLength(c->pubsub_patterns);
+    return dictSize(c->pubsub_channels) + dictSize(c->pubsub_patterns);
 }
 
 /* Return the number of shard level channels a client is subscribed to. */
@@ -345,9 +345,8 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
     list *clients;
     int retval = 0;
 
-    if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
+    if (dictAdd(c->pubsub_patterns, pattern, NULL) == DICT_OK) {
         retval = 1;
-        listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
         /* Add the client to the pattern -> list of clients hash table */
         de = dictFind(server.pubsub_patterns,pattern);
@@ -374,9 +373,8 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     int retval = 0;
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
-    if ((ln = listSearchKey(c->pubsub_patterns,pattern)) != NULL) {
+    if (dictDelete(c->pubsub_patterns, pattern) == DICT_OK) {
         retval = 1;
-        listDelNode(c->pubsub_patterns,ln);
         /* Remove the client from the pattern -> clients list hash table */
         de = dictFind(server.pubsub_patterns,pattern);
         serverAssertWithInfo(c,NULL,de != NULL);
@@ -448,16 +446,20 @@ void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count) {
 /* Unsubscribe from all the patterns. Return the number of patterns the
  * client was subscribed from. */
 int pubsubUnsubscribeAllPatterns(client *c, int notify) {
-    listNode *ln;
-    listIter li;
     int count = 0;
 
-    listRewind(c->pubsub_patterns,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        robj *pattern = ln->value;
+    if (dictSize(c->pubsub_patterns) > 0) {
+        dictIterator *di = dictGetSafeIterator(c->pubsub_patterns);
+        dictEntry *de;
 
-        count += pubsubUnsubscribePattern(c,pattern,notify);
+        while ((de = dictNext(di)) != NULL) {
+            robj *pattern = dictGetKey(de);
+            count += pubsubUnsubscribePattern(c, pattern, notify);
+        }
+        dictReleaseIterator(di);
     }
+
+    /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) addReplyPubsubPatUnsubscribed(c,NULL);
     return count;
 }
@@ -743,7 +745,7 @@ void sunsubscribeCommand(client *c) {
 
 size_t pubsubMemOverhead(client *c) {
     /* PubSub patterns */
-    size_t mem = listLength(c->pubsub_patterns) * sizeof(listNode);
+    size_t mem = dictMemUsage(c->pubsub_patterns);
     /* Global PubSub channels */
     mem += dictMemUsage(c->pubsub_channels);
     /* Sharded PubSub channels */

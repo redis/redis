@@ -9,6 +9,7 @@
         "function": "clusterCommand",
         "history": [],
         "command_flags": [
+            "LOADING",
             "STALE"
         ],
         "command_tips": [
@@ -25,7 +26,7 @@
                         "description": "an even number element array specifying the start and end slot numbers for slot ranges owned by this shard",
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "type": "integer"
                         }
                     },
                     "nodes": {

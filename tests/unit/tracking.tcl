@@ -876,7 +876,7 @@ start_server {tags {"tracking network logreqres:skip"}} {
     $rd close
 }
 
-# Just some extra covergae for --log-req-res, because we do not
+# Just some extra coverage for --log-req-res, because we do not
 # run the full tracking unit in that mode
 start_server {tags {"tracking network"}} {
     test {Coverage: Basic CLIENT CACHING} {

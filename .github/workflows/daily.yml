@@ -870,6 +870,35 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
+  build-macos:
+    strategy:
+      matrix:
+        os: [macos-11, macos-13]
+    runs-on: ${{ matrix.os }}
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'macos')
+    timeout-minutes: 14400
+    steps:
+    - uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v3
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+
   test-freebsd:
     runs-on: macos-12
     if: |
@@ -891,7 +920,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: vmactions/freebsd-vm@v0.3.0
+      uses: vmactions/freebsd-vm@v0.3.1
       with:
         usesh: true
         sync: rsync
@@ -923,7 +952,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: vmactions/freebsd-vm@v0.3.0
+      uses: vmactions/freebsd-vm@v0.3.1
       with:
         usesh: true
         sync: rsync
@@ -954,7 +983,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: vmactions/freebsd-vm@v0.3.0
+      uses: vmactions/freebsd-vm@v0.3.1
       with:
         usesh: true
         sync: rsync
