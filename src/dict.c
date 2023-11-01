@@ -259,6 +259,8 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
     if (d->ht_table[0] == NULL) {
+        if (d->type->rehashingStarted) d->type->rehashingStarted(d);
+        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
         d->ht_size_exp[0] = new_ht_size_exp;
         d->ht_used[0] = new_ht_used;
         d->ht_table[0] = new_ht_table;
@@ -369,6 +371,7 @@ int dictRehash(dict *d, int n) {
 
     /* Check if we already rehashed the whole table... */
     if (d->ht_used[0] == 0) {
+        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
         zfree(d->ht_table[0]);
         /* Copy the new ht onto the old one */
         d->ht_table[0] = d->ht_table[1];
@@ -560,6 +563,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue;
         he = d->ht_table[table][idx];
         prevHe = NULL;
         while(he) {
@@ -669,6 +673,7 @@ dictEntry *dictFind(dict *d, const void *key)
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue; 
         he = d->ht_table[table][idx];
         while(he) {
             void *he_key = dictGetKey(he);
@@ -1447,6 +1452,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
         return NULL;
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue; 
         /* Search if this slot does not already contain the given key */
         he = d->ht_table[table][idx];
         while(he) {
@@ -1493,6 +1499,7 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue;
         he = d->ht_table[table][idx];
         while(he) {
             if (oldptr == dictGetKey(he))
@@ -1502,6 +1509,21 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
         if (!dictIsRehashing(d)) return NULL;
     }
     return NULL;
+}
+
+/* Provides the old and new ht size for a given dictionary during rehashing. This method
+ * should only be invoked during initialization/rehashing. */
+void dictRehashingInfo(dict *d, unsigned long long *from_size, unsigned long long *to_size) {
+    /* Expansion during initialization. */
+    if (d->ht_size_exp[0] == -1) {
+        *from_size = DICTHT_SIZE(d->ht_size_exp[0]);
+        *to_size = DICTHT_SIZE(DICT_HT_INITIAL_EXP);
+        return;
+    }
+    /* Invalid method usage if rehashing isn't ongoing. */
+    assert(dictIsRehashing(d));
+    *from_size = DICTHT_SIZE(d->ht_size_exp[0]);
+    *to_size = DICTHT_SIZE(d->ht_size_exp[1]);
 }
 
 /* ------------------------------- Debugging ---------------------------------*/

@@ -430,6 +430,30 @@ proc test_scan {type} {
             }
         }
     }
+
+    test "{$type} SCAN MATCH pattern implies cluster slot" {
+        # Tests the code path for an optimization for patterns like "{foo}-*"
+        # which implies that all matching keys belong to one slot.
+        r flushdb
+        for {set j 0} {$j < 100} {incr j} {
+            r set "{foo}-$j" "foo"; # slot 12182
+            r set "{bar}-$j" "bar"; # slot 5061
+            r set "{boo}-$j" "boo"; # slot 13142
+        }
+
+        set cursor 0
+        set keys {}
+        while 1 {
+            set res [r scan $cursor match "{foo}-*"]
+            set cursor [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cursor == 0} break
+        }
+
+        set keys [lsort -unique $keys]
+        assert_equal 100 [llength $keys]
+    }
 }
 
 start_server {tags {"scan network standalone"}} {
