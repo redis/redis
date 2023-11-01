@@ -55,7 +55,7 @@ void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
-int clusterNodeGetSlotBit(clusterNode *n, int slot);
+int clusterNodeCoversSlot(clusterNode *n, int slot);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
@@ -4065,7 +4065,7 @@ void clusterFailoverReplaceYourMaster(void) {
 
     /* 2) Claim all the slots assigned to our master. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
-        if (clusterNodeGetSlotBit(oldmaster,j)) {
+        if (clusterNodeCoversSlot(oldmaster, j)) {
             clusterDelSlot(j);
             clusterAddSlot(myself,j);
         }
@@ -4843,7 +4843,7 @@ int clusterNodeClearSlotBit(clusterNode *n, int slot) {
 }
 
 /* Return the slot bit from the cluster node structure. */
-int clusterNodeGetSlotBit(clusterNode *n, int slot) {
+int clusterNodeCoversSlot(clusterNode *n, int slot) {
     return bitmapTestBit(n->slots,slot);
 }
 
@@ -4882,7 +4882,7 @@ int clusterDelNodeSlots(clusterNode *node) {
     int deleted = 0, j;
 
     for (j = 0; j < CLUSTER_SLOTS; j++) {
-        if (clusterNodeGetSlotBit(node,j)) {
+        if (clusterNodeCoversSlot(node, j)) {
             clusterDelSlot(j);
             deleted++;
         }
@@ -5234,7 +5234,7 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary) {
         for (j = 0; j < CLUSTER_SLOTS; j++) {
             int bit;
 
-            if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
+            if ((bit = clusterNodeCoversSlot(node, j)) != 0) {
                 if (start == -1) start = j;
             }
             if (start != -1 && (!bit || j == CLUSTER_SLOTS-1)) {

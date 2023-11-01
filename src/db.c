@@ -2197,7 +2197,7 @@ int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_exp
     dict *d;
     if (server.cluster_enabled) {
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
-            if (clusterNodeGetSlotBit(getMyClusterNode(), i)) {
+            if (clusterNodeCoversSlot(getMyClusterNode(), i)) {
                 /* We don't know exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */ 
                 if (keyType == DB_MAIN) {
                     d = db->dict[i];
