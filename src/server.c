@@ -167,63 +167,7 @@ void _serverLog(int level, const char *fmt, ...) {
     serverLogRaw(level,msg);
 }
 
-/** If level is not LL_RAW, prints the log header "<pid>:signal-handler (<time>)" 
- * (without a newline character) and returns the log fd. */
-int serverLogFromHandler_Start(int level) {
-    int fd;
-    int log_to_stdout = server.logfile[0] == '\0';
-    char buf[64];
-
-    if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
-        return -1;
-    fd = log_to_stdout ? STDOUT_FILENO :
-                         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
-    if (fd == -1) return -1;
-    if (!(level & LL_RAW)) {
-        ll2string(buf,sizeof(buf),getpid());
-        if (write(fd,buf,strlen(buf)) == -1) goto err;
-        if (write(fd,":signal-handler (",17) == -1) goto err;
-        ll2string(buf,sizeof(buf),time(NULL));
-        if (write(fd,buf,strlen(buf)) == -1) goto err;
-        if (write(fd,") ",2) == -1) goto err;
-        
-    }
-    return fd;
-err:
-    if (!log_to_stdout) close(fd);
-    return -1;
-}
-
-/** writes msg to fd. On success, the number of bytes written is returned.  
- * On error, -1 is returned and if fd is not stdoud, it will is closed.  */
-int serverLogFromHandler_WriteMsg(int fd, const char *msg) {
-    int ret = fd;
-    if (-1 == write(fd,msg,strlen(msg))) {
-        if (!(fd == STDOUT_FILENO)) close(fd);
-        ret = -1;
-    }
-    return ret;
-}
-
-/* Prints a new line and closes fd */
-void serverLogFromHandler_End(int fd) {
-    if (write(fd,"\n",1) == -1) {/* Avoid warnings */}   
-    if (!(fd == STDOUT_FILENO)) close(fd);
-}
-
-/** Log a fixed message without printf-alike capabilities, in a way that is
- * safe to call from a signal handler. 
- * This function wraps serverLogFromHandler_Start, serverLogFromHandler_WriteMsg,
- * serverLogFromHandler_End. We splitted it into 3 function so we can use multiple 
- * calls to serverLogFromHandler_WriteMsg as an alternative to the signal-handler-unsafe snprintf(). */
-void serverLogFromHandler(int level, const char *msg) {
-    int fd;
-    if (-1 == (fd = serverLogFromHandler_Start(level))) return;
-    if (-1 == serverLogFromHandler_WriteMsg(fd, msg)) return;
-    serverLogFromHandler_End(fd);
-
-}
-void serverLogFromHandler_orig(int level, const char *msg) {
+static void _serverLogFromHandler(int level, const char *msg) {
     int fd;
     int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];
@@ -233,16 +177,30 @@ void serverLogFromHandler_orig(int level, const char *msg) {
     fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
-    ll2string(buf,sizeof(buf),getpid());
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,":signal-handler (",17) == -1) goto err;
-    ll2string(buf,sizeof(buf),time(NULL));
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,") ",2) == -1) goto err;
+    if (!(level & LL_RAW)) {
+        ll2string(buf,sizeof(buf),getpid());
+        if (write(fd,buf,strlen(buf)) == -1) goto err;
+        if (write(fd,":signal-handler (",17) == -1) goto err;
+        ll2string(buf,sizeof(buf),time(NULL));
+        if (write(fd,buf,strlen(buf)) == -1) goto err;
+        if (write(fd,") ",2) == -1) goto err;
+    }
     if (write(fd,msg,strlen(msg)) == -1) goto err;
     if (write(fd,"\n",1) == -1) goto err;
 err:
     if (!log_to_stdout) close(fd);
+}
+
+void serverLogFromHandler(int level, const char *fmt, ...) {
+    va_list ap;
+    char msg[LOG_MAX_LEN];
+
+    va_start(ap, fmt);
+    _safe_vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+
+
+    _serverLogFromHandler(level, msg);
 }
 
 /* Return the UNIX time in microseconds */

@@ -1824,11 +1824,12 @@ void closeDirectLogFiledes(int fd) {
 #define BACKTRACE_MAX_SIZE 100
 
 #ifdef __linux__
-//#define _GNU_SOURCE
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 #include <sys/prctl.h>
 #include <unistd.h>
 #include <sys/syscall.h>
-//#include <sys/types.h>
 #include <dirent.h>
 
 #define TIDS_MAX_SIZE 50
@@ -2551,8 +2552,7 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
     int thread_status_file = open(path_buff, O_RDONLY);
     char buff[PATH_MAX];
     if (thread_status_file == -1) {
-        _safe_snprintf(buff, PATH_MAX, "tid:%s: failed to open %s file", tid, path_buff);
-        serverLogFromHandler(LL_WARNING, buff);
+        serverLogFromHandler(LL_WARNING, "tid:%s: failed to open %s file", tid, path_buff);
         return 0;
     }
 
@@ -2584,8 +2584,7 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
     /* if we reached EOF, it means we haven't found SigBlk or/and SigIgn, something is wrong */
     if (line == NULL)  {
         ret = 0;
-        _safe_snprintf(buff, PATH_MAX, "tid:%s: failed to find SigBlk or/and SigIgn field(s) in %s/%s/status file", tid, proc_pid_task_path, tid);
-        serverLogFromHandler(LL_WARNING, buff);
+        serverLogFromHandler(LL_WARNING, "tid:%s: failed to find SigBlk or/and SigIgn field(s) in %s/%s/status file", tid, proc_pid_task_path, tid);
     }
     return ret;
 }
@@ -2613,7 +2612,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     /* Each thread is represented by a directory */
     while ((nread = syscall(SYS_getdents64, dir, buff, PATH_MAX))) {
         if (nread == -1) {
-            serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory\n");
+            serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory");
             return 0;
         }
         for (long pos = 0; pos < nread;) {
@@ -2623,12 +2622,8 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
             /* the thread's directory name is equivalent to its tid. */
-            printf("entry->d_name = %s, strlen(entry->d_name) = %zu\n", entry->d_name, strlen(entry->d_name));
             long tid;
-            if (!string2l(entry->d_name, strlen(entry->d_name), &tid)) {
-            printf("can't convert %s with len = %zu\n", entry->d_name, strlen(entry->d_name));
-
-            }
+           string2l(entry->d_name, strlen(entry->d_name), &tid);
 
             if(!is_thread_ready_to_signal(path_buff, entry->d_name, sig_num)) continue;
 
@@ -2641,7 +2636,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
         }
         /* Stop if we reached the maximum threads number. */
         if(tids_count == TIDS_MAX_SIZE) {
-            serverLogFromHandler(LL_WARNING,"get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
+            serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
             break;
         }
     }

@@ -3081,10 +3081,7 @@ void _serverLog(int level, const char *fmt, ...)
 void _serverLog(int level, const char *fmt, ...);
 #endif
 void serverLogRaw(int level, const char *msg);
-int serverLogFromHandler_Start(int level);
-int serverLogFromHandler_WriteMsg(int fd, const char *msg);
-void serverLogFromHandler_End(int fd);
-void serverLogFromHandler(int level, const char *msg);
+void serverLogFromHandler(int level, const char *fmt, ...);
 void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
