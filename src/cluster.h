@@ -78,4 +78,5 @@ int clusterNodeIsFailing(clusterNode *node);
 int clusterNodeIsNoFailover(clusterNode *node);
 
 char **clusterDebugCommandHelp(void);
+ConnectionType *connTypeOfCluster(void);
 #endif /* __CLUSTER_H */
