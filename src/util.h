@@ -89,6 +89,7 @@ sds makePath(char *path, char *filename);
 int fsyncFileDir(const char *filename);
 int reclaimFilePageCache(int fd, size_t offset, size_t length);
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd);
+int _safe_snprintf(char *to, size_t n, const char *fmt, ...);
 
 size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
 size_t redis_strlcat(char *dst, const char *src, size_t dsize);

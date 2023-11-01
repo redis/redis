@@ -1897,7 +1897,7 @@ static void writeStacktraces(int fd, int uplevel) {
         }
 
         /* stacktrace header includes the tid and the thread's name */
-        snprintf(buff, PATH_MAX, "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
+        _safe_snprintf(buff, PATH_MAX, "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
         /* skip kernel call to the signal handler, the signal handler and the callback addresses */
@@ -1907,19 +1907,17 @@ static void writeStacktraces(int fd, int uplevel) {
             /* skip signal syscall and ThreadsManager_runOnThreads */
             curr_uplevel += uplevel + 2;
             /* Add an indication to header of the thread that is handling the log file */
-            snprintf(buff, PATH_MAX, " *\n");
+            if (write(fd," *\n",strlen(" *\n")) == -1) {/* Avoid warning. */};
         } else {
             /* just add a new line */
-            snprintf(buff, PATH_MAX, "\n");
+            if (write(fd,"\n",strlen("\n")) == -1) {/* Avoid warning. */};
         }
-
-        if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
         /* add the stacktrace */
         backtrace_symbols_fd(curr_stacktrace_data.trace+curr_uplevel, curr_stacktrace_data.trace_size-curr_uplevel, fd);
     }
 
-    snprintf(buff, PATH_MAX, "\n%zu/%zu expected stacktraces.\n", len_tids - skipped, len_tids);
+    _safe_snprintf(buff, PATH_MAX, "\n%lu/%lu expected stacktraces.\n", len_tids - skipped, len_tids);
     if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
 }
@@ -2250,21 +2248,6 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     }
 
     bugReportStart();
-    char buf[64];
-
-    /* "Redis <REDIS_VERSION> crashed by signal: <sig>, si_code: <info->si_code>", REDIS_VERSION */
-    int fd = serverLogFromHandler_Start(LL_WARNING);
-    while (1) {
-        if (-1 == serverLogFromHandler_WriteMsg(fd, "Redis ")) break;
-        if (-1 == serverLogFromHandler_WriteMsg(fd, REDIS_VERSION)) break;
-        if (-1 == serverLogFromHandler_WriteMsg(fd,"  crashed by signal: ")) break;
-        ll2string(buf,sizeof(buf),sig);
-        if (-1 == serverLogFromHandler_WriteMsg(fd, buf)) break;
-        if (-1 == serverLogFromHandler_WriteMsg(fd,", si_code: ")) break;
-        ll2string(buf,sizeof(buf),info->si_code);
-        if (-1 == serverLogFromHandler_WriteMsg(fd,buf)) break;
-        serverLogFromHandler_End(fd); break;
-    }
 
     serverLog(LL_WARNING,
         "Redis %s crashed by signal: %d, si_code: %d", REDIS_VERSION, sig, info->si_code);
@@ -2563,15 +2546,13 @@ static int string_to_hex(char *src, unsigned long *result_output) {
 static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char *tid, int sig_num) {
     /* generate the threads status file path /proc/<pid>>/task/<tid>/status */
     char path_buff[PATH_MAX];
-    memcpy(path_buff, proc_pid_task_path, PATH_MAX);
-    redis_strlcat(path_buff, "/", PATH_MAX);
-    redis_strlcat(path_buff, tid, PATH_MAX);
-    redis_strlcat(path_buff, "/status", PATH_MAX);
+    _safe_snprintf(path_buff, PATH_MAX, "%s/%s/status", proc_pid_task_path, tid);
 
     int thread_status_file = open(path_buff, O_RDONLY);
+    char buff[PATH_MAX];
     if (thread_status_file == -1) {
-        serverLog(LL_WARNING,
-        "tid:%s: failed to open %s file", tid, path_buff);
+        _safe_snprintf(buff, PATH_MAX, "tid:%s: failed to open %s file", tid, path_buff);
+        serverLogFromHandler(LL_WARNING, buff);
         return 0;
     }
 
@@ -2579,7 +2560,6 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
     size_t field_name_len = strlen("SigBlk:\t"); /* SigIgn has the same length */
     char *line = NULL;
     size_t fields_count = 2;
-    char buff[PATH_MAX];
     while ((line = fgets_async_signal_safe(buff, PATH_MAX, thread_status_file)) && fields_count) {
         /* iterate the file until we reach SigBlk or SigIgn field line */
         if (!strncmp(buff, "SigBlk:\t", field_name_len) ||  !strncmp(buff, "SigIgn:\t", field_name_len)) {
@@ -2604,8 +2584,8 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
     /* if we reached EOF, it means we haven't found SigBlk or/and SigIgn, something is wrong */
     if (line == NULL)  {
         ret = 0;
-        serverLog(LL_WARNING,
-        "tid:%s: failed to find SigBlk or/and SigIgn field(s) in %s/%s/status file", tid, proc_pid_task_path, tid);
+        _safe_snprintf(buff, PATH_MAX, "tid:%s: failed to find SigBlk or/and SigIgn field(s) in %s/%s/status file", tid, proc_pid_task_path, tid);
+        serverLogFromHandler(LL_WARNING, buff);
     }
     return ret;
 }
@@ -2617,8 +2597,7 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
 static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_SIZE]) {
     /* Initialize the path the process threads' directory. */
     char path_buff[PATH_MAX] = "/proc/";
-    ll2string(path_buff + strlen("/proc/"), PATH_MAX, getpid());
-    redis_strlcat(path_buff, "/task", PATH_MAX);
+    _safe_snprintf(path_buff, PATH_MAX, "/proc/%d/task", getpid());
 
     /* Get the directory handler. */
     int dir;
@@ -2632,7 +2611,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     char buff[PATH_MAX];
 
     /* Each thread is represented by a directory */
-    while ((nread = syscall(SYS_getdents64, dir, buff, PATH_MAX))) {
+    while ((nread =  getdents64(dir, buff, PATH_MAX))) {
         if (nread == -1) {
             serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory\n");
             return 0;
