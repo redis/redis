@@ -10981,7 +10981,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     }
     int ret = 1;
     ScanCBData data = { ctx, privdata, fn };
-    cursor->cursor = dbScan(ctx->client->db, DB_MAIN, cursor->cursor, moduleScanCallback, NULL, &data);
+    cursor->cursor = dbScan(ctx->client->db, DB_MAIN, cursor->cursor, -1, moduleScanCallback, NULL, &data);
     if (cursor->cursor == 0) {
         cursor->done = 1;
         ret = 0;

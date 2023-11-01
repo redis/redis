@@ -3120,7 +3120,9 @@ int calculateKeySlot(sds key);
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
 size_t dbMemUsage(redisDb *db, dbKeyType keyType);
 dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType);
-unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata);
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor,
+                          int onlyslot, dictScanFunction *fn,
+                          int (dictScanValidFunction)(dict *d), void *privdata);
 int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand);
 unsigned long long cumulativeKeyCountRead(redisDb *db, int idx, dbKeyType keyType);
 int getFairRandomSlot(redisDb *db, dbKeyType keyType);
