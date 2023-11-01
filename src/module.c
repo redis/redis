@@ -8967,7 +8967,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     UNUSED(ctx);
 
     clusterNode *node = clusterLookupNode(id, strlen(id));
-    if (node == NULL || !clusterNodeConfirmedReachable(node))
+    if (node == NULL || clusterNodePending(node))
     {
         return REDISMODULE_ERR;
     }
