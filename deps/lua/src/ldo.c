@@ -226,6 +226,7 @@ static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   }
 #endif
   /* move fixed parameters to final position */
+  luaD_checkstack(L, p->maxstacksize);  /* check again for new 'base' */
   fixed = L->top - actual;  /* first fixed argument */
   base = L->top;  /* final position of first argument */
   for (i=0; i<nfixargs; i++) {
