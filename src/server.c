@@ -3730,6 +3730,11 @@ void call(client *c, int flags) {
     /* Do some maintenance job and cleanup */
     afterCommand(c);
 
+    /* Call command post filters */
+    if (server.execution_nesting == 0 && !(c->flags & CLIENT_BLOCKED)) {    
+        moduleCallCommandPostFilters(c, dirty);
+    }
+
     /* Remember the replication offset of the client, right after its last
      * command that resulted in propagation. */
     if (old_master_repl_offset != server.master_repl_offset)

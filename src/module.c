@@ -10677,12 +10677,21 @@ int moduleUnregisterFilters(RedisModule *module) {
  * If multiple filters are registered (by the same or different modules), they
  * are executed in the order of registration.
  */
-RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc pre_callback,
-                                                   RedisModuleCommandFilterFunc post_callback,  int flags) {
+RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
-    filter->pre_callback = pre_callback;
-    filter->post_callback = post_callback;
+    filter->pre_callback = callback;
+    filter->flags = flags;
+
+    listAddNodeTail(moduleCommandFilters, filter);
+    listAddNodeTail(ctx->module->filters, filter);
+    return filter;
+}
+
+RedisModuleCommandFilter *RM_RegisterCommandPostFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
+    RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
+    filter->module = ctx->module;
+    filter->post_callback = callback;
     filter->flags = flags;
 
     listAddNodeTail(moduleCommandFilters, filter);
@@ -10744,7 +10753,7 @@ void moduleCallCommandFilters(client *c) {
     c->argc = filter.argc;
 }
 
-void moduleCallCommandPostFilters(client *c, int is_dirty) {
+void moduleCallCommandPostFilters(client *c, long long dirty) {
     if (listLength(moduleCommandFilters) == 0) return;
 
     listIter li;
@@ -10756,7 +10765,7 @@ void moduleCallCommandPostFilters(client *c, int is_dirty) {
         .argv_len = c->argv_len,
         .argc = c->argc,
         .c = c,
-        .is_dirty = is_dirty
+        .is_dirty = dirty > 0 ? 1 : 0
     };
 
     while((ln = listNext(&li))) {
