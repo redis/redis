@@ -87,6 +87,15 @@ void clusterCommandShards(client *c);
 sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary);
 int getNumSlaves(clusterNode *node);
 clusterNode *getSlave(clusterNode *node, int slave_idx);
+clusterNode *getMigratingSlotDest(int slot);
+clusterNode *getImportingSlotSource(int slot);
+int isClusterHealthy(void);
+clusterNode *getNodeBySlot(int slot);
+int getNodeClientPort(clusterNode *n, int use_tls);
+char* clusterNodeHostname(clusterNode *node);
+const char *getPreferredEndpoint(clusterNode *n);
+void migrateCommand(client *c);
+long long getReplOffset(clusterNode *node);
 
 char **clusterDebugCommandHelp(void);
 ConnectionType *connTypeOfCluster(void);
