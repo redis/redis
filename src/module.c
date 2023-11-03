@@ -10681,6 +10681,7 @@ RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisMod
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
     filter->pre_callback = callback;
+    filter->post_callback = NULL;
     filter->flags = flags;
 
     listAddNodeTail(moduleCommandFilters, filter);
@@ -10691,6 +10692,7 @@ RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisMod
 RedisModuleCommandFilter *RM_RegisterCommandPostFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
+    filter->pre_callback = NULL;
     filter->post_callback = callback;
     filter->flags = flags;
 
@@ -13838,6 +13840,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ExportSharedAPI);
     REGISTER_API(GetSharedAPI);
     REGISTER_API(RegisterCommandFilter);
+    REGISTER_API(RegisterCommandPostFilter);
     REGISTER_API(UnregisterCommandFilter);
     REGISTER_API(CommandFilterArgsCount);
     REGISTER_API(CommandFilterArgGet);
