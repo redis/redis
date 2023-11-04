@@ -695,6 +695,11 @@ int clusterLoadConfig(char *filename) {
     if (clusterGetMaxEpoch() > server.cluster->currentEpoch) {
         server.cluster->currentEpoch = clusterGetMaxEpoch();
     }
+
+    if (nodeIsSlave(myself) && myself->slaveof) {
+        replicationSetMaster(myself->slaveof->ip, myself->slaveof->port);
+    }
+
     return C_OK;
 
 fmterr:
