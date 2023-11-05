@@ -920,16 +920,20 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: vmactions/freebsd-vm@v0.3.1
+      uses: cross-platform-actions/action@v0.21.1
+      env:
+        MAKE: gmake
       with:
-        usesh: true
-        sync: rsync
-        copyback: false
-        prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
-        run: >
-          gmake || exit 1 ;
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then MAKE=gmake ./runtest-moduleapi --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} || exit 1 ; fi ;
+        operating_system: freebsd
+        environment_variables: MAKE
+        version: 13.2
+        memory: 8GB
+        shell: bash
+        run: |
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
+          gmake
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then ./runtest-moduleapi --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi
 
   test-freebsd-sentinel:
     runs-on: macos-12
@@ -952,15 +956,16 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: vmactions/freebsd-vm@v0.3.1
+      uses: cross-platform-actions/action@v0.21.1
       with:
-        usesh: true
-        sync: rsync
-        copyback: false
-        prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
-        run: >
-          gmake || exit 1 ;
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
+        operating_system: freebsd
+        version: 13.2
+        memory: 8GB
+        shell: bash
+        run: |
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
+          gmake
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi
 
   test-freebsd-cluster:
     runs-on: macos-12
@@ -983,15 +988,16 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: vmactions/freebsd-vm@v0.3.1
+      uses: cross-platform-actions/action@v0.21.1
       with:
-        usesh: true
-        sync: rsync
-        copyback: false
-        prepare: pkg install -y bash gmake lang/tcl86 lang/tclx
-        run: >
-          gmake || exit 1 ;
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq cluster ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} || exit 1 ; fi ;
+        operating_system: freebsd
+        version: 13.2
+        memory: 8GB
+        shell: bash
+        run: |
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
+          gmake
+          if echo "${{github.event.inputs.skiptests}}" | grep -vq cluster ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} ; fi
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
