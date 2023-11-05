@@ -3277,8 +3277,9 @@ static int isSensitiveCommand(int argc, char **argv) {
         !strcasecmp(argv[1],"set")) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
-		    !strcasecmp(argv[j],"masteruser") ||
-		    !strcasecmp(argv[j],"requirepass")) {
+                    !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"requirepass"))
+                {
                     return 1;
                 }
             }
@@ -3312,16 +3313,17 @@ static int isSensitiveCommand(int argc, char **argv) {
         /* SENTINEL CONFIG SET sentinel-pass password
          * SENTINEL CONFIG SET sentinel-user username */
         if (!strcasecmp(argv[1], "config") && 
-            !strcasecmp(argv[2], "set") && (
-                !strcasecmp(argv[3], "sentinel-pass") ||
-                !strcasecmp(argv[3], "sentinel-user"))) 
+            !strcasecmp(argv[2], "set") &&
+            (!strcasecmp(argv[3], "sentinel-pass") ||
+             !strcasecmp(argv[3], "sentinel-user"))) 
         {
             return 1;
+	}
         /* SENTINEL SET <mastername> auth-pass password 
          * SENTINEL SET <mastername> auth-user username */
-	} else if (!strcasecmp(argv[1], "set") && ( 
-                     !strcasecmp(argv[3], "auth-pass") || 
-                     !strcasecmp(argv[3], "auth-user"))) 
+        if (!strcasecmp(argv[1], "set") &&
+            (!strcasecmp(argv[3], "auth-pass") || 
+             !strcasecmp(argv[3], "auth-user"))) 
         {
             return 1;
         }
