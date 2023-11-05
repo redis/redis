@@ -1987,8 +1987,8 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     if (nodeFailed(node)) return; /* Already FAILing. */
 
     failures = clusterNodeFailureReportsCount(node);
-    /* Also count myself as a voter if I'm a master. */
-    if (nodeIsMaster(myself)) failures++;
+    /* Also count myself as a voter if I'm a master having at least one slot. */
+    if (nodeIsMaster(myself) && myself->numslots) failures++;
     if (failures < needed_quorum) return; /* No weak agreement from masters. */
 
     serverLog(LL_NOTICE,
@@ -4445,7 +4445,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
          * node ID. */
         if (okslaves == max_slaves) {
             for (j = 0; j < node->numslaves; j++) {
-                if (memcmp(node->slaves[j]->name,
+                if (!nodeFailed(node->slaves[j]) && memcmp(node->slaves[j]->name,
                            candidate->name,
                            CLUSTER_NAMELEN) < 0)
                 {
