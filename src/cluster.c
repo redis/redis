@@ -3020,8 +3020,10 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
-        /* Check for role switch: slave -> master or master -> slave. */
-        if (sender) {
+        /* Check for role switch: slave -> master or master -> slave. 
+         * Discard the message in case it was sent from previous myself.
+         */
+        if (sender && sender != myself) {
             if (!memcmp(hdr->slaveof,CLUSTER_NODE_NULL_NAME,
                 sizeof(hdr->slaveof)))
             {
