@@ -6400,11 +6400,27 @@ long long getReplOffset(clusterNode *node) {
 }
 
 const char *getPreferredEndpoint(clusterNode *n) {
-    char* hostname = clusterNodeHostname(n);
-    switch(server.cluster_preferred_endpoint_type) {
-        case CLUSTER_ENDPOINT_TYPE_IP: return clusterNodeIp(n);
-        case CLUSTER_ENDPOINT_TYPE_HOSTNAME: return (hostname != NULL && hostname[0] != '\0') ? hostname : "?";
-        case CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT: return "";
+    char *hostname = clusterNodeHostname(n);
+    switch (server.cluster_preferred_endpoint_type) {
+        case CLUSTER_ENDPOINT_TYPE_IP:
+            return clusterNodeIp(n);
+        case CLUSTER_ENDPOINT_TYPE_HOSTNAME:
+            return (hostname != NULL && hostname[0] != '\0') ? hostname : "?";
+        case CLUSTER_ENDPOINT_TYPE_UNKNOWN_ENDPOINT:
+            return "";
     }
     return "unknown";
+}
+
+int clusterAllowFailoverCmd(client *c) {
+    if (!server.cluster_enabled) {
+        return 1;
+    }
+    addReplyError(c,"FAILOVER not allowed in cluster mode. "
+                    "Use CLUSTER FAILOVER command instead.");
+    return 0;
+}
+
+void clusterPromoteSelfToMaster(void) {
+    replicationUnsetMaster();
 }

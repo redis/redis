@@ -96,6 +96,8 @@ char* clusterNodeHostname(clusterNode *node);
 const char *getPreferredEndpoint(clusterNode *n);
 void migrateCommand(client *c);
 long long getReplOffset(clusterNode *node);
+int clusterAllowFailoverCmd(client *c);
+void clusterPromoteSelfToMaster(void);
 
 char **clusterDebugCommandHelp(void);
 ConnectionType *connTypeOfCluster(void);
