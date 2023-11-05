@@ -677,10 +677,8 @@ typedef enum {
  * assertions that are too computationally expensive or dangerous to run during normal operations.  */
 #ifdef DEBUG_ASSERTIONS
 #define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
-#define debugServerLog(...) serverLog(__VA_ARGS__)
 #else
 #define debugServerAssertWithInfo(...)
-#define debugServerLog(...)
 #endif
 
 /* latency histogram per command init settings */
