@@ -610,6 +610,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
+        updateClientMemUsageAndBucket(monitor);
     }
     decrRefCount(cmdobj);
 }
@@ -1735,7 +1736,7 @@ int slaveIsInHandshakeState(void) {
  * not, since the byte is indivisible.
  *
  * The function is called in two contexts: while we flush the current
- * data with emptyDb(), and while we load the new data received as an
+ * data with emptyData(), and while we load the new data received as an
  * RDB file from the master. */
 void replicationSendNewlineToMaster(void) {
     static time_t newline_sent;
@@ -1746,7 +1747,7 @@ void replicationSendNewlineToMaster(void) {
     }
 }
 
-/* Callback used by emptyDb() while flushing away old data to load
+/* Callback used by emptyData() while flushing away old data to load
  * the new dataset received by the master and by discardTempDb()
  * after loading succeeded or failed. */
 void replicationEmptyDbCallback(dict *d) {
@@ -2249,6 +2250,7 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         zfree(server.repl_transfer_tmpfile);
+        close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }

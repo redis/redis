@@ -70,9 +70,18 @@ proc continuous_slot_allocation {masters} {
 # tests run.
 proc cluster_setup {masters node_count slot_allocator code} {
     # Have all nodes meet
-    for {set i 1} {$i < $node_count} {incr i} {
-        R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
+    if {$::tls} {
+        set tls_cluster [lindex [R 0 CONFIG GET tls-cluster] 1]
     }
+    if {$::tls && !$tls_cluster} {
+        for {set i 1} {$i < $node_count} {incr i} {
+            R 0 CLUSTER MEET [srv -$i host] [srv -$i pport]
+        }         
+    } else {
+        for {set i 1} {$i < $node_count} {incr i} {
+            R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
+        }
+    }  
 
     $slot_allocator $masters
 
@@ -174,4 +183,19 @@ proc isolate_node {id} {
     } else {
         fail "CLUSTER FORGET was not propagated to all nodes"
     }
+}
+
+# Check if cluster's view of hostnames is consistent
+proc are_hostnames_propagated {match_string} {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        set cfg [R $j cluster slots]
+        foreach node $cfg {
+            for {set i 2} {$i < [llength $node]} {incr i} {
+                if {! [string match $match_string [lindex [lindex [lindex $node $i] 3] 1]] } {
+                    return 0
+                }
+            }
+        }
+    }
+    return 1
 }

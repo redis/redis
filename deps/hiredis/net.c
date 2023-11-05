@@ -234,6 +234,7 @@ int redisContextSetTcpUserTimeout(redisContext *c, unsigned int timeout) {
     res = setsockopt(c->fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &timeout, sizeof(timeout));
 #else
     res = -1;
+    errno = ENOTSUP;
     (void)timeout;
 #endif
     if (res == -1) {

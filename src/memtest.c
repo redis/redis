@@ -30,7 +30,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 #include <limits.h>
 #include <errno.h>
 #include <termios.h>
@@ -39,6 +38,7 @@
 #include <stropts.h>
 #endif
 #include "config.h"
+#include "redisassert.h"
 
 #if (ULONG_MAX == 4294967295UL)
 #define MEMTEST_32BIT

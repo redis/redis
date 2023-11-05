@@ -1671,7 +1671,7 @@ void sdiffstoreCommand(client *c) {
 
 void sscanCommand(client *c) {
     robj *set;
-    unsigned long cursor;
+    unsigned long long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||

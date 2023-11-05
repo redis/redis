@@ -31,6 +31,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "endianconv.h"
+#include "connection.h"
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -66,6 +67,8 @@ void clusterSetMaster(clusterNode *n);
 void clusterHandleSlaveFailover(void);
 void clusterHandleSlaveMigration(int max_slaves);
 int bitmapTestBit(unsigned char *bitmap, int pos);
+void bitmapSetBit(unsigned char *bitmap, int pos);
+void bitmapClearBit(unsigned char *bitmap, int pos);
 void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
 void resetManualFailover(void);
@@ -92,7 +95,43 @@ int auxShardIdPresent(clusterNode *n);
 int auxHumanNodenameSetter(clusterNode *n, void *value, int length);
 sds auxHumanNodenameGetter(clusterNode *n, sds s);
 int auxHumanNodenamePresent(clusterNode *n);
+int auxTcpPortSetter(clusterNode *n, void *value, int length);
+sds auxTcpPortGetter(clusterNode *n, sds s);
+int auxTcpPortPresent(clusterNode *n);
+int auxTlsPortSetter(clusterNode *n, void *value, int length);
+sds auxTlsPortGetter(clusterNode *n, sds s);
+int auxTlsPortPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
+
+int getNodeDefaultClientPort(clusterNode *n) {
+    return server.tls_cluster ? n->tls_port : n->tcp_port;
+}
+
+static inline int getNodeDefaultReplicationPort(clusterNode *n) {
+    return server.tls_replication ? n->tls_port : n->tcp_port;
+}
+
+static inline int getNodeClientPort(clusterNode *n, int use_tls) {
+    return use_tls ? n->tls_port : n->tcp_port;
+}
+
+static inline int defaultClientPort(void) {
+    return server.tls_cluster ? server.tls_port : server.port;
+}
+
+/* When a cluster command is called, we need to decide whether to return TLS info or
+ * non-TLS info by the client's connection type. However if the command is called by
+ * a Lua script or RM_call, there is no connection in the fake client, so we use 
+ * server.current_client here to get the real client if available. And if it is not 
+ * available (modules may call commands without a real client), we return the default
+ * info, which is determined by server.tls_cluster. */
+static int shouldReturnTlsInfo(void) {
+    if (server.current_client && server.current_client->conn) {
+        return connIsTLS(server.current_client->conn);
+    } else {
+        return server.tls_cluster;
+    }
+}
 
 /* Links to the next and previous entries for keys in the same slot are stored
  * in the dict entry metadata. See Slot to Key API below. */
@@ -100,6 +139,10 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
     (((clusterDictEntryMetadata *)dictEntryMetadata(de))->next)
 #define dictEntryPrevInSlot(de) \
     (((clusterDictEntryMetadata *)dictEntryMetadata(de))->prev)
+
+#define isSlotUnclaimed(slot) \
+    (server.cluster->slots[slot] == NULL || \
+        bitmapTestBit(server.cluster->owner_not_claiming_slot, slot))
 
 #define RCVBUF_INIT_LEN 1024
 #define RCVBUF_MAX_PREALLOC (1<<20) /* 1MB */
@@ -176,6 +219,8 @@ typedef struct {
 typedef enum {
     af_shard_id,
     af_human_nodename,
+    af_tcp_port,
+    af_tls_port,
     af_count,
 } auxFieldIndex;
 
@@ -186,6 +231,8 @@ typedef enum {
 auxFieldHandler auxFieldHandlers[] = {
     {"shard-id", auxShardIdSetter, auxShardIdGetter, auxShardIdPresent},
     {"nodename", auxHumanNodenameSetter, auxHumanNodenameGetter, auxHumanNodenamePresent},
+    {"tcp-port", auxTcpPortSetter, auxTcpPortGetter, auxTcpPortPresent},
+    {"tls-port", auxTlsPortSetter, auxTlsPortGetter, auxTlsPortPresent},
 };
 
 int isValidAuxChar(int c) {
@@ -245,6 +292,44 @@ sds auxHumanNodenameGetter(clusterNode *n, sds s) {
 
 int auxHumanNodenamePresent(clusterNode *n) {
     return sdslen(n->human_nodename);
+}
+
+int auxTcpPortSetter(clusterNode *n, void *value, int length) {
+    if (length > 5 || length < 1) {
+        return C_ERR;
+    }
+    char buf[length + 1];
+    memcpy(buf, (char*)value, length);
+    buf[length] = '\0';
+    n->tcp_port = atoi(buf);
+    return (n->tcp_port < 0 || n->tcp_port >= 65536) ? C_ERR : C_OK;
+}
+
+sds auxTcpPortGetter(clusterNode *n, sds s) {
+    return sdscatprintf(s, "%d", n->tcp_port);
+}
+
+int auxTcpPortPresent(clusterNode *n) {
+    return n->tcp_port >= 0 && n->tcp_port < 65536;
+}
+
+int auxTlsPortSetter(clusterNode *n, void *value, int length) {
+    if (length > 5 || length < 1) {
+        return C_ERR;
+    }
+    char buf[length + 1];
+    memcpy(buf, (char*)value, length);
+    buf[length] = '\0';
+    n->tls_port = atoi(buf);
+    return (n->tls_port < 0 || n->tls_port >= 65536) ? C_ERR : C_OK;
+}
+
+sds auxTlsPortGetter(clusterNode *n, sds s) {
+    return sdscatprintf(s, "%d", n->tls_port);
+}
+
+int auxTlsPortPresent(clusterNode *n) {
+    return n->tls_port >= 0 && n->tls_port < 65536;
 }
 
 /* clusterLink send queue blocks */
@@ -376,7 +461,8 @@ int clusterLoadConfig(char *filename) {
          * the format of "aux=val" where both aux and val can contain
          * characters that pass the isValidAuxChar check only. The order
          * of the aux fields is insignificant. */
-
+        int aux_tcp_port = 0;
+        int aux_tls_port = 0;
         for (int i = 2; i < aux_argc; i++) {
             int field_argc;
             sds *field_argv;
@@ -407,6 +493,8 @@ int clusterLoadConfig(char *filename) {
                     continue;
                 }
                 field_found = 1;
+                aux_tcp_port |= j == af_tcp_port;
+                aux_tls_port |= j == af_tls_port;
                 if (auxFieldHandlers[j].setter(n, field_argv[1], sdslen(field_argv[1])) != C_OK) {
                     /* Invalid aux field format */
                     sdsfreesplitres(field_argv, field_argc);
@@ -438,11 +526,23 @@ int clusterLoadConfig(char *filename) {
             *busp = '\0';
             busp++;
         }
-        n->port = atoi(port);
+        /* If neither TCP or TLS port is found in aux field, it is considered
+         * an old version of nodes.conf file.*/
+        if (!aux_tcp_port && !aux_tls_port) {
+            if (server.tls_cluster) {
+                n->tls_port = atoi(port);
+            } else {
+                n->tcp_port = atoi(port);
+            }
+        } else if (!aux_tcp_port) {
+            n->tcp_port = atoi(port);
+        } else if (!aux_tls_port) {
+            n->tls_port = atoi(port);
+        }
         /* In older versions of nodes.conf the "@busport" part is missing.
          * In this case we set it to the default offset of 10000 from the
          * base port. */
-        n->cport = busp ? atoi(busp) : n->port + CLUSTER_PORT_INCR;
+        n->cport = busp ? atoi(busp) : (getNodeDefaultClientPort(n) + CLUSTER_PORT_INCR);
 
         /* The plaintext port for client in a TLS cluster (n->pport) is not
          * stored in nodes.conf. It is received later over the bus protocol. */
@@ -747,23 +847,20 @@ int clusterLockConfig(char *filename) {
 }
 
 /* Derives our ports to be announced in the cluster bus. */
-void deriveAnnouncedPorts(int *announced_port, int *announced_pport,
+void deriveAnnouncedPorts(int *announced_tcp_port, int *announced_tls_port,
                           int *announced_cport) {
-    int port = server.tls_cluster ? server.tls_port : server.port;
-    /* Default announced ports. */
-    *announced_port = port;
-    *announced_pport = server.tls_cluster ? server.port : 0;
-    *announced_cport = server.cluster_port ? server.cluster_port : port + CLUSTER_PORT_INCR;
-    
     /* Config overriding announced ports. */
-    if (server.tls_cluster && server.cluster_announce_tls_port) {
-        *announced_port = server.cluster_announce_tls_port;
-        *announced_pport = server.cluster_announce_port;
-    } else if (server.cluster_announce_port) {
-        *announced_port = server.cluster_announce_port;
-    }
+    *announced_tcp_port = server.cluster_announce_port ? 
+                          server.cluster_announce_port : server.port;
+    *announced_tls_port = server.cluster_announce_tls_port ? 
+                          server.cluster_announce_tls_port : server.tls_port;
+    /* Derive cluster bus port. */
     if (server.cluster_announce_bus_port) {
         *announced_cport = server.cluster_announce_bus_port;
+    } else if (server.cluster_port) {
+        *announced_cport = server.cluster_port;
+    } else {
+        *announced_cport = defaultClientPort() + CLUSTER_PORT_INCR;
     }
 }
 
@@ -790,7 +887,7 @@ void clusterUpdateMyselfFlags(void) {
 * The option can be set at runtime via CONFIG SET. */
 void clusterUpdateMyselfAnnouncedPorts(void) {
     if (!myself) return;
-    deriveAnnouncedPorts(&myself->port,&myself->pport,&myself->cport);
+    deriveAnnouncedPorts(&myself->tcp_port,&myself->tls_port,&myself->cport);
 }
 
 /* We want to take myself->ip in sync with the cluster-announce-ip option.
@@ -855,13 +952,13 @@ static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
 
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
-    if (memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+    if (shard_id && memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
         clusterRemoveNodeFromShard(node);
         memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
         clusterAddNodeToShard(shard_id, node);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
     }
-    if (myself != node && myself->slaveof == node) {
+    if (shard_id && myself != node && myself->slaveof == node) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
             /* shard-id can diverge right after a rolling upgrade
              * from pre-7.2 releases */
@@ -915,6 +1012,8 @@ void clusterInit(void) {
     memset(server.cluster->slots,0, sizeof(server.cluster->slots));
     clusterCloseAllSlots();
 
+    memset(server.cluster->owner_not_claiming_slot, 0, sizeof(server.cluster->owner_not_claiming_slot));
+
     /* Lock the cluster config file to make sure every node uses
      * its own nodes.conf. */
     server.cluster_config_file_lock_fd = -1;
@@ -938,7 +1037,7 @@ void clusterInit(void) {
     /* Port sanity check II
      * The other handshake port check is triggered too late to stop
      * us from trying to use a too-high cluster port number. */
-    int port = server.tls_cluster ? server.tls_port : server.port;
+    int port = defaultClientPort();
     if (!server.cluster_port && port > (65535-CLUSTER_PORT_INCR)) {
         serverLog(LL_WARNING, "Redis port number too high. "
                    "Cluster communication port is 10,000 port "
@@ -951,15 +1050,12 @@ void clusterInit(void) {
         exit(1);
     }
 
-    /* Initialize data for the Slot to key API. */
-    slotToKeyInit(server.db);
-
     /* The slots -> channels map is a radix tree. Initialize it here. */
     server.cluster->slots_to_channels = raxNew();
 
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
-    deriveAnnouncedPorts(&myself->port, &myself->pport, &myself->cport);
+    deriveAnnouncedPorts(&myself->tcp_port, &myself->tls_port, &myself->cport);
 
     server.cluster->mf_end = 0;
     server.cluster->mf_slave = NULL;
@@ -976,7 +1072,7 @@ void clusterInitListeners(void) {
         exit(1);
     }
 
-    int port = server.tls_cluster ? server.tls_port : server.port;
+    int port = defaultClientPort();
     connListener *listener = &server.clistener;
     listener->count = 0;
     listener->bindaddr = server.bindaddr;
@@ -1034,6 +1130,9 @@ void clusterReset(int hard) {
         clusterDelNode(node);
     }
     dictReleaseIterator(di);
+
+    /* Empty the nodes blacklist. */
+    dictEmpty(server.cluster->nodes_black_list, NULL);
 
     /* Hard reset only: set epochs to 0, change node ID. */
     if (hard) {
@@ -1268,6 +1367,36 @@ unsigned int keyHashSlot(char *key, int keylen) {
     return crc16(key+s+1,e-s-1) & 0x3FFF;
 }
 
+/* If it can be inferred that the given glob-style pattern, as implemented in
+ * stringmatchlen() in util.c, only can match keys belonging to a single slot,
+ * that slot is returned. Otherwise -1 is returned. */
+int patternHashSlot(char *pattern, int length) {
+    int s = -1; /* index of the first '{' */
+
+    for (int i = 0; i < length; i++) {
+        if (pattern[i] == '*' || pattern[i] == '?' || pattern[i] == '[') {
+            /* Wildcard or character class found. Keys can be in any slot. */
+            return -1;
+        } else if (pattern[i] == '\\') {
+            /* Escaped character. Computing slot in this case is not
+             * implemented. We would need a temp buffer. */
+            return -1;
+        } else if (s == -1 && pattern[i] == '{') {
+            /* Opening brace '{' found. */
+            s = i;
+        } else if (s >= 0 && pattern[i] == '}' && i == s + 1) {
+            /* Empty tag '{}' found. The whole key is hashed. Ignore braces. */
+            s = -2;
+        } else if (s >= 0 && pattern[i] == '}') {
+            /* Non-empty tag '{...}' found. Hash what's between braces. */
+            return crc16(pattern + s + 1, i - s - 1) & 0x3FFF;
+        }
+    }
+
+    /* The pattern matches a single key. Hash the whole pattern. */
+    return crc16(pattern, length) & 0x3FFF;
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER node API
  * -------------------------------------------------------------------------- */
@@ -1306,9 +1435,9 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     memset(node->ip,0,sizeof(node->ip));
     node->hostname = sdsempty();
     node->human_nodename = sdsempty();
-    node->port = 0;
+    node->tcp_port = 0;
     node->cport = 0;
-    node->pport = 0;
+    node->tls_port = 0;
     node->fail_reports = listCreate();
     node->voted_time = 0;
     node->orphaned_time = 0;
@@ -1927,7 +2056,7 @@ int clusterHandshakeInProgress(char *ip, int port, int cport) {
 
         if (!nodeInHandshake(node)) continue;
         if (!strcasecmp(node->ip,ip) &&
-            node->port == port &&
+            getNodeDefaultClientPort(node) == port &&
             node->cport == cport) break;
     }
     dictReleaseIterator(di);
@@ -1988,10 +2117,34 @@ int clusterStartHandshake(char *ip, int port, int cport) {
      * handshake. */
     n = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
     memcpy(n->ip,norm_ip,sizeof(n->ip));
-    n->port = port;
+    if (server.tls_cluster) {
+        n->tls_port = port;
+    } else {
+        n->tcp_port = port;
+    }
     n->cport = cport;
     clusterAddNode(n);
     return 1;
+}
+
+static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp_port) {
+    if (server.tls_cluster) {
+        *tls_port = ntohs(hdr->port);
+        *tcp_port = ntohs(hdr->pport);
+    } else {
+        *tls_port = ntohs(hdr->pport);
+        *tcp_port = ntohs(hdr->port);
+    }
+}
+
+static void getClientPortFromGossip(clusterMsgDataGossip *g, int *tls_port, int *tcp_port) {
+    if (server.tls_cluster) {
+        *tls_port = ntohs(g->port);
+        *tcp_port = ntohs(g->pport);
+    } else {
+        *tls_port = ntohs(g->pport);
+        *tcp_port = ntohs(g->port);
+    }
 }
 
 /* Process the gossip section of PING or PONG packets.
@@ -2018,6 +2171,10 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 ci);
             sdsfree(ci);
         }
+
+        /* Convert port and pport into TCP port and TLS port. */
+        int msg_tls_port, msg_tcp_port;
+        getClientPortFromGossip(g, &msg_tls_port, &msg_tcp_port);
 
         /* Update our state accordingly to the gossip sections */
         node = clusterLookupNode(g->nodename, CLUSTER_NAMELEN);
@@ -2072,13 +2229,14 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
                 (strcasecmp(node->ip,g->ip) ||
-                 node->port != ntohs(g->port) ||
+                 node->tls_port != (server.tls_cluster ? ntohs(g->port) : ntohs(g->pport)) ||
+                 node->tcp_port != (server.tls_cluster ? ntohs(g->pport) : ntohs(g->port)) ||
                  node->cport != ntohs(g->cport)))
             {
                 if (node->link) freeClusterLink(node->link);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
-                node->port = ntohs(g->port);
-                node->pport = ntohs(g->pport);
+                node->tcp_port = msg_tcp_port;
+                node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
             }
@@ -2099,8 +2257,8 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 clusterNode *node;
                 node = createClusterNode(g->nodename, flags);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
-                node->port = ntohs(g->port);
-                node->pport = ntohs(g->pport);
+                node->tcp_port = msg_tcp_port;
+                node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 clusterAddNode(node);
             }
@@ -2145,9 +2303,9 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
                               clusterMsg *hdr)
 {
     char ip[NET_IP_STR_LEN] = {0};
-    int port = ntohs(hdr->port);
-    int pport = ntohs(hdr->pport);
     int cport = ntohs(hdr->cport);
+    int tcp_port, tls_port;
+    getClientPortFromClusterMsg(hdr, &tls_port, &tcp_port);
 
     /* We don't proceed if the link is the same as the sender link, as this
      * function is designed to see if the node link is consistent with the
@@ -2162,23 +2320,23 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
      * in the next round of PINGs */
     if (nodeIp2String(ip,link,hdr->myip) == C_ERR) return 0;
 
-    if (node->port == port && node->cport == cport && node->pport == pport &&
+    if (node->tcp_port == tcp_port && node->cport == cport && node->tls_port == tls_port &&
         strcmp(ip,node->ip) == 0) return 0;
 
     /* IP / port is different, update it. */
     memcpy(node->ip,ip,sizeof(ip));
-    node->port = port;
-    node->pport = pport;
+    node->tcp_port = tcp_port;
+    node->tls_port = tls_port;
     node->cport = cport;
     if (node->link) freeClusterLink(node->link);
     node->flags &= ~CLUSTER_NODE_NOADDR;
     serverLog(LL_NOTICE,"Address updated for node %.40s (%s), now %s:%d",
-        node->name, node->human_nodename, node->ip, node->port);
+        node->name, node->human_nodename, node->ip, getNodeDefaultClientPort(node)); 
 
     /* Check if this is our master and we have to change the
      * replication target as well. */
     if (nodeIsSlave(myself) && myself->slaveof == node)
-        replicationSetMaster(node->ip, node->port);
+        replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
     return 1;
 }
 
@@ -2246,7 +2404,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             sender_slots++;
 
             /* The slot is already bound to the sender of this message. */
-            if (server.cluster->slots[j] == sender) continue;
+            if (server.cluster->slots[j] == sender) {
+                bitmapClearBit(server.cluster->owner_not_claiming_slot, j);
+                continue;
+            }
 
             /* The slot is in importing state, it should be modified only
              * manually via redis-cli (example: a resharding is in progress
@@ -2255,10 +2416,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (server.cluster->importing_slots_from[j]) continue;
 
             /* We rebind the slot to the new node claiming it if:
-             * 1) The slot was unassigned or the new node claims it with a
-             *    greater configEpoch.
+             * 1) The slot was unassigned or the previous owner no longer owns the slot or
+             *    the new node claims it with a greater configEpoch.
              * 2) We are not currently importing the slot. */
-            if (server.cluster->slots[j] == NULL ||
+            if (isSlotUnclaimed(j) ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
                 /* Was this slot mine, and still contains keys? Mark it as
@@ -2281,6 +2442,15 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                                      CLUSTER_TODO_UPDATE_STATE|
                                      CLUSTER_TODO_FSYNC_CONFIG);
             }
+        } else if (server.cluster->slots[j] == sender) {
+            /* The slot is currently bound to the sender but the sender is no longer
+             * claiming it. We don't want to unbind the slot yet as it can cause the cluster
+             * to move to FAIL state and also throw client error. Keeping the slot bound to
+             * the previous owner will cause a few client side redirects, but won't throw
+             * any errors. We will keep track of the uncertainty in ownership to avoid
+             * propagating misinformation about this slot's ownership using UPDATE
+             * messages. */
+            bitmapSetBit(server.cluster->owner_not_claiming_slot, j);
         }
     }
 
@@ -2440,7 +2610,7 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
             clusterMsgPingExtHumanNodename *ext = preparePingExt(cursor, CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME, getHumanNodenamePingExtSize());
             memcpy(ext->human_nodename, myself->human_nodename, sdslen(myself->human_nodename));
         
-	    /* Move the write cursor */
+            /* Move the write cursor */
             cursor = nextPingExt(cursor);
         }
 
@@ -2506,7 +2676,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         if (type == CLUSTERMSG_EXT_TYPE_HOSTNAME) {
             clusterMsgPingExtHostname *hostname_ext = (clusterMsgPingExtHostname *) &(ext->ext[0].hostname);
             ext_hostname = hostname_ext->hostname;
-	} else if (type == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
+        } else if (type == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
             clusterMsgPingExtHumanNodename *humannodename_ext = (clusterMsgPingExtHumanNodename *) &(ext->ext[0].human_nodename);
             ext_humannodename = humannodename_ext->human_nodename;
         } else if (type == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
@@ -2514,8 +2684,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
             if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
                 sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
-                dictEntry *de = dictAddRaw(server.cluster->nodes_black_list, id, NULL);
-                serverAssert(de != NULL);
+                dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
                 uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
                 dictSetUnsignedIntegerVal(de, expire);
                 clusterDelNode(n);
@@ -2739,8 +2908,7 @@ int clusterProcessPacket(clusterLink *link) {
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
             serverAssert(nodeIp2String(node->ip,link,hdr->myip) == C_OK);
-            node->port = ntohs(hdr->port);
-            node->pport = ntohs(hdr->pport);
+            getClientPortFromClusterMsg(hdr, &node->tls_port, &node->tcp_port);
             node->cport = ntohs(hdr->cport);
             clusterAddNode(node);
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -2802,8 +2970,8 @@ int clusterProcessPacket(clusterLink *link) {
                     link->node->flags);
                 link->node->flags |= CLUSTER_NODE_NOADDR;
                 link->node->ip[0] = '\0';
-                link->node->port = 0;
-                link->node->pport = 0;
+                link->node->tcp_port = 0;
+                link->node->tls_port = 0;
                 link->node->cport = 0;
                 freeClusterLink(link);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -2938,7 +3106,7 @@ int clusterProcessPacket(clusterLink *link) {
             for (j = 0; j < CLUSTER_SLOTS; j++) {
                 if (bitmapTestBit(hdr->myslots,j)) {
                     if (server.cluster->slots[j] == sender ||
-                        server.cluster->slots[j] == NULL) continue;
+                        isSlotUnclaimed(j)) continue;
                     if (server.cluster->slots[j]->configEpoch >
                         senderConfigEpoch)
                     {
@@ -3351,15 +3519,20 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     }
 
     /* Handle cluster-announce-[tls-|bus-]port. */
-    int announced_port, announced_pport, announced_cport;
-    deriveAnnouncedPorts(&announced_port, &announced_pport, &announced_cport);
+    int announced_tcp_port, announced_tls_port, announced_cport;
+    deriveAnnouncedPorts(&announced_tcp_port, &announced_tls_port, &announced_cport);
 
     memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
     if (myself->slaveof != NULL)
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
-    hdr->port = htons(announced_port);
-    hdr->pport = htons(announced_pport);
+    if (server.tls_cluster) {
+        hdr->port = htons(announced_tls_port);
+        hdr->pport = htons(announced_tcp_port);
+    } else {
+        hdr->port = htons(announced_tcp_port);
+        hdr->pport = htons(announced_tls_port);
+    }
     hdr->cport = htons(announced_cport);
     hdr->flags = htons(myself->flags);
     hdr->state = server.cluster->state;
@@ -3391,10 +3564,15 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
     gossip->ping_sent = htonl(n->ping_sent/1000);
     gossip->pong_received = htonl(n->pong_received/1000);
     memcpy(gossip->ip,n->ip,sizeof(n->ip));
-    gossip->port = htons(n->port);
+    if (server.tls_cluster) {
+        gossip->port = htons(n->tls_port);
+        gossip->pport = htons(n->tcp_port);
+    } else {
+        gossip->port = htons(n->tcp_port);
+        gossip->pport = htons(n->tls_port);
+    }
     gossip->cport = htons(n->cport);
     gossip->flags = htons(n->flags);
-    gossip->pport = htons(n->pport);
     gossip->notused1 = 0;
 }
 
@@ -3631,6 +3809,10 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
     memcpy(hdr->data.update.nodecfg.nodename,node->name,CLUSTER_NAMELEN);
     hdr->data.update.nodecfg.configEpoch = htonu64(node->configEpoch);
     memcpy(hdr->data.update.nodecfg.slots,node->slots,sizeof(node->slots));
+    for (unsigned int i = 0; i < sizeof(node->slots); i++) {
+        /* Don't advertise slots that the node stopped claiming */
+        hdr->data.update.nodecfg.slots[i] = hdr->data.update.nodecfg.slots[i] & (~server.cluster->owner_not_claiming_slot[i]);
+    }
 
     clusterSendMessage(link,msgblock);
     clusterMsgSendBlockDecrRefCount(msgblock);
@@ -3836,7 +4018,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
      * slots in the current configuration. */
     for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(claimed_slots, j) == 0) continue;
-        if (server.cluster->slots[j] == NULL ||
+        if (isSlotUnclaimed(j) ||
             server.cluster->slots[j]->configEpoch <= requestConfigEpoch)
         {
             continue;
@@ -4094,7 +4276,7 @@ void clusterHandleSlaveFailover(void) {
         if (server.cluster->mf_end) {
             server.cluster->failover_auth_time = mstime();
             server.cluster->failover_auth_rank = 0;
-	    clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
+            clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
         }
         serverLog(LL_NOTICE,
             "Start of election delayed for %lld milliseconds "
@@ -4614,7 +4796,7 @@ void clusterCron(void) {
         myself->slaveof &&
         nodeHasAddr(myself->slaveof))
     {
-        replicationSetMaster(myself->slaveof->ip, myself->slaveof->port);
+        replicationSetMaster(myself->slaveof->ip, getNodeDefaultReplicationPort(myself->slaveof));
     }
 
     /* Abort a manual failover if the timeout is reached. */
@@ -4630,7 +4812,7 @@ void clusterCron(void) {
          * a migration if there is no master with at least *two* working
          * slaves. */
         if (orphaned_masters && max_slaves >= 2 && this_slaves == max_slaves &&
-		server.cluster_allow_replica_migration)
+            server.cluster_allow_replica_migration)
             clusterHandleSlaveMigration(max_slaves);
     }
 
@@ -4782,14 +4964,12 @@ int clusterDelSlot(int slot) {
     if (!n) return C_ERR;
 
     /* Cleanup the channels in master/replica as part of slot deletion. */
-    list *nodes_for_slot = clusterGetNodesInMyShard(n);
-    serverAssert(nodes_for_slot != NULL);
-    listNode *ln = listSearchKey(nodes_for_slot, myself);
-    if (ln != NULL) {
-        removeChannelsInSlot(slot);
-    }
+    removeChannelsInSlot(slot);
+    /* Clear the slot bit. */
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
+    /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
+    bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
     return C_OK;
 }
 
@@ -4962,7 +5142,7 @@ int verifyClusterConfigWithData(void) {
 
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
-        if (dictSize(server.db[j].dict)) return C_ERR;
+        if (dbSize(&server.db[j], DB_MAIN)) return C_ERR;
     }
 
     /* Check that all the slots we see populated memory have a corresponding
@@ -4996,6 +5176,17 @@ int verifyClusterConfigWithData(void) {
     return C_OK;
 }
 
+/* Remove all the shard channel related information not owned by the current shard. */
+static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
+    if (!dictSize(server.pubsubshard_channels)) return;
+    clusterNode *currmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
+    for (int j = 0; j < CLUSTER_SLOTS; j++) {
+        if (server.cluster->slots[j] != currmaster) {
+            removeChannelsInSlot(j);
+        }
+    }
+}
+
 /* -----------------------------------------------------------------------------
  * SLAVE nodes handling
  * -------------------------------------------------------------------------- */
@@ -5017,7 +5208,8 @@ void clusterSetMaster(clusterNode *n) {
     myself->slaveof = n;
     updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
-    replicationSetMaster(n->ip, n->port);
+    replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
+    removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
 }
 
@@ -5076,10 +5268,10 @@ sds representSlotInfo(sds ci, uint16_t *slot_info_pairs, int slot_info_pairs_cou
  * See clusterGenNodesDescription() top comment for more information.
  *
  * The function returns the string representation as an SDS string. */
-sds clusterGenNodeDescription(client *c, clusterNode *node, int use_pport) {
+sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary) {
     int j, start;
     sds ci;
-    int port = use_pport && node->pport ? node->pport : node->port;
+    int port = getNodeClientPort(node, tls_primary);
 
     /* Node coordinates */
     ci = sdscatlen(sdsempty(),node->name,CLUSTER_NAMELEN);
@@ -5090,13 +5282,16 @@ sds clusterGenNodeDescription(client *c, clusterNode *node, int use_pport) {
     if (sdslen(node->hostname) != 0) {
         ci = sdscatfmt(ci,",%s", node->hostname);
     }
-    if (sdslen(node->hostname) == 0) {
-        ci = sdscatfmt(ci,",", 1);
-    }
     /* Don't expose aux fields to any clients yet but do allow them
      * to be persisted to nodes.conf */
     if (c == NULL) {
+        if (sdslen(node->hostname) == 0) {
+            ci = sdscatfmt(ci,",", 1);
+        }
         for (int i = af_count-1; i >=0; i--) {
+            if ((tls_primary && i == af_tls_port) || (!tls_primary && i == af_tcp_port)) {
+                continue;
+            }
             if (auxFieldHandlers[i].isPresent(node)) {
                 ci = sdscatprintf(ci, ",%s=", auxFieldHandlers[i].field);
                 ci = auxFieldHandlers[i].getter(node, ci);
@@ -5219,13 +5414,13 @@ void clusterFreeNodesSlotsInfo(clusterNode *n) {
  * include all the known nodes in the representation, including nodes in
  * the HANDSHAKE state.
  *
- * Setting use_pport to 1 in a TLS cluster makes the result contain the
- * plaintext client port rather then the TLS client port of each node.
+ * Setting tls_primary to 1 to put TLS port in the main <ip>:<port> 
+ * field and put TCP port in aux field, instead of the opposite way.
  *
  * The representation obtained using this function is used for the output
  * of the CLUSTER NODES function, and as format for the cluster
  * configuration file (nodes.conf) for a given node. */
-sds clusterGenNodesDescription(client *c, int filter, int use_pport) {
+sds clusterGenNodesDescription(client *c, int filter, int tls_primary) {
     sds ci = sdsempty(), ni;
     dictIterator *di;
     dictEntry *de;
@@ -5238,7 +5433,7 @@ sds clusterGenNodesDescription(client *c, int filter, int use_pport) {
         clusterNode *node = dictGetVal(de);
 
         if (node->flags & filter) continue;
-        ni = clusterGenNodeDescription(c, node, use_pport);
+        ni = clusterGenNodeDescription(c, node, tls_primary);
         ci = sdscatsds(ci,ni);
         sdsfree(ni);
         ci = sdscatlen(ci,"\n",1);
@@ -5426,10 +5621,8 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
         serverPanic("Unrecognized preferred endpoint type");
     }
 
-    /* Report non-TLS ports to non-TLS client in TLS cluster if available. */
-    int use_pport = (server.tls_cluster &&
-                     c->conn && (c->conn->type != connectionTypeTls()));
-    addReplyLongLong(c, use_pport && node->pport ? node->pport : node->port);
+    /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
+    addReplyLongLong(c, getNodeClientPort(node, shouldReturnTlsInfo()));
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
@@ -5492,19 +5685,15 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
     reply_count++;
 
-    /* We use server.tls_cluster as a proxy for whether or not
-     * the remote port is the tls port or not */
-    int plaintext_port = server.tls_cluster ? node->pport : node->port;
-    int tls_port = server.tls_cluster ? node->port : 0;
-    if (plaintext_port) {
+    if (node->tcp_port) {
         addReplyBulkCString(c, "port");
-        addReplyLongLong(c, plaintext_port);
+        addReplyLongLong(c, node->tcp_port);
         reply_count++;
     }
 
-    if (tls_port) {
+    if (node->tls_port) {
         addReplyBulkCString(c, "tls-port");
-        addReplyLongLong(c, tls_port);
+        addReplyLongLong(c, node->tls_port);
         reply_count++;
     }
 
@@ -5566,7 +5755,7 @@ void addShardReplyForClusterShards(client *c, list *nodes) {
         serverAssert((n->slot_info_pairs_count % 2) == 0);
         addReplyArrayLen(c, n->slot_info_pairs_count);
         for (int i = 0; i < n->slot_info_pairs_count; i++)
-            addReplyBulkLongLong(c, (unsigned long)n->slot_info_pairs[i]);
+            addReplyLongLong(c, (unsigned long)n->slot_info_pairs[i]);
     } else {
         /* If no slot info pair is provided, the node owns no slots */
         addReplyArrayLen(c, 0);
@@ -5783,14 +5972,14 @@ NULL
         long long port, cport;
 
         if (getLongLongFromObject(c->argv[3], &port) != C_OK) {
-            addReplyErrorFormat(c,"Invalid TCP base port specified: %s",
+            addReplyErrorFormat(c,"Invalid base port specified: %s",
                                 (char*)c->argv[3]->ptr);
             return;
         }
 
         if (c->argc == 5) {
             if (getLongLongFromObject(c->argv[4], &cport) != C_OK) {
-                addReplyErrorFormat(c,"Invalid TCP bus port specified: %s",
+                addReplyErrorFormat(c,"Invalid bus port specified: %s",
                                     (char*)c->argv[4]->ptr);
                 return;
             }
@@ -5808,11 +5997,8 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
-        /* Report plaintext ports, only if cluster is TLS but client is known to
-         * be non-TLS). */
-        int use_pport = (server.tls_cluster &&
-                        c->conn && (c->conn->type != connectionTypeTls()));
-        sds nodes = clusterGenNodesDescription(c, 0, use_pport);
+        /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
+        sds nodes = clusterGenNodesDescription(c, 0, shouldReturnTlsInfo());
         addReplyVerbatim(c,nodes,sdslen(nodes),"txt");
         sdsfree(nodes);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -5829,7 +6015,7 @@ NULL
         clusterReplyShards(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
-        if (dictSize(server.db[0].dict) != 0) {
+        if (dbSize(&server.db[0], DB_MAIN) != 0) {
             addReplyError(c,"DB must be empty to perform CLUSTER FLUSHSLOTS.");
             return;
         }
@@ -6091,13 +6277,16 @@ NULL
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        dictEntry *de = (*server.db->slots_to_keys).by_slot[slot].head;
-        for (unsigned int j = 0; j < numkeys; j++) {
+        dictIterator *iter = NULL;
+        dictEntry *de = NULL;
+        iter = dictGetIterator(server.db->dict[slot]);
+        for (unsigned int i = 0; i < numkeys; i++) {
+            de = dictNext(iter);
             serverAssert(de != NULL);
             sds sdskey = dictGetKey(de);
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
-            de = dictEntryNextInSlot(de);
         }
+        dictReleaseIterator(iter);
     } else if (!strcasecmp(c->argv[1]->ptr,"forget") && c->argc == 3) {
         /* CLUSTER FORGET <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
@@ -6146,7 +6335,7 @@ NULL
          * slots nor keys to accept to replicate some other node.
          * Slaves can switch to another master without issues. */
         if (nodeIsMaster(myself) &&
-            (myself->numslots != 0 || dictSize(server.db[0].dict) != 0)) {
+            (myself->numslots != 0 || dbSize(&server.db[0], DB_MAIN) != 0)) {
             addReplyError(c,
                 "To set a master the node must be empty and "
                 "without assigned slots.");
@@ -6160,6 +6349,7 @@ NULL
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
+        /* CLUSTER REPLICAS <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
         int j;
 
@@ -6174,12 +6364,10 @@ NULL
             return;
         }
 
-        /* Use plaintext port if cluster is TLS but client is non-TLS. */
-        int use_pport = (server.tls_cluster &&
-                         c->conn && (c->conn->type != connectionTypeTls()));
+        /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
         addReplyArrayLen(c,n->numslaves);
         for (j = 0; j < n->numslaves; j++) {
-            sds ni = clusterGenNodeDescription(c, n->slaves[j], use_pport);
+            sds ni = clusterGenNodeDescription(c, n->slaves[j], shouldReturnTlsInfo());
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
@@ -6306,7 +6494,7 @@ NULL
 
         /* Slaves can be reset while containing data, but not master nodes
          * that must be empty. */
-        if (nodeIsMaster(myself) && dictSize(c->db->dict) != 0) {
+        if (nodeIsMaster(myself) && dbSize(c->db, DB_MAIN) != 0) {
             addReplyError(c,"CLUSTER RESET can't be called with "
                             "master nodes containing keys");
             return;
@@ -7304,11 +7492,8 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     } else if (error_code == CLUSTER_REDIR_MOVED ||
                error_code == CLUSTER_REDIR_ASK)
     {
-        /* Redirect to IP:port. Include plaintext port if cluster is TLS but
-         * client is non-TLS. */
-        int use_pport = (server.tls_cluster &&
-                        c->conn && (c->conn->type != connectionTypeTls()));
-        int port = use_pport && n->pport ? n->pport : n->port;
+        /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
+        int port = getNodeClientPort(n, shouldReturnTlsInfo());
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
@@ -7391,114 +7576,36 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     return 0;
 }
 
-/* Slot to Key API. This is used by Redis Cluster in order to obtain in
- * a fast way a key that belongs to a specified hash slot. This is useful
- * while rehashing the cluster and in other conditions when we need to
- * understand if we have keys for a given hash slot. */
-
-void slotToKeyAddEntry(dictEntry *entry, redisDb *db) {
-    sds key = dictGetKey(entry);
-    unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
-    slot_to_keys->count++;
-
-    /* Insert entry before the first element in the list. */
-    dictEntry *first = slot_to_keys->head;
-    dictEntryNextInSlot(entry) = first;
-    if (first != NULL) {
-        serverAssert(dictEntryPrevInSlot(first) == NULL);
-        dictEntryPrevInSlot(first) = entry;
-    }
-    serverAssert(dictEntryPrevInSlot(entry) == NULL);
-    slot_to_keys->head = entry;
-}
-
-void slotToKeyDelEntry(dictEntry *entry, redisDb *db) {
-    sds key = dictGetKey(entry);
-    unsigned int hashslot = keyHashSlot(key, sdslen(key));
-    slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
-    slot_to_keys->count--;
-
-    /* Connect previous and next entries to each other. */
-    dictEntry *next = dictEntryNextInSlot(entry);
-    dictEntry *prev = dictEntryPrevInSlot(entry);
-    if (next != NULL) {
-        dictEntryPrevInSlot(next) = prev;
-    }
-    if (prev != NULL) {
-        dictEntryNextInSlot(prev) = next;
-    } else {
-        /* The removed entry was the first in the list. */
-        serverAssert(slot_to_keys->head == entry);
-        slot_to_keys->head = next;
-    }
-}
-
-/* Updates neighbour entries when an entry has been replaced (e.g. reallocated
- * during active defrag). */
-void slotToKeyReplaceEntry(dict *d, dictEntry *entry) {
-    dictEntry *next = dictEntryNextInSlot(entry);
-    dictEntry *prev = dictEntryPrevInSlot(entry);
-    if (next != NULL) {
-        dictEntryPrevInSlot(next) = entry;
-    }
-    if (prev != NULL) {
-        dictEntryNextInSlot(prev) = entry;
-    } else {
-        /* The replaced entry was the first in the list. */
-        sds key = dictGetKey(entry);
-        unsigned int hashslot = keyHashSlot(key, sdslen(key));
-        clusterDictMetadata *dictmeta = dictMetadata(d);
-        redisDb *db = dictmeta->db;
-        slotToKeys *slot_to_keys = &(*db->slots_to_keys).by_slot[hashslot];
-        slot_to_keys->head = entry;
-    }
-}
-
-/* Initialize slots-keys map of given db. */
-void slotToKeyInit(redisDb *db) {
-    db->slots_to_keys = zcalloc(sizeof(clusterSlotToKeyMapping));
-    clusterDictMetadata *dictmeta = dictMetadata(db->dict);
-    dictmeta->db = db;
-}
-
-/* Empty slots-keys map of given db. */
-void slotToKeyFlush(redisDb *db) {
-    memset(db->slots_to_keys, 0,
-        sizeof(clusterSlotToKeyMapping));
-}
-
-/* Free slots-keys map of given db. */
-void slotToKeyDestroy(redisDb *db) {
-    zfree(db->slots_to_keys);
-    db->slots_to_keys = NULL;
-}
-
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
     unsigned int j = 0;
 
-    dictEntry *de = (*server.db->slots_to_keys).by_slot[hashslot].head;
-    while (de != NULL) {
+    dictIterator *iter = NULL;
+    dictEntry *de = NULL;
+    iter = dictGetSafeIterator(server.db->dict[hashslot]);
+    while((de = dictNext(iter)) != NULL) {
         sds sdskey = dictGetKey(de);
-        de = dictEntryNextInSlot(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
         signalModifiedKey(NULL, &server.db[0], key);
+        /* The keys are not actually logically deleted from the database, just moved to another node.
+         * The modules needs to know that these keys are no longer available locally, so just send the
+         * keyspace notification to the modules, but not to clients. */
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
         postExecutionUnitOperations();
         decrRefCount(key);
         j++;
         server.dirty++;
     }
+    dictReleaseIterator(iter);
 
     return j;
 }
 
-unsigned int countKeysInSlot(unsigned int hashslot) {
-    return (*server.db->slots_to_keys).by_slot[hashslot].count;
+unsigned int countKeysInSlot(unsigned int slot) {
+    return dictSize(server.db->dict[slot]);
 }
 
 /* -----------------------------------------------------------------------------

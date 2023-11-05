@@ -5,7 +5,9 @@
  * Redis cluster data structures, defines, exported API.
  *----------------------------------------------------------------------------*/
 
-#define CLUSTER_SLOTS 16384
+#define CLUSTER_SLOT_MASK_BITS 14 /* Number of bits used for slot id. */
+#define CLUSTER_SLOTS (1<<CLUSTER_SLOT_MASK_BITS) /* Total number of slots in cluster mode, which is 16384. */
+#define CLUSTER_SLOT_MASK ((unsigned long long)(CLUSTER_SLOTS - 1)) /* Bit mask for slot id stored in LSB. */
 #define CLUSTER_OK 0            /* Everything looks ok */
 #define CLUSTER_FAIL 1          /* The cluster can't work */
 #define CLUSTER_NAMELEN 40      /* sha1 hex length */
@@ -142,37 +144,13 @@ typedef struct clusterNode {
     char ip[NET_IP_STR_LEN];    /* Latest known IP address of this node */
     sds hostname;               /* The known hostname for this node */
     sds human_nodename;         /* The known human readable nodename for this node */
-    int port;                   /* Latest known clients port (TLS or plain). */
-    int pport;                  /* Latest known clients plaintext port. Only used
-                                   if the main clients port is for TLS. */
+    int tcp_port;               /* Latest known clients TCP port. */
+    int tls_port;               /* Latest known clients TLS port */
     int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link established toward this node */
     clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
-
-/* Slot to keys for a single slot. The keys in the same slot are linked together
- * using dictEntry metadata. */
-typedef struct slotToKeys {
-    uint64_t count;             /* Number of keys in the slot. */
-    dictEntry *head;            /* The first key-value entry in the slot. */
-} slotToKeys;
-
-/* Slot to keys mapping for all slots, opaque outside this file. */
-struct clusterSlotToKeyMapping {
-    slotToKeys by_slot[CLUSTER_SLOTS];
-};
-
-/* Dict entry metadata for cluster mode, used for the Slot to Key API to form a
- * linked list of the entries belonging to the same slot. */
-typedef struct clusterDictEntryMetadata {
-    dictEntry *prev;            /* Prev entry with key in the same slot */
-    dictEntry *next;            /* Next entry with key in the same slot */
-} clusterDictEntryMetadata;
-
-typedef struct {
-    redisDb *db;                /* A link back to the db this dict belongs to */
-} clusterDictMetadata;
 
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
@@ -214,6 +192,13 @@ typedef struct clusterState {
     long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
                                        excluding nodes without address. */
     unsigned long long stat_cluster_links_buffer_limit_exceeded;  /* Total number of cluster links freed due to exceeding buffer limit */
+
+    /* Bit map for slots that are no longer claimed by the owner in cluster PING
+     * messages. During slot migration, the owner will stop claiming the slot after
+     * the ownership transfer. Set the bit corresponding to the slot when a node
+     * stops claiming the slot. This prevents spreading incorrect information (that
+     * source still owns the slot) using UPDATE messages. */
+    unsigned char owner_not_claiming_slot[CLUSTER_SLOTS / 8];
 } clusterState;
 
 /* Redis cluster messages header */
@@ -226,10 +211,10 @@ typedef struct {
     uint32_t ping_sent;
     uint32_t pong_received;
     char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
-    uint16_t port;              /* base port last time it was seen */
+    uint16_t port;              /* primary port last time it was seen */
     uint16_t cport;             /* cluster port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint16_t pport;             /* plaintext-port, when base port is TLS */
+    uint16_t pport;             /* secondary port last time it was seen */
     uint16_t notused1;
 } clusterMsgDataGossip;
 
@@ -294,7 +279,7 @@ typedef struct {
     uint16_t unused; /* 16 bits of padding to make this structure 8 byte aligned. */
     union {
         clusterMsgPingExtHostname hostname;
-	clusterMsgPingExtHumanNodename human_nodename;
+        clusterMsgPingExtHumanNodename human_nodename;
         clusterMsgPingExtForgottenNode forgotten_node;
         clusterMsgPingExtShardId shard_id;
     } ext[]; /* Actual extension information, formatted so that the data is 8 
@@ -338,7 +323,7 @@ typedef struct {
     char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
     uint16_t ver;       /* Protocol version, currently set to 1. */
-    uint16_t port;      /* TCP base port number. */
+    uint16_t port;      /* Primary port number (TCP or TLS). */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
@@ -353,7 +338,8 @@ typedef struct {
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
     uint16_t extensions; /* Number of extensions sent along with this packet. */
     char notused1[30];   /* 30 bytes reserved for future usage. */
-    uint16_t pport;      /* Sender TCP plaintext port, if base port is TLS */
+    uint16_t pport;      /* Secondary port number: if primary port is TCP port, this is 
+                            TLS port, and if primary port is TLS port, this is TCP port.*/
     uint16_t cport;      /* Sender TCP cluster bus port */
     uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
@@ -417,21 +403,19 @@ unsigned long getClusterConnectionsCount(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 unsigned int keyHashSlot(char *key, int keylen);
-void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
-void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
-void slotToKeyReplaceEntry(dict *d, dictEntry *entry);
-void slotToKeyInit(redisDb *db);
-void slotToKeyFlush(redisDb *db);
-void slotToKeyDestroy(redisDb *db);
+int patternHashSlot(char *pattern, int length);
 void clusterUpdateMyselfFlags(void);
 void clusterUpdateMyselfIp(void);
 void slotToChannelAdd(sds channel);
 void slotToChannelDel(sds channel);
 void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
-sds clusterGenNodesDescription(client *c, int filter, int use_pport);
+sds clusterGenNodesDescription(client *c, int filter, int tls_primary);
 sds genClusterInfoString(void);
 void freeClusterLink(clusterLink *link);
+int clusterNodeGetSlotBit(clusterNode *n, int slot);
 void clusterUpdateMyselfHumanNodename(void);
 int isValidAuxString(char *s, unsigned int length);
+int getNodeDefaultClientPort(clusterNode *n);
+
 #endif /* __CLUSTER_H */

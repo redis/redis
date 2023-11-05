@@ -276,6 +276,10 @@ foreach call_type {nested normal} {
             assert_equal [$replica hget bk1 foo] bar
         }
     }
+
+    test {Unblock by timer} {
+        assert_match "OK" [r unblock_by_timer 100]
+    }
     
     test "Unload the module - blockedclient" {
         assert_equal {OK} [r module unload blockedclient]

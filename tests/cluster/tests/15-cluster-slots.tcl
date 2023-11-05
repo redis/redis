@@ -77,6 +77,43 @@ test "slot migration is invalid from primary to replica" {
     assert_match "*Target node is not a master" $err
 }
 
+proc count_bound_slots {n} {
+     set slot_count 0
+     foreach slot_range_mapping [$n cluster slots] {
+         set start_slot [lindex $slot_range_mapping 0]
+         set end_slot [lindex $slot_range_mapping 1]
+         incr slot_count [expr $end_slot - $start_slot + 1]
+     }
+     return $slot_count
+ }
+
+ test "slot must be unbound on the owner when it is deleted" {
+     set node0 [Rn 0]
+     set node1 [Rn 1]
+     assert {[count_bound_slots $node0] eq 16384}
+     assert {[count_bound_slots $node1] eq 16384}
+
+     set slot_to_delete 0
+     # Delete
+     $node0 CLUSTER DELSLOTS $slot_to_delete
+
+     # Verify
+     # The node that owns the slot must unbind the slot that was deleted
+     wait_for_condition 1000 50 {
+         [count_bound_slots $node0] == 16383
+     } else {
+         fail "Cluster slot deletion was not recorded on the node that owns the slot"
+     }
+
+     # We don't propagate slot deletion across all nodes in the cluster.
+     # This can lead to extra redirect before the clients find out that the slot is unbound.
+     wait_for_condition 1000 50 {
+         [count_bound_slots $node1] == 16384
+     } else {
+         fail "Cluster slot deletion should not be propagated to all nodes in the cluster"
+     }
+ }
+
 if {$::tls} {
     test {CLUSTER SLOTS from non-TLS client in TLS cluster} {
         set slots_tls [R 0 cluster slots]
