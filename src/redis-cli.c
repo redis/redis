@@ -3318,7 +3318,7 @@ static int isSensitiveCommand(int argc, char **argv) {
              !strcasecmp(argv[3], "sentinel-user"))) 
         {
             return 1;
-	}
+        }
         /* SENTINEL SET <mastername> auth-pass password 
          * SENTINEL SET <mastername> auth-user username */
         if (!strcasecmp(argv[1], "set") &&
