@@ -173,7 +173,7 @@ void _serverLog(int level, const char *fmt, ...) {
  * We actually use this only for signals that are not fatal from the point
  * of view of Redis. Signals that are going to kill the server anyway and
  * where we need printf-alike features are served by serverLog(). */
-void serverLogFromHandler(int level, const char *msg) {
+static void _serverLogFromHandler(int level, const char *msg) {
     int fd;
     int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];

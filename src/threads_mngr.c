@@ -134,8 +134,7 @@ static void wait_threads(void) {
     size_t curr_done_count;
     struct timespec curr_time;
 
-    do
-    {
+    do {
         atomicGet(g_num_threads_done, curr_done_count);
         clock_gettime(CLOCK_REALTIME, &curr_time);
     } while (curr_done_count < g_tids_len &&
