@@ -35,8 +35,7 @@ int set_add(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t added;
     if (RedisModule_SetAdd(key, &argv[2], argc-2, &added) == REDISMODULE_OK) {
         RedisModule_ReplyWithLongLong(ctx, added);
-    }
-    else {
+    } else {
         RedisModule_ReplyWithError(ctx, "ERR SetAdd failed");
     }
     RedisModule_CloseKey(key);
