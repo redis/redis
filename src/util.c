@@ -1130,7 +1130,7 @@ int fsyncFileDir(const char *filename) {
         errno = save_errno;
         return -1;
     }
-
+    
     close(dir_fd);
     return 0;
 }
@@ -1180,7 +1180,7 @@ static char *safe_utoa(int _base, uint64_t val, char *buf) {
     return buf + 1;
 }
 
-static char * safe_itoa(int base, int64_t val, char *buf) {
+static char *safe_itoa(int base, int64_t val, char *buf) {
     char *orig_buf = buf;
     const int32_t is_neg = (val < 0);
     *buf-- = 0;

@@ -721,7 +721,7 @@ NULL
             return;
         }
         long valsize = 0;
-        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK )
+        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
 
         for (j = 0; j < keys; j++) {
@@ -1973,10 +1973,10 @@ void logStackTrace(void *eip, int uplevel) {
 
 sds genClusterDebugString(sds infostring) {
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
-    infostring = sdscatsds(infostring, genClusterInfoString());
+    infostring = sdscatsds(infostring, genClusterInfoString()); 
     infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
     infostring = sdscatsds(infostring, clusterGenNodesDescription(NULL, 0, 0));
-
+    
     return infostring;
 }
 
@@ -2249,7 +2249,6 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     }
 
     bugReportStart();
-
     serverLog(LL_WARNING,
         "Redis %s crashed by signal: %d, si_code: %d", REDIS_VERSION, sig, info->si_code);
     if (sig == SIGSEGV || sig == SIGBUS) {
@@ -2497,7 +2496,6 @@ void debugDelay(int usec) {
 
 /* =========================== Stacktrace Utils ============================ */
 
-
 int is_digit(char c) {
     if (c >= '0' && c <= '9') return 1;
     return 0;
@@ -2541,11 +2539,12 @@ static int string_to_hex(char *src, unsigned long *result_output) {
     *result_output = result;
     return 1;
 }
+
 /** If it doesn't block and doesn't ignore, return 1 (the thread will handle the signal)
  * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
  * also returns 0 if something is wrong and prints a warning message to the log file **/
 static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char *tid, int sig_num) {
-    /* generate the threads status file path /proc/<pid>>/task/<tid>/status */
+    /* Open the threads status file path /proc/<pid>>/task/<tid>/status */
     char path_buff[PATH_MAX];
     _safe_snprintf(path_buff, PATH_MAX, "%s/%s/status", proc_pid_task_path, tid);
 
@@ -2594,11 +2593,10 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
  * If it fails, returns 0.
 */
 static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_SIZE]) {
-    /* Initialize the path the process threads' directory. */
+    /* Open /proc/<pid>/task file. */
     char path_buff[PATH_MAX] = "/proc/";
     _safe_snprintf(path_buff, PATH_MAX, "/proc/%d/task", getpid());
 
-    /* Get the directory handler. */
     int dir;
     if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) return 0;
 
@@ -2606,7 +2604,6 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     pid_t calling_tid = syscall(SYS_gettid);
     int current_thread_index = -1;
     long nread;
-
     char buff[PATH_MAX];
 
     /* Each thread is represented by a directory */
@@ -2622,7 +2619,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
             /* the thread's directory name is equivalent to its tid. */
-            long tid;
+           long tid;
            string2l(entry->d_name, strlen(entry->d_name), &tid);
 
             if(!is_thread_ready_to_signal(path_buff, entry->d_name, sig_num)) continue;
