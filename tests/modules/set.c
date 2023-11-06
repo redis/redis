@@ -15,8 +15,7 @@ int set_rem(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t deleted;
     if (RedisModule_SetRem(key, &argv[2], argc-2, &deleted) == REDISMODULE_OK) {
         RedisModule_ReplyWithLongLong(ctx, deleted);
-    }
-    else {
+    } else {
         RedisModule_ReplyWithError(ctx, "ERR SetRem failed");
     }
     RedisModule_CloseKey(key);
