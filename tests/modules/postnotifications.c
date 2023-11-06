@@ -90,6 +90,10 @@ static int KeySpace_NotificationEvicted(RedisModuleCtx *ctx, int type, const cha
         return REDISMODULE_OK; /* do not count the evicted key */
     }
 
+    if (strncmp(key_str, "before_evicted", 14) == 0) {
+        return REDISMODULE_OK; /* do not count the before_evicted key */
+    }
+
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "evicted", 7);
     RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
@@ -186,6 +190,32 @@ static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleSt
     return REDISMODULE_OK;
 }
 
+static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+    REDISMODULE_NOT_USED(eid);
+    REDISMODULE_NOT_USED(data);
+    if (subevent > 3) {
+        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%ld'", subevent);
+        return;
+    }
+    static const char* events[] = {
+            "before_deleted",
+            "before_expired",
+            "before_evicted",
+            "before_overwritten",
+    };
+
+    const RedisModuleString *key_name = RedisModule_GetKeyNameFromModuleKey(((RedisModuleKeyInfo*)data)->key);
+    const char *key_str = RedisModule_StringPtrLen(key_name, NULL);
+    const char *event = events[subevent];
+    size_t event_len = strlen(event);
+    if (strncmp(key_str, event , event_len) == 0) {
+        return; /* avoid loops */
+    }
+
+    RedisModuleString *new_key = RedisModule_CreateString(NULL, event, event_len);
+    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -219,6 +249,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EVICTED, KeySpace_NotificationEvicted) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, KeySpace_ServerEventCallback) != REDISMODULE_OK){
         return REDISMODULE_ERR;
     }
 

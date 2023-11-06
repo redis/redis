@@ -321,6 +321,7 @@ start_server {tags {"modules"}} {
             {lpop l}
             {set string_foo 1}
             {set string_bar 2}
+            {incr before_deleted}
             {incr string_changed{string_foo}}
             {incr string_changed{string_bar}}
             {incr string_total}
@@ -362,6 +363,7 @@ start_server {tags {"modules"}} {
             {lpop l}
             {set string_foo 1}
             {set string_bar 2}
+            {incr before_deleted}
             {incr string_changed{string_foo}}
             {incr string_changed{string_bar}}
             {incr string_total}
@@ -374,8 +376,11 @@ start_server {tags {"modules"}} {
             {del string_foo}
             {set string_foo 1}
             {set string_bar 2}
+            {incr before_deleted}
+            {incr before_expired}
             {incr expired}
             {incr string_changed{string_foo}}
+            {incr before_overwritten}
             {incr string_changed{string_bar}}
             {incr string_total}
             {incr string_total}

@@ -9,7 +9,7 @@ tags "modules" {
             r set string_x 1
             assert_equal {1} [r get string_changed{string_x}]
             assert_equal {1} [r get string_total]
-            
+
             r set string_x 2
             assert_equal {2} [r get string_changed{string_x}]
             assert_equal {2} [r get string_total]
@@ -23,6 +23,7 @@ tags "modules" {
                 {exec}
                 {multi}
                 {set string_x 2}
+                {incr before_overwritten}
                 {incr string_changed{string_x}}
                 {incr string_total}
                 {exec}
@@ -37,7 +38,7 @@ tags "modules" {
             assert_equal {OK} [r postnotification.async_set]
             assert_equal {1} [r get string_changed{string_x}]
             assert_equal {1} [r get string_total]
-            
+
             assert_replication_stream $repl {
                 {multi}
                 {select *}
@@ -69,6 +70,7 @@ tags "modules" {
                 {pexpireat x *}
                 {multi}
                 {del x}
+                {incr before_expired}
                 {incr expired}
                 {exec}
             }
@@ -91,6 +93,7 @@ tags "modules" {
                 {pexpireat x *}
                 {multi}
                 {del x}
+                {incr before_expired}
                 {incr expired}
                 {exec}
             }
@@ -115,6 +118,7 @@ tags "modules" {
                 {multi}
                 {set read_x 1}
                 {del x}
+                {incr before_expired}
                 {incr expired}
                 {exec}
             }
@@ -143,7 +147,7 @@ tags "modules" {
             r flushall
             set repl [attach_to_replication_stream]
             r set x 1
-            r config set maxmemory-policy allkeys-random 
+            r config set maxmemory-policy allkeys-random
             r config set maxmemory 1
 
             assert_error {OOM *} {r set y 1}
@@ -153,6 +157,7 @@ tags "modules" {
                 {set x 1}
                 {multi}
                 {del x}
+                {incr before_evicted}
                 {incr evicted}
                 {exec}
             }
@@ -172,7 +177,7 @@ tags "modules" {
             r set string_x 1
             assert_equal {1} [r get string_changed{string_x}]
             assert_equal {1} [r get string_total]
-            
+
             r set string_x 2
             assert_equal {2} [r get string_changed{string_x}]
             assert_equal {2} [r get string_total]
@@ -190,6 +195,7 @@ tags "modules" {
                 {exec}
                 {multi}
                 {set string_x 2}
+                {incr before_overwritten}
                 {incr string_changed{string_x}}
                 {incr string_total}
                 {exec}
