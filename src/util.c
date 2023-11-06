@@ -994,10 +994,9 @@ long getTimeZone(void) {
 #if defined(__linux__) || defined(__sun)
     return timezone;
 #else
-    struct timeval tv;
     struct timezone tz;
 
-    gettimeofday(&tv, &tz);
+    gettimeofday(NULL, &tz);
 
     return tz.tz_minuteswest * 60L;
 #endif
