@@ -244,7 +244,7 @@ void sortCommandGeneric(client *c, int readonly) {
                     addReplyError(c, "BY option of SORT denied in Cluster mode when "
                                  "keys formed by the pattern may be in different slots.");
                     syntax_error++;
-                    break;                   
+                    break;
                 }
                 /* If BY is specified with a real pattern, we can't accept
                  * it if no full ACL key access is applied for this command. */
@@ -254,7 +254,7 @@ void sortCommandGeneric(client *c, int readonly) {
                     break;
                 }
             }
-            j++;                                                                                                                                                                 
+            j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"get") && leftargs >= 1) {
             /* If GET is specified with a real pattern, we can't accept it in cluster mode,
              * unless we can make sure the keys formed by the pattern are in the same slot 
