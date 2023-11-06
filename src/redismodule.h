@@ -1262,6 +1262,8 @@ REDISMODULE_API int (*RedisModule_CommandFilterArgInsert)(RedisModuleCommandFilt
 REDISMODULE_API int (*RedisModule_CommandFilterArgReplace)(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CommandFilterArgDelete)(RedisModuleCommandFilterCtx *fctx, int pos) REDISMODULE_ATTR;
 REDISMODULE_API unsigned long long (*RedisModule_CommandFilterGetClientId)(RedisModuleCommandFilterCtx *fctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_CommandFilterCmdIsSucceeded)(RedisModuleCommandFilterCtx *fctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_CommandFilterDataIsDirty)(RedisModuleCommandFilterCtx *fctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Fork)(RedisModuleForkDoneHandler cb, void *user_data) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SendChildHeartbeat)(double progress) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExitFromChild)(int retcode) REDISMODULE_ATTR;
@@ -1625,6 +1627,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CommandFilterArgReplace);
     REDISMODULE_GET_API(CommandFilterArgDelete);
     REDISMODULE_GET_API(CommandFilterGetClientId);
+    REDISMODULE_GET_API(CommandFilterCmdIsSucceeded);
+    REDISMODULE_GET_API(CommandFilterDataIsDirty);
     REDISMODULE_GET_API(Fork);
     REDISMODULE_GET_API(SendChildHeartbeat);
     REDISMODULE_GET_API(ExitFromChild);

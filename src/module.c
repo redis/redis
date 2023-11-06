@@ -357,6 +357,7 @@ typedef struct RedisModuleCommandFilterCtx {
     int argv_len;
     int argc;
     client *c;
+    int is_succeeded; /*  indicates the command succeeded or failed. */
     int is_dirty;  /* indicates the data has been changed. */
 } RedisModuleCommandFilterCtx;
 
@@ -10755,7 +10756,7 @@ void moduleCallCommandFilters(client *c) {
     c->argc = filter.argc;
 }
 
-void moduleCallCommandPostFilters(client *c, long long dirty) {
+void moduleCallCommandPostFilters(client *c, long long dirty, int is_failed) {
     if (listLength(moduleCommandFilters) == 0) return;
 
     listIter li;
@@ -10767,7 +10768,8 @@ void moduleCallCommandPostFilters(client *c, long long dirty) {
         .argv_len = c->argv_len,
         .argc = c->argc,
         .c = c,
-        .is_dirty = dirty > 0 ? 1 : 0
+        .is_dirty = dirty > 0 ? 1 : 0,
+        .is_succeeded = is_failed > 0 ? 0 : 1
     };
 
     while((ln = listNext(&li))) {
@@ -10861,6 +10863,16 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 /* Get Client ID for client that issued the command we are filtering */
 unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
     return fctx->c->id;
+}
+
+/* Get the indication of the command succeeded or failed */
+int RM_CommandFilterCmdIsSucceeded(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->is_succeeded;
+}
+
+/* Get the indication of the data had been changeed */
+int RM_CommandFilterDataIsDirty(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->is_dirty;
 }
 
 /* For a given pointer allocated via RedisModule_Alloc() or
@@ -13848,6 +13860,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
     REGISTER_API(CommandFilterGetClientId);
+    REGISTER_API(CommandFilterCmdIsSucceeded);
+    REGISTER_API(CommandFilterDataIsDirty);
     REGISTER_API(Fork);
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);
