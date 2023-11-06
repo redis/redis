@@ -215,6 +215,9 @@ client *createClient(connection *conn) {
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
     initClientMultiState(c);
+    for(int i=0; i< CLINET_STATIC_ARGV_LEN; i++) {
+        c->argv_static[i] = NULL;
+    }
     return c;
 }
 
@@ -1392,7 +1395,9 @@ void freeClientArgv(client *c) {
     c->cmd = NULL;
     c->argv_len_sum = 0;
     c->argv_len = 0;
-    zfree(c->argv);
+    if(c->argv != c->argv_static) {
+        zfree(c->argv);
+    }
     c->argv = NULL;
 }
 
@@ -2295,9 +2300,15 @@ int processMultibulkBuffer(client *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->argv) zfree(c->argv);
-        c->argv_len = min(c->multibulklen, 1024);
-        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        if (c->multibulklen > CLINET_STATIC_ARGV_LEN) {
+            if (c->argv) zfree(c->argv);
+            c->argv_len = min(c->multibulklen, 1024);
+            c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        } else {
+            c->argv_len = CLINET_STATIC_ARGV_LEN;
+            c->argv = c->argv_static;
+        }
+        
         c->argv_len_sum = 0;
     }
 
