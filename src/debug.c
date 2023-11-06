@@ -67,7 +67,6 @@ typedef ucontext_t sigcontext_t;
 /* Globals */
 static int bug_report_start = 0; /* True if bug report header was already logged. */
 static pthread_mutex_t bug_report_start_mutex = PTHREAD_MUTEX_INITIALIZER;
-timer_t watchdog_timerid = NULL;
 /* Mutex for a case when two threads crash at the same time. */
 static pthread_mutex_t signal_handler_lock;
 static pthread_mutexattr_t signal_handler_lock_attr;
@@ -2310,12 +2309,6 @@ void setupDebugSigHandlers(void) {
     act.sa_flags = SA_SIGINFO;
     act.sa_sigaction = sigalrmSignalHandler;
     sigaction(SIGALRM, &act, NULL);
-
-    /* Initialize watchdog timer */
-    struct sigevent sev;
-    sev.sigev_notify = SIGEV_SIGNAL;
-    sev.sigev_signo = SIGALRM;
-    timer_create(CLOCK_REALTIME, &sev, &watchdog_timerid);
 }
 
 void setupSigSegvHandler(void) {
@@ -2465,18 +2458,16 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
  * If a timer is already scheduled, this function will re-schedule it to the
  * specified time. If period is 0 the current timer is disabled. */
-void watchdogScheduleSignal(int period /* ms */) {
-
-    struct itimerspec it;
+void watchdogScheduleSignal(int period) {
+    struct itimerval it;
 
     /* Will stop the timer if period is 0. */
     it.it_value.tv_sec = period/1000;
-    it.it_value.tv_nsec = (period%1000)*1000000;
+    it.it_value.tv_usec = (period%1000)*1000;
     /* Don't automatically restart. */
     it.it_interval.tv_sec = 0;
-    it.it_interval.tv_nsec = 0;
-
-    timer_settime(watchdog_timerid, 0, &it, NULL);
+    it.it_interval.tv_usec = 0;
+    setitimer(ITIMER_REAL, &it, NULL);
 }
 void applyWatchdogPeriod(void) {
     /* Disable watchdog when period is 0 */
