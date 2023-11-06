@@ -378,9 +378,9 @@ start_cluster 1 0 {tags {"external:skip cluster sort"}} {
     test "sort get in cluster mode" {
         catch {r sort "{a}mylist" by "{a}by*" get get*} e
         assert_match {ERR GET option of SORT denied in Cluster mode when *} $e
-        r sort "{a}mylist" by "{a}by*" get "{a}get*"             
+        r sort "{a}mylist" by "{a}by*" get "{a}get*"
     } {30 200 100}
-    
+
     test "sort_ro by in cluster mode" {
         catch {r sort_ro "{a}mylist" by by*} e
         assert_match {ERR BY option of SORT denied in Cluster mode when *} $e
@@ -390,6 +390,6 @@ start_cluster 1 0 {tags {"external:skip cluster sort"}} {
     test "sort_ro get in cluster mode" {
         catch {r sort_ro "{a}mylist" by "{a}by*" get get*} e
         assert_match {ERR GET option of SORT denied in Cluster mode when *} $e
-        r sort_ro "{a}mylist" by "{a}by*" get "{a}get*"             
+        r sort_ro "{a}mylist" by "{a}by*" get "{a}get*"
     } {30 200 100}
 }
