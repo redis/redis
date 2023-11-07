@@ -15,7 +15,7 @@ tags "modules" {
             assert_equal {2} [r get string_changed{string_x}]
             assert_equal {2} [r get string_total]
 
-            # the {incr before_overwritten} is a post notification job registered when 'string_x' was overwritten
+            # the {lpush before_overwritten string_x} is a post notification job registered when 'string_x' was overwritten
             assert_replication_stream $repl {
                 {multi}
                 {select *}
@@ -66,7 +66,7 @@ tags "modules" {
                 fail "Failed waiting for x to expired"
             }
 
-            # the {incr before_expired} is a post notification job registered before 'x' got expired
+            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
@@ -90,7 +90,7 @@ tags "modules" {
             after 10
             assert_equal {} [r get x]
 
-            # the {incr before_expired} is a post notification job registered before 'x' got expired
+            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
@@ -115,7 +115,7 @@ tags "modules" {
             after 10
             assert_equal {OK} [r set read_x 1]
 
-            # the {incr before_expired} is a post notification job registered before 'x' got expired
+            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
@@ -157,7 +157,7 @@ tags "modules" {
 
             assert_error {OOM *} {r set y 1}
 
-            # the {incr before_evicted} is a post notification job registered before 'x' got evicted
+            # the {lpush before_evicted x} is a post notification job registered before 'x' got evicted
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
@@ -193,7 +193,7 @@ tags "modules" {
             assert_equal {1} [r get string_changed{string1_x}]
             assert_equal {3} [r get string_total]
 
-            # the {incr before_overwritten} is a post notification job registered before 'string_x' got overwritten
+            # the {lpush before_overwritten string_x} is a post notification job registered before 'string_x' got overwritten
             assert_replication_stream $repl {
                 {multi}
                 {select *}
