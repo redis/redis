@@ -190,6 +190,25 @@ static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleSt
     return REDISMODULE_OK;
 }
 
+typedef struct KeySpace_EventPostNotificationCtx {
+    RedisModuleString *triggered_on;
+    RedisModuleString *new_key;
+} KeySpace_EventPostNotificationCtx;
+
+static void KeySpace_ServerEventPostNotificationFree(void *pd) {
+    KeySpace_EventPostNotificationCtx *pn_ctx = pd;
+    RedisModule_FreeString(NULL, pn_ctx->new_key);
+    RedisModule_FreeString(NULL, pn_ctx->triggered_on);
+    RedisModule_Free(pn_ctx);
+}
+
+static void KeySpace_ServerEventPostNotification(RedisModuleCtx *ctx, void *pd) {
+    REDISMODULE_NOT_USED(ctx);
+    KeySpace_EventPostNotificationCtx *pn_ctx = pd;
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "lpush", "!ss", pn_ctx->new_key, pn_ctx->triggered_on);
+    RedisModule_FreeCallReply(rep);
+}
+
 static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
     REDISMODULE_NOT_USED(eid);
     REDISMODULE_NOT_USED(data);
@@ -214,8 +233,10 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
         }
     }
 
-    RedisModuleString *new_key = RedisModule_CreateString(NULL, events[subevent], strlen(events[subevent]));
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    KeySpace_EventPostNotificationCtx *pn_ctx = RedisModule_Alloc(sizeof(*pn_ctx));
+    pn_ctx->triggered_on = RedisModule_HoldString(NULL, (RedisModuleString*)key_name);
+    pn_ctx->new_key = RedisModule_CreateString(NULL, events[subevent], strlen(events[subevent]));
+    RedisModule_AddPostNotificationJob(ctx, KeySpace_ServerEventPostNotification, pn_ctx, KeySpace_ServerEventPostNotificationFree);
 }
 
 /* This function must be present on each Redis module. It is used in order to
@@ -230,6 +251,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (!(RedisModule_GetModuleOptionsAll() & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS)) {
         return REDISMODULE_ERR;
+    }
+
+    int with_key_events = 0;
+    if (argc >= 1) {
+        const char *arg = RedisModule_StringPtrLen(argv[0], 0);
+        if (strcmp(arg, "with_key_events") == 0) {
+            with_key_events = 1;
+        }
     }
 
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS);
@@ -254,8 +283,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
-    if(RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, KeySpace_ServerEventCallback) != REDISMODULE_OK){
-        return REDISMODULE_ERR;
+    if (with_key_events) {
+        if(RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, KeySpace_ServerEventCallback) != REDISMODULE_OK){
+            return REDISMODULE_ERR;
+        }
     }
 
     if (RedisModule_CreateCommand(ctx, "postnotification.async_set", KeySpace_PostNotificationsAsyncSet,

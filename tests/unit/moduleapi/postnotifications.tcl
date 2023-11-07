@@ -1,7 +1,8 @@
 set testmodule [file normalize tests/modules/postnotifications.so]
 
 tags "modules" {
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+    start_server {} {
+        r module load $testmodule with_key_events
 
         test {Test write on post notification callback} {
             set repl [attach_to_replication_stream]
@@ -24,7 +25,7 @@ tags "modules" {
                 {exec}
                 {multi}
                 {set string_x 2}
-                {incr before_overwritten}
+                {lpush before_overwritten string_x}
                 {incr string_changed{string_x}}
                 {incr string_total}
                 {exec}
@@ -72,7 +73,7 @@ tags "modules" {
                 {pexpireat x *}
                 {multi}
                 {del x}
-                {incr before_expired}
+                {lpush before_expired x}
                 {incr expired}
                 {exec}
             }
@@ -96,7 +97,7 @@ tags "modules" {
                 {pexpireat x *}
                 {multi}
                 {del x}
-                {incr before_expired}
+                {lpush before_expired x}
                 {incr expired}
                 {exec}
             }
@@ -122,7 +123,7 @@ tags "modules" {
                 {multi}
                 {set read_x 1}
                 {del x}
-                {incr before_expired}
+                {lpush before_expired x}
                 {incr expired}
                 {exec}
             }
@@ -162,7 +163,7 @@ tags "modules" {
                 {set x 1}
                 {multi}
                 {del x}
-                {incr before_evicted}
+                {lpush before_evicted x}
                 {incr evicted}
                 {exec}
             }
@@ -174,7 +175,8 @@ tags "modules" {
 set testmodule2 [file normalize tests/modules/keyspace_events.so]
 
 tags "modules" {
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+    start_server {} {
+        r module load $testmodule with_key_events
         r module load $testmodule2
         test {Test write on post notification callback} {
             set repl [attach_to_replication_stream]
@@ -201,7 +203,7 @@ tags "modules" {
                 {exec}
                 {multi}
                 {set string_x 2}
-                {incr before_overwritten}
+                {lpush before_overwritten string_x}
                 {incr string_changed{string_x}}
                 {incr string_total}
                 {exec}

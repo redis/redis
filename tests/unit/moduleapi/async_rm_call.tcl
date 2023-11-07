@@ -318,7 +318,6 @@ start_server {tags {"modules"}} {
         # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
         # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
         # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
-        # {incr before_deleted} - post notification job registered on the before deleted event of list l that got empty
         # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
         # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
         # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
@@ -330,7 +329,6 @@ start_server {tags {"modules"}} {
             {lpop l}
             {set string_foo 1}
             {set string_bar 2}
-            {incr before_deleted}
             {incr string_changed{string_foo}}
             {incr string_changed{string_bar}}
             {incr string_total}
@@ -369,7 +367,6 @@ start_server {tags {"modules"}} {
         # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
         # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
         # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
-        # {incr before_deleted} - post notification job registered on the before deleted event of list l that got empty
         # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
         # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
         # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
@@ -380,11 +377,8 @@ start_server {tags {"modules"}} {
         # {del string_foo} - lazy expiration of string_foo when 'blpop_and_set_multiple_keys' tries to write to it. 
         # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
         # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
-        # {incr before_deleted} - the post notification job, registered when the list got empty and deleted
-        # {incr before_expired} - the post notification job, registered just before string_foo got expired
         # {incr expired} - the post notification job, registered after string_foo got expired
         # {incr string_changed{string_foo}} - post notification job triggered when we set string_foo
-        # {incr before_overwritten} - post notification job triggered before we overwrite string_bar
         # {incr string_changed{string_bar}} - post notification job triggered when we set string_bar
         # {incr string_total} - post notification job triggered when we incr 'string_changed{string_foo}'
         # {incr string_total} - post notification job triggered when we incr 'string_changed{string_bar}'
@@ -395,7 +389,6 @@ start_server {tags {"modules"}} {
             {lpop l}
             {set string_foo 1}
             {set string_bar 2}
-            {incr before_deleted}
             {incr string_changed{string_foo}}
             {incr string_changed{string_bar}}
             {incr string_total}
@@ -408,11 +401,8 @@ start_server {tags {"modules"}} {
             {del string_foo}
             {set string_foo 1}
             {set string_bar 2}
-            {incr before_deleted}
-            {incr before_expired}
             {incr expired}
             {incr string_changed{string_foo}}
-            {incr before_overwritten}
             {incr string_changed{string_bar}}
             {incr string_total}
             {incr string_total}
