@@ -10690,6 +10690,18 @@ RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisMod
     return filter;
 }
 
+/* Register a command post filter. 
+ *
+ * The callback function will be called after command executed,
+ * and will return two indication in the ctx which respectively indicate
+ * whether the command was executed successfully and whether any data was modified.
+ * 
+ * Users can access these indication through `RedisModule_CommandFilterCmdIsSucceeded` 
+ * and `RedisModule_CommandFilterDataIsDirty`.
+ * 
+ * If multiple post filters are registered (by the same or different modules), they
+ * are executed in *reverse* order of registration.
+ */
 RedisModuleCommandFilter *RM_RegisterCommandPostFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
@@ -10768,8 +10780,8 @@ void moduleCallCommandPostFilters(client *c, long long dirty, int is_failed) {
         .argv_len = c->argv_len,
         .argc = c->argc,
         .c = c,
-        .is_dirty = dirty > 0 ? 1 : 0,
-        .is_succeeded = is_failed > 0 ? 0 : 1
+        .is_dirty = dirty ? 1 : 0,
+        .is_succeeded = is_failed ? 0 : 1
     };
 
     while((ln = listNext(&li))) {
@@ -10865,12 +10877,18 @@ unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx
     return fctx->c->id;
 }
 
-/* Get the indication of the command succeeded or failed */
+/* Get the indication whether the command executed successfully or failed.
+ * This function should be called within the post callback which been
+ * registered by RedisModule_RegisterCommandPostFilter().
+ */
 int RM_CommandFilterCmdIsSucceeded(RedisModuleCommandFilterCtx *fctx) {
     return fctx->is_succeeded;
 }
 
-/* Get the indication of the data had been changeed */
+/* Get the indication whether the data was changeed by the command.
+ * This function should be called within the post callback which been
+ * registered by RedisModule_RegisterCommandPostFilter().
+ */
 int RM_CommandFilterDataIsDirty(RedisModuleCommandFilterCtx *fctx) {
     return fctx->is_dirty;
 }

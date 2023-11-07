@@ -54,6 +54,17 @@ start_server {tags {"modules"}} {
         r commandfilter.retained
     } {my-retained-string}
 
+    test {Command Filter post callback} {
+        r del mykey
+        # cmd execute succeed and data had been changed
+        r set mykey myvalue
+        # cmd execute succeed and data not change
+        r set mykey myvalue nx
+        # cmd execute fail and data not changed
+        assert_error "WRONGTYPE*" {r hset mykey myfield myvalue}
+        r del mykey
+    } {}
+
     test {Command Filter is unregistered implicitly on module unload} {
         r del log-key
         r module unload commandfilter

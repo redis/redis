@@ -13,7 +13,7 @@ static int in_log_command = 0;
 
 unsigned long long unfiltered_clientid = 0;
 
-static RedisModuleCommandFilter *filter, *filter1;
+static RedisModuleCommandFilter *filter, *filter1, *filter2;
 static RedisModuleString *retained;
 
 int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -188,6 +188,11 @@ void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
             RedisModule_CreateString(NULL, log_command_name, sizeof(log_command_name)-1));
 }
 
+void CommandFilter_CommandPostFilter(RedisModuleCommandFilterCtx *filter) {
+    RedisModule_Log(NULL, "notice", "is_succeed:%d, is_dirty:%d", 
+        RedisModule_CommandFilterCmdIsSucceeded(filter), RedisModule_CommandFilterDataIsDirty(filter));
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_Init(ctx,"commandfilter",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
@@ -227,6 +232,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             == NULL) return REDISMODULE_ERR;
 
     if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlmoveSwap, 0)) == NULL)
+        return REDISMODULE_ERR;
+
+    if ((filter2 = RedisModule_RegisterCommandPostFilter(ctx, CommandFilter_CommandPostFilter, 
+                REDISMODULE_CMDFILTER_NOSELF)) == NULL)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
