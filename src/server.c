@@ -3592,8 +3592,6 @@ void call(client *c, int flags) {
     /* Update failed command calls if required. */
 
     int is_failed = incrCommandStatsOnError(real_cmd, ERROR_COMMAND_FAILED);
-    is_failed = is_failed || c->deferred_reply_errors;
-    
     if (!is_failed && c->deferred_reply_errors) {
         /* When call is used from a module client, error stats, and total_error_replies
          * isn't updated since these errors, if handled by the module, are internal,
@@ -3735,7 +3733,7 @@ void call(client *c, int flags) {
 
     /* Call command post filters */
     if (server.execution_nesting == 0 && !(c->flags & CLIENT_BLOCKED)) {
-        moduleCallCommandPostFilters(c, dirty, is_failed);
+        moduleCallCommandPostFilters(c, dirty, is_failed || c->deferred_reply_errors);
     }
 
     /* Remember the replication offset of the client, right after its last

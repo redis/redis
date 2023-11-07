@@ -63,7 +63,7 @@ start_server {tags {"modules"}} {
         # cmd execute fail and data not changed
         assert_error "WRONGTYPE*" {r hset mykey myfield myvalue}
         r del mykey
-    } {}
+    }
 
     test {Command Filter is unregistered implicitly on module unload} {
         r del log-key
