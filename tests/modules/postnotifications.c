@@ -206,13 +206,15 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
 
     const RedisModuleString *key_name = RedisModule_GetKeyNameFromModuleKey(((RedisModuleKeyInfo*)data)->key);
     const char *key_str = RedisModule_StringPtrLen(key_name, NULL);
-    const char *event = events[subevent];
-    size_t event_len = strlen(event);
-    if (strncmp(key_str, event , event_len) == 0) {
-        return; /* avoid loops */
+
+    for (int i = 0 ; i < 4 ; ++i) {
+        const char *event = events[i];
+        if (strncmp(key_str, event , strlen(event)) == 0) {
+            return; /* don't log any event on our tracking keys */
+        }
     }
 
-    RedisModuleString *new_key = RedisModule_CreateString(NULL, event, event_len);
+    RedisModuleString *new_key = RedisModule_CreateString(NULL, events[subevent], strlen(events[subevent]));
     RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
 }
 
