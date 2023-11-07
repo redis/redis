@@ -318,7 +318,7 @@ start_server {tags {"modules"}} {
         # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
         # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
         # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
-        # {incr before_deleted} - post notificaiton job registered on the before deleted event of list l that got empty
+        # {incr before_deleted} - post notification job registered on the before deleted event of list l that got empty
         # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
         # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
         # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
@@ -369,7 +369,7 @@ start_server {tags {"modules"}} {
         # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
         # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
         # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
-        # {incr before_deleted} - post notificaiton job registered on the before deleted event of list l that got empty
+        # {incr before_deleted} - post notification job registered on the before deleted event of list l that got empty
         # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
         # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
         # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
