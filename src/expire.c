@@ -54,10 +54,12 @@
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
+        enterExecutionUnit(1, 0);
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
         deleteExpiredKeyAndPropagate(db,keyobj);
         decrRefCount(keyobj);
+        exitExecutionUnit();
         return 1;
     } else {
         return 0;
