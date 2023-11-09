@@ -88,6 +88,11 @@ int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb c
     /* Set g_tids_len */
     g_tids_len = tids_len;
 
+    /* set g_num_threads_done to 0 To handler the case where in the previous run we reached the timeout 
+    and called ThreadsManager_cleanups before one or more threads were done and increased 
+    (the already set to 0) g_num_threads_done */
+    g_num_threads_done = 0;
+
     /* Send signal to all the threads in tids */
     pid_t pid = getpid();
     for (size_t i = 0; i < tids_len ; ++i) {
