@@ -9110,12 +9110,12 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     printf("# per 100 SCAN commands (not usually needed).\n\n");
     
     /* Use readonly in cluster */
-    if(config.cluster_mode){
-        read_reply= redisCommand(context,"READONLY");
-        if(read_reply == NULL){
+    if (config.cluster_mode) {
+        read_reply = redisCommand(context, "READONLY");
+        if (read_reply == NULL){
             fprintf(stderr, "\nI/O error\n");
             exit(1);
-        }else if (read_reply->type == REDIS_REPLY_ERROR) {
+        } else if (read_reply->type == REDIS_REPLY_ERROR) {
             fprintf(stderr, "Error: %s\n", read_reply->str);
             exit(1);
         }
