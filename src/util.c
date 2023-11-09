@@ -535,6 +535,43 @@ int string2l(const char *s, size_t slen, long *lval) {
     return 1;
 }
 
+/* return 1 if c>= start && c <= end, 0 otherwise*/
+static int safe_is_c_in_range(char c, char start, char end) {
+    if (c >= start && c <= end) return 1;
+    return 0;
+}
+
+static int base_16_char_type(char c) {
+    if (safe_is_c_in_range(c, '0', '9')) return 0;
+    if (safe_is_c_in_range(c, 'a', 'f')) return 1;
+    if (safe_is_c_in_range(c, 'A', 'F')) return 2;
+    return -1;
+}
+
+/** This is an async-signal safe version of string2l to convert unsigned long to string.
+ * The function translates @param src until it reaches a value that is not 0-9, a-f or A-F, or @param we read slen characters.
+ * On successes writes the result to @param result_output and returns 1.
+ * if the string represents an overflow value, return -1. */
+int string2ul_base16_async_signal_safe(const char *src, size_t slen, unsigned long *result_output) {
+    static char ascii_to_dec[] = {'0', 'a' - 10, 'A' - 10};
+
+    int char_type = 0;
+    size_t curr_char_idx = 0;
+    unsigned long result = 0;
+    int base = 16;
+    while ((-1 != (char_type = base_16_char_type(src[curr_char_idx]))) &&
+            curr_char_idx < slen) {
+        unsigned long curr_val = src[curr_char_idx] - ascii_to_dec[char_type];
+        if ((result > ULONG_MAX / base) || (result > (ULONG_MAX - curr_val)/base)) /* Overflow. */
+            return -1;
+        result = result * base + curr_val;
+        ++curr_char_idx;
+    }
+
+    *result_output = result;
+    return 1;
+}
+
 /* Convert a string into a double. Returns 1 if the string could be parsed
  * into a (non-overflowing) double, 0 otherwise. The value will be set to
  * the parsed value when appropriate.
@@ -1129,7 +1166,7 @@ int fsyncFileDir(const char *filename) {
         errno = save_errno;
         return -1;
     }
-    
+
     close(dir_fd);
     return 0;
 }
@@ -1149,15 +1186,19 @@ int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 }
 
 /** An async signal safe version of fgets().
- * Has the same behaviour as standard fgets():  reads a line from fd and stores it into the dest buffer.
+ * Has the same behaviour as standard fgets(): reads a line from fd and stores it into the dest buffer.
  * It stops when either (buff_size-1) characters are read, the newline character is read, or the end-of-file is reached,
- *  whichever comes first. */
+ * whichever comes first.
+ *
+ * On success, the function returns the same dest parameter. If the End-of-File is encountered and no characters have
+ * been read, the contents of dest remain unchanged and a null pointer is returned.
+ * If an error occurs, a null pointer is returned. */
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd) {
     for (int i = 0; i < buff_size; i++) {
         /* Read one byte */
         ssize_t bytes_read_count = read(fd, dest + i, 1);
-        /* On EOF return NULL */
-        if (!bytes_read_count) {
+        /* On EOF or error return NULL */
+        if (bytes_read_count < 1) {
             return NULL;
         }
         /* we found the end of the line. */
@@ -1170,7 +1211,7 @@ char *fgets_async_signal_safe(char *dest, int buff_size, int fd) {
 
 static const char HEX[] = "0123456789abcdef";
 
-static char *safe_utoa(int _base, uint64_t val, char *buf) {
+static char *u2string_async_signal_safe(int _base, uint64_t val, char *buf) {
     uint32_t base = (uint32_t) _base;
     *buf-- = 0;
     do {
@@ -1179,7 +1220,7 @@ static char *safe_utoa(int _base, uint64_t val, char *buf) {
     return buf + 1;
 }
 
-static char *safe_itoa(int base, int64_t val, char *buf) {
+static char *i2string_async_signal_safe(int base, int64_t val, char *buf) {
     char *orig_buf = buf;
     const int32_t is_neg = (val < 0);
     *buf-- = 0;
@@ -1231,7 +1272,7 @@ static char *safe_itoa(int base, int64_t val, char *buf) {
     return buf + 1;
 }
 
-static const char *safe_check_longlong(const char *fmt, int32_t * have_longlong) {
+static const char *check_longlong_async_signal_safe(const char *fmt, int32_t *have_longlong) {
     *have_longlong = 0;
     if (*fmt == 'l') {
         fmt++;
@@ -1245,7 +1286,7 @@ static const char *safe_check_longlong(const char *fmt, int32_t * have_longlong)
     return fmt;
 }
 
-int _safe_vsnprintf(char *to, size_t size, const char *format, va_list ap) {
+int vsnprintf_async_signal_safe(char *to, size_t size, const char *format, va_list ap) {
     char *start = to;
     char *end = start + size - 1;
     for (; *format; ++format) {
@@ -1259,7 +1300,7 @@ int _safe_vsnprintf(char *to, size_t size, const char *format, va_list ap) {
         }
         ++format; /* skip '%' */
 
-        format = safe_check_longlong(format, &have_longlong);
+        format = check_longlong_async_signal_safe(format, &have_longlong);
 
         switch (*format) {
         case 'd':
@@ -1292,8 +1333,8 @@ int _safe_vsnprintf(char *to, size_t size, const char *format, va_list ap) {
 
 /* *INDENT-OFF* */
                     char *val_as_str = (*format == 'u') ?
-                        safe_utoa(base, uval, &buff[sizeof(buff) - 1]) :
-                        safe_itoa(base, ival, &buff[sizeof(buff) - 1]);
+                        u2string_async_signal_safe(base, uval, &buff[sizeof(buff) - 1]) :
+                        i2string_async_signal_safe(base, ival, &buff[sizeof(buff) - 1]);
 /* *INDENT-ON* */
 
                     /* Strip off "ffffffff" if we have 'x' format without 'll' */
@@ -1324,11 +1365,11 @@ int _safe_vsnprintf(char *to, size_t size, const char *format, va_list ap) {
     return (int)(to - start);
 }
 
-int _safe_snprintf(char *to, size_t n, const char *fmt, ...) {
+int snprintf_async_signal_safe(char *to, size_t n, const char *fmt, ...) {
     int result;
     va_list args;
     va_start(args, fmt);
-    result = _safe_vsnprintf(to, n, fmt, args);
+    result = vsnprintf_async_signal_safe(to, n, fmt, args);
     va_end(args);
     return result;
 }

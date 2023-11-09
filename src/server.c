@@ -167,13 +167,8 @@ void _serverLog(int level, const char *fmt, ...) {
     serverLogRaw(level,msg);
 }
 
-/* Log a fixed message without printf-alike capabilities, in a way that is
- * safe to call from a signal handler.
- *
- * We actually use this only for signals that are not fatal from the point
- * of view of Redis. Signals that are going to kill the server anyway and
- * where we need printf-alike features are served by serverLog(). */
-static void _serverLogFromHandler(int level, const char *msg) {
+/** Low level logging from handler. Should be used for un-formatted string literals, and buffer messages*/
+void serverLogRawFromHandler(int level, const char *msg) {
     int fd;
     int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];
@@ -183,30 +178,39 @@ static void _serverLogFromHandler(int level, const char *msg) {
     fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
-    if (!(level & LL_RAW)) {
+    if (level & LL_RAW) {
+        if (write(fd,msg,strlen(msg)) == -1) goto err;
+    }
+    else {
         ll2string(buf,sizeof(buf),getpid());
         if (write(fd,buf,strlen(buf)) == -1) goto err;
         if (write(fd,":signal-handler (",17) == -1) goto err;
         ll2string(buf,sizeof(buf),time(NULL));
         if (write(fd,buf,strlen(buf)) == -1) goto err;
         if (write(fd,") ",2) == -1) goto err;
+        if (write(fd,msg,strlen(msg)) == -1) goto err;
+        if (write(fd,"\n",1) == -1) goto err;
     }
-    if (write(fd,msg,strlen(msg)) == -1) goto err;
-    if (write(fd,"\n",1) == -1) goto err;
 err:
     if (!log_to_stdout) close(fd);
 }
 
+/* An async-signal-safe version of serverLog. if LL_RAW is not included in level flags,
+ * The message format is: <pid>:signal-handler (<time>) <msg> \n
+ * with LL_RAW flag only the msg is printed (with no new line at the end)
+ *
+ * We actually use this only for signals that are not fatal from the point
+ * of view of Redis. Signals that are going to kill the server anyway and
+ * where we need printf-alike features are served by serverLog(). */
 void serverLogFromHandler(int level, const char *fmt, ...) {
     va_list ap;
     char msg[LOG_MAX_LEN];
 
     va_start(ap, fmt);
-    _safe_vsnprintf(msg, sizeof(msg), fmt, ap);
+    vsnprintf_async_signal_safe(msg, sizeof(msg), fmt, ap);
     va_end(ap);
 
-
-    _serverLogFromHandler(level, msg);
+    serverLogRawFromHandler(level, msg);
 }
 
 /* Return the UNIX time in microseconds */
@@ -788,7 +792,7 @@ int allPersistenceDisabled(void) {
 /* Add a sample to the instantaneous metric. This function computes the quotient
  * of the increment of value and base, which is useful to record operation count
  * per second, or the average time consumption of an operation.
- * 
+ *
  * current_value - The dividend
  * current_base - The divisor
  * */
@@ -985,7 +989,7 @@ int clientEvictionAllowed(client *c) {
 
 /* This function is used to cleanup the client's previously tracked memory usage.
  * This is called during incremental client memory usage tracking as well as
- * used to reset when client to bucket allocation is not required when 
+ * used to reset when client to bucket allocation is not required when
  * client eviction is disabled.  */
 void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {
@@ -6388,14 +6392,14 @@ static void sigShutdownHandler(int sig) {
      * the user really wanting to quit ASAP without waiting to persist
      * on disk and without waiting for lagging replicas. */
     if (server.shutdown_asap && sig == SIGINT) {
-        serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
+        serverLogRawFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
         msg = "Received shutdown signal during loading, scheduling shutdown.";
     }
 
-    serverLogFromHandler(LL_WARNING, msg);
+    serverLogRawFromHandler(LL_WARNING, msg);
     server.shutdown_asap = 1;
     server.last_sig_received = sig;
 }
@@ -6419,7 +6423,7 @@ void setupSignalHandlers(void) {
 static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
-    serverLogFromHandler(level, "Received SIGUSR1 in child, exiting now.");
+    serverLogRawFromHandler(level, "Received SIGUSR1 in child, exiting now.");
     exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
 }
 

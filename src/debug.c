@@ -1171,8 +1171,8 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 void bugReportStart(void) {
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
-        serverLogFromHandler(LL_WARNING|LL_RAW,
-        "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+        serverLogRaw(LL_WARNING|LL_RAW,
+        "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
         bug_report_start = 1;
     }
     pthread_mutex_unlock(&bug_report_start_mutex);
@@ -1871,7 +1871,7 @@ static void writeStacktraces(int fd, int uplevel) {
     pid_t tids[TIDS_MAX_SIZE];
     size_t len_tids = get_ready_to_signal_threads_tids(THREADS_SIGNAL, tids);
     if (!len_tids) {
-        serverLogFromHandler(LL_WARNING, "writeStacktraces(): Failed to get the process's threads.");
+        serverLogRawFromHandler(LL_WARNING, "writeStacktraces(): Failed to get the process's threads.");
     }
 
     stacktrace_data stacktraces[len_tids];
@@ -1886,7 +1886,8 @@ static void writeStacktraces(int fd, int uplevel) {
 
     size_t skipped = 0;
 
-    char buff[PATH_MAX];
+    /* initialize a buffer of size 1024, as recommended by the libc manual on low-level directory access */
+    char buff[1024];
     pid_t calling_tid = syscall(SYS_gettid);
     /* for backtrace_data in backtraces_data: */
     for (size_t i = 0; i < len_tids; i++) {
@@ -1898,7 +1899,7 @@ static void writeStacktraces(int fd, int uplevel) {
         }
 
         /* stacktrace header includes the tid and the thread's name */
-        _safe_snprintf(buff, PATH_MAX, "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
+        snprintf_async_signal_safe(buff, sizeof(buff), "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
         /* skip kernel call to the signal handler, the signal handler and the callback addresses */
@@ -1918,7 +1919,7 @@ static void writeStacktraces(int fd, int uplevel) {
         backtrace_symbols_fd(curr_stacktrace_data.trace+curr_uplevel, curr_stacktrace_data.trace_size-curr_uplevel, fd);
     }
 
-    _safe_snprintf(buff, PATH_MAX, "\n%lu/%lu expected stacktraces.\n", len_tids - skipped, len_tids);
+    snprintf_async_signal_safe(buff, sizeof(buff), "\n%lu/%lu expected stacktraces.\n", (long unsigned)(len_tids - skipped), (long unsigned)len_tids);
     if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
 }
@@ -2241,7 +2242,7 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     if(pthread_mutex_lock(&signal_handler_lock) == EDEADLK) {
         /* If this thread already owns the lock (meaning we crashed during handling a signal)
          * log that the crash report can't be generated. */
-        serverLogFromHandler(LL_WARNING,
+        serverLogRawFromHandler(LL_WARNING,
             "Crashed running signal handler. Can't continue to generate the crash report");
         /* gracefully exit */
         bugReportEnd(1, sig);
@@ -2373,13 +2374,13 @@ void printCrashReport(void) {
 void bugReportEnd(int killViaSignal, int sig) {
     struct sigaction act;
 
-    serverLogFromHandler(LL_WARNING|LL_RAW,
+    serverLogRawFromHandler(LL_WARNING|LL_RAW,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/redis/redis/issues\n\n"
 "  If a Redis module was involved, please open in the module's repo instead.\n\n"
 "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
-"  Some other issues could be detected by redis-server --check-system"
+"  Some other issues could be detected by redis-server --check-system\n"
 );
 
     /* free(messages); Don't call free() with possibly corrupted memory. */
@@ -2442,16 +2443,16 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
     /* SIGALRM can be sent explicitly to the process calling kill() to get the stacktraces,
        or every watchdog_period interval. In the last case, si_pid is not set */
     if(info->si_pid == 0) {
-        serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+        serverLogRawFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
     } else {
-        serverLogFromHandler(LL_WARNING, "\nReceived SIGALRM");
+        serverLogRawFromHandler(LL_WARNING, "\nReceived SIGALRM");
     }
 #ifdef HAVE_BACKTRACE
     logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
 #else
-    serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
+    serverLogRawFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
-    serverLogFromHandler(LL_WARNING,"--------\n");
+    serverLogRawFromHandler(LL_WARNING,"--------\n");
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
@@ -2496,49 +2497,7 @@ void debugDelay(int usec) {
 
 /* =========================== Stacktrace Utils ============================ */
 
-int is_digit(char c) {
-    if (c >= '0' && c <= '9') return 1;
-    return 0;
-}
 
-int is_a_to_f(char c) {
-    if (c >='a' && c <='f') {
-            return 1;
-    }
-    return 0;
-}
-int is_A_to_F(char c) {
-    if (c >= 'A' && c <= 'F') {
-            return 1;
-    }
-    return 0;
-}
-
-int is_in_range_base_16(char c) {
-    if (is_digit(c)) return 0;
-    if (is_a_to_f(c)) return 1;
-    if (is_A_to_F(c)) return 2;
-    return -1;
-}
-
-static int string_to_hex(char *src, unsigned long *result_output) {
-    static char ascii_to_dec[] = {'0', 'a' - 10, 'A' - 10};
-
-    /* check if the signal exist in the mask */
-    int curr_char = 0;
-    unsigned long result = 0;
-    int base = 16;
-    while (-1 != (curr_char = is_in_range_base_16(src[0]))) {
-        unsigned long curr_val = src[0] - ascii_to_dec[curr_char];
-        if ((result > ULONG_MAX / base) || (result > (ULONG_MAX - curr_val)/base)) /* Overflow. */
-            return -1;
-        result = result * base + curr_val;
-        ++src;
-    }
-
-    *result_output = result;
-    return 1;
-}
 
 /** If it doesn't block and doesn't ignore, return 1 (the thread will handle the signal)
  * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
@@ -2546,7 +2505,7 @@ static int string_to_hex(char *src, unsigned long *result_output) {
 static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char *tid, int sig_num) {
     /* Open the threads status file path /proc/<pid>>/task/<tid>/status */
     char path_buff[PATH_MAX];
-    _safe_snprintf(path_buff, PATH_MAX, "%s/%s/status", proc_pid_task_path, tid);
+    snprintf_async_signal_safe(path_buff, PATH_MAX, "%s/%s/status", proc_pid_task_path, tid);
 
     int thread_status_file = open(path_buff, O_RDONLY);
     char buff[PATH_MAX];
@@ -2564,8 +2523,8 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
         if (!strncmp(buff, "SigBlk:\t", field_name_len) ||  !strncmp(buff, "SigIgn:\t", field_name_len)) {
             line = buff + field_name_len;
             unsigned long sig_mask;
-            if (-1 == string_to_hex(line, &sig_mask)) {
-                serverLogFromHandler(LL_WARNING, "Can't convert signal mask to an unsigned long due to an overflow");
+            if (-1 == string2ul_base16_async_signal_safe(line, sizeof(buff), &sig_mask)) {
+                serverLogRawFromHandler(LL_WARNING, "Can't convert signal mask to an unsigned long due to an overflow");
                 ret = 0;
                 break;
             }
@@ -2594,8 +2553,8 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
 */
 static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_SIZE]) {
     /* Open /proc/<pid>/task file. */
-    char path_buff[PATH_MAX] = "/proc/";
-    _safe_snprintf(path_buff, PATH_MAX, "/proc/%d/task", getpid());
+    char path_buff[PATH_MAX];
+    snprintf_async_signal_safe(path_buff, PATH_MAX, "/proc/%d/task", getpid());
 
     int dir;
     if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) return 0;
@@ -2606,12 +2565,14 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     long nread;
     char buff[PATH_MAX];
 
-    /* Each thread is represented by a directory */
+    /* readdir() is not async-signal-safe (AS-safe).
+    Hence, we read the file using SYS_getdents64, which is considered AS-sync*/
     while ((nread = syscall(SYS_getdents64, dir, buff, PATH_MAX))) {
         if (nread == -1) {
-            serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory");
+            serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory");
             return 0;
         }
+        /* Each thread is represented by a directory */
         for (long pos = 0; pos < nread;) {
             struct dirent64 *entry = (struct dirent64 *)(buff + pos);
             pos += entry->d_reclen;
@@ -2633,7 +2594,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
         }
         /* Stop if we reached the maximum threads number. */
         if(tids_count == TIDS_MAX_SIZE) {
-            serverLogFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
+            serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
             break;
         }
     }

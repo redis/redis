@@ -141,7 +141,7 @@ static void wait_threads(void) {
             curr_time.tv_sec <= timeout_time.tv_sec);
 
     if (curr_time.tv_sec > timeout_time.tv_sec) {
-        serverLogFromHandler(LL_WARNING, "wait_threads(): waiting threads timed out");
+        serverLogRawFromHandler(LL_WARNING, "wait_threads(): waiting threads timed out");
     }
 
 }
