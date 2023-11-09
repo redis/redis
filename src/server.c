@@ -692,13 +692,13 @@ int incrementallyRehash(int dbid) {
     } else {
         /* Rehash main dict. */
         dict *main_dict = server.db[dbid].dict[0];
-        if (main_dict) {
+        if (dictIsRehashing(main_dict)) {
             dictRehashMilliseconds(main_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
             return 1; /* already used our millisecond for this loop... */
         }
         /* Rehash expires. */
         dict *expires_dict = server.db[dbid].expires[0];
-        if (expires_dict) {
+        if (dictIsRehashing(expires_dict)) {
             dictRehashMilliseconds(expires_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
             return 1; /* already used our millisecond for this loop... */
         }
