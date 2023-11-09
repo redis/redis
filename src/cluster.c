@@ -812,7 +812,7 @@ void clusterCommandHelp(client *c) {
             NULL
     };
 
-    addExtendedReplyHelp(c, help, clusterCommandSpecialHelp());
+    addExtendedReplyHelp(c, help, clusterCommandExtendedHelp());
 }
 
 void clusterCommand(client *c) {
@@ -911,9 +911,9 @@ void clusterCommand(client *c) {
         }
 
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-        addReplyArrayLen(c, getNumSlaves(n));
-        for (j = 0; j < getNumSlaves(n); j++) {
-            sds ni = clusterGenNodeDescription(c, getSlave(n, j), shouldReturnTlsInfo());
+        addReplyArrayLen(c, clusterNodeNumSlaves(n));
+        for (j = 0; j < clusterNodeNumSlaves(n); j++) {
+            sds ni = clusterGenNodeDescription(c, clusterNodeGetSlave(n, j), shouldReturnTlsInfo());
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
@@ -1193,11 +1193,11 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
                error_code == CLUSTER_REDIR_ASK)
     {
         /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-        int port = getNodeClientPort(n, shouldReturnTlsInfo());
+        int port = clusterNodeClientPort(n, shouldReturnTlsInfo());
         addReplyErrorSds(c,sdscatprintf(sdsempty(),
                                         "-%s %d %s:%d",
                                         (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
-                                        hashslot, getPreferredEndpoint(n), port));
+                                        hashslot, clusterNodePreferredEndpoint(n), port));
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }
@@ -1285,7 +1285,7 @@ static int isReplicaAvailable(clusterNode *node) {
     if (clusterNodeIsFailing(node)) {
         return 0;
     }
-    long long repl_offset = getReplOffset(node);
+    long long repl_offset = clusterNodeReplOffset(node);
     if (clusterNodeIsMyself(node)) {
         /* Nodes do not update their own information
          * in the cluster node list. */
@@ -1312,7 +1312,7 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
     }
 
     /* Report TLS ports to TLS client, and report non-TLS port to non-TLS client. */
-    addReplyLongLong(c, getNodeClientPort(node, shouldReturnTlsInfo()));
+    addReplyLongLong(c, clusterNodeClientPort(node, shouldReturnTlsInfo()));
     addReplyBulkCBuffer(c, clusterNodeGetName(node), CLUSTER_NAMELEN);
 
     /* Add the additional endpoint information, this is all the known networking information
@@ -1347,8 +1347,8 @@ void addNodeToNodeReply(client *c, clusterNode *node) {
 
 void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, int end_slot) {
     int i, nested_elements = 3; /* slots (2) + master addr (1) */
-    for (i = 0; i < getNumSlaves(node); i++) {
-        if (!isReplicaAvailable(getSlave(node, i))) continue;
+    for (i = 0; i < clusterNodeNumSlaves(node); i++) {
+        if (!isReplicaAvailable(clusterNodeGetSlave(node, i))) continue;
         nested_elements++;
     }
     addReplyArrayLen(c, nested_elements);
@@ -1357,11 +1357,11 @@ void addNodeReplyForClusterSlot(client *c, clusterNode *node, int start_slot, in
     addNodeToNodeReply(c, node);
 
     /* Remaining nodes in reply are replicas for slot range */
-    for (i = 0; i < getNumSlaves(node); i++) {
+    for (i = 0; i < clusterNodeNumSlaves(node); i++) {
         /* This loop is copy/pasted from clusterGenNodeDescription()
          * with modifications for per-slot node aggregation. */
-        if (!isReplicaAvailable(getSlave(node, i))) continue;
-        addNodeToNodeReply(c, getSlave(node, i));
+        if (!isReplicaAvailable(clusterNodeGetSlave(node, i))) continue;
+        addNodeToNodeReply(c, clusterNodeGetSlave(node, i));
         nested_elements--;
     }
     serverAssert(nested_elements == 3); /* Original 3 elements */

@@ -35,7 +35,7 @@ struct clusterState;
 /* ---------------------- API exported outside cluster.c -------------------- */
 /* functions requiring mechanism specific implementations */
 void clusterInit(void);
-void clusterInitListeners(void);
+void clusterInitLast(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
 int verifyClusterConfigWithData(void);
@@ -59,10 +59,10 @@ sds clusterGenNodesDescription(client *c, int filter, int tls_primary);
 sds genClusterInfoString(void);
 /* handle implementation specific debug cluster commands. Return 1 if handled, 0 otherwise. */
 int handleDebugClusterCommand(client *c);
-const char **clusterDebugCommandHelp(void);
+const char **clusterDebugCommandExtendedHelp(void);
 /* handle implementation specific cluster commands. Return 1 if handled, 0 otherwise. */
 int clusterCommandSpecial(client *c);
-const char** clusterCommandSpecialHelp(void);
+const char** clusterCommandExtendedHelp(void);
 
 int clusterAllowFailoverCmd(client *c);
 void clusterPromoteSelfToMaster(void);
@@ -81,9 +81,9 @@ clusterNode* getMyClusterNode(void);
 char* getMyClusterId(void);
 int getClusterSize(void);
 char** getClusterNodesList(size_t *numnodes);
-int nodeIsMaster(clusterNode *n);
 int handleDebugClusterCommand(client *c);
 int clusterNodePending(clusterNode  *node);
+int clusterNodeIsMaster(clusterNode *n);
 char* clusterNodeIp(clusterNode *node);
 int clusterNodeIsSlave(clusterNode *node);
 clusterNode *clusterNodeGetSlaveof(clusterNode *node);
@@ -92,15 +92,15 @@ int clusterNodeTimedOut(clusterNode *node);
 int clusterNodeIsFailing(clusterNode *node);
 int clusterNodeIsNoFailover(clusterNode *node);
 char* clusterNodeGetShardId(clusterNode *node);
-int getNumSlaves(clusterNode *node);
-clusterNode *getSlave(clusterNode *node, int slave_idx);
+int clusterNodeNumSlaves(clusterNode *node);
+clusterNode *clusterNodeGetSlave(clusterNode *node, int slave_idx);
 clusterNode *getMigratingSlotDest(int slot);
 clusterNode *getImportingSlotSource(int slot);
 clusterNode *getNodeBySlot(int slot);
-int getNodeClientPort(clusterNode *n, int use_tls);
+int clusterNodeClientPort(clusterNode *n, int use_tls);
 char* clusterNodeHostname(clusterNode *node);
-const char *getPreferredEndpoint(clusterNode *n);
-long long getReplOffset(clusterNode *node);
+const char *clusterNodePreferredEndpoint(clusterNode *n);
+long long clusterNodeReplOffset(clusterNode *node);
 clusterNode *clusterLookupNode(const char *name, int length);
 
 /* functions with shared implementations */

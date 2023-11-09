@@ -6838,7 +6838,7 @@ int redisIsSupervised(int mode) {
 
 int iAmMaster(void) {
     return ((!server.cluster_enabled && server.masterhost == NULL) ||
-            (server.cluster_enabled && nodeIsMaster(getMyClusterNode())));
+            (server.cluster_enabled && clusterNodeIsMaster(getMyClusterNode())));
 }
 
 #ifdef REDIS_TEST
@@ -7161,7 +7161,7 @@ int main(int argc, char **argv) {
     ACLLoadUsersAtStartup();
     initListeners();
     if (server.cluster_enabled) {
-        clusterInitListeners();
+        clusterInitLast();
     }
     InitServerLast();
 

@@ -8990,7 +8990,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     if (flags) {
         *flags = 0;
         if (clusterNodeIsMyself(node)) *flags |= REDISMODULE_NODE_MYSELF;
-        if (nodeIsMaster(node)) *flags |= REDISMODULE_NODE_MASTER;
+        if (clusterNodeIsMaster(node)) *flags |= REDISMODULE_NODE_MASTER;
         if (clusterNodeIsSlave(node)) *flags |= REDISMODULE_NODE_SLAVE;
         if (clusterNodeTimedOut(node)) *flags |= REDISMODULE_NODE_PFAIL;
         if (clusterNodeIsFailing(node)) *flags |= REDISMODULE_NODE_FAIL;

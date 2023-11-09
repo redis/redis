@@ -498,7 +498,7 @@ void debugCommand(client *c) {
 "    Enable or disable the reply buffer resize cron job",
 NULL
         };
-        addExtendedReplyHelp(c, help, clusterDebugCommandHelp());
+        addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         /* Compiler gives warnings about writing to a random address
          * e.g "*((char*)-1) = 'x';". As a workaround, we map a read-only area
