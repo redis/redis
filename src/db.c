@@ -33,6 +33,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "cluster.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -993,13 +994,24 @@ void randomkeyCommand(client *c) {
 void keysCommand(client *c) {
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern), allkeys;
+    int plen = sdslen(pattern), allkeys, pslot = -1;
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-    dbIterator *dbit = dbIteratorInit(c->db, DB_MAIN);
     allkeys = (pattern[0] == '*' && plen == 1);
+    dbIterator *dbit;
+    if (server.cluster_enabled) {
+        if (!allkeys) {
+            pslot = patternHashSlot(pattern, plen);
+        }
+        dbit = dbIteratorInitFromSlot(c->db, DB_MAIN, pslot > -1 ? pslot - 1 : -1);
+    } else {
+        dbit = dbIteratorInit(c->db, DB_MAIN);
+    }
     robj keyobj;
     while ((de = dbIteratorNext(dbit)) != NULL) {
+        if (pslot > -1 && dbIteratorGetCurrentSlot(dbit) > pslot) {
+            break;
+        }
         sds key = dictGetKey(de);
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
