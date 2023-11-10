@@ -516,37 +516,6 @@ start_server {tags {"cli"}} {
         assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
     }
 
-    # test "blah" {
-    #     set ::env(FAKETTY_WITH_PROMPT) 1
-    #     set ::env(FAKETTY) 1
-    #     set cmd [rediscli [srv host] [srv port]]
-    #     set fh [open |$cmd "r+"]
-    #     fconfigure $fh -blocking false
-    #     fconfigure $fh -buffering none
-
-    #     flush $fh
-    #     after 10000
-    #     puts [read $fh]
-        
-    #     puts $fh "keys patternone"
-    #     flush $fh
-    #     after 1000
-    #     puts [read $fh]
-
-    #     puts -nonewline $fh "\u0012"
-    #     flush $fh
-    #     after 1000
-    #     puts [read $fh]
-        
-    #     puts -nonewline $fh "pattern"
-    #     flush $fh
-    #     after 1000
-    #     puts [read $fh]
-
-    #     unset ::env(FAKETTY_WITH_PROMPT)
-    #     unset ::env(FAKETTY)
-    # }   
-
     test_nontty_cli "Status reply" {
         assert_equal "OK" [run_cli set key bar]
         assert_equal "bar" [r get key]

@@ -137,8 +137,8 @@ static char **history = NULL;
 
 static int reverse_search_mode_enabled = 0;
 static int cycle_to_next_search_result = 0;
-static char * search_result = NULL;
-static char * search_result_friendly = NULL;
+static char search_result [LINENOISE_MAX_LINE];
+static char search_result_friendly [LINENOISE_MAX_LINE];
 static int search_result_history_index = 0;
 static int search_result_start_offset = 0;
 static int skip_search = 0;
@@ -194,12 +194,8 @@ static void refreshLine(struct linenoiseState *l);
 static void refreshSearchResult(struct linenoiseState * ls);
 
 static inline void resetSearchResult(void) {
-    if (search_result != NULL) {
-        free(search_result);
-        free(search_result_friendly);
-        search_result = NULL;
-        search_result_friendly = NULL;
-    }
+        memset(search_result, 0, sizeof(search_result));
+        memset(search_result_friendly, 0, sizeof(search_result_friendly));
 }
 
 /* Debugging macro. */
@@ -643,7 +639,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
         for (i = 0; i < l->len; i++) abAppend(&ab,"*",1);
     } else {
         refreshSearchResult(l);
-        if (search_result) {
+        if (strlen(search_result) > 0) {
             abAppend(&ab, search_result_friendly, strlen(search_result_friendly));
         } else {
             abAppend(&ab,l->buf,l->len);
@@ -683,7 +679,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
 
     /* Set column. */
     col = (plen+(int)l->pos) % (int)l->cols;
-    if (search_result != NULL) {
+    if (strlen(search_result) > 0) {
         col += search_result_start_offset;
     }
     lndebug("set col %d", 1+col);
@@ -895,7 +891,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             break;
         case TAB:
             if (linenoiseReverseSearchModeEnabled()) {
-                if (search_result) {
+                if (strlen(search_result) > 0) {
                     memset(buf, 0, buflen);
                     memcpy(buf, search_result, strlen(search_result));
                 }
@@ -917,7 +913,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 hintsCallback = hc;
             }
 
-            if (linenoiseReverseSearchModeEnabled() && search_result != NULL) {
+            if (linenoiseReverseSearchModeEnabled() && strlen(search_result) > 0) {
                 memset(buf, 0, buflen);
                 memcpy(buf, search_result, strlen(search_result));
                 return strlen(search_result);
@@ -1396,32 +1392,23 @@ static void refreshSearchResult(struct linenoiseState * ls) {
         char * bold = "\x1B[1m";
         char * normal = "\x1B[0m";
 
-        search_result = calloc(sizeof(char), sr.len);
-        search_result_friendly = calloc(sizeof(char), sr.len + sizeof(normal) + sizeof(bold) + sizeof(normal));
 
-        char * one = calloc(sizeof(char), sr.searchTermIndex);
-        char * two = calloc(sizeof(char), sr.searchTermLen);
-        char * three = calloc(sizeof(char), sr.len - (sr.searchTermIndex+sr.searchTermLen));
+        int size_needed = sr.searchTermIndex + sr.searchTermLen + sr.len - (sr.searchTermIndex+sr.searchTermLen) + sizeof(normal) + sizeof(bold) + sizeof(normal);
+        if (size_needed > sizeof(search_result_friendly) - 1) {
+            return;
+        }
 
-        if (
-            search_result == NULL || 
-            search_result_friendly == NULL ||
-            one == NULL ||
-            two == NULL ||
-            three == NULL) {
-                exit(12);
-            }
+        char prefix [sizeof(search_result_friendly)] = {0};
+        char match [sizeof(search_result_friendly)] = {0};
+        char suffix [sizeof(search_result_friendly)] = {0};
 
-        memcpy(one, sr.result, sr.searchTermIndex);
-        memcpy(two, &sr.result[sr.searchTermIndex], sr.searchTermLen);
-        memcpy(three, &sr.result[sr.searchTermIndex+sr.searchTermLen], sr.len - (sr.searchTermIndex+sr.searchTermLen));
 
-        sprintf(search_result, "%s%s%s", one, two, three);
-        sprintf(search_result_friendly, "%s%s%s%s%s%s", normal, one, bold, two, normal, three);
+        memcpy(prefix, sr.result, sr.searchTermIndex);
+        memcpy(match, &sr.result[sr.searchTermIndex], sr.searchTermLen);
+        memcpy(suffix, &sr.result[sr.searchTermIndex+sr.searchTermLen], sr.len - (sr.searchTermIndex+sr.searchTermLen));
 
-        free(one);
-        free(two);
-        free(three);
+        sprintf(search_result, "%s%s%s", prefix, match, suffix);
+        sprintf(search_result_friendly, "%s%s%s%s%s%s", normal, prefix, bold, match, normal, suffix);
 
         search_result_start_offset = sr.searchTermIndex;
     }
