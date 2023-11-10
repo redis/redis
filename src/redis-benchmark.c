@@ -1614,6 +1614,7 @@ usage:
 " -a <password>      Password for Redis Auth\n"
 " --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
 " -u <uri>           Server URI.\n"
+"                    For connection strings without a username, use default:password@host:port. \n"
 " -c <clients>       Number of parallel connections (default 50).\n"
 "                    Note: If --cluster is used then number of clients has to be\n"
 "                    the same or higher than the number of nodes.\n"
