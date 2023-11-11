@@ -1335,10 +1335,14 @@ int linenoiseReverseSearchModeEnabled(void) {
 linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
     linenoiseHistorySearchResult result = {0};
 
+    if (history_len == 0) {
+        return result;
+    }
+
     int i = cycle_to_next_search_result ? search_result_history_index : history_len-1 ;
     int original_i = i;
     
-    if (i == 0) {
+    if (i <= 0) {
         i = history_len-1;
     } else {
         i--;
@@ -1363,7 +1367,7 @@ linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
             break;
         }
 
-        if (i == 0) {
+        if (i <= 0) {
             i = history_len-1;
         } else {
             i--;
