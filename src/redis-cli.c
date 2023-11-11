@@ -3375,7 +3375,7 @@ static void repl(void) {
     while(1) {
         static char * lineCpy = NULL;
         cliRefreshPrompt();
-        line = linenoise(context ? config.prompt : "not connected> ", lineCpy, lineCpy == NULL ? 0 : strlen(lineCpy));
+        line = linenoiseWithBuffer(context ? config.prompt : "not connected> ", lineCpy, lineCpy == NULL ? 0 : strlen(lineCpy));
         if (lineCpy != NULL) {
             free(lineCpy);
             lineCpy = NULL;
@@ -9725,7 +9725,7 @@ static void intrinsicLatencyMode(void) {
 
 static sds askPassword(const char *msg) {
     linenoiseMaskModeEnable();
-    sds auth = linenoise(msg, NULL, 0);
+    sds auth = linenoise(msg);
     linenoiseMaskModeDisable();
     return auth;
 }

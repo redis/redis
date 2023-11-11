@@ -1156,7 +1156,11 @@ static char *linenoiseNoTTY(void) {
  * for a blacklist of stupid terminals, and later either calls the line
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
-char *linenoise(const char *prompt, const char *initial_buf, const int initial_buf_len) {
+char *linenoise(const char *prompt) {
+    return linenoiseWithBuffer(prompt, NULL, 0);
+}
+
+char *linenoiseWithBuffer(const char *prompt, const char *initial_buf, const int initial_buf_len) {
     only_refresh_prompt = 0;
     char buf[LINENOISE_MAX_LINE] = {0};
     if (initial_buf_len) {

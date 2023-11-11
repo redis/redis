@@ -59,7 +59,7 @@ Linenoise is very easy to use, and reading the example shipped with the
 library should get you up to speed ASAP. Here is a list of API calls
 and how to use them.
 
-    char *linenoise(const char *prompt, const char *initial_buf, const int initial_buf_len);
+    char *linenoise(const char *prompt);
 
 This is the main Linenoise call: it shows the user a prompt with line editing
 and history capabilities. The prompt you specify is used as a prompt, that is,
@@ -81,7 +81,7 @@ line is freed with the same allocator it was created.
 The canonical loop used by a program using Linenoise will be something like
 this:
 
-    while((line = linenoise("hello> ", NULL, 0)) != NULL) {
+    while((line = linenoise("hello> ")) != NULL) {
         printf("You wrote: %s\n", line);
         linenoiseFree(line); /* Or just free(line) if you use libc malloc. */
     }
