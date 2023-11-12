@@ -88,8 +88,8 @@ int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb c
     /* Set g_tids_len */
     g_tids_len = tids_len;
 
-    /* set g_num_threads_done to 0 To handler the case where in the previous run we reached the timeout 
-    and called ThreadsManager_cleanups before one or more threads were done and increased 
+    /* set g_num_threads_done to 0 To handler the case where in the previous run we reached the timeout
+    and called ThreadsManager_cleanups before one or more threads were done and increased
     (the already set to 0) g_num_threads_done */
     g_num_threads_done = 0;
 
@@ -130,7 +130,6 @@ static void invoke_callback(int sig) {
     } else {
         serverLogFromHandler(LL_WARNING, "tid %ld: ThreadsManager g_callback is NULL", syscall(SYS_gettid));
     }
-
 }
 
 static void wait_threads(void) {
