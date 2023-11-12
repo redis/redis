@@ -2553,6 +2553,20 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
     return ret;
 }
 
+/** We are using syscall(SYS_getdents64) to read directories, which unlike opendir(), is considered 
+ * async-signal-safe. This function wrapper getdents64() in glibc is supported as of glibc 2.30.
+ * To support earlier versions of glibc, we use syscall(SYS_getdents64), which requires defining
+ * linux_dirent64 ourselves. This structure is very old and stable: It will not change unless the kernel
+ * chooses to break compatibility with all existing binaries. Highly Unlikely.
+*/
+struct linux_dirent64 {
+   unsigned long long d_ino;
+   long long d_off;
+   unsigned short d_reclen;     /* Length of this linux_dirent */
+   unsigned char  d_type;
+   char           d_name[256];  /* Filename (null-terminated) */
+};
+
 /** Returns the number of the process's threads that can receive signal sig_num.
  * Writes into tids the tids of these threads.
  * If it fails, returns 0.
@@ -2575,12 +2589,13 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     Hence, we read the file using SYS_getdents64, which is considered AS-sync*/
     while ((nread = syscall(SYS_getdents64, dir, buff, PATH_MAX))) {
         if (nread == -1) {
+            close(dir);
             serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory");
             return 0;
         }
         /* Each thread is represented by a directory */
         for (long pos = 0; pos < nread;) {
-            struct dirent64 *entry = (struct dirent64 *)(buff + pos);
+            struct linux_dirent64 *entry = (struct linux_dirent64 *)(buff + pos);
             pos += entry->d_reclen;
             /* Skip irrelevant directories. */
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
