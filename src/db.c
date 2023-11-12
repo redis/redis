@@ -304,6 +304,7 @@ int getKeySlot(sds key) {
      * the key slot would fallback to calculateKeySlot.
      */
     if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
+        debugServerAssertWithInfo(server.current_client, NULL, calculateKeySlot(key)==server.current_client->slot);
         return server.current_client->slot;
     }
     return calculateKeySlot(key);

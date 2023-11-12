@@ -587,7 +587,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror'
+        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
         run: |
           sudo apt-get update

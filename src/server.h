@@ -673,6 +673,14 @@ typedef enum {
 #define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
+/* The following macros provide assertions that are only executed during test builds and should be used to add 
+ * assertions that are too computationally expensive or dangerous to run during normal operations.  */
+#ifdef DEBUG_ASSERTIONS
+#define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#else
+#define debugServerAssertWithInfo(...)
+#endif
+
 /* latency histogram per command init settings */
 #define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */
 #define LATENCY_HISTOGRAM_MAX_VALUE 1000000000L  /* <= 1 secs */
