@@ -899,6 +899,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 only_refresh_prompt = 1;
                 return l.len;
             }
+             break;
         case ENTER:    /* enter */
             history_len--;
             free(history[history_len]);
@@ -1163,7 +1164,10 @@ char *linenoise(const char *prompt) {
 char *linenoiseWithBuffer(const char *prompt, const char *initial_buf, const int initial_buf_len) {
     only_refresh_prompt = 0;
     char buf[LINENOISE_MAX_LINE] = {0};
-    if (initial_buf_len) {
+
+    if (initial_buf_len > sizeof(buf)) {
+        // no-op, cannot use initial_buf as it it too large to fit in buf
+    } else if (initial_buf_len) {
         memcpy(buf, initial_buf, initial_buf_len);
     }
     
