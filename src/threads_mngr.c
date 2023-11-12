@@ -123,9 +123,14 @@ static int test_and_start(void) {
 __attribute__ ((noinline))
 static void invoke_callback(int sig) {
     UNUSED(sig);
+    run_on_thread_cb callback = g_callback;
+    if (callback) {
+        callback();
+        atomicIncr(g_num_threads_done, 1);
+    } else {
+        serverLogFromHandler(LL_WARNING, "tid %ld: ThreadsManager g_callback is NULL", syscall(SYS_gettid));
+    }
 
-    g_callback();
-    atomicIncr(g_num_threads_done, 1);
 }
 
 static void wait_threads(void) {
