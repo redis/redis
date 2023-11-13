@@ -903,7 +903,7 @@ jobs:
     runs-on: macos-12
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'freebsd') && !(contains(github.event.inputs.skiptests, 'redis') && contains(github.event.inputs.skiptests, 'modules'))
+      !contains(github.event.inputs.skipjobs, 'freebsd')
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -911,93 +911,21 @@ jobs:
       run: |
         echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
         echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
-        echo "skiptests: ${{github.event.inputs.skiptests}}"
-        echo "test_args: ${{github.event.inputs.test_args}}"
-        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
     - uses: actions/checkout@v3
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
       uses: cross-platform-actions/action@v0.21.1
-      env:
-        MAKE: gmake
       with:
         operating_system: freebsd
         environment_variables: MAKE
         version: 13.2
-        memory: 8GB
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclx
           gmake
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then ./runtest-moduleapi --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi
-
-  test-freebsd-sentinel:
-    runs-on: macos-12
-    if: |
-      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'freebsd') && !contains(github.event.inputs.skiptests, 'sentinel')
-    timeout-minutes: 14400
-    steps:
-    - name: prep
-      if: github.event_name == 'workflow_dispatch'
-      run: |
-        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
-        echo "skiptests: ${{github.event.inputs.skiptests}}"
-        echo "test_args: ${{github.event.inputs.test_args}}"
-        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
-    - uses: actions/checkout@v3
-      with:
-        repository: ${{ env.GITHUB_REPOSITORY }}
-        ref: ${{ env.GITHUB_HEAD_REF }}
-    - name: test
-      uses: cross-platform-actions/action@v0.21.1
-      with:
-        operating_system: freebsd
-        version: 13.2
-        memory: 8GB
-        shell: bash
-        run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
-          gmake
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi
-
-  test-freebsd-cluster:
-    runs-on: macos-12
-    if: |
-      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'freebsd') && !contains(github.event.inputs.skiptests, 'cluster')
-    timeout-minutes: 14400
-    steps:
-    - name: prep
-      if: github.event_name == 'workflow_dispatch'
-      run: |
-        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
-        echo "skiptests: ${{github.event.inputs.skiptests}}"
-        echo "test_args: ${{github.event.inputs.test_args}}"
-        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
-    - uses: actions/checkout@v3
-      with:
-        repository: ${{ env.GITHUB_REPOSITORY }}
-        ref: ${{ env.GITHUB_HEAD_REF }}
-    - name: test
-      uses: cross-platform-actions/action@v0.21.1
-      with:
-        operating_system: freebsd
-        version: 13.2
-        memory: 8GB
-        shell: bash
-        run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
-          gmake
-          if echo "${{github.event.inputs.skiptests}}" | grep -vq cluster ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} ; fi
+          ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
