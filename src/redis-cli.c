@@ -2681,6 +2681,22 @@ static int parseOptions(int argc, char **argv) {
                    && !lastarg)
         {
             config.conn_info.auth = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i], "--readpass")) {
+            FILE *fp;
+            sds filepass = sdsempty();
+            char buf[32];
+            if ((fp = fopen(argv[++i], "r")) == NULL) {
+                fprintf(stderr, "Can't open the file '%s': %s\n", argv[i],
+                        strerror(errno));
+                continue;
+            }
+            while(fgets(buf, 32, fp) != NULL) {
+                filepass = sdscat(filepass, buf);
+            }
+            fclose(fp);
+            filepass = sdstrim(filepass," \t\r\n");
+            config.no_auth_warning = 1;
+            config.conn_info.auth = filepass;
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
@@ -3023,8 +3039,10 @@ static void usage(int err) {
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
 "                     variable to pass this password more safely\n"
 "                     (if both are used, this argument takes precedence).\n"
-"  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
+"  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a\n"
+"                     --pass, --readpass or --askpass.\n"
 "  --pass <password>  Alias of -a for consistency with the new --user option.\n"
+"  --readpass <filename> Read password from file.\n"
 "  --askpass          Force user to input password with mask from STDIN.\n"
 "                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
 "                     environment variable will be ignored.\n"

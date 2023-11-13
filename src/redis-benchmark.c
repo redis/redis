@@ -1452,6 +1452,21 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-a") ) {
             if (lastarg) goto invalid;
             config.conn_info.auth = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i], "--readpass")) {
+            FILE *fp;
+            sds filepass = sdsempty();
+            char buf[32];
+            if ((fp = fopen(argv[++i], "r")) == NULL) {
+                fprintf(stderr, "Can't open the file '%s': %s\n", argv[i],
+                        strerror(errno));
+                continue;
+            }
+            while(fgets(buf, 32, fp) != NULL) {
+                filepass = sdscat(filepass, buf);
+            }
+            fclose(fp);
+            filepass = sdstrim(filepass," \t\r\n");
+            config.conn_info.auth = filepass;
         } else if (!strcmp(argv[i],"--user")) {
             if (lastarg) goto invalid;
             config.conn_info.user = sdsnew(argv[++i]);
@@ -1612,7 +1627,9 @@ usage:
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
-" --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
+" --readpass <filename> Read password from file.\n"
+" --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a\n"
+"                    or --readpass.\n"
 " -u <uri>           Server URI.\n"
 " -c <clients>       Number of parallel connections (default 50).\n"
 "                    Note: If --cluster is used then number of clients has to be\n"
