@@ -1410,6 +1410,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->orphaned_time = 0;
     node->repl_offset_time = 0;
     node->repl_offset = 0;
+    node->extensions_supported = 0;
     listSetFreeMethod(node->fail_reports,zfree);
     return node;
 }
@@ -2837,6 +2838,7 @@ int clusterProcessPacket(clusterLink *link) {
                 "master manual failover: %lld",
                 server.cluster->mf_master_offset);
         }
+        sender->extensions_supported = ntohs(hdr->extensions_supported);
     }
 
     /* Initial processing of PING and MEET requests replying with a PONG. */
@@ -3597,7 +3599,10 @@ void clusterSendPing(clusterLink *link, int type) {
      * to put inside the packet. */
     estlen = sizeof(clusterMsg) - sizeof(union clusterMsgData);
     estlen += (sizeof(clusterMsgDataGossip)*(wanted + pfail_wanted));
-    estlen += writePingExt(NULL, 0);
+
+    if (link->node && link->node->extensions_supported) {
+        estlen += writePingExt(NULL, 0);
+    }
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
     if (estlen < (int)sizeof(clusterMsg)) estlen = sizeof(clusterMsg);
@@ -3663,9 +3668,14 @@ void clusterSendPing(clusterLink *link, int type) {
         dictReleaseIterator(di);
     }
 
+    hdr->extensions_supported = htons(1);
     /* Compute the actual total length and send! */
     uint32_t totlen = 0;
-    totlen += writePingExt(hdr, gossipcount);
+
+    if (link->node && link->node->extensions_supported) {
+        totlen += writePingExt(hdr, gossipcount);
+    }
+
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
     serverAssert(gossipcount < USHRT_MAX);
