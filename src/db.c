@@ -81,13 +81,25 @@ int dbIteratorGetCurrentSlot(dbIterator *dbit) {
     return dbit->slot;
 }
 
+/* Used in dbIteratorNext, when getting the next entry in multi slot db, get
+ * the iterator of the next safe dictionary. */
+void dbIteratorInitNextSafeIterator(dbIterator *dbit, dict *d) {
+    if (dbit->di.d) {
+        /* Before we move to the next dict, reset the iter of the previous dict. */
+        dictIterator *iter = &dbit->di;
+        dictResetIterator(iter);
+    }
+
+    dictInitSafeIterator(&dbit->di, d);
+}
+
 /* Returns next entry from the multi slot db. */
 dictEntry *dbIteratorNext(dbIterator *dbit) {
     dictEntry *de = dbit->di.d ? dictNext(&dbit->di) : NULL;
     if (!de) { /* No current dict or reached the end of the dictionary. */
         dict *d = dbIteratorNextDict(dbit);
         if (!d) return NULL;
-        dictInitSafeIterator(&dbit->di, d);
+        dbIteratorInitNextSafeIterator(dbit, d);
         de = dictNext(&dbit->di);
     }
     return de;
@@ -95,7 +107,9 @@ dictEntry *dbIteratorNext(dbIterator *dbit) {
 
 /* Returns DB iterator that can be used to iterate through sub-dictionaries.
  * Primary database contains only one dictionary when node runs without cluster mode,
- * or 16k dictionaries (one per slot) when node runs with cluster mode enabled. */
+ * or 16k dictionaries (one per slot) when node runs with cluster mode enabled.
+ *
+ * The caller should free the resulting dbit with dbReleaseIterator. */
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType) {
     dbIterator *dbit = zmalloc(sizeof(*dbit));
     dbit->db = db;
@@ -106,6 +120,9 @@ dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType) {
     return dbit;
 }
 
+/* Returns DB iterator that can be used to iterate through sub-dictionaries.
+ *
+ * The caller should free the resulting dbit with dbReleaseIterator. */
 dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot) {
     dbIterator *dbit = zmalloc(sizeof(*dbit));
     dbit->db = db;
@@ -114,6 +131,14 @@ dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot) {
     dbit->next_slot = dbGetNextNonEmptySlot(dbit->db, dbit->slot, dbit->keyType);
     dictInitSafeIterator(&dbit->di, NULL);
     return dbit;
+}
+
+/* Free the dbit returned by dbIteratorInit or dbIteratorInitFromSlot. */
+void dbReleaseIterator(dbIterator *dbit) {
+    dictIterator *iter = &dbit->di;
+    dictResetIterator(iter);
+
+    zfree(dbit);
 }
 
 /* Returns next non-empty slot strictly after given one, or -1 if provided slot is the last one. */
@@ -999,7 +1024,7 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    zfree(dbit);
+    dbReleaseIterator(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -1388,7 +1413,7 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
     return db->sub_dict[keyType].key_count;
 }
 
-/* This method proivdes the cumulative sum of all the dictionary buckets
+/* This method provides the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
     if (server.cluster_enabled) {
@@ -2976,7 +3001,7 @@ void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, dbKeyType keyT
             }
         }
     }
-    zfree(dbit);
+    dbReleaseIterator(dbit);
     l = dictGetStatsMsg(buf, bufsize, mainHtStats, full);
     dictFreeStats(mainHtStats);
     buf += l;

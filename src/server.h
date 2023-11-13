@@ -997,7 +997,7 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
+    int dict_count;             /* Indicates total number of dictionaries owned by this DB, 1 dict per slot in cluster mode. */
     dbDictState sub_dict[2];  /* Metadata for main and expires dictionaries */
 } redisDb;
 
@@ -2436,6 +2436,7 @@ typedef struct dbIterator dbIterator;
 /* DB iterator specific functions */
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
 dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
+void dbReleaseIterator(dbIterator *dbit);
 dict *dbIteratorNextDict(dbIterator *dbit);
 dict *dbGetDictFromIterator(dbIterator *dbit);
 int dbIteratorGetCurrentSlot(dbIterator *dbit);
