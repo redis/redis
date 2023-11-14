@@ -963,7 +963,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             break;
         case CTRL_R:
             if (linenoiseReverseSearchModeEnabled()) {
-                // cycle search results
+                /* cycle search results */
                 cycle_to_next_search_result = 1;
                 refreshLine(&l);
                 break;
