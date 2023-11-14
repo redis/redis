@@ -1166,7 +1166,7 @@ char *linenoiseWithBuffer(const char *prompt, const char *initial_buf, const int
     char buf[LINENOISE_MAX_LINE] = {0};
 
     if (initial_buf_len > sizeof(buf)) {
-        // no-op, cannot use initial_buf as it it too large to fit in buf
+        /* no-op, cannot use initial_buf as it it too large to fit in buf */
     } else if (initial_buf_len) {
         memcpy(buf, initial_buf, initial_buf_len);
     }
