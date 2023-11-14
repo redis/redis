@@ -5761,7 +5761,7 @@ int clusterNodeIsMyself(clusterNode *n) {
     return n == server.cluster->myself;
 }
 
-clusterNode* getMyClusterNode(void) {
+clusterNode *getMyClusterNode(void) {
     return server.cluster->myself;
 }
 
@@ -5773,7 +5773,7 @@ int getClusterSize(void) {
     return dictSize(server.cluster->nodes);
 }
 
-char** getClusterNodesList(size_t *numnodes) {
+char **getClusterNodesList(size_t *numnodes) {
     size_t count = dictSize(server.cluster->nodes);
     char **ids = zmalloc((count+1)*CLUSTER_NAMELEN);
     dictIterator *di = dictGetIterator(server.cluster->nodes);
@@ -5836,7 +5836,7 @@ int clusterNodePending(clusterNode  *node) {
     return node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE);
 }
 
-char* clusterNodeIp(clusterNode *node) {
+char *clusterNodeIp(clusterNode *node) {
     return node->ip;
 }
 
@@ -5848,7 +5848,7 @@ clusterNode *clusterNodeGetSlaveof(clusterNode *node) {
     return node->slaveof;
 }
 
-char* clusterNodeGetName(clusterNode *node) {
+char *clusterNodeGetName(clusterNode *node) {
     return node->name;
 }
 
@@ -5874,7 +5874,7 @@ const char **clusterDebugCommandExtendedHelp(void) {
     return help;
 }
 
-char* clusterNodeGetShardId(clusterNode *node) {
+char *clusterNodeGetShardId(clusterNode *node) {
     return node->shard_id;
 }
 
@@ -6326,7 +6326,7 @@ int clusterCommandSpecial(client *c) {
     return 1;
 }
 
-const char** clusterCommandExtendedHelp(void) {
+const char **clusterCommandExtendedHelp(void) {
     static const char *help[] = {
         "ADDSLOTS <slot> [<slot> ...]",
         "    Assign slots to current node.",
@@ -6391,7 +6391,7 @@ clusterNode *getNodeBySlot(int slot) {
     return server.cluster->slots[slot];
 }
 
-char* clusterNodeHostname(clusterNode *node) {
+char *clusterNodeHostname(clusterNode *node) {
     return node->hostname;
 }
 
