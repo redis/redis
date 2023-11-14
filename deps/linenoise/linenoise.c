@@ -1355,10 +1355,8 @@ linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
     while (1) {
         char * found = strstr(history[i], searchTerm);
         
-        /* 
-            check if we found the same string at another index when cycling, this would be annoying to cycle through
-            as it might appear that cycling isn't working
-        */
+        /* check if we found the same string at another index when cycling, this would be annoying to cycle through
+         * as it might appear that cycling isn't working */
         int strings_are_the_same = cycle_to_next_search_result && strcmp(history[i], history[search_result_history_index]) == 0; 
         
         if (found && !strings_are_the_same) {
