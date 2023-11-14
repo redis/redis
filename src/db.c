@@ -81,25 +81,19 @@ int dbIteratorGetCurrentSlot(dbIterator *dbit) {
     return dbit->slot;
 }
 
-/* Used in dbIteratorNext, when getting the next entry in multi slot db, get
- * the iterator of the next safe dictionary. */
-void dbIteratorInitNextSafeIterator(dbIterator *dbit, dict *d) {
-    if (dbit->di.d) {
-        /* Before we move to the next dict, reset the iter of the previous dict. */
-        dictIterator *iter = &dbit->di;
-        dictResetIterator(iter);
-    }
-
-    dictInitSafeIterator(&dbit->di, d);
-}
-
 /* Returns next entry from the multi slot db. */
 dictEntry *dbIteratorNext(dbIterator *dbit) {
     dictEntry *de = dbit->di.d ? dictNext(&dbit->di) : NULL;
     if (!de) { /* No current dict or reached the end of the dictionary. */
         dict *d = dbIteratorNextDict(dbit);
         if (!d) return NULL;
-        dbIteratorInitNextSafeIterator(dbit, d);
+
+        if (dbit->di.d) {
+            /* Before we move to the next dict, reset the iter of the previous dict. */
+            dictIterator *iter = &dbit->di;
+            dictResetIterator(iter);
+        }
+        dictInitSafeIterator(&dbit->di, d);
         de = dictNext(&dbit->di);
     }
     return de;
