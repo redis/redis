@@ -1368,11 +1368,11 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             }
         }
     }
-    zfree(dbit);
+    dbReleaseIterator(dbit);
     return written;
 
 werr:
-    if (dbit) zfree(dbit);
+    if (dbit) dbReleaseIterator(dbit);
     return -1;
 }
 

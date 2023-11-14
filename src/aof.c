@@ -2328,12 +2328,12 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             if (server.rdb_key_save_delay)
                 debugDelay(server.rdb_key_save_delay);
         }
-        zfree(dbit);
+        dbReleaseIterator(dbit);
     }
     return C_OK;
 
 werr:
-    if (dbit) zfree(dbit);
+    if (dbit) dbReleaseIterator(dbit);
     return C_ERR;
 }
 
