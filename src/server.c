@@ -3591,8 +3591,8 @@ void call(client *c, int flags) {
 
     /* Update failed command calls if required. */
 
-    int is_failed = incrCommandStatsOnError(real_cmd, ERROR_COMMAND_FAILED);
-    if (!is_failed && c->deferred_reply_errors) {
+    int failed = incrCommandStatsOnError(real_cmd, ERROR_COMMAND_FAILED);
+    if (!failed && c->deferred_reply_errors) {
         /* When call is used from a module client, error stats, and total_error_replies
          * isn't updated since these errors, if handled by the module, are internal,
          * and not reflected to users. however, the commandstats does show these calls
@@ -3728,13 +3728,13 @@ void call(client *c, int flags) {
     if (zmalloc_used > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used;
 
-    /* Do some maintenance job and cleanup */
-    afterCommand(c);
-
     /* Call command post filters */
     if (server.execution_nesting == 0 && !(c->flags & CLIENT_BLOCKED)) {
-        moduleCallCommandPostFilters(c, dirty, is_failed || c->deferred_reply_errors);
+        moduleCallCommandPostFilters(c, dirty, failed || c->deferred_reply_errors);
     }
+
+    /* Do some maintenance job and cleanup */
+    afterCommand(c);
 
     /* Remember the replication offset of the client, right after its last
      * command that resulted in propagation. */

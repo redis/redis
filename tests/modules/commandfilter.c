@@ -15,6 +15,7 @@ unsigned long long unfiltered_clientid = 0;
 
 static RedisModuleCommandFilter *filter, *filter1, *filter2;
 static RedisModuleString *retained;
+static RedisModuleCtx *module_ctx;
 
 int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
@@ -188,9 +189,22 @@ void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
             RedisModule_CreateString(NULL, log_command_name, sizeof(log_command_name)-1));
 }
 
-void CommandFilter_CommandPostFilter(RedisModuleCommandFilterCtx *filter) {
-    RedisModule_Log(NULL, "notice", "is_succeed:%d, is_dirty:%d", 
-        RedisModule_CommandFilterCmdIsSucceeded(filter), RedisModule_CommandFilterDataIsDirty(filter));
+void CommandFilter_CommandPostFilter(RedisModuleCommandFilterCtx *ctx) {
+    int argc = RedisModule_CommandFilterArgsCount(ctx);
+    if (argc <= 1) {
+        return;
+    }
+
+    int is_dirty = RedisModule_CommandFilterDataIsDirty(ctx);
+
+    RedisModuleString *key = RedisModule_CommandFilterArgGet(ctx, 1);
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    RedisModuleKey *k = RedisModule_OpenKey(module_ctx, key, REDISMODULE_READ | REDISMODULE_WRITE);
+    if (is_dirty && !memcmp(key_str, "@expireKey", 10)) {
+        RedisModule_Call(module_ctx, "EXPIRE", "cl!", key_str, (long long) 60);
+    }
+    RedisModule_CloseKey(k);
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -238,12 +252,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 REDISMODULE_CMDFILTER_NOSELF)) == NULL)
         return REDISMODULE_ERR;
 
+    module_ctx = RedisModule_GetDetachedThreadSafeContext(ctx);
+    if (RedisModule_SelectDb(module_ctx, 9) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
     return REDISMODULE_OK;
 }
 
 int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, log_key_name);
     if (retained) RedisModule_FreeString(NULL, retained);
+    if (module_ctx) RedisModule_FreeThreadSafeContext(module_ctx);
 
     return REDISMODULE_OK;
 }

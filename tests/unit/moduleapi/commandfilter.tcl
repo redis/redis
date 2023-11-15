@@ -54,16 +54,22 @@ start_server {tags {"modules"}} {
         r commandfilter.retained
     } {my-retained-string}
 
-    test {Command Filter post callback} {
-        r del mykey
-        # cmd execute succeed and data had been changed
-        r set mykey myvalue
-        # cmd execute succeed and data not change
-        r set mykey myvalue nx
-        # cmd execute fail and data not changed
-        assert_error "WRONGTYPE*" {r hset mykey myfield myvalue}
-        r del mykey
-    }
+    test {Command can propagate within command filter post callback} {
+        set repl [attach_to_replication_stream]
+
+        r set @expireKey v
+
+        assert_replication_stream $repl {
+            {multi}
+            {select *}
+            {set @expireKey v}
+            {pexpireat @expireKey *}
+            {exec}
+        }
+        close_replication_stream $repl
+
+        assert_morethan [r ttl @expireKey] 0
+    } {} {needs:repl}
 
     test {Command Filter is unregistered implicitly on module unload} {
         r del log-key
