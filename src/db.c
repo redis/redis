@@ -1092,7 +1092,13 @@ void scanCallback(void *privdata, const dictEntry *de) {
     }
 
     listAddNodeTail(keys, key);
-    if (val && !data->no_values) listAddNodeTail(keys, val);
+    if (val) {
+        if (!data->no_values) {
+            listAddNodeTail(keys, val);
+        } else {
+            sdsfree(val);
+        }
+    }
 }
 
 /* Try to parse a SCAN cursor stored at object 'o':
