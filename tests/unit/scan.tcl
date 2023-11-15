@@ -312,6 +312,10 @@ proc test_scan {type} {
 
             set keys2 [lsort -unique $keys2]
             assert_equal $count [llength $keys2]
+
+            # Test NOSCORES 
+            set res [r zscan zset 0 count 1000 noscores]
+            assert_equal [lsort $keys2] [lsort [lindex $res 1]]
         }
     }
 
@@ -373,7 +377,14 @@ proc test_scan {type} {
         r zadd mykey 1 foo 2 fab 3 fiz 10 foobar
         set res [r zscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
-    }
+    } {1 10 foo foobar}
+
+    test "{$type} ZSCAN with NOSCORES" {
+        r del mykey
+        r zadd mykey 1 foo 2 fab 3 fiz 10 foobar
+        set res [r zscan mykey 0 COUNT 10000 NOSCORES]
+        lsort -unique [lindex $res 1]
+    } {fab fiz foo foobar}
 
     test "{$type} ZSCAN scores: regression test for issue #2175" {
         r del mykey

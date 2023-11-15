@@ -56,6 +56,12 @@
                 "name": "count",
                 "type": "integer",
                 "optional": true
+            },
+            {
+                "token": "NOSCORES",
+                "name": "noscores",
+                "type": "pure-token",
+                "optional": true
             }
         ],
         "reply_schema": {
