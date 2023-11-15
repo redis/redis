@@ -175,7 +175,7 @@ start_server {tags {"introspection"}} {
        assert_error "ERR invalid first DB index*" {r swapdb a 55}
        assert_error "ERR invalid first DB index*" {r swapdb a b}
        assert_match "OK" [r swapdb 0 0]
-    }
+    } {} {singledb:skip}
 
     test {Coverage: SWAPDB and FLUSHDB} {
        # set a key in each db and swapdb one of 2 with different db
@@ -196,7 +196,7 @@ start_server {tags {"introspection"}} {
        assert_no_match "*db0:keys=*" [r info keyspace]
        assert_no_match "*db2:keys=*" [r info keyspace]
        r flushall
-    }
+    } {OK} {singledb:skip}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
