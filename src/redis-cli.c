@@ -3041,8 +3041,7 @@ static void usage(int err) {
 "  -X                 Read <tag> argument from STDIN (see example below).\n"
 "  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
-"  -c                 Enable cluster mode (follow -ASK and -MOVED redirections\n"
-"                     and make --bigkeys and --memkeys usable on replicas).\n"
+"  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 "  -e                 Return exit error code when command execution fails.\n"
 "%s"
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
@@ -9084,9 +9083,22 @@ static void longStatLoopModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+static void sendReadOnly(void) {
+    redisReply *read_reply;
+    read_reply = redisCommand(context, "READONLY");
+    if (read_reply == NULL){
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    } else if (read_reply->type == REDIS_REPLY_ERROR && strcmp(read_reply->str, "ERR This instance has cluster support disabled") != 0) {
+        fprintf(stderr, "Error: %s\n", read_reply->str);
+        exit(1);
+    }
+    freeReplyObject(read_reply);
+}
+
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
-    redisReply *reply, *keys, *read_reply;
+    redisReply *reply, *keys;
     unsigned int arrsize=0, i;
     dictIterator *di;
     dictEntry *de;
@@ -9111,17 +9123,7 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     printf("# per 100 SCAN commands (not usually needed).\n\n");
     
     /* Use readonly in cluster */
-    if (config.cluster_mode) {
-        read_reply = redisCommand(context, "READONLY");
-        if (read_reply == NULL){
-            fprintf(stderr, "\nI/O error\n");
-            exit(1);
-        } else if (read_reply->type == REDIS_REPLY_ERROR) {
-            fprintf(stderr, "Error: %s\n", read_reply->str);
-            exit(1);
-        }
-        freeReplyObject(read_reply);
-    }
+    sendReadOnly();
 
     /* SCAN loop */
     do {
@@ -9288,6 +9290,9 @@ static void findHotKeys(void) {
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
 
+    /* Use readonly in cluster */
+    sendReadOnly();
+    
     /* SCAN loop */
     do {
         /* Calculate approximate percentage completion */
