@@ -272,6 +272,10 @@ proc test_scan {type} {
 
             set keys2 [lsort -unique $keys2]
             assert_equal $count [llength $keys2]
+
+            # Test NOVALUES 
+            set res [r hscan hash 0 count 1000 novalues]
+            assert_equal [lsort $keys2] [lsort [lindex $res 1]]
         }
     }
 
@@ -367,6 +371,13 @@ proc test_scan {type} {
         set res [r hscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     } {1 10 foo foobar}
+
+    test "{$type} HSCAN with NOVALUES" {
+        r del mykey
+        r hmset mykey foo 1 fab 2 fiz 3 foobar 10 1 a 2 b 3 c 4 d
+        set res [r hscan mykey 0 NOVALUES]
+        lsort -unique [lindex $res 1]
+    } {1 2 3 4 fab fiz foo foobar}
 
     test "{$type} ZSCAN with PATTERN" {
         r del mykey

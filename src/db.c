@@ -1029,6 +1029,7 @@ typedef struct {
     long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
     long sampled; /* cumulative number of keys sampled */
+    int no_values; /* set to 1 means to return keys only */
 } scanData;
 
 /* Helper function to compare key type in scan commands */
@@ -1091,7 +1092,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     }
 
     listAddNodeTail(keys, key);
-    if (val) listAddNodeTail(keys, val);
+    if (val && !data->no_values) listAddNodeTail(keys, val);
 }
 
 /* Try to parse a SCAN cursor stored at object 'o':
@@ -1164,7 +1165,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     sds pat = NULL;
     sds typename = NULL;
     long long type = LLONG_MAX;
-    int patlen = 0, use_pattern = 0;
+    int patlen = 0, use_pattern = 0, no_values = 0;
     dict *ht;
 
     /* Object must be NULL (to iterate keys names), or the type of the object
@@ -1210,6 +1211,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
                 return; */
             }
             i+= 2;
+        } else if (!strcasecmp(c->argv[i]->ptr, "novalues")) {
+            if (!o || o->type != OBJ_HASH) {
+                addReplyError(c, "Option 'novalues' can only be used in HSCAN command");
+                return;
+            }
+            no_values = 1;
+            i++;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
@@ -1264,17 +1272,20 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * it is possible to fetch more data in a type-dependent way;
          * 3. data.type: the specified type scan in the db, LLONG_MAX means
          * type matching is no needed;
-         * 4. data.pattern: the pattern string
+         * 4. data.pattern: the pattern string;
          * 5. data.sampled: the maxiteration limit is there in case we're
          * working on an empty dict, one with a lot of empty buckets, and
          * for the buckets are not empty, we need to limit the spampled number
-         * to prevent a long hang time caused by filtering too many keys*/
+         * to prevent a long hang time caused by filtering too many keys;
+         * 6. data.no_values: to control whether values will be returned or 
+         * only keys are returned. */
         scanData data = {
             .keys = keys,
             .o = o,
             .type = type,
             .pattern = use_pattern ? pat : NULL,
             .sampled = 0,
+            .no_values = no_values,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
@@ -1329,8 +1340,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             /* add key object */
             listAddNodeTail(keys, sdsnewlen(str, len));
             /* add value object */
-            str = lpGet(p, &len, intbuf);
-            listAddNodeTail(keys, sdsnewlen(str, len));
+            if (!no_values) {
+                str = lpGet(p, &len, intbuf);
+                listAddNodeTail(keys, sdsnewlen(str, len));
+            }
             p = lpNext(o->ptr, p);
         }
         cursor = 0;
