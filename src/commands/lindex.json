@@ -35,7 +35,7 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "type": "null",
+                    "type": "string",
                     "description": "Index is out of range"
                 },
                 {
