@@ -315,7 +315,7 @@ void computeDatasetDigest(unsigned char *final) {
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
-        zfree(dbit);
+        dbReleaseIterator(dbit);
     }
 }
 
