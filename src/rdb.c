@@ -3263,14 +3263,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            if (dbExpand(db, db_size, DB_MAIN, 1) == C_ERR) {
-                serverLog(LL_WARNING, "OOM in dict expand of main dict");
-                return C_ERR;
-            }
-            if (dbExpand(db, expires_size, DB_EXPIRES, 1) == C_ERR) {
-                serverLog(LL_WARNING, "OOM in dict expand of expire dict");
-                return C_ERR;
-            }
+            dbExpand(db, db_size, DB_MAIN, 0);
+            dbExpand(db, expires_size, DB_EXPIRES, 0);
             should_expand_db = 0;
         }
 
