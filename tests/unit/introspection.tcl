@@ -161,7 +161,6 @@ start_server {tags {"introspection"}} {
 
     test {Coverage: basic SWAPDB test and unhappy path} {
        r flushall
-       r del swapkey
        r select 0
        r set swapkey v1
        r select 1
@@ -181,7 +180,7 @@ start_server {tags {"introspection"}} {
     test {Coverage: SWAPDB and FLUSHDB} {
        # set a key in each db and swapdb one of 2 with different db
        # and flushdb on swapped db.
-       r del swapkey
+       r flushall
        r select 0
        r set swapkey v1
        r select 1
