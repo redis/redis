@@ -160,6 +160,7 @@ start_server {tags {"introspection"}} {
     }
 
     test {Coverage: basic SWAPDB test and unhappy path} {
+       r flushall
        r del swapkey
        r select 0
        r set swapkey v1
@@ -193,6 +194,7 @@ start_server {tags {"introspection"}} {
        r select 2
        r flushdb
        assert_match 0 [r dbsize]
+       assert_match "*db1:keys=*" [r info keyspace]
        assert_no_match "*db0:keys=*" [r info keyspace]
        assert_no_match "*db2:keys=*" [r info keyspace]
        r flushall
