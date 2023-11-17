@@ -1213,7 +1213,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             i+= 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "novalues")) {
             if (!o || o->type != OBJ_HASH) {
-                addReplyError(c, "Option 'novalues' can only be used in HSCAN command");
+                addReplyError(c, "NOVALUES option can only be used in HSCAN");
                 return;
             }
             no_values = 1;
