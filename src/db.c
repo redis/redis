@@ -1095,7 +1095,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     if (val) {
         if (!data->no_values) {
             listAddNodeTail(keys, val);
-        } else {
+        } else if (o && o->type == OBJ_ZSET) {
             sdsfree(val);
         }
     }
