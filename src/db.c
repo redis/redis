@@ -1219,7 +1219,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             i+= 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "noscores")) {
             if (!o || o->type != OBJ_ZSET) {
-                addReplyError(c, "Option 'noscores' can only be used in ZSCAN command");
+                addReplyError(c, "NOSCORES option can only be used in ZSCAN");
                 return;
             }
             no_values = 1;
