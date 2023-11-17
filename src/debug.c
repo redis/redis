@@ -1820,6 +1820,16 @@ void closeDirectLogFiledes(int fd) {
     if (!log_to_stdout) close(fd);
 }
 
+#if defined(HAVE_BACKTRACE) && defined(__linux__)
+static int stacktrace_pipe[2] = {0};
+void setupStacktracePipe(void) {
+    if (-1 == pipe2(stacktrace_pipe, O_CLOEXEC | O_NONBLOCK | O_DIRECT)) {
+        serverLog(LL_WARNING, "setupStacktracePipe failed: %s", strerror(errno));
+    }
+}
+#else
+void setupStacktracePipe(void) {/* we don't need a pipe to write the stacktraces */}
+#endif
 #ifdef HAVE_BACKTRACE
 #define BACKTRACE_MAX_SIZE 100
 
@@ -1842,27 +1852,20 @@ typedef struct {
     void *trace[BACKTRACE_MAX_SIZE];
 } stacktrace_data;
 
-static stacktrace_data *stacktraces_mempool = NULL;
-static redisAtomic size_t g_thread_ids = 0;
-
-static stacktrace_data *get_stack_trace_pool(void) {
-    size_t thread_id;
-    atomicGetIncr(g_thread_ids, thread_id, 1);
-    return stacktraces_mempool + thread_id;
-}
-
 __attribute__ ((noinline)) static void collect_stacktrace_data(void) {
-    /* allocate stacktrace_data struct */
-    stacktrace_data *trace_data = get_stack_trace_pool();
+    stacktrace_data trace_data = {0};
 
     /* Get the stack trace first! */
-    trace_data->trace_size = backtrace(trace_data->trace, BACKTRACE_MAX_SIZE);
+    trace_data.trace_size = backtrace(trace_data.trace, BACKTRACE_MAX_SIZE);
 
     /* get the thread name */
-    prctl(PR_GET_NAME, trace_data->thread_name);
+    prctl(PR_GET_NAME, trace_data.thread_name);
 
     /* get the thread id */
-    trace_data->tid = syscall(SYS_gettid);
+    trace_data.tid = syscall(SYS_gettid);
+
+    /* Send the output to the main process*/
+    if (write(stacktrace_pipe[1], &trace_data, sizeof(trace_data)) == -1) {/* Avoid warning. */};
 }
 
 __attribute__ ((noinline))
@@ -1874,12 +1877,9 @@ static void writeStacktraces(int fd, int uplevel) {
         serverLogRawFromHandler(LL_WARNING, "writeStacktraces(): Failed to get the process's threads.");
     }
 
-    stacktrace_data stacktraces[len_tids];
-    stacktraces_mempool = stacktraces;
-    memset(stacktraces, 0, sizeof(stacktrace_data) * len_tids);
-
-    /* restart mempool iterator*/
-    atomicSet(g_thread_ids, 0);
+    char buff[PIPE_BUF];
+    /* Clear the stacktraces pipe */
+    while (read(stacktrace_pipe[0], &buff, sizeof(buff)) > 0) {}
 
     /* ThreadsManager_runOnThreads returns 0 if it is already running */
     if (!ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data)) return;
@@ -1887,11 +1887,11 @@ static void writeStacktraces(int fd, int uplevel) {
     size_t skipped = 0;
 
     /* initialize a buffer of size 1024, as recommended by the libc manual on low-level directory access */
-    char buff[1024];
     pid_t calling_tid = syscall(SYS_gettid);
     /* for backtrace_data in backtraces_data: */
     for (size_t i = 0; i < len_tids; i++) {
-        stacktrace_data curr_stacktrace_data = stacktraces[i];
+        stacktrace_data curr_stacktrace_data = {0};
+        if (read(stacktrace_pipe[0], &curr_stacktrace_data, sizeof(curr_stacktrace_data)) == -1) {/* Avoid warning. */};
         /*ThreadsManager_runOnThreads might fail to collect the thread's data */
         if (0 == curr_stacktrace_data.trace_size) {
             skipped++;
