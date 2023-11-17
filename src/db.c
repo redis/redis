@@ -1086,7 +1086,9 @@ void scanCallback(void *privdata, const dictEntry *de) {
         char buf[MAX_LONG_DOUBLE_CHARS];
         int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);
         key = sdsdup(keysds);
-        val = sdsnewlen(buf, len);
+        if (!data->no_values) {
+            val = sdsnewlen(buf, len);
+        }
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
