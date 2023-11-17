@@ -2751,13 +2751,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         decrRefCount(o);
                         return NULL;
                     }
-                    streamNACK *nack = raxFind(cgroup->pel,rawid,sizeof(rawid));
-                    if (nack == raxNotFound) {
+                    void *result;
+                    if (!raxFind(cgroup->pel,rawid,sizeof(rawid),&result)) {
                         rdbReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
                         decrRefCount(o);
                         return NULL;
                     }
+                    streamNACK *nack = result;
 
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared

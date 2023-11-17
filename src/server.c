@@ -4277,12 +4277,14 @@ int processCommand(client *c) {
 /* ====================== Error lookup and execution ===================== */
 
 void incrementErrorCount(const char *fullerr, size_t namelen) {
-    struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
-    if (error == raxNotFound) {
-        error = zmalloc(sizeof(*error));
+    void *result;
+    if (!raxFind(server.errors,(unsigned char*)fullerr,namelen,&result)) {
+        struct redisError *error = zmalloc(sizeof(*error));
         error->count = 0;
         raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
+        result = error;
     }
+    struct redisError *error = result;
     error->count++;
 }
 
