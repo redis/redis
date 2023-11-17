@@ -402,21 +402,19 @@ int dictExpandAllowed(dict *dict, size_t moreMem, double usedRatio) {
     if (usedRatio > HASHTABLE_MAX_LOAD_FACTOR) {
         return 1;
     }
-    if (overMaxmemoryAfterAlloc(moreMem))
-        return 0;
     if (server.cluster_enabled) {
         if (dict->type == &dbDictType || dict->type == &dbExpiresDictType) {
-            if (listLength(server.db[0].sub_dict[DB_MAIN].rehashing) ||
-                listLength(server.db[0].sub_dict[DB_EXPIRES].rehashing))
+            int rehashing = listLength(server.db[0].sub_dict[DB_MAIN].rehashing) +
+                            listLength(server.db[0].sub_dict[DB_EXPIRES].rehashing);
+            int slot = nodeIsMaster(server.cluster->myself) ? server.cluster->myself->numslots
+                                                            : server.cluster->myself->slaveof->numslots;
+            if (slot / 2 > rehashing)
                 return 0;
         }
     }
+    if (overMaxmemoryAfterAlloc(moreMem))
+        return 0;
     return 1;
-
-    /* Here we always update the dbid that will being rehashed,
-     * ignoring the db that was rehashed before, to prevent
-     * these db's from being rehashing maliciously for a long
-     * time, causing the other db's performance to degrade. */
 }
 
 /* Updates the bucket count in cluster-mode for the given dictionary in a DB. bucket count
