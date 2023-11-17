@@ -2257,10 +2257,13 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
+        redisDb *db = server.db + j;
+        if (dbSize(db, DB_MAIN) == 0) continue;
+
         /* SELECT the new DB */
         if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
-        redisDb *db = server.db + j;
+
         dbit = dbIteratorInit(db, DB_MAIN);
         /* Iterate this DB writing every entry */
         while((de = dbIteratorNext(dbit)) != NULL) {
