@@ -143,8 +143,7 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-
-void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
@@ -162,7 +161,7 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[slot], key);
+            if (sampledict != keydict) de = dictFind(keydict, key);
             o = dictGetVal(de);
         }
 
@@ -240,6 +239,8 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
         pool[k].dbid = dbid;
         pool[k].slot = slot;
     }
+
+    return count;
 }
 
 /* ----------------------------------------------------------------------------
@@ -586,6 +587,8 @@ int performEvictions(void) {
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
+            dbKeyType keyType = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS ?
+                                 DB_MAIN : DB_EXPIRES);
 
             while (bestkey == NULL) {
                 unsigned long total_keys = 0, keys;
@@ -595,24 +598,18 @@ int performEvictions(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    do {
-                        int slot = 0;
-                        if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                            slot = getFairRandomSlot(db, DB_MAIN);
-                            dict = db->dict[slot];
-                        } else {
-                            slot = getFairRandomSlot(db, DB_EXPIRES);
-                            dict = db->expires[slot];
-                        }
-                        if ((keys = dictSize(dict)) != 0) {
-                            evictionPoolPopulate(i, slot, dict, db, pool);
-                            total_keys += keys;
-                        }
-                    /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
-                     * visit more than one dictionary in order to populate required number of samples into eviction pool. */
-                    } while (server.cluster_enabled && keys != 0 && server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS &&
-                        total_keys < (unsigned long) server.maxmemory_samples
-                    );
+                    if ((keys = dbSize(db, keyType)) != 0) {
+                        total_keys += keys;
+                        unsigned long sampled_keys = 0;
+                        do {
+                            int slot = getFairRandomSlot(db, keyType);
+                            dict = (keyType == DB_MAIN ? db->dict[slot] : db->expires[slot]);
+                            if (dictSize(dict) != 0) {
+                                sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
+                            }
+                        } while (keys > (unsigned long) server.maxmemory_samples*10 &&
+                                 sampled_keys < (unsigned long) server.maxmemory_samples);
+                    }
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
