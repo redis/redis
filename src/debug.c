@@ -1823,7 +1823,7 @@ void closeDirectLogFiledes(int fd) {
 #if defined(HAVE_BACKTRACE) && defined(__linux__)
 static int stacktrace_pipe[2] = {0};
 void setupStacktracePipe(void) {
-    if (-1 == pipe2(stacktrace_pipe, O_CLOEXEC | O_NONBLOCK | O_DIRECT)) {
+    if (-1 == pipe2(stacktrace_pipe, O_CLOEXEC | O_NONBLOCK)) {
         serverLog(LL_WARNING, "setupStacktracePipe failed: %s", strerror(errno));
     }
 }
@@ -1853,7 +1853,7 @@ typedef struct {
 } stacktrace_data;
 
 __attribute__ ((noinline)) static void collect_stacktrace_data(void) {
-    stacktrace_data trace_data = {0};
+    stacktrace_data trace_data = {{0}};
 
     /* Get the stack trace first! */
     trace_data.trace_size = backtrace(trace_data.trace, BACKTRACE_MAX_SIZE);
@@ -1884,20 +1884,13 @@ static void writeStacktraces(int fd, int uplevel) {
     /* ThreadsManager_runOnThreads returns 0 if it is already running */
     if (!ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data)) return;
 
-    size_t skipped = 0;
+    size_t collected = 0;
 
-    /* initialize a buffer of size 1024, as recommended by the libc manual on low-level directory access */
     pid_t calling_tid = syscall(SYS_gettid);
-    /* for backtrace_data in backtraces_data: */
-    for (size_t i = 0; i < len_tids; i++) {
-        stacktrace_data curr_stacktrace_data = {0};
-        if (read(stacktrace_pipe[0], &curr_stacktrace_data, sizeof(curr_stacktrace_data)) == -1) {/* Avoid warning. */};
-        /*ThreadsManager_runOnThreads might fail to collect the thread's data */
-        if (0 == curr_stacktrace_data.trace_size) {
-            skipped++;
-            continue;
-        }
 
+    /* Read the stacktrace_pipe until it's empty */
+    stacktrace_data curr_stacktrace_data = {{0}};
+    while (read(stacktrace_pipe[0], &curr_stacktrace_data, sizeof(curr_stacktrace_data)) > 0) {
         /* stacktrace header includes the tid and the thread's name */
         snprintf_async_signal_safe(buff, sizeof(buff), "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
         if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
@@ -1917,9 +1910,11 @@ static void writeStacktraces(int fd, int uplevel) {
 
         /* add the stacktrace */
         backtrace_symbols_fd(curr_stacktrace_data.trace+curr_uplevel, curr_stacktrace_data.trace_size-curr_uplevel, fd);
+
+        ++collected;
     }
 
-    snprintf_async_signal_safe(buff, sizeof(buff), "\n%lu/%lu expected stacktraces.\n", (long unsigned)(len_tids - skipped), (long unsigned)len_tids);
+    snprintf_async_signal_safe(buff, sizeof(buff), "\n%lu/%lu expected stacktraces.\n", (long unsigned)(collected), (long unsigned)len_tids);
     if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
 
 }
