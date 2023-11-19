@@ -9083,6 +9083,8 @@ static void longStatLoopModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+/* In cluster mode we may need to send the READONLY command.
+   Ignore the error in case the server isn't using cluster mode. */
 static void sendReadOnly(void) {
     redisReply *read_reply;
     read_reply = redisCommand(context, "READONLY");
