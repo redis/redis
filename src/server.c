@@ -672,7 +672,7 @@ void tryResizeHashTables(int dbid) {
         }
         /* Save current iterator position in the resize_cursor. */
         db->sub_dict[subdict].resize_cursor = slot;
-        zfree(dbit);
+        dbReleaseIterator(dbit);
     }
 }
 
@@ -1528,7 +1528,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Just for the sake of defensive programming, to avoid forgetting to
      * call this function when needed. */
     updateDictResizePolicy();
-
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */

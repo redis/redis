@@ -673,6 +673,14 @@ typedef enum {
 #define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
+/* The following macros provide assertions that are only executed during test builds and should be used to add 
+ * assertions that are too computationally expensive or dangerous to run during normal operations.  */
+#ifdef DEBUG_ASSERTIONS
+#define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#else
+#define debugServerAssertWithInfo(...)
+#endif
+
 /* latency histogram per command init settings */
 #define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */
 #define LATENCY_HISTOGRAM_MAX_VALUE 1000000000L  /* <= 1 secs */
@@ -989,7 +997,7 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
+    int dict_count;             /* Indicates total number of dictionaries owned by this DB, 1 dict per slot in cluster mode. */
     dbDictState sub_dict[2];  /* Metadata for main and expires dictionaries */
 } redisDb;
 
@@ -2428,6 +2436,7 @@ typedef struct dbIterator dbIterator;
 /* DB iterator specific functions */
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
 dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
+void dbReleaseIterator(dbIterator *dbit);
 dict *dbIteratorNextDict(dbIterator *dbit);
 dict *dbGetDictFromIterator(dbIterator *dbit);
 int dbIteratorGetCurrentSlot(dbIterator *dbit);
