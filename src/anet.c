@@ -206,32 +206,31 @@ int anetDisableTcpNoDelay(char *err, int fd)
     return anetSetTcpNoDelay(err, fd, 0);
 }
 
-/* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
- * number of milliseconds, or disable it if the 'ms' argument is zero. */
-int anetSendTimeout(char *err, int fd, long long ms) {
+/* Set the socket timeout by given socket option value. */
+int anetTimeout(char *err, int fd, int option, long long ms) {
     struct timeval tv;
 
     tv.tv_sec = ms/1000;
     tv.tv_usec = (ms%1000)*1000;
-    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1) {
-        anetSetError(err, "setsockopt SO_SNDTIMEO: %s", strerror(errno));
+    if (setsockopt(fd, SOL_SOCKET, option, &tv, sizeof(tv)) == -1) {
+        anetSetError(err, "setsockopt SO_%s: %s",
+            option == SO_RCVTIMEO ? "RCVTIMEO" : "SNDTIMEO",
+            strerror(errno));
         return ANET_ERR;
     }
     return ANET_OK;
 }
 
+/* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
+ * number of milliseconds, or disable it if the 'ms' argument is zero. */
+int anetSendTimeout(char *err, int fd, long long ms) {
+    return anetTimeout(err, fd, SO_SNDTIMEO, ms);
+}
+
 /* Set the socket receive timeout (SO_RCVTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
 int anetRecvTimeout(char *err, int fd, long long ms) {
-    struct timeval tv;
-
-    tv.tv_sec = ms/1000;
-    tv.tv_usec = (ms%1000)*1000;
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == -1) {
-        anetSetError(err, "setsockopt SO_RCVTIMEO: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
+    return anetTimeout(err, fd, SO_RCVTIMEO, ms);
 }
 
 /* Resolve the hostname "host" and set the string representation of the
