@@ -9087,6 +9087,21 @@ static void longStatLoopModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+/* In cluster mode we may need to send the READONLY command.
+   Ignore the error in case the server isn't using cluster mode. */
+static void sendReadOnly(void) {
+    redisReply *read_reply;
+    read_reply = redisCommand(context, "READONLY");
+    if (read_reply == NULL){
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    } else if (read_reply->type == REDIS_REPLY_ERROR && strcmp(read_reply->str, "ERR This instance has cluster support disabled") != 0) {
+        fprintf(stderr, "Error: %s\n", read_reply->str);
+        exit(1);
+    }
+    freeReplyObject(read_reply);
+}
+
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
@@ -9112,6 +9127,9 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     printf("\n# Scanning the entire keyspace to find biggest keys as well as\n");
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
+    
+    /* Use readonly in cluster */
+    sendReadOnly();
 
     /* SCAN loop */
     do {
@@ -9278,6 +9296,9 @@ static void findHotKeys(void) {
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
 
+    /* Use readonly in cluster */
+    sendReadOnly();
+    
     /* SCAN loop */
     do {
         /* Calculate approximate percentage completion */
