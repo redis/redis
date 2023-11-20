@@ -124,8 +124,7 @@ start_server {tags {"zset"}} {
             assert_equal {x y z} [r zrange ztmp 0 -1]
 
             # coverage for objectComputeSize
-            assert_range [r memory usage ztmp] 60 1200 ;# can't be lower than one byte per item, or higher than 50 bytes overhead.
-
+            assert_range [r memory usage ztmp] 60 1200 ;# Generally, value can't be lower than one byte per item, or higher than 50 bytes overhead, However values are dependant on type of encoding.
             r zadd ztmp 1 y
             assert_equal {y x z} [r zrange ztmp 0 -1]
         }
