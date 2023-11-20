@@ -108,9 +108,6 @@
                         },
                         "overhead.hashtable.expires": {
                             "type": "integer"
-                        },
-                        "overhead.hashtable.slot-to-keys": {
-                            "type": "integer"
                         }
                     },
                     "additionalProperties": false
