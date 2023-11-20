@@ -2607,12 +2607,15 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
 
             /* save the thread id */
             tids[tids_count++] = tid;
+            
+            /* Stop if we reached the maximum threads number. */
+            if(tids_count == TIDS_MAX_SIZE) {
+                serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
+                break;
+            }
         }
-        /* Stop if we reached the maximum threads number. */
-        if(tids_count == TIDS_MAX_SIZE) {
-            serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
-            break;
-        }
+
+        if(tids_count == TIDS_MAX_SIZE) break;
     }
 
     /* Swap the last tid with the the current thread id */
