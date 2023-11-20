@@ -40,7 +40,7 @@
 #include <sys/syscall.h>
 
 #define IN_PROGRESS 1
-static const clock_t RUN_ON_THREADS_TIMEOUT = 0;
+static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
 
 /*================================= Globals ================================= */
 
@@ -138,11 +138,6 @@ static void wait_threads(void) {
 
     /* calculate relative time until timeout */
     timeout_time.tv_sec += RUN_ON_THREADS_TIMEOUT;
-    serverLogFromHandler(LL_WARNING, "time is %ld", timeout_time.tv_nsec);
-
-    timeout_time.tv_nsec += 500000000L;
-
-    serverLogFromHandler(LL_WARNING, "timeout is %ld", timeout_time.tv_nsec);
 
     /* Wait until all threads are done to invoke the callback or until we reached the timeout */
     size_t curr_done_count;
@@ -152,9 +147,9 @@ static void wait_threads(void) {
         atomicGet(g_num_threads_done, curr_done_count);
         clock_gettime(CLOCK_REALTIME, &curr_time);
     } while (curr_done_count < g_tids_len &&
-            curr_time.tv_nsec <= timeout_time.tv_nsec);
+            curr_time.tv_sec <= timeout_time.tv_sec);
 
-    if (curr_time.tv_nsec > timeout_time.tv_nsec) {
+    if (curr_time.tv_sec > timeout_time.tv_sec) {
         serverLogRawFromHandler(LL_WARNING, "wait_threads(): waiting threads timed out");
     }
 

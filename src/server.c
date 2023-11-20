@@ -2666,7 +2666,6 @@ void initServer(void) {
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
-    setupStacktracePipe();
     setupSignalHandlers();
     ThreadsManager_init();
     makeThreadKillable();

@@ -1822,13 +1822,13 @@ void closeDirectLogFiledes(int fd) {
 
 #if defined(HAVE_BACKTRACE) && defined(__linux__)
 static int stacktrace_pipe[2] = {0};
-void setupStacktracePipe(void) {
+static void setupStacktracePipe(void) {
     if (-1 == pipe2(stacktrace_pipe, O_CLOEXEC | O_NONBLOCK)) {
         serverLog(LL_WARNING, "setupStacktracePipe failed: %s", strerror(errno));
     }
 }
 #else
-void setupStacktracePipe(void) {/* we don't need a pipe to write the stacktraces */}
+static void setupStacktracePipe(void) {/* we don't need a pipe to write the stacktraces */}
 #endif
 #ifdef HAVE_BACKTRACE
 #define BACKTRACE_MAX_SIZE 100
@@ -2302,6 +2302,8 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 }
 
 void setupDebugSigHandlers(void) {
+    setupStacktracePipe();
+
     setupSigSegvHandler();
 
     struct sigaction act;
