@@ -6805,6 +6805,7 @@ int iAmMaster(void) {
 #ifdef REDIS_TEST
 #include "testhelp.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "atomicqueue.h"
 
 int __failed_tests = 0;
 int __test_num = 0;
@@ -6829,7 +6830,8 @@ struct redisTest {
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
     {"dict", dictTest},
-    {"listpack", listpackTest}
+    {"listpack", listpackTest},
+    {"atomicqueue", atomicqueueTest}
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
