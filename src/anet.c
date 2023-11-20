@@ -130,57 +130,114 @@ int anetCloexec(int fd) {
     return r;
 }
 
-/* Set TCP keep alive option to detect dead peers. The interval option
- * is only used for Linux as we are using Linux-specific APIs to set
- * the probe send time, interval, and count. */
+/* Enable TCP keep-alive mechanism to detect dead peers,
+ * TCP_KEEPIDLE, TCP_KEEPINTVL and TCP_KEEPCNT will be set accordingly. */
 int anetKeepAlive(char *err, int fd, int interval)
 {
-    int val = 1;
+    int idle;
+    int intvl;
+    int cnt;
 
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
+    /* Prevent compiler from complaining unused variables warnings. */
+    UNUSED(interval);
+    UNUSED(idle);
+    UNUSED(intvl);
+    UNUSED(cnt);
+
+    int enabled = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled)))
     {
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
         return ANET_ERR;
     }
 
-#ifdef __linux__
-    /* Default settings are more or less garbage, with the keepalive time
-     * set to 7200 by default on Linux. Modify settings to make the feature
-     * actually useful. */
+/* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual 
+ * compared to other Unix-like systems. 
+ * Thus, we need to specialize it on Solaris. */
+#ifdef __sun 
+    /* There are two keep-alive mechanisms on Solaris:
+     * - By default, the first keep-alive probe is sent out after a TCP connection is idle for two hours. 
+     * If the peer does not respond to the probe within eight minutes, the TCP connection is aborted. 
+     * You can alter the interval for sending out the first probe using the socket option TCP_KEEPALIVE_THRESHOLD 
+     * in milliseconds or TCP_KEEPIDLE in seconds.
+     * The system default is controlled by the TCP ndd parameter tcp_keepalive_interval. The minimum value is ten seconds. 
+     * The maximum is ten days, while the default is two hours. If you receive no response to the probe, 
+     * you can use the TCP_KEEPALIVE_ABORT_THRESHOLD socket option to change the time threshold for aborting a TCP connection.
+     * The option value is an unsigned integer in milliseconds. The value zero indicates that TCP should never time out and 
+     * abort the connection when probing. The system default is controlled by the TCP ndd parameter tcp_keepalive_abort_interval. 
+     * The default is eight minutes.
 
-    /* Send first probe after interval. */
-    val = interval;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
-        anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
-        return ANET_ERR;
-    }
+     * - The second implementation is activated if socket option TCP_KEEPINTVL and/or TCP_KEEPCNT are set. 
+     * The time between each consequent probes is set by TCP_KEEPINTVL in seconds. 
+     * The minimum value is ten seconds. The maximum is ten days, while the default is two hours. 
+     * The TCP connection will be aborted after certain amount of probes, which is set by TCP_KEEPCNT, without receiving response.
+     */
 
-    /* Send next probes after the specified interval. Note that we set the
-     * delay as interval / 3, as we send three probes before detecting
-     * an error (see the next setsockopt call). */
-    val = interval/3;
-    if (val == 0) val = 1;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, sizeof(val)) < 0) {
+   /* We will go with the first implementation here because Solaris claimed it supported the tcp-alive mechanism, 
+    * but `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not supported until the latest version of Solaris 11.4. 
+    * Therefore, we have to simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` + `TCP_KEEPALIVE_ABORT_THRESHOLD`.
+    */
+    idle = interval;
+    if (idle < 10) idle = 10;
+    if (idle > 10*24*3600) idle = 10*24*3600;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_THRESHOLD, &idle, sizeof(idle))) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
     }
 
-    /* Consider the socket in error state after three we send three ACK
-     * probes without getting a reply. */
-    val = 3;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
+    intvl = idle/3;
+    cnt = 3;
+    /* Note that the consequent probes will not be sent at equal intervals on Solaris, 
+     * but will be sent using the exponential backoff algorithm. */
+    int time_to_abort = intvl * cnt;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &time_to_abort, sizeof(time_to_abort))) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
     }
-#elif defined(__APPLE__)
-    /* Set idle time with interval */
-    val = interval;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &val, sizeof(val)) < 0) {
+
+    return ANET_OK;
+#endif
+
+#ifdef TCP_KEEPIDLE
+    /* Default settings are more or less garbage, with the keepalive time
+     * set to 7200 by default on Linux and other Unix-like systems. 
+     * Modify settings to make the feature actually useful. */
+
+    /* Send first probe after interval. */
+    idle = interval;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))) {
+        anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#elif defined(TCP_KEEPALIVE)
+    /* Darwin/macOS uses TCP_KEEPALIVE in place of TCP_KEEPIDLE. */
+    idle = interval;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle))) {
         anetSetError(err, "setsockopt TCP_KEEPALIVE: %s\n", strerror(errno));
         return ANET_ERR;
     }
-#else
-    ((void) interval); /* Avoid unused var warning for non Linux systems. */
+#endif
+
+#ifdef TCP_KEEPINTVL
+    /* Send next probes after the specified interval. Note that we set the
+     * delay as interval / 3, as we send three probes before detecting
+     * an error (see the next setsockopt call). */
+    intvl = interval/3;
+    if (intvl == 0) intvl = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
+        anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#endif
+
+#ifdef TCP_KEEPCNT
+    /* Consider the socket in error state after three we send three ACK
+     * probes without getting a reply. */
+    cnt = 3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt))) {
+        anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
 #endif
 
     return ANET_OK;
