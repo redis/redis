@@ -340,7 +340,7 @@ static void cliRefreshPrompt(void) {
     if (config.pubsub_mode)
         prompt = sdscatfmt(prompt,"(subscribed mode)");
 
-    if (linenoiseReverseSearchModeEnabled()) {
+    if (linenoiseReverseSearchModeEnabled() && !linenoiseSearchResultSumbitted()) {
         char * reverseISearchPrompt = " (reverse-i-search)";
         prompt = sdscatlen(prompt, reverseISearchPrompt, strlen(reverseISearchPrompt));
     }

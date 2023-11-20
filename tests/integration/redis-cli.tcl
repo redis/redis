@@ -181,6 +181,8 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
+        puts $fd "\x12"
+
         set now [clock seconds]
         puts $fd "\x12"
         set result [read_cli $fd]
@@ -188,6 +190,18 @@ start_server {tags {"cli"}} {
 
         set result2 [run_command $fd "keys \"$now\"\x0D"]
         assert_equal 1 [regexp {.*(empty array).*} $result2]
+    }
+
+    test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
+        puts $fd "\x12"
+
+        set now [clock seconds]
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+
+        set result2 [run_command $fd "keys \"$now\"\x0D"]
+
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+r again" {

@@ -142,6 +142,7 @@ static char search_result_friendly [LINENOISE_MAX_LINE];
 static int search_result_history_index = 0;
 static int search_result_start_offset = 0;
 static int skip_search = 0;
+static int search_result_submitted = 0;
 
 static int only_refresh_prompt = 0;
 
@@ -841,6 +842,12 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
  * The function returns the length of the current buffer. */
 static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt)
 {
+    if (search_result_submitted) {
+        search_result_submitted = 0;
+        disableReverseSearchMode();
+        return 0;
+    }
+
     struct linenoiseState l;
 
     /* Populate the linenoise state that we pass to functions implementing
@@ -912,6 +919,10 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 skip_search = 1;
                 refreshLine(&l);
                 hintsCallback = hc;
+            }
+
+            if (linenoiseReverseSearchModeEnabled()) {
+                search_result_submitted = 1;
             }
 
             if (linenoiseReverseSearchModeEnabled() && strlen(search_result) > 0) {
@@ -1426,4 +1437,8 @@ static void refreshSearchResult(struct linenoiseState * ls) {
 
 int linenoiseRequestOnlyPromptRefresh(void) {
     return only_refresh_prompt;
+}
+
+int linenoiseSearchResultSumbitted(void) {
+    return search_result_submitted;
 }

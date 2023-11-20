@@ -78,6 +78,7 @@ void linenoiseMaskModeEnable(void);
 void linenoiseMaskModeDisable(void);
 int linenoiseReverseSearchModeEnabled(void);
 int linenoiseRequestOnlyPromptRefresh(void);
+int linenoiseSearchResultSumbitted(void);
 
 #ifdef __cplusplus
 }
