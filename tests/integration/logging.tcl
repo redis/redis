@@ -2,7 +2,7 @@ tags {"external:skip"} {
 
 set system_name [string tolower [exec uname -s]]
 set backtrace_supported 0
-set threads_mngr_supported 0
+set threads_mngr_supported 0 ;# Do we support printing stack trace from all threads, not just the one that got the signal?
 
 # We only support darwin or Linux with glibc
 if {$system_name eq {darwin}} {
@@ -19,6 +19,8 @@ if {$system_name eq {darwin}} {
     }
 }
 
+# look for the DEBUG command in the backtrace, used when we triggered
+# a stack trace print while we know redis is running that command.
 proc check_log_backtrace_for_debug {log_pattern} {
     set res [wait_for_log_messages 0 \"$log_pattern\" 0 100 100]
     if {$::verbose} { puts $res}
@@ -28,11 +30,14 @@ proc check_log_backtrace_for_debug {log_pattern} {
 
     upvar threads_mngr_supported threads_mngr_supported
 
+    # the following checks are only done if we support printing stack trace from all threads
     if {$threads_mngr_supported} {
         assert_equal [count_log_message 0 "failed to open /proc/"] 0
         assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
+        # the following are skipped since valgrind is slow and a timeout can happen
         if {!$::valgrind} {
             assert_equal [count_log_message 0 "wait_threads(): waiting threads timed out"] 0
+            # make sure redis prints stack trace for all threads. we know 3 threads are idle in bio.c
             assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
         }
     }
