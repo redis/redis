@@ -40,7 +40,7 @@
 #include <sys/syscall.h>
 
 #define IN_PROGRESS 1
-static const clock_t RUN_ON_THREADS_TIMEOUT = 10;
+static const clock_t RUN_ON_THREADS_TIMEOUT = 0;
 
 /*================================= Globals ================================= */
 
@@ -137,7 +137,7 @@ static void wait_threads(void) {
     clock_gettime(CLOCK_REALTIME, &timeout_time);
 
     /* calculate relative time until timeout */
-  //  timeout_time.tv_sec += RUN_ON_THREADS_TIMEOUT;
+    timeout_time.tv_sec += RUN_ON_THREADS_TIMEOUT;
     serverLogFromHandler(LL_WARNING, "time is %ld", timeout_time.tv_nsec);
 
     timeout_time.tv_nsec += 1000L;
