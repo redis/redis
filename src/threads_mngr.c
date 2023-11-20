@@ -140,7 +140,7 @@ static void wait_threads(void) {
     timeout_time.tv_sec += RUN_ON_THREADS_TIMEOUT;
     serverLogFromHandler(LL_WARNING, "time is %ld", timeout_time.tv_nsec);
 
-    timeout_time.tv_nsec += 1000L;
+    timeout_time.tv_nsec += 500000000L;
 
     serverLogFromHandler(LL_WARNING, "timeout is %ld", timeout_time.tv_nsec);
 
