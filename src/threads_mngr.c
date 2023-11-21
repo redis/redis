@@ -147,7 +147,7 @@ static void wait_threads(void) {
         atomicGet(g_num_threads_done, curr_done_count);
         clock_gettime(CLOCK_REALTIME, &curr_time);
     } while (curr_done_count < g_tids_len &&
-            curr_time.tv_sec <= timeout_time.tv_sec);
+             curr_time.tv_sec <= timeout_time.tv_sec);
 
     if (curr_time.tv_sec > timeout_time.tv_sec) {
         serverLogRawFromHandler(LL_WARNING, "wait_threads(): waiting threads timed out");
