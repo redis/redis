@@ -716,6 +716,11 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
+        if (server.loading || server.async_loading) {
+            addReplyErrorObject(c, shared.loadingerr);
+            return;
+        }
+
         if (dbExpand(c->db, keys, DB_MAIN, 1) == C_ERR) {
             addReplyError(c, "OOM in dictTryExpand");
             return;
