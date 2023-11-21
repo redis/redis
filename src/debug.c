@@ -2532,7 +2532,9 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
                 break;
             }
 
-            if(sig_mask & sig_num) { /* if the signal is blocked/ignored return 0 */
+            /* The bit position in a signal mask aligns with the signal number. Since signal numbers start from 1 
+            we need to adjust the signal number by subtracting 1 to align it correctly with the zero-based indexing used */
+            if (sig_mask & (1L << (sig_num - 1))) { /* if the signal is blocked/ignored return 0 */
                 ret = 0;
                 break;
             }
