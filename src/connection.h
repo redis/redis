@@ -98,6 +98,7 @@ typedef struct ConnectionType {
     int (*read)(struct connection *conn, void *buf, size_t buf_len);
     int (*set_write_handler)(struct connection *conn, ConnectionCallbackFunc handler, int barrier);
     int (*set_read_handler)(struct connection *conn, ConnectionCallbackFunc handler);
+    int (*set_event_loop)(struct connection *conn, aeEventLoop *el);
     const char *(*get_last_error)(struct connection *conn);
     ssize_t (*sync_write)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_read)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
@@ -233,6 +234,12 @@ static inline int connSetWriteHandler(connection *conn, ConnectionCallbackFunc f
  */
 static inline int connSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     return conn->type->set_read_handler(conn, func);
+}
+
+/* Set another event loop. Requires that no AE handler is installed in the
+ * current event loop. */
+static inline int connSetEventLoop(connection *conn, aeEventLoop *el) {
+    return conn->type->set_event_loop(conn, el);
 }
 
 /* Set a write handler, and possibly enable a write barrier, this flag is

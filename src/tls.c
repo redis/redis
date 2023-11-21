@@ -626,6 +626,29 @@ static void updateSSLEvent(tls_connection *conn) {
         aeDeleteFileEvent(conn->c.el, conn->c.fd, AE_WRITABLE);
 }
 
+/* If the connection has pending data (data read from socket but not yet
+ * decrypted) the connection is added to the pending list if it's not already in
+ * the list. */
+static void connTLSPendingListAdd(tls_connection *conn) {
+    if (!conn->c.el->privdata)
+        conn->c.el->privdata = listCreate();
+    list *pending_list = conn->c.el->privdata;
+    if (!conn->pending_list_node) {
+        listAddNodeTail(pending_list, conn);
+        conn->pending_list_node = listLast(pending_list);
+    }
+}
+
+/* Remove the connection from the pending list, if it's in the list. */
+static void connTLSPendingListDel(tls_connection *conn) {
+    if (conn->pending_list_node) {
+        list *pending_list = conn->c.el->privdata;
+        serverAssert(pending_list != NULL);
+        listDelNode(pending_list, conn->pending_list_node);
+        conn->pending_list_node = NULL;
+    }
+}
+
 static void tlsHandleEvent(tls_connection *conn, int mask) {
     int ret, conn_error;
 
@@ -743,18 +766,9 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
              * connection types. */
             if ((mask & AE_READABLE)) {
                 if (SSL_pending(conn->ssl) > 0) {
-                    if (!conn->c.el->privdata)
-                        conn->c.el->privdata = listCreate();
-                    list *pending_list = conn->c.el->privdata;
-                    if (!conn->pending_list_node) {
-                        listAddNodeTail(pending_list, conn);
-                        conn->pending_list_node = listLast(pending_list);
-                    }
-                } else if (conn->pending_list_node) {
-                    list *pending_list = conn->c.el->privdata;
-                    serverAssert(pending_list != NULL);
-                    listDelNode(pending_list, conn->pending_list_node);
-                    conn->pending_list_node = NULL;
+                    connTLSPendingListAdd(conn);
+                } else {
+                    connTLSPendingListDel(conn);
                 }
             }
 
@@ -974,6 +988,16 @@ static int connTLSSetReadHandler(connection *conn, ConnectionCallbackFunc func) 
     return C_OK;
 }
 
+static int connTLSSetEventLoop(connection *conn_, aeEventLoop *ae) {
+    serverAssert(!conn->read_handler && !conn->write_handler);
+    tls_connection *conn = (tls_connection *)conn_;
+    int has_pending = (conn->pending_list_node != NULL);
+    if (has_pending) connTLSPendingListDel(conn);
+    conn->el = el;
+    if (has_pending) connTLSPendingListAdd(conn);
+    return C_OK;
+}
+
 static void setBlockingTimeout(tls_connection *conn, long long timeout) {
     anetBlock(NULL, conn->c.fd);
     anetSendTimeout(NULL, conn->c.fd, timeout);
@@ -1155,6 +1179,7 @@ static ConnectionType CT_TLS = {
     .writev = connTLSWritev,
     .set_write_handler = connTLSSetWriteHandler,
     .set_read_handler = connTLSSetReadHandler,
+    .set_event_loop = connTLSSetEventLoop,
     .get_last_error = connTLSGetLastError,
     .sync_write = connTLSSyncWrite,
     .sync_read = connTLSSyncRead,

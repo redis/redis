@@ -251,6 +251,13 @@ static int connSocketSetReadHandler(connection *conn, ConnectionCallbackFunc fun
     return C_OK;
 }
 
+/* Set event loop. Requires that no AE handler is installed. */
+static int connSocketSetEventLoop(connection *conn, aeEventLoop *el) {
+    serverAssert(!conn->read_handler && !conn->write_handler);
+    conn->el = el;
+    return C_OK;
+}
+
 static const char *connSocketGetLastError(connection *conn) {
     return strerror(conn->last_errno);
 }
@@ -423,6 +430,7 @@ static ConnectionType CT_Socket = {
     .read = connSocketRead,
     .set_write_handler = connSocketSetWriteHandler,
     .set_read_handler = connSocketSetReadHandler,
+    .set_event_loop = connSocketSetEventLoop,
     .get_last_error = connSocketGetLastError,
     .sync_write = connSocketSyncWrite,
     .sync_read = connSocketSyncRead,

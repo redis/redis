@@ -143,6 +143,10 @@ static int connUnixSetReadHandler(connection *conn, ConnectionCallbackFunc func)
     return connectionTypeTcp()->set_read_handler(conn, func);
 }
 
+static int connUnixSetEventLoop(connection *conn, aeEventLoop *el) {
+    return connectionTypeTcp()->set_event_loop(conn, el);
+}
+
 static const char *connUnixGetLastError(connection *conn) {
     return strerror(conn->last_errno);
 }
@@ -192,6 +196,7 @@ static ConnectionType CT_Unix = {
     .read = connUnixRead,
     .set_write_handler = connUnixSetWriteHandler,
     .set_read_handler = connUnixSetReadHandler,
+    .set_event_loop = connUnixSetEventLoop,
     .get_last_error = connUnixGetLastError,
     .sync_write = connUnixSyncWrite,
     .sync_read = connUnixSyncRead,
