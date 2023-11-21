@@ -2430,8 +2430,13 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 {
                     dirty_slots[dirty_slots_count] = j;
                     dirty_slots_count++;
+                } else if (server.cluster->slots[j] == curmaster && countKeysInSlot(j)) {
+                    /* If the slot belonged to the primary of the current node and has been
+                       migrated to some other node. In case of writeable replica scenario, it
+                       still might have keys created directly which should be cleaned up. */
+                    dirty_slots[dirty_slots_count] = j;
+                    dirty_slots_count++;
                 }
-
                 if (server.cluster->slots[j] == curmaster) {
                     newmaster = sender;
                     migrated_our_slots++;
@@ -7454,12 +7459,14 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * is serving, we can reply without redirection. */
     int is_write_command = (cmd_flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
-        !is_write_command &&
-        nodeIsSlave(myself) &&
-        myself->slaveof == n)
-    {
-        return myself;
+    
+    if (nodeIsSlave(myself) && myself->slaveof == n) {
+        /* Allow writable replicas if replica-read-only config is set to false. */
+        if (is_write_command && server.repl_slave_ro)
+            return myself;
+        /* Allow client to read from replica if it's not a write command. */
+        else if ((c->flags & CLIENT_READONLY) || is_pubsubshard)
+            return myself;
     }
 
     /* Base case: just return the right node. However if this node is not
