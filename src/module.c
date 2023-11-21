@@ -13543,8 +13543,8 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
 
 /* Add new elements into a set.
  *
- * Returns REDISMODULE_OK if an element has been added. On failure,
- * REDISMODULE_ERR is returned and `errno` is set as follows:
+ * Returns REDISMODULE_OK if elements have been added successfully.
+ * On failure, REDISMODULE_ERR is returned and `errno` is set as follows:
  *
  * - EBADF if the key was not opened for writing
  * - ENOTSUP if the key is of another type than set.
