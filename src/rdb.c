@@ -3442,7 +3442,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     if (retval == C_OK && !(rdbflags & RDBFLAGS_KEEP_CACHE)) {
         /* TODO: maybe we could combine the fopen and open into one in the future */
         rdb_fd = open(filename, O_RDONLY);
-        if (rdb_fd > 0) bioCreateCloseJob(rdb_fd, 0, 1);
+        if (rdb_fd >= 0) bioCreateCloseJob(rdb_fd, 0, 1);
     }
     return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }
