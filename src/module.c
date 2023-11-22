@@ -6466,7 +6466,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
-                           server.cluster->myself)
+                           getMyClusterNode())
         {
             sds msg = NULL;
             if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
@@ -8917,23 +8917,7 @@ char **RM_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
     UNUSED(ctx);
 
     if (!server.cluster_enabled) return NULL;
-    size_t count = dictSize(server.cluster->nodes);
-    char **ids = zmalloc((count+1)*REDISMODULE_NODE_ID_LEN);
-    dictIterator *di = dictGetIterator(server.cluster->nodes);
-    dictEntry *de;
-    int j = 0;
-    while((de = dictNext(di)) != NULL) {
-        clusterNode *node = dictGetVal(de);
-        if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE)) continue;
-        ids[j] = zmalloc(REDISMODULE_NODE_ID_LEN);
-        memcpy(ids[j],node->name,REDISMODULE_NODE_ID_LEN);
-        j++;
-    }
-    *numnodes = j;
-    ids[j] = NULL; /* Null term so that FreeClusterNodesList does not need
-                    * to also get the count argument. */
-    dictReleaseIterator(di);
-    return ids;
+    return getClusterNodesList(numnodes);
 }
 
 /* Free the node list obtained with RedisModule_GetClusterNodesList. */
@@ -8947,7 +8931,7 @@ void RM_FreeClusterNodesList(char **ids) {
  * is disabled. */
 const char *RM_GetMyClusterID(void) {
     if (!server.cluster_enabled) return NULL;
-    return server.cluster->myself->name;
+    return getMyClusterId();
 }
 
 /* Return the number of nodes in the cluster, regardless of their state
@@ -8956,7 +8940,7 @@ const char *RM_GetMyClusterID(void) {
  * cluster mode, zero is returned. */
 size_t RM_GetClusterSize(void) {
     if (!server.cluster_enabled) return 0;
-    return dictSize(server.cluster->nodes);
+    return getClusterSize();
 }
 
 /* Populate the specified info for the node having as ID the specified 'id',
@@ -8983,20 +8967,19 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     UNUSED(ctx);
 
     clusterNode *node = clusterLookupNode(id, strlen(id));
-    if (node == NULL ||
-        node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
+    if (node == NULL || clusterNodePending(node))
     {
         return REDISMODULE_ERR;
     }
 
-    if (ip) redis_strlcpy(ip,node->ip,NET_IP_STR_LEN);
+    if (ip) redis_strlcpy(ip, clusterNodeIp(node),NET_IP_STR_LEN);
 
     if (master_id) {
         /* If the information is not available, the function will set the
          * field to zero bytes, so that when the field can't be populated the
          * function kinda remains predictable. */
-        if (node->flags & CLUSTER_NODE_SLAVE && node->slaveof)
-            memcpy(master_id,node->slaveof->name,REDISMODULE_NODE_ID_LEN);
+        if (clusterNodeIsSlave(node) && clusterNodeGetSlaveof(node))
+            memcpy(master_id, clusterNodeGetName(clusterNodeGetSlaveof(node)) ,REDISMODULE_NODE_ID_LEN);
         else
             memset(master_id,0,REDISMODULE_NODE_ID_LEN);
     }
@@ -9006,12 +8989,12 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
      * we can provide binary compatibility. */
     if (flags) {
         *flags = 0;
-        if (node->flags & CLUSTER_NODE_MYSELF) *flags |= REDISMODULE_NODE_MYSELF;
-        if (node->flags & CLUSTER_NODE_MASTER) *flags |= REDISMODULE_NODE_MASTER;
-        if (node->flags & CLUSTER_NODE_SLAVE) *flags |= REDISMODULE_NODE_SLAVE;
-        if (node->flags & CLUSTER_NODE_PFAIL) *flags |= REDISMODULE_NODE_PFAIL;
-        if (node->flags & CLUSTER_NODE_FAIL) *flags |= REDISMODULE_NODE_FAIL;
-        if (node->flags & CLUSTER_NODE_NOFAILOVER) *flags |= REDISMODULE_NODE_NOFAILOVER;
+        if (clusterNodeIsMyself(node)) *flags |= REDISMODULE_NODE_MYSELF;
+        if (clusterNodeIsMaster(node)) *flags |= REDISMODULE_NODE_MASTER;
+        if (clusterNodeIsSlave(node)) *flags |= REDISMODULE_NODE_SLAVE;
+        if (clusterNodeTimedOut(node)) *flags |= REDISMODULE_NODE_PFAIL;
+        if (clusterNodeIsFailing(node)) *flags |= REDISMODULE_NODE_FAIL;
+        if (clusterNodeIsNoFailover(node)) *flags |= REDISMODULE_NODE_NOFAILOVER;
     }
     return REDISMODULE_OK;
 }

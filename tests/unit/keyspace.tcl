@@ -499,4 +499,44 @@ foreach {type large} [array get largevalue] {
         r SET aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1
         r KEYS "a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b"
     } {}
+
+    test {Coverage: basic SWAPDB test and unhappy path} {
+       r flushall
+       r select 0
+       r set swapkey v1
+       r select 1
+       assert_match 0 [r dbsize] ;#verify DB[1] has 0 keys
+       r swapdb 0 1
+       assert_match 1 [r dbsize]
+       r select 0
+       assert_match 0 [r dbsize] ;#verify DB[0] has 0 keys
+       r flushall
+       assert_error "ERR DB index is out of range*" {r swapdb 44 55}
+       assert_error "ERR invalid second DB index*" {r swapdb 44 a}
+       assert_error "ERR invalid first DB index*" {r swapdb a 55}
+       assert_error "ERR invalid first DB index*" {r swapdb a b}
+       assert_match "OK" [r swapdb 0 0]
+    } {} {singledb:skip}
+
+    test {Coverage: SWAPDB and FLUSHDB} {
+       # set a key in each db and swapdb one of 2 with different db
+       # and flushdb on swapped db.
+       r flushall
+       r select 0
+       r set swapkey v1
+       r select 1
+       r set swapkey1 v1
+       assert_no_match "*db2:keys=*" [r info keyspace]
+       r swapdb 0 2
+       r select 0
+       assert_match 0 [r dbsize]
+       assert_no_match "*db0:keys=*" [r info keyspace]
+       r select 2
+       r flushdb
+       assert_match 0 [r dbsize]
+       assert_match "*db1:keys=*" [r info keyspace]
+       assert_no_match "*db0:keys=*" [r info keyspace]
+       assert_no_match "*db2:keys=*" [r info keyspace]
+       r flushall
+    } {OK} {singledb:skip}
 }

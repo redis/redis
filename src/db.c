@@ -684,7 +684,8 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             dbarray[j].sub_dict[subdict].key_count = 0;
             dbarray[j].sub_dict[subdict].resize_cursor = 0;
             if (server.cluster_enabled) {
-                listEmpty(dbarray[j].sub_dict[subdict].rehashing);
+                if (dbarray[j].sub_dict[subdict].rehashing)
+                    listEmpty(dbarray[j].sub_dict[subdict].rehashing);
                 dbarray[j].sub_dict[subdict].bucket_count = 0;
                 unsigned long long *slot_size_index = dbarray[j].sub_dict[subdict].slot_size_index;
                 memset(slot_size_index, 0, sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
@@ -2202,7 +2203,7 @@ int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_exp
         db_size = db_size / slots;
 
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
-            if (clusterNodeGetSlotBit(server.cluster->myself, i)) {
+            if (clusterNodeCoversSlot(getMyClusterNode(), i)) {
                 if (keyType == DB_MAIN) {
                     d = db->dict[i];
                 } else {
