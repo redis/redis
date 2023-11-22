@@ -29,7 +29,6 @@
 
 #include "server.h"
 #include "cluster.h"
-#include "cluster_legacy.h"
 #include "atomicvar.h"
 #include "latency.h"
 #include "script.h"
@@ -2199,7 +2198,7 @@ int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_exp
     if (server.cluster_enabled) {
         /* We don't know exact number of keys that would fall into each slot, but we can
          * approximate it, assuming even distribution, divide it by the number of slots. */
-        int slots = server.cluster->myself->numslots;
+        int slots = getMyClusterSlotCount();
         if (slots == 0) return C_OK;
         db_size = db_size / slots;
 
