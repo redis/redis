@@ -1823,7 +1823,7 @@ void closeDirectLogFiledes(int fd) {
 #if defined(HAVE_BACKTRACE) && defined(__linux__)
 static int stacktrace_pipe[2] = {0};
 static void setupStacktracePipe(void) {
-    if (-1 == pipe2(stacktrace_pipe, O_CLOEXEC | O_NONBLOCK)) {
+    if (-1 == anetPipe(stacktrace_pipe, O_CLOEXEC | O_NONBLOCK, O_CLOEXEC | O_NONBLOCK)) {
         serverLog(LL_WARNING, "setupStacktracePipe failed: %s", strerror(errno));
     }
 }
@@ -1960,6 +1960,9 @@ void logStackTrace(void *eip, int uplevel) {
     /* Write symbols to log file */
     ++uplevel;
     writeStacktraces(fd, uplevel);
+    msg = "\n===== Done logging stacktraces =====\n";
+    if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
+
 
     /* Cleanup */
     closeDirectLogFiledes(fd);

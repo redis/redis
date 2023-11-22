@@ -22,6 +22,10 @@ if {$system_name eq {darwin}} {
 # look for the DEBUG command in the backtrace, used when we triggered
 # a stack trace print while we know redis is running that command.
 proc check_log_backtrace_for_debug {log_pattern} {
+    # search for the final line in the stacktraces generation to make sure it was completed.
+    set pattern "*Done logging stacktraces*"
+    set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+
     set res [wait_for_log_messages 0 \"$log_pattern\" 0 100 100]
     if {$::verbose} { puts $res}
 
@@ -32,6 +36,7 @@ proc check_log_backtrace_for_debug {log_pattern} {
 
     # the following checks are only done if we support printing stack trace from all threads
     if {$threads_mngr_supported} {
+        assert_equal [count_log_message 0 "setupStacktracePipe failed"] 0
         assert_equal [count_log_message 0 "failed to open /proc/"] 0
         assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
         # the following are skipped since valgrind is slow and a timeout can happen

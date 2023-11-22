@@ -144,7 +144,12 @@ static void wait_threads(void) {
     struct timespec curr_time;
 
     do {
-        usleep(10);
+        struct timeval tv = {
+            .tv_sec = 0,
+            .tv_usec = 10};
+
+        /* usleep isn't listed as signal safe, so we use select instead */
+        select(0, NULL, NULL, NULL, &tv);
         atomicGet(g_num_threads_done, curr_done_count);
         clock_gettime(CLOCK_REALTIME, &curr_time);
     } while (curr_done_count < g_tids_len &&
