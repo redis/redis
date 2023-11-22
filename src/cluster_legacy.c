@@ -1,5 +1,4 @@
-/* Redis Cluster implementation.
- *
+/*
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
@@ -26,6 +25,11 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+/*
+ * cluster_legacy.c contains the implementation of the cluster API that is
+ * specific to the standard, Redis cluster-bus based clustering mechanism.
  */
 
 #include "server.h"
