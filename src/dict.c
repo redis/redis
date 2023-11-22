@@ -1414,13 +1414,13 @@ static int _dictExpandIfNeeded(dict *d)
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
-    if (!dictTypeExpandAllowed(d))
-        return DICT_OK;
     if ((dict_can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] >= DICTHT_SIZE(d->ht_size_exp[0])) ||
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) > dict_force_resize_ratio))
     {
+        if (!dictTypeExpandAllowed(d))
+            return DICT_OK;
         return dictExpand(d, d->ht_used[0] + 1);
     }
     return DICT_OK;
