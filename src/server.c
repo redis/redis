@@ -3629,7 +3629,8 @@ void call(client *c, int flags) {
 
     /* Update failed command calls if required. */
 
-    if (!incrCommandStatsOnError(real_cmd, ERROR_COMMAND_FAILED) && c->deferred_reply_errors) {
+    int failed = incrCommandStatsOnError(real_cmd, ERROR_COMMAND_FAILED);
+    if (!failed && c->deferred_reply_errors) {
         /* When call is used from a module client, error stats, and total_error_replies
          * isn't updated since these errors, if handled by the module, are internal,
          * and not reflected to users. however, the commandstats does show these calls
@@ -3764,6 +3765,11 @@ void call(client *c, int flags) {
     size_t zmalloc_used = zmalloc_used_memory();
     if (zmalloc_used > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used;
+
+    /* Call command post filters */
+    if (server.execution_nesting == 0 && !(c->flags & CLIENT_BLOCKED)) {
+        moduleCallCommandPostFilters(c, dirty, failed || c->deferred_reply_errors);
+    }
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);

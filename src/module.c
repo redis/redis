@@ -357,6 +357,8 @@ typedef struct RedisModuleCommandFilterCtx {
     int argv_len;
     int argc;
     client *c;
+    int is_succeeded; /*  indicates the command succeeded or failed. */
+    int is_dirty;  /* indicates the data has been changed. */
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -364,8 +366,10 @@ typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filte
 typedef struct RedisModuleCommandFilter {
     /* The module that registered the filter */
     RedisModule *module;
-    /* Filter callback function */
-    RedisModuleCommandFilterFunc callback;
+    /* Filter callback function before command is executed */
+    RedisModuleCommandFilterFunc pre_callback;
+    /* Filter callback function after command is executed*/
+    RedisModuleCommandFilterFunc post_callback;
     /* REDISMODULE_CMDFILTER_* flags */
     int flags;
 } RedisModuleCommandFilter;
@@ -10660,7 +10664,32 @@ int moduleUnregisterFilters(RedisModule *module) {
 RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
-    filter->callback = callback;
+    filter->pre_callback = callback;
+    filter->post_callback = NULL;
+    filter->flags = flags;
+
+    listAddNodeTail(moduleCommandFilters, filter);
+    listAddNodeTail(ctx->module->filters, filter);
+    return filter;
+}
+
+/* Register a command post filter. 
+ *
+ * The callback function will be called after command executed,
+ * and will return two indication in the ctx which respectively indicate
+ * whether the command was executed successfully and whether any data was modified.
+ * 
+ * Users can access these indication through `RedisModule_CommandFilterCmdIsSucceeded` 
+ * and `RedisModule_CommandFilterDataIsDirty`.
+ * 
+ * If multiple post filters are registered (by the same or different modules), they
+ * are executed in *reverse* order of registration.
+ */
+RedisModuleCommandFilter *RM_RegisterCommandPostFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
+    RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
+    filter->module = ctx->module;
+    filter->pre_callback = NULL;
+    filter->post_callback = callback;
     filter->flags = flags;
 
     listAddNodeTail(moduleCommandFilters, filter);
@@ -10712,12 +10741,45 @@ void moduleCallCommandFilters(client *c) {
         if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
 
         /* Call filter */
-        f->callback(&filter);
+        if (f->pre_callback != NULL) {
+            f->pre_callback(&filter);
+        }
     }
 
     c->argv = filter.argv;
     c->argv_len = filter.argv_len;
     c->argc = filter.argc;
+}
+
+void moduleCallCommandPostFilters(client *c, long long dirty, int is_failed) {
+    if (listLength(moduleCommandFilters) == 0) return;
+
+    listIter li;
+    listNode *ln;
+    listRewindTail(moduleCommandFilters,&li);
+
+    RedisModuleCommandFilterCtx ctx = {
+        .argv = c->argv,
+        .argv_len = c->argv_len,
+        .argc = c->argc,
+        .c = c,
+        .is_dirty = dirty ? 1 : 0,
+        .is_succeeded = is_failed ? 0 : 1
+    };
+
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *f = ln->value;
+
+        /* Skip filter if REDISMODULE_CMDFILTER_NOSELF is set and module is
+         * currently processing a command.
+         */
+        if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
+
+        /* Call filter */
+        if (f->post_callback != NULL) {
+            f->post_callback(&ctx);
+        }
+    }
 }
 
 /* Return the number of arguments a filtered command has.  The number of
@@ -10796,6 +10858,22 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 /* Get Client ID for client that issued the command we are filtering */
 unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
     return fctx->c->id;
+}
+
+/* Get the indication whether the command executed successfully or failed.
+ * This function should be called within the post callback which been
+ * registered by RedisModule_RegisterCommandPostFilter().
+ */
+int RM_CommandFilterCmdIsSucceeded(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->is_succeeded;
+}
+
+/* Get the indication whether the data was changeed by the command.
+ * This function should be called within the post callback which been
+ * registered by RedisModule_RegisterCommandPostFilter().
+ */
+int RM_CommandFilterDataIsDirty(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->is_dirty;
 }
 
 /* For a given pointer allocated via RedisModule_Alloc() or
@@ -13775,6 +13853,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ExportSharedAPI);
     REGISTER_API(GetSharedAPI);
     REGISTER_API(RegisterCommandFilter);
+    REGISTER_API(RegisterCommandPostFilter);
     REGISTER_API(UnregisterCommandFilter);
     REGISTER_API(CommandFilterArgsCount);
     REGISTER_API(CommandFilterArgGet);
@@ -13782,6 +13861,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
     REGISTER_API(CommandFilterGetClientId);
+    REGISTER_API(CommandFilterCmdIsSucceeded);
+    REGISTER_API(CommandFilterDataIsDirty);
     REGISTER_API(Fork);
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);

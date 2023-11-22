@@ -54,6 +54,23 @@ start_server {tags {"modules"}} {
         r commandfilter.retained
     } {my-retained-string}
 
+    test {Command can propagate within command filter post callback} {
+        set repl [attach_to_replication_stream]
+
+        r set @expireKey v
+
+        assert_replication_stream $repl {
+            {multi}
+            {select *}
+            {set @expireKey v}
+            {pexpireat @expireKey *}
+            {exec}
+        }
+        close_replication_stream $repl
+
+        assert_morethan [r ttl @expireKey] 0
+    } {} {needs:repl}
+
     test {Command Filter is unregistered implicitly on module unload} {
         r del log-key
         r module unload commandfilter
