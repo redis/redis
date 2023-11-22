@@ -5773,6 +5773,10 @@ int getClusterSize(void) {
     return dictSize(server.cluster->nodes);
 }
 
+int getMyClusterSlotCount(void) {
+    return server.cluster->myself->numslots;
+}
+
 char **getClusterNodesList(size_t *numnodes) {
     size_t count = dictSize(server.cluster->nodes);
     char **ids = zmalloc((count+1)*CLUSTER_NAMELEN);
