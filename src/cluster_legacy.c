@@ -1020,7 +1020,8 @@ void clusterInit(void) {
      * discover the IP address via MEET messages. */
     deriveAnnouncedPorts(&myself->tcp_port, &myself->tls_port, &myself->cport);
 
-    server.cluster->mf_end = 0;
+    /* resetManualFailover performs an action based on the value of mf_slave before nullifying it,
+     * and the struct is allocated with zmalloc (not zeroed), so we need to set it to NULL here. */
     server.cluster->mf_slave = NULL;
     resetManualFailover();
     clusterUpdateMyselfFlags();
