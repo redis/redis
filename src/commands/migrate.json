@@ -1,6 +1,6 @@
 {
     "MIGRATE": {
-        "summary": "Atomically transfer a key from a Redis instance to another one.",
+        "summary": "Atomically transfers a key from one Redis instance to another.",
         "complexity": "This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.",
         "group": "generic",
         "since": "2.6.0",
@@ -77,6 +77,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "const": "OK",
+                    "description": "Success."
+                },
+                {
+                    "const": "NOKEY",
+                    "description": "No keys were found in the source instance."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "host",
@@ -87,7 +99,7 @@
                 "type": "integer"
             },
             {
-                "name": "key_or_empty_string",
+                "name": "key-selector",
                 "type": "oneof",
                 "arguments": [
                     {
@@ -96,7 +108,7 @@
                         "key_spec_index": 0
                     },
                     {
-                        "name": "empty_string",
+                        "name": "empty-string",
                         "type": "pure-token",
                         "token": "\"\""
                     }
@@ -131,16 +143,15 @@
                 "arguments": [
                     {
                         "token": "AUTH",
-                        "name": "password",
+                        "name": "auth",
+                        "display": "password",
                         "type": "string",
-                        "optional": true,
                         "since": "4.0.7"
                     },
                     {
                         "token": "AUTH2",
-                        "name": "username_password",
+                        "name": "auth2",
                         "type": "block",
-                        "optional": true,
                         "since": "6.0.0",
                         "arguments": [
                             {
@@ -157,7 +168,8 @@
             },
             {
                 "token": "KEYS",
-                "name": "key",
+                "name": "keys",
+                "display": "key",
                 "type": "key",
                 "key_spec_index": 1,
                 "optional": true,

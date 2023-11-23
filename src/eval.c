@@ -185,7 +185,6 @@ void scriptingInit(int setup) {
 
     if (setup) {
         lctx.lua_client = NULL;
-        server.script_caller = NULL;
         server.script_disable_deny_script = 0;
         ldbInit();
     }
@@ -385,17 +384,17 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
     int evalsha = c->cmd->proc == evalShaCommand || c->cmd->proc == evalShaRoCommand;
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
         return cmd_flags;
+    uint64_t script_flags;
     evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
     char *lua_cur_script = funcname + 2;
-    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
-    uint64_t script_flags;
-    if (!de) {
+    c->cur_script = dictFind(lctx.lua_scripts, lua_cur_script);
+    if (!c->cur_script) {
         if (evalsha)
             return cmd_flags;
         if (evalExtractShebangFlags(c->argv[1]->ptr, &script_flags, NULL, NULL) == C_ERR)
             return cmd_flags;
     } else {
-        luaScript *l = dictGetVal(de);
+        luaScript *l = dictGetVal(c->cur_script);
         script_flags = l->flags;
     }
     if (script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE)
@@ -470,22 +469,6 @@ sds luaCreateFunction(client *c, robj *body) {
     return sha;
 }
 
-void prepareLuaClient(void) {
-    /* Select the right DB in the context of the Lua client */
-    selectDb(lctx.lua_client,server.script_caller->db->id);
-    lctx.lua_client->resp = 2; /* Default is RESP2, scripts can change it. */
-
-    /* If we are in MULTI context, flag Lua client as CLIENT_MULTI. */
-    if (server.script_caller->flags & CLIENT_MULTI) {
-        lctx.lua_client->flags |= CLIENT_MULTI;
-    }
-}
-
-void resetLuaClient(void) {
-    /* After the script done, remove the MULTI state. */
-    lctx.lua_client->flags &= ~CLIENT_MULTI;
-}
-
 void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = lctx.lua;
     char funcname[43];
@@ -502,7 +485,12 @@ void evalGenericCommand(client *c, int evalsha) {
         return;
     }
 
-    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+    if (c->cur_script) {
+        funcname[0] = 'f', funcname[1] = '_';
+        memcpy(funcname+2, dictGetKey(c->cur_script), 40);
+        funcname[42] = '\0';
+    } else
+        evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");
@@ -531,7 +519,9 @@ void evalGenericCommand(client *c, int evalsha) {
     }
 
     char *lua_cur_script = funcname + 2;
-    dictEntry *de = dictFind(lctx.lua_scripts, lua_cur_script);
+    dictEntry *de = c->cur_script;
+    if (!de)
+        de = dictFind(lctx.lua_scripts, lua_cur_script);
     luaScript *l = dictGetVal(de);
     int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
@@ -660,18 +650,18 @@ NULL
     }
 }
 
-unsigned long evalMemory() {
+unsigned long evalMemory(void) {
     return luaMemory(lctx.lua);
 }
 
-dict* evalScriptsDict() {
+dict* evalScriptsDict(void) {
     return lctx.lua_scripts;
 }
 
-unsigned long evalScriptsMemory() {
+unsigned long evalScriptsMemory(void) {
     return lctx.lua_scripts_mem +
-            dictSize(lctx.lua_scripts) * (sizeof(dictEntry) + sizeof(luaScript)) +
-            dictSlots(lctx.lua_scripts) * sizeof(dictEntry*);
+            dictMemUsage(lctx.lua_scripts) +
+            dictSize(lctx.lua_scripts) * sizeof(luaScript);
 }
 
 /* ---------------------------------------------------------------------------
@@ -698,7 +688,7 @@ void ldbFlushLog(list *log) {
         listDelNode(log,ln);
 }
 
-int ldbIsEnabled(){
+int ldbIsEnabled(void){
     return ldb.active && ldb.step;
 }
 
@@ -800,7 +790,7 @@ int ldbStartSession(client *c) {
             /* Log the creation of the child and close the listening
              * socket to make sure if the parent crashes a reset is sent
              * to the clients. */
-            serverLog(LL_WARNING,"Redis forked for debugging eval");
+            serverLog(LL_NOTICE,"Redis forked for debugging eval");
         } else {
             /* Parent */
             listAddNodeTail(ldb.children,(void*)(unsigned long)cp);
@@ -808,7 +798,7 @@ int ldbStartSession(client *c) {
             return 0;
         }
     } else {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Redis synchronous debugging eval session started");
     }
 
@@ -842,10 +832,10 @@ void ldbEndSession(client *c) {
     /* If it's a fork()ed session, we just exit. */
     if (ldb.forked) {
         writeToClient(c,0);
-        serverLog(LL_WARNING,"Lua debugging session child exiting");
+        serverLog(LL_NOTICE,"Lua debugging session child exiting");
         exitFromChild(0);
     } else {
-        serverLog(LL_WARNING,
+        serverLog(LL_NOTICE,
             "Redis synchronous debugging eval session ended");
     }
 
@@ -889,7 +879,7 @@ void ldbKillForkedSessions(void) {
     listRewind(ldb.children,&li);
     while((ln = listNext(&li))) {
         pid_t pid = (unsigned long) ln->value;
-        serverLog(LL_WARNING,"Killing debugging session %ld",(long)pid);
+        serverLog(LL_NOTICE,"Killing debugging session %ld",(long)pid);
         kill(pid,SIGKILL);
     }
     listRelease(ldb.children);
@@ -1673,6 +1663,5 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             luaError(lua);
         }
         rctx->start_time = getMonotonicUs();
-        rctx->snapshot_time = mstime();
     }
 }

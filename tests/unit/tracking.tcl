@@ -1,4 +1,5 @@
-start_server {tags {"tracking network"}} {
+# logreqres:skip because it seems many of these tests rely heavily on RESP2
+start_server {tags {"tracking network logreqres:skip"}} {
     # Create a deferred client we'll use to redirect invalidation
     # messages to.
     set rd_redirection [redis_deferring_client]
@@ -229,22 +230,25 @@ start_server {tags {"tracking network"}} {
         # If a script doesn't call any read command, don't track any keys
         r EVAL "redis.call('set', 'key3{t}', 'bar')" 2 key1{t} key2{t} 
         $rd_sg MSET key2{t} 2 key1{t} 2
+        assert_equal "PONG" [r ping]
 
-        # If a script calls a read command, track all declared keys
-        r EVAL "redis.call('get', 'key3{t}')" 2 key1{t} key2{t} 
-        $rd_sg MSET key2{t} 2 key1{t} 2
+        # If a script calls a read command, just the read keys
+        r EVAL "redis.call('get', 'key2{t}')" 2 key1{t} key2{t}
+        $rd_sg MSET key2{t} 2 key3{t} 2
         assert_equal {invalidate key2{t}} [r read]
-        assert_equal {invalidate key1{t}} [r read]
+        assert_equal "PONG" [r ping]
 
         # RO variants work like the normal variants
-        r EVAL_RO "redis.call('ping')" 2 key1{t} key2{t} 
+
+        # If a RO script doesn't call any read command, don't track any keys
+        r EVAL_RO "redis.call('ping')" 2 key1{t} key2{t}
         $rd_sg MSET key2{t} 2 key1{t} 2
+        assert_equal "PONG" [r ping]
 
-        r EVAL_RO "redis.call('get', 'key1{t}')" 2 key1{t} key2{t} 
-        $rd_sg MSET key2{t} 3 key1{t} 3
+        # If a RO script calls a read command, just the read keys
+        r EVAL_RO "redis.call('get', 'key2{t}')" 2 key1{t} key2{t}
+        $rd_sg MSET key2{t} 2 key3{t} 2
         assert_equal {invalidate key2{t}} [r read]
-        assert_equal {invalidate key1{t}} [r read]
-
         assert_equal "PONG" [r ping]
     }
 
@@ -739,6 +743,160 @@ start_server {tags {"tracking network"}} {
         assert_equal {} $prefixes
     }
 
+    test {Regression test for #11715} {
+        # This issue manifests when a client invalidates keys through the max key
+        # limit, which invalidates keys to get Redis below the limit, but no command is
+        # then executed. This can occur in several ways but the simplest is through 
+        # multi-exec which queues commands.
+        clean_all
+        r config set tracking-table-max-keys 2
+
+        # The cron will invalidate keys if we're above the limit, so disable it.
+        r debug pause-cron 1
+
+        # Set up a client that has listened to 2 keys and start a multi, this
+        # sets up the crash for later.
+        $rd HELLO 3
+        $rd read
+        $rd CLIENT TRACKING on
+        assert_match "OK" [$rd read]
+        $rd mget "1{tag}" "2{tag}"
+        assert_match "{} {}" [$rd read]
+        $rd multi
+        assert_match "OK" [$rd read]
+
+        # Reduce the tracking table keys to 1, this doesn't immediately take affect, but
+        # instead will apply on the next command.
+        r config set tracking-table-max-keys 1
+
+        # This command will get queued, so make sure this command doesn't crash.
+        $rd ping
+        $rd exec
+
+        # Validate we got some invalidation message and then the command was queued.
+        assert_match "invalidate *{tag}" [$rd read]
+        assert_match "QUEUED" [$rd read]
+        assert_match "PONG" [$rd read]
+
+        r debug pause-cron 0
+    } {OK} {needs:debug}
+
+    foreach resp {3 2} {
+        test "RESP$resp based basic invalidation with client reply off" {
+            # This entire test is mostly irrelevant for RESP2, but we run it anyway just for some extra coverage.
+            clean_all
+
+            $rd hello $resp
+            $rd read
+            $rd client tracking on
+            $rd read
+
+            $rd_sg set foo bar
+            $rd get foo
+            $rd read
+
+            $rd client reply off
+
+            $rd_sg set foo bar2
+
+            if {$resp == 3} {
+                assert_equal {invalidate foo} [$rd read]
+            } elseif {$resp == 2} { } ;# Just coverage
+
+            # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+            $rd client reply on
+            assert_equal {OK} [$rd read]
+            $rd ping
+            assert_equal {PONG} [$rd read]
+        }
+    }
+
+    test {RESP3 based basic redirect invalidation with client reply off} {
+        clean_all
+
+        set rd_redir [redis_deferring_client]
+        $rd_redir hello 3
+        $rd_redir read
+
+        $rd_redir client id
+        set rd_redir_id [$rd_redir read]
+
+        $rd client tracking on redirect $rd_redir_id
+        $rd read
+
+        $rd_sg set foo bar
+        $rd get foo
+        $rd read
+
+        $rd_redir client reply off
+
+        $rd_sg set foo bar2
+        assert_equal {invalidate foo} [$rd_redir read]
+
+        # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+        $rd_redir client reply on
+        assert_equal {OK} [$rd_redir read]
+        $rd_redir ping
+        assert_equal {PONG} [$rd_redir read]
+
+        $rd_redir close
+    }
+
+    test {RESP3 based basic tracking-redir-broken with client reply off} {
+        clean_all
+
+        $rd hello 3
+        $rd read
+        $rd client tracking on redirect $redir_id
+        $rd read
+
+        $rd_sg set foo bar
+        $rd get foo
+        $rd read
+
+        $rd client reply off
+
+        $rd_redirection quit
+        $rd_redirection read
+
+        $rd_sg set foo bar2
+
+        set res [lsearch -exact [$rd read] "tracking-redir-broken"]
+        assert_morethan_equal $res 0
+
+        # Verify things didn't get messed up and no unexpected reply was pushed to the client.
+        $rd client reply on
+        assert_equal {OK} [$rd read]
+        $rd ping
+        assert_equal {PONG} [$rd read]
+    }
+
     $rd_redirection close
+    $rd_sg close
     $rd close
+}
+
+# Just some extra coverage for --log-req-res, because we do not
+# run the full tracking unit in that mode
+start_server {tags {"tracking network"}} {
+    test {Coverage: Basic CLIENT CACHING} {
+        set rd_redirection [redis_deferring_client]
+        $rd_redirection client id
+        set redir_id [$rd_redirection read]
+        assert_equal {OK} [r CLIENT TRACKING on OPTIN REDIRECT $redir_id]
+        assert_equal {OK} [r CLIENT CACHING yes]
+        r CLIENT TRACKING off
+    } {OK}
+
+    test {Coverage: Basic CLIENT REPLY} {
+        r CLIENT REPLY on
+    } {OK}
+
+    test {Coverage: Basic CLIENT TRACKINGINFO} {
+        r CLIENT TRACKINGINFO
+    } {flags off redirect -1 prefixes {}}
+
+    test {Coverage: Basic CLIENT GETREDIR} {
+        r CLIENT GETREDIR
+    } {-1}
 }

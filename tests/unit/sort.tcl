@@ -1,7 +1,7 @@
 start_server {
     tags {"sort"}
     overrides {
-        "list-max-ziplist-size" 32
+        "list-max-ziplist-size" 16
         "set-max-intset-entries" 32
     }
 } {
@@ -34,10 +34,22 @@ start_server {
         set _ $result
     }
 
+    proc check_sort_store_encoding {key} {
+        set listpack_max_size [lindex [r config get list-max-ziplist-size] 1]
+
+        # When the length or size of quicklist is less than the limit,
+        # it will be converted to listpack.
+        if {[r llen $key] <= $listpack_max_size} {
+            assert_encoding listpack $key
+        } else {
+            assert_encoding quicklist $key
+        }
+    }
+
     foreach {num cmd enc title} {
-        16 lpush quicklist "Old Ziplist"
-        1000 lpush quicklist "Old Linked list"
-        10000 lpush quicklist "Old Big Linked list"
+        16 lpush listpack "Listpack"
+        1000 lpush quicklist "Quicklist"
+        10000 lpush quicklist "Big Quicklist"
         16 sadd intset "Intset"
         1000 sadd hashtable "Hash table"
         10000 sadd hashtable "Big Hash table"
@@ -63,12 +75,14 @@ start_server {
         assert_equal [lsort -integer $result] [r sort tosort GET #]
     } {} {cluster:skip}
 
-    test "SORT GET <const>" {
+foreach command {SORT SORT_RO} {
+    test "$command GET <const>" {
         r del foo
-        set res [r sort tosort GET foo]
+        set res [r $command tosort GET foo]
         assert_equal 16 [llength $res]
         foreach item $res { assert_equal {} $item }
     } {} {cluster:skip}
+}
 
     test "SORT GET (key and hash) with sanity check" {
         set l1 [r sort tosort GET # GET weight_*]
@@ -84,19 +98,23 @@ start_server {
         r sort tosort BY weight_* store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding quicklist sort-res
+        check_sort_store_encoding sort-res
     } {} {cluster:skip}
 
     test "SORT BY hash field STORE" {
         r sort tosort BY wobj_*->weight store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding quicklist sort-res
+        check_sort_store_encoding sort-res
     } {} {cluster:skip}
 
     test "SORT extracts STORE correctly" {
         r command getkeys sort abc store def
     } {abc def}
+    
+    test "SORT_RO get keys" {
+        r command getkeys sort_ro abc
+    } {abc}
 
     test "SORT extracts multiple STORE correctly" {
         r command getkeys sort abc store invalid store stillbad store def
@@ -326,5 +344,16 @@ start_server {
                 flush stdout
             }
         } {} {cluster:skip}
+    }
+
+    test {SETRANGE with huge offset} {
+        r lpush L 2 1 0
+        # expecting a different outcome on 32 and 64 bit systems
+        foreach value {9223372036854775807 2147483647} {
+            catch {[r sort_ro L by a limit 2 $value]} res
+            if {![string match "2" $res] && ![string match "*out of range*" $res]} {
+                assert_not_equal $res "expecting an error or 2"
+            }
+        }
     }
 }

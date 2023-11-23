@@ -159,7 +159,7 @@ start_server {} {
         assert {[s repl_backlog_histlen] > [expr 2*10000*10000]}
         assert_equal [s connected_slaves] {2}
 
-        exec kill -SIGSTOP $replica2_pid
+        pause_process $replica2_pid
         r config set client-output-buffer-limit "replica 128k 0 0"
         # trigger output buffer limit check
         r set key [string repeat A [expr 64*1024]]
@@ -178,8 +178,10 @@ start_server {} {
         } else {
             fail "Replication backlog memory is not smaller"
         }
-        exec kill -SIGCONT $replica2_pid
+        resume_process $replica2_pid
     }
+    # speed up termination
+    $master config set shutdown-timeout 0
 }
 }
 }
@@ -227,3 +229,79 @@ test {Partial resynchronization is successful even client-output-buffer-limit is
         }
     }
 }
+
+# This test was added to make sure big keys added to the backlog do not trigger psync loop.
+test {Replica client-output-buffer size is limited to backlog_limit/16 when no replication data is pending} {
+    proc client_field {r type f} {
+        set client [$r client list type $type]
+        if {![regexp $f=(\[a-zA-Z0-9-\]+) $client - res]} {
+            error "field $f not found for in $client"
+        }
+        return $res
+    }
+
+    start_server {tags {"repl external:skip"}} {
+        start_server {} {
+            set replica [srv -1 client]
+            set replica_host [srv -1 host]
+            set replica_port [srv -1 port]
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            $master config set maxmemory-policy allkeys-lru
+
+            $master config set repl-backlog-size 16384
+            $master config set client-output-buffer-limit "replica 32768 32768 60"
+            # Key has has to be larger than replica client-output-buffer limit.
+            set keysize [expr 256*1024]
+
+            $replica replicaof $master_host $master_port
+            wait_for_condition 50 100 {
+                [lindex [$replica role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$replica info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            # Write a big key that is gonna breach the obuf limit and cause the replica to disconnect,
+            # then in the same event loop, add at least 16 more keys, and enable eviction, so that the
+            # eviction code has a chance to call flushSlavesOutputBuffers, and then run PING to trigger the eviction code
+            set _v [prepare_value $keysize]
+            $master write "[format_command mset key $_v k1 1 k2 2 k3 3 k4 4 k5 5 k6 6 k7 7 k8 8 k9 9 ka a kb b kc c kd d ke e kf f kg g kh h]config set maxmemory 1\r\nping\r\n"
+            $master flush
+            $master read
+            $master read
+            $master read
+            wait_for_ofs_sync $master $replica
+
+            # Write another key to force the test to wait for another event loop iteration so that we
+            # give the serverCron a chance to disconnect replicas with COB size exceeding the limits
+            $master config set maxmemory 0
+            $master set key1 1
+            wait_for_ofs_sync $master $replica
+
+            assert {[status $master connected_slaves] == 1}
+
+            wait_for_condition 50 100 {
+                [client_field $master replica tot-mem] < $keysize
+            } else {
+                fail "replica client-output-buffer usage is higher than expected."
+            }
+
+            # now we expect the replica to re-connect but fail partial sync (it doesn't have large
+            # enough COB limit and must result in a full-sync)
+            assert {[status $master sync_partial_ok] == 0}
+
+            # Before this fix (#11905), the test would trigger an assertion in 'o->used >= c->ref_block_pos'
+            test {The update of replBufBlock's repl_offset is ok - Regression test for #11666} {
+                set rd [redis_deferring_client]
+                set replid [status $master master_replid]
+                set offset [status $master repl_backlog_first_byte_offset]
+                $rd psync $replid $offset
+                assert_equal {PONG} [$master ping] ;# Make sure the master doesn't crash.
+                $rd close
+            }
+        }
+    }
+}
+

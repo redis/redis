@@ -61,6 +61,23 @@ start_server {tags {"modules"}} {
         assert_equal $result $n
     }
 
+    test {Module stream XADD big fields doesn't create empty key} {
+        set original_proto [config_get_set proto-max-bulk-len 2147483647] ;#2gb
+        set original_query [config_get_set client-query-buffer-limit 2147483647] ;#2gb
+
+        r del mystream
+        r write "*4\r\n\$10\r\nstream.add\r\n\$8\r\nmystream\r\n\$5\r\nfield\r\n"
+        catch {
+            write_big_bulk 1073741824 ;#1gb
+        } err
+        assert {$err eq "ERR StreamAdd failed"}
+        assert_equal 0 [r exists mystream]
+
+        # restore defaults
+        r config set proto-max-bulk-len $original_proto
+        r config set client-query-buffer-limit $original_query
+    } {OK} {large-memory}
+
     test {Module stream iterator} {
         r del mystream
         set streamid1 [r xadd mystream * item 1 value a]

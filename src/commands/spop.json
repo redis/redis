@@ -1,6 +1,6 @@
 {
     "SPOP": {
-        "summary": "Remove and return one or multiple random members from a set",
+        "summary": "Returns one or more random members from a set after removing them. Deletes the set if the last member was popped.",
         "complexity": "Without the count argument O(1), otherwise O(N) where N is the value of the passed count.",
         "group": "set",
         "since": "1.0.0",
@@ -43,6 +43,26 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "The key does not exist."
+                },
+                {
+                    "type": "string",
+                    "description": "The removed member when 'COUNT' is not given."
+                },
+                {
+                    "type": "array",
+                    "description": "List to the removed members when 'COUNT' is given.",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

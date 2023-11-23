@@ -97,5 +97,9 @@ tags "modules" {
         test "Unload the module - testkeyspace" {
             assert_equal {OK} [r module unload testkeyspace]
         }
+
+        test "Verify RM_StringDMA with expiration are not causing invalid memory access" {
+            assert_equal {OK} [r set x 1 EX 1]
+        }
     }
 }

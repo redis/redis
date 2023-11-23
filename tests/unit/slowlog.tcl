@@ -24,8 +24,11 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {10}
 
     test {SLOWLOG - GET optional argument to limit output len works} {
-        llength [r slowlog get 5]
-    } {5}
+        
+        assert_equal 5  [llength [r slowlog get 5]]
+        assert_equal 10 [llength [r slowlog get -1]]
+        assert_equal 10 [llength [r slowlog get 20]]
+    }
 
     test {SLOWLOG - RESET subcommand works} {
         r config set slowlog-log-slower-than 100000
@@ -39,7 +42,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         set e [lindex [r slowlog get] 0]
         assert_equal [llength $e] 6
         if {!$::external} {
-            assert_equal [lindex $e 0] 105
+            assert_equal [lindex $e 0] 107
         }
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
@@ -199,5 +202,27 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal 1 [llength [r slowlog get 1]]
         assert_equal 3 [llength [r slowlog get -1]]
         assert_equal 3 [llength [r slowlog get 3]]
+    }
+    
+     test {SLOWLOG - blocking command is reported only after unblocked} {
+        # Cleanup first
+        r del mylist
+        # create a test client
+        set rd [redis_deferring_client]
+        
+        # config the slowlog and reset
+        r config set slowlog-log-slower-than 0
+        r config set slowlog-max-len 110
+        r slowlog reset
+        
+        $rd BLPOP mylist 0
+        wait_for_blocked_clients_count 1 50 20
+        assert_equal 0 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
+        
+        r LPUSH mylist 1
+        wait_for_blocked_clients_count 0 50 20
+        assert_equal 1 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
+        
+        $rd close
     }
 }

@@ -1,11 +1,16 @@
 {
     "SETEX": {
-        "summary": "Set the value and expiration of a key",
+        "summary": "Sets the string value and expiration time of a key. Creates the key if it doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "2.0.0",
         "arity": 4,
         "function": "setexCommand",
+        "deprecated_since": "2.6.12",
+        "replaced_by": "`SET` with the `EX` argument",
+        "doc_flags": [
+            "DEPRECATED"
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM"
@@ -33,6 +38,9 @@
                 }
             }
         ],
+        "reply_schema": {
+            "const": "OK"
+        },
         "arguments": [
             {
                 "name": "key",

@@ -1,6 +1,6 @@
 {
     "KILL": {
-        "summary": "Kill the connection of a client",
+        "summary": "Terminates open connections.",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
         "since": "2.4.0",
@@ -45,7 +45,8 @@
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "ip:port",
+                        "name": "old-format",
+                        "display": "ip:port",
                         "type": "string",
                         "deprecated_since": "2.8.12"
                     },
@@ -63,7 +64,7 @@
                             },
                             {
                                 "token": "TYPE",
-                                "name": "normal_master_slave_pubsub",
+                                "name": "client-type",
                                 "type": "oneof",
                                 "optional": true,
                                 "since": "2.8.12",
@@ -105,27 +106,54 @@
                             },
                             {
                                 "token": "ADDR",
-                                "name": "ip:port",
+                                "name": "addr",
+                                "display": "ip:port",
                                 "type": "string",
                                 "optional": true
                             },
                             {
                                 "token": "LADDR",
-                                "name": "ip:port",
+                                "name": "laddr",
+                                "display": "ip:port",
                                 "type": "string",
                                 "optional": true,
                                 "since": "6.2.0"
                             },
                             {
                                 "token": "SKIPME",
-                                "name": "yes/no",
-                                "type": "string",
-                                "optional": true
+                                "name": "skipme",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "yes",
+                                        "type": "pure-token",
+                                        "token": "YES"
+                                    },
+                                    {
+                                        "name": "no",
+                                        "type": "pure-token",
+                                        "token": "NO"
+                                    }
+                                ]
                             }
                         ]
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "when called in 3 argument format",
+                    "const": "OK"
+                },
+                {
+                    "description": "when called in filter/value format, the number of clients killed",
+                    "type": "integer",
+                    "minimum": 0
+                }
+            ]
+        }
     }
 }

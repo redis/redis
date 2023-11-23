@@ -1,6 +1,6 @@
 {
     "CREATE": {
-        "summary": "Create a consumer group.",
+        "summary": "Creates a consumer group.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",
@@ -47,19 +47,19 @@
                 "key_spec_index": 0
             },
             {
-                "name": "groupname",
+                "name": "group",
                 "type": "string"
             },
             {
-                "name": "id",
+                "name": "id-selector",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "ID",
+                        "name": "id",
                         "type": "string"
                     },
                     {
-                        "name": "new_id",
+                        "name": "new-id",
                         "type": "pure-token",
                         "token": "$"
                     }
@@ -73,10 +73,13 @@
             },
             {
                 "token": "ENTRIESREAD",
-                "name": "entries_read",
+                "name": "entries-read",
                 "type": "integer",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

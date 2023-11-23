@@ -48,7 +48,9 @@ test "Cluster nodes hard reset" {
     }
 }
 
-test "Cluster Join and auto-discovery test" {
+# Helper function to attempt to have each node in a cluster
+# meet each other.
+proc join_nodes_in_cluster {} {
     # Join node 0 with 1, 1 with 2, ... and so forth.
     # If auto-discovery works all nodes will know every other node
     # eventually.
@@ -63,10 +65,24 @@ test "Cluster Join and auto-discovery test" {
 
     foreach_redis_id id {
         wait_for_condition 1000 50 {
-            [llength [get_cluster_nodes $id]] == [llength $ids]
+            [llength [get_cluster_nodes $id connected]] == [llength $ids]
         } else {
-            fail "Cluster failed to join into a full mesh."
+            return 0
         }
+    }
+    return 1
+}
+
+test "Cluster Join and auto-discovery test" {
+    # Use multiple attempts since sometimes nodes timeout
+    # while attempting to connect.
+    for {set attempts 3} {$attempts > 0} {incr attempts -1} {
+        if {[join_nodes_in_cluster] == 1} {
+            break
+        }
+    }
+    if {$attempts == 0} {
+        fail "Cluster failed to form full mesh"
     }
 }
 

@@ -91,6 +91,11 @@ start_server {tags {"modules"}} {
 
     test {RESP version carries through to blocked client} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$client_proto == 3} {continue}
+            } elseif {$::force_resp3} {
+                if {$client_proto == 2} {continue}
+            }
             r hello $client_proto
             r readraw 1
             set ret [r do_fake_bg_true]
@@ -100,6 +105,7 @@ start_server {tags {"modules"}} {
                 assert_equal $ret "#t"
             }
             r readraw 0
+            r hello 2
         }
     }
 
@@ -247,6 +253,34 @@ foreach call_type {nested normal} {
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
     }
 
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+
+        # Start the replication process...
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+
+        test {WAIT command on module blocked client} {
+            pause_process [srv 0 pid]
+
+            $master do_bg_rm_call_format ! hset bk1 foo bar
+
+            assert_equal [$master wait 1 1000] 0
+            resume_process [srv 0 pid]
+            assert_equal [$master wait 1 1000] 1
+            assert_equal [$replica hget bk1 foo] bar
+        }
+    }
+
+    test {Unblock by timer} {
+        assert_match "OK" [r unblock_by_timer 100]
+    }
+    
     test "Unload the module - blockedclient" {
         assert_equal {OK} [r module unload blockedclient]
     }

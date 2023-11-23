@@ -1,6 +1,6 @@
 {
     "IS-MASTER-DOWN-BY-ADDR": {
-        "summary": "Check if a master is down",
+        "summary": "Determines whether a master Redis instance is down.",
         "complexity": "O(1)",
         "group": "sentinel",
         "since": "2.8.4",
@@ -12,6 +12,33 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": [
+                {
+                    "oneOf": [
+                        {
+                            "const": 0,
+                            "description": "Master is up."
+                        },
+                        {
+                            "const": 1,
+                            "description": "Master is down."
+                        }
+                    ]
+                },
+                {
+                    "type": "string",
+                    "description": "Sentinel address."
+                },
+                {
+                    "type": "integer",
+                    "description": "Port."
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "ip",

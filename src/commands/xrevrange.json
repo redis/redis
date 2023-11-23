@@ -1,6 +1,6 @@
 {
     "XREVRANGE": {
-        "summary": "Return a range of elements in a stream, with IDs matching the specified IDs interval, in reverse order (from greater to smaller IDs) compared to XRANGE",
+        "summary": "Returns the messages from a stream within a range of IDs in reverse order.",
         "complexity": "O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).",
         "group": "stream",
         "since": "5.0.0",
@@ -58,6 +58,29 @@
                 "type": "integer",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "An array of the entries with IDs matching the specified range",
+            "type": "array",
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "description": "Stream id",
+                        "type": "string",
+                        "pattern": "[0-9]+-[0-9]+"
+                    },
+                    {
+                        "description": "Array of field-value pairs",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                ]
+            }
+        }
     }
 }

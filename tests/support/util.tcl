@@ -62,8 +62,8 @@ proc sanitizer_errors_from_file {filename} {
         }
 
         # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
-        if {[string match {*runtime error*} $log] ||
-            [string match {*Sanitizer*} $log]} {
+        if {[string match {*runtime error*} $line] ||
+            [string match {*Sanitizer*} $line]} {
             return $log
         }
     }
@@ -158,7 +158,7 @@ proc count_log_lines {srv_idx} {
 # returns the number of times a line with that pattern appears in a file
 proc count_message_lines {file pattern} {
     set res 0
-    # exec fails when grep exists with status other than 0 (when the patter wasn't found)
+    # exec fails when grep exists with status other than 0 (when the pattern wasn't found)
     catch {
         set res [string trim [exec grep $pattern $file 2> /dev/null | wc -l]]
     }
@@ -602,15 +602,32 @@ proc stop_bg_complex_data {handle} {
 # Write num keys with the given key prefix and value size (in bytes). If idx is
 # given, it's the index (AKA level) used with the srv procedure and it specifies
 # to which Redis instance to write the keys.
-proc populate {num {prefix key:} {size 3} {idx 0}} {
-    set rd [redis_deferring_client $idx]
-    for {set j 0} {$j < $num} {incr j} {
-        $rd set $prefix$j [string repeat A $size]
+proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
+    r $idx deferred 1
+    if {$num > 16} {set pipeline 16} else {set pipeline $num}
+    set val [string repeat A $size]
+    for {set j 0} {$j < $pipeline} {incr j} {
+        if {$expires > 0} {
+            r $idx set $prefix$j $val ex $expires
+        } else {
+            r $idx set $prefix$j $val
+        }
+        if {$prints} {puts $j}
     }
-    for {set j 0} {$j < $num} {incr j} {
-        $rd read
+    for {} {$j < $num} {incr j} {
+        if {$expires > 0} {
+            r $idx set $prefix$j $val ex $expires
+        } else {
+            r $idx set $prefix$j $val
+        }
+        r $idx read
+        if {$prints} {puts $j}
     }
-    $rd close
+    for {set j 0} {$j < $pipeline} {incr j} {
+        r $idx read
+        if {$prints} {puts $j}
+    }
+    r $idx deferred 0
 }
 
 proc get_child_pid {idx} {
@@ -625,6 +642,29 @@ proc get_child_pid {idx} {
     close $fd
 
     return $child_pid
+}
+
+proc process_is_alive pid {
+    if {[catch {exec ps -p $pid -f} err]} {
+        return 0
+    } else {
+        if {[string match "*<defunct>*" $err]} { return 0 }
+        return 1
+    }
+}
+
+proc pause_process pid {
+    exec kill -SIGSTOP $pid
+    wait_for_condition 50 100 {
+        [string match {*T*} [lindex [exec ps j $pid] 16]]
+    } else {
+        puts [exec ps j $pid]
+        fail "process didn't stop"
+    }
+}
+
+proc resume_process pid {
+    exec kill -SIGCONT $pid
 }
 
 proc cmdrstat {cmd r} {
@@ -721,13 +761,20 @@ proc generate_fuzzy_traffic_on_key {key duration} {
         } else {
             set err [format "%s" $err] ;# convert to string for pattern matching
             if {[string match "*SIGTERM*" $err]} {
-                puts "command caused test to hang? $cmd"
-                exit 1
+                puts "commands caused test to hang:"
+                foreach cmd $sent {
+                    foreach arg $cmd {
+                        puts -nonewline "[string2printable $arg] "
+                    }
+                    puts ""
+                }
+                # Re-raise, let handler up the stack take care of this.
+                error $err $::errorInfo
             }
         }
     }
 
-    # print stats so that we know if we managed to generate commands that actually made senes
+    # print stats so that we know if we managed to generate commands that actually made sense
     #if {$::verbose} {
     #    set count [llength $sent]
     #    puts "Fuzzy traffic sent: $count, succeeded: $succeeded"
@@ -862,17 +909,17 @@ proc debug_digest {{level 0}} {
     r $level debug digest
 }
 
-proc wait_for_blocked_client {} {
+proc wait_for_blocked_client {{idx 0}} {
     wait_for_condition 50 100 {
-        [s blocked_clients] ne 0
+        [s $idx blocked_clients] ne 0
     } else {
         fail "no blocked clients"
     }
 }
 
-proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
     wait_for_condition $maxtries $delay  {
-        [s blocked_clients] == $count
+        [s $idx blocked_clients] == $count
     } else {
         fail "Timeout waiting for blocked clients"
     }
@@ -926,6 +973,12 @@ proc config_set {param value {options {}}} {
             }
         }
     }
+}
+
+proc config_get_set {param value {options {}}} {
+    set config [lindex [r config get $param] 1]
+    config_set $param $value $options
+    return $config
 }
 
 proc delete_lines_with_pattern {filename tmpfilename pattern} {
@@ -1039,3 +1092,34 @@ proc memory_usage {key} {
     }
     return $usage
 }
+
+# forward compatibility, lmap missing in TCL 8.5
+proc lmap args {
+    set body [lindex $args end]
+    set args [lrange $args 0 end-1]
+    set n 0
+    set pairs [list]
+    foreach {varnames listval} $args {
+        set varlist [list]
+        foreach varname $varnames {
+            upvar 1 $varname var$n
+            lappend varlist var$n
+            incr n
+        }
+        lappend pairs $varlist $listval
+    }
+    set temp [list]
+    foreach {*}$pairs {
+        lappend temp [uplevel 1 $body]
+    }
+    set temp
+}
+
+proc format_command {args} {
+    set cmd "*[llength $args]\r\n"
+    foreach a $args {
+        append cmd "$[string length $a]\r\n$a\r\n"
+    }
+    set _ $cmd
+}
+

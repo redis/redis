@@ -191,7 +191,7 @@ ssize_t cliWriteConn(redisContext *c, const char *buf, size_t buf_len)
 
 /* Wrapper around OpenSSL (libssl and libcrypto) initialisation
  */
-int cliSecureInit()
+int cliSecureInit(void)
 {
 #ifdef USE_OPENSSL
     ERR_load_crypto_strings();
@@ -352,9 +352,19 @@ void parseRedisUri(const char *uri, const char* tool_name, cliConnInfo *connInfo
     path = strchr(curr, '/');
     if (*curr != '/') {
         host = path ? path - 1 : end;
-        if ((port = strchr(curr, ':'))) {
-            connInfo->hostport = atoi(port + 1);
-            host = port - 1;
+        if (*curr == '[') {
+            curr += 1;
+            if ((port = strchr(curr, ']'))) {
+                if (*(port+1) == ':') {
+                    connInfo->hostport = atoi(port + 2);
+                }
+                host = port - 1;
+            }
+        } else {
+            if ((port = strchr(curr, ':'))) {
+                connInfo->hostport = atoi(port + 1);
+                host = port - 1;
+            }
         }
         sdsfree(connInfo->hostip);
         connInfo->hostip = sdsnewlen(curr, host - curr + 1);

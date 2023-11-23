@@ -1,6 +1,6 @@
 {
     "BLPOP": {
-        "summary": "Remove and get the first element in a list, or block until one is available",
+        "summary": "Removes and returns the first element in a list. Blocks until an element is available otherwise. Deletes the list if the last element was popped.",
         "complexity": "O(N) where N is the number of provided keys.",
         "group": "list",
         "since": "2.0.0",
@@ -14,7 +14,6 @@
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT",
             "BLOCKING"
         ],
         "acl_categories": [
@@ -41,6 +40,30 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "null",
+                    "description": "No element could be popped and timeout expired"
+                },
+                {
+                    "description": "The key from which the element was popped and the value of the popped element",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "List key from which the element was popped.",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Value of the popped element.",
+                            "type": "string"
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

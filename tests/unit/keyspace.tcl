@@ -244,10 +244,15 @@ start_server {tags {"keyspace"}} {
         assert {[r get mynewkey{t}] eq "foobar"}
     }
 
-    test {COPY basic usage for list} {
+source "tests/unit/type/list-common.tcl"
+foreach {type large} [array get largevalue] {
+    set origin_config [config_get_set list-max-listpack-size -1]
+    test "COPY basic usage for list - $type" {
         r del mylist{t} mynewlist{t}
-        r lpush mylist{t} a b c d
+        r lpush mylist{t} a b $large c d
+        assert_encoding $type mylist{t}
         r copy mylist{t} mynewlist{t}
+        assert_encoding $type mynewlist{t}
         set digest [debug_digest_value mylist{t}]
         assert_equal $digest [debug_digest_value mynewlist{t}]
         assert_refcount 1 mylist{t}
@@ -255,31 +260,30 @@ start_server {tags {"keyspace"}} {
         r del mylist{t}
         assert_equal $digest [debug_digest_value mynewlist{t}]
     }
+    config_set list-max-listpack-size $origin_config
+}
 
-    test {COPY basic usage for intset set} {
-        r del set1{t} newset1{t}
-        r sadd set1{t} 1 2 3
-        assert_encoding intset set1{t}
-        r copy set1{t} newset1{t}
-        set digest [debug_digest_value set1{t}]
-        assert_equal $digest [debug_digest_value newset1{t}]
-        assert_refcount 1 set1{t}
-        assert_refcount 1 newset1{t}
-        r del set1{t}
-        assert_equal $digest [debug_digest_value newset1{t}]
-    }
-
-    test {COPY basic usage for hashtable set} {
-        r del set2{t} newset2{t}
-        r sadd set2{t} 1 2 3 a
-        assert_encoding hashtable set2{t}
-        r copy set2{t} newset2{t}
-        set digest [debug_digest_value set2{t}]
-        assert_equal $digest [debug_digest_value newset2{t}]
-        assert_refcount 1 set2{t}
-        assert_refcount 1 newset2{t}
-        r del set2{t}
-        assert_equal $digest [debug_digest_value newset2{t}]
+    foreach type {intset listpack hashtable} {
+        test {COPY basic usage for $type set} {
+            r del set1{t} newset1{t}
+            r sadd set1{t} 1 2 3
+            if {$type ne "intset"} {
+                r sadd set1{t} a
+            }
+            if {$type eq "hashtable"} {
+                for {set i 4} {$i < 200} {incr i} {
+                    r sadd set1{t} $i
+                }
+            }
+            assert_encoding $type set1{t}
+            r copy set1{t} newset1{t}
+            set digest [debug_digest_value set1{t}]
+            assert_equal $digest [debug_digest_value newset1{t}]
+            assert_refcount 1 set1{t}
+            assert_refcount 1 newset1{t}
+            r del set1{t}
+            assert_equal $digest [debug_digest_value newset1{t}]
+        }
     }
 
     test {COPY basic usage for listpack sorted set} {
@@ -489,4 +493,50 @@ start_server {tags {"keyspace"}} {
         r keys *
         r keys *
     } {dlskeriewrioeuwqoirueioqwrueoqwrueqw}
+
+    test {Regression for pattern matching long nested loops} {
+        r flushdb
+        r SET aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1
+        r KEYS "a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b"
+    } {}
+
+    test {Coverage: basic SWAPDB test and unhappy path} {
+       r flushall
+       r select 0
+       r set swapkey v1
+       r select 1
+       assert_match 0 [r dbsize] ;#verify DB[1] has 0 keys
+       r swapdb 0 1
+       assert_match 1 [r dbsize]
+       r select 0
+       assert_match 0 [r dbsize] ;#verify DB[0] has 0 keys
+       r flushall
+       assert_error "ERR DB index is out of range*" {r swapdb 44 55}
+       assert_error "ERR invalid second DB index*" {r swapdb 44 a}
+       assert_error "ERR invalid first DB index*" {r swapdb a 55}
+       assert_error "ERR invalid first DB index*" {r swapdb a b}
+       assert_match "OK" [r swapdb 0 0]
+    } {} {singledb:skip}
+
+    test {Coverage: SWAPDB and FLUSHDB} {
+       # set a key in each db and swapdb one of 2 with different db
+       # and flushdb on swapped db.
+       r flushall
+       r select 0
+       r set swapkey v1
+       r select 1
+       r set swapkey1 v1
+       assert_no_match "*db2:keys=*" [r info keyspace]
+       r swapdb 0 2
+       r select 0
+       assert_match 0 [r dbsize]
+       assert_no_match "*db0:keys=*" [r info keyspace]
+       r select 2
+       r flushdb
+       assert_match 0 [r dbsize]
+       assert_match "*db1:keys=*" [r info keyspace]
+       assert_no_match "*db0:keys=*" [r info keyspace]
+       assert_no_match "*db2:keys=*" [r info keyspace]
+       r flushall
+    } {OK} {singledb:skip}
 }

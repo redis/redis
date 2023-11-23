@@ -57,7 +57,10 @@ static int label_margin_top = 1;
 struct sequence *createSparklineSequence(void) {
     struct sequence *seq = zmalloc(sizeof(*seq));
     seq->length = 0;
+    seq->labels = 0;
     seq->samples = NULL;
+    seq->min = 0.0f;
+    seq->max = 0.0f;
     return seq;
 }
 

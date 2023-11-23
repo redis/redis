@@ -18,13 +18,20 @@ jobs:
         ./runtest --verbose --tags -slow --dump-logs
     - name: module api test
       run: ./runtest-moduleapi --verbose --dump-logs
+    - name: validate commands.def up to date
+      run: |
+        touch src/commands/ping.json
+        make commands.def
+        dirty=$(git diff)
+        if [[ ! -z  $dirty ]]; then echo $dirty; exit 1; fi
 
   test-sanitizer-address:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: make
-        run: make SANITIZER=address REDIS_CFLAGS='-Werror'
+        # build with TLS module just for compilation coverage
+        run: make SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS' BUILD_TLS=module
       - name: testprep
         run: sudo apt-get install tcl8.6 tclx -y
       - name: test
@@ -34,7 +41,7 @@ jobs:
 
   build-debian-old:
     runs-on: ubuntu-latest
-    container: debian:oldoldstable
+    container: debian:buster
     steps:
     - uses: actions/checkout@v3
     - name: make
@@ -74,3 +81,4 @@ jobs:
       run: |
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
+

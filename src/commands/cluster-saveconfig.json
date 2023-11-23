@@ -1,6 +1,6 @@
 {
     "SAVECONFIG": {
-        "summary": "Forces the node to save cluster state on disk",
+        "summary": "Forces a node to save the cluster configuration to disk.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",
@@ -12,8 +12,8 @@
             "ADMIN",
             "STALE"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ]
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

@@ -59,6 +59,36 @@ start_server {tags {"hll"}} {
         }
     } {} {needs:pfdebug}
 
+    test {Change hll-sparse-max-bytes} {
+        r config set hll-sparse-max-bytes 3000
+        r del hll
+        r pfadd hll a b c d e d g h i j k
+        assert {[r pfdebug encoding hll] eq {sparse}}
+        r config set hll-sparse-max-bytes 30
+        r pfadd hll new_element
+        assert {[r pfdebug encoding hll] eq {dense}}
+    } {} {needs:pfdebug}
+
+    test {Hyperloglog promote to dense well in different hll-sparse-max-bytes} {
+        set max(0) 100
+        set max(1) 500
+        set max(2) 3000
+        for {set i 0} {$i < [array size max]} {incr i} {
+            r config set hll-sparse-max-bytes $max($i)
+            r del hll
+            r pfadd hll
+            set len [r strlen hll]
+            while {$len <= $max($i)} {
+                assert {[r pfdebug encoding hll] eq {sparse}}
+                set elements {}
+                for {set j 0} {$j < 10} {incr j} { lappend elements [expr rand()]}
+                r pfadd hll {*}$elements
+                set len [r strlen hll]
+            }
+            assert {[r pfdebug encoding hll] eq {dense}}
+        }
+    } {} {needs:pfdebug}
+
     test {HyperLogLog sparse encoding stress test} {
         for {set x 0} {$x < 1000} {incr x} {
             r del hll1
@@ -164,6 +194,33 @@ start_server {tags {"hll"}} {
         r pfmerge hll{t} hll1{t} hll2{t} hll3{t}
         r pfcount hll{t}
     } {5}
+
+    test {PFMERGE on missing source keys will create an empty destkey} {
+        r del sourcekey{t} sourcekey2{t} destkey{t} destkey2{t}
+
+        assert_equal {OK} [r pfmerge destkey{t} sourcekey{t}]
+        assert_equal 1 [r exists destkey{t}]
+        assert_equal 0 [r pfcount destkey{t}]
+
+        assert_equal {OK} [r pfmerge destkey2{t} sourcekey{t} sourcekey2{t}]
+        assert_equal 1 [r exists destkey2{t}]
+        assert_equal 0 [r pfcount destkey{t}]
+    }
+
+    test {PFMERGE with one empty input key, create an empty destkey} {
+        r del destkey
+        assert_equal {OK} [r pfmerge destkey]
+        assert_equal 1 [r exists destkey]
+        assert_equal 0 [r pfcount destkey]
+    }
+
+    test {PFMERGE with one non-empty input key, dest key is actually one of the source keys} {
+        r del destkey
+        assert_equal 1 [r pfadd destkey a b c]
+        assert_equal {OK} [r pfmerge destkey]
+        assert_equal 1 [r exists destkey]
+        assert_equal 3 [r pfcount destkey]
+    }
 
     test {PFCOUNT multiple-keys merge returns cardinality of union #1} {
         r del hll1{t} hll2{t} hll3{t}

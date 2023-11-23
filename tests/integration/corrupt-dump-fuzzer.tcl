@@ -1,4 +1,4 @@
-# tests of corrupt ziplist payload with valid CRC
+# tests of corrupt listpack payload with valid CRC
 
 tags {"dump" "corruption" "external:skip"} {
 
@@ -32,6 +32,7 @@ proc generate_collections {suffix elements} {
 proc generate_types {} {
     r config set list-max-ziplist-size 5
     r config set hash-max-ziplist-entries 5
+    r config set set-max-listpack-entries 5
     r config set zset-max-ziplist-entries 5
     r config set stream-node-max-entries 5
 
@@ -146,10 +147,25 @@ foreach sanitize_dump {no yes} {
                         if {$dbsize != [r dbsize]} {
                             puts "unexpected keys"
                             puts "keys: [r keys *]"
-                            puts $sent
+                            puts "commands leading to it:"
+                            foreach cmd $sent {
+                                foreach arg $cmd {
+                                    puts -nonewline "[string2printable $arg] "
+                                }
+                                puts ""
+                            }
                             exit 1
                         }
                     } err ] } {
+                        set err [format "%s" $err] ;# convert to string for pattern matching
+                        if {[string match "*SIGTERM*" $err]} {
+                            puts "payload that caused test to hang: $printable_dump"
+                            if {$::dump_logs} {
+                                set srv [get_srv 0]
+                                dump_server_log $srv
+                            }
+                            exit 1
+                        }
                         # if the server terminated update stats and restart it
                         set report_and_restart true
                         incr stat_terminated_in_traffic
@@ -157,6 +173,11 @@ foreach sanitize_dump {no yes} {
                         incr stat_terminated_by_signal $by_signal
 
                         if {$by_signal != 0 || $sanitize_dump == yes} {
+                            if {$::dump_logs} {
+                                set srv [get_srv 0]
+                                dump_server_log $srv
+                            }
+
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }

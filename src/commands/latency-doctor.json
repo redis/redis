@@ -1,6 +1,6 @@
 {
     "DOCTOR": {
-        "summary": "Return a human readable latency analysis report.",
+        "summary": "Returns a human-readable latency analysis report.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.13",
@@ -17,6 +17,10 @@
             "NONDETERMINISTIC_OUTPUT",
             "REQUEST_POLICY:ALL_NODES",
             "RESPONSE_POLICY:SPECIAL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "string",
+            "description": "A human readable latency analysis report."
+        }
     }
 }

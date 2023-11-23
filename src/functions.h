@@ -53,9 +53,14 @@ typedef struct engine {
     /* engine specific context */
     void *engine_ctx;
 
-    /* Create function callback, get the engine_ctx, and function code.
+    /* Create function callback, get the engine_ctx, and function code
+     * engine_ctx - opaque struct that was created on engine initialization
+     * li - library information that need to be provided and when add functions
+     * code - the library code
+     * timeout - timeout for the library creation (0 for no timeout)
+     * err - description of error (if occurred)
      * returns NULL on error and set sds to be the error message */
-    int (*create)(void *engine_ctx, functionLibInfo *li, sds code, sds *err);
+    int (*create)(void *engine_ctx, functionLibInfo *li, sds code, size_t timeout, sds *err);
 
     /* Invoking a function, r_ctx is an opaque object (from engine POV).
      * The r_ctx should be used by the engine to interaction with Redis,
@@ -109,15 +114,15 @@ struct functionLibInfo {
 };
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
-sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx);
-unsigned long functionsMemory();
-unsigned long functionsMemoryOverhead();
-unsigned long functionsNum();
-unsigned long functionsLibNum();
-dict* functionsLibGet();
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx, size_t timeout);
+unsigned long functionsMemory(void);
+unsigned long functionsMemoryOverhead(void);
+unsigned long functionsNum(void);
+unsigned long functionsLibNum(void);
+dict* functionsLibGet(void);
 size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx);
-functionsLibCtx* functionsLibCtxGetCurrent();
-functionsLibCtx* functionsLibCtxCreate();
+functionsLibCtx* functionsLibCtxGetCurrent(void);
+functionsLibCtx* functionsLibCtxCreate(void);
 void functionsLibCtxClearCurrent(int async);
 void functionsLibCtxFree(functionsLibCtx *lib_ctx);
 void functionsLibCtxClear(functionsLibCtx *lib_ctx);
@@ -125,7 +130,7 @@ void functionsLibCtxSwapWithCurrent(functionsLibCtx *lib_ctx);
 
 int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds desc, uint64_t f_flags, sds *err);
 
-int luaEngineInitEngine();
-int functionsInit();
+int luaEngineInitEngine(void);
+int functionsInit(void);
 
 #endif /* __FUNCTIONS_H_ */

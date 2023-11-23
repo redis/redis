@@ -1,6 +1,6 @@
 {
     "FORGET": {
-        "summary": "Remove a node from the nodes table",
+        "summary": "Removes a node from the nodes table.",
         "complexity": "O(1)",
         "group": "cluster",
         "since": "3.0.0",
@@ -12,14 +12,14 @@
             "ADMIN",
             "STALE"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ],
         "arguments": [
             {
                 "name": "node-id",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }
