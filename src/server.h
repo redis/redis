@@ -3088,11 +3088,14 @@ int mustObeyClient(client *c);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
+void serverLogFromHandler(int level, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
 #else
+void serverLogFromHandler(int level, const char *fmt, ...);
 void _serverLog(int level, const char *fmt, ...);
 #endif
 void serverLogRaw(int level, const char *msg);
-void serverLogFromHandler(int level, const char *msg);
+void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
