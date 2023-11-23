@@ -631,15 +631,14 @@ void lsetCommand(client *c) {
 
     listTypeTryConversionAppend(o,c->argv,3,3,NULL,NULL);
     if (listTypeReplaceAtIndex(o,index,value)) {
-        addReply(c,shared.ok);
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
-        server.dirty++;
-
         /* We might replace a big item with a small one or vice versa, but we've
          * already handled the growing case in listTypeTryConversionAppend()
          * above, so here we just need to try the conversion for shrinking. */
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
+        addReply(c,shared.ok);
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
+        server.dirty++;
     } else {
         addReplyErrorObject(c,shared.outofrangeerr);
     }
