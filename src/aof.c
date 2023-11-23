@@ -2351,7 +2351,6 @@ int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp = NULL;
     char tmpfile[256];
-    struct stat fileStat;
 
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
@@ -2391,10 +2390,6 @@ int rewriteAppendOnlyFile(char *filename) {
     if (fclose(fp)) { fp = NULL; goto werr; }
     fp = NULL;
 
-    /*Ensure that the permission on the DB file remains unchanged.*/
-    if (stat(filename, &fileStat) == 0) {
-        chmod(tmpfile, fileStat.st_mode);
-    }
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
