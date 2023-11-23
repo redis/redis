@@ -25,8 +25,11 @@ test "The first master has actually two slaves" {
 test "CLUSTER SLAVES and CLUSTER REPLICAS output is consistent" {
     # Because we already have command output that cover CLUSTER REPLICAS elsewhere,
     # here we simply judge whether their output is consistent to cover CLUSTER SLAVES.
-    set res [R 0 cluster slaves [R 0 CLUSTER MYID]]
-    set res2 [R 0 cluster replicas [R 0 CLUSTER MYID]]
+    set myid [R 0 CLUSTER MYID]
+    R 0 multi
+    R 0 cluster slaves $myid
+    R 0 cluster replicas $myid
+    lassign [R 0 exec] res res2
     assert_equal $res $res2
 }
 

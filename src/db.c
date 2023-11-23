@@ -2196,9 +2196,14 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
 int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand) {
     dict *d;
     if (server.cluster_enabled) {
+        /* We don't know exact number of keys that would fall into each slot, but we can
+         * approximate it, assuming even distribution, divide it by the number of slots. */
+        int slots = getMyClusterSlotCount();
+        if (slots == 0) return C_OK;
+        db_size = db_size / slots;
+
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
-            if (clusterNodeGetSlotBit(server.cluster->myself, i)) {
-                /* We don't know exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */ 
+            if (clusterNodeCoversSlot(getMyClusterNode(), i)) {
                 if (keyType == DB_MAIN) {
                     d = db->dict[i];
                 } else {

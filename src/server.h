@@ -738,6 +738,7 @@ struct RedisModuleCtx;
 struct moduleLoadQueueEntry;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
+struct clusterState;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -2626,6 +2627,7 @@ void addReplySetLen(client *c, long length);
 void addReplyAttributeLen(client *c, long length);
 void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
+void addExtendedReplyHelp(client *c, const char **help, const char **extended_help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
