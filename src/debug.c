@@ -1960,7 +1960,7 @@ void logStackTrace(void *eip, int uplevel) {
     /* Write symbols to log file */
     ++uplevel;
     writeStacktraces(fd, uplevel);
-    msg = "\n===== Done logging stacktraces =====\n";
+    msg = "\n------ STACK TRACE DONE ------\n";
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
 
 

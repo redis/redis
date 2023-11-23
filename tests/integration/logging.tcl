@@ -23,14 +23,14 @@ if {$system_name eq {darwin}} {
 # a stack trace print while we know redis is running that command.
 proc check_log_backtrace_for_debug {log_pattern} {
     # search for the final line in the stacktraces generation to make sure it was completed.
-    set pattern "*Done logging stacktraces*"
+    set pattern "* STACK TRACE DONE *"
     set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
 
     set res [wait_for_log_messages 0 \"$log_pattern\" 0 100 100]
     if {$::verbose} { puts $res}
 
     # If the stacktrace is printed more than once, it means redis crashed during crash report generation
-    assert_equal [count_log_message 0 "STACK TRACE"] 1
+    assert_equal [count_log_message 0 "STACK TRACE -"] 1
 
     upvar threads_mngr_supported threads_mngr_supported
 

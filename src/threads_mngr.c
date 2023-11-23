@@ -147,7 +147,7 @@ static void wait_threads(void) {
         struct timeval tv = {
             .tv_sec = 0,
             .tv_usec = 10};
-
+        /* Sleep a bit to yield to other threads. */
         /* usleep isn't listed as signal safe, so we use select instead */
         select(0, NULL, NULL, NULL, &tv);
         atomicGet(g_num_threads_done, curr_done_count);
