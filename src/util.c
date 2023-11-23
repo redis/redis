@@ -1061,6 +1061,7 @@ int dirRemove(char *dname) {
 
         if (S_ISDIR(stat_entry.st_mode) != 0) {
             if (dirRemove(full_path) == -1) {
+                closedir(dir);
                 return -1;
             }
             continue;
