@@ -1527,6 +1527,7 @@ int rdbSaveToFile(const char *filename) {
 int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
+    struct stat fileStat;
 
     startSaving(RDBFLAGS_NONE);
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
@@ -1536,6 +1537,10 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
         return C_ERR;
     }
     
+    /*Ensure that the permission on the DB file file remains unchanged.*/
+    if (stat(filename, &fileStat) == 0) {
+        chmod(tmpfile, fileStat.st_mode);
+    }
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
     if (rename(tmpfile,filename) == -1) {
