@@ -2596,11 +2596,16 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         /* We know this will be valid since we validated it ahead of time */
         ext = getNextPingExt(ext);
     }
+
     /* If the node did not send us a hostname extension, assume
      * they don't have an announced hostname. Otherwise, we'll
      * set it now. */
     updateAnnouncedHostname(sender, ext_hostname);
     updateAnnouncedHumanNodename(sender, ext_humannodename);
+    /* If the node did not send us a shard-id extension, it means the sender does not
+     * support it, node->shard_id is randomly generated. If sender is a replica, set
+     * the shard_id to the shard_id of its master. Otherwise, we'll set it now. */
+    if (ext_shardid == NULL && sender->slaveof) ext_shardid = sender->slaveof->shard_id;
     updateShardId(sender, ext_shardid);
 }
 
