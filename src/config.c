@@ -1120,7 +1120,10 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     if (fp == NULL && errno != ENOENT) return NULL;
 
     struct redis_stat sb;
-    if (fp && redis_fstat(fileno(fp),&sb) == -1) return NULL;
+    if (fp && redis_fstat(fileno(fp),&sb) == -1) {
+        fclose(fp);
+        return NULL;
+    }
 
     int linenum = -1;
     struct rewriteConfigState *state = rewriteConfigCreateState();
