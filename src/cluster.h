@@ -48,8 +48,6 @@ void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
 void clusterUpdateMyselfHumanNodename(void);
 
-void slotToChannelAdd(sds channel);
-void slotToChannelDel(sds channel);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 
 unsigned long getClusterConnectionsCount(void);

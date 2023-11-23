@@ -1017,9 +1017,6 @@ void clusterInit(void) {
         exit(1);
     }
 
-    /* The slots -> channels map is a radix tree. Initialize it here. */
-    server.cluster->slots_to_channels = raxNew();
-
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
     deriveAnnouncedPorts(&myself->tcp_port, &myself->tls_port, &myself->cport);
@@ -5071,7 +5068,7 @@ int verifyClusterConfigWithData(void) {
 
 /* Remove all the shard channel related information not owned by the current shard. */
 static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
-    if (!dictSize(server.pubsubshard_channels)) return;
+    if (!server.shard_channel_count) return;
     clusterNode *currmaster = clusterNodeIsMaster(myself) ? myself : myself->slaveof;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] != currmaster) {
@@ -5665,20 +5662,16 @@ void removeChannelsInSlot(unsigned int slot) {
 
     /* Retrieve all the channels for the slot. */
     robj **channels = zmalloc(sizeof(robj*)*channelcount);
-    raxIterator iter;
     int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (slot >> 8) & 0xff;
-    indexed[1] = slot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_channels);
-    raxSeek(&iter,">=",indexed,2);
-    while(raxNext(&iter)) {
-        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
-        channels[j++] = createStringObject((char*)iter.key + 2, iter.key_len - 2);
+    dict *d = server.pubsubshard_channels[slot];
+    dictIterator *di = dictGetSafeIterator(d);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        robj *channel = dictGetKey(de);
+        channels[j++] = channel;
+        incrRefCount(channel);
     }
-    raxStop(&iter);
-
+    dictReleaseIterator(di);
     pubsubUnsubscribeShardChannels(channels, channelcount);
     zfree(channels);
 }
@@ -5713,52 +5706,9 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
     return j;
 }
 
-/* -----------------------------------------------------------------------------
- * Operation(s) on channel rax tree.
- * -------------------------------------------------------------------------- */
-
-void slotToChannelUpdate(sds channel, int add) {
-    size_t keylen = sdslen(channel);
-    unsigned int hashslot = keyHashSlot(channel,keylen);
-    unsigned char buf[64];
-    unsigned char *indexed = buf;
-
-    if (keylen+2 > 64) indexed = zmalloc(keylen+2);
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    memcpy(indexed+2,channel,keylen);
-    if (add) {
-        raxInsert(server.cluster->slots_to_channels,indexed,keylen+2,NULL,NULL);
-    } else {
-        raxRemove(server.cluster->slots_to_channels,indexed,keylen+2,NULL);
-    }
-    if (indexed != buf) zfree(indexed);
-}
-
-void slotToChannelAdd(sds channel) {
-    slotToChannelUpdate(channel,1);
-}
-
-void slotToChannelDel(sds channel) {
-    slotToChannelUpdate(channel,0);
-}
-
 /* Get the count of the channels for a given slot. */
 unsigned int countChannelsInSlot(unsigned int hashslot) {
-    raxIterator iter;
-    int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_channels);
-    raxSeek(&iter,">=",indexed,2);
-    while(raxNext(&iter)) {
-        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
-        j++;
-    }
-    raxStop(&iter);
-    return j;
+    return dictSize(server.pubsubshard_channels[hashslot]);
 }
 
 int clusterNodeIsMyself(clusterNode *n) {

@@ -1915,7 +1915,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     /* Do nothing if there are no subscribers. */
     if (!dictSize(server.pubsub_patterns) &&
         !dictSize(server.pubsub_channels) &&
-        !dictSize(server.pubsubshard_channels))
+        !server.shard_channel_count)
         return;
 
     listIter li, lpi;

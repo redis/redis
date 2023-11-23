@@ -2718,8 +2718,8 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    for (j = 0; j < server.dbnum; j++) {
-        int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+    int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+    for (j = 0; j < server.dbnum; j++) {  
         server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
         server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slotCount);
         server.db[j].expires_cursor = 0;
@@ -2737,7 +2737,8 @@ void initServer(void) {
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsubshard_channels = dictCreate(&keylistDictType);
+    server.pubsubshard_channels = dictCreateMultiple(&keylistDictType, slotCount);
+    server.shard_channel_count = 0;
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -5868,7 +5869,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
             "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%lu\r\n", dictSize(server.pubsubshard_channels),
+            "pubsubshard_channels:%llu\r\n", server.shard_channel_count,
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
