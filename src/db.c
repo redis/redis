@@ -682,7 +682,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].expires_cursor = 0;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
             dbarray[j].sub_dict[subdict].key_count = 0;
-            dbarray[j].sub_dict[subdict].resize_cursor = 0;
+            dbarray[j].sub_dict[subdict].resize_cursor = -1;
             if (server.cluster_enabled) {
                 if (dbarray[j].sub_dict[subdict].rehashing)
                     listEmpty(dbarray[j].sub_dict[subdict].rehashing);
