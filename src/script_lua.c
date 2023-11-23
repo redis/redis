@@ -1169,7 +1169,7 @@ static int luaLogCommand(lua_State *lua) {
     }
     level = lua_tonumber(lua,-argc);
     if (level < LL_DEBUG || level > LL_WARNING) {
-        luaPushError(lua, "Invalid debug level.");
+        luaPushError(lua, "Invalid log level.");
         return luaError(lua);
     }
     if (level < server.verbosity) return 0;
