@@ -2602,10 +2602,15 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
      * set it now. */
     updateAnnouncedHostname(sender, ext_hostname);
     updateAnnouncedHumanNodename(sender, ext_humannodename);
-    /* If the node did not send us a shard-id extension, it means the sender does not
-     * support it, node->shard_id is randomly generated. If sender is a replica, set
-     * the shard_id to the shard_id of its master. Otherwise, we'll set it now. */
-    if (ext_shardid == NULL && sender->slaveof) ext_shardid = sender->slaveof->shard_id;
+    /* If the node did not send us a shard-id extension, it means the sender
+     * does not support it (old version), node->shard_id is randomly generated.
+     * If sender is a replica, set the shard_id to the shard_id of its master.
+     * Otherwise, we'll set it now. */
+    if (ext_shardid == NULL && clusterNodeIsSlave(sender)) {
+        clusterNode *n = sender;
+        while (n->slaveof != NULL) n = n->slaveof;
+        ext_shardid = n->shard_id;
+    }
     updateShardId(sender, ext_shardid);
 }
 
