@@ -173,22 +173,43 @@ int anetKeepAlive(char *err, int fd, int interval)
      * The TCP connection will be aborted after certain amount of probes, which is set by TCP_KEEPCNT, without receiving response.
      */
 
-   /* We will go with the first implementation here because Solaris claimed it supported the tcp-alive mechanism, 
-    * but `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not supported until the latest version of Solaris 11.4. 
-    * Therefore, we have to simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` + `TCP_KEEPALIVE_ABORT_THRESHOLD`.
-    */
     idle = interval;
-    if (idle < 10) idle = 10;
-    if (idle > 10*24*3600) idle = 10*24*3600;
+    if (idle < 10) idle = 10; // kernel expects at least 10 seconds
+    if (idle > 10*24*60*60) idle = 10*24*60*60; // kernel expects at most 10 days
+    
+    /* `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not available on Solaris 
+     * until version 11.4, but let's take a chance here. */
+    #if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))) {
+            anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
+            return ANET_ERR;
+        }           
+        intvl = idle/3;
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
+            anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+            return ANET_ERR;
+        }
+        cnt = 3;
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt))) {
+            anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+            return ANET_ERR;
+        }
+        return ANET_OK;
+    #endif
+
+   /* Fall back to the first implementation of tcp-alive mechanism for older Solaris, 
+    * simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` + `TCP_KEEPALIVE_ABORT_THRESHOLD`.
+    */
+    idle *= 1000; // kernel expects milliseconds
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_THRESHOLD, &idle, sizeof(idle))) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
     }
 
-    intvl = idle/3;
-    cnt = 3;
     /* Note that the consequent probes will not be sent at equal intervals on Solaris, 
      * but will be sent using the exponential backoff algorithm. */
+    intvl = idle/3;
+    cnt = 3;
     int time_to_abort = intvl * cnt;
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &time_to_abort, sizeof(time_to_abort))) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
