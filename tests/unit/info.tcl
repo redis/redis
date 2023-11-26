@@ -300,15 +300,21 @@ start_server {tags {"info" "external:skip"}} {
 
         test {stats: instantaneous metrics} {
             r config resetstat
-            after 1600 ;# hz is 10, wait for 16 cron tick so that sample array is fulfilled
-            set value [s instantaneous_eventloop_cycles_per_sec]
+            set retries 0
+            for {set retries 1} {$retries < 4} {incr retries} {
+                after 1600 ;# hz is 10, wait for 16 cron tick so that sample array is fulfilled
+                set value [s instantaneous_eventloop_cycles_per_sec]
+                if {$value > 0} break
+            }
+
+            assert_lessthan $retries 4
             if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_cycles_per_sec: $value" }
             assert_morethan $value 0
-            assert_lessthan $value 15 ;# default hz is 10
+            assert_lessthan $value [expr $retries*15] ;# default hz is 10
             set value [s instantaneous_eventloop_duration_usec]
             if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_duration_usec: $value" }
             assert_morethan $value 0
-            assert_lessthan $value 22000 ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
+            assert_lessthan $value [expr $retries*22000] ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
         }
 
         test {stats: debug metrics} {

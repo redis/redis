@@ -87,6 +87,12 @@ dictEntry *dbIteratorNext(dbIterator *dbit) {
     if (!de) { /* No current dict or reached the end of the dictionary. */
         dict *d = dbIteratorNextDict(dbit);
         if (!d) return NULL;
+
+        if (dbit->di.d) {
+            /* Before we move to the next dict, reset the iter of the previous dict. */
+            dictIterator *iter = &dbit->di;
+            dictResetIterator(iter);
+        }
         dictInitSafeIterator(&dbit->di, d);
         de = dictNext(&dbit->di);
     }
@@ -95,7 +101,9 @@ dictEntry *dbIteratorNext(dbIterator *dbit) {
 
 /* Returns DB iterator that can be used to iterate through sub-dictionaries.
  * Primary database contains only one dictionary when node runs without cluster mode,
- * or 16k dictionaries (one per slot) when node runs with cluster mode enabled. */
+ * or 16k dictionaries (one per slot) when node runs with cluster mode enabled.
+ *
+ * The caller should free the resulting dbit with dbReleaseIterator. */
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType) {
     dbIterator *dbit = zmalloc(sizeof(*dbit));
     dbit->db = db;
@@ -106,6 +114,9 @@ dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType) {
     return dbit;
 }
 
+/* Returns DB iterator that can be used to iterate through sub-dictionaries.
+ *
+ * The caller should free the resulting dbit with dbReleaseIterator. */
 dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot) {
     dbIterator *dbit = zmalloc(sizeof(*dbit));
     dbit->db = db;
@@ -114,6 +125,14 @@ dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot) {
     dbit->next_slot = dbGetNextNonEmptySlot(dbit->db, dbit->slot, dbit->keyType);
     dictInitSafeIterator(&dbit->di, NULL);
     return dbit;
+}
+
+/* Free the dbit returned by dbIteratorInit or dbIteratorInitFromSlot. */
+void dbReleaseIterator(dbIterator *dbit) {
+    dictIterator *iter = &dbit->di;
+    dictResetIterator(iter);
+
+    zfree(dbit);
 }
 
 /* Returns next non-empty slot strictly after given one, or -1 if provided slot is the last one. */
@@ -304,6 +323,7 @@ int getKeySlot(sds key) {
      * the key slot would fallback to calculateKeySlot.
      */
     if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
+        debugServerAssertWithInfo(server.current_client, NULL, calculateKeySlot(key)==server.current_client->slot);
         return server.current_client->slot;
     }
     return calculateKeySlot(key);
@@ -664,6 +684,9 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             dbarray[j].sub_dict[subdict].key_count = 0;
             dbarray[j].sub_dict[subdict].resize_cursor = 0;
             if (server.cluster_enabled) {
+                if (dbarray[j].sub_dict[subdict].rehashing)
+                    listEmpty(dbarray[j].sub_dict[subdict].rehashing);
+                dbarray[j].sub_dict[subdict].bucket_count = 0;
                 unsigned long long *slot_size_index = dbarray[j].sub_dict[subdict].slot_size_index;
                 memset(slot_size_index, 0, sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
             }
@@ -997,7 +1020,7 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    zfree(dbit);
+    dbReleaseIterator(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -1386,7 +1409,7 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
     return db->sub_dict[keyType].key_count;
 }
 
-/* This method proivdes the cumulative sum of all the dictionary buckets
+/* This method provides the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
     if (server.cluster_enabled) {
@@ -2173,9 +2196,14 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
 int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand) {
     dict *d;
     if (server.cluster_enabled) {
+        /* We don't know exact number of keys that would fall into each slot, but we can
+         * approximate it, assuming even distribution, divide it by the number of slots. */
+        int slots = getMyClusterSlotCount();
+        if (slots == 0) return C_OK;
+        db_size = db_size / slots;
+
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
-            if (clusterNodeGetSlotBit(server.cluster->myself, i)) {
-                /* We don't know exact number of keys that would fall into each slot, but we can approximate it, assuming even distribution. */ 
+            if (clusterNodeCoversSlot(getMyClusterNode(), i)) {
                 if (keyType == DB_MAIN) {
                     d = db->dict[i];
                 } else {
@@ -2974,7 +3002,7 @@ void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, dbKeyType keyT
             }
         }
     }
-    zfree(dbit);
+    dbReleaseIterator(dbit);
     l = dictGetStatsMsg(buf, bufsize, mainHtStats, full);
     dictFreeStats(mainHtStats);
     buf += l;

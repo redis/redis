@@ -238,6 +238,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
 
     off_t size = sb.st_size;
     if (size == 0) {
+        fclose(fp);
         return AOF_CHECK_EMPTY;
     }
 
