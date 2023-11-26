@@ -318,9 +318,6 @@ static int cmdGetDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-
     if (RedisModule_Init(ctx,"testkeyspace",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -403,6 +400,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "keyspace.get_dels", cmdGetDels,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
+    }
+
+    if (argc == 1) {
+        const char *ptr = RedisModule_StringPtrLen(argv[0], NULL);
+        if (!strcasecmp(ptr, "noload")) {
+            /* This is a hint that we return ERR at the last moment of OnLoad. */
+            RedisModule_FreeDict(ctx, loaded_event_log);
+            RedisModule_FreeDict(ctx, module_event_log);
+            return REDISMODULE_ERR;
+        }
     }
 
     return REDISMODULE_OK;
