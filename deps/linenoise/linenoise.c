@@ -185,7 +185,7 @@ enum KEY_ACTION{
 	CTRL_N = 14,        /* Ctrl-n */
 	CTRL_P = 16,        /* Ctrl-p */
 	CTRL_R = 18,        /* Ctrl-r */
-	CTRL_S = 19,        /* Ctrl-r */
+	CTRL_S = 19,        /* Ctrl-s */
 	CTRL_T = 20,        /* Ctrl-t */
 	CTRL_U = 21,        /* Ctrl+u */
 	CTRL_W = 23,        /* Ctrl+w */
