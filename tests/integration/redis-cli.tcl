@@ -230,6 +230,32 @@ start_server {tags {"cli"}} {
         }
     }
 
+    test_interactive_cli_with_prompt "should find second search result if user presses ctrl+s" {
+        run_command $fd "keys one\x0D"
+        run_command $fd "keys two\x0D"
+
+        puts $fd "\x12"
+        read_cli $fd
+
+        puts -nonewline $fd "ey"
+        read_cli $fd
+
+        set max_retries 10
+        set retries 0
+
+        while {1} {
+            if {$retries >= $max_retries} {
+                fail "exceeded max retries looking through history"
+            }
+            puts $fd "\x13"
+            set result [read_cli $fd]
+            if {[regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]} {
+                break
+            }
+            incr retries
+        }
+    }
+
     test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
         run_command $fd ""
 

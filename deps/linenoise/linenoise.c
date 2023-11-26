@@ -121,6 +121,9 @@
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
+#define LINENOISE_NO_CYCLE 0
+#define LINENOISE_CYCLE_BACKWARD 1
+#define LINENOISE_CYCLE_FORWARD 2
 static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
@@ -136,7 +139,7 @@ static int history_len = 0;
 static char **history = NULL;
 
 static int reverse_search_mode_enabled = 0;
-static int cycle_to_next_search_result = 0;
+static int cycle_to_next_search_result = LINENOISE_NO_CYCLE;
 static char search_result [LINENOISE_MAX_LINE];
 static char search_result_friendly [LINENOISE_MAX_LINE];
 static int search_result_history_index = 0;
@@ -182,6 +185,7 @@ enum KEY_ACTION{
 	CTRL_N = 14,        /* Ctrl-n */
 	CTRL_P = 16,        /* Ctrl-p */
 	CTRL_R = 18,        /* Ctrl-r */
+	CTRL_S = 19,        /* Ctrl-r */
 	CTRL_T = 20,        /* Ctrl-t */
 	CTRL_U = 21,        /* Ctrl+u */
 	CTRL_W = 23,        /* Ctrl+w */
@@ -974,8 +978,17 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             break;
         case CTRL_R:
             if (linenoiseReverseSearchModeEnabled()) {
-                /* cycle search results */
-                cycle_to_next_search_result = 1;
+                // cycle search results
+                cycle_to_next_search_result = LINENOISE_CYCLE_BACKWARD;
+                refreshLine(&l);
+                break;
+            }
+            enableReverseSearchMode();
+            return 0;
+        case CTRL_S:
+            if (linenoiseReverseSearchModeEnabled()) {
+                // cycle search results
+                cycle_to_next_search_result = LINENOISE_CYCLE_FORWARD;
                 refreshLine(&l);
                 break;
             }
@@ -1347,6 +1360,22 @@ int linenoiseReverseSearchModeEnabled(void) {
     return reverse_search_mode_enabled;
 }
 
+static void setNextSearchIndex(int * i) {
+    if (cycle_to_next_search_result == LINENOISE_CYCLE_FORWARD) {
+        if (*i == history_len-1) {
+            *i = 0;
+        } else {
+            *i = *i + 1;
+        }
+    } else {
+        if (*i <= 0) {
+            *i = history_len-1;
+        } else {
+            *i = *i - 1;
+        }
+    }
+}
+
 linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
     linenoiseHistorySearchResult result = {0};
 
@@ -1354,14 +1383,14 @@ linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
         return result;
     }
 
+    if (strlen(searchTerm) == 0) {
+        return result;
+    }
+
     int i = cycle_to_next_search_result ? search_result_history_index : history_len-1 ;
     int original_i = i;
     
-    if (i <= 0) {
-        i = history_len-1;
-    } else {
-        i--;
-    }
+    setNextSearchIndex(&i);
 
     while (1) {
         char * found = strstr(history[i], searchTerm);
@@ -1380,11 +1409,7 @@ linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
             break;
         }
 
-        if (i <= 0) {
-            i = history_len-1;
-        } else {
-            i--;
-        }
+        setNextSearchIndex(&i);
 
         if (i == original_i) {
             break;
@@ -1407,7 +1432,7 @@ static void refreshSearchResult(struct linenoiseState * ls) {
     resetSearchResult();
 
     linenoiseHistorySearchResult sr = searchInHistory(ls->buf);
-    cycle_to_next_search_result = 0;
+    cycle_to_next_search_result = LINENOISE_NO_CYCLE;
 
     if (sr.result && sr.len) {
         char * bold = "\x1B[1m";
