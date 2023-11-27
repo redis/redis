@@ -598,18 +598,18 @@ int performEvictions(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    if ((keys = dbSize(db, keyType)) != 0) {
-                        total_keys += keys;
-                        unsigned long sampled_keys = 0;
-                        do {
-                            int slot = getFairRandomSlot(db, keyType);
-                            dict = (keyType == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-                            if (dictSize(dict) != 0) {
-                                sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
-                            }
-                        } while (keys > (unsigned long) server.maxmemory_samples*10 &&
-                                 sampled_keys < (unsigned long) server.maxmemory_samples);
-                    }
+                    if ((keys = dbSize(db, keyType)) == 0) continue;
+
+                    total_keys += keys;
+                    unsigned long sampled_keys = 0;
+                    do {
+                        int slot = getFairRandomSlot(db, keyType);
+                        dict = (keyType == DB_MAIN ? db->dict[slot] : db->expires[slot]);
+                        if (dictSize(dict) != 0) {
+                            sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
+                        }
+                    } while (keys > (unsigned long) server.maxmemory_samples*10 &&
+                             sampled_keys < (unsigned long) server.maxmemory_samples);
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
