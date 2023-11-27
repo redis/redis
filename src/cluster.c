@@ -817,7 +817,8 @@ static int shouldReturnTlsInfo(void) {
 }
 
 unsigned int countKeysInSlot(unsigned int slot) {
-    return dictSize(server.db->dict[slot]);
+    dict *d = daGetDict(server.db->keys, slot);
+    return dictSize(d);
 }
 
 void clusterCommandHelp(client *c) {
@@ -919,7 +920,8 @@ void clusterCommand(client *c) {
         addReplyArrayLen(c,numkeys);
         dictIterator *iter = NULL;
         dictEntry *de = NULL;
-        iter = dictGetIterator(server.db->dict[slot]);
+        dict *d = daGetDict(server.db->keys, slot);
+        iter = dictGetIterator(d);
         for (unsigned int i = 0; i < numkeys; i++) {
             de = dictNext(iter);
             serverAssert(de != NULL);

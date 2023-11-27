@@ -186,16 +186,6 @@ dict *dictCreate(dictType *type)
     return d;
 }
 
-/* Create an array of dictionaries */
-dict **dictCreateMultiple(dictType *type, int count)
-{
-    dict **d = zmalloc(sizeof(dict*) * count);
-    for (int i = 0; i < count; i++) {
-        d[i] = dictCreate(type);
-    }
-    return d;
-}
-
 /* Initialize the hash table */
 int _dictInit(dict *d, dictType *type)
 {

@@ -681,24 +681,26 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     sds newsds;
     redisDb *db = ctx->db;
     int slot = ctx->slot;
+    dict *d = daGetDict(db->keys, slot);
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
-        dictSetKey(db->dict[slot], de, newsds);
-        if (dbSize(db, DB_EXPIRES)) {
-            /* We can't search in db->expires for that key after we've released
+        dictSetKey(d, de, newsds);
+        if (daSize(db->volatile_keys)) {
+            /* We can't search in db->volatile_keys for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(db->dict[slot], newsds);
-            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires[slot], keysds, hash);
-            if (expire_de) dictSetKey(db->expires[slot], expire_de, newsds);
+            uint64_t hash = dictGetHash(d, newsds);
+            dict *dv = daGetDict(db->volatile_keys, slot);
+            dictEntry *expire_de = dictFindEntryByPtrAndHash(dv, keysds, hash);
+            if (expire_de) dictSetKey(dv, expire_de, newsds);
         }
     }
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[slot], de, newob);
+        dictSetVal(d, de, newob);
         ob = newob;
     }
 
@@ -856,7 +858,7 @@ int defragLaterStep(redisDb *db, int slot, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(db->dict[slot], defrag_later_current_key);
+        dictEntry *de = daFind(db->keys, defrag_later_current_key, slot);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
@@ -1022,13 +1024,13 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
             expires_cursor = 0;
-            slot = findSlotByKeyIndex(db, 1, DB_MAIN);
+            slot = daFindSlotByKeyIndex(db->keys, 1);
             defrag_later_item_in_progress = 0;
             ctx.db = db;
             ctx.slot = slot;
         }
         do {
-            dict *d = db->dict[slot];
+            dict *d = daGetDict(db->keys, slot);
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
             if (defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1042,7 +1044,7 @@ void activeDefragCycle(void) {
                                             &defragfns, &ctx);
                 /* When done scanning the keyspace dict, we scan the expire dict. */
                 if (!cursor)
-                    expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
+                    expires_cursor = dictScanDefrag(daGetDict(db->volatile_keys, slot), expires_cursor,
                                                     scanCallbackCountScanned,
                                                     &defragfns, NULL);
             }
@@ -1052,7 +1054,7 @@ void activeDefragCycle(void) {
                     defrag_later_item_in_progress = 1;
                     continue;
                 }
-                slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
+                slot = daGetNextNonEmptySlot(db->keys, slot);
                 defrag_later_item_in_progress = 0;
                 ctx.slot = slot;
             }

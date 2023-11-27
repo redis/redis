@@ -162,7 +162,8 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[slot], key);
+            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS))
+                de = daFind(db->keys, key, slot);
             o = dictGetVal(de);
         }
 
@@ -579,7 +580,7 @@ int performEvictions(void) {
         sds bestkey = NULL;
         int bestdbid;
         redisDb *db;
-        dict *dict;
+        dict *d;
         dictEntry *de;
 
         if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
@@ -596,16 +597,17 @@ int performEvictions(void) {
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
                     do {
-                        int slot = 0;
+                        dictarray *da;
                         if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                            slot = getFairRandomSlot(db, DB_MAIN);
-                            dict = db->dict[slot];
+                            da = db->keys;
                         } else {
-                            slot = getFairRandomSlot(db, DB_EXPIRES);
-                            dict = db->expires[slot];
+                            da = db->volatile_keys;
                         }
-                        if ((keys = dictSize(dict)) != 0) {
-                            evictionPoolPopulate(i, slot, dict, db, pool);
+                        int slot = daGetFairRandomSlot(db->keys);
+                        d = daGetDict(da, slot);
+   
+                        if ((keys = dictSize(d)) != 0) {
+                            evictionPoolPopulate(i, slot, d, db, pool);
                             total_keys += keys;
                         }
                     /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
@@ -621,13 +623,13 @@ int performEvictions(void) {
                     if (pool[k].key == NULL) continue;
                     bestdbid = pool[k].dbid;
 
+                    dictarray *da;
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(server.db[bestdbid].dict[pool[k].slot],
-                                      pool[k].key);
+                        da = server.db[bestdbid].keys;
                     } else {
-                        de = dictFind(server.db[bestdbid].expires[pool[k].slot],
-                                      pool[k].key);
+                        da = server.db[bestdbid].volatile_keys;
                     }
+                    de = daFind(da, pool[k].key, pool[k].slot);
 
                     /* Remove the entry from the pool. */
                     if (pool[k].key != pool[k].cached)
@@ -657,10 +659,17 @@ int performEvictions(void) {
             for (i = 0; i < server.dbnum; i++) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
-                dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
-                       db->dict[getFairRandomSlot(db, DB_MAIN)] : db->expires[getFairRandomSlot(db, DB_EXPIRES)];
-                if (dictSize(dict) != 0) {
-                    de = dictGetRandomKey(dict);
+                dictarray *da;
+                if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
+                    da = db->keys;
+                } else {
+                    da = db->volatile_keys;
+                }
+                int slot = daGetFairRandomSlot(db->keys);
+                d = daGetDict(da, slot);
+
+                if (dictSize(d) != 0) {
+                    de = dictGetRandomKey(d);
                     bestkey = dictGetKey(de);
                     bestdbid = j;
                     break;

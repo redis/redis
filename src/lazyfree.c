@@ -19,19 +19,14 @@ void lazyfreeFreeObject(void *args[]) {
  * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. */
 void lazyfreeFreeDatabase(void *args[]) {
-    dict **ht1 = (dict **) args[0];
-    dict **ht2 = (dict **) args[1];
-    int *dictCount = (int *) args[2];
-    for (int i=0; i<*dictCount; i++) {
-        size_t numkeys = dictSize(ht1[i]);
-        dictRelease(ht1[i]);
-        dictRelease(ht2[i]);
-        atomicDecr(lazyfree_objects,numkeys);
-        atomicIncr(lazyfreed_objects,numkeys);
-    }
-    zfree(ht1);
-    zfree(ht2);
-    zfree(dictCount);
+    dictarray *da1 = args[0];
+    dictarray *da2 = args[1];
+
+    size_t numkeys = daSize(da1);
+    daRelease(da1);
+    daRelease(da2);
+    atomicDecr(lazyfree_objects,numkeys);
+    atomicIncr(lazyfreed_objects,numkeys);
 }
 
 /* Release the key tracking table. */
@@ -179,14 +174,11 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    dict **oldDict = db->dict;
-    dict **oldExpires = db->expires;
-    atomicIncr(lazyfree_objects,dbSize(db, DB_MAIN));
-    db->dict = dictCreateMultiple(&dbDictType, db->dict_count);
-    db->expires = dictCreateMultiple(&dbExpiresDictType, db->dict_count);
-    int *count = zmalloc(sizeof(int));
-    *count = db->dict_count;
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, oldDict, oldExpires, count);
+    dictarray *oldda1 = db->keys, *oldda2 = db->volatile_keys;
+    db->keys = daCreate(&dbDictType, db->keys->num_slots_bits);
+    db->volatile_keys = daCreate(&dbExpiresDictType, db->volatile_keys->num_slots_bits);
+    atomicIncr(lazyfree_objects, daSize(oldda1));
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldda1, oldda2);
 }
 
 /* Free the key tracking table.

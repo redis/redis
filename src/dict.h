@@ -163,7 +163,6 @@ typedef enum {
 
 /* API */
 dict *dictCreate(dictType *type);
-dict **dictCreateMultiple(dictType *type, int count);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 void *dictMetadata(dict *d);

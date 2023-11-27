@@ -1301,12 +1301,12 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     dictEntry *de;
     ssize_t written = 0;
     ssize_t res;
-    dbIterator *dbit = NULL;
+    daIterator *dait = NULL;
     static long long info_updated_time = 0;
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
-    unsigned long long int db_size = dbSize(db, DB_MAIN);
+    unsigned long long int db_size = daSize(db->keys);
     if (db_size == 0) return 0;
 
     /* Write the SELECT DB opcode */
@@ -1316,7 +1316,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     written += res;
 
     /* Write the RESIZE DB opcode. */
-    unsigned long long expires_size = dbSize(db, DB_EXPIRES);
+    unsigned long long expires_size = daSize(db->volatile_keys);
     if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
     written += res;
     if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
@@ -1324,20 +1324,22 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    dbit = dbIteratorInit(db, DB_MAIN);
+    dait = daIteratorInit(db->keys);
     int last_slot = -1;
     /* Iterate this DB writing every entry */
-    while ((de = dbIteratorNext(dbit)) != NULL) {
-        int curr_slot = dbIteratorGetCurrentSlot(dbit);
+    while ((de = daIteratorNext(dait)) != NULL) {
+        int curr_slot = daIteratorGetCurrentSlot(dait);
         /* Save slot info. */
         if (server.cluster_enabled && curr_slot != last_slot) {
             if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;
             written += res;
             if ((res = rdbSaveLen(rdb, curr_slot)) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, dictSize(db->dict[curr_slot]))) < 0) goto werr;
+            dict *d = daGetDict(db->keys, curr_slot);
+            if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, dictSize(db->expires[curr_slot]))) < 0) goto werr;
+            d = daGetDict(db->volatile_keys, curr_slot);
+            if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
             written += res;
             last_slot = curr_slot;
         }
@@ -1368,11 +1370,11 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             }
         }
     }
-    dbReleaseIterator(dbit);
+    daReleaseIterator(dait);
     return written;
 
 werr:
-    if (dbit) dbReleaseIterator(dbit);
+    if (dait) daReleaseIterator(dait);
     return -1;
 }
 
@@ -3025,7 +3027,6 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     return retval;
 }
 
-
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
@@ -3128,8 +3129,10 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue; /* Ignore gracefully. */
             }
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
-            dictExpand(db->dict[slot_id], slot_size);
-            dictExpand(db->expires[slot_id], expires_slot_size);
+            dict *d = daGetDict(db->keys, slot_id);
+            dictExpand(d, slot_size);
+            d = daGetDict(db->volatile_keys, slot_id);
+            dictExpand(d, expires_slot_size);
             should_expand_db = 0;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
@@ -3263,11 +3266,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            if (dbExpand(db, db_size, DB_MAIN, 0) == C_ERR) {
+            if (daExpand(db->keys, db_size, 0, dbExpandSkipSlot) == C_ERR) {
                 serverLog(LL_WARNING, "OOM in dict expand of main dict");
                 return C_ERR;
             }
-            if (dbExpand(db, expires_size, DB_EXPIRES, 0) == C_ERR) {
+            if (daExpand(db->volatile_keys, db_size, 0, dbExpandSkipSlot) == C_ERR) {
                 serverLog(LL_WARNING, "OOM in dict expand of expire dict");
                 return C_ERR;
             }
