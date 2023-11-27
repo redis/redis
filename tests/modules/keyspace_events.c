@@ -36,6 +36,7 @@
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 ustime_t cached_time = 0;

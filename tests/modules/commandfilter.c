@@ -1,6 +1,7 @@
 #include "redismodule.h"
 
 #include <string.h>
+#include <strings.h>
 
 static RedisModuleString *log_key_name;
 

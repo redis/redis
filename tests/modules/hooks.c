@@ -33,6 +33,7 @@
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <assert.h>
 
 /* We need to store events to be able to test and see what we got, and we can't
