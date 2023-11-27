@@ -6635,7 +6635,7 @@ void loadDataFromDisk(void) {
             exit(1);
         if (ret != AOF_NOT_EXIST)
             serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
-    } else {
+    } else if (server.load_rdb_when_aof_off) {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         int rsi_is_valid = 0;
         errno = 0; /* Prevent a stale value from affecting error checking */

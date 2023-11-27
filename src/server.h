@@ -1840,6 +1840,7 @@ struct redisServer {
     int key_load_delay;             /* Delay in microseconds between keys while
                                      * loading aof or rdb. (for testings). negative
                                      * value means fractions of microseconds (on average). */
+    int load_rdb_when_aof_off;      /* Load rdb when aof is off */
     /* Pipe and data structures for child -> parent info sharing. */
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     int child_info_nread;           /* Num of bytes of the last read from pipe */

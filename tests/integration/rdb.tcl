@@ -416,4 +416,18 @@ start_server {} {
     } {OK}
 }
 
+start_server [list overrides [list "appendonly" "no" "load-rdb-when-aof-off" "no"]] {
+    test {Test don't load RDB when load-rdb-when-aof-off is yes} {
+        r debug populate 1000
+        r bgsave
+        waitForBgsave r
+        assert_not_equal [r debug digest] {0000000000000000000000000000000000000000}
+
+        restart_server 0 true false
+        wait_done_loading r
+
+        assert_equal [r debug digest] {0000000000000000000000000000000000000000}
+    }
+}
+
 } ;# tags
