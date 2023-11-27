@@ -2611,7 +2611,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
      *
      * If sender is a replica, set the shard_id to the shard_id of its master.
      * Otherwise, we'll set it now. */
-    if (ext_shardid == NULL) ext_shardid = clusterNodeGetSlaveofMaster(sender)->shard_id;
+    if (ext_shardid == NULL) ext_shardid = clusterNodeGetMaster(sender)->shard_id;
 
     updateShardId(sender, ext_shardid);
 }
@@ -5555,7 +5555,7 @@ void addShardReplyForClusterShards(client *c, list *nodes) {
     addReplyBulkCString(c, "slots");
 
     /* Use slot_info_pairs from the primary only */
-    n = clusterNodeGetSlaveofMaster(n);
+    n = clusterNodeGetMaster(n);
 
     if (n->slot_info_pairs != NULL) {
         serverAssert((n->slot_info_pairs_count % 2) == 0);
@@ -5868,7 +5868,7 @@ clusterNode *clusterNodeGetSlaveof(clusterNode *node) {
     return node->slaveof;
 }
 
-clusterNode *clusterNodeGetSlaveofMaster(clusterNode *node) {
+clusterNode *clusterNodeGetMaster(clusterNode *node) {
     while (node->slaveof != NULL) node = node->slaveof;
     return node;
 }
