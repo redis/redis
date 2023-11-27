@@ -12189,6 +12189,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleUnregisterUsedAPI(ctx.module);
             moduleRemoveCateogires(ctx.module);
             moduleRemoveConfigs(ctx.module);
+            moduleUnregisterFilters(ctx.module);
             moduleUnregisterAuthCBs(ctx.module);
             moduleUnsubscribeNotifications(ctx.module);
             moduleUnsubscribeAllServerEvents(ctx.module);
