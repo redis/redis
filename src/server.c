@@ -642,17 +642,17 @@ int htNeedsResize(dict *dict) {
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        if (dbSize(db, subdict)) {
-            if (db->sub_dict[subdict].resize_cursor == -1)
-                db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
+        if (dbSize(db, subdict) == 0) continue;
 
-            for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
-                int slot = db->sub_dict[subdict].resize_cursor;
-                dict *d = subdict == DB_MAIN ? db->dict[slot] : db->expires[slot];
-                if (htNeedsResize(d))
-                    dictResize(d);
-                db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
-            }
+        if (db->sub_dict[subdict].resize_cursor == -1)
+            db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
+
+        for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
+            int slot = db->sub_dict[subdict].resize_cursor;
+            dict *d = subdict == DB_MAIN ? db->dict[slot] : db->expires[slot];
+            if (htNeedsResize(d))
+                dictResize(d);
+            db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
         }
     }
 }
