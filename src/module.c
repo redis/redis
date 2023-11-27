@@ -12150,6 +12150,19 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
     return REDISMODULE_OK;
 }
 
+/* Unregister module-related things, called when moduleLoad fails or moduleUnload. */
+void moduleUnregisterCleanup(RedisModule *module) {
+    moduleFreeAuthenticatedClients(module);
+    moduleUnregisterCommands(module);
+    moduleUnsubscribeNotifications(module);
+    moduleUnregisterSharedAPI(module);
+    moduleUnregisterUsedAPI(module);
+    moduleUnregisterFilters(module);
+    moduleUnsubscribeAllServerEvents(module);
+    moduleRemoveConfigs(module);
+    moduleUnregisterAuthCBs(module);
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
@@ -12184,12 +12197,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
         if (ctx.module) {
-            moduleUnregisterCommands(ctx.module);
-            moduleUnregisterSharedAPI(ctx.module);
-            moduleUnregisterUsedAPI(ctx.module);
+            moduleUnregisterCleanup(ctx.module);
             moduleRemoveCateogires(ctx.module);
-            moduleRemoveConfigs(ctx.module);
-            moduleUnregisterAuthCBs(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
@@ -12230,8 +12239,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     }
 
     if (post_load_err) {
-        /* Unregister module auth callbacks (if any exist) that this Module registered onload. */
-        moduleUnregisterAuthCBs(ctx.module);
         moduleUnload(ctx.module->name, NULL);
         moduleFreeContext(&ctx);
         return C_ERR;
@@ -12289,17 +12296,7 @@ int moduleUnload(sds name, const char **errmsg) {
         }
     }
 
-    moduleFreeAuthenticatedClients(module);
-    moduleUnregisterCommands(module);
-    moduleUnregisterSharedAPI(module);
-    moduleUnregisterUsedAPI(module);
-    moduleUnregisterFilters(module);
-    moduleUnregisterAuthCBs(module);
-    moduleRemoveConfigs(module);
-
-    /* Remove any notification subscribers this module might have */
-    moduleUnsubscribeNotifications(module);
-    moduleUnsubscribeAllServerEvents(module);
+    moduleUnregisterCleanup(module);
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {

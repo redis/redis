@@ -310,4 +310,12 @@ tags "modules" {
             assert_equal [string match {*module-event-shutdown*} [exec tail -5 < $replica_stdout]] 1
         }
     }
+
+    start_server {} {
+        test {OnLoad failure will handle un-registration} {
+            catch {r module load $testmodule noload}
+            r flushall
+            r ping
+        }
+    }
 }

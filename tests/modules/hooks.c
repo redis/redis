@@ -33,6 +33,7 @@
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <assert.h>
 
 /* We need to store events to be able to test and see what we got, and we can't
@@ -407,9 +408,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR; \
     }
 
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-
     if (RedisModule_Init(ctx,"testhook",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
@@ -470,6 +468,18 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"hooks.pexpireat", cmdKeyExpiry,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    if (argc == 1) {
+        const char *ptr = RedisModule_StringPtrLen(argv[0], NULL);
+        if (!strcasecmp(ptr, "noload")) {
+            /* This is a hint that we return ERR at the last moment of OnLoad. */
+            RedisModule_FreeDict(ctx, event_log);
+            RedisModule_FreeDict(ctx, removed_event_log);
+            RedisModule_FreeDict(ctx, removed_subevent_type);
+            RedisModule_FreeDict(ctx, removed_expiry_log);
+            return REDISMODULE_ERR;
+        }
+    }
 
     return REDISMODULE_OK;
 }
