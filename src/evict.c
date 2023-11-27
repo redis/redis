@@ -610,7 +610,10 @@ int performEvictions(void) {
                         }
                     /* If there are a sufficient number of keys in the current database
                      * (e.g., 10 times the value of maxmemory_samples), it is necessary
-                     * to ensure that enough keys are sampled. */
+                     * to ensure that enough keys are sampled.
+                     *
+                     * To avoid the situation where the number of keys in a single slot
+                     * in cluster mode is too low to meet the sampling requirements. */
                     } while (keys > (unsigned long) server.maxmemory_samples*10 &&
                              sampled_keys < (unsigned long) server.maxmemory_samples);
                 }
