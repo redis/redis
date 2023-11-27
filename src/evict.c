@@ -608,6 +608,9 @@ int performEvictions(void) {
                         if (dictSize(dict) != 0) {
                             sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
                         }
+                    /* If there are a sufficient number of keys in the current database
+                     * (e.g., 10 times the value of maxmemory_samples), it is necessary
+                     * to ensure that enough keys are sampled. */
                     } while (keys > (unsigned long) server.maxmemory_samples*10 &&
                              sampled_keys < (unsigned long) server.maxmemory_samples);
                 }
