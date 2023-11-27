@@ -2604,13 +2604,15 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
     updateAnnouncedHumanNodename(sender, ext_humannodename);
     /* If the node did not send us a shard-id extension, it means the sender
      * does not support it (old version), node->shard_id is randomly generated.
+     * A cluster-wide consensus for the node's shard_id is not necessary.
+     * The key is maintaining consistency of the shard_id on each individual 7.2 node.
+     * As the cluster progressively upgrades to version 7.2, we can expect the shard_ids
+     * across all nodes to naturally converge and align.
+     *
      * If sender is a replica, set the shard_id to the shard_id of its master.
      * Otherwise, we'll set it now. */
-    if (ext_shardid == NULL && clusterNodeIsSlave(sender)) {
-        clusterNode *n = sender;
-        while (n->slaveof != NULL) n = n->slaveof;
-        ext_shardid = n->shard_id;
-    }
+    if (ext_shardid == NULL) ext_shardid = clusterNodeGetSlaveofMaster(sender)->shard_id;
+
     updateShardId(sender, ext_shardid);
 }
 
@@ -5553,7 +5555,7 @@ void addShardReplyForClusterShards(client *c, list *nodes) {
     addReplyBulkCString(c, "slots");
 
     /* Use slot_info_pairs from the primary only */
-    while (n->slaveof != NULL) n = n->slaveof;
+    n = clusterNodeGetSlaveofMaster(n);
 
     if (n->slot_info_pairs != NULL) {
         serverAssert((n->slot_info_pairs_count % 2) == 0);
@@ -5864,6 +5866,11 @@ int clusterNodeIsSlave(clusterNode *node) {
 
 clusterNode *clusterNodeGetSlaveof(clusterNode *node) {
     return node->slaveof;
+}
+
+clusterNode *clusterNodeGetSlaveofMaster(clusterNode *node) {
+    while (node->slaveof != NULL) node = node->slaveof;
+    return node;
 }
 
 char *clusterNodeGetName(clusterNode *node) {
