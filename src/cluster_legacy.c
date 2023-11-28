@@ -5664,6 +5664,7 @@ void removeChannelsInSlot(unsigned int slot) {
     robj **channels = zmalloc(sizeof(robj*)*channelcount);
     int j = 0;
     dict *d = server.pubsubshard_channels[slot];
+    if (!d) return;
     dictIterator *di = dictGetSafeIterator(d);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
@@ -5708,7 +5709,8 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
 /* Get the count of the channels for a given slot. */
 unsigned int countChannelsInSlot(unsigned int hashslot) {
-    return dictSize(server.pubsubshard_channels[hashslot]);
+    dict *d = server.pubsubshard_channels[hashslot];
+    return d ? dictSize(d) : 0;
 }
 
 int clusterNodeIsMyself(clusterNode *n) {

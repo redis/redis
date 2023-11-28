@@ -2492,6 +2492,7 @@ extern dictType sdsHashDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
+extern dictType keylistDictType;
 extern dict *modules;
 
 /*-----------------------------------------------------------------------------

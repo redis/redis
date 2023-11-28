@@ -2737,7 +2737,7 @@ void initServer(void) {
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsubshard_channels = dictCreateMultiple(&keylistDictType, slotCount);
+    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slotCount);
     server.shard_channel_count = 0;
     server.cronloops = 0;
     server.in_exec = 0;
