@@ -591,16 +591,16 @@ int performEvictions(void) {
                                  DB_MAIN : DB_EXPIRES);
 
             while (bestkey == NULL) {
-                unsigned long total_keys = 0, keys;
+                unsigned long total_keys = 0, current_db_keys;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    if ((keys = dbSize(db, keyType)) == 0) continue;
+                    if ((current_db_keys = dbSize(db, keyType)) == 0) continue;
 
-                    total_keys += keys;
+                    total_keys += current_db_keys;
                     unsigned long sampled_keys = 0;
                     do {
                         int slot = getFairRandomSlot(db, keyType);
@@ -614,7 +614,7 @@ int performEvictions(void) {
                      *
                      * To avoid the situation where the number of keys in a single slot
                      * in cluster mode is too low to meet the sampling requirements. */
-                    } while (keys > (unsigned long) server.maxmemory_samples*10 &&
+                    } while (current_db_keys > (unsigned long) server.maxmemory_samples*10 &&
                              sampled_keys < (unsigned long) server.maxmemory_samples);
                 }
                 if (!total_keys) break; /* No keys to evict. */
