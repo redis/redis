@@ -660,20 +660,19 @@ int htNeedsResize(dict *dict) {
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
-    int slot = 0;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        dbIterator *dbit = dbIteratorInitFromSlot(db, subdict, db->sub_dict[subdict].resize_cursor);
-        for (int i = 0; i < CRON_DBS_PER_CALL; i++) {
-            dict *d = dbGetDictFromIterator(dbit);
-            slot = dbIteratorGetCurrentSlot(dbit);
-            dbIteratorNextDict(dbit);
-            if (!d) break;
+        if (dbSize(db, subdict) == 0) continue;
+
+        if (db->sub_dict[subdict].resize_cursor == -1)
+            db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
+
+        for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
+            int slot = db->sub_dict[subdict].resize_cursor;
+            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
             if (htNeedsResize(d))
                 dictResize(d);
+            db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
         }
-        /* Save current iterator position in the resize_cursor. */
-        db->sub_dict[subdict].resize_cursor = slot;
-        dbReleaseIterator(dbit);
     }
 }
 
@@ -2656,7 +2655,7 @@ void initDbState(redisDb *db){
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         db->sub_dict[subdict].rehashing = listCreate();
         db->sub_dict[subdict].key_count = 0;
-        db->sub_dict[subdict].resize_cursor = 0;
+        db->sub_dict[subdict].resize_cursor = -1;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         db->sub_dict[subdict].bucket_count = 0;
     }

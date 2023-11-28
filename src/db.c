@@ -114,20 +114,7 @@ dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType) {
     return dbit;
 }
 
-/* Returns DB iterator that can be used to iterate through sub-dictionaries.
- *
- * The caller should free the resulting dbit with dbReleaseIterator. */
-dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot) {
-    dbIterator *dbit = zmalloc(sizeof(*dbit));
-    dbit->db = db;
-    dbit->slot = slot;
-    dbit->keyType = keyType;
-    dbit->next_slot = dbGetNextNonEmptySlot(dbit->db, dbit->slot, dbit->keyType);
-    dictInitSafeIterator(&dbit->di, NULL);
-    return dbit;
-}
-
-/* Free the dbit returned by dbIteratorInit or dbIteratorInitFromSlot. */
+/* Free the dbit returned by dbIteratorInit. */
 void dbReleaseIterator(dbIterator *dbit) {
     dictIterator *iter = &dbit->di;
     dictResetIterator(iter);
@@ -687,7 +674,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].expires_cursor = 0;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
             dbarray[j].sub_dict[subdict].key_count = 0;
-            dbarray[j].sub_dict[subdict].resize_cursor = 0;
+            dbarray[j].sub_dict[subdict].resize_cursor = -1;
             if (server.cluster_enabled) {
                 if (dbarray[j].sub_dict[subdict].rehashing)
                     listEmpty(dbarray[j].sub_dict[subdict].rehashing);
