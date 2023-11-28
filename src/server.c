@@ -949,6 +949,7 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * usage bucket.
  */
 void updateClientMemoryUsage(client *c) {
+    if (!c->conn) return;
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
     /* Now that we have the memory used by the client, remove the old
@@ -961,7 +962,7 @@ void updateClientMemoryUsage(client *c) {
 }
 
 int clientEvictionAllowed(client *c) {
-    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT) {
+    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT || !c->conn) {
         return 0;
     }
     int type = getClientType(c);
@@ -1683,7 +1684,7 @@ static void sendGetackToReplicas(void) {
     replicationFeedSlaves(server.slaves, -1, argv, 3);
 }
 
-extern int ProcessingEventsWhileBlocked;
+extern __thread int ProcessingEventsWhileBlocked;
 
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep

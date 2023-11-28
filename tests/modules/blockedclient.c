@@ -135,8 +135,6 @@ void *bg_call_worker(void *arg) {
     RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, bg->argc - cmd_pos - 1);
     RedisModule_FreeString(NULL, format_redis_str);
 
-    // Release GIL
-    RedisModule_ThreadSafeContextUnlock(ctx);
 
     // Reply to client
     if (!rep) {
@@ -154,6 +152,9 @@ void *bg_call_worker(void *arg) {
         RedisModule_FreeString(ctx, bg->argv[i]);
     RedisModule_Free(bg->argv);
     RedisModule_Free(bg);
+
+    // Release GIL
+    RedisModule_ThreadSafeContextUnlock(ctx);
 
     // Free the Redis module context
     RedisModule_FreeThreadSafeContext(ctx);
