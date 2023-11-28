@@ -426,3 +426,49 @@ start_server {tags {"other external:skip"}} {
     }
 }
 
+start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
+    test "Redis can trigger resizing" {
+        r flushall
+        # hashslot(foo) is 12182
+        for {set j 1} {$j <= 128} {incr j} {
+            r set "{foo}$j" a
+        }
+        assert_match "*table size: 128*" [r debug HTSTATS 0]
+
+        # disable resizing
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+
+        # delete data to have lot's (99%) of empty buckets
+        for {set j 1} {$j <= 127} {incr j} {
+            r del "{foo}$j"
+        }
+        assert_match "*table size: 128*" [r debug HTSTATS 0]
+
+        # enable resizing
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time."
+        }
+
+        after 200;# waiting for serverCron
+        assert_match "*table size: 4*" [r debug HTSTATS 0]
+    } {} {needs:debug}
+
+    test "Redis can rewind and trigger smaller slot resizing" {
+        # hashslot(alice) is 749, smaller than hashslot(foo),
+        # attempt to trigger a resize on it, see details in #12802.
+        for {set j 1} {$j <= 128} {incr j} {
+            r set "{alice}$j" a
+        }
+        for {set j 1} {$j <= 127} {incr j} {
+            r del "{alice}$j"
+        }
+
+        after 200;# waiting for serverCron
+        assert_match "*table size: 8*" [r debug HTSTATS 0]
+    } {} {needs:debug}
+}

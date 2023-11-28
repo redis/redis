@@ -649,7 +649,7 @@ void tryResizeHashTables(int dbid) {
 
         for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
             int slot = db->sub_dict[subdict].resize_cursor;
-            dict *d = subdict == DB_MAIN ? db->dict[slot] : db->expires[slot];
+            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
             if (htNeedsResize(d))
                 dictResize(d);
             db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
