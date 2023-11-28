@@ -251,7 +251,8 @@ dict **getServerPubSubChannels(unsigned int slot) {
 }
 
 dict **getServerPubSubShardChannels(unsigned int slot) {
-    return &server.pubsubshard_channels[server.cluster_enabled ? slot : 0];
+    serverAssert(server.cluster_enabled || slot == 0);
+    return &server.pubsubshard_channels[slot];
 }
 
 /* Return the number of pubsub + pubsub shard level channels
