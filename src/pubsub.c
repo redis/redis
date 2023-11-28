@@ -77,7 +77,7 @@ dict **getServerPubSubShardChannels(unsigned int slot);
  * If a pattern is provided, the subset of channels is returned
  * matching the pattern.
  */
-void channelList(client *c, sds pat, dict** pubsub_channels, unsigned int slot_cnt);
+void channelList(client *c, sds pat, dict** pubsub_channels, int is_sharded);
 
 /*
  * Pub/Sub type for global channels.
@@ -682,7 +682,7 @@ NULL
     {
         /* PUBSUB CHANNELS [<pattern>] */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
-        channelList(c, pat, &server.pubsub_channels, 1);
+        channelList(c, pat, &server.pubsub_channels, 0);
     } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
@@ -702,7 +702,7 @@ NULL
     {
         /* PUBSUB SHARDCHANNELS */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
-        channelList(c,pat,server.pubsubshard_channels,server.cluster_enabled?CLUSTER_SLOTS:1);
+        channelList(c,pat,server.pubsubshard_channels,server.cluster_enabled);
     } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub") && c->argc >= 2) {
         /* PUBSUB SHARDNUMSUB [ShardChannel_1 ... ShardChannel_N] */
         int j;
@@ -722,9 +722,10 @@ NULL
     }
 }
 
-void channelList(client *c, sds pat, dict **pubsub_channels, unsigned int slot_cnt) {
+void channelList(client *c, sds pat, dict **pubsub_channels, int is_sharded) {
     long mblen = 0;
     void *replylen;
+    unsigned int slot_cnt = is_sharded ? CLUSTER_SLOTS : 1;
 
     replylen = addReplyDeferredLen(c);
     for (unsigned int i = 0; i < slot_cnt;i++) {
