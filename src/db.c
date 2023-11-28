@@ -525,7 +525,7 @@ int getFairRandomSlot(redisDb *db, dbKeyType keyType) {
  *
  * In this case slot #3 contains key that we are trying to find.
  * 
- * This function is 1 based and the range of the target is [1..dbSize], dbSize inclusive.
+ * The return value is 0 based slot, and the range of the target is [1..dbSize], dbSize inclusive.
  * 
  * To find the slot, we start with the root node of the binary index tree and search through its children
  * from the highest index (2^14 in our case) to the lowest index. At each node, we check if the target 
@@ -547,8 +547,13 @@ int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType) {
             result = current;
         }
     }
-    /* Unlike BIT, slots are 0-based, so we need to subtract 1, but we also need to add 1,
-     * since we want the next slot. */
+    /* Adjust the result to get the correct slot:
+     * 1. result += 1;
+     *    After the calculations, the index of target in slot_size_index should be the next one,
+     *    so we should add 1.
+     * 2. result -= 1;
+     *    Unlike BIT(slot_size_index is 1-based), slots are 0-based, so we need to subtract 1.
+     * As the addition and subtraction cancel each other out, we can simply return the result. */
     return result;
 }
 
