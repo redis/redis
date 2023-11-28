@@ -114,20 +114,7 @@ dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType) {
     return dbit;
 }
 
-/* Returns DB iterator that can be used to iterate through sub-dictionaries.
- *
- * The caller should free the resulting dbit with dbReleaseIterator. */
-dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot) {
-    dbIterator *dbit = zmalloc(sizeof(*dbit));
-    dbit->db = db;
-    dbit->slot = slot;
-    dbit->keyType = keyType;
-    dbit->next_slot = dbGetNextNonEmptySlot(dbit->db, dbit->slot, dbit->keyType);
-    dictInitSafeIterator(&dbit->di, NULL);
-    return dbit;
-}
-
-/* Free the dbit returned by dbIteratorInit or dbIteratorInitFromSlot. */
+/* Free the dbit returned by dbIteratorInit. */
 void dbReleaseIterator(dbIterator *dbit) {
     dictIterator *iter = &dbit->di;
     dictResetIterator(iter);
