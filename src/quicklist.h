@@ -41,8 +41,9 @@
  * encoding: 2 bits, RAW=1, LZF=2.
  * container: 2 bits, PLAIN=1 (a single item as char array), PACKED=2 (listpack with multiple items).
  * recompress: 1 bit, bool, true if node is temporary decompressed for usage.
- * attempted_compress: 1 bit, boolean, used for verifying during testing.
- * extra: 10 bits, free for future use; pads out the remainder of 32 bits */
+ * attempted_compress:  1 bit, boolean, used for verifying during testing.
+ * dont_compress: 1 bit, bool, used for prevent compression of entry that will be used later.
+ * extra: 9 bits, free for future use; pads out the remainder of 32 bits */
 typedef struct quicklistNode {
     struct quicklistNode *prev;
     struct quicklistNode *next;
