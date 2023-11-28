@@ -610,8 +610,8 @@ int performEvictions(void) {
                         /* If there are not a lot of keys in the current db, dict/s may be very
                          * sparsely populated, exit the loop without meeting the sampling
                          * requirement. */
-                         if (current_db_keys < (unsigned long) server.maxmemory_samples*10)
-                             break;
+                        if (current_db_keys < (unsigned long) server.maxmemory_samples*10)
+                            break;
                     } while (sampled_keys < (unsigned long) server.maxmemory_samples);
                 }
                 if (!total_keys) break; /* No keys to evict. */
