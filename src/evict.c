@@ -591,31 +591,28 @@ int performEvictions(void) {
                                  DB_MAIN : DB_EXPIRES);
 
             while (bestkey == NULL) {
-                unsigned long total_keys = 0, current_db_keys;
+                unsigned long total_keys = 0;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    if ((current_db_keys = dbSize(db, keyType)) == 0) continue;
+                    unsigned long sampled_keys = 0;
+                    unsigned long current_db_keys = dbSize(db, keyType);
+                    if (current_db_keys == 0) continue;
 
                     total_keys += current_db_keys;
-                    unsigned long sampled_keys = 0;
                     do {
                         int slot = getFairRandomSlot(db, keyType);
                         dict = (keyType == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-                        if (dictSize(dict) != 0) {
-                            sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
-                        }
-                    /* If there are a sufficient number of keys in the current database
-                     * (e.g., 10 times the value of maxmemory_samples), it is necessary
-                     * to ensure that enough keys are sampled.
-                     *
-                     * To avoid the situation where the number of keys in a single slot
-                     * in cluster mode is too low to meet the sampling requirements. */
-                    } while (current_db_keys > (unsigned long) server.maxmemory_samples*10 &&
-                             sampled_keys < (unsigned long) server.maxmemory_samples);
+                        sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
+                        /* If there are not a lot of keys in the current db, dict/s may be very
+                         * sparsely populated, exit the loop without meeting the sampling
+                         * requirement. */
+                         if (current_db_keys < (unsigned long) server.maxmemory_samples*10)
+                             break;
+                    } while (sampled_keys < (unsigned long) server.maxmemory_samples);
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
