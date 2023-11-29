@@ -1031,18 +1031,13 @@ static int _dictExpandIfNeeded(dict *d)
     return DICT_OK;
 }
 
-/* TODO: clz optimization */
 /* Our hash table capability is a power of two */
 static signed char _dictNextExp(unsigned long size)
 {
-    unsigned char e = DICT_HT_INITIAL_EXP;
-
+    if (size <= DICT_HT_INITIAL_SIZE) return DICT_HT_INITIAL_EXP;
     if (size >= LONG_MAX) return (8*sizeof(long)-1);
-    while(1) {
-        if (((unsigned long)1<<e) >= size)
-            return e;
-        e++;
-    }
+
+    return 8*sizeof(long) - __builtin_clzl(size-1);
 }
 
 /* Returns the index of a free slot that can be populated with
