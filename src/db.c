@@ -997,7 +997,7 @@ void keysCommand(client *c) {
     int plen = sdslen(pattern), allkeys, pslot = -1;
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-    allkeys = pattern[0] == '*' && plen == 1;
+    allkeys = (pattern[0] == '*' && plen == 1);
     if (!allkeys) {
         pslot = patternHashSlot(pattern, plen);
     }
