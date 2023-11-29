@@ -681,6 +681,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             dbarray[j].sub_dict[subdict].non_empty_slots = 0;
             dbarray[j].sub_dict[subdict].key_count = 0;
             dbarray[j].sub_dict[subdict].resize_cursor = -1;
+            dbarray[j].sub_dict[subdict].slow_resize_cursor = 0;
             if (server.cluster_enabled) {
                 if (dbarray[j].sub_dict[subdict].rehashing)
                     listEmpty(dbarray[j].sub_dict[subdict].rehashing);
@@ -1891,6 +1892,7 @@ int dbSwapDatabases(int id1, int id2) {
         db1->sub_dict[subdict].key_count = db2->sub_dict[subdict].key_count;
         db1->sub_dict[subdict].non_empty_slots = db2->sub_dict[subdict].non_empty_slots;
         db1->sub_dict[subdict].resize_cursor = db2->sub_dict[subdict].resize_cursor;
+        db1->sub_dict[subdict].slow_resize_cursor = db2->sub_dict[subdict].slow_resize_cursor;
         db1->sub_dict[subdict].slot_size_index = db2->sub_dict[subdict].slot_size_index;
     }
 
@@ -1903,6 +1905,7 @@ int dbSwapDatabases(int id1, int id2) {
         db2->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
         db2->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;
         db2->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
+        db2->sub_dict[subdict].slow_resize_cursor = aux.sub_dict[subdict].slow_resize_cursor;
         db2->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;
     }
 
@@ -1947,6 +1950,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
             activedb->sub_dict[subdict].key_count = newdb->sub_dict[subdict].key_count;
             activedb->sub_dict[subdict].non_empty_slots = newdb->sub_dict[subdict].non_empty_slots;
             activedb->sub_dict[subdict].resize_cursor = newdb->sub_dict[subdict].resize_cursor;
+            activedb->sub_dict[subdict].slow_resize_cursor = newdb->sub_dict[subdict].slow_resize_cursor;
             activedb->sub_dict[subdict].slot_size_index = newdb->sub_dict[subdict].slot_size_index;
         }
 
@@ -1959,6 +1963,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
             newdb->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
             newdb->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;
             newdb->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
+            newdb->sub_dict[subdict].slow_resize_cursor = aux.sub_dict[subdict].slow_resize_cursor;
             newdb->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;
         }
         /* Now we need to handle clients blocked on lists: as an effect
