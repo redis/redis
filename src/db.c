@@ -997,21 +997,19 @@ void keysCommand(client *c) {
     int plen = sdslen(pattern), allkeys, pslot = -1;
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-    allkeys = (pattern[0] == '*' && plen == 1);
-    dbIterator *dbit;
-    if (server.cluster_enabled) {
-        if (!allkeys) {
-            pslot = patternHashSlot(pattern, plen);
-        }
-        dbit = dbIteratorInitFromSlot(c->db, DB_MAIN, pslot > -1 ? pslot - 1 : -1);
+    allkeys = pattern[0] == '*' && plen == 1;
+    if (!allkeys) {
+        pslot = patternHashSlot(pattern, plen);
+    }
+    dictIterator *di = NULL;
+    dbIterator *dbit = NULL;
+    if (server.cluster_enabled && !allkeys && pslot != -1) {
+        di = dictGetSafeIterator(c->db->dict[pslot]);
     } else {
         dbit = dbIteratorInit(c->db, DB_MAIN);
     }
     robj keyobj;
-    while ((de = dbIteratorNext(dbit)) != NULL) {
-        if (pslot > -1 && dbIteratorGetCurrentSlot(dbit) > pslot) {
-            break;
-        }
+    while ((de = di ? dictNext(di) : dbIteratorNext(dbit)) != NULL) {
         sds key = dictGetKey(de);
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -1024,7 +1022,10 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    dbReleaseIterator(dbit);
+    if (di)
+        dictReleaseIterator(di);
+    if (dbit)
+        dbReleaseIterator(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
