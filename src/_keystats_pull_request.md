@@ -68,3 +68,4 @@ Possible improvements:
 
 Comments:
 - config.top_sizes_limit could be used globally like config.count, but is passed as parameter to be consistent with config.memkeys_samples.
+- Not sure if we should move some utility functions to cli-common.c?
