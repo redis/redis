@@ -10361,6 +10361,9 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
     printf("# Use --top <n> to diplay <n> top key sizes (default is 10).\n");
     printf("# Ctrl-C to stop the scan.\n\n");
 
+    /* Use readonly in cluster */
+    sendReadOnly();
+    
     /* SCAN loop */
     do {
         /* Grab some keys and point to the keys array */
