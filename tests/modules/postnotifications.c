@@ -53,7 +53,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <inttypes.h>
 
 static void KeySpace_PostNotificationStringFreePD(void *pd) {
     RedisModule_FreeString(NULL, pd);
