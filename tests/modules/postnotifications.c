@@ -214,7 +214,7 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
     REDISMODULE_NOT_USED(eid);
     REDISMODULE_NOT_USED(data);
     if (subevent > 3) {
-        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%" PRIu64 "'", subevent);
+        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%llu'", (unsigned long long)subevent);
         return;
     }
     static const char* events[] = {
