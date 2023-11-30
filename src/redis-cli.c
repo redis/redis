@@ -10356,7 +10356,7 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
 
     /* Status message */
     printf("\n# Scanning the entire keyspace to find the biggest keys and distribution information.\n");
-    printf("# You can use -i 0.1 to sleep 0.1 sec per 100 SCAN commands (not usually needed).\n");
+    printf("# Use -i 0.1 to sleep 0.1 sec per 100 SCAN commands (not usually needed).\n");
     printf("# Use --cursor <n> to start the scan at the cursor <n> (usually after a Ctrl-C).\n");
     printf("# Use --top <n> to diplay <n> top key sizes (default is 10).\n");
     printf("# Ctrl-C to stop the scan.\n\n");
