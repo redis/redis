@@ -264,7 +264,7 @@ int clientTotalPubSubSubscriptionCount(client *c) {
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
 int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
-    dict **pd;
+    dict **d_ptr;
     dictEntry *de;
     list *clients = NULL;
     int retval = 0;
@@ -278,14 +278,14 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         if (server.cluster_enabled && type.shard) {
             slot = keyHashSlot(channel->ptr, sdslen(channel->ptr));
         }
-        pd = type.serverPubSubChannels(slot);
-        if (*pd == NULL) {
-            *pd = dictCreate(&keylistDictType);
+        d_ptr = type.serverPubSubChannels(slot);
+        if (*d_ptr == NULL) {
+            *d_ptr = dictCreate(&keylistDictType);
         }
-        de = dictFind(*pd, channel);
+        de = dictFind(*d_ptr, channel);
         if (de == NULL) {
             clients = listCreate();
-            dictAdd(*pd, channel, clients);
+            dictAdd(*d_ptr, channel, clients);
             incrRefCount(channel);
             if (type.shard) {
                 server.shard_channel_count++;
