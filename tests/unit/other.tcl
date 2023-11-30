@@ -426,6 +426,19 @@ start_server {tags {"other external:skip"}} {
     }
 }
 
+proc get_overhead_hashtable_main {} {
+    set main 0
+    set stats [r memory stats]
+    set list_stats [split $stats " "]
+    for {set j 0} {$j < [llength $list_stats]} {incr j} {
+        if {[string equal -nocase "\{overhead.hashtable.main" [lindex $list_stats $j]]} {
+            set main [lindex $list_stats [expr $j+1]]
+            break
+        }
+    }
+    return $main
+}
+
 start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
     test "Redis can trigger resizing" {
         r flushall
@@ -471,4 +484,48 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         after 200;# waiting for serverCron
         assert_match "*table size: 8*" [r debug HTSTATS 0]
     } {} {needs:debug}
+
+    # Tune up hz to speed up cron
+    set default_hz [lindex [r config get hz] 1]
+    r config set hz 200
+
+    # The overhead_hashtable_main is calculated by:
+    # mem = keys_count * (sizeof(robj) + dictEntryMemUsage()) +
+    #       db->dict_count * sizeof(dict) +
+    #       dbBuckets(db, keyType) * sizeof(dictEntry*);
+    # and we want to compare the 3rd line.
+    test "Redis can resize empty dict" {
+        # Get the value of sizeof(robj) and dictEntryMemUsage()
+        set res [r debug structsize]
+        set items [split $res " "]
+        foreach item $items {
+            set kv [split $item ":"]
+            set name [lindex $kv 0]
+            set value [lindex $kv 1]
+            if {[string equal -nocase "robj" $name]} {
+                set robj $value
+            } elseif {[string equal -nocase "dictentry" $name]} {
+                set dictentry $value
+            }
+        }
+        # Write and then delete 128 keys, creating an empty dict
+        r flushall
+        for {set j 1} {$j <= 128} {incr j} {
+            r set $j{b} a
+        }
+        set dict1 [get_overhead_hashtable_main]
+        for {set j 1} {$j <= 128} {incr j} {
+            r del $j{b}
+        }
+        # Set a key to enable overhead display of db 0
+        r set a b
+        # Compare to make sure the dict is resized
+        wait_for_condition 100 50 {
+            [expr $dict1-($robj+$dictentry)*127] > [get_overhead_hashtable_main]
+        } else {
+            fail "dict did not resize in time"
+        }   
+    } {} {needs:debug}
+
+    r config set hz $default_hz
 }
