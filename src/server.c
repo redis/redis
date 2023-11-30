@@ -660,14 +660,14 @@ int htNeedsResize(dict *dict) {
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
-    /* Fast resize: try to reszie non-empty dicts. */
+    /* Fast resize: try to resize non-empty dicts. */
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         if (dbSize(db, subdict) == 0) continue;
 
         if (db->sub_dict[subdict].resize_cursor == -1)
             db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
 
-        for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
+        for (int i = 0; i < CRON_DICTS_PER_DB && db->sub_dict[subdict].resize_cursor != -1; i++) {
             int slot = db->sub_dict[subdict].resize_cursor;
             dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
             if (htNeedsResize(d))
@@ -677,7 +677,7 @@ void tryResizeHashTables(int dbid) {
     }
     /* Slow resize: try to resize all dicts to recycle memory. */
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        for (int i = 0; i < CRON_DBS_PER_CALL && i < db->dict_count; i++) {
+        for (int i = 0; i < CRON_DICTS_PER_DB && i < db->dict_count; i++) {
             int slot = db->sub_dict[subdict].slow_resize_cursor;
             dict *d = subdict == DB_MAIN ? db->dict[slot] : db->expires[slot];
             if (htNeedsResize(d)) {
