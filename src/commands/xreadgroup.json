@@ -9,7 +9,7 @@
         "get_keys_function": "xreadGetKeys",
         "history": [
             [
-                "7.2.0",
+                "8.0.0",
                 "Added MKGROUP option for creating consumer group if it does not exist"
             ]
         ],
@@ -80,7 +80,7 @@
                 "token": "MKGROUP",
                 "type": "pure-token",
                 "optional": true,
-                "since":"7.2.0"
+                "since": "8.0.0"
             },
             {
                 "name": "streams",

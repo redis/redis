@@ -2949,7 +2949,7 @@ void xpendingCommand(client *c) {
             return;
         }
         j = j + 3;
-        if(j < c->argc) {
+        if (j < c->argc) {
             /* 'consumer' was provided */
             consumername = c->argv[j];
         }

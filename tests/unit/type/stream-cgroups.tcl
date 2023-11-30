@@ -137,7 +137,6 @@ start_server {
         assert {[llength $pending] == 2}
     }
 
-
     test {XACK is able to remove items from the consumer/group PEL} {
         set pending [r XPENDING mystream mygroup - + 10 consumer-1]
         set id1 [lindex $pending 0 0]
@@ -618,7 +617,6 @@ start_server {
         assert {[lindex $reply 0 1] eq {a 1}}
     }
 
-
     test {XCLAIM without JUSTID increments delivery count} {
         # Add 3 items into the stream, and create a consumer group
         r del mystream
@@ -771,7 +769,6 @@ start_server {
         set reply [r XAUTOCLAIM mystream mygroup consumer2 10 - COUNT 2 MKGROUP]
         assert_equal [llength $reply] 3
     }
-
 
     test {XAUTOCLAIM as an iterator} {
         # Add 5 items into the stream, and create a consumer group

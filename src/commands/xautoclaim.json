@@ -12,7 +12,7 @@
                 "Added an element to the reply array, containing deleted entries the command cleared from the PEL"
             ],
             [
-                "7.2.0",
+                "8.0.0",
                 "Added MKGROUP option for creating consumer group if it does not exist"
             ]
         ],
@@ -162,7 +162,7 @@
                 "token": "MKGROUP",
                 "type": "pure-token",
                 "optional": true,
-                "since":"7.2.0"
+                "since": "7.2.0"
             }
         ]
     }
