@@ -333,6 +333,11 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
              * Redis PUBSUB creating millions of channels. */
             dictDelete(d, channel);
             if (type.shard) {
+                if (dictSize(d) == 0) {
+                    dictRelease(d);
+                    dict **pd = type.serverPubSubChannels(slot);
+                    *pd = NULL;
+                }
                 server.shard_channel_count--;
             }
         }
@@ -713,7 +718,8 @@ NULL
             if (server.cluster_enabled) {
                 slot = keyHashSlot(c->argv[j]->ptr, sdslen(c->argv[j]->ptr));
             }
-            list *l = dictFetchValue(server.pubsubshard_channels[slot], c->argv[j]);
+            dict *d = server.pubsubshard_channels[slot];
+            list *l = d ? dictFetchValue(d, c->argv[j]) : NULL;
 
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
@@ -729,7 +735,7 @@ void channelList(client *c, sds pat, dict **pubsub_channels, int is_sharded) {
     unsigned int slot_cnt = is_sharded ? CLUSTER_SLOTS : 1;
 
     replylen = addReplyDeferredLen(c);
-    for (unsigned int i = 0; i < slot_cnt;i++) {
+    for (unsigned int i = 0; i < slot_cnt; i++) {
         dictIterator *di = dictGetIterator(pubsub_channels[i]);
         dictEntry *de;
         while((de = dictNext(di)) != NULL) {

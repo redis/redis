@@ -2718,10 +2718,10 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+    int slot_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
     for (j = 0; j < server.dbnum; j++) {  
-        server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
-        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slotCount);
+        server.db[j].dict = dictCreateMultiple(&dbDictType, slot_count);
+        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slot_count);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2730,14 +2730,14 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
-        server.db[j].dict_count = slotCount;
+        server.db[j].dict_count = slot_count;
         initDbState(&server.db[j]);
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slotCount);
+    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
     server.shard_channel_count = 0;
     server.cronloops = 0;
     server.in_exec = 0;
