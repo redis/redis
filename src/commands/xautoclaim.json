@@ -162,7 +162,7 @@
                 "token": "MKGROUP",
                 "type": "pure-token",
                 "optional": true,
-                "since": "7.2.0"
+                "since": "8.0.0"
             }
         ]
     }
