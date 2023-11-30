@@ -657,7 +657,6 @@ int htNeedsResize(dict *dict) {
  *
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(dictarray *da) {
-    int slot = 0;
     if (daSize(da) == 0)
         return;
 

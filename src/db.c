@@ -1862,7 +1862,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     return 1;
 }
 
-int dbExpandSkipSlot(int slot) {
+static int dbExpandSkipSlot(int slot) {
     return !clusterNodeCoversSlot(getMyClusterNode(), slot);
 }
 
