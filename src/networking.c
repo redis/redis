@@ -2854,7 +2854,7 @@ sds catClientInfoString(sds s, client *client) {
         " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "",
         " tot-input=%U", client->net_input_bytes,
         " tot-output=%U", client->net_output_bytes,
-        " cmd-proc=%U", client->commands_processed));
+        " tot-cmds=%U", client->commands_processed));
     return ret;
 }
 
