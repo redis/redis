@@ -9490,7 +9490,7 @@ static long getLongInfoField(char *info, char *field) {
 }
 
 /* Convert number of bytes into a human readable string of the form:
- * 1003B, 4.03K, 100.00M, 2.32G, 3.01T, and so forth. */
+ * 1003B, 4.03K, 100.00M, 2.32G, 3.01T */
 char* bytesToHuman(char *s, size_t size, long long n) {
     double d;
     char *r = s;
