@@ -297,6 +297,8 @@ static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_exist
     initObjectLRUOrLFU(val);
     dictSetVal(d, de, val);
     db->sub_dict[DB_MAIN].key_count++;
+    if (dictSize(d) == 1)
+        db->sub_dict[DB_MAIN].non_empty_slots++;
     cumulativeKeyCountAdd(db, slot, 1, DB_MAIN);
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
@@ -348,6 +350,8 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     initObjectLRUOrLFU(val);
     dictSetVal(d, de, val);
     db->sub_dict[DB_MAIN].key_count++;
+    if (dictSize(d) == 1)
+        db->sub_dict[DB_MAIN].non_empty_slots++;
     cumulativeKeyCountAdd(db, slot, 1, DB_MAIN);
     return 1;
 }
@@ -582,11 +586,15 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             if (dictDelete(db->expires[slot],key->ptr) == DICT_OK) {
                 cumulativeKeyCountAdd(db, slot, -1, DB_EXPIRES);
                 db->sub_dict[DB_EXPIRES].key_count--;
+                if (dictSize(db->expires[slot]) == 0)
+                    db->sub_dict[DB_EXPIRES].non_empty_slots--;
             }
         } 
         dictTwoPhaseUnlinkFree(d,de,plink,table);
         cumulativeKeyCountAdd(db, slot, -1, DB_MAIN);
         db->sub_dict[DB_MAIN].key_count--;
+        if (dictSize(d) == 0)
+            db->sub_dict[DB_MAIN].non_empty_slots--;
         return 1;
     } else {
         return 0;
@@ -681,6 +689,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            dbarray[j].sub_dict[subdict].non_empty_slots = 0;
             dbarray[j].sub_dict[subdict].key_count = 0;
             dbarray[j].sub_dict[subdict].resize_cursor = 0;
             if (server.cluster_enabled) {
@@ -1409,6 +1418,10 @@ unsigned long long int dbSize(redisDb *db, dbKeyType keyType) {
     return db->sub_dict[keyType].key_count;
 }
 
+int dbNonEmptySlots(redisDb *db, dbKeyType keyType) {
+    return db->sub_dict[keyType].non_empty_slots;
+}
+
 /* This method provides the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType) {
@@ -1875,6 +1888,7 @@ int dbSwapDatabases(int id1, int id2) {
     db1->dict_count = db2->dict_count;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         db1->sub_dict[subdict].key_count = db2->sub_dict[subdict].key_count;
+        db1->sub_dict[subdict].non_empty_slots = db2->sub_dict[subdict].non_empty_slots;
         db1->sub_dict[subdict].resize_cursor = db2->sub_dict[subdict].resize_cursor;
         db1->sub_dict[subdict].slot_size_index = db2->sub_dict[subdict].slot_size_index;
     }
@@ -1886,6 +1900,7 @@ int dbSwapDatabases(int id1, int id2) {
     db2->dict_count = aux.dict_count;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         db2->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
+        db2->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;
         db2->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
         db2->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;
     }
@@ -1929,6 +1944,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->dict_count = newdb->dict_count;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
             activedb->sub_dict[subdict].key_count = newdb->sub_dict[subdict].key_count;
+            activedb->sub_dict[subdict].non_empty_slots = newdb->sub_dict[subdict].non_empty_slots;
             activedb->sub_dict[subdict].resize_cursor = newdb->sub_dict[subdict].resize_cursor;
             activedb->sub_dict[subdict].slot_size_index = newdb->sub_dict[subdict].slot_size_index;
         }
@@ -1940,6 +1956,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->dict_count = aux.dict_count;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
             newdb->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
+            newdb->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;
             newdb->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
             newdb->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;
         }
@@ -1995,9 +2012,12 @@ void swapdbCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 int removeExpire(redisDb *db, robj *key) {
-    if (dictDelete(db->expires[(getKeySlot(key->ptr))],key->ptr) == DICT_OK) {
+    int slot = getKeySlot(key->ptr);
+    if (dictDelete(db->expires[slot],key->ptr) == DICT_OK) {
         db->sub_dict[DB_EXPIRES].key_count--;
-        cumulativeKeyCountAdd(db, getKeySlot(key->ptr), -1, DB_EXPIRES);
+        if (dictSize(db->expires[slot]) == 0)
+            db->sub_dict[DB_EXPIRES].non_empty_slots--;
+        cumulativeKeyCountAdd(db, slot, -1, DB_EXPIRES);
         return 1;
     } else {
         return 0;
@@ -2021,6 +2041,8 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     } else {
         dictSetSignedIntegerVal(de, when);
         db->sub_dict[DB_EXPIRES].key_count++;
+        if (dictSize(db->expires[slot]) == 1)
+            db->sub_dict[DB_EXPIRES].non_empty_slots++;
         cumulativeKeyCountAdd(db, slot, 1, DB_EXPIRES);
     }
 

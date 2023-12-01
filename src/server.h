@@ -971,6 +971,7 @@ typedef struct replBufBlock {
 typedef struct dbDictState {
     list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
+    int non_empty_slots;                   /* The number of non-empty slots. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
     unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries (only used for cluster-enabled). */
     unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
@@ -3124,6 +3125,7 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db, dbKeyType keyType);
+int dbNonEmptySlots(redisDb *db, dbKeyType keyType);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
