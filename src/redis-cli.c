@@ -418,6 +418,42 @@ bool isPositiveInteger(char* string) {
     }
     return true;
 }
+/* Erase the lines before printing, and returns the number of lines printed */
+int cleanPrintln(char *string) {
+    int line_length;
+    char *position = strchr(string, '\n');
+
+    /* clear the line */
+    if (config.output == OUTPUT_STANDARD) {
+        printf("\033[2K\r");
+    }
+
+    if (position) {
+        line_length = (int)(position - string);
+        printf("%.*s\n", line_length, string);
+        return cleanPrintln(++position) + 1;
+    } else {
+        printf("%s\n", string);
+        return 1;
+    }
+}
+
+/* Erase the lines before printing, and returns the number of lines printed */
+int cleanPrintfln(char *fmt, ...) {
+    va_list args;
+    char buf[1024]; /* limitation */
+    int char_count;
+
+    va_start (args, fmt);
+    char_count = vsnprintf(buf, sizeof(buf),fmt, args);
+    va_end (args);
+
+    if (char_count >= (int)sizeof(buf)) {
+        fprintf(stderr, "Warning: String was trimed in cleanPrintln\n");
+    }
+
+    return cleanPrintln(buf);
+}
 
 /*------------------------------------------------------------------------------
  * Help functions
@@ -9867,43 +9903,6 @@ void testHintSuite(char *filename) {
  * Keystats
  *--------------------------------------------------------------------------- */
 
-/* Erase the lines before printing, and returns the number of lines printed */
-int cleanPrintln(char *string) {
-    int line_length;
-    char *position = strchr(string, '\n');
-
-    /* clear the line */
-    if (config.output == OUTPUT_STANDARD) {
-        printf("\033[2K\r");
-    }
-
-    if (position) {
-        line_length = (int)(position - string);
-        printf("%.*s\n", line_length, string);
-        return cleanPrintln(++position) + 1;
-    } else {
-        printf("%s\n", string);
-        return 1;
-    }
-}
-
-/* Erase the lines before printing, and returns the number of lines printed */
-int cleanPrintfln(char *fmt, ...) {
-    va_list args;
-    char buf[1024]; /* limitation */
-    int char_count;
-
-    va_start (args, fmt);
-    char_count = vsnprintf(buf, sizeof(buf),fmt, args);
-    va_end (args);
-
-    if (char_count >= (int)sizeof(buf)) {
-        fprintf(stderr, "Warning: String was trimed in cleanPrintln\n");
-    }
-
-    return cleanPrintln(buf);
-}
-
 /* key length distribution. */
 
 typedef struct size_dist_entry {
@@ -9919,7 +9918,7 @@ typedef struct size_dist {
 } size_dist;
 
 /* distribution is an array initialized with last element {0, 0}                  */
-/* for instance: size_dist_entry distribution[] = { {32, 0}, {256, 0}, {0, 0}, }; */
+/* for instance: size_dist_entry distribution[] = { {32, 0}, {256, 0}, {0, 0} }; */
 static void sizeDistInit(size_dist *dist, size_dist_entry *distribution) {
     dist->max_size = 0;
     dist->total_count = 0;
@@ -10156,7 +10155,7 @@ static int displayKeyStatsType(unsigned long long sampled,
 
 typedef struct key_info {
     unsigned long long size;
-    char type_name[10]; /* key type name should be 9 char max + \0 */
+    char type_name[10]; /* key type name seems to be 9 char max + \0 */
     sds key_name;
 } key_info;
 
@@ -10195,32 +10194,6 @@ static key_info* createKeySizeInfo(char* key_name, size_t key_name_len, char *ke
         exit(1);
     }
     return key;
-}
-
-static void displayKeyStats(unsigned long long sampled,
-                            unsigned long long total_keys,
-                            unsigned long long total_size,
-                            dict *memkeys_types_dict,
-                            dict *bigkeys_types_dict,
-                            list *top_key_sizes,
-                            unsigned long top_sizes_limit,
-                            bool move_cursor_up) {
-    int line_count = 0;
-
-    line_count += displayKeyStatsProgressbar(sampled, total_keys, total_size);
-    line_count += cleanPrintfln("");
-    line_count += displayKeyStatsTopSizes(top_key_sizes, top_sizes_limit);
-    line_count += cleanPrintfln("");
-    line_count += displayKeyStatsSizeType(memkeys_types_dict);
-    line_count += cleanPrintfln("");
-    line_count += displayKeyStatsLengthType(bigkeys_types_dict);
-
-    /* If we need to refresh the stats later on */
-    if (move_cursor_up) {
-        printf("\033[%dA\r", (line_count));
-    }
-
-    fflush(stdout);
 }
 
 /* Insert key info in topkeys sorted by size (sorted from high to low size).
@@ -10271,6 +10244,32 @@ static int updateTopSizes(char* key_name, size_t key_name_len, unsigned long lon
     }
 
     return 1;
+}
+
+static void displayKeyStats(unsigned long long sampled,
+                            unsigned long long total_keys,
+                            unsigned long long total_size,
+                            dict *memkeys_types_dict,
+                            dict *bigkeys_types_dict,
+                            list *top_key_sizes,
+                            unsigned long top_sizes_limit,
+                            bool move_cursor_up) {
+    int line_count = 0;
+
+    line_count += displayKeyStatsProgressbar(sampled, total_keys, total_size);
+    line_count += cleanPrintfln("");
+    line_count += displayKeyStatsTopSizes(top_key_sizes, top_sizes_limit);
+    line_count += cleanPrintfln("");
+    line_count += displayKeyStatsSizeType(memkeys_types_dict);
+    line_count += cleanPrintfln("");
+    line_count += displayKeyStatsLengthType(bigkeys_types_dict);
+
+    /* If we need to refresh the stats later on */
+    if (move_cursor_up) {
+        printf("\033[%dA\r", (line_count));
+    }
+
+    fflush(stdout);
 }
 
 /* TODO could be used in findBigKeys() */
