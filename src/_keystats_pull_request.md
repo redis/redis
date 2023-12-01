@@ -1,4 +1,4 @@
-Keystats Pull Request
+redis-cli --keystats and --keystats-samples. With --top and --cursor
 
 Added `--keystats` and `--keystats-samples <n>` commands.
 
@@ -8,7 +8,7 @@ Distribution and top 10 key sizes are useful when we have multiple keys taking a
 
 Like for memkeys and bigkeys, we can use `-i <n>` and Ctrl-C to interrupt the scan loop. It will still show the statistics on the keys sampled so far.
 We can use two new optional parameters:
-- `--cursor <n>` to restart after an interruption of the scan.
+- `--cursor <n>` to continue from the last cursor after an interruption of the scan.
 - `--top <n>` to change the number of top key sizes (10 by default).
 
 Implemented a fix for the `--memkeys-samples 0` issue in order to use `--keystats-samples 0`.
@@ -31,3 +31,5 @@ Improvements:
 Comments:
 - config.top_sizes_limit could be used globally like config.count, but it is passed as parameter to be consistent with config.memkeys_samples.
 - Not sure if we should move some utility functions to cli-common.c.
+
+Got some tips and help from Ofir.
