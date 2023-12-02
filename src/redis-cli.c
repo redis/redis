@@ -10080,13 +10080,13 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
         /* 140.68K    99.9969%        50013                                     */
         /*   2.04G   100.0000%        50014                                     */
 
-        if (iter.cumulative_count == iter.h->total_count) {
-            percentile = 100;
-        } else {
-            percentile = iter.specifics.percentiles.percentile;
-        }
-
         if (iter.cumulative_count != last_displayed_cumulative_count) {
+            if (iter.cumulative_count == iter.h->total_count) {
+                percentile = 100;
+            } else {
+                percentile = iter.specifics.percentiles.percentile;
+            }
+
             line_count += cleanPrintfln("%12s %10.4f%% %12d",
                 bytesToHuman(size, sizeof(size), iter.highest_equivalent_value),
                 percentile,
