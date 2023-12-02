@@ -10081,6 +10081,7 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
         /*   2.04G   100.0000%        50014                                     */
 
         if (iter.cumulative_count != last_displayed_cumulative_count) {
+            
             if (iter.cumulative_count == iter.h->total_count) {
                 percentile = 100;
             } else {
