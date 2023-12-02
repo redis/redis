@@ -4672,10 +4672,14 @@ void clusterCron(void) {
             /* Timeout reached. Set the node as possibly failing if it is
              * not already in this state. */
             if (!(node->flags & (CLUSTER_NODE_PFAIL|CLUSTER_NODE_FAIL))) {
-                serverLog(LL_DEBUG,"*** NODE %.40s possibly failing",
-                    node->name);
                 node->flags |= CLUSTER_NODE_PFAIL;
                 update_state = 1;
+                if (clusterNodeIsMaster(myself) && server.cluster->size == 1) {
+                    markNodeAsFailingIfNeeded(node);                    
+                } else {
+                    serverLog(LL_DEBUG,"*** NODE %.40s possibly failing",
+                        node->name);
+                }
             }
         }
     }
