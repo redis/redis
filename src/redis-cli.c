@@ -10060,7 +10060,8 @@ static int displayKeyStatsLengthType(dict *bigkeys_types_dict) {
 
 static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
     int line_count = 0;
-    char buf[2][32];
+    double percentile;
+    char size[32], mean[32], stddev[32];
     struct hdr_iter iter;
     int64_t last_displayed_cumulative_count = 0;
 
@@ -10069,8 +10070,6 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
     line_count += cleanPrintfln("%9s %11s %12s","--- Key Size", "Percentile", "Total Keys");
 
     while (hdr_iter_next(&iter)) {
-        double  percentile = iter.specifics.percentiles.percentile;
-
         /* Skip repeat in hdr_histogram cumulative_count, and set the last line */
         /* to 100% when total_count is reached. For instance:                   */
         /* 140.68K    99.9969%        50013                                     */
@@ -10080,13 +10079,16 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
         /* Will diplay:                                                         */
         /* 140.68K    99.9969%        50013                                     */
         /*   2.04G   100.0000%        50014                                     */
+
         if (iter.cumulative_count == iter.h->total_count) {
             percentile = 100;
+        } else {
+            percentile = iter.specifics.percentiles.percentile;
         }
 
         if (iter.cumulative_count != last_displayed_cumulative_count) {
             line_count += cleanPrintfln("%12s %10.4f%% %12d",
-                bytesToHuman(buf[0], sizeof(buf[0]), iter.highest_equivalent_value),
+                bytesToHuman(size, sizeof(size), iter.highest_equivalent_value),
                 percentile,
                 iter.cumulative_count);
 
@@ -10094,8 +10096,8 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
         }
     }
 
-    char* mean   = bytesToHuman(buf[0], sizeof(buf[0]),hdr_mean(keysize_histogram));
-    char* stddev = bytesToHuman(buf[1], sizeof(buf[1]),hdr_stddev(keysize_histogram));
+    bytesToHuman(mean, sizeof(mean),hdr_mean(keysize_histogram));
+    bytesToHuman(stddev, sizeof(stddev),hdr_stddev(keysize_histogram));
     line_count += cleanPrintfln("Note: 0.01%% size precision, Mean: %s, StdDeviation: %s", mean, stddev);
 
     return line_count;
