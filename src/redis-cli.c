@@ -10081,7 +10081,7 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
         /*   2.04G   100.0000%        50014                                     */
 
         if (iter.cumulative_count != last_displayed_cumulative_count) {
-            
+
             if (iter.cumulative_count == iter.h->total_count) {
                 percentile = 100;
             } else {
@@ -10365,7 +10365,7 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
 
     /* Use readonly in cluster */
     sendReadOnly();
-    
+
     /* SCAN loop */
     do {
         /* Grab some keys and point to the keys array */
