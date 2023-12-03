@@ -10199,7 +10199,7 @@ static key_info* createKeySizeInfo(char* key_name, size_t key_name_len, char *ke
     return key;
 }
 
-/* Insert key info in topkeys sorted by size (sorted from high to low size).
+/* Insert key info in topkeys sorted by size (from high to low size).
  * Keep a maximum of config.top_sizes_limit items in topkeys list.
  * key_name and type_name are copied.
  * Return: -1 insertion failure, 0 size was not added (too small), 1 size was inserted. */
@@ -10207,7 +10207,7 @@ static int updateTopSizes(char* key_name, size_t key_name_len, unsigned long lon
                           char *type_name, list *topkeys, unsigned long top_sizes_limit) {
     listNode *node;
     listIter *iter;
-    key_info  *new_node;
+    key_info *new_node;
 
     /* check if we do not need to add to the list */
     if (top_sizes_limit != 0 &&
