@@ -450,7 +450,7 @@ int cleanPrintfln(char *fmt, ...) {
     va_end (args);
 
     if (char_count >= (int)sizeof(buf)) {
-        fprintf(stderr, "Warning: String was trimed in cleanPrintln\n");
+        fprintf(stderr, "Warning: String was trimmed in cleanPrintln\n");
     }
 
     return cleanPrintln(buf);
@@ -10077,7 +10077,7 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
         /* 140.68K    99.9977%        50013                                     */
         /*   2.04G    99.9985%        50014                                     */
         /*   2.04G   100.0000%        50014                                     */
-        /* Will diplay:                                                         */
+        /* Will display:                                                        */
         /* 140.68K    99.9969%        50013                                     */
         /*   2.04G   100.0000%        50014                                     */
 
@@ -10321,7 +10321,7 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
     typeinfo_add(memkeys_types_dict, "zset", &type_zset);
     typeinfo_add(memkeys_types_dict, "stream", &type_stream);
 
-    /* We could use only one typeinfo dictionnary if we add new fields to save      *
+    /* We could use only one typeinfo dictionary if we add new fields to save       *
     *  both memkey and bigkey info. Not sure it would make sense in findBigKeys()   */
     dict *bigkeys_types_dict = dictCreate(&typeinfoDictType);
     typeinfo_add(bigkeys_types_dict, "string", &type_string);
@@ -10361,7 +10361,7 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
     printf("\n# Scanning the entire keyspace to find the biggest keys and distribution information.\n");
     printf("# Use -i 0.1 to sleep 0.1 sec per 100 SCAN commands (not usually needed).\n");
     printf("# Use --cursor <n> to start the scan at the cursor <n> (usually after a Ctrl-C).\n");
-    printf("# Use --top <n> to diplay <n> top key sizes (default is 10).\n");
+    printf("# Use --top <n> to display <n> top key sizes (default is 10).\n");
     printf("# Ctrl-C to stop the scan.\n\n");
 
     /* Use readonly in cluster */
