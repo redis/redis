@@ -246,7 +246,7 @@ static struct config {
     char *rdb_filename;
     int bigkeys;
     int memkeys;
-    unsigned memkeys_samples;
+    int memkeys_samples;
     int hotkeys;
     int stdin_lastarg; /* get last arg from stdin. (-x option) */
     int stdin_tag_arg; /* get <tag> arg from stdin. (-X option) */
@@ -2759,7 +2759,7 @@ static int parseOptions(int argc, char **argv) {
             config.bigkeys = 1;
         } else if (!strcmp(argv[i],"--memkeys")) {
             config.memkeys = 1;
-            config.memkeys_samples = 0; /* use redis default */
+            config.memkeys_samples = -1; /* use redis default */
         } else if (!strcmp(argv[i],"--memkeys-samples") && !lastarg) {
             config.memkeys = 1;
             config.memkeys_samples = atoi(argv[++i]);
@@ -9025,7 +9025,7 @@ static void getKeyTypes(dict *types_dict, redisReply *keys, typeinfo **types) {
 
 static void getKeySizes(redisReply *keys, typeinfo **types,
                         unsigned long long *sizes, int memkeys,
-                        unsigned memkeys_samples)
+                        int memkeys_samples)
 {
     redisReply *reply;
     unsigned int i;
@@ -9040,7 +9040,7 @@ static void getKeySizes(redisReply *keys, typeinfo **types,
             const char* argv[] = {types[i]->sizecmd, keys->element[i]->str};
             size_t lens[] = {strlen(types[i]->sizecmd), keys->element[i]->len};
             redisAppendCommandArgv(context, 2, argv, lens);
-        } else if (memkeys_samples==0) {
+        } else if (memkeys_samples == -1) {
             const char* argv[] = {"MEMORY", "USAGE", keys->element[i]->str};
             size_t lens[] = {6, 5, keys->element[i]->len};
             redisAppendCommandArgv(context, 3, argv, lens);
@@ -9102,7 +9102,7 @@ static void sendReadOnly(void) {
     freeReplyObject(read_reply);
 }
 
-static void findBigKeys(int memkeys, unsigned memkeys_samples) {
+static void findBigKeys(int memkeys, int memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
