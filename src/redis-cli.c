@@ -10089,7 +10089,7 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
                 percentile = iter.specifics.percentiles.percentile;
             }
 
-            line_count += cleanPrintfln("%12s %10.4f%% %12d",
+            line_count += cleanPrintfln("%12s %10.4f%% %12lld",
                 bytesToHuman(size, sizeof(size), iter.highest_equivalent_value),
                 percentile,
                 iter.cumulative_count);
@@ -10166,7 +10166,7 @@ typedef struct key_info {
 static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_limit) {
     int line_count = 0, i = 0;
 
-    line_count += cleanPrintfln("--- TOP %d KEY SIZES", top_sizes_limit);
+    line_count += cleanPrintfln("--- TOP %llu KEY SIZES", top_sizes_limit);
     char buffer[32];
     listIter *iter = listGetIterator(top_key_sizes, AL_START_HEAD);
     listNode *node;
