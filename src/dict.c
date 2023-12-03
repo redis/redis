@@ -718,6 +718,7 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue;
         dictEntry **ref = &d->ht_table[table][idx];
         while (ref && *ref) {
             void *de_key = dictGetKey(*ref);

@@ -1259,7 +1259,7 @@ void replconfCommand(client *c) {
             int filter_count, i;
             sds *filters;
             if (!(filters = sdssplitargs(c->argv[j+1]->ptr, &filter_count))) {
-                addReplyErrorFormat(c, "Missing rdb-filter-only values");
+                addReplyError(c, "Missing rdb-filter-only values");
                 return;
             }
             /* By default filter out all parts of the rdb */
