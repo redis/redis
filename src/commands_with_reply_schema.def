@@ -1394,7 +1394,7 @@ const char *CLUSTER_SHARDS_Tips[] = {
 
 /* CLUSTER_SHARDS_ReplySchema_items_properties_slots_items reply schema */
 struct jsonObjectElement CLUSTER_SHARDS_ReplySchema_items_properties_slots_items_elements[] = {
-{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
 struct jsonObject CLUSTER_SHARDS_ReplySchema_items_properties_slots_items = {CLUSTER_SHARDS_ReplySchema_items_properties_slots_items_elements,.length=1};
@@ -1899,15 +1899,15 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("myid","Returns the ID of a node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,0,CLUSTER_MYID_Tips,0,clusterCommand,2,CMD_STALE,0,CLUSTER_MYID_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_MYID_ReplySchema},
 {MAKE_CMD("myshardid","Returns the shard ID of a node.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYSHARDID_History,0,CLUSTER_MYSHARDID_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_MYSHARDID_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_MYSHARDID_ReplySchema},
 {MAKE_CMD("nodes","Returns the cluster configuration for a node.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,0,CLUSTER_NODES_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_NODES_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_NODES_ReplySchema},
-{MAKE_CMD("replicas","Lists the replica nodes of a master node.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_History,0,CLUSTER_REPLICAS_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICAS_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICAS_Args,.reply_schema=&CLUSTER_REPLICAS_ReplySchema},
+{MAKE_CMD("replicas","Lists the replica nodes of a master node.","O(N) where N is the number of replicas.","5.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_History,0,CLUSTER_REPLICAS_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICAS_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICAS_Args,.reply_schema=&CLUSTER_REPLICAS_ReplySchema},
 {MAKE_CMD("replicate","Configure a node as replica of a master node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_History,0,CLUSTER_REPLICATE_Tips,0,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICATE_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICATE_Args,.reply_schema=&CLUSTER_REPLICATE_ReplySchema},
 {MAKE_CMD("reset","Resets a node.","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_RESET_History,0,CLUSTER_RESET_Tips,0,clusterCommand,-2,CMD_ADMIN|CMD_STALE|CMD_NOSCRIPT,0,CLUSTER_RESET_Keyspecs,0,NULL,1),.args=CLUSTER_RESET_Args,.reply_schema=&CLUSTER_RESET_ReplySchema},
 {MAKE_CMD("saveconfig","Forces a node to save the cluster configuration to disk.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,0,CLUSTER_SAVECONFIG_Tips,0,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SAVECONFIG_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_SAVECONFIG_ReplySchema},
 {MAKE_CMD("set-config-epoch","Sets the configuration epoch for a new node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,0,CLUSTER_SET_CONFIG_EPOCH_Tips,0,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SET_CONFIG_EPOCH_Keyspecs,0,NULL,1),.args=CLUSTER_SET_CONFIG_EPOCH_Args,.reply_schema=&CLUSTER_SET_CONFIG_EPOCH_ReplySchema},
 {MAKE_CMD("setslot","Binds a hash slot to a node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,0,CLUSTER_SETSLOT_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SETSLOT_Keyspecs,0,NULL,2),.args=CLUSTER_SETSLOT_Args,.reply_schema=&CLUSTER_SETSLOT_ReplySchema},
-{MAKE_CMD("shards","Returns the mapping of cluster slots to shards.","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,0,CLUSTER_SHARDS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_SHARDS_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_SHARDS_ReplySchema},
-{MAKE_CMD("slaves","Lists the replica nodes of a master node.","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args,.reply_schema=&CLUSTER_SLAVES_ReplySchema},
-{MAKE_CMD("slots","Returns the mapping of cluster slots to nodes.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_SLOTS_ReplySchema},
+{MAKE_CMD("shards","Returns the mapping of cluster slots to shards.","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,0,CLUSTER_SHARDS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SHARDS_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_SHARDS_ReplySchema},
+{MAKE_CMD("slaves","Lists the replica nodes of a master node.","O(N) where N is the number of replicas.","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args,.reply_schema=&CLUSTER_SLAVES_ReplySchema},
+{MAKE_CMD("slots","Returns the mapping of cluster slots to nodes.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0),.reply_schema=&CLUSTER_SLOTS_ReplySchema},
 {0}
 };
 
@@ -2521,7 +2521,10 @@ struct jsonObject CLIENT_REPLY_ReplySchema = {CLIENT_REPLY_ReplySchema_elements,
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT SETINFO tips */
-#define CLIENT_SETINFO_Tips NULL
+const char *CLIENT_SETINFO_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2556,7 +2559,10 @@ struct jsonObject CLIENT_SETINFO_ReplySchema = {CLIENT_SETINFO_ReplySchema_eleme
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT SETNAME tips */
-#define CLIENT_SETNAME_Tips NULL
+const char *CLIENT_SETNAME_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2873,8 +2879,8 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 {MAKE_CMD("no-touch","Controls whether commands sent by the client affect the LRU/LFU of accessed keys.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,0,CLIENT_NO_TOUCH_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,CLIENT_NO_TOUCH_Keyspecs,0,NULL,1),.args=CLIENT_NO_TOUCH_Args,.reply_schema=&CLIENT_NO_TOUCH_ReplySchema},
 {MAKE_CMD("pause","Suspends commands processing.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,1,CLIENT_PAUSE_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_PAUSE_Keyspecs,0,NULL,2),.args=CLIENT_PAUSE_Args,.reply_schema=&CLIENT_PAUSE_ReplySchema},
 {MAKE_CMD("reply","Instructs the server whether to reply to commands.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,0,CLIENT_REPLY_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_REPLY_Keyspecs,0,NULL,1),.args=CLIENT_REPLY_Args,.reply_schema=&CLIENT_REPLY_ReplySchema},
-{MAKE_CMD("setinfo","Sets information specific to the client or connection.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,0,CLIENT_SETINFO_Tips,0,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETINFO_Keyspecs,0,NULL,1),.args=CLIENT_SETINFO_Args,.reply_schema=&CLIENT_SETINFO_ReplySchema},
-{MAKE_CMD("setname","Sets the connection name.","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,0,CLIENT_SETNAME_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETNAME_Keyspecs,0,NULL,1),.args=CLIENT_SETNAME_Args,.reply_schema=&CLIENT_SETNAME_ReplySchema},
+{MAKE_CMD("setinfo","Sets information specific to the client or connection.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,0,CLIENT_SETINFO_Tips,2,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETINFO_Keyspecs,0,NULL,1),.args=CLIENT_SETINFO_Args,.reply_schema=&CLIENT_SETINFO_ReplySchema},
+{MAKE_CMD("setname","Sets the connection name.","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,0,CLIENT_SETNAME_Tips,2,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETNAME_Keyspecs,0,NULL,1),.args=CLIENT_SETNAME_Args,.reply_schema=&CLIENT_SETNAME_ReplySchema},
 {MAKE_CMD("tracking","Controls server-assisted client-side caching for the connection.","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,0,CLIENT_TRACKING_Tips,0,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKING_Keyspecs,0,NULL,7),.args=CLIENT_TRACKING_Args,.reply_schema=&CLIENT_TRACKING_ReplySchema},
 {MAKE_CMD("trackinginfo","Returns information about server-assisted client-side caching for the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,0,CLIENT_TRACKINGINFO_Tips,0,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKINGINFO_Keyspecs,0,NULL,0),.reply_schema=&CLIENT_TRACKINGINFO_ReplySchema},
 {MAKE_CMD("unblock","Unblocks a client blocked by a blocking command from a different connection.","O(log N) where N is the number of client connections","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_History,0,CLIENT_UNBLOCK_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_UNBLOCK_Keyspecs,0,NULL,2),.args=CLIENT_UNBLOCK_Args,.reply_schema=&CLIENT_UNBLOCK_ReplySchema},
@@ -4323,6 +4329,7 @@ struct jsonObject PTTL_ReplySchema = {PTTL_ReplySchema_elements,.length=1};
 /* RANDOMKEY tips */
 const char *RANDOMKEY_Tips[] = {
 "request_policy:all_shards",
+"response_policy:special",
 "nondeterministic_output",
 };
 #endif
@@ -4504,6 +4511,7 @@ commandHistory SCAN_History[] = {
 const char *SCAN_Tips[] = {
 "nondeterministic_output",
 "request_policy:special",
+"response_policy:special",
 };
 #endif
 
@@ -4621,7 +4629,7 @@ struct jsonObject SORT_ReplySchema_oneOf_1_items_oneOf_0 = {SORT_ReplySchema_one
 
 /* SORT_ReplySchema_oneOf_1_items_oneOf_1 reply schema */
 struct jsonObjectElement SORT_ReplySchema_oneOf_1_items_oneOf_1_elements[] = {
-{JSON_TYPE_STRING,"description",.value.string="GET option is specified, but no object was found "},
+{JSON_TYPE_STRING,"description",.value.string="GET option is specified, but no object was found"},
 {JSON_TYPE_STRING,"type",.value.string="null"},
 };
 
@@ -4703,9 +4711,30 @@ struct COMMAND_ARG SORT_RO_Args[] = {
 {MAKE_ARG("sorting",ARG_TYPE_PURE_TOKEN,-1,"ALPHA",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
+/* SORT_RO_ReplySchema_items_oneOf_0 reply schema */
+struct jsonObjectElement SORT_RO_ReplySchema_items_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SORT_RO_ReplySchema_items_oneOf_0 = {SORT_RO_ReplySchema_items_oneOf_0_elements,.length=1};
+
+/* SORT_RO_ReplySchema_items_oneOf_1 reply schema */
+struct jsonObjectElement SORT_RO_ReplySchema_items_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="GET option is specified, but no object was found"},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject SORT_RO_ReplySchema_items_oneOf_1 = {SORT_RO_ReplySchema_items_oneOf_1_elements,.length=2};
+
+/* SORT_RO_ReplySchema_items_oneOf array reply schema */
+struct jsonObject *SORT_RO_ReplySchema_items_oneOf[] = {
+&SORT_RO_ReplySchema_items_oneOf_0,
+&SORT_RO_ReplySchema_items_oneOf_1,
+};
+
 /* SORT_RO_ReplySchema_items reply schema */
 struct jsonObjectElement SORT_RO_ReplySchema_items_elements[] = {
-{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SORT_RO_ReplySchema_items_oneOf,.length=2}},
 };
 
 struct jsonObject SORT_RO_ReplySchema_items = {SORT_RO_ReplySchema_items_elements,.length=1};
@@ -5293,6 +5322,12 @@ struct COMMAND_ARG GEORADIUS_order_Subargs[] = {
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* GEORADIUS store argument table */
+struct COMMAND_ARG GEORADIUS_store_Subargs[] = {
+{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+};
+
 /* GEORADIUS argument table */
 struct COMMAND_ARG GEORADIUS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -5305,8 +5340,7 @@ struct COMMAND_ARG GEORADIUS_Args[] = {
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_order_Subargs},
-{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
-{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
+{MAKE_ARG("store",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUS_store_Subargs},
 };
 
 /* GEORADIUS_ReplySchema_anyOf_0_items reply schema */
@@ -5485,6 +5519,12 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_order_Subargs[] = {
 {MAKE_ARG("desc",ARG_TYPE_PURE_TOKEN,-1,"DESC",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* GEORADIUSBYMEMBER store argument table */
+struct COMMAND_ARG GEORADIUSBYMEMBER_store_Subargs[] = {
+{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_NONE,0,NULL),.display_text="key"},
+};
+
 /* GEORADIUSBYMEMBER argument table */
 struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -5496,8 +5536,7 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 {MAKE_ARG("withhash",ARG_TYPE_PURE_TOKEN,-1,"WITHHASH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_count_block_Subargs},
 {MAKE_ARG("order",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_order_Subargs},
-{MAKE_ARG("storekey",ARG_TYPE_KEY,1,"STORE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
-{MAKE_ARG("storedistkey",ARG_TYPE_KEY,2,"STOREDIST",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="key"},
+{MAKE_ARG("store",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=GEORADIUSBYMEMBER_store_Subargs},
 };
 
 /* GEORADIUSBYMEMBER_ReplySchema_anyOf_0_items reply schema */
@@ -6965,10 +7004,11 @@ struct COMMAND_ARG HSET_Args[] = {
 
 /* HSET_ReplySchema reply schema */
 struct jsonObjectElement HSET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The number of fields that were added"},
 {JSON_TYPE_STRING,"type",.value.string="integer"},
 };
 
-struct jsonObject HSET_ReplySchema = {HSET_ReplySchema_elements,.length=1};
+struct jsonObject HSET_ReplySchema = {HSET_ReplySchema_elements,.length=2};
 
 /********** HSETNX ********************/
 
@@ -10017,7 +10057,9 @@ struct jsonObject SENTINEL_CKQUORUM_ReplySchema = {SENTINEL_CKQUORUM_ReplySchema
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SENTINEL CONFIG history */
-#define SENTINEL_CONFIG_History NULL
+commandHistory SENTINEL_CONFIG_History[] = {
+{"7.2.0","Added the ability to set and get multiple parameters in one call."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -10038,8 +10080,8 @@ struct COMMAND_ARG SENTINEL_CONFIG_action_set_Subargs[] = {
 
 /* SENTINEL CONFIG action argument table */
 struct COMMAND_ARG SENTINEL_CONFIG_action_Subargs[] = {
-{MAKE_ARG("set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SENTINEL_CONFIG_action_set_Subargs},
-{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("set",ARG_TYPE_BLOCK,-1,"SET",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_CONFIG_action_set_Subargs},
+{MAKE_ARG("parameter",ARG_TYPE_STRING,-1,"GET",NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 /* SENTINEL CONFIG argument table */
@@ -10110,7 +10152,7 @@ struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_ip = {
 
 /* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port reply schema */
 struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port_elements[] = {
-{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
 struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_announce_port_elements,.length=1};
@@ -10159,10 +10201,17 @@ struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_
 
 /* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4 reply schema */
 struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4_elements[] = {
-{JSON_TYPE_STRING,"const",.value.string="unknown"},
+{JSON_TYPE_STRING,"const",.value.string="nothing"},
 };
 
 struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4_elements,.length=1};
+
+/* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_5 reply schema */
+struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_5_elements[] = {
+{JSON_TYPE_STRING,"const",.value.string="unknown"},
+};
+
+struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_5 = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_5_elements,.length=1};
 
 /* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf array reply schema */
 struct jsonObject *SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf[] = {
@@ -10171,11 +10220,12 @@ struct jsonObject *SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf
 &SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_2,
 &SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_3,
 &SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_4,
+&SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf_5,
 };
 
 /* SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel reply schema */
 struct jsonObjectElement SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_elements[] = {
-{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf,.length=5}},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_oneOf,.length=6}},
 };
 
 struct jsonObject SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel = {SENTINEL_CONFIG_ReplySchema_oneOf_0_properties_loglevel_elements,.length=1};
@@ -10251,6 +10301,43 @@ struct COMMAND_ARG SENTINEL_DEBUG_data_Subargs[] = {
 struct COMMAND_ARG SENTINEL_DEBUG_Args[] = {
 {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,2,NULL),.subargs=SENTINEL_DEBUG_data_Subargs},
 };
+
+/* SENTINEL_DEBUG_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_DEBUG_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The configuration update was successful."},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_DEBUG_ReplySchema_oneOf_0 = {SENTINEL_DEBUG_ReplySchema_oneOf_0_elements,.length=2};
+
+/* SENTINEL_DEBUG_ReplySchema_oneOf_1_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_DEBUG_ReplySchema_oneOf_1_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_DEBUG_ReplySchema_oneOf_1_additionalProperties = {SENTINEL_DEBUG_ReplySchema_oneOf_1_additionalProperties_elements,.length=1};
+
+/* SENTINEL_DEBUG_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_DEBUG_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="List of configurable time parameters and their values (milliseconds)."},
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_DEBUG_ReplySchema_oneOf_1_additionalProperties},
+};
+
+struct jsonObject SENTINEL_DEBUG_ReplySchema_oneOf_1 = {SENTINEL_DEBUG_ReplySchema_oneOf_1_elements,.length=3};
+
+/* SENTINEL_DEBUG_ReplySchema_oneOf array reply schema */
+struct jsonObject *SENTINEL_DEBUG_ReplySchema_oneOf[] = {
+&SENTINEL_DEBUG_ReplySchema_oneOf_0,
+&SENTINEL_DEBUG_ReplySchema_oneOf_1,
+};
+
+/* SENTINEL_DEBUG_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_DEBUG_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_DEBUG_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_DEBUG_ReplySchema = {SENTINEL_DEBUG_ReplySchema_elements,.length=1};
 
 /********** SENTINEL FAILOVER ********************/
 
@@ -10417,6 +10504,98 @@ struct COMMAND_ARG SENTINEL_INFO_CACHE_Args[] = {
 {MAKE_ARG("nodename",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="The master name."},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_0 = {SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_0_elements,.length=2};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_0 reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The number of milliseconds since when the INFO was cached."},
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_0 = {SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_0_elements,.length=2};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The cached INFO string."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_0 = {SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_0_elements,.length=2};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="No cached INFO string."},
+{JSON_TYPE_STRING,"type",.value.string="null"},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_1 = {SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_1_elements,.length=2};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf array reply schema */
+struct jsonObject *SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf[] = {
+&SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_0,
+&SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf_1,
+};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1 reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The cached INFO string or null."},
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1 = {SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1_elements,.length=2};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items array reply schema */
+struct jsonObject *SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items[] = {
+&SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_0,
+&SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items_1,
+};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="This is an array of pairs, the odd entries are the INFO age, and the even entries are the cached INFO string. The first pair belong to the master and the rest are its replicas."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=2},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_items,.length=2}},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1 = {SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1_elements,.length=5};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf array reply schema */
+struct jsonObject *SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf[] = {
+&SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_0,
+&SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf_1,
+};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items_0 reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_items_0_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_INFO_CACHE_ReplySchema_items_0_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema_items_0 = {SENTINEL_INFO_CACHE_ReplySchema_items_0_elements,.length=1};
+
+/* SENTINEL_INFO_CACHE_ReplySchema_items array reply schema */
+struct jsonObject *SENTINEL_INFO_CACHE_ReplySchema_items[] = {
+&SENTINEL_INFO_CACHE_ReplySchema_items_0,
+};
+
+/* SENTINEL_INFO_CACHE_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_INFO_CACHE_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="This is actually a map, the odd entries are a master name, and the even entries are the last cached INFO output from that master and all its replicas."},
+{JSON_TYPE_INTEGER,"minItems",.value.integer=0},
+{JSON_TYPE_INTEGER,"maxItems",.value.integer=4294967295},
+{JSON_TYPE_ARRAY,"items",.value.array={.objects=SENTINEL_INFO_CACHE_ReplySchema_items,.length=1}},
+};
+
+struct jsonObject SENTINEL_INFO_CACHE_ReplySchema = {SENTINEL_INFO_CACHE_ReplySchema_elements,.length=5};
+
 /********** SENTINEL IS_MASTER_DOWN_BY_ADDR ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10559,6 +10738,30 @@ struct jsonObject SENTINEL_MASTER_ReplySchema = {SENTINEL_MASTER_ReplySchema_ele
 #define SENTINEL_MASTERS_Keyspecs NULL
 #endif
 
+/* SENTINEL_MASTERS_ReplySchema_items_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_MASTERS_ReplySchema_items_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_MASTERS_ReplySchema_items_additionalProperties = {SENTINEL_MASTERS_ReplySchema_items_additionalProperties_elements,.length=1};
+
+/* SENTINEL_MASTERS_ReplySchema_items reply schema */
+struct jsonObjectElement SENTINEL_MASTERS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_MASTERS_ReplySchema_items_additionalProperties},
+};
+
+struct jsonObject SENTINEL_MASTERS_ReplySchema_items = {SENTINEL_MASTERS_ReplySchema_items_elements,.length=2};
+
+/* SENTINEL_MASTERS_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_MASTERS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of monitored Redis masters, and their state."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_MASTERS_ReplySchema_items},
+};
+
+struct jsonObject SENTINEL_MASTERS_ReplySchema = {SENTINEL_MASTERS_ReplySchema_elements,.length=3};
+
 /********** SENTINEL MONITOR ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10608,6 +10811,14 @@ struct jsonObject SENTINEL_MONITOR_ReplySchema = {SENTINEL_MONITOR_ReplySchema_e
 #define SENTINEL_MYID_Keyspecs NULL
 #endif
 
+/* SENTINEL_MYID_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_MYID_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Node ID of the sentinel instance."},
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_MYID_ReplySchema = {SENTINEL_MYID_ReplySchema_elements,.length=2};
+
 /********** SENTINEL PENDING_SCRIPTS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10624,6 +10835,92 @@ struct jsonObject SENTINEL_MONITOR_ReplySchema = {SENTINEL_MONITOR_ReplySchema_e
 /* SENTINEL PENDING_SCRIPTS key specs */
 #define SENTINEL_PENDING_SCRIPTS_Keyspecs NULL
 #endif
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv_items reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv_items = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv_items_elements,.length=1};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="Script arguments."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv_items},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv_elements,.length=3};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_flags reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_flags_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Script flags."},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_flags = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_flags_elements,.length=2};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_pid reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_pid_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Script pid."},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_pid = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_pid_elements,.length=2};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_time reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_time_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Script run-time."},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_time = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_time_elements,.length=2};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_delay reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_delay_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Script run-delay."},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_delay = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_delay_elements,.length=2};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_retry_num reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_retry_num_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+{JSON_TYPE_STRING,"description",.value.string="Number of times we tried to execute the script."},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_retry_num = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_retry_num_elements,.length=2};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_elements[] = {
+{JSON_TYPE_OBJECT,"argv",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_argv},
+{JSON_TYPE_OBJECT,"flags",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_flags},
+{JSON_TYPE_OBJECT,"pid",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_pid},
+{JSON_TYPE_OBJECT,"run-time",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_time},
+{JSON_TYPE_OBJECT,"run-delay",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_run_delay},
+{JSON_TYPE_OBJECT,"retry-num",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_retry_num},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties_elements,.length=6};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema_items reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_BOOLEAN,"additionalProperties",.value.boolean=0},
+{JSON_TYPE_OBJECT,"properties",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items_properties},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema_items = {SENTINEL_PENDING_SCRIPTS_ReplySchema_items_elements,.length=3};
+
+/* SENTINEL_PENDING_SCRIPTS_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_PENDING_SCRIPTS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of pending scripts."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_PENDING_SCRIPTS_ReplySchema_items},
+};
+
+struct jsonObject SENTINEL_PENDING_SCRIPTS_ReplySchema = {SENTINEL_PENDING_SCRIPTS_ReplySchema_elements,.length=3};
 
 /********** SENTINEL REMOVE ********************/
 
@@ -10722,6 +11019,14 @@ struct COMMAND_ARG SENTINEL_RESET_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* SENTINEL_RESET_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_RESET_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="integer"},
+{JSON_TYPE_STRING,"description",.value.string="The number of masters that were reset."},
+};
+
+struct jsonObject SENTINEL_RESET_ReplySchema = {SENTINEL_RESET_ReplySchema_elements,.length=2};
+
 /********** SENTINEL SENTINELS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10743,6 +11048,30 @@ struct COMMAND_ARG SENTINEL_RESET_Args[] = {
 struct COMMAND_ARG SENTINEL_SENTINELS_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
+
+/* SENTINEL_SENTINELS_ReplySchema_items_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_SENTINELS_ReplySchema_items_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_SENTINELS_ReplySchema_items_additionalProperties = {SENTINEL_SENTINELS_ReplySchema_items_additionalProperties_elements,.length=1};
+
+/* SENTINEL_SENTINELS_ReplySchema_items reply schema */
+struct jsonObjectElement SENTINEL_SENTINELS_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_SENTINELS_ReplySchema_items_additionalProperties},
+};
+
+struct jsonObject SENTINEL_SENTINELS_ReplySchema_items = {SENTINEL_SENTINELS_ReplySchema_items_elements,.length=2};
+
+/* SENTINEL_SENTINELS_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_SENTINELS_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of sentinel instances, and their state."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_SENTINELS_ReplySchema_items},
+};
+
+struct jsonObject SENTINEL_SENTINELS_ReplySchema = {SENTINEL_SENTINELS_ReplySchema_elements,.length=3};
 
 /********** SENTINEL SET ********************/
 
@@ -10809,6 +11138,43 @@ struct COMMAND_ARG SENTINEL_SIMULATE_FAILURE_Args[] = {
 {MAKE_ARG("mode",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,3,NULL),.subargs=SENTINEL_SIMULATE_FAILURE_mode_Subargs},
 };
 
+/* SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_0 reply schema */
+struct jsonObjectElement SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_0_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="The simulated flag was set."},
+{JSON_TYPE_STRING,"const",.value.string="OK"},
+};
+
+struct jsonObject SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_0 = {SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_0_elements,.length=2};
+
+/* SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1_items reply schema */
+struct jsonObjectElement SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1_items = {SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1_items_elements,.length=1};
+
+/* SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1 reply schema */
+struct jsonObjectElement SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="Supported simulates flags. Returned in case `HELP` was used."},
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1_items},
+};
+
+struct jsonObject SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1 = {SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1_elements,.length=3};
+
+/* SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf array reply schema */
+struct jsonObject *SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf[] = {
+&SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_0,
+&SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf_1,
+};
+
+/* SENTINEL_SIMULATE_FAILURE_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_SIMULATE_FAILURE_ReplySchema_elements[] = {
+{JSON_TYPE_ARRAY,"oneOf",.value.array={.objects=SENTINEL_SIMULATE_FAILURE_ReplySchema_oneOf,.length=2}},
+};
+
+struct jsonObject SENTINEL_SIMULATE_FAILURE_ReplySchema = {SENTINEL_SIMULATE_FAILURE_ReplySchema_elements,.length=1};
+
 /********** SENTINEL SLAVES ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10831,29 +11197,53 @@ struct COMMAND_ARG SENTINEL_SLAVES_Args[] = {
 {MAKE_ARG("master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* SENTINEL_SLAVES_ReplySchema_items_additionalProperties reply schema */
+struct jsonObjectElement SENTINEL_SLAVES_ReplySchema_items_additionalProperties_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="string"},
+};
+
+struct jsonObject SENTINEL_SLAVES_ReplySchema_items_additionalProperties = {SENTINEL_SLAVES_ReplySchema_items_additionalProperties_elements,.length=1};
+
+/* SENTINEL_SLAVES_ReplySchema_items reply schema */
+struct jsonObjectElement SENTINEL_SLAVES_ReplySchema_items_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="object"},
+{JSON_TYPE_OBJECT,"additionalProperties",.value.object=&SENTINEL_SLAVES_ReplySchema_items_additionalProperties},
+};
+
+struct jsonObject SENTINEL_SLAVES_ReplySchema_items = {SENTINEL_SLAVES_ReplySchema_items_elements,.length=2};
+
+/* SENTINEL_SLAVES_ReplySchema reply schema */
+struct jsonObjectElement SENTINEL_SLAVES_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"type",.value.string="array"},
+{JSON_TYPE_STRING,"description",.value.string="List of monitored replicas, and their state."},
+{JSON_TYPE_OBJECT,"items",.value.object=&SENTINEL_SLAVES_ReplySchema_items},
+};
+
+struct jsonObject SENTINEL_SLAVES_ReplySchema = {SENTINEL_SLAVES_ReplySchema_elements,.length=3};
+
 /* SENTINEL command table */
 struct COMMAND_STRUCT SENTINEL_Subcommands[] = {
 {MAKE_CMD("ckquorum","Checks for a Redis Sentinel quorum.",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_CKQUORUM_History,0,SENTINEL_CKQUORUM_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_CKQUORUM_Keyspecs,0,NULL,1),.args=SENTINEL_CKQUORUM_Args,.reply_schema=&SENTINEL_CKQUORUM_ReplySchema},
-{MAKE_CMD("config","Configures Redis Sentinel.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,0,SENTINEL_CONFIG_Tips,0,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_CONFIG_Keyspecs,0,NULL,1),.args=SENTINEL_CONFIG_Args,.reply_schema=&SENTINEL_CONFIG_ReplySchema},
-{MAKE_CMD("debug","Lists or updates the current configurable parameters of Redis Sentinel.","O(N) where N is the number of configurable parameters","7.0.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,0,SENTINEL_DEBUG_Tips,0,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_DEBUG_Keyspecs,0,NULL,1),.args=SENTINEL_DEBUG_Args},
+{MAKE_CMD("config","Configures Redis Sentinel.","O(N) when N is the number of configuration parameters provided","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_CONFIG_History,1,SENTINEL_CONFIG_Tips,0,sentinelCommand,-4,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_CONFIG_Keyspecs,0,NULL,1),.args=SENTINEL_CONFIG_Args,.reply_schema=&SENTINEL_CONFIG_ReplySchema},
+{MAKE_CMD("debug","Lists or updates the current configurable parameters of Redis Sentinel.","O(N) where N is the number of configurable parameters","7.0.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_DEBUG_History,0,SENTINEL_DEBUG_Tips,0,sentinelCommand,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_DEBUG_Keyspecs,0,NULL,1),.args=SENTINEL_DEBUG_Args,.reply_schema=&SENTINEL_DEBUG_ReplySchema},
 {MAKE_CMD("failover","Forces a Redis Sentinel failover.",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_FAILOVER_History,0,SENTINEL_FAILOVER_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_FAILOVER_Keyspecs,0,NULL,1),.args=SENTINEL_FAILOVER_Args,.reply_schema=&SENTINEL_FAILOVER_ReplySchema},
 {MAKE_CMD("flushconfig","Rewrites the Redis Sentinel configuration file.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_FLUSHCONFIG_History,0,SENTINEL_FLUSHCONFIG_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_FLUSHCONFIG_Keyspecs,0,NULL,0),.reply_schema=&SENTINEL_FLUSHCONFIG_ReplySchema},
 {MAKE_CMD("get-master-addr-by-name","Returns the port and address of a master Redis instance.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_GET_MASTER_ADDR_BY_NAME_History,0,SENTINEL_GET_MASTER_ADDR_BY_NAME_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_GET_MASTER_ADDR_BY_NAME_Keyspecs,0,NULL,1),.args=SENTINEL_GET_MASTER_ADDR_BY_NAME_Args,.reply_schema=&SENTINEL_GET_MASTER_ADDR_BY_NAME_ReplySchema},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_HELP_History,0,SENTINEL_HELP_Tips,0,sentinelCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_HELP_Keyspecs,0,NULL,0),.reply_schema=&SENTINEL_HELP_ReplySchema},
-{MAKE_CMD("info-cache","Returns the cached `INFO` replies from the deployment's instances.","O(N) where N is the number of instances","3.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,0,SENTINEL_INFO_CACHE_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_INFO_CACHE_Keyspecs,0,NULL,1),.args=SENTINEL_INFO_CACHE_Args},
+{MAKE_CMD("info-cache","Returns the cached `INFO` replies from the deployment's instances.","O(N) where N is the number of instances","3.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_INFO_CACHE_History,0,SENTINEL_INFO_CACHE_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_INFO_CACHE_Keyspecs,0,NULL,1),.args=SENTINEL_INFO_CACHE_Args,.reply_schema=&SENTINEL_INFO_CACHE_ReplySchema},
 {MAKE_CMD("is-master-down-by-addr","Determines whether a master Redis instance is down.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_IS_MASTER_DOWN_BY_ADDR_History,0,SENTINEL_IS_MASTER_DOWN_BY_ADDR_Tips,0,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_IS_MASTER_DOWN_BY_ADDR_Keyspecs,0,NULL,4),.args=SENTINEL_IS_MASTER_DOWN_BY_ADDR_Args,.reply_schema=&SENTINEL_IS_MASTER_DOWN_BY_ADDR_ReplySchema},
 {MAKE_CMD("master","Returns the state of a master Redis instance.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MASTER_History,0,SENTINEL_MASTER_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MASTER_Keyspecs,0,NULL,1),.args=SENTINEL_MASTER_Args,.reply_schema=&SENTINEL_MASTER_ReplySchema},
-{MAKE_CMD("masters","Returns a list of monitored Redis masters.","O(N) where N is the number of masters","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,0,SENTINEL_MASTERS_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MASTERS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("masters","Returns a list of monitored Redis masters.","O(N) where N is the number of masters","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MASTERS_History,0,SENTINEL_MASTERS_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MASTERS_Keyspecs,0,NULL,0),.reply_schema=&SENTINEL_MASTERS_ReplySchema},
 {MAKE_CMD("monitor","Starts monitoring.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,0,SENTINEL_MONITOR_Tips,0,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MONITOR_Keyspecs,0,NULL,4),.args=SENTINEL_MONITOR_Args,.reply_schema=&SENTINEL_MONITOR_ReplySchema},
-{MAKE_CMD("myid","Returns the Redis Sentinel instance ID.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,0,SENTINEL_MYID_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MYID_Keyspecs,0,NULL,0)},
-{MAKE_CMD("pending-scripts","Returns information about pending scripts for Redis Sentinel.",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,0,SENTINEL_PENDING_SCRIPTS_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_PENDING_SCRIPTS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("myid","Returns the Redis Sentinel instance ID.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,0,SENTINEL_MYID_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_MYID_Keyspecs,0,NULL,0),.reply_schema=&SENTINEL_MYID_ReplySchema},
+{MAKE_CMD("pending-scripts","Returns information about pending scripts for Redis Sentinel.",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,0,SENTINEL_PENDING_SCRIPTS_Tips,0,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_PENDING_SCRIPTS_Keyspecs,0,NULL,0),.reply_schema=&SENTINEL_PENDING_SCRIPTS_ReplySchema},
 {MAKE_CMD("remove","Stops monitoring.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,0,SENTINEL_REMOVE_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_REMOVE_Keyspecs,0,NULL,1),.args=SENTINEL_REMOVE_Args,.reply_schema=&SENTINEL_REMOVE_ReplySchema},
 {MAKE_CMD("replicas","Returns a list of the monitored Redis replicas.","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,0,SENTINEL_REPLICAS_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_REPLICAS_Keyspecs,0,NULL,1),.args=SENTINEL_REPLICAS_Args,.reply_schema=&SENTINEL_REPLICAS_ReplySchema},
-{MAKE_CMD("reset","Resets Redis masters by name matching a pattern.","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,0,SENTINEL_RESET_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_RESET_Keyspecs,0,NULL,1),.args=SENTINEL_RESET_Args},
-{MAKE_CMD("sentinels","Returns a list of Sentinel instances.","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,0,SENTINEL_SENTINELS_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SENTINELS_Keyspecs,0,NULL,1),.args=SENTINEL_SENTINELS_Args},
+{MAKE_CMD("reset","Resets Redis masters by name matching a pattern.","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,0,SENTINEL_RESET_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_RESET_Keyspecs,0,NULL,1),.args=SENTINEL_RESET_Args,.reply_schema=&SENTINEL_RESET_ReplySchema},
+{MAKE_CMD("sentinels","Returns a list of Sentinel instances.","O(N) where N is the number of Sentinels","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SENTINELS_History,0,SENTINEL_SENTINELS_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SENTINELS_Keyspecs,0,NULL,1),.args=SENTINEL_SENTINELS_Args,.reply_schema=&SENTINEL_SENTINELS_ReplySchema},
 {MAKE_CMD("set","Changes the configuration of a monitored Redis master.","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SET_History,0,SENTINEL_SET_Tips,0,sentinelCommand,-5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SET_Keyspecs,0,NULL,2),.args=SENTINEL_SET_Args,.reply_schema=&SENTINEL_SET_ReplySchema},
-{MAKE_CMD("simulate-failure","Simulates failover scenarios.",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,0,SENTINEL_SIMULATE_FAILURE_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SIMULATE_FAILURE_Keyspecs,0,NULL,1),.args=SENTINEL_SIMULATE_FAILURE_Args},
-{MAKE_CMD("slaves","Returns a list of the monitored replicas.","O(N) where N is the number of replicas.","2.8.0",CMD_DOC_DEPRECATED,"`SENTINEL REPLICAS`","5.0.0","sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SLAVES_History,0,SENTINEL_SLAVES_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SLAVES_Keyspecs,0,NULL,1),.args=SENTINEL_SLAVES_Args},
+{MAKE_CMD("simulate-failure","Simulates failover scenarios.",NULL,"3.2.0",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SIMULATE_FAILURE_History,0,SENTINEL_SIMULATE_FAILURE_Tips,0,sentinelCommand,-3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SIMULATE_FAILURE_Keyspecs,0,NULL,1),.args=SENTINEL_SIMULATE_FAILURE_Args,.reply_schema=&SENTINEL_SIMULATE_FAILURE_ReplySchema},
+{MAKE_CMD("slaves","Returns a list of the monitored replicas.","O(N) where N is the number of replicas.","2.8.0",CMD_DOC_DEPRECATED,"`SENTINEL REPLICAS`","5.0.0","sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_SLAVES_History,0,SENTINEL_SLAVES_Tips,0,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_SLAVES_Keyspecs,0,NULL,1),.args=SENTINEL_SLAVES_Args,.reply_schema=&SENTINEL_SLAVES_ReplySchema},
 {0}
 };
 
@@ -10950,7 +11340,10 @@ struct jsonObject ACL_CAT_ReplySchema = {ACL_CAT_ReplySchema_elements,.length=1}
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL DELUSER tips */
-#define ACL_DELUSER_Tips NULL
+const char *ACL_DELUSER_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11477,7 +11870,10 @@ struct jsonObject ACL_LOG_ReplySchema = {ACL_LOG_ReplySchema_elements,.length=1}
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SAVE tips */
-#define ACL_SAVE_Tips NULL
+const char *ACL_SAVE_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11504,7 +11900,10 @@ commandHistory ACL_SETUSER_History[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SETUSER tips */
-#define ACL_SETUSER_Tips NULL
+const char *ACL_SETUSER_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -11586,7 +11985,7 @@ struct jsonObject ACL_WHOAMI_ReplySchema = {ACL_WHOAMI_ReplySchema_elements,.len
 /* ACL command table */
 struct COMMAND_STRUCT ACL_Subcommands[] = {
 {MAKE_CMD("cat","Lists the ACL categories, or the commands inside a category.","O(1) since the categories and commands are a fixed set.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_CAT_History,0,ACL_CAT_Tips,0,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_CAT_Keyspecs,0,NULL,1),.args=ACL_CAT_Args,.reply_schema=&ACL_CAT_ReplySchema},
-{MAKE_CMD("deluser","Deletes ACL users, and terminates their connections.","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DELUSER_History,0,ACL_DELUSER_Tips,0,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DELUSER_Keyspecs,0,NULL,1),.args=ACL_DELUSER_Args,.reply_schema=&ACL_DELUSER_ReplySchema},
+{MAKE_CMD("deluser","Deletes ACL users, and terminates their connections.","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DELUSER_History,0,ACL_DELUSER_Tips,2,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DELUSER_Keyspecs,0,NULL,1),.args=ACL_DELUSER_Args,.reply_schema=&ACL_DELUSER_ReplySchema},
 {MAKE_CMD("dryrun","Simulates the execution of a command by a user, without executing the command.","O(1).","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DRYRUN_History,0,ACL_DRYRUN_Tips,0,aclCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DRYRUN_Keyspecs,0,NULL,3),.args=ACL_DRYRUN_Args,.reply_schema=&ACL_DRYRUN_ReplySchema},
 {MAKE_CMD("genpass","Generates a pseudorandom, secure password that can be used to identify ACL users.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_GENPASS_History,0,ACL_GENPASS_Tips,0,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_GENPASS_Keyspecs,0,NULL,1),.args=ACL_GENPASS_Args,.reply_schema=&ACL_GENPASS_ReplySchema},
 {MAKE_CMD("getuser","Lists the ACL rules of a user.","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_GETUSER_History,2,ACL_GETUSER_Tips,0,aclCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_GETUSER_Keyspecs,0,NULL,1),.args=ACL_GETUSER_Args,.reply_schema=&ACL_GETUSER_ReplySchema},
@@ -11594,8 +11993,8 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 {MAKE_CMD("list","Dumps the effective rules in ACL file format.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LIST_History,0,ACL_LIST_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LIST_Keyspecs,0,NULL,0),.reply_schema=&ACL_LIST_ReplySchema},
 {MAKE_CMD("load","Reloads the rules from the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOAD_History,0,ACL_LOAD_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOAD_Keyspecs,0,NULL,0),.reply_schema=&ACL_LOAD_ReplySchema},
 {MAKE_CMD("log","Lists recent security events generated due to ACL rules.","O(N) with N being the number of entries shown.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOG_History,1,ACL_LOG_Tips,0,aclCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOG_Keyspecs,0,NULL,1),.args=ACL_LOG_Args,.reply_schema=&ACL_LOG_ReplySchema},
-{MAKE_CMD("save","Saves the effective ACL rules in the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SAVE_History,0,ACL_SAVE_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SAVE_Keyspecs,0,NULL,0),.reply_schema=&ACL_SAVE_ReplySchema},
-{MAKE_CMD("setuser","Creates and modifies an ACL user and its rules.","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SETUSER_History,2,ACL_SETUSER_Tips,0,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SETUSER_Keyspecs,0,NULL,2),.args=ACL_SETUSER_Args,.reply_schema=&ACL_SETUSER_ReplySchema},
+{MAKE_CMD("save","Saves the effective ACL rules in the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SAVE_History,0,ACL_SAVE_Tips,2,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SAVE_Keyspecs,0,NULL,0),.reply_schema=&ACL_SAVE_ReplySchema},
+{MAKE_CMD("setuser","Creates and modifies an ACL user and its rules.","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SETUSER_History,2,ACL_SETUSER_Tips,2,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SETUSER_Keyspecs,0,NULL,2),.args=ACL_SETUSER_Args,.reply_schema=&ACL_SETUSER_ReplySchema},
 {MAKE_CMD("users","Lists all ACL users.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_USERS_History,0,ACL_USERS_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_USERS_Keyspecs,0,NULL,0),.reply_schema=&ACL_USERS_ReplySchema},
 {MAKE_CMD("whoami","Returns the authenticated username of the current connection.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_WHOAMI_History,0,ACL_WHOAMI_Tips,0,aclCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_WHOAMI_Keyspecs,0,NULL,0),.reply_schema=&ACL_WHOAMI_ReplySchema},
 {0}
@@ -12854,7 +13253,7 @@ struct jsonObject COMMAND_LIST_ReplySchema = {COMMAND_LIST_ReplySchema_elements,
 /* COMMAND command table */
 struct COMMAND_STRUCT COMMAND_Subcommands[] = {
 {MAKE_CMD("count","Returns a count of commands.","O(1)","2.8.13",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_COUNT_History,0,COMMAND_COUNT_Tips,0,commandCountCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_COUNT_Keyspecs,0,NULL,0),.reply_schema=&COMMAND_COUNT_ReplySchema},
-{MAKE_CMD("docs","Returns documentary information about a command.","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_DOCS_History,0,COMMAND_DOCS_Tips,1,commandDocsCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_DOCS_Keyspecs,0,NULL,1),.args=COMMAND_DOCS_Args,.reply_schema=&COMMAND_DOCS_ReplySchema},
+{MAKE_CMD("docs","Returns documentary information about one, multiple or all commands.","O(N) where N is the number of commands to look up","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_DOCS_History,0,COMMAND_DOCS_Tips,1,commandDocsCommand,-2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_DOCS_Keyspecs,0,NULL,1),.args=COMMAND_DOCS_Args,.reply_schema=&COMMAND_DOCS_ReplySchema},
 {MAKE_CMD("getkeys","Extracts the key names from an arbitrary command.","O(N) where N is the number of arguments to the command","2.8.13",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_GETKEYS_History,0,COMMAND_GETKEYS_Tips,0,commandGetKeysCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_GETKEYS_Keyspecs,0,NULL,2),.args=COMMAND_GETKEYS_Args,.reply_schema=&COMMAND_GETKEYS_ReplySchema},
 {MAKE_CMD("getkeysandflags","Extracts the key names and access flags for an arbitrary command.","O(N) where N is the number of arguments to the command","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_GETKEYSANDFLAGS_History,0,COMMAND_GETKEYSANDFLAGS_Tips,0,commandGetKeysAndFlagsCommand,-3,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_GETKEYSANDFLAGS_Keyspecs,0,NULL,2),.args=COMMAND_GETKEYSANDFLAGS_Args,.reply_schema=&COMMAND_GETKEYSANDFLAGS_ReplySchema},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_HELP_History,0,COMMAND_HELP_Tips,0,commandHelpCommand,2,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_HELP_Keyspecs,0,NULL,0),.reply_schema=&COMMAND_HELP_ReplySchema},
@@ -12963,7 +13362,10 @@ struct jsonObject CONFIG_HELP_ReplySchema = {CONFIG_HELP_ReplySchema_elements,.l
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG RESETSTAT tips */
-#define CONFIG_RESETSTAT_Tips NULL
+const char *CONFIG_RESETSTAT_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -12987,7 +13389,10 @@ struct jsonObject CONFIG_RESETSTAT_ReplySchema = {CONFIG_RESETSTAT_ReplySchema_e
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG REWRITE tips */
-#define CONFIG_REWRITE_Tips NULL
+const char *CONFIG_REWRITE_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -13046,8 +13451,8 @@ struct jsonObject CONFIG_SET_ReplySchema = {CONFIG_SET_ReplySchema_elements,.len
 struct COMMAND_STRUCT CONFIG_Subcommands[] = {
 {MAKE_CMD("get","Returns the effective values of configuration parameters.","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_GET_History,1,CONFIG_GET_Tips,0,configGetCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_GET_Keyspecs,0,NULL,1),.args=CONFIG_GET_Args,.reply_schema=&CONFIG_GET_ReplySchema},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_HELP_History,0,CONFIG_HELP_Tips,0,configHelpCommand,2,CMD_LOADING|CMD_STALE,0,CONFIG_HELP_Keyspecs,0,NULL,0),.reply_schema=&CONFIG_HELP_ReplySchema},
-{MAKE_CMD("resetstat","Resets the server's statistics.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,0,CONFIG_RESETSTAT_Tips,0,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_RESETSTAT_Keyspecs,0,NULL,0),.reply_schema=&CONFIG_RESETSTAT_ReplySchema},
-{MAKE_CMD("rewrite","Persists the effective configuration to file.","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,0,CONFIG_REWRITE_Tips,0,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_REWRITE_Keyspecs,0,NULL,0),.reply_schema=&CONFIG_REWRITE_ReplySchema},
+{MAKE_CMD("resetstat","Resets the server's statistics.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,0,CONFIG_RESETSTAT_Tips,2,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_RESETSTAT_Keyspecs,0,NULL,0),.reply_schema=&CONFIG_RESETSTAT_ReplySchema},
+{MAKE_CMD("rewrite","Persists the effective configuration to file.","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,0,CONFIG_REWRITE_Tips,2,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_REWRITE_Keyspecs,0,NULL,0),.reply_schema=&CONFIG_REWRITE_ReplySchema},
 {MAKE_CMD("set","Sets configuration parameters in-flight.","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_SET_History,1,CONFIG_SET_Tips,2,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_SET_Keyspecs,0,NULL,1),.args=CONFIG_SET_Args,.reply_schema=&CONFIG_SET_ReplySchema},
 {0}
 };
@@ -13264,10 +13669,11 @@ struct COMMAND_ARG INFO_Args[] = {
 
 /* INFO_ReplySchema reply schema */
 struct jsonObjectElement INFO_ReplySchema_elements[] = {
+{JSON_TYPE_STRING,"description",.value.string="A map of info fields, one field per line in the form of <field>:<value> where the value can be a comma separated map like <key>=<val>. Also contains section header lines starting with `#` and blank lines."},
 {JSON_TYPE_STRING,"type",.value.string="string"},
 };
 
-struct jsonObject INFO_ReplySchema = {INFO_ReplySchema_elements,.length=1};
+struct jsonObject INFO_ReplySchema = {INFO_ReplySchema_elements,.length=2};
 
 /********** LASTSAVE ********************/
 
@@ -13636,7 +14042,7 @@ struct jsonObject LATENCY_LATEST_ReplySchema = {LATENCY_LATEST_ReplySchema_eleme
 /* LATENCY RESET tips */
 const char *LATENCY_RESET_Tips[] = {
 "request_policy:all_nodes",
-"response_policy:all_succeeded",
+"response_policy:agg_sum",
 };
 #endif
 
@@ -14541,10 +14947,27 @@ struct jsonObject REPLCONF_ReplySchema = {REPLCONF_ReplySchema_elements,.length=
 #define REPLICAOF_Keyspecs NULL
 #endif
 
-/* REPLICAOF argument table */
-struct COMMAND_ARG REPLICAOF_Args[] = {
+/* REPLICAOF args host_port argument table */
+struct COMMAND_ARG REPLICAOF_args_host_port_Subargs[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* REPLICAOF args no_one argument table */
+struct COMMAND_ARG REPLICAOF_args_no_one_Subargs[] = {
+{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("one",ARG_TYPE_PURE_TOKEN,-1,"ONE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* REPLICAOF args argument table */
+struct COMMAND_ARG REPLICAOF_args_Subargs[] = {
+{MAKE_ARG("host-port",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=REPLICAOF_args_host_port_Subargs},
+{MAKE_ARG("no-one",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=REPLICAOF_args_no_one_Subargs},
+};
+
+/* REPLICAOF argument table */
+struct COMMAND_ARG REPLICAOF_Args[] = {
+{MAKE_ARG("args",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=REPLICAOF_args_Subargs},
 };
 
 /* REPLICAOF_ReplySchema reply schema */
@@ -14956,10 +15379,27 @@ struct jsonObject SHUTDOWN_ReplySchema = {SHUTDOWN_ReplySchema_elements,.length=
 #define SLAVEOF_Keyspecs NULL
 #endif
 
-/* SLAVEOF argument table */
-struct COMMAND_ARG SLAVEOF_Args[] = {
+/* SLAVEOF args host_port argument table */
+struct COMMAND_ARG SLAVEOF_args_host_port_Subargs[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SLAVEOF args no_one argument table */
+struct COMMAND_ARG SLAVEOF_args_no_one_Subargs[] = {
+{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("one",ARG_TYPE_PURE_TOKEN,-1,"ONE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SLAVEOF args argument table */
+struct COMMAND_ARG SLAVEOF_args_Subargs[] = {
+{MAKE_ARG("host-port",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SLAVEOF_args_host_port_Subargs},
+{MAKE_ARG("no-one",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SLAVEOF_args_no_one_Subargs},
+};
+
+/* SLAVEOF argument table */
+struct COMMAND_ARG SLAVEOF_Args[] = {
+{MAKE_ARG("args",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SLAVEOF_args_Subargs},
 };
 
 /* SLAVEOF_ReplySchema reply schema */
@@ -17847,7 +18287,7 @@ struct jsonObject ZRANK_ReplySchema_oneOf_0 = {ZRANK_ReplySchema_oneOf_0_element
 /* ZRANK_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement ZRANK_ReplySchema_oneOf_1_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
-{JSON_TYPE_STRING,"description",.value.string="The rank of the member when 'WITHSCORES' is not used."},
+{JSON_TYPE_STRING,"description",.value.string="The rank of the member when 'WITHSCORE' is not used."},
 };
 
 struct jsonObject ZRANK_ReplySchema_oneOf_1 = {ZRANK_ReplySchema_oneOf_1_elements,.length=2};
@@ -17875,7 +18315,7 @@ struct jsonObject *ZRANK_ReplySchema_oneOf_2_items[] = {
 /* ZRANK_ReplySchema_oneOf_2 reply schema */
 struct jsonObjectElement ZRANK_ReplySchema_oneOf_2_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_STRING,"description",.value.string="The rank and score of the member when 'WITHSCORES' is used."},
+{JSON_TYPE_STRING,"description",.value.string="The rank and score of the member when 'WITHSCORE' is used."},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=2},
 {JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=ZRANK_ReplySchema_oneOf_2_items,.length=2}},
@@ -18333,7 +18773,7 @@ struct jsonObject ZREVRANK_ReplySchema_oneOf_0 = {ZREVRANK_ReplySchema_oneOf_0_e
 /* ZREVRANK_ReplySchema_oneOf_1 reply schema */
 struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_1_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
-{JSON_TYPE_STRING,"description",.value.string="The rank of the member when 'WITHSCORES' is not used."},
+{JSON_TYPE_STRING,"description",.value.string="The rank of the member when 'WITHSCORE' is not used."},
 };
 
 struct jsonObject ZREVRANK_ReplySchema_oneOf_1 = {ZREVRANK_ReplySchema_oneOf_1_elements,.length=2};
@@ -18361,7 +18801,7 @@ struct jsonObject *ZREVRANK_ReplySchema_oneOf_2_items[] = {
 /* ZREVRANK_ReplySchema_oneOf_2 reply schema */
 struct jsonObjectElement ZREVRANK_ReplySchema_oneOf_2_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="array"},
-{JSON_TYPE_STRING,"description",.value.string="The rank and score of the member when 'WITHSCORES' is used."},
+{JSON_TYPE_STRING,"description",.value.string="The rank and score of the member when 'WITHSCORE' is used."},
 {JSON_TYPE_INTEGER,"minItems",.value.integer=2},
 {JSON_TYPE_INTEGER,"maxItems",.value.integer=2},
 {JSON_TYPE_ARRAY,"items",.value.array={.objects=ZREVRANK_ReplySchema_oneOf_2_items,.length=2}},
@@ -21166,7 +21606,7 @@ struct COMMAND_ARG APPEND_Args[] = {
 /* APPEND_ReplySchema reply schema */
 struct jsonObjectElement APPEND_ReplySchema_elements[] = {
 {JSON_TYPE_STRING,"type",.value.string="integer"},
-{JSON_TYPE_STRING,"description",.value.string="The the length of the string after the append operation."},
+{JSON_TYPE_STRING,"description",.value.string="The length of the string after the append operation."},
 };
 
 struct jsonObject APPEND_ReplySchema = {APPEND_ReplySchema_elements,.length=2};
@@ -21857,10 +22297,7 @@ struct jsonObject MSET_ReplySchema = {MSET_ReplySchema_elements,.length=1};
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MSETNX tips */
-const char *MSETNX_Tips[] = {
-"request_policy:multi_shard",
-"response_policy:agg_min",
-};
+#define MSETNX_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -22417,11 +22854,11 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("pexpireat","Sets the expiration time of a key to a Unix milliseconds timestamp.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,PEXPIREAT_History,1,PEXPIREAT_Tips,0,pexpireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,PEXPIREAT_Keyspecs,1,NULL,3),.args=PEXPIREAT_Args,.reply_schema=&PEXPIREAT_ReplySchema},
 {MAKE_CMD("pexpiretime","Returns the expiration time of a key as a Unix milliseconds timestamp.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,PEXPIRETIME_History,0,PEXPIRETIME_Tips,0,pexpiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,PEXPIRETIME_Keyspecs,1,NULL,1),.args=PEXPIRETIME_Args,.reply_schema=&PEXPIRETIME_ReplySchema},
 {MAKE_CMD("pttl","Returns the expiration time in milliseconds of a key.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,PTTL_History,1,PTTL_Tips,1,pttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,PTTL_Keyspecs,1,NULL,1),.args=PTTL_Args,.reply_schema=&PTTL_ReplySchema},
-{MAKE_CMD("randomkey","Returns a random key name from the database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RANDOMKEY_History,0,RANDOMKEY_Tips,2,randomkeyCommand,1,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,RANDOMKEY_Keyspecs,0,NULL,0),.reply_schema=&RANDOMKEY_ReplySchema},
+{MAKE_CMD("randomkey","Returns a random key name from the database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RANDOMKEY_History,0,RANDOMKEY_Tips,3,randomkeyCommand,1,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,RANDOMKEY_Keyspecs,0,NULL,0),.reply_schema=&RANDOMKEY_ReplySchema},
 {MAKE_CMD("rename","Renames a key and overwrites the destination.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RENAME_History,0,RENAME_Tips,0,renameCommand,3,CMD_WRITE,ACL_CATEGORY_KEYSPACE,RENAME_Keyspecs,2,NULL,2),.args=RENAME_Args,.reply_schema=&RENAME_ReplySchema},
 {MAKE_CMD("renamenx","Renames a key only when the target key name doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RENAMENX_History,1,RENAMENX_Tips,0,renamenxCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,RENAMENX_Keyspecs,2,NULL,2),.args=RENAMENX_Args,.reply_schema=&RENAMENX_ReplySchema},
 {MAKE_CMD("restore","Creates a key from the serialized representation of a value.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RESTORE_History,3,RESTORE_Tips,0,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,RESTORE_Keyspecs,1,NULL,7),.args=RESTORE_Args,.reply_schema=&RESTORE_ReplySchema},
-{MAKE_CMD("scan","Iterates over the key names in the database.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SCAN_History,1,SCAN_Tips,2,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,SCAN_Keyspecs,0,NULL,4),.args=SCAN_Args,.reply_schema=&SCAN_ReplySchema},
+{MAKE_CMD("scan","Iterates over the key names in the database.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SCAN_History,1,SCAN_Tips,3,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,SCAN_Keyspecs,0,NULL,4),.args=SCAN_Args,.reply_schema=&SCAN_ReplySchema},
 {MAKE_CMD("sort","Sorts the elements in a list, a set, or a sorted set, optionally storing the result.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SORT_History,0,SORT_Tips,0,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,SORT_Keyspecs,3,sortGetKeys,7),.args=SORT_Args,.reply_schema=&SORT_ReplySchema},
 {MAKE_CMD("sort_ro","Returns the sorted elements of a list, a set, or a sorted set.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SORT_RO_History,0,SORT_RO_Tips,0,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,SORT_RO_Keyspecs,2,sortROGetKeys,6),.args=SORT_RO_Args,.reply_schema=&SORT_RO_ReplySchema},
 {MAKE_CMD("touch","Returns the number of existing keys out of those specified after updating the time they were last accessed.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,TOUCH_History,0,TOUCH_Tips,2,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,TOUCH_Keyspecs,1,NULL,1),.args=TOUCH_Args,.reply_schema=&TOUCH_ReplySchema},
@@ -22432,11 +22869,11 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("waitaof","Blocks until all of the preceding write commands sent by the connection are written to the append-only file of the master and/or replicas.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAITAOF_History,0,WAITAOF_Tips,2,waitaofCommand,4,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,WAITAOF_Keyspecs,0,NULL,3),.args=WAITAOF_Args,.reply_schema=&WAITAOF_ReplySchema},
 /* geo */
 {MAKE_CMD("geoadd","Adds one or more members to a geospatial index. The key is created if it doesn't exist.","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOADD_History,1,GEOADD_Tips,0,geoaddCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEOADD_Keyspecs,1,NULL,4),.args=GEOADD_Args,.reply_schema=&GEOADD_ReplySchema},
-{MAKE_CMD("geodist","Returns the distance between two members of a geospatial index.","O(log(N))","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args,.reply_schema=&GEODIST_ReplySchema},
-{MAKE_CMD("geohash","Returns members from a geospatial index as geohash strings.","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOHASH_History,0,GEOHASH_Tips,0,geohashCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOHASH_Keyspecs,1,NULL,2),.args=GEOHASH_Args,.reply_schema=&GEOHASH_ReplySchema},
-{MAKE_CMD("geopos","Returns the longitude and latitude of members from a geospatial index.","O(N) where N is the number of members requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOPOS_History,0,GEOPOS_Tips,0,geoposCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOPOS_Keyspecs,1,NULL,2),.args=GEOPOS_Args,.reply_schema=&GEOPOS_ReplySchema},
-{MAKE_CMD("georadius","Queries a geospatial index for members within a distance from a coordinate, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,2,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,12),.args=GEORADIUS_Args,.reply_schema=&GEORADIUS_ReplySchema},
-{MAKE_CMD("georadiusbymember","Queries a geospatial index for members within a distance from a member, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,1,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUSBYMEMBER_Args,.reply_schema=&GEORADIUSBYMEMBER_ReplySchema},
+{MAKE_CMD("geodist","Returns the distance between two members of a geospatial index.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args,.reply_schema=&GEODIST_ReplySchema},
+{MAKE_CMD("geohash","Returns members from a geospatial index as geohash strings.","O(1) for each member requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOHASH_History,0,GEOHASH_Tips,0,geohashCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOHASH_Keyspecs,1,NULL,2),.args=GEOHASH_Args,.reply_schema=&GEOHASH_ReplySchema},
+{MAKE_CMD("geopos","Returns the longitude and latitude of members from a geospatial index.","O(1) for each member requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOPOS_History,0,GEOPOS_Tips,0,geoposCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOPOS_Keyspecs,1,NULL,2),.args=GEOPOS_Args,.reply_schema=&GEOPOS_ReplySchema},
+{MAKE_CMD("georadius","Queries a geospatial index for members within a distance from a coordinate, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,2,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUS_Args,.reply_schema=&GEORADIUS_ReplySchema},
+{MAKE_CMD("georadiusbymember","Queries a geospatial index for members within a distance from a member, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,1,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,10),.args=GEORADIUSBYMEMBER_Args,.reply_schema=&GEORADIUSBYMEMBER_ReplySchema},
 {MAKE_CMD("georadiusbymember_ro","Returns members from a geospatial index that are within a distance from a member.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_History,0,GEORADIUSBYMEMBER_RO_Tips,0,georadiusbymemberroCommand,-5,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_RO_Keyspecs,1,NULL,9),.args=GEORADIUSBYMEMBER_RO_Args,.reply_schema=&GEORADIUSBYMEMBER_RO_ReplySchema},
 {MAKE_CMD("georadius_ro","Returns members from a geospatial index that are within a distance from a coordinate.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_RO_History,1,GEORADIUS_RO_Tips,0,georadiusroCommand,-6,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUS_RO_Keyspecs,1,NULL,10),.args=GEORADIUS_RO_Args,.reply_schema=&GEORADIUS_RO_ReplySchema},
 {MAKE_CMD("geosearch","Queries a geospatial index for members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCH_History,1,GEOSEARCH_Tips,0,geosearchCommand,-7,CMD_READONLY,ACL_CATEGORY_GEO,GEOSEARCH_Keyspecs,1,NULL,8),.args=GEOSEARCH_Args,.reply_schema=&GEOSEARCH_ReplySchema},
@@ -22483,20 +22920,20 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lrem","Removes elements from a list. Deletes the list if the last element was removed.","O(N+M) where N is the length of the list and M is the number of elements removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LREM_History,0,LREM_Tips,0,lremCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,LREM_Keyspecs,1,NULL,3),.args=LREM_Args,.reply_schema=&LREM_ReplySchema},
 {MAKE_CMD("lset","Sets the value of an element in a list by its index.","O(N) where N is the length of the list. Setting either the first or the last element of the list is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LSET_History,0,LSET_Tips,0,lsetCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LSET_Keyspecs,1,NULL,3),.args=LSET_Args,.reply_schema=&LSET_ReplySchema},
 {MAKE_CMD("ltrim","Removes elements from both ends a list. Deletes the list if all elements were trimmed.","O(N) where N is the number of elements to be removed by the operation.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LTRIM_History,0,LTRIM_Tips,0,ltrimCommand,4,CMD_WRITE,ACL_CATEGORY_LIST,LTRIM_Keyspecs,1,NULL,3),.args=LTRIM_Args,.reply_schema=&LTRIM_ReplySchema},
-{MAKE_CMD("rpop","Returns and removes the last elements of a list. Deletes the list if the lst element was popped.","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPOP_History,1,RPOP_Tips,0,rpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,RPOP_Keyspecs,1,NULL,2),.args=RPOP_Args,.reply_schema=&RPOP_ReplySchema},
-{MAKE_CMD("rpoplpush","Returns the last element of a list after removing and pushing it to another list. Deletes the list if the lst element was popped.","O(1)","1.2.0",CMD_DOC_DEPRECATED,"`LMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0","list",COMMAND_GROUP_LIST,RPOPLPUSH_History,0,RPOPLPUSH_Tips,0,rpoplpushCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,RPOPLPUSH_Keyspecs,2,NULL,2),.args=RPOPLPUSH_Args,.reply_schema=&RPOPLPUSH_ReplySchema},
+{MAKE_CMD("rpop","Returns and removes the last elements of a list. Deletes the list if the last element was popped.","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPOP_History,1,RPOP_Tips,0,rpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,RPOP_Keyspecs,1,NULL,2),.args=RPOP_Args,.reply_schema=&RPOP_ReplySchema},
+{MAKE_CMD("rpoplpush","Returns the last element of a list after removing and pushing it to another list. Deletes the list if the last element was popped.","O(1)","1.2.0",CMD_DOC_DEPRECATED,"`LMOVE` with the `RIGHT` and `LEFT` arguments","6.2.0","list",COMMAND_GROUP_LIST,RPOPLPUSH_History,0,RPOPLPUSH_Tips,0,rpoplpushCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,RPOPLPUSH_Keyspecs,2,NULL,2),.args=RPOPLPUSH_Args,.reply_schema=&RPOPLPUSH_ReplySchema},
 {MAKE_CMD("rpush","Appends one or more elements to a list. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSH_History,1,RPUSH_Tips,0,rpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSH_Keyspecs,1,NULL,2),.args=RPUSH_Args,.reply_schema=&RPUSH_ReplySchema},
 {MAKE_CMD("rpushx","Appends an element to a list only when the list exists.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSHX_History,1,RPUSHX_Tips,0,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSHX_Keyspecs,1,NULL,2),.args=RPUSHX_Args,.reply_schema=&RPUSHX_ReplySchema},
 /* pubsub */
-{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,0,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
+{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,0,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
 {MAKE_CMD("publish","Posts a message to a channel.","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBLISH_History,0,PUBLISH_Tips,0,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,PUBLISH_Keyspecs,0,NULL,2),.args=PUBLISH_Args,.reply_schema=&PUBLISH_ReplySchema},
 {MAKE_CMD("pubsub","A container for Pub/Sub commands.","Depends on subcommand.","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_History,0,PUBSUB_Tips,0,NULL,-2,0,0,PUBSUB_Keyspecs,0,NULL,0),.subcommands=PUBSUB_Subcommands},
-{MAKE_CMD("punsubscribe","Stops listening to messages published to channels that match one or more patterns.","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,0,PUNSUBSCRIBE_Tips,0,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PUNSUBSCRIBE_Keyspecs,0,NULL,1),.args=PUNSUBSCRIBE_Args},
+{MAKE_CMD("punsubscribe","Stops listening to messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,0,PUNSUBSCRIBE_Tips,0,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PUNSUBSCRIBE_Keyspecs,0,NULL,1),.args=PUNSUBSCRIBE_Args},
 {MAKE_CMD("spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SPUBLISH_History,0,SPUBLISH_Tips,0,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,SPUBLISH_Keyspecs,1,NULL,2),.args=SPUBLISH_Args,.reply_schema=&SPUBLISH_ReplySchema},
 {MAKE_CMD("ssubscribe","Listens for messages published to shard channels.","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,0,SSUBSCRIBE_Tips,0,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SSUBSCRIBE_Keyspecs,1,NULL,1),.args=SSUBSCRIBE_Args},
 {MAKE_CMD("subscribe","Listens for messages published to channels.","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,0,SUBSCRIBE_Tips,0,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,SUBSCRIBE_Keyspecs,0,NULL,1),.args=SUBSCRIBE_Args},
-{MAKE_CMD("sunsubscribe","Stops listening to messages posted to shard channels.","O(N) where N is the number of clients already subscribed to a shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,0,SUNSUBSCRIBE_Tips,0,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SUNSUBSCRIBE_Keyspecs,1,NULL,1),.args=SUNSUBSCRIBE_Args},
-{MAKE_CMD("unsubscribe","Stops listening to messages posted to channels.","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_History,0,UNSUBSCRIBE_Tips,0,unsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,UNSUBSCRIBE_Keyspecs,0,NULL,1),.args=UNSUBSCRIBE_Args},
+{MAKE_CMD("sunsubscribe","Stops listening to messages posted to shard channels.","O(N) where N is the number of shard channels to unsubscribe.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,0,SUNSUBSCRIBE_Tips,0,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SUNSUBSCRIBE_Keyspecs,1,NULL,1),.args=SUNSUBSCRIBE_Args},
+{MAKE_CMD("unsubscribe","Stops listening to messages posted to channels.","O(N) where N is the number of channels to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_History,0,UNSUBSCRIBE_Tips,0,unsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,UNSUBSCRIBE_Keyspecs,0,NULL,1),.args=UNSUBSCRIBE_Args},
 /* scripting */
 {MAKE_CMD("eval","Executes a server-side Lua script.","Depends on the script that is executed.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,EVAL_History,0,EVAL_Tips,0,evalCommand,-3,CMD_NOSCRIPT|CMD_SKIP_MONITOR|CMD_MAY_REPLICATE|CMD_NO_MANDATORY_KEYS|CMD_STALE,ACL_CATEGORY_SCRIPTING,EVAL_Keyspecs,1,evalGetKeys,4),.args=EVAL_Args,.reply_schema=&EVAL_ReplySchema},
 {MAKE_CMD("evalsha","Executes a server-side Lua script by SHA1 digest.","Depends on the script that is executed.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,EVALSHA_History,0,EVALSHA_Tips,0,evalShaCommand,-3,CMD_NOSCRIPT|CMD_SKIP_MONITOR|CMD_MAY_REPLICATE|CMD_NO_MANDATORY_KEYS|CMD_STALE,ACL_CATEGORY_SCRIPTING,EVALSHA_Keyspecs,1,evalGetKeys,4),.args=EVALSHA_Args,.reply_schema=&EVALSHA_ReplySchema},
@@ -22528,12 +22965,12 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("monitor","Listens for all requests received by the server in real-time.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MONITOR_History,0,MONITOR_Tips,0,monitorCommand,1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,MONITOR_Keyspecs,0,NULL,0)},
 {MAKE_CMD("psync","An internal command used in replication.",NULL,"2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,PSYNC_History,0,PSYNC_Tips,0,syncCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,PSYNC_Keyspecs,0,NULL,2),.args=PSYNC_Args},
 {MAKE_CMD("replconf","An internal command for configuring the replication stream.","O(1)","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLCONF_History,0,REPLCONF_Tips,0,replconfCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_ALLOW_BUSY,0,REPLCONF_Keyspecs,0,NULL,0),.reply_schema=&REPLCONF_ReplySchema},
-{MAKE_CMD("replicaof","Configures a server as replica of another, or promotes it to a master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLICAOF_History,0,REPLICAOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,REPLICAOF_Keyspecs,0,NULL,2),.args=REPLICAOF_Args,.reply_schema=&REPLICAOF_ReplySchema},
+{MAKE_CMD("replicaof","Configures a server as replica of another, or promotes it to a master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLICAOF_History,0,REPLICAOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,REPLICAOF_Keyspecs,0,NULL,1),.args=REPLICAOF_Args,.reply_schema=&REPLICAOF_ReplySchema},
 {MAKE_CMD("restore-asking","An internal command for migrating keys in a cluster.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,"server",COMMAND_GROUP_SERVER,RESTORE_ASKING_History,3,RESTORE_ASKING_Tips,0,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_ASKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,RESTORE_ASKING_Keyspecs,1,NULL,7),.args=RESTORE_ASKING_Args,.reply_schema=&RESTORE_ASKING_ReplySchema},
 {MAKE_CMD("role","Returns the replication role.","O(1)","2.8.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ROLE_History,0,ROLE_Tips,0,roleCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS,ROLE_Keyspecs,0,NULL,0),.reply_schema=&ROLE_ReplySchema},
 {MAKE_CMD("save","Synchronously saves the database(s) to disk.","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SAVE_History,0,SAVE_Tips,0,saveCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_NO_MULTI,0,SAVE_Keyspecs,0,NULL,0),.reply_schema=&SAVE_ReplySchema},
 {MAKE_CMD("shutdown","Synchronously saves the database(s) to disk and shuts down the Redis server.","O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SHUTDOWN_History,1,SHUTDOWN_Tips,0,shutdownCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_NO_MULTI|CMD_SENTINEL|CMD_ALLOW_BUSY,0,SHUTDOWN_Keyspecs,0,NULL,4),.args=SHUTDOWN_Args,.reply_schema=&SHUTDOWN_ReplySchema},
-{MAKE_CMD("slaveof","Sets a Redis server as a replica of another, or promotes it to being a master.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`REPLICAOF`","5.0.0","server",COMMAND_GROUP_SERVER,SLAVEOF_History,0,SLAVEOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,SLAVEOF_Keyspecs,0,NULL,2),.args=SLAVEOF_Args,.reply_schema=&SLAVEOF_ReplySchema},
+{MAKE_CMD("slaveof","Sets a Redis server as a replica of another, or promotes it to being a master.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`REPLICAOF`","5.0.0","server",COMMAND_GROUP_SERVER,SLAVEOF_History,0,SLAVEOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,SLAVEOF_Keyspecs,0,NULL,1),.args=SLAVEOF_Args,.reply_schema=&SLAVEOF_ReplySchema},
 {MAKE_CMD("slowlog","A container for slow log commands.","Depends on subcommand.","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_History,0,SLOWLOG_Tips,0,NULL,-2,0,0,SLOWLOG_Keyspecs,0,NULL,0),.subcommands=SLOWLOG_Subcommands},
 {MAKE_CMD("swapdb","Swaps two Redis databases.","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SWAPDB_History,0,SWAPDB_Tips,0,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SWAPDB_Keyspecs,0,NULL,2),.args=SWAPDB_Args,.reply_schema=&SWAPDB_ReplySchema},
 {MAKE_CMD("sync","An internal command used in replication.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SYNC_History,0,SYNC_Tips,0,syncCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,SYNC_Keyspecs,0,NULL,0)},
@@ -22603,8 +23040,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xlen","Return the number of messages in a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XLEN_History,0,XLEN_Tips,0,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XLEN_Keyspecs,1,NULL,1),.args=XLEN_Args,.reply_schema=&XLEN_ReplySchema},
 {MAKE_CMD("xpending","Returns the information and entries from a stream consumer group's pending entries list.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XPENDING_History,1,XPENDING_Tips,1,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XPENDING_Keyspecs,1,NULL,3),.args=XPENDING_Args,.reply_schema=&XPENDING_ReplySchema},
 {MAKE_CMD("xrange","Returns the messages from a stream within a range of IDs.","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XRANGE_History,1,XRANGE_Tips,0,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XRANGE_Keyspecs,1,NULL,4),.args=XRANGE_Args,.reply_schema=&XRANGE_ReplySchema},
-{MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,0,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY|CMD_BLOCKING,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,3),.args=XREAD_Args,.reply_schema=&XREAD_ReplySchema},
-{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in agroup. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,5),.args=XREADGROUP_Args,.reply_schema=&XREADGROUP_ReplySchema},
+{MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,0,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,3),.args=XREAD_Args,.reply_schema=&XREAD_ReplySchema},
+{MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,5),.args=XREADGROUP_Args,.reply_schema=&XREADGROUP_ReplySchema},
 {MAKE_CMD("xrevrange","Returns the messages from a stream within a range of IDs in reverse order.","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREVRANGE_History,1,XREVRANGE_Tips,0,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XREVRANGE_Keyspecs,1,NULL,4),.args=XREVRANGE_Args,.reply_schema=&XREVRANGE_ReplySchema},
 {MAKE_CMD("xsetid","An internal command for replicating stream values.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSETID_History,1,XSETID_Tips,0,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XSETID_Keyspecs,1,NULL,4),.args=XSETID_Args,.reply_schema=&XSETID_ReplySchema},
 {MAKE_CMD("xtrim","Deletes messages from the beginning of a stream.","O(N), with N being the number of evicted entries. Constant times are very small however, since entries are organized in macro nodes containing multiple entries that can be released with a single deallocation.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XTRIM_History,1,XTRIM_Tips,1,xtrimCommand,-4,CMD_WRITE,ACL_CATEGORY_STREAM,XTRIM_Keyspecs,1,NULL,2),.args=XTRIM_Args,.reply_schema=&XTRIM_ReplySchema},
@@ -22623,7 +23060,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lcs","Finds the longest common substring.","O(N*M) where N and M are the lengths of s1 and s2, respectively","7.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,LCS_History,0,LCS_Tips,0,lcsCommand,-3,CMD_READONLY,ACL_CATEGORY_STRING,LCS_Keyspecs,1,NULL,6),.args=LCS_Args,.reply_schema=&LCS_ReplySchema},
 {MAKE_CMD("mget","Atomically returns the string values of one or more keys.","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MGET_History,0,MGET_Tips,1,mgetCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,MGET_Keyspecs,1,NULL,1),.args=MGET_Args,.reply_schema=&MGET_ReplySchema},
 {MAKE_CMD("mset","Atomically creates or modifies the string values of one or more keys.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSET_History,0,MSET_Tips,2,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSET_Keyspecs,1,NULL,1),.args=MSET_Args,.reply_schema=&MSET_ReplySchema},
-{MAKE_CMD("msetnx","Atomically modifies the string values of one or more keys only when all keys don't exist.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSETNX_History,0,MSETNX_Tips,2,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSETNX_Keyspecs,1,NULL,1),.args=MSETNX_Args,.reply_schema=&MSETNX_ReplySchema},
+{MAKE_CMD("msetnx","Atomically modifies the string values of one or more keys only when all keys don't exist.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSETNX_History,0,MSETNX_Tips,0,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSETNX_Keyspecs,1,NULL,1),.args=MSETNX_Args,.reply_schema=&MSETNX_ReplySchema},
 {MAKE_CMD("psetex","Sets both string value and expiration time in milliseconds of a key. The key is created if it doesn't exist.","O(1)","2.6.0",CMD_DOC_DEPRECATED,"`SET` with the `PX` argument","2.6.12","string",COMMAND_GROUP_STRING,PSETEX_History,0,PSETEX_Tips,0,psetexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,PSETEX_Keyspecs,1,NULL,3),.args=PSETEX_Args,.reply_schema=&PSETEX_ReplySchema},
 {MAKE_CMD("set","Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args,.reply_schema=&SET_ReplySchema},
 {MAKE_CMD("setex","Sets the string value and expiration time of a key. Creates the key if it doesn't exist.","O(1)","2.0.0",CMD_DOC_DEPRECATED,"`SET` with the `EX` argument","2.6.12","string",COMMAND_GROUP_STRING,SETEX_History,0,SETEX_Tips,0,setexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETEX_Keyspecs,1,NULL,3),.args=SETEX_Args,.reply_schema=&SETEX_ReplySchema},
