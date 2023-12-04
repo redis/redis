@@ -415,10 +415,7 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
  * to scriptingReset() function), otherwise NULL is returned.
  *
  * The function handles the fact of being called with a script that already
- * exists, and in such a case, it behaves like in the success case.
- *
- * If 'c' is not NULL, on error the client is informed with an appropriate
- * error describing the nature of the problem and the Lua interpreter error. */
+ * exists, and in such a case, it behaves like in the success case. */
 sds luaCreateFunction(client *c, robj *body) {
     char funcname[43];
     dictEntry *de;
@@ -442,11 +439,9 @@ sds luaCreateFunction(client *c, robj *body) {
 
     /* Note that in case of a shebang line we skip it but keep the line feed to conserve the user's line numbers */
     if (luaL_loadbuffer(lctx.lua,(char*)body->ptr + shebang_len,sdslen(body->ptr) - shebang_len,"@user_script")) {
-        if (c != NULL) {
-            addReplyErrorFormat(c,
-                "Error compiling script (new function): %s",
-                lua_tostring(lctx.lua,-1));
-        }
+        addReplyErrorFormat(c,
+            "Error compiling script (new function): %s",
+            lua_tostring(lctx.lua,-1));
         lua_pop(lctx.lua,1);
         return NULL;
     }
@@ -463,7 +458,7 @@ sds luaCreateFunction(client *c, robj *body) {
     l->flags = script_flags;
     sds sha = sdsnewlen(funcname+2,40);
     int retval = dictAdd(lctx.lua_scripts,sha,l);
-    serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
+    serverAssertWithInfo(c, NULL, retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
     return sha;
