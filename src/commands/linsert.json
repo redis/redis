@@ -80,12 +80,6 @@
                 "name": "element",
                 "type": "string",
                 "multiple": true
-            },
-            {
-                "name": "rev",
-                "token":"REV",
-                "type":"pure-token",
-                "optional":true
             }
         ]
     }

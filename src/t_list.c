@@ -548,11 +548,6 @@ void linsertCommand(client *c) {
         return;
     }
 
-    if (c->argc == 5 && (strcasecmp(c->argv[4]->ptr,"rev") == 0)) {
-        rejectCommandFormat(c,"wrong number of arguments for '%s' command",c->cmd->fullname);
-        return;
-    }
-
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,OBJ_LIST)) return;
 
@@ -567,26 +562,14 @@ void linsertCommand(client *c) {
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
     while (listTypeNext(iter,&entry)) {
         if (listTypeEqual(&entry,c->argv[3])) {
-            if (strcasecmp(c->argv[c->argc - 1]->ptr,"rev") != 0) {
-                if (where == LIST_HEAD) {
-	            for (int element = c->argc-1; element>=4; element--) {
-                        listTypeInsert(&entry,c->argv[element],where);
-                    }
-                } else {
-                    for (int element = 4; element < c->argc; element++) {
-                        listTypeInsert(&entry,c->argv[element],where);
-                    }
+            if (where == LIST_TAIL) {
+                for (int element = 4; element < c->argc; element++) {
+                    listTypeInsert(&entry,c->argv[element],where);
                 }
-	    } else {
-                if (where == LIST_HEAD) {
-                    for (int element = 4; element < c->argc-1; element++) {
-                        listTypeInsert(&entry,c->argv[element],where);
-                    }
-                } else {
-                    for (int element = c->argc-2; element>=4; element--) {
-                        listTypeInsert(&entry,c->argv[element],where);
-                    }
-		}
+            } else if (where == LIST_HEAD) {
+                for (int element = c->argc-1; element>=4; element--) {
+                    listTypeInsert(&entry,c->argv[element],where);
+                }
             }
             inserted = 1;
             break;
