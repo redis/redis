@@ -13,17 +13,17 @@ TEST_BEGIN(test_mq_basic) {
 	mq_t mq;
 	mq_msg_t msg;
 
-	assert_false(mq_init(&mq), "Unexpected mq_init() failure");
-	assert_u_eq(mq_count(&mq), 0, "mq should be empty");
-	assert_ptr_null(mq_tryget(&mq),
+	expect_false(mq_init(&mq), "Unexpected mq_init() failure");
+	expect_u_eq(mq_count(&mq), 0, "mq should be empty");
+	expect_ptr_null(mq_tryget(&mq),
 	    "mq_tryget() should fail when the queue is empty");
 
 	mq_put(&mq, &msg);
-	assert_u_eq(mq_count(&mq), 1, "mq should contain one message");
-	assert_ptr_eq(mq_tryget(&mq), &msg, "mq_tryget() should return msg");
+	expect_u_eq(mq_count(&mq), 1, "mq should contain one message");
+	expect_ptr_eq(mq_tryget(&mq), &msg, "mq_tryget() should return msg");
 
 	mq_put(&mq, &msg);
-	assert_ptr_eq(mq_get(&mq), &msg, "mq_get() should return msg");
+	expect_ptr_eq(mq_get(&mq), &msg, "mq_get() should return msg");
 
 	mq_fini(&mq);
 }
@@ -36,7 +36,7 @@ thd_receiver_start(void *arg) {
 
 	for (i = 0; i < (NSENDERS * NMSGS); i++) {
 		mq_msg_t *msg = mq_get(mq);
-		assert_ptr_not_null(msg, "mq_get() should never return NULL");
+		expect_ptr_not_null(msg, "mq_get() should never return NULL");
 		dallocx(msg, 0);
 	}
 	return NULL;
@@ -51,7 +51,7 @@ thd_sender_start(void *arg) {
 		mq_msg_t *msg;
 		void *p;
 		p = mallocx(sizeof(mq_msg_t), 0);
-		assert_ptr_not_null(p, "Unexpected mallocx() failure");
+		expect_ptr_not_null(p, "Unexpected mallocx() failure");
 		msg = (mq_msg_t *)p;
 		mq_put(mq, msg);
 	}
@@ -64,7 +64,7 @@ TEST_BEGIN(test_mq_threaded) {
 	thd_t senders[NSENDERS];
 	unsigned i;
 
-	assert_false(mq_init(&mq), "Unexpected mq_init() failure");
+	expect_false(mq_init(&mq), "Unexpected mq_init() failure");
 
 	thd_create(&receiver, thd_receiver_start, (void *)&mq);
 	for (i = 0; i < NSENDERS; i++) {

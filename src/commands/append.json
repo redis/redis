@@ -1,6 +1,6 @@
 {
     "APPEND": {
-        "summary": "Append a value to a key",
+        "summary": "Appends a string to the value of a key. Creates the key if it doesn't exist.",
         "complexity": "O(1). The amortized time complexity is O(1) assuming the appended value is small and the already present value is of any size, since the dynamic string library used by Redis will double the free space available on every reallocation.",
         "group": "string",
         "since": "2.0.0",
@@ -36,7 +36,7 @@
         ],
         "reply_schema": {
             "type": "integer",
-            "description": "The the length of the string after the append operation."
+            "description": "The length of the string after the append operation."
         },
         "arguments": [
             {

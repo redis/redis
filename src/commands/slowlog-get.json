@@ -1,6 +1,6 @@
 {
     "GET": {
-        "summary": "Get the slow log's entries",
+        "summary": "Returns the slow log's entries.",
         "complexity": "O(N) where N is the number of entries returned",
         "group": "server",
         "since": "2.2.12",

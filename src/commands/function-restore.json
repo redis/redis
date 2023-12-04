@@ -1,6 +1,6 @@
 {
     "RESTORE": {
-        "summary": "Restore all the functions on the given payload",
+        "summary": "Restores all libraries from a payload.",
         "complexity": "O(N) where N is the number of functions on the payload",
         "group": "scripting",
         "since": "7.0.0",

@@ -164,12 +164,12 @@ void aofManifestFree(aofManifest *am) {
     zfree(am);
 }
 
-sds getAofManifestFileName() {
+sds getAofManifestFileName(void) {
     return sdscatprintf(sdsempty(), "%s%s", server.aof_filename,
                 MANIFEST_NAME_SUFFIX);
 }
 
-sds getTempAofManifestFileName() {
+sds getTempAofManifestFileName(void) {
     return sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX,
                 server.aof_filename, MANIFEST_NAME_SUFFIX);
 }
@@ -464,7 +464,7 @@ sds getNewIncrAofName(aofManifest *am) {
 }
 
 /* Get temp INCR type AOF name. */
-sds getTempIncrAofName() {
+sds getTempIncrAofName(void) {
     return sdscatprintf(sdsempty(), "%s%s%s", TEMP_FILE_NAME_PREFIX, server.aof_filename,
         INCR_FILE_SUFFIX);
 }
@@ -692,7 +692,7 @@ int aofDelHistoryFiles(void) {
 }
 
 /* Used to clean up temp INCR AOF when AOFRW fails. */
-void aofDelTempIncrAofFile() {
+void aofDelTempIncrAofFile(void) {
     sds aof_filename = getTempIncrAofName();
     sds aof_filepath = makePath(server.aof_dirname, aof_filename);
     serverLog(LL_NOTICE, "Removing the temp incr aof file %s in the background", aof_filename);
@@ -758,6 +758,7 @@ void aofOpenIfNeededOnServerStart(void) {
     }
 
     server.aof_last_incr_size = getAppendOnlyFileSize(aof_name, NULL);
+    server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
 
     if (incr_aof_len) {
         serverLog(LL_NOTICE, "Opening AOF incr file %s on server start", aof_name);
@@ -832,13 +833,14 @@ int openNewIncrAofForAppend(void) {
      * is already synced at this point so fsync doesn't matter. */
     if (server.aof_fd != -1) {
         aof_background_fsync_and_close(server.aof_fd);
-        server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
     }
     server.aof_fd = newfd;
 
     /* Reset the aof_last_incr_size. */
     server.aof_last_incr_size = 0;
+    /* Reset the aof_last_incr_fsync_offset. */
+    server.aof_last_incr_fsync_offset = 0;
     /* Update `server.aof_manifest`. */
     if (temp_am) aofManifestFreeAndUpdate(temp_am);
     return C_OK;
@@ -952,7 +954,6 @@ void stopAppendOnly(void) {
     if (redis_fsync(server.aof_fd) == -1) {
         serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
     } else {
-        server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
     }
     close(server.aof_fd);
@@ -962,6 +963,7 @@ void stopAppendOnly(void) {
     server.aof_state = AOF_OFF;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
+    server.aof_last_incr_fsync_offset = 0;
     server.fsynced_reploff = -1;
     atomicSet(server.fsynced_reploff_pending, 0);
     killAppendOnlyChild();
@@ -973,18 +975,6 @@ void stopAppendOnly(void) {
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
     serverAssert(server.aof_state == AOF_OFF);
-
-    /* Wait for all bio jobs related to AOF to drain. This prevents a race
-     * between updates to `fsynced_reploff_pending` of the worker thread, belonging
-     * to the previous AOF, and the new one. This concern is specific for a full
-     * sync scenario where we don't wanna risk the ACKed replication offset
-     * jumping backwards or forward when switching to a different master. */
-    bioDrainWorker(BIO_AOF_FSYNC);
-
-    /* Set the initial repl_offset, which will be applied to fsynced_reploff
-     * when AOFRW finishes (after possibly being updated by a bio thread) */
-    atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
-    server.fsynced_reploff = 0;
 
     server.aof_state = AOF_WAIT_REWRITE;
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
@@ -1083,11 +1073,27 @@ void flushAppendOnlyFile(int force) {
          * stop write commands before fsync called in one second,
          * the data in page cache cannot be flushed in time. */
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-            server.aof_fsync_offset != server.aof_current_size &&
+            server.aof_last_incr_fsync_offset != server.aof_last_incr_size &&
             server.unixtime > server.aof_last_fsync &&
             !(sync_in_progress = aofFsyncInProgress())) {
             goto try_fsync;
+
+        /* Check if we need to do fsync even the aof buffer is empty,
+         * the reason is described in the previous AOF_FSYNC_EVERYSEC block,
+         * and AOF_FSYNC_ALWAYS is also checked here to handle a case where
+         * aof_fsync is changed from everysec to always. */
+        } else if (server.aof_fsync == AOF_FSYNC_ALWAYS &&
+                   server.aof_last_incr_fsync_offset != server.aof_last_incr_size)
+        {
+            goto try_fsync;
         } else {
+            /* All data is fsync'd already: Update fsynced_reploff_pending just in case.
+             * This is needed to avoid a WAITAOF hang in case a module used RM_Call with the NO_AOF flag,
+             * in which case master_repl_offset will increase but fsynced_reploff_pending won't be updated
+             * (because there's no reason, from the AOF POV, to call fsync) and then WAITAOF may wait on
+             * the higher offset (which contains data that was only propagated to replicas, and not to AOF) */
+            if (!sync_in_progress && server.aof_fsync != AOF_FSYNC_NO)
+                atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
             return;
         }
     }
@@ -1253,14 +1259,14 @@ try_fsync:
         }
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
-        server.aof_fsync_offset = server.aof_current_size;
+        server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
         server.aof_last_fsync = server.unixtime;
         atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
-    } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-                server.unixtime > server.aof_last_fsync)) {
+    } else if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
+               server.unixtime > server.aof_last_fsync) {
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
-            server.aof_fsync_offset = server.aof_current_size;
+            server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
         }
         server.aof_last_fsync = server.unixtime;
     }
@@ -1766,7 +1772,6 @@ int loadAppendOnlyFiles(aofManifest *am) {
      * executed early, but that shouldn't be a problem since everything will be
      * fine after the first AOFRW. */
     server.aof_rewrite_base_size = base_size;
-    server.aof_fsync_offset = server.aof_current_size;
 
 cleanup:
     stopLoading(ret == AOF_OK || ret == AOF_TRUNCATED);
@@ -2235,11 +2240,11 @@ werr:
 }
 
 int rewriteAppendOnlyFileRio(rio *aof) {
-    dictIterator *di = NULL;
     dictEntry *de;
     int j;
     long key_count = 0;
     long long updated_time = 0;
+    dbIterator *dbit = NULL;
 
     /* Record timestamp at the beginning of rewriting AOF. */
     if (server.aof_timestamp_enabled) {
@@ -2252,17 +2257,16 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
-        redisDb *db = server.db+j;
-        dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
+        redisDb *db = server.db + j;
+        if (dbSize(db, DB_MAIN) == 0) continue;
 
         /* SELECT the new DB */
         if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
+        dbit = dbIteratorInit(db, DB_MAIN);
         /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
+        while((de = dbIteratorNext(dbit)) != NULL) {
             sds keystr;
             robj key, *o;
             long long expiretime;
@@ -2327,13 +2331,12 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             if (server.rdb_key_save_delay)
                 debugDelay(server.rdb_key_save_delay);
         }
-        dictReleaseIterator(di);
-        di = NULL;
+        dbReleaseIterator(dbit);
     }
     return C_OK;
 
 werr:
-    if (di) dictReleaseIterator(di);
+    if (dbit) dbReleaseIterator(dbit);
     return C_ERR;
 }
 
@@ -2444,7 +2447,23 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
     }
+
+    if (server.aof_state == AOF_WAIT_REWRITE) {
+        /* Wait for all bio jobs related to AOF to drain. This prevents a race
+         * between updates to `fsynced_reploff_pending` of the worker thread, belonging
+         * to the previous AOF, and the new one. This concern is specific for a full
+         * sync scenario where we don't wanna risk the ACKed replication offset
+         * jumping backwards or forward when switching to a different master. */
+        bioDrainWorker(BIO_AOF_FSYNC);
+
+        /* Set the initial repl_offset, which will be applied to fsynced_reploff
+         * when AOFRW finishes (after possibly being updated by a bio thread) */
+        atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
+        server.fsynced_reploff = 0;
+    }
+
     server.stat_aof_rewrites++;
+
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
@@ -2666,13 +2685,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         /* We can safely let `server.aof_manifest` point to 'temp_am' and free the previous one. */
         aofManifestFreeAndUpdate(temp_am);
 
-        if (server.aof_fd != -1) {
+        if (server.aof_state != AOF_OFF) {
             /* AOF enabled. */
-            server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             server.aof_current_size = getAppendOnlyFileSize(new_base_filename, NULL) + server.aof_last_incr_size;
             server.aof_rewrite_base_size = server.aof_current_size;
-            server.aof_fsync_offset = server.aof_current_size;
-            server.aof_last_fsync = server.unixtime;
         }
 
         /* We don't care about the return value of `aofDelHistoryFiles`, because the history

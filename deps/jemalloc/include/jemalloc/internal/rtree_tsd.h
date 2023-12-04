@@ -18,16 +18,28 @@
  * cache misses if made overly large, plus the cost of linear search in the LRU
  * cache.
  */
-#define RTREE_CTX_LG_NCACHE 4
-#define RTREE_CTX_NCACHE (1 << RTREE_CTX_LG_NCACHE)
+#define RTREE_CTX_NCACHE 16
 #define RTREE_CTX_NCACHE_L2 8
 
-/*
- * Zero initializer required for tsd initialization only.  Proper initialization
- * done via rtree_ctx_data_init().
- */
-#define RTREE_CTX_ZERO_INITIALIZER {{{0, 0}}, {{0, 0}}}
+/* Needed for initialization only. */
+#define RTREE_LEAFKEY_INVALID ((uintptr_t)1)
+#define RTREE_CTX_CACHE_ELM_INVALID {RTREE_LEAFKEY_INVALID, NULL}
 
+#define RTREE_CTX_INIT_ELM_1 RTREE_CTX_CACHE_ELM_INVALID
+#define RTREE_CTX_INIT_ELM_2 RTREE_CTX_INIT_ELM_1, RTREE_CTX_INIT_ELM_1
+#define RTREE_CTX_INIT_ELM_4 RTREE_CTX_INIT_ELM_2, RTREE_CTX_INIT_ELM_2
+#define RTREE_CTX_INIT_ELM_8 RTREE_CTX_INIT_ELM_4, RTREE_CTX_INIT_ELM_4
+#define RTREE_CTX_INIT_ELM_16 RTREE_CTX_INIT_ELM_8, RTREE_CTX_INIT_ELM_8
+
+#define _RTREE_CTX_INIT_ELM_DATA(n) RTREE_CTX_INIT_ELM_##n
+#define RTREE_CTX_INIT_ELM_DATA(n) _RTREE_CTX_INIT_ELM_DATA(n)
+
+/*
+ * Static initializer (to invalidate the cache entries) is required because the
+ * free fastpath may access the rtree cache before a full tsd initialization.
+ */
+#define RTREE_CTX_INITIALIZER {{RTREE_CTX_INIT_ELM_DATA(RTREE_CTX_NCACHE)}, \
+			       {RTREE_CTX_INIT_ELM_DATA(RTREE_CTX_NCACHE_L2)}}
 
 typedef struct rtree_leaf_elm_s rtree_leaf_elm_t;
 

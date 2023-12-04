@@ -1,3 +1,219 @@
+## [1.2.0](https://github.com/redis/hiredis/tree/v1.2.0) - (2023-06-04)
+
+Announcing Hiredis v1.2.0 with with new adapters, and a great many bug fixes.
+
+## 🚀 New Features
+
+- Add sdevent adapter @Oipo (#1144)
+- Allow specifying the keepalive interval @michael-grunder (#1168)
+- Add RedisModule adapter @tezc (#1182)
+- Helper for setting TCP_USER_TIMEOUT socket option @zuiderkwast (#1188)
+
+## 🐛 Bug Fixes
+
+- Fix a typo in b6a052f. @yossigo (#1190)
+- Fix wincrypt symbols conflict @hudayou (#1151)
+- Don't attempt to set a timeout if we are in an error state. @michael-grunder (#1180)
+- Accept -nan per the RESP3 spec recommendation. @michael-grunder (#1178)
+- Fix colliding option values @zuiderkwast (#1172)
+- Ensure functionality without `_MSC_VER` definition @windyakin (#1194)
+
+## 🧰 Maintenance
+
+- Add a test for the TCP_USER_TIMEOUT option. @michael-grunder (#1192)
+- Add -Werror as a default. @yossigo (#1193)
+- CI: Update homebrew Redis version. @yossigo (#1191)
+- Fix typo in makefile. @michael-grunder (#1179)
+- Write a version file for the CMake package @Neverlord (#1165)
+- CMakeLists.txt: respect BUILD_SHARED_LIBS @ffontaine (#1147)
+- Cmake static or shared @autoantwort (#1160)
+- fix typo @tillkruss (#1153)
+- Add a test ensuring we don't clobber connection error. @michael-grunder (#1181)
+- Search for openssl on macOS @michael-grunder (#1169)
+
+
+## Contributors
+We'd like to thank all the contributors who worked on this release!
+
+<a href="https://github.com/neverlord"><img src="https://github.com/neverlord.png" width="32" height="32"></a>
+<a href="https://github.com/Oipo"><img src="https://github.com/Oipo.png" width="32" height="32"></a>
+<a href="https://github.com/autoantwort"><img src="https://github.com/autoantwort.png" width="32" height="32"></a>
+<a href="https://github.com/ffontaine"><img src="https://github.com/ffontaine.png" width="32" height="32"></a>
+<a href="https://github.com/hudayou"><img src="https://github.com/hudayou.png" width="32" height="32"></a>
+<a href="https://github.com/michael-grunder"><img src="https://github.com/michael-grunder.png" width="32" height="32"></a>
+<a href="https://github.com/postgraph"><img src="https://github.com/postgraph.png" width="32" height="32"></a>
+<a href="https://github.com/tezc"><img src="https://github.com/tezc.png" width="32" height="32"></a>
+<a href="https://github.com/tillkruss"><img src="https://github.com/tillkruss.png" width="32" height="32"></a>
+<a href="https://github.com/vityafx"><img src="https://github.com/vityafx.png" width="32" height="32"></a>
+<a href="https://github.com/windyakin"><img src="https://github.com/windyakin.png" width="32" height="32"></a>
+<a href="https://github.com/yossigo"><img src="https://github.com/yossigo.png" width="32" height="32"></a>
+<a href="https://github.com/zuiderkwast"><img src="https://github.com/zuiderkwast.png" width="32" height="32"></a>
+
+## [1.1.0](https://github.com/redis/hiredis/tree/v1.1.0) - (2022-11-15)
+
+Announcing Hiredis v1.1.0 GA with better SSL convenience, new async adapters and a great many bug fixes.
+
+**NOTE**:  Hiredis can now return `nan` in addition to `-inf` and `inf` when returning a `REDIS_REPLY_DOUBLE`.
+
+## 🐛 Bug Fixes
+
+- Add support for nan in RESP3 double [@filipecosta90](https://github.com/filipecosta90)
+  ([\#1133](https://github.com/redis/hiredis/pull/1133))
+
+## 🧰 Maintenance
+
+- Add an example that calls redisCommandArgv [@michael-grunder](https://github.com/michael-grunder)
+  ([\#1140](https://github.com/redis/hiredis/pull/1140))
+- fix flag reference [@pata00](https://github.com/pata00) ([\#1136](https://github.com/redis/hiredis/pull/1136))
+- Make freeing a NULL redisAsyncContext a no op. [@michael-grunder](https://github.com/michael-grunder)
+  ([\#1135](https://github.com/redis/hiredis/pull/1135))
+- CI updates ([@bjosv](https://github.com/redis/bjosv) ([\#1139](https://github.com/redis/hiredis/pull/1139))
+
+
+## Contributors
+We'd like to thank all the contributors who worked on this release!
+
+<a href="https://github.com/bjsov"><img src="https://github.com/bjosv.png" width="32" height="32"></a>
+<a href="https://github.com/filipecosta90"><img src="https://github.com/filipecosta90.png" width="32" height="32"></a>
+<a href="https://github.com/michael-grunder"><img src="https://github.com/michael-grunder.png" width="32" height="32"></a>
+<a href="https://github.com/pata00"><img src="https://github.com/pata00.png" width="32" height="32"></a>
+
+## [1.1.0-rc1](https://github.com/redis/hiredis/tree/v1.1.0-rc1) - (2022-11-06)
+
+Announcing Hiredis v1.1.0-rc1, with better SSL convenience, new async adapters, and a great many bug fixes.
+
+## 🚀 New Features
+
+- Add possibility to prefer IPv6, IPv4 or unspecified [@zuiderkwast](https://github.com/zuiderkwast)
+  ([\#1096](https://github.com/redis/hiredis/pull/1096))
+- Add adapters/libhv [@ithewei](https://github.com/ithewei) ([\#904](https://github.com/redis/hiredis/pull/904))
+- Add timeout support to libhv adapter. [@michael-grunder](https://github.com/michael-grunder) ([\#1109](https://github.com/redis/hiredis/pull/1109))
+- set default SSL verification path [@adobeturchenko](https://github.com/adobeturchenko) ([\#928](https://github.com/redis/hiredis/pull/928))
+- Introduce .close method for redisContextFuncs [@pizhenwei](https://github.com/pizhenwei) ([\#1094](https://github.com/redis/hiredis/pull/1094))
+- Make it possible to set SSL verify mode [@stanhu](https://github.com/stanhu) ([\#1085](https://github.com/redis/hiredis/pull/1085))
+- Polling adapter and example [@kristjanvalur](https://github.com/kristjanvalur) ([\#932](https://github.com/redis/hiredis/pull/932))
+- Unsubscribe handling in async [@bjosv](https://github.com/bjosv) ([\#1047](https://github.com/redis/hiredis/pull/1047))
+- Add timeout support for libuv adapter [@MichaelSuen-thePointer](https://github.com/@MichaelSuenthePointer) ([\#1016](https://github.com/redis/hiredis/pull/1016))
+
+## 🐛 Bug Fixes
+
+- Update for MinGW cross compile [@bit0fun](https://github.com/bit0fun) ([\#1127](https://github.com/redis/hiredis/pull/1127))
+- fixed CPP build error with adapters/libhv.h [@mtdxc](https://github.com/mtdxc) ([\#1125](https://github.com/redis/hiredis/pull/1125))
+- Fix protocol error
+  [@michael-grunder](https://github.com/michael-grunder),
+  [@mtuleika-appcast](https://github.com/mtuleika-appcast) ([\#1106](https://github.com/redis/hiredis/pull/1106))
+- Use a windows specific keepalive function. [@michael-grunder](https://github.com/michael-grunder) ([\#1104](https://github.com/redis/hiredis/pull/1104))
+- Fix CMake config path on Linux. [@xkszltl](https://github.com/xkszltl) ([\#989](https://github.com/redis/hiredis/pull/989))
+- Fix potential fault at createDoubleObject [@afcidk](https://github.com/afcidk) ([\#964](https://github.com/redis/hiredis/pull/964))
+- Fix some undefined behavior [@jengab](https://github.com/jengab) ([\#1091](https://github.com/redis/hiredis/pull/1091))
+- Copy OOM errors to redisAsyncContext when finding subscribe callback [@bjosv](https://github.com/bjosv) ([\#1090](https://github.com/redis/hiredis/pull/1090))
+- Maintain backward compatibility with our onConnect callback. [@michael-grunder](https://github.com/michael-grunder) ([\#1087](https://github.com/redis/hiredis/pull/1087))
+- Fix PUSH handler tests for Redis >= 7.0.5 [@michael-grunder](https://github.com/michael-grunder) ([\#1121](https://github.com/redis/hiredis/pull/1121))
+- fix heap-buffer-overflow [@zhangtaoXT5](https://github.com/zhangtaoXT5) ([\#957](https://github.com/redis/hiredis/pull/957))
+- Fix heap-buffer-overflow issue in redisvFormatCommad [@bjosv](https://github.com/bjosv) ([\#1097](https://github.com/redis/hiredis/pull/1097))
+- Polling adapter requires sockcompat.h [@michael-grunder](https://github.com/michael-grunder) ([\#1095](https://github.com/redis/hiredis/pull/1095))
+- Illumos test fixes, error message difference for bad hostname test. [@devnexen](https://github.com/devnexen) ([\#901](https://github.com/redis/hiredis/pull/901))
+- Remove semicolon after do-while in \_EL\_CLEANUP [@sundb](https://github.com/sundb) ([\#905](https://github.com/redis/hiredis/pull/905))
+- Stability: Support calling redisAsyncCommand and redisAsyncDisconnect from the onConnected callback [@kristjanvalur](https://github.com/kristjanvalur)
+  ([\#931](https://github.com/redis/hiredis/pull/931))
+- Fix async connect on Windows [@kristjanvalur](https://github.com/kristjanvalur) ([\#1073](https://github.com/redis/hiredis/pull/1073))
+- Fix tests so they work for Redis 7.0 [@michael-grunder](https://github.com/michael-grunder) ([\#1072](https://github.com/redis/hiredis/pull/1072))
+- Fix warnings on Win64 [@orgads](https://github.com/orgads) ([\#1058](https://github.com/redis/hiredis/pull/1058))
+- Handle push notifications before or after reply. [@yossigo](https://github.com/yossigo) ([\#1062](https://github.com/redis/hiredis/pull/1062))
+- Update hiredis sds with improvements found in redis [@bjosv](https://github.com/bjosv) ([\#1045](https://github.com/redis/hiredis/pull/1045))
+- Avoid incorrect call to the previous reply's callback [@bjosv](https://github.com/bjosv) ([\#1040](https://github.com/redis/hiredis/pull/1040))
+- fix building on AIX and SunOS [\#1031](https://github.com/redis/hiredis/pull/1031) ([@scddev](https://github.com/scddev))
+- Allow sending commands after sending an unsubscribe [@bjosv](https://github.com/bjosv) ([\#1036](https://github.com/redis/hiredis/pull/1036))
+- Correction for command timeout during pubsub [@bjosv](https://github.com/bjosv) ([\#1038](https://github.com/redis/hiredis/pull/1038))
+- Fix adapters/libevent.h compilation for 64-bit Windows [@pbtummillo](https://github.com/pbtummillo) ([\#937](https://github.com/redis/hiredis/pull/937))
+- Fix integer overflow when format command larger than 4GB [@sundb](https://github.com/sundb) ([\#1030](https://github.com/redis/hiredis/pull/1030))
+- Handle array response during subscribe in RESP3 [@bjosv](https://github.com/bjosv) ([\#1014](https://github.com/redis/hiredis/pull/1014))
+- Support PING while subscribing (RESP2) [@bjosv](https://github.com/bjosv) ([\#1027](https://github.com/redis/hiredis/pull/1027))
+
+## 🧰 Maintenance
+
+- CI fixes in preparation of release [@michael-grunder](https://github.com/michael-grunder) ([\#1130](https://github.com/redis/hiredis/pull/1130))
+- Add do while(0) (protection for macros [@afcidk](https://github.com/afcidk) [\#959](https://github.com/redis/hiredis/pull/959))
+- Fixup of PR734: Coverage of hiredis.c [@bjosv](https://github.com/bjosv) ([\#1124](https://github.com/redis/hiredis/pull/1124))
+- CMake corrections for building on Windows [@bjosv](https://github.com/bjosv) ([\#1122](https://github.com/redis/hiredis/pull/1122))
+- Install on windows fixes [@bjosv](https://github.com/bjosv) ([\#1117](https://github.com/redis/hiredis/pull/1117))
+- Add libhv example to our standard Makefile [@michael-grunder](https://github.com/michael-grunder) ([\#1108](https://github.com/redis/hiredis/pull/1108))
+- Additional include directory given by pkg-config [@bjosv](https://github.com/bjosv) ([\#1118](https://github.com/redis/hiredis/pull/1118))
+- Use __attribute__ when building with Clang on Windows [@bjosv](https://github.com/bjosv) ([\#1115](https://github.com/redis/hiredis/pull/1115))
+- Minor refactor [@michael-grunder](https://github.com/michael-grunder) ([\#1110](https://github.com/redis/hiredis/pull/1110))
+- Fix pkgconfig result for hiredis_ssl [@bjosv](https://github.com/bjosv) ([\#1107](https://github.com/redis/hiredis/pull/1107))
+- Update documentation to explain redisConnectWithOptions. [@michael-grunder](https://github.com/michael-grunder) ([\#1099](https://github.com/redis/hiredis/pull/1099))
+- uvadapter: reduce number of uv_poll_start calls [@noxiouz](https://github.com/noxiouz) ([\#1098](https://github.com/redis/hiredis/pull/1098))
+- Regression test for off-by-one parsing error [@bugwz](https://github.com/bugwz) ([\#1092](https://github.com/redis/hiredis/pull/1092))
+- CMake: remove dict.c form hiredis_sources [@Lipraxde](https://github.com/Lipraxde) ([\#1055](https://github.com/redis/hiredis/pull/1055))
+- Do store command timeout in the context for redisSetTimeout [@catterer](https://github.com/catterer) ([\#593](https://github.com/redis/hiredis/pull/593), [\#1093](https://github.com/redis/hiredis/pull/1093))
+- Add GitHub Actions CI workflow for hiredis: Arm, Arm64, 386, windows. [@kristjanvalur](https://github.com/kristjanvalur) ([\#943](https://github.com/redis/hiredis/pull/943))
+- CI: bump macOS runner version [@SukkaW](https://github.com/SukkaW) ([\#1079](https://github.com/redis/hiredis/pull/1079))
+- Support for generating release notes [@chayim](https://github.com/chayim) ([\#1083](https://github.com/redis/hiredis/pull/1083))
+- Improve example for SSL initialization in README.md [@stanhu](https://github.com/stanhu) ([\#1084](https://github.com/redis/hiredis/pull/1084))
+- Fix README typos [@bjosv](https://github.com/bjosv) ([\#1080](https://github.com/redis/hiredis/pull/1080))
+- fix cmake version [@smmir-cent](https://github.com/@smmircent) ([\#1050](https://github.com/redis/hiredis/pull/1050))
+- Use the same name for static and shared libraries [@orgads](https://github.com/orgads) ([\#1057](https://github.com/redis/hiredis/pull/1057))
+- Embed debug information in windows static .lib file [@kristjanvalur](https://github.com/kristjanvalur) ([\#1054](https://github.com/redis/hiredis/pull/1054))
+- Improved async documentation [@kristjanvalur](https://github.com/kristjanvalur) ([\#1074](https://github.com/redis/hiredis/pull/1074))
+- Use official repository for redis package. [@yossigo](https://github.com/yossigo) ([\#1061](https://github.com/redis/hiredis/pull/1061))
+- Whitelist hiredis repo path in cygwin [@michael-grunder](https://github.com/michael-grunder) ([\#1063](https://github.com/redis/hiredis/pull/1063))
+- CentOS 8 is EOL, switch to RockyLinux [@michael-grunder](https://github.com/michael-grunder) ([\#1046](https://github.com/redis/hiredis/pull/1046))
+- CMakeLists.txt: allow building without a C++ compiler [@ffontaine](https://github.com/ffontaine) ([\#872](https://github.com/redis/hiredis/pull/872))
+- Makefile: move SSL options into a block and refine rules [@pizhenwei](https://github.com/pizhenwei) ([\#997](https://github.com/redis/hiredis/pull/997))
+- Update CMakeLists.txt for more portability [@EricDeng1001](https://github.com/EricDeng1001) ([\#1005](https://github.com/redis/hiredis/pull/1005))
+- FreeBSD build fixes + CI [@michael-grunder](https://github.com/michael-grunder) ([\#1026](https://github.com/redis/hiredis/pull/1026))
+- Add asynchronous test for pubsub using RESP3 [@bjosv](https://github.com/bjosv) ([\#1012](https://github.com/redis/hiredis/pull/1012))
+- Trigger CI failure when Valgrind issues are found [@bjosv](https://github.com/bjosv) ([\#1011](https://github.com/redis/hiredis/pull/1011))
+- Move to using make directly in Cygwin [@michael-grunder](https://github.com/michael-grunder) ([\#1020](https://github.com/redis/hiredis/pull/1020))
+- Add asynchronous API tests [@bjosv](https://github.com/bjosv) ([\#1010](https://github.com/redis/hiredis/pull/1010))
+- Correcting the build target `coverage` for enabled SSL [@bjosv](https://github.com/bjosv) ([\#1009](https://github.com/redis/hiredis/pull/1009))
+- GH Actions: Run SSL tests during CI [@bjosv](https://github.com/bjosv) ([\#1008](https://github.com/redis/hiredis/pull/1008))
+- GH: Actions - Add valgrind and CMake [@michael-grunder](https://github.com/michael-grunder) ([\#1004](https://github.com/redis/hiredis/pull/1004))
+- Add Centos8 tests in GH Actions [@michael-grunder](https://github.com/michael-grunder) ([\#1001](https://github.com/redis/hiredis/pull/1001))
+- We should run actions on PRs [@michael-grunder](https://github.com/michael-grunder) (([\#1000](https://github.com/redis/hiredis/pull/1000))
+- Add Cygwin test in GitHub actions [@michael-grunder](https://github.com/michael-grunder) ([\#999](https://github.com/redis/hiredis/pull/999))
+- Add Windows tests in GitHub actions [@michael-grunder](https://github.com/michael-grunder) ([\#996](https://github.com/redis/hiredis/pull/996))
+- Switch to GitHub actions [@michael-grunder](https://github.com/michael-grunder) ([\#995](https://github.com/redis/hiredis/pull/995))
+- Minor refactor of CVE-2021-32765 fix. [@michael-grunder](https://github.com/michael-grunder) ([\#993](https://github.com/redis/hiredis/pull/993))
+- Remove extra comma from CMake var. [@xkszltl](https://github.com/xkszltl) ([\#988](https://github.com/redis/hiredis/pull/988))
+- Add REDIS\_OPT\_PREFER\_UNSPEC [@michael-grunder](https://github.com/michael-grunder) ([\#1101](https://github.com/redis/hiredis/pull/1101))
+
+## Contributors
+We'd like to thank all the contributors who worked on this release!
+
+<a href="https://github.com/EricDeng1001"><img src="https://github.com/EricDeng1001.png" width="32" height="32"></a>
+<a href="https://github.com/Lipraxde"><img src="https://github.com/Lipraxde.png" width="32" height="32"></a>
+<a href="https://github.com/MichaelSuen-thePointer"><img src="https://github.com/MichaelSuen-thePointer.png" width="32" height="32"></a>
+<a href="https://github.com/SukkaW"><img src="https://github.com/SukkaW.png" width="32" height="32"></a>
+<a href="https://github.com/adobeturchenko"><img src="https://github.com/adobeturchenko.png" width="32" height="32"></a>
+<a href="https://github.com/afcidk"><img src="https://github.com/afcidk.png" width="32" height="32"></a>
+<a href="https://github.com/bit0fun"><img src="https://github.com/bit0fun.png" width="32" height="32"></a>
+<a href="https://github.com/bjosv"><img src="https://github.com/bjosv.png" width="32" height="32"></a>
+<a href="https://github.com/bugwz"><img src="https://github.com/bugwz.png" width="32" height="32"></a>
+<a href="https://github.com/catterer"><img src="https://github.com/catterer.png" width="32" height="32"></a>
+<a href="https://github.com/chayim"><img src="https://github.com/chayim.png" width="32" height="32"></a>
+<a href="https://github.com/devnexen"><img src="https://github.com/devnexen.png" width="32" height="32"></a>
+<a href="https://github.com/ffontaine"><img src="https://github.com/ffontaine.png" width="32" height="32"></a>
+<a href="https://github.com/ithewei"><img src="https://github.com/ithewei.png" width="32" height="32"></a>
+<a href="https://github.com/jengab"><img src="https://github.com/jengab.png" width="32" height="32"></a>
+<a href="https://github.com/kristjanvalur"><img src="https://github.com/kristjanvalur.png" width="32" height="32"></a>
+<a href="https://github.com/michael-grunder"><img src="https://github.com/michael-grunder.png" width="32" height="32"></a>
+<a href="https://github.com/noxiouz"><img src="https://github.com/noxiouz.png" width="32" height="32"></a>
+<a href="https://github.com/mtdxc"><img src="https://github.com/mtdxc.png" width="32" height="32"></a>
+<a href="https://github.com/orgads"><img src="https://github.com/orgads.png" width="32" height="32"></a>
+<a href="https://github.com/pbtummillo"><img src="https://github.com/pbtummillo.png" width="32" height="32"></a>
+<a href="https://github.com/pizhenwei"><img src="https://github.com/pizhenwei.png" width="32" height="32"></a>
+<a href="https://github.com/scddev"><img src="https://github.com/scddev.png" width="32" height="32"></a>
+<a href="https://github.com/smmir-cent"><img src="https://github.com/smmir-cent.png" width="32" height="32"></a>
+<a href="https://github.com/stanhu"><img src="https://github.com/stanhu.png" width="32" height="32"></a>
+<a href="https://github.com/sundb"><img src="https://github.com/sundb.png" width="32" height="32"></a>
+<a href="https://github.com/vturchenko"><img src="https://github.com/vturchenko.png" width="32" height="32"></a>
+<a href="https://github.com/xkszltl"><img src="https://github.com/xkszltl.png" width="32" height="32"></a>
+<a href="https://github.com/yossigo"><img src="https://github.com/yossigo.png" width="32" height="32"></a>
+<a href="https://github.com/zhangtaoXT5"><img src="https://github.com/zhangtaoXT5.png" width="32" height="32"></a>
+<a href="https://github.com/zuiderkwast"><img src="https://github.com/zuiderkwast.png" width="32" height="32"></a>
+
 ## [1.0.2](https://github.com/redis/hiredis/tree/v1.0.2) - (2021-10-07)
 
 Announcing Hiredis v1.0.2, which fixes CVE-2021-32765 but returns the SONAME to the correct value of `1.0.0`.

@@ -54,10 +54,12 @@
 int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
+        enterExecutionUnit(1, 0);
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
         deleteExpiredKeyAndPropagate(db,keyobj);
         decrRefCount(keyobj);
+        exitExecutionUnit();
         return 1;
     } else {
         return 0;
@@ -137,6 +139,18 @@ void expireScanCallback(void *privdata, const dictEntry *const_de) {
     data->sampled++;
 }
 
+static inline int isExpiryDictValidForSamplingCb(dict *d) {
+    long long numkeys = dictSize(d);
+    unsigned long buckets = dictBuckets(d);
+    /* When there are less than 1% filled buckets, sampling the key
+     * space is expensive, so stop here waiting for better times...
+     * The dictionary will be resized asap. */
+    if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1)) {
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 void activeExpireCycle(int type) {
     /* Adjust the running parameters according to the configured expire
      * effort. The default effort is 1, and the maximum configurable effort
@@ -160,6 +174,7 @@ void activeExpireCycle(int type) {
 
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
+    int dbs_performed = 0;
     long long start = ustime(), timelimit, elapsed;
 
     /* If 'expire' action is paused, for whatever reason, then don't expire any key.
@@ -212,7 +227,12 @@ void activeExpireCycle(int type) {
     /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
 
-    for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
+    /* Stop iteration when one of the following conditions is met:
+     *
+     * 1) We have checked a sufficient number of databases with expiration time.
+     * 2) The time limit has been exceeded.
+     * 3) All databases have been traversed. */
+    for (j = 0; dbs_performed < dbs_per_call && timelimit_exit == 0 && j < server.dbnum; j++) {
         /* Scan callback data including expired and checked count per iteration. */
         expireScanData data;
 
@@ -224,27 +244,22 @@ void activeExpireCycle(int type) {
          * distribute the time evenly across DBs. */
         current_db++;
 
+        if (dbSize(db, DB_EXPIRES)) dbs_performed++;
+
         /* Continue to expire if at the end of the cycle there are still
          * a big percentage of keys to expire, compared to the number of keys
          * we scanned. The percentage, stored in config_cycle_acceptable_stale
          * is not fixed, but depends on the Redis configured "expire effort". */
         do {
-            unsigned long num, slots;
+            unsigned long num;
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
-            if ((num = dictSize(db->expires)) == 0) {
+            if ((num = dbSize(db, DB_EXPIRES)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
-            slots = dictSlots(db->expires);
             data.now = mstime();
-
-            /* When there are less than 1% filled slots, sampling the key
-             * space is expensive, so stop here waiting for better times...
-             * The dictionary will be resized asap. */
-            if (slots > DICT_HT_INITIAL_SIZE &&
-                (num*100/slots < 1)) break;
 
             /* The main collection cycle. Scan through keys among keys
              * with an expire set, checking for expired ones. */
@@ -270,8 +285,10 @@ void activeExpireCycle(int type) {
             long checked_buckets = 0;
 
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = dictScan(db->expires, db->expires_cursor,
-                                              expireScanCallback, &data);
+                db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
+                if (db->expires_cursor == 0) {
+                    break;
+                }
                 checked_buckets++;
             }
             total_expired += data.expired;
@@ -378,7 +395,7 @@ void expireSlaveKeys(void) {
         while(dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
-                dictEntry *expire = dictFind(db->expires,keyname);
+                dictEntry *expire = dictFind(db->expires[getKeySlot(keyname)],keyname);
                 int expired = 0;
 
                 if (expire &&

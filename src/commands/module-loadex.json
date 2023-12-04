@@ -1,6 +1,6 @@
 {
     "LOADEX": {
-        "summary": "Load a module with extended parameters",
+        "summary": "Loads a module using extended parameters.",
         "complexity": "O(1)",
         "group": "server",
         "since": "7.0.0",

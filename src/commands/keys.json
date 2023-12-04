@@ -1,6 +1,6 @@
 {
     "KEYS": {
-        "summary": "Find all keys matching the given pattern",
+        "summary": "Returns all key names that match a pattern.",
         "complexity": "O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.",
         "group": "generic",
         "since": "1.0.0",

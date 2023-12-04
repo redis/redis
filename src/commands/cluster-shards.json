@@ -1,6 +1,6 @@
 {
     "SHARDS": {
-        "summary": "Get array of cluster slots to node mappings",
+        "summary": "Returns the mapping of cluster slots to shards.",
         "complexity": "O(N) where N is the total number of cluster nodes",
         "group": "cluster",
         "since": "7.0.0",
@@ -9,6 +9,7 @@
         "function": "clusterCommand",
         "history": [],
         "command_flags": [
+            "LOADING",
             "STALE"
         ],
         "command_tips": [
@@ -25,7 +26,7 @@
                         "description": "an even number element array specifying the start and end slot numbers for slot ranges owned by this shard",
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "type": "integer"
                         }
                     },
                     "nodes": {

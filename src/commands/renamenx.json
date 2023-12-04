@@ -1,6 +1,6 @@
 {
     "RENAMENX": {
-        "summary": "Rename a key, only if the new key does not exist",
+        "summary": "Renames a key only when the target key name doesn't exist.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",

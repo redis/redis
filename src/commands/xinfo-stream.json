@@ -1,6 +1,6 @@
 {
     "STREAM": {
-        "summary": "Get information about a stream",
+        "summary": "Returns information about a stream.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",

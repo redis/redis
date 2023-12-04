@@ -1,6 +1,6 @@
 {
     "DECRBY": {
-        "summary": "Decrement the integer value of a key by the given number",
+        "summary": "Decrements a number from the integer value of a key. Uses 0 as initial value if the key doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "1.0.0",

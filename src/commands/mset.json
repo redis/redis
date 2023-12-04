@@ -1,6 +1,6 @@
 {
     "MSET": {
-        "summary": "Set multiple keys to multiple values",
+        "summary": "Atomically creates or modifies the string values of one or more keys.",
         "complexity": "O(N) where N is the number of keys to set.",
         "group": "string",
         "since": "1.0.1",

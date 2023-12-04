@@ -26,9 +26,9 @@ TEST_BEGIN(test_smoothstep_integral) {
 	max = (KQU(1) << (SMOOTHSTEP_BFP-1)) * (SMOOTHSTEP_NSTEPS+1);
 	min = max - SMOOTHSTEP_NSTEPS;
 
-	assert_u64_ge(sum, min,
+	expect_u64_ge(sum, min,
 	    "Integral too small, even accounting for truncation");
-	assert_u64_le(sum, max, "Integral exceeds 1/2");
+	expect_u64_le(sum, max, "Integral exceeds 1/2");
 	if (false) {
 		malloc_printf("%"FMTu64" ulps under 1/2 (limit %d)\n",
 		    max - sum, SMOOTHSTEP_NSTEPS);
@@ -49,10 +49,10 @@ TEST_BEGIN(test_smoothstep_monotonic) {
 	prev_h = 0;
 	for (i = 0; i < SMOOTHSTEP_NSTEPS; i++) {
 		uint64_t h = smoothstep_tab[i];
-		assert_u64_ge(h, prev_h, "Piecewise non-monotonic, i=%u", i);
+		expect_u64_ge(h, prev_h, "Piecewise non-monotonic, i=%u", i);
 		prev_h = h;
 	}
-	assert_u64_eq(smoothstep_tab[SMOOTHSTEP_NSTEPS-1],
+	expect_u64_eq(smoothstep_tab[SMOOTHSTEP_NSTEPS-1],
 	    (KQU(1) << SMOOTHSTEP_BFP), "Last step must equal 1");
 }
 TEST_END
@@ -72,7 +72,7 @@ TEST_BEGIN(test_smoothstep_slope) {
 	for (i = 0; i < SMOOTHSTEP_NSTEPS / 2 + SMOOTHSTEP_NSTEPS % 2; i++) {
 		uint64_t h = smoothstep_tab[i];
 		uint64_t delta = h - prev_h;
-		assert_u64_ge(delta, prev_delta,
+		expect_u64_ge(delta, prev_delta,
 		    "Slope must monotonically increase in 0.0 <= x <= 0.5, "
 		    "i=%u", i);
 		prev_h = h;
@@ -84,7 +84,7 @@ TEST_BEGIN(test_smoothstep_slope) {
 	for (i = SMOOTHSTEP_NSTEPS-1; i >= SMOOTHSTEP_NSTEPS / 2; i--) {
 		uint64_t h = smoothstep_tab[i];
 		uint64_t delta = prev_h - h;
-		assert_u64_ge(delta, prev_delta,
+		expect_u64_ge(delta, prev_delta,
 		    "Slope must monotonically decrease in 0.5 <= x <= 1.0, "
 		    "i=%u", i);
 		prev_h = h;

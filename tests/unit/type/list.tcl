@@ -464,6 +464,7 @@ foreach {type large} [array get largevalue] {
         assert {[r LPOS mylist c RANK -1] == 7}
         assert {[r LPOS mylist c RANK -2] == 6}
         assert_error "*RANK can't be zero: use 1 to start from the first match, 2 from the second ... or use negative to start*" {r LPOS mylist c RANK 0}
+        assert_error "*value is out of range*" {r LPOS mylist c RANK -9223372036854775808}
     }
 
     test {LPOS COUNT option} {
@@ -1119,7 +1120,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         assert_equal {} [$rd read]
         $rd deferred 0
         # We want to force key deletion to be propagated to the replica 
-        # in order to verify it was expiered on the replication stream. 
+        # in order to verify it was expired on the replication stream.
         $rd set somekey1 someval1
         $rd exists k
         r set somekey2 someval2
@@ -1167,7 +1168,7 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r client unblock $id
         assert_equal {} [$rd read]
         # We want to force key deletion to be propagated to the replica 
-        # in order to verify it was expiered on the replication stream. 
+        # in order to verify it was expired on the replication stream.
         $rd exists k
         assert_equal {0} [$rd read]
         assert_replication_stream $repl {
@@ -1415,6 +1416,15 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         catch {[r linsert xlist aft3r aa 42]} e
         set e
     } {*ERR*syntax*error*}
+
+    test {LINSERT against non-list value error} {
+        r set k1 v1
+        assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r linsert k1 after 0 0}
+    }
+
+    test {LINSERT against non existing key} {
+        assert_equal 0 [r linsert not-a-key before 0 0]
+    }
 
 foreach type {listpack quicklist} {
     foreach {num} {250 500} {
@@ -2302,4 +2312,52 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         
         $rd close
     }
+
+    test {Command being unblocked cause another command to get unblocked execution order test} {
+        r del src{t} dst{t} key1{t} key2{t} key3{t}
+        set repl [attach_to_replication_stream]
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set rd3 [redis_deferring_client]
+
+        $rd1 blmove src{t} dst{t} left right 0
+        wait_for_blocked_clients_count 1
+
+        $rd2 blmove dst{t} src{t} right left 0
+        wait_for_blocked_clients_count 2
+
+        # Create a pipeline of commands that will be processed in one socket read.
+        # Insert two set commands before and after lpush to observe the execution order.
+        set buf ""
+        append buf "set key1{t} value1\r\n"
+        append buf "lpush src{t} dummy\r\n"
+        append buf "set key2{t} value2\r\n"
+        $rd3 write $buf
+        $rd3 flush
+
+        wait_for_blocked_clients_count 0
+
+        r set key3{t} value3
+
+        # If a command being unblocked causes another command to get unblocked, like a BLMOVE would do,
+        # then the new unblocked command will get processed right away rather than wait for later.
+        # If the set command occurs between two lmove commands, the results are not as expected.
+        assert_replication_stream $repl {
+            {select *}
+            {set key1{t} value1}
+            {lpush src{t} dummy}
+            {lmove src{t} dst{t} left right}
+            {lmove dst{t} src{t} right left}
+            {set key2{t} value2}
+            {set key3{t} value3}
+        }
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+
+        close_replication_stream $repl
+    } {} {needs:repl}
+
 } ;# stop servers

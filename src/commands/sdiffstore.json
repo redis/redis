@@ -1,6 +1,6 @@
 {
     "SDIFFSTORE": {
-        "summary": "Subtract multiple sets and store the resulting set in a key",
+        "summary": "Stores the difference of multiple sets in a key.",
         "complexity": "O(N) where N is the total number of elements in all given sets.",
         "group": "set",
         "since": "1.0.0",

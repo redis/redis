@@ -1,6 +1,6 @@
 {
     "XACK": {
-        "summary": "Marks a pending message as correctly processed, effectively removing it from the pending entries list of the consumer group. Return value of the command is the number of messages successfully acknowledged, that is, the IDs we were actually able to resolve in the PEL.",
+        "summary": "Returns the number of messages that were successfully acknowledged by the consumer group member of a stream.",
         "complexity": "O(1) for each message ID processed.",
         "group": "stream",
         "since": "5.0.0",

@@ -1,6 +1,6 @@
 {
     "LPOS": {
-        "summary": "Return the index of matching elements on a list",
+        "summary": "Returns the index of matching elements in a list.",
         "complexity": "O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.",
         "group": "list",
         "since": "6.0.6",

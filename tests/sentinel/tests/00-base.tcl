@@ -31,6 +31,50 @@ test "Sentinel command flag infrastructure works correctly" {
     }
 }
 
+test "SENTINEL HELP output the sentinel subcommand help" {
+    assert_match "*SENTINEL <subcommand> *" [S 0 SENTINEL HELP]
+}
+
+test "SENTINEL MYID return the sentinel instance ID" {
+    assert_equal 40 [string length [S 0 SENTINEL MYID]]
+    assert_equal [S 0 SENTINEL MYID] [S 0 SENTINEL MYID]
+}
+
+test "SENTINEL INFO CACHE returns the cached info" {
+    set res [S 0 SENTINEL INFO-CACHE mymaster]
+    assert_morethan_equal [llength $res] 2
+    assert_equal "mymaster" [lindex $res 0]
+
+    set res [lindex $res 1]
+    assert_morethan_equal [llength $res] 2
+    assert_morethan [lindex $res 0] 0
+    assert_match "*# Server*" [lindex $res 1]
+}
+
+test "SENTINEL PENDING-SCRIPTS returns the information about pending scripts" {
+    # may or may not have a value, so assert greater than or equal to 0.
+    assert_morethan_equal [llength [S 0 SENTINEL PENDING-SCRIPTS]] 0
+}
+
+test "SENTINEL MASTERS returns a list of monitored masters" {
+    assert_match "*mymaster*" [S 0 SENTINEL MASTERS]
+    assert_morethan_equal [llength [S 0 SENTINEL MASTERS]] 1
+}
+
+test "SENTINEL SENTINELS returns a list of sentinel instances" {
+     assert_morethan_equal [llength [S 0 SENTINEL SENTINELS mymaster]] 1
+}
+
+test "SENTINEL SLAVES returns a list of the monitored replicas" {
+     assert_morethan_equal [llength [S 0 SENTINEL SLAVES mymaster]] 1
+}
+
+test "SENTINEL SIMULATE-FAILURE HELP list supported flags" {
+    set res [S 0 SENTINEL SIMULATE-FAILURE HELP]
+    assert_morethan_equal [llength $res] 2
+    assert_equal {crash-after-election crash-after-promotion} $res
+}
+
 test "Basic failover works if the master is down" {
     set old_port [RPort $master_id]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
@@ -148,4 +192,19 @@ test "Failover works if we configure for absolute agreement" {
 
 test "New master [join $addr {:}] role matches" {
     assert {[RI $master_id role] eq {master}}
+}
+
+test "SENTINEL RESET can resets the master" {
+    # After SENTINEL RESET, sometimes the sentinel can sense the master again,
+    # causing the test to fail. Here we give it a few more chances.
+    for {set j 0} {$j < 10} {incr j} {
+        assert_equal 1 [S 0 SENTINEL RESET mymaster]
+        set res1 [llength [S 0 SENTINEL SENTINELS mymaster]]
+        set res2 [llength [S 0 SENTINEL SLAVES mymaster]]
+        set res3 [llength [S 0 SENTINEL REPLICAS mymaster]]
+        if {$res1 eq 0 && $res2 eq 0 && $res3 eq 0} break
+    }
+    assert_equal 0 $res1
+    assert_equal 0 $res2
+    assert_equal 0 $res3
 }

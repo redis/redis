@@ -1,6 +1,6 @@
 {
     "RENAME": {
-        "summary": "Rename a key",
+        "summary": "Renames a key and overwrites the destination.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",

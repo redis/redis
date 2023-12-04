@@ -1,6 +1,6 @@
 {
     "ZINTERCARD": {
-        "summary": "Intersect multiple sorted sets and return the cardinality of the result",
+        "summary": "Returns the number of members of the intersect of multiple sorted sets.",
         "complexity": "O(N*K) worst case with N being the smallest input sorted set, K being the number of input sorted sets.",
         "group": "sorted_set",
         "since": "7.0.0",
