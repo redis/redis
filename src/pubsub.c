@@ -712,12 +712,9 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub") && c->argc >= 2) {
         /* PUBSUB SHARDNUMSUB [ShardChannel_1 ... ShardChannel_N] */
         int j;
-        unsigned int slot = 0;
         addReplyArrayLen(c, (c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
-            if (server.cluster_enabled) {
-                slot = keyHashSlot(c->argv[j]->ptr, sdslen(c->argv[j]->ptr));
-            }
+            unsigned int slot = calculateKeySlot(c->argv[j]->ptr);
             dict *d = server.pubsubshard_channels[slot];
             list *l = d ? dictFetchValue(d, c->argv[j]) : NULL;
 
