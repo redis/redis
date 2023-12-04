@@ -45,18 +45,4 @@ background_thread_indefinite_sleep(background_thread_info_t *info) {
 	return atomic_load_b(&info->indefinite_sleep, ATOMIC_ACQUIRE);
 }
 
-JEMALLOC_ALWAYS_INLINE void
-arena_background_thread_inactivity_check(tsdn_t *tsdn, arena_t *arena,
-    bool is_background_thread) {
-	if (!background_thread_enabled() || is_background_thread) {
-		return;
-	}
-	background_thread_info_t *info =
-	    arena_background_thread_info_get(arena);
-	if (background_thread_indefinite_sleep(info)) {
-		background_thread_interval_check(tsdn, arena,
-		    &arena->decay_dirty, 0);
-	}
-}
-
 #endif /* JEMALLOC_INTERNAL_BACKGROUND_THREAD_INLINES_H */

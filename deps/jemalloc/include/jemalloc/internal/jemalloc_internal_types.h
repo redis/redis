@@ -3,14 +3,30 @@
 
 #include "jemalloc/internal/quantum.h"
 
-/* Page size index type. */
-typedef unsigned pszind_t;
-
-/* Size class index type. */
-typedef unsigned szind_t;
-
 /* Processor / core id type. */
 typedef int malloc_cpuid_t;
+
+/* When realloc(non-null-ptr, 0) is called, what happens? */
+enum zero_realloc_action_e {
+	/* Realloc(ptr, 0) is free(ptr); return malloc(0); */
+	zero_realloc_action_alloc = 0,
+	/* Realloc(ptr, 0) is free(ptr); */
+	zero_realloc_action_free = 1,
+	/* Realloc(ptr, 0) aborts. */
+	zero_realloc_action_abort = 2
+};
+typedef enum zero_realloc_action_e zero_realloc_action_t;
+
+/* Signature of write callback. */
+typedef void (write_cb_t)(void *, const char *);
+
+enum malloc_init_e {
+	malloc_init_uninitialized	= 3,
+	malloc_init_a0_initialized	= 2,
+	malloc_init_recursible		= 1,
+	malloc_init_initialized		= 0 /* Common case --> jnz. */
+};
+typedef enum malloc_init_e malloc_init_t;
 
 /*
  * Flags bits:

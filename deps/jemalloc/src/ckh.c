@@ -34,7 +34,6 @@
  * respectively.
  *
  ******************************************************************************/
-#define JEMALLOC_CKH_C_
 #include "jemalloc/internal/jemalloc_preamble.h"
 
 #include "jemalloc/internal/ckh.h"
@@ -357,14 +356,14 @@ ckh_shrink(tsd_t *tsd, ckh_t *ckh) {
 }
 
 bool
-ckh_new(tsd_t *tsd, ckh_t *ckh, size_t minitems, ckh_hash_t *hash,
+ckh_new(tsd_t *tsd, ckh_t *ckh, size_t minitems, ckh_hash_t *ckh_hash,
     ckh_keycomp_t *keycomp) {
 	bool ret;
 	size_t mincells, usize;
 	unsigned lg_mincells;
 
 	assert(minitems > 0);
-	assert(hash != NULL);
+	assert(ckh_hash != NULL);
 	assert(keycomp != NULL);
 
 #ifdef CKH_COUNT
@@ -393,7 +392,7 @@ ckh_new(tsd_t *tsd, ckh_t *ckh, size_t minitems, ckh_hash_t *hash,
 	}
 	ckh->lg_minbuckets = lg_mincells - LG_CKH_BUCKET_CELLS;
 	ckh->lg_curbuckets = lg_mincells - LG_CKH_BUCKET_CELLS;
-	ckh->hash = hash;
+	ckh->hash = ckh_hash;
 	ckh->keycomp = keycomp;
 
 	usize = sz_sa2u(sizeof(ckhc_t) << lg_mincells, CACHELINE);

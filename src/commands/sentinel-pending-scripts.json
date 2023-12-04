@@ -10,6 +10,43 @@
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of pending scripts.",
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "argv": {
+                        "type": "array",
+                        "description": "Script arguments.",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "flags": {
+                        "type": "string",
+                        "description": "Script flags."
+                    },
+                    "pid": {
+                        "type": "string",
+                        "description": "Script pid."
+                    },
+                    "run-time": {
+                        "type": "string",
+                        "description": "Script run-time."
+                    },
+                    "run-delay": {
+                        "type": "string",
+                        "description": "Script run-delay."
+                    },
+                    "retry-num": {
+                        "type": "string",
+                        "description": "Number of times we tried to execute the script."
+                    }
+                }
+            }
+        }
     }
 }

@@ -23,6 +23,7 @@
             ]
         ],
         "command_flags": [
+            "LOADING",
             "STALE"
         ],
         "command_tips": [

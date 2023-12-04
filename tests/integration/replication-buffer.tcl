@@ -159,7 +159,7 @@ start_server {} {
         assert {[s repl_backlog_histlen] > [expr 2*10000*10000]}
         assert_equal [s connected_slaves] {2}
 
-        exec kill -SIGSTOP $replica2_pid
+        pause_process $replica2_pid
         r config set client-output-buffer-limit "replica 128k 0 0"
         # trigger output buffer limit check
         r set key [string repeat A [expr 64*1024]]
@@ -178,7 +178,7 @@ start_server {} {
         } else {
             fail "Replication backlog memory is not smaller"
         }
-        exec kill -SIGCONT $replica2_pid
+        resume_process $replica2_pid
     }
     # speed up termination
     $master config set shutdown-timeout 0
@@ -248,6 +248,7 @@ test {Replica client-output-buffer size is limited to backlog_limit/16 when no r
             set master [srv 0 client]
             set master_host [srv 0 host]
             set master_port [srv 0 port]
+            $master config set maxmemory-policy allkeys-lru
 
             $master config set repl-backlog-size 16384
             $master config set client-output-buffer-limit "replica 32768 32768 60"
@@ -262,13 +263,21 @@ test {Replica client-output-buffer size is limited to backlog_limit/16 when no r
                 fail "Can't turn the instance into a replica"
             }
 
+            # Write a big key that is gonna breach the obuf limit and cause the replica to disconnect,
+            # then in the same event loop, add at least 16 more keys, and enable eviction, so that the
+            # eviction code has a chance to call flushSlavesOutputBuffers, and then run PING to trigger the eviction code
             set _v [prepare_value $keysize]
-            $master set key $_v
+            $master write "[format_command mset key $_v k1 1 k2 2 k3 3 k4 4 k5 5 k6 6 k7 7 k8 8 k9 9 ka a kb b kc c kd d ke e kf f kg g kh h]config set maxmemory 1\r\nping\r\n"
+            $master flush
+            $master read
+            $master read
+            $master read
             wait_for_ofs_sync $master $replica
 
-            # Write another key to force the test to wait for another event loop iteration
-            # to give the serverCron a chance to disconnect replicas with COB size exceeding the limits
-            $master set key1 "1"
+            # Write another key to force the test to wait for another event loop iteration so that we
+            # give the serverCron a chance to disconnect replicas with COB size exceeding the limits
+            $master config set maxmemory 0
+            $master set key1 1
             wait_for_ofs_sync $master $replica
 
             assert {[status $master connected_slaves] == 1}
@@ -279,6 +288,8 @@ test {Replica client-output-buffer size is limited to backlog_limit/16 when no r
                 fail "replica client-output-buffer usage is higher than expected."
             }
 
+            # now we expect the replica to re-connect but fail partial sync (it doesn't have large
+            # enough COB limit and must result in a full-sync)
             assert {[status $master sync_partial_ok] == 0}
 
             # Before this fix (#11905), the test would trigger an assertion in 'o->used >= c->ref_block_pos'

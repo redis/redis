@@ -46,9 +46,9 @@ typedef long long ssize_t;
 #include "alloc.h" /* for allocation wrappers */
 
 #define HIREDIS_MAJOR 1
-#define HIREDIS_MINOR 0
-#define HIREDIS_PATCH 3
-#define HIREDIS_SONAME 1.0.3-dev
+#define HIREDIS_MINOR 2
+#define HIREDIS_PATCH 0
+#define HIREDIS_SONAME 1.1.0
 
 /* Connection type can be blocking or non-blocking and is set in the
  * least significant bit of the flags field in redisContext. */
@@ -91,6 +91,11 @@ typedef long long ssize_t;
 
 /* Flag that indicates the user does not want replies to be automatically freed */
 #define REDIS_NO_AUTO_FREE_REPLIES 0x400
+
+/* Flags to prefer IPv6 or IPv4 when doing DNS lookup. (If both are set,
+ * AF_UNSPEC is used.) */
+#define REDIS_PREFER_IPV4 0x800
+#define REDIS_PREFER_IPV6 0x1000
 
 #define REDIS_KEEPALIVE_INTERVAL 15 /* seconds */
 
@@ -149,20 +154,17 @@ struct redisSsl;
 
 #define REDIS_OPT_NONBLOCK 0x01
 #define REDIS_OPT_REUSEADDR 0x02
-
-/**
- * Don't automatically free the async object on a connection failure,
- * or other implicit conditions. Only free on an explicit call to disconnect() or free()
- */
-#define REDIS_OPT_NOAUTOFREE 0x04
-
-/* Don't automatically intercept and free RESP3 PUSH replies. */
-#define REDIS_OPT_NO_PUSH_AUTOFREE 0x08
-
-/**
- * Don't automatically free replies
- */
-#define REDIS_OPT_NOAUTOFREEREPLIES 0x10
+#define REDIS_OPT_NOAUTOFREE 0x04        /* Don't automatically free the async
+                                          * object on a connection failure, or
+                                          * other implicit conditions. Only free
+                                          * on an explicit call to disconnect()
+                                          * or free() */
+#define REDIS_OPT_NO_PUSH_AUTOFREE 0x08  /* Don't automatically intercept and
+                                          * free RESP3 PUSH replies. */
+#define REDIS_OPT_NOAUTOFREEREPLIES 0x10 /* Don't automatically free replies. */
+#define REDIS_OPT_PREFER_IPV4 0x20       /* Prefer IPv4 in DNS lookups. */
+#define REDIS_OPT_PREFER_IPV6 0x40       /* Prefer IPv6 in DNS lookups. */
+#define REDIS_OPT_PREFER_IP_UNSPEC (REDIS_OPT_PREFER_IPV4 | REDIS_OPT_PREFER_IPV6)
 
 /* In Unix systems a file descriptor is a regular signed int, with -1
  * representing an invalid descriptor. In Windows it is a SOCKET
@@ -220,26 +222,36 @@ typedef struct {
 /**
  * Helper macros to initialize options to their specified fields.
  */
-#define REDIS_OPTIONS_SET_TCP(opts, ip_, port_) \
-    (opts)->type = REDIS_CONN_TCP; \
-    (opts)->endpoint.tcp.ip = ip_; \
-    (opts)->endpoint.tcp.port = port_;
+#define REDIS_OPTIONS_SET_TCP(opts, ip_, port_) do { \
+        (opts)->type = REDIS_CONN_TCP;               \
+        (opts)->endpoint.tcp.ip = ip_;               \
+        (opts)->endpoint.tcp.port = port_;           \
+    } while(0)
 
-#define REDIS_OPTIONS_SET_UNIX(opts, path) \
-    (opts)->type = REDIS_CONN_UNIX;        \
-    (opts)->endpoint.unix_socket = path;
+#define REDIS_OPTIONS_SET_UNIX(opts, path) do { \
+        (opts)->type = REDIS_CONN_UNIX;         \
+        (opts)->endpoint.unix_socket = path;    \
+    } while(0)
 
-#define REDIS_OPTIONS_SET_PRIVDATA(opts, data, dtor) \
-    (opts)->privdata = data;                         \
-    (opts)->free_privdata = dtor;                    \
+#define REDIS_OPTIONS_SET_PRIVDATA(opts, data, dtor) do {  \
+        (opts)->privdata = data;                           \
+        (opts)->free_privdata = dtor;                      \
+    } while(0)
 
 typedef struct redisContextFuncs {
+    void (*close)(struct redisContext *);
     void (*free_privctx)(void *);
     void (*async_read)(struct redisAsyncContext *);
     void (*async_write)(struct redisAsyncContext *);
+
+    /* Read/Write data to the underlying communication stream, returning the
+     * number of bytes read/written.  In the event of an unrecoverable error
+     * these functions shall return a value < 0.  In the event of a
+     * recoverable error, they should return 0. */
     ssize_t (*read)(struct redisContext *, char *, size_t);
     ssize_t (*write)(struct redisContext *);
 } redisContextFuncs;
+
 
 /* Context for a connection to Redis */
 typedef struct redisContext {
@@ -310,6 +322,8 @@ int redisReconnect(redisContext *c);
 redisPushFn *redisSetPushCallback(redisContext *c, redisPushFn *fn);
 int redisSetTimeout(redisContext *c, const struct timeval tv);
 int redisEnableKeepAlive(redisContext *c);
+int redisEnableKeepAliveWithInterval(redisContext *c, int interval);
+int redisSetTcpUserTimeout(redisContext *c, unsigned int timeout);
 void redisFree(redisContext *c);
 redisFD redisFreeKeepFd(redisContext *c);
 int redisBufferRead(redisContext *c);

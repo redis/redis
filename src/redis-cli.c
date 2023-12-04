@@ -239,6 +239,7 @@ static struct config {
     int get_functions_rdb_mode;
     int stat_mode;
     int scan_mode;
+    int count;
     int intrinsic_latency_mode;
     int intrinsic_latency_duration;
     sds pattern;
@@ -848,7 +849,7 @@ static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) 
 /* Gets the server version string by calling INFO SERVER.
  * Stores the result in config.server_version.
  * When not connected, or not possible, returns NULL. */
-static sds cliGetServerVersion() {
+static sds cliGetServerVersion(void) {
     static const char *key = "\nredis_version:";
     redisReply *serverInfo = NULL;
     char *pos;
@@ -1656,6 +1657,7 @@ static int cliConnect(int flags) {
             redisFree(context);
             config.dbnum = 0;
             config.in_multi = 0;
+            config.pubsub_mode = 0;
             cliRefreshPrompt();
         }
 
@@ -1724,7 +1726,7 @@ static int cliConnect(int flags) {
 
 /* In cluster, if server replies ASK, we will redirect to a different node.
  * Before sending the real command, we need to send ASKING command first. */
-static int cliSendAsking() {
+static int cliSendAsking(void) {
     redisReply *reply;
 
     config.cluster_send_asking = 0;
@@ -2290,8 +2292,12 @@ static int cliReadReply(int output_raw_strings) {
         slot = atoi(s+1);
         s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
-        sdsfree(config.conn_info.hostip);
-        config.conn_info.hostip = sdsnew(p+1);
+        if (p+1 != s) {
+            /* Host might be empty, like 'MOVED 3999 :6381', if endpoint type is unknown. Only update the
+             * host if it's non-empty. */
+            sdsfree(config.conn_info.hostip);
+            config.conn_info.hostip = sdsnew(p+1);
+        }
         config.conn_info.hostport = atoi(s+1);
         if (config.interactive)
             printf("-> Redirected to slot [%d] located at %s:%d\n",
@@ -2319,7 +2325,7 @@ static int cliReadReply(int output_raw_strings) {
 }
 
 /* Simultaneously wait for pubsub messages from redis and input on stdin. */
-static void cliWaitForMessagesOrStdin() {
+static void cliWaitForMessagesOrStdin(void) {
     int show_info = config.output != OUTPUT_RAW && (isatty(STDOUT_FILENO) ||
                                                     getenv("FAKETTY"));
     int use_color = show_info && isColorTerm();
@@ -2727,6 +2733,8 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--pattern") && !lastarg) {
             sdsfree(config.pattern);
             config.pattern = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--count") && !lastarg) {
+            config.count = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--quoted-pattern") && !lastarg) {
             sdsfree(config.pattern);
             config.pattern = unquoteCString(argv[++i]);
@@ -2965,7 +2973,7 @@ static int parseOptions(int argc, char **argv) {
     return i;
 }
 
-static void parseEnv() {
+static void parseEnv(void) {
     /* Set auth from env, but do not overwrite CLI arguments if passed */
     char *auth = getenv(REDIS_CLI_AUTH_ENV);
     if (auth != NULL && config.conn_info.auth == NULL) {
@@ -2981,37 +2989,7 @@ static void parseEnv() {
 static void usage(int err) {
     sds version = cliVersion();
     FILE *target = err ? stderr: stdout;
-    fprintf(target,
-"redis-cli %s\n"
-"\n"
-"Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
-"  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
-"  -p <port>          Server port (default: 6379).\n"
-"  -s <socket>        Server socket (overrides hostname and port).\n"
-"  -a <password>      Password to use when connecting to the server.\n"
-"                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
-"                     variable to pass this password more safely\n"
-"                     (if both are used, this argument takes precedence).\n"
-"  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
-"  --pass <password>  Alias of -a for consistency with the new --user option.\n"
-"  --askpass          Force user to input password with mask from STDIN.\n"
-"                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
-"                     environment variable will be ignored.\n"
-"  -u <uri>           Server URI.\n"
-"  -r <repeat>        Execute specified command N times.\n"
-"  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
-"                     It is possible to specify sub-second times like -i 0.1.\n"
-"                     This interval is also used in --scan and --stat per cycle.\n"
-"                     and in --bigkeys, --memkeys, and --hotkeys per 100 cycles.\n"
-"  -n <db>            Database number.\n"
-"  -2                 Start session in RESP2 protocol mode.\n"
-"  -3                 Start session in RESP3 protocol mode.\n"
-"  -x                 Read last argument from STDIN (see example below).\n"
-"  -X                 Read <tag> argument from STDIN (see example below).\n"
-"  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
-"  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
-"  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
-"  -e                 Return exit error code when command execution fails.\n"
+    const char *tls_usage =
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
 "  --sni <host>       Server name indication for TLS.\n"
@@ -3032,6 +3010,43 @@ static void usage(int err) {
 "                     and specifically for TLSv1.3 ciphersuites.\n"
 #endif
 #endif
+"";
+
+    fprintf(target,
+"redis-cli %s\n"
+"\n"
+"Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
+"  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
+"  -p <port>          Server port (default: 6379).\n"
+"  -s <socket>        Server socket (overrides hostname and port).\n"
+"  -a <password>      Password to use when connecting to the server.\n"
+"                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
+"                     variable to pass this password more safely\n"
+"                     (if both are used, this argument takes precedence).\n"
+"  --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
+"  --pass <password>  Alias of -a for consistency with the new --user option.\n"
+"  --askpass          Force user to input password with mask from STDIN.\n"
+"                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
+"                     environment variable will be ignored.\n"
+"  -u <uri>           Server URI on format redis://user:password@host:port/dbnum\n"
+"                     User, password and dbnum are optional. For authentication\n"
+"                     without a username, use username 'default'. For TLS, use\n"
+"                     the scheme 'rediss'.\n"
+"  -r <repeat>        Execute specified command N times.\n"
+"  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
+"                     It is possible to specify sub-second times like -i 0.1.\n"
+"                     This interval is also used in --scan and --stat per cycle.\n"
+"                     and in --bigkeys, --memkeys, and --hotkeys per 100 cycles.\n"
+"  -n <db>            Database number.\n"
+"  -2                 Start session in RESP2 protocol mode.\n"
+"  -3                 Start session in RESP3 protocol mode.\n"
+"  -x                 Read last argument from STDIN (see example below).\n"
+"  -X                 Read <tag> argument from STDIN (see example below).\n"
+"  -d <delimiter>     Delimiter between response bulks for raw formatting (default: \\n).\n"
+"  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
+"  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
+"  -e                 Return exit error code when command execution fails.\n"
+"%s"
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
@@ -3041,7 +3056,8 @@ static void usage(int err) {
 "  --quoted-json      Same as --json, but produce ASCII-safe quoted strings, not Unicode.\n"
 "  --show-pushes <yn> Whether to print RESP3 PUSH messages.  Enabled by default when\n"
 "                     STDOUT is a tty but can be overridden with --show-pushes no.\n"
-"  --stat             Print rolling stats about server: mem, clients, ...\n",version);
+"  --stat             Print rolling stats about server: mem, clients, ...\n",
+version,tls_usage);
 
     fprintf(target,
 "  --latency          Enter a special mode continuously sampling latency.\n"
@@ -3059,7 +3075,7 @@ static void usage(int err) {
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "                     Use filename of \"-\" to write to stdout.\n"
-" --functions-rdb <filename> Like --rdb but only get the functions (not the keys)\n"
+"  --functions-rdb <filename> Like --rdb but only get the functions (not the keys)\n"
 "                     when getting the RDB dump file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
@@ -3076,6 +3092,7 @@ static void usage(int err) {
 "  --scan             List all keys using the SCAN command.\n"
 "  --pattern <pat>    Keys pattern when using the --scan, --bigkeys or --hotkeys\n"
 "                     options (default: *).\n"
+"  --count <count>    Count option when using the --scan, --bigkeys or --hotkeys (default: 10).\n"
 "  --quoted-pattern <pat> Same as --pattern, but the specified string can be\n"
 "                         quoted, in order to pass an otherwise non binary-safe string.\n"
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
@@ -3099,6 +3116,7 @@ static void usage(int err) {
 "  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
 "Examples:\n"
+"  redis-cli -u redis://default:PASSWORD@localhost:6379/0\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
 "  redis-cli -D \"\" --raw dump key > key.dump && redis-cli -X dump_tag restore key2 0 dump_tag replace < key.dump\n"
 "  redis-cli -r 100 lpush mylist x\n"
@@ -3106,6 +3124,7 @@ static void usage(int err) {
 "  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
 "  redis-cli --eval myscript.lua key1 key2 , arg1 arg2 arg3\n"
 "  redis-cli --scan --pattern '*:12345*'\n"
+"  redis-cli --scan --pattern '*:12345*' --count 100\n"
 "\n"
 "  (Note: when using --eval the comma separates KEYS[] from ARGV[] items)\n"
 "\n"
@@ -3247,16 +3266,19 @@ void cliLoadPreferences(void) {
 /* Some commands can include sensitive information and shouldn't be put in the
  * history file. Currently these commands are include:
  * - AUTH
- * - ACL SETUSER
+ * - ACL SETUSER, ACL GETUSER
  * - CONFIG SET masterauth/masteruser/requirepass
  * - HELLO with [AUTH username password]
- * - MIGRATE with [AUTH password] or [AUTH2 username password] */
+ * - MIGRATE with [AUTH password] or [AUTH2 username password] 
+ * - SENTINEL CONFIG SET sentinel-pass password, SENTINEL CONFIG SET sentinel-user username 
+ * - SENTINEL SET <mastername> auth-pass password, SENTINEL SET <mastername> auth-user username */
 static int isSensitiveCommand(int argc, char **argv) {
     if (!strcasecmp(argv[0],"auth")) {
         return 1;
     } else if (argc > 1 &&
-        !strcasecmp(argv[0],"acl") &&
-        !strcasecmp(argv[1],"setuser"))
+        !strcasecmp(argv[0],"acl") && (
+            !strcasecmp(argv[1],"setuser") ||
+            !strcasecmp(argv[1],"getuser")))
     {
         return 1;
     } else if (argc > 2 &&
@@ -3264,8 +3286,8 @@ static int isSensitiveCommand(int argc, char **argv) {
         !strcasecmp(argv[1],"set")) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
-		    !strcasecmp(argv[j],"masteruser") ||
-		    !strcasecmp(argv[j],"requirepass")) {
+                    !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"requirepass")) {
                     return 1;
                 }
             }
@@ -3294,6 +3316,24 @@ static int isSensitiveCommand(int argc, char **argv) {
             } else if (!strcasecmp(argv[j],"keys") && moreargs) {
                 return 0;
             }
+        }
+    } else if (argc > 4 && !strcasecmp(argv[0], "sentinel")) {
+        /* SENTINEL CONFIG SET sentinel-pass password
+         * SENTINEL CONFIG SET sentinel-user username */
+        if (!strcasecmp(argv[1], "config") && 
+            !strcasecmp(argv[2], "set") &&
+            (!strcasecmp(argv[3], "sentinel-pass") ||
+             !strcasecmp(argv[3], "sentinel-user"))) 
+        {
+            return 1;
+        }
+        /* SENTINEL SET <mastername> auth-pass password 
+         * SENTINEL SET <mastername> auth-user username */
+        if (!strcasecmp(argv[1], "set") &&
+            (!strcasecmp(argv[3], "auth-pass") || 
+             !strcasecmp(argv[3], "auth-user"))) 
+        {
+            return 1;
         }
     }
     return 0;
@@ -4563,7 +4603,7 @@ static void clusterManagerShowNodes(void) {
 
 static void clusterManagerShowClusterInfo(void) {
     int masters = 0;
-    int keys = 0;
+    long long keys = 0;
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
@@ -4572,7 +4612,7 @@ static void clusterManagerShowClusterInfo(void) {
         if (!(node->flags & CLUSTER_MANAGER_FLAG_SLAVE)) {
             if (!node->name) continue;
             int replicas = 0;
-            int dbsize = -1;
+            long long dbsize = -1;
             char name[9];
             memcpy(name, node->name, 8);
             name[8] = '\0';
@@ -4598,14 +4638,14 @@ static void clusterManagerShowClusterInfo(void) {
                 return;
             };
             if (reply != NULL) freeReplyObject(reply);
-            printf("%s:%d (%s...) -> %d keys | %d slots | %d slaves.\n",
+            printf("%s:%d (%s...) -> %lld keys | %d slots | %d slaves.\n",
                    node->ip, node->port, name, dbsize,
                    node->slots_count, replicas);
             masters++;
             keys += dbsize;
         }
     }
-    clusterManagerLogOk("[OK] %d keys in %d masters.\n", keys, masters);
+    clusterManagerLogOk("[OK] %lld keys in %d masters.\n", keys, masters);
     float keys_per_slot = keys / (float) CLUSTER_MANAGER_SLOTS;
     printf("%.2f keys per slot on average.\n", keys_per_slot);
 }
@@ -5865,7 +5905,7 @@ static clusterManagerNode * clusterManagerGetNodeWithMostKeysInSlot(list *nodes,
  * in the cluster. If there are multiple masters with the same smaller
  * number of replicas, one at random is returned. */
 
-static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
+static clusterManagerNode *clusterManagerNodeWithLeastReplicas(void) {
     clusterManagerNode *node = NULL;
     int lowest_count = 0;
     listIter li;
@@ -5884,7 +5924,7 @@ static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
 
 /* This function returns a random master node, return NULL if none */
 
-static clusterManagerNode *clusterManagerNodeMasterRandom() {
+static clusterManagerNode *clusterManagerNodeMasterRandom(void) {
     int master_count = 0;
     int idx;
     listIter li;
@@ -8386,7 +8426,7 @@ int sendReplconf(const char* arg1, const char* arg2) {
     return res;
 }
 
-void sendCapa() {
+void sendCapa(void) {
     sendReplconf("capa", "eof");
 }
 
@@ -8821,8 +8861,8 @@ static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply;
 
     if (config.pattern)
-        reply = redisCommand(context, "SCAN %llu MATCH %b",
-            *it, config.pattern, sdslen(config.pattern));
+        reply = redisCommand(context, "SCAN %llu MATCH %b COUNT %d",
+            *it, config.pattern, sdslen(config.pattern), config.count);
     else
         reply = redisCommand(context,"SCAN %llu",*it);
 
@@ -8873,6 +8913,28 @@ static int getDbSize(void) {
     freeReplyObject(reply);
 
     return size;
+}
+
+static int getDatabases(void) {
+    redisReply *reply;
+    int dbnum;
+
+    reply = redisCommand(context, "CONFIG GET databases");
+
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        dbnum = 16;
+        fprintf(stderr, "CONFIG GET databases fails: %s, use default value 16 instead\n", reply->str);
+    } else {
+        assert(reply->type == (config.current_resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+        assert(reply->elements == 2);
+        dbnum = atoi(reply->element[1]->str);
+    }
+
+    freeReplyObject(reply);
+    return dbnum;
 }
 
 typedef struct {
@@ -9025,6 +9087,21 @@ static void longStatLoopModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+/* In cluster mode we may need to send the READONLY command.
+   Ignore the error in case the server isn't using cluster mode. */
+static void sendReadOnly(void) {
+    redisReply *read_reply;
+    read_reply = redisCommand(context, "READONLY");
+    if (read_reply == NULL){
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    } else if (read_reply->type == REDIS_REPLY_ERROR && strcmp(read_reply->str, "ERR This instance has cluster support disabled") != 0) {
+        fprintf(stderr, "Error: %s\n", read_reply->str);
+        exit(1);
+    }
+    freeReplyObject(read_reply);
+}
+
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
@@ -9050,6 +9127,9 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     printf("\n# Scanning the entire keyspace to find biggest keys as well as\n");
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
+    
+    /* Use readonly in cluster */
+    sendReadOnly();
 
     /* SCAN loop */
     do {
@@ -9216,6 +9296,9 @@ static void findHotKeys(void) {
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
 
+    /* Use readonly in cluster */
+    sendReadOnly();
+    
     /* SCAN loop */
     do {
         /* Calculate approximate percentage completion */
@@ -9357,6 +9440,7 @@ void bytesToHuman(char *s, size_t size, long long n) {
 static void statMode(void) {
     redisReply *reply;
     long aux, requests = 0;
+    int dbnum = getDatabases();
     int i = 0;
 
     while(1) {
@@ -9380,7 +9464,7 @@ static void statMode(void) {
 
         /* Keys */
         aux = 0;
-        for (j = 0; j < 20; j++) {
+        for (j = 0; j < dbnum; j++) {
             long k;
 
             snprintf(buf,sizeof(buf),"db%d:keys",j);
@@ -9765,12 +9849,14 @@ int main(int argc, char **argv) {
     config.get_functions_rdb_mode = 0;
     config.stat_mode = 0;
     config.scan_mode = 0;
+    config.count = 10;
     config.intrinsic_latency_mode = 0;
     config.pattern = NULL;
     config.rdb_filename = NULL;
     config.pipe_mode = 0;
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
+    config.memkeys = 0;
     config.hotkeys = 0;
     config.stdin_lastarg = 0;
     config.stdin_tag_arg = 0;

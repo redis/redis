@@ -47,25 +47,25 @@ start_server {} {
     }
 
     test {WAIT should not acknowledge 1 additional copy if slave is blocked} {
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
         $master set foo 0
         $master incr foo
         $master incr foo
         $master incr foo
         assert {[$master wait 1 1000] == 0}
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 
     test {WAIT implicitly blocks on client pause since ACKs aren't sent} {
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
         $master multi
         $master incr foo
         $master client pause 10000 write
         $master exec
         assert {[$master wait 1 1000] == 0}
         $master client unpause
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
         assert {[$master wait 1 1000] == 1}
     }
 
@@ -73,7 +73,7 @@ start_server {} {
         set rd [redis_deferring_client -1]
         set rd2 [redis_deferring_client -1]
 
-        exec kill -SIGSTOP $slave_pid
+        pause_process $slave_pid
 
         $rd incr foo
         $rd read
@@ -85,7 +85,7 @@ start_server {} {
         $rd2 wait 1 0
         wait_for_blocked_clients_count 2 100 10 -1
 
-        exec kill -SIGCONT $slave_pid
+        resume_process $slave_pid
 
         assert_equal [$rd read] {1}
         assert_equal [$rd2 read] {1}
@@ -121,10 +121,10 @@ tags {"wait aof network external:skip"} {
             r config set appendfsync always
             $master incr foo
             assert_equal [$master waitaof 1 0 0] {1 0}
-            r config set appendfsync everysec
         }
 
         test {WAITAOF local wait and then stop aof} {
+            r config set appendfsync no
             set rd [redis_deferring_client]
             $rd incr foo
             $rd read
@@ -138,6 +138,37 @@ tags {"wait aof network external:skip"} {
         test {WAITAOF local on server with aof disabled} {
             $master incr foo
             assert_error {ERR WAITAOF cannot be used when numlocal is set but appendonly is disabled.} {$master waitaof 1 0 0}
+        }
+
+        test {WAITAOF local if AOFRW was postponed} {
+            r config set appendfsync everysec
+
+            # turn off AOF
+            r config set appendonly no
+
+            # create an RDB child that takes a lot of time to run
+            r set x y
+            r config set rdb-key-save-delay 100000000  ;# 100 seconds
+            r bgsave
+            assert_equal [s rdb_bgsave_in_progress] 1
+
+            # turn on AOF
+            r config set appendonly yes
+            assert_equal [s aof_rewrite_scheduled] 1
+
+            # create a write command (to increment master_repl_offset)
+            r set x y
+
+            # reset save_delay and kill RDB child
+            r config set rdb-key-save-delay 0
+            catch {exec kill -9 [get_child_pid 0]}
+
+            # wait for AOF (will unblock after AOFRW finishes)
+            assert_equal [r waitaof 1 0 10000] {1 0}
+
+            # make sure AOFRW finished
+            assert_equal [s aof_rewrite_in_progress] 0
+            assert_equal [s aof_rewrite_scheduled] 0
         }
 
         $master config set appendonly yes
@@ -229,10 +260,10 @@ tags {"wait aof network external:skip"} {
             }
 
             test {WAITAOF replica copy if replica is blocked} {
-                exec kill -SIGSTOP $replica_pid
+                pause_process $replica_pid
                 $master incr foo
                 assert_equal [$master waitaof 0 1 50] {1 0} ;# exits on timeout
-                exec kill -SIGCONT $replica_pid
+                resume_process $replica_pid
                 assert_equal [$master waitaof 0 1 0] {1 1}
             }
 
@@ -240,7 +271,7 @@ tags {"wait aof network external:skip"} {
                 set rd [redis_deferring_client -1]
                 set rd2 [redis_deferring_client -1]
 
-                exec kill -SIGSTOP $replica_pid
+                pause_process $replica_pid
 
                 $rd incr foo
                 $rd read
@@ -252,7 +283,7 @@ tags {"wait aof network external:skip"} {
                 $rd2 waitaof 0 1 0
                 wait_for_blocked_clients_count 2 100 10 -1
 
-                exec kill -SIGCONT $replica_pid
+                resume_process $replica_pid
 
                 assert_equal [$rd read] {1 1}
                 assert_equal [$rd2 read] {1 1}
@@ -438,7 +469,7 @@ start_server {} {
         waitForBgrewriteaof $replica1
         waitForBgrewriteaof $replica2
 
-        exec kill -SIGSTOP $replica1_pid
+        pause_process $replica1_pid
 
         $rd incr foo
         $rd read
@@ -451,7 +482,7 @@ start_server {} {
 
         wait_for_blocked_clients_count 2
 
-        exec kill -SIGCONT $replica1_pid
+        resume_process $replica1_pid
 
         # WAIT will unblock the client first.
         assert_equal [$rd2 read] {2}

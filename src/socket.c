@@ -78,6 +78,7 @@ static connection *connCreateSocket(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
+    conn->iovcnt = IOV_MAX;
 
     return conn;
 }
@@ -464,7 +465,7 @@ int connRecvTimeout(connection *conn, long long ms) {
     return anetRecvTimeout(NULL, conn->fd, ms);
 }
 
-int RedisRegisterConnectionTypeSocket()
+int RedisRegisterConnectionTypeSocket(void)
 {
     return connTypeRegister(&CT_Socket);
 }

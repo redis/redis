@@ -55,7 +55,7 @@ int cancelReplicationHandshake(int reconnect);
 int RDBGeneratedByReplication = 0;
 
 /* --------------------------- Utility functions ---------------------------- */
-static ConnectionType *connTypeOfReplication() {
+static ConnectionType *connTypeOfReplication(void) {
     if (server.tls_replication) {
         return connectionTypeTls();
     }
@@ -418,13 +418,13 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
         if (add_new_block) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
+
+            /* It is important to trim after adding replication data to keep the backlog size close to
+             * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
+             * unnecessary trimming attempts when small amounts of data are added. See comments in
+             * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
+            incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
         }
-        /* Try to trim replication backlog since replication backlog may exceed
-         * our setting when we add replication stream. Note that it is important to
-         * try to trim at least one node since in the common case this is where one
-         * new backlog node is added and one should be removed. See also comments
-         * in freeMemoryGetNotCountedMemory for details. */
-        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
     }
 }
 
@@ -610,6 +610,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
+        updateClientMemUsageAndBucket(monitor);
     }
     decrRefCount(cmdobj);
 }
@@ -950,7 +951,11 @@ void syncCommand(client *c) {
         }
 
         if (!strcasecmp(c->argv[1]->ptr,server.replid)) {
-            replicationUnsetMaster();
+            if (server.cluster_enabled) {
+                clusterPromoteSelfToMaster();
+            } else {
+                replicationUnsetMaster();
+            }
             sds client = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE,
                 "MASTER MODE enabled (failover request from '%s')",client);
@@ -1254,7 +1259,7 @@ void replconfCommand(client *c) {
             int filter_count, i;
             sds *filters;
             if (!(filters = sdssplitargs(c->argv[j+1]->ptr, &filter_count))) {
-                addReplyErrorFormat(c, "Missing rdb-filter-only values");
+                addReplyError(c, "Missing rdb-filter-only values");
                 return;
             }
             /* By default filter out all parts of the rdb */
@@ -1735,7 +1740,7 @@ int slaveIsInHandshakeState(void) {
  * not, since the byte is indivisible.
  *
  * The function is called in two contexts: while we flush the current
- * data with emptyDb(), and while we load the new data received as an
+ * data with emptyData(), and while we load the new data received as an
  * RDB file from the master. */
 void replicationSendNewlineToMaster(void) {
     static time_t newline_sent;
@@ -1746,7 +1751,7 @@ void replicationSendNewlineToMaster(void) {
     }
 }
 
-/* Callback used by emptyDb() while flushing away old data to load
+/* Callback used by emptyData() while flushing away old data to load
  * the new dataset received by the master and by discardTempDb()
  * after loading succeeded or failed. */
 void replicationEmptyDbCallback(dict *d) {
@@ -1793,7 +1798,7 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
  * master-replica synchronization: if it fails after multiple attempts
  * the replica cannot be considered reliable and exists with an
  * error. */
-void restartAOFAfterSYNC() {
+void restartAOFAfterSYNC(void) {
     unsigned int tries, max_tries = 10;
     for (tries = 0; tries < max_tries; ++tries) {
         if (startAppendOnly() == C_OK) break;
@@ -1810,7 +1815,7 @@ void restartAOFAfterSYNC() {
     }
 }
 
-static int useDisklessLoad() {
+static int useDisklessLoad(void) {
     /* compute boolean decision to use diskless load */
     int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
@@ -1849,7 +1854,7 @@ void disklessLoadDiscardTempDb(redisDb *tempDb) {
  * we have no way to incrementally feed our replicas after that.
  * We want our replicas to resync with us as well, if we have any sub-replicas.
  * This is useful on readSyncBulkPayload in places where we just finished transferring db. */
-void replicationAttachToNewMaster() { 
+void replicationAttachToNewMaster(void) { 
     /* Replica starts to apply data from new master, we must discard the cached
      * master structure. */
     serverAssert(server.master == NULL);
@@ -2249,6 +2254,7 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         zfree(server.repl_transfer_tmpfile);
+        close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }
@@ -3772,7 +3778,7 @@ void replicationCron(void) {
          * match the one stored into 'mf_master_offset' state. */
         int manual_failover_in_progress =
             ((server.cluster_enabled &&
-              server.cluster->mf_end) ||
+              clusterManualFailoverTimeLimit()) ||
             server.failover_end_time) &&
             isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA);
 
@@ -3993,7 +3999,7 @@ static client *findReplica(char *host, int port) {
     return NULL;
 }
 
-const char *getFailoverStateString() {
+const char *getFailoverStateString(void) {
     switch(server.failover_state) {
         case NO_FAILOVER: return "no-failover";
         case FAILOVER_IN_PROGRESS: return "failover-in-progress";
@@ -4005,7 +4011,7 @@ const char *getFailoverStateString() {
 /* Resets the internal failover configuration, this needs
  * to be called after a failover either succeeds or fails
  * as it includes the client unpause. */
-void clearFailoverState() {
+void clearFailoverState(void) {
     server.failover_end_time = 0;
     server.force_failover = 0;
     zfree(server.target_replica_host);
@@ -4059,12 +4065,10 @@ void abortFailover(const char *err) {
  * will attempt forever and must be manually aborted.
  */
 void failoverCommand(client *c) {
-    if (server.cluster_enabled) {
-        addReplyError(c,"FAILOVER not allowed in cluster mode. "
-                        "Use CLUSTER FAILOVER command instead.");
+    if (!clusterAllowFailoverCmd(c)) {
         return;
     }
-    
+
     /* Handle special case for abort */
     if ((c->argc == 2) && !strcasecmp(c->argv[1]->ptr,"abort")) {
         if (server.failover_state == NO_FAILOVER) {
