@@ -436,7 +436,9 @@ sds luaCreateFunction(client *c, robj *body) {
     ssize_t shebang_len = 0;
     sds err = NULL;
     if (evalExtractShebangFlags(body->ptr, &script_flags, &shebang_len, &err) == C_ERR) {
-        addReplyErrorSds(c, err);
+        if (c != NULL) {
+            addReplyErrorSds(c, err);
+        }
         return NULL;
     }
 
