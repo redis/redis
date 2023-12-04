@@ -132,6 +132,7 @@ void daEmpty(dictarray *da, void(callback)(dict*)) {
 void daRelease(dictarray *da) {
     for (int slot = 0; slot < da->num_slots; slot++)
         dictRelease(daGetDict(da, slot));
+    zfree(da->dicts);
 
     listRelease(da->state.rehashing);
     if (da->state.slot_size_index)
