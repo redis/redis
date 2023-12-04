@@ -54,7 +54,12 @@ void *BlockDebug_ThreadMain(void *arg) {
     *r = rand();
     if (enable_time_track)
         RedisModule_BlockedClientMeasureTimeEnd(bc);
+
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_UnblockClient(bc,r);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_FreeThreadSafeContext(ctx);
     return NULL;
 }
 
@@ -80,7 +85,11 @@ void *DoubleBlock_ThreadMain(void *arg) {
     nanosleep(&ts, NULL);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
 
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_UnblockClient(bc,r);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_FreeThreadSafeContext(ctx);
     return NULL;
 }
 

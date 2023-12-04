@@ -138,7 +138,21 @@ void *AuthBlock_ThreadMain(void *arg) {
     void **replyarg = RedisModule_Alloc(sizeof(void*));
     replyarg[0] = (void *) (uintptr_t) result;
     RedisModule_BlockedClientMeasureTimeEnd(bc);
+
+    // Get Redis module context
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+
+    // Acquire GIL
+    RedisModule_ThreadSafeContextLock(ctx);
+
     RedisModule_UnblockClient(bc, replyarg);
+
+    // Release GIL
+    RedisModule_ThreadSafeContextUnlock(ctx);
+
+    // Free the Redis module context
+    RedisModule_FreeThreadSafeContext(ctx);
+
 cleanup:
     /* Free the username and password and thread / arg data. */
     RedisModule_FreeString(NULL, targ[1]);
