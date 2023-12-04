@@ -1,7 +1,9 @@
+#include <assert.h>
+#include <string.h>
+#include <stddef.h>
+
 #include "zmalloc.h"
 #include "dictarray.h"
-#include "assert.h"
-#include "string.h"
 
 /* Returns total (cumulative) number of keys up until given slot (inclusive).
  * Time complexity is O(log(da->num_slots)). */

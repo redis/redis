@@ -87,5 +87,4 @@ dict *daGetDictFromIterator(daIterator *dait);
 int daIteratorGetCurrentSlot(daIterator *dait);
 dictEntry *daIteratorNext(daIterator *dait);
 
-
 #endif /* DICTARRAY_H_ */
