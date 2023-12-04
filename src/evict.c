@@ -271,7 +271,7 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
  * The logarithmic increment performed on LOG_C takes care of LFU_INIT_VAL
  * when incrementing the key, so that keys starting at LFU_INIT_VAL
  * (or having a smaller value) have a very high chance of being incremented
- * on access (the chance depends on counter and lfu_log_factor).
+ * on access. (The chance depends on counter and lfu-log-factor.)
  *
  * During decrement, the value of the logarithmic counter is decremented by
  * one when lfu-decay-time minutes elapsed.
@@ -284,7 +284,7 @@ unsigned long LFUGetTimeInMinutes(void) {
     return (server.unixtime/60) & 65535;
 }
 
-/* Given an object last access time, compute the minimum number of minutes
+/* Given an object ldt (last access time), compute the minimum number of minutes
  * that elapsed since the last access. Handle overflow (ldt greater than
  * the current 16 bits minutes time) considering the time as wrapping
  * exactly once. */
@@ -306,7 +306,7 @@ uint8_t LFULogIncr(uint8_t counter) {
     return counter;
 }
 
-/* If the object access time is reached decrement the LFU counter but
+/* If the object's ldt (last access time) is reached, decrement the LFU counter but
  * do not update LFU fields of the object, we update the access time
  * and counter in an explicit way when the object is really accessed.
  * And we will times decrement the counter according to the times of
