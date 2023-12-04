@@ -95,7 +95,7 @@ start_server {tags {"modules"}} {
     test "Unload the module - commandfilter" {
         assert_equal {OK} [r module unload commandfilter]
     }
-} 
+}
 
 test {RM_CommandFilterArgInsert and script argv caching} {
     # coverage for scripts calling commands that expand the argv array
@@ -139,5 +139,37 @@ test {Blocking Commands don't run through command filter when reprocessed} {
         assert_equal [$rd read] 1
         # validate that we moved the correct elements to the correct side of the list
         assert_equal [r lpop list2{t}] 1
+
+        $rd close
+    }
+}
+
+test {Filtering based on client id} {
+    start_server {tags {"modules"}} {
+        r module load $testmodule log-key 0
+
+        set rr [redis_client]
+        set cid [$rr client id]
+        r unfilter_clientid $cid
+
+        r rpush mylist elem1 @replaceme elem2
+        assert_equal [r lrange mylist 0 -1] {elem1 --replaced-- elem2}
+
+        r del mylist
+
+        assert_equal [$rr rpush mylist elem1 @replaceme elem2] 3
+        assert_equal [r lrange mylist 0 -1] {elem1 @replaceme elem2}
+
+        $rr close
+    }
+}
+
+start_server {} {
+    test {OnLoad failure will handle un-registration} {
+        catch {r module load $testmodule log-key 0 noload}
+        r set mykey @log
+        assert_equal [r lrange log-key 0 -1] {}
+        r rpush mylist elem1 @delme elem2
+        assert_equal [r lrange mylist 0 -1] {elem1 @delme elem2}
     }
 }

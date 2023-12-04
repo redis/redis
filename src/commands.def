@@ -964,15 +964,15 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("myid","Returns the ID of a node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,0,CLUSTER_MYID_Tips,0,clusterCommand,2,CMD_STALE,0,CLUSTER_MYID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("myshardid","Returns the shard ID of a node.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYSHARDID_History,0,CLUSTER_MYSHARDID_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_MYSHARDID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("nodes","Returns the cluster configuration for a node.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,0,CLUSTER_NODES_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_NODES_Keyspecs,0,NULL,0)},
-{MAKE_CMD("replicas","Lists the replica nodes of a master node.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_History,0,CLUSTER_REPLICAS_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICAS_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICAS_Args},
+{MAKE_CMD("replicas","Lists the replica nodes of a master node.","O(N) where N is the number of replicas.","5.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICAS_History,0,CLUSTER_REPLICAS_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICAS_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICAS_Args},
 {MAKE_CMD("replicate","Configure a node as replica of a master node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_REPLICATE_History,0,CLUSTER_REPLICATE_Tips,0,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_REPLICATE_Keyspecs,0,NULL,1),.args=CLUSTER_REPLICATE_Args},
 {MAKE_CMD("reset","Resets a node.","O(N) where N is the number of known nodes. The command may execute a FLUSHALL as a side effect.","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_RESET_History,0,CLUSTER_RESET_Tips,0,clusterCommand,-2,CMD_ADMIN|CMD_STALE|CMD_NOSCRIPT,0,CLUSTER_RESET_Keyspecs,0,NULL,1),.args=CLUSTER_RESET_Args},
 {MAKE_CMD("saveconfig","Forces a node to save the cluster configuration to disk.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SAVECONFIG_History,0,CLUSTER_SAVECONFIG_Tips,0,clusterCommand,2,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SAVECONFIG_Keyspecs,0,NULL,0)},
 {MAKE_CMD("set-config-epoch","Sets the configuration epoch for a new node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SET_CONFIG_EPOCH_History,0,CLUSTER_SET_CONFIG_EPOCH_Tips,0,clusterCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SET_CONFIG_EPOCH_Keyspecs,0,NULL,1),.args=CLUSTER_SET_CONFIG_EPOCH_Args},
 {MAKE_CMD("setslot","Binds a hash slot to a node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SETSLOT_History,0,CLUSTER_SETSLOT_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SETSLOT_Keyspecs,0,NULL,2),.args=CLUSTER_SETSLOT_Args},
-{MAKE_CMD("shards","Returns the mapping of cluster slots to shards.","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,0,CLUSTER_SHARDS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_SHARDS_Keyspecs,0,NULL,0)},
-{MAKE_CMD("slaves","Lists the replica nodes of a master node.","O(1)","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args},
-{MAKE_CMD("slots","Returns the mapping of cluster slots to nodes.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("shards","Returns the mapping of cluster slots to shards.","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,0,CLUSTER_SHARDS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SHARDS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("slaves","Lists the replica nodes of a master node.","O(N) where N is the number of replicas.","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args},
+{MAKE_CMD("slots","Returns the mapping of cluster slots to nodes.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0)},
 {0}
 };
 
@@ -1391,7 +1391,10 @@ struct COMMAND_ARG CLIENT_REPLY_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT SETINFO tips */
-#define CLIENT_SETINFO_Tips NULL
+const char *CLIENT_SETINFO_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -1419,7 +1422,10 @@ struct COMMAND_ARG CLIENT_SETINFO_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CLIENT SETNAME tips */
-#define CLIENT_SETNAME_Tips NULL
+const char *CLIENT_SETNAME_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -1543,8 +1549,8 @@ struct COMMAND_STRUCT CLIENT_Subcommands[] = {
 {MAKE_CMD("no-touch","Controls whether commands sent by the client affect the LRU/LFU of accessed keys.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_NO_TOUCH_History,0,CLIENT_NO_TOUCH_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,CLIENT_NO_TOUCH_Keyspecs,0,NULL,1),.args=CLIENT_NO_TOUCH_Args},
 {MAKE_CMD("pause","Suspends commands processing.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_PAUSE_History,1,CLIENT_PAUSE_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_PAUSE_Keyspecs,0,NULL,2),.args=CLIENT_PAUSE_Args},
 {MAKE_CMD("reply","Instructs the server whether to reply to commands.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_REPLY_History,0,CLIENT_REPLY_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_REPLY_Keyspecs,0,NULL,1),.args=CLIENT_REPLY_Args},
-{MAKE_CMD("setinfo","Sets information specific to the client or connection.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,0,CLIENT_SETINFO_Tips,0,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETINFO_Keyspecs,0,NULL,1),.args=CLIENT_SETINFO_Args},
-{MAKE_CMD("setname","Sets the connection name.","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,0,CLIENT_SETNAME_Tips,0,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETNAME_Keyspecs,0,NULL,1),.args=CLIENT_SETNAME_Args},
+{MAKE_CMD("setinfo","Sets information specific to the client or connection.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETINFO_History,0,CLIENT_SETINFO_Tips,2,clientSetinfoCommand,4,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETINFO_Keyspecs,0,NULL,1),.args=CLIENT_SETINFO_Args},
+{MAKE_CMD("setname","Sets the connection name.","O(1)","2.6.9",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_SETNAME_History,0,CLIENT_SETNAME_Tips,2,clientCommand,3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_SETNAME_Keyspecs,0,NULL,1),.args=CLIENT_SETNAME_Args},
 {MAKE_CMD("tracking","Controls server-assisted client-side caching for the connection.","O(1). Some options may introduce additional complexity.","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKING_History,0,CLIENT_TRACKING_Tips,0,clientCommand,-3,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKING_Keyspecs,0,NULL,7),.args=CLIENT_TRACKING_Args},
 {MAKE_CMD("trackinginfo","Returns information about server-assisted client-side caching for the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_TRACKINGINFO_History,0,CLIENT_TRACKINGINFO_Tips,0,clientCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_TRACKINGINFO_Keyspecs,0,NULL,0)},
 {MAKE_CMD("unblock","Unblocks a client blocked by a blocking command from a different connection.","O(log N) where N is the number of client connections","5.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_UNBLOCK_History,0,CLIENT_UNBLOCK_Tips,0,clientCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,CLIENT_UNBLOCK_Keyspecs,0,NULL,2),.args=CLIENT_UNBLOCK_Args},
@@ -2328,6 +2334,7 @@ struct COMMAND_ARG PTTL_Args[] = {
 /* RANDOMKEY tips */
 const char *RANDOMKEY_Tips[] = {
 "request_policy:all_shards",
+"response_policy:special",
 "nondeterministic_output",
 };
 #endif
@@ -2437,6 +2444,7 @@ commandHistory SCAN_History[] = {
 const char *SCAN_Tips[] = {
 "nondeterministic_output",
 "request_policy:special",
+"response_policy:special",
 };
 #endif
 
@@ -5884,7 +5892,10 @@ struct COMMAND_ARG ACL_CAT_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL DELUSER tips */
-#define ACL_DELUSER_Tips NULL
+const char *ACL_DELUSER_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6058,7 +6069,10 @@ struct COMMAND_ARG ACL_LOG_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SAVE tips */
-#define ACL_SAVE_Tips NULL
+const char *ACL_SAVE_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6078,7 +6092,10 @@ commandHistory ACL_SETUSER_History[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* ACL SETUSER tips */
-#define ACL_SETUSER_Tips NULL
+const char *ACL_SETUSER_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6129,7 +6146,7 @@ struct COMMAND_ARG ACL_SETUSER_Args[] = {
 /* ACL command table */
 struct COMMAND_STRUCT ACL_Subcommands[] = {
 {MAKE_CMD("cat","Lists the ACL categories, or the commands inside a category.","O(1) since the categories and commands are a fixed set.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_CAT_History,0,ACL_CAT_Tips,0,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_CAT_Keyspecs,0,NULL,1),.args=ACL_CAT_Args},
-{MAKE_CMD("deluser","Deletes ACL users, and terminates their connections.","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DELUSER_History,0,ACL_DELUSER_Tips,0,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DELUSER_Keyspecs,0,NULL,1),.args=ACL_DELUSER_Args},
+{MAKE_CMD("deluser","Deletes ACL users, and terminates their connections.","O(1) amortized time considering the typical user.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DELUSER_History,0,ACL_DELUSER_Tips,2,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DELUSER_Keyspecs,0,NULL,1),.args=ACL_DELUSER_Args},
 {MAKE_CMD("dryrun","Simulates the execution of a command by a user, without executing the command.","O(1).","7.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_DRYRUN_History,0,ACL_DRYRUN_Tips,0,aclCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_DRYRUN_Keyspecs,0,NULL,3),.args=ACL_DRYRUN_Args},
 {MAKE_CMD("genpass","Generates a pseudorandom, secure password that can be used to identify ACL users.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_GENPASS_History,0,ACL_GENPASS_Tips,0,aclCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_GENPASS_Keyspecs,0,NULL,1),.args=ACL_GENPASS_Args},
 {MAKE_CMD("getuser","Lists the ACL rules of a user.","O(N). Where N is the number of password, command and pattern rules that the user has.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_GETUSER_History,2,ACL_GETUSER_Tips,0,aclCommand,3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_GETUSER_Keyspecs,0,NULL,1),.args=ACL_GETUSER_Args},
@@ -6137,8 +6154,8 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 {MAKE_CMD("list","Dumps the effective rules in ACL file format.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LIST_History,0,ACL_LIST_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LIST_Keyspecs,0,NULL,0)},
 {MAKE_CMD("load","Reloads the rules from the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOAD_History,0,ACL_LOAD_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOAD_Keyspecs,0,NULL,0)},
 {MAKE_CMD("log","Lists recent security events generated due to ACL rules.","O(N) with N being the number of entries shown.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_LOG_History,1,ACL_LOG_Tips,0,aclCommand,-2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_LOG_Keyspecs,0,NULL,1),.args=ACL_LOG_Args},
-{MAKE_CMD("save","Saves the effective ACL rules in the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SAVE_History,0,ACL_SAVE_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SAVE_Keyspecs,0,NULL,0)},
-{MAKE_CMD("setuser","Creates and modifies an ACL user and its rules.","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SETUSER_History,2,ACL_SETUSER_Tips,0,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SETUSER_Keyspecs,0,NULL,2),.args=ACL_SETUSER_Args},
+{MAKE_CMD("save","Saves the effective ACL rules in the configured ACL file.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SAVE_History,0,ACL_SAVE_Tips,2,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SAVE_Keyspecs,0,NULL,0)},
+{MAKE_CMD("setuser","Creates and modifies an ACL user and its rules.","O(N). Where N is the number of rules provided.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_SETUSER_History,2,ACL_SETUSER_Tips,2,aclCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_SETUSER_Keyspecs,0,NULL,2),.args=ACL_SETUSER_Args},
 {MAKE_CMD("users","Lists all ACL users.","O(N). Where N is the number of configured users.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_USERS_History,0,ACL_USERS_Tips,0,aclCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_USERS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("whoami","Returns the authenticated username of the current connection.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_WHOAMI_History,0,ACL_WHOAMI_Tips,0,aclCommand,2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,ACL_WHOAMI_Keyspecs,0,NULL,0)},
 {0}
@@ -6444,7 +6461,10 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG RESETSTAT tips */
-#define CONFIG_RESETSTAT_Tips NULL
+const char *CONFIG_RESETSTAT_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6461,7 +6481,10 @@ struct COMMAND_ARG CONFIG_GET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* CONFIG REWRITE tips */
-#define CONFIG_REWRITE_Tips NULL
+const char *CONFIG_REWRITE_Tips[] = {
+"request_policy:all_nodes",
+"response_policy:all_succeeded",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -6506,8 +6529,8 @@ struct COMMAND_ARG CONFIG_SET_Args[] = {
 struct COMMAND_STRUCT CONFIG_Subcommands[] = {
 {MAKE_CMD("get","Returns the effective values of configuration parameters.","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_GET_History,1,CONFIG_GET_Tips,0,configGetCommand,-3,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_GET_Keyspecs,0,NULL,1),.args=CONFIG_GET_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_HELP_History,0,CONFIG_HELP_Tips,0,configHelpCommand,2,CMD_LOADING|CMD_STALE,0,CONFIG_HELP_Keyspecs,0,NULL,0)},
-{MAKE_CMD("resetstat","Resets the server's statistics.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,0,CONFIG_RESETSTAT_Tips,0,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_RESETSTAT_Keyspecs,0,NULL,0)},
-{MAKE_CMD("rewrite","Persists the effective configuration to file.","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,0,CONFIG_REWRITE_Tips,0,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_REWRITE_Keyspecs,0,NULL,0)},
+{MAKE_CMD("resetstat","Resets the server's statistics.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_RESETSTAT_History,0,CONFIG_RESETSTAT_Tips,2,configResetStatCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_RESETSTAT_Keyspecs,0,NULL,0)},
+{MAKE_CMD("rewrite","Persists the effective configuration to file.","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_REWRITE_History,0,CONFIG_REWRITE_Tips,2,configRewriteCommand,2,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_REWRITE_Keyspecs,0,NULL,0)},
 {MAKE_CMD("set","Sets configuration parameters in-flight.","O(N) when N is the number of configuration parameters provided","2.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,CONFIG_SET_History,1,CONFIG_SET_Tips,2,configSetCommand,-4,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,CONFIG_SET_Keyspecs,0,NULL,1),.args=CONFIG_SET_Args},
 {0}
 };
@@ -6860,7 +6883,7 @@ const char *LATENCY_LATEST_Tips[] = {
 /* LATENCY RESET tips */
 const char *LATENCY_RESET_Tips[] = {
 "request_policy:all_nodes",
-"response_policy:all_succeeded",
+"response_policy:agg_sum",
 };
 #endif
 
@@ -7290,10 +7313,27 @@ struct COMMAND_ARG PSYNC_Args[] = {
 #define REPLICAOF_Keyspecs NULL
 #endif
 
-/* REPLICAOF argument table */
-struct COMMAND_ARG REPLICAOF_Args[] = {
+/* REPLICAOF args host_port argument table */
+struct COMMAND_ARG REPLICAOF_args_host_port_Subargs[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* REPLICAOF args no_one argument table */
+struct COMMAND_ARG REPLICAOF_args_no_one_Subargs[] = {
+{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("one",ARG_TYPE_PURE_TOKEN,-1,"ONE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* REPLICAOF args argument table */
+struct COMMAND_ARG REPLICAOF_args_Subargs[] = {
+{MAKE_ARG("host-port",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=REPLICAOF_args_host_port_Subargs},
+{MAKE_ARG("no-one",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=REPLICAOF_args_no_one_Subargs},
+};
+
+/* REPLICAOF argument table */
+struct COMMAND_ARG REPLICAOF_Args[] = {
+{MAKE_ARG("args",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=REPLICAOF_args_Subargs},
 };
 
 /********** RESTORE_ASKING ********************/
@@ -7414,10 +7454,27 @@ struct COMMAND_ARG SHUTDOWN_Args[] = {
 #define SLAVEOF_Keyspecs NULL
 #endif
 
-/* SLAVEOF argument table */
-struct COMMAND_ARG SLAVEOF_Args[] = {
+/* SLAVEOF args host_port argument table */
+struct COMMAND_ARG SLAVEOF_args_host_port_Subargs[] = {
 {MAKE_ARG("host",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SLAVEOF args no_one argument table */
+struct COMMAND_ARG SLAVEOF_args_no_one_Subargs[] = {
+{MAKE_ARG("no",ARG_TYPE_PURE_TOKEN,-1,"NO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("one",ARG_TYPE_PURE_TOKEN,-1,"ONE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SLAVEOF args argument table */
+struct COMMAND_ARG SLAVEOF_args_Subargs[] = {
+{MAKE_ARG("host-port",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SLAVEOF_args_host_port_Subargs},
+{MAKE_ARG("no-one",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SLAVEOF_args_no_one_Subargs},
+};
+
+/* SLAVEOF argument table */
+struct COMMAND_ARG SLAVEOF_Args[] = {
+{MAKE_ARG("args",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SLAVEOF_args_Subargs},
 };
 
 /********** SLOWLOG GET ********************/
@@ -10263,10 +10320,7 @@ struct COMMAND_ARG MSET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* MSETNX tips */
-const char *MSETNX_Tips[] = {
-"request_policy:multi_shard",
-"response_policy:agg_min",
-};
+#define MSETNX_Tips NULL
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -10621,11 +10675,11 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("pexpireat","Sets the expiration time of a key to a Unix milliseconds timestamp.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,PEXPIREAT_History,1,PEXPIREAT_Tips,0,pexpireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,PEXPIREAT_Keyspecs,1,NULL,3),.args=PEXPIREAT_Args},
 {MAKE_CMD("pexpiretime","Returns the expiration time of a key as a Unix milliseconds timestamp.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,PEXPIRETIME_History,0,PEXPIRETIME_Tips,0,pexpiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,PEXPIRETIME_Keyspecs,1,NULL,1),.args=PEXPIRETIME_Args},
 {MAKE_CMD("pttl","Returns the expiration time in milliseconds of a key.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,PTTL_History,1,PTTL_Tips,1,pttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,PTTL_Keyspecs,1,NULL,1),.args=PTTL_Args},
-{MAKE_CMD("randomkey","Returns a random key name from the database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RANDOMKEY_History,0,RANDOMKEY_Tips,2,randomkeyCommand,1,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,RANDOMKEY_Keyspecs,0,NULL,0)},
+{MAKE_CMD("randomkey","Returns a random key name from the database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RANDOMKEY_History,0,RANDOMKEY_Tips,3,randomkeyCommand,1,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,RANDOMKEY_Keyspecs,0,NULL,0)},
 {MAKE_CMD("rename","Renames a key and overwrites the destination.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RENAME_History,0,RENAME_Tips,0,renameCommand,3,CMD_WRITE,ACL_CATEGORY_KEYSPACE,RENAME_Keyspecs,2,NULL,2),.args=RENAME_Args},
 {MAKE_CMD("renamenx","Renames a key only when the target key name doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RENAMENX_History,1,RENAMENX_Tips,0,renamenxCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,RENAMENX_Keyspecs,2,NULL,2),.args=RENAMENX_Args},
 {MAKE_CMD("restore","Creates a key from the serialized representation of a value.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,RESTORE_History,3,RESTORE_Tips,0,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,RESTORE_Keyspecs,1,NULL,7),.args=RESTORE_Args},
-{MAKE_CMD("scan","Iterates over the key names in the database.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SCAN_History,1,SCAN_Tips,2,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,SCAN_Keyspecs,0,NULL,4),.args=SCAN_Args},
+{MAKE_CMD("scan","Iterates over the key names in the database.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SCAN_History,1,SCAN_Tips,3,scanCommand,-2,CMD_READONLY|CMD_TOUCHES_ARBITRARY_KEYS,ACL_CATEGORY_KEYSPACE,SCAN_Keyspecs,0,NULL,4),.args=SCAN_Args},
 {MAKE_CMD("sort","Sorts the elements in a list, a set, or a sorted set, optionally storing the result.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SORT_History,0,SORT_Tips,0,sortCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,SORT_Keyspecs,3,sortGetKeys,7),.args=SORT_Args},
 {MAKE_CMD("sort_ro","Returns the sorted elements of a list, a set, or a sorted set.","O(N+M*log(M)) where N is the number of elements in the list or set to sort, and M the number of returned elements. When the elements are not sorted, complexity is O(N).","7.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,SORT_RO_History,0,SORT_RO_Tips,0,sortroCommand,-2,CMD_READONLY,ACL_CATEGORY_SET|ACL_CATEGORY_SORTEDSET|ACL_CATEGORY_LIST|ACL_CATEGORY_DANGEROUS,SORT_RO_Keyspecs,2,sortROGetKeys,6),.args=SORT_RO_Args},
 {MAKE_CMD("touch","Returns the number of existing keys out of those specified after updating the time they were last accessed.","O(N) where N is the number of keys that will be touched.","3.2.1",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,TOUCH_History,0,TOUCH_Tips,2,touchCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,TOUCH_Keyspecs,1,NULL,1),.args=TOUCH_Args},
@@ -10636,9 +10690,9 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("waitaof","Blocks until all of the preceding write commands sent by the connection are written to the append-only file of the master and/or replicas.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAITAOF_History,0,WAITAOF_Tips,2,waitaofCommand,4,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,WAITAOF_Keyspecs,0,NULL,3),.args=WAITAOF_Args},
 /* geo */
 {MAKE_CMD("geoadd","Adds one or more members to a geospatial index. The key is created if it doesn't exist.","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOADD_History,1,GEOADD_Tips,0,geoaddCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEOADD_Keyspecs,1,NULL,4),.args=GEOADD_Args},
-{MAKE_CMD("geodist","Returns the distance between two members of a geospatial index.","O(log(N))","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args},
-{MAKE_CMD("geohash","Returns members from a geospatial index as geohash strings.","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOHASH_History,0,GEOHASH_Tips,0,geohashCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOHASH_Keyspecs,1,NULL,2),.args=GEOHASH_Args},
-{MAKE_CMD("geopos","Returns the longitude and latitude of members from a geospatial index.","O(N) where N is the number of members requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOPOS_History,0,GEOPOS_Tips,0,geoposCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOPOS_Keyspecs,1,NULL,2),.args=GEOPOS_Args},
+{MAKE_CMD("geodist","Returns the distance between two members of a geospatial index.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args},
+{MAKE_CMD("geohash","Returns members from a geospatial index as geohash strings.","O(1) for each member requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOHASH_History,0,GEOHASH_Tips,0,geohashCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOHASH_Keyspecs,1,NULL,2),.args=GEOHASH_Args},
+{MAKE_CMD("geopos","Returns the longitude and latitude of members from a geospatial index.","O(1) for each member requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOPOS_History,0,GEOPOS_Tips,0,geoposCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOPOS_Keyspecs,1,NULL,2),.args=GEOPOS_Args},
 {MAKE_CMD("georadius","Queries a geospatial index for members within a distance from a coordinate, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,2,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUS_Args},
 {MAKE_CMD("georadiusbymember","Queries a geospatial index for members within a distance from a member, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,1,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,10),.args=GEORADIUSBYMEMBER_Args},
 {MAKE_CMD("georadiusbymember_ro","Returns members from a geospatial index that are within a distance from a member.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_History,0,GEORADIUSBYMEMBER_RO_Tips,0,georadiusbymemberroCommand,-5,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_RO_Keyspecs,1,NULL,9),.args=GEORADIUSBYMEMBER_RO_Args},
@@ -10692,15 +10746,15 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("rpush","Appends one or more elements to a list. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSH_History,1,RPUSH_Tips,0,rpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSH_Keyspecs,1,NULL,2),.args=RPUSH_Args},
 {MAKE_CMD("rpushx","Appends an element to a list only when the list exists.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSHX_History,1,RPUSHX_Tips,0,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSHX_Keyspecs,1,NULL,2),.args=RPUSHX_Args},
 /* pubsub */
-{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns the client is already subscribed to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,0,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
+{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,0,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
 {MAKE_CMD("publish","Posts a message to a channel.","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBLISH_History,0,PUBLISH_Tips,0,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,PUBLISH_Keyspecs,0,NULL,2),.args=PUBLISH_Args},
 {MAKE_CMD("pubsub","A container for Pub/Sub commands.","Depends on subcommand.","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_History,0,PUBSUB_Tips,0,NULL,-2,0,0,PUBSUB_Keyspecs,0,NULL,0),.subcommands=PUBSUB_Subcommands},
-{MAKE_CMD("punsubscribe","Stops listening to messages published to channels that match one or more patterns.","O(N+M) where N is the number of patterns the client is already subscribed and M is the number of total patterns subscribed in the system (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,0,PUNSUBSCRIBE_Tips,0,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PUNSUBSCRIBE_Keyspecs,0,NULL,1),.args=PUNSUBSCRIBE_Args},
+{MAKE_CMD("punsubscribe","Stops listening to messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,0,PUNSUBSCRIBE_Tips,0,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PUNSUBSCRIBE_Keyspecs,0,NULL,1),.args=PUNSUBSCRIBE_Args},
 {MAKE_CMD("spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SPUBLISH_History,0,SPUBLISH_Tips,0,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,SPUBLISH_Keyspecs,1,NULL,2),.args=SPUBLISH_Args},
 {MAKE_CMD("ssubscribe","Listens for messages published to shard channels.","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,0,SSUBSCRIBE_Tips,0,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SSUBSCRIBE_Keyspecs,1,NULL,1),.args=SSUBSCRIBE_Args},
 {MAKE_CMD("subscribe","Listens for messages published to channels.","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,0,SUBSCRIBE_Tips,0,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,SUBSCRIBE_Keyspecs,0,NULL,1),.args=SUBSCRIBE_Args},
-{MAKE_CMD("sunsubscribe","Stops listening to messages posted to shard channels.","O(N) where N is the number of clients already subscribed to a shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,0,SUNSUBSCRIBE_Tips,0,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SUNSUBSCRIBE_Keyspecs,1,NULL,1),.args=SUNSUBSCRIBE_Args},
-{MAKE_CMD("unsubscribe","Stops listening to messages posted to channels.","O(N) where N is the number of clients already subscribed to a channel.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_History,0,UNSUBSCRIBE_Tips,0,unsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,UNSUBSCRIBE_Keyspecs,0,NULL,1),.args=UNSUBSCRIBE_Args},
+{MAKE_CMD("sunsubscribe","Stops listening to messages posted to shard channels.","O(N) where N is the number of shard channels to unsubscribe.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,0,SUNSUBSCRIBE_Tips,0,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SUNSUBSCRIBE_Keyspecs,1,NULL,1),.args=SUNSUBSCRIBE_Args},
+{MAKE_CMD("unsubscribe","Stops listening to messages posted to channels.","O(N) where N is the number of channels to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_History,0,UNSUBSCRIBE_Tips,0,unsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,UNSUBSCRIBE_Keyspecs,0,NULL,1),.args=UNSUBSCRIBE_Args},
 /* scripting */
 {MAKE_CMD("eval","Executes a server-side Lua script.","Depends on the script that is executed.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,EVAL_History,0,EVAL_Tips,0,evalCommand,-3,CMD_NOSCRIPT|CMD_SKIP_MONITOR|CMD_MAY_REPLICATE|CMD_NO_MANDATORY_KEYS|CMD_STALE,ACL_CATEGORY_SCRIPTING,EVAL_Keyspecs,1,evalGetKeys,4),.args=EVAL_Args},
 {MAKE_CMD("evalsha","Executes a server-side Lua script by SHA1 digest.","Depends on the script that is executed.","2.6.0",CMD_DOC_NONE,NULL,NULL,"scripting",COMMAND_GROUP_SCRIPTING,EVALSHA_History,0,EVALSHA_Tips,0,evalShaCommand,-3,CMD_NOSCRIPT|CMD_SKIP_MONITOR|CMD_MAY_REPLICATE|CMD_NO_MANDATORY_KEYS|CMD_STALE,ACL_CATEGORY_SCRIPTING,EVALSHA_Keyspecs,1,evalGetKeys,4),.args=EVALSHA_Args},
@@ -10732,12 +10786,12 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("monitor","Listens for all requests received by the server in real-time.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MONITOR_History,0,MONITOR_Tips,0,monitorCommand,1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,MONITOR_Keyspecs,0,NULL,0)},
 {MAKE_CMD("psync","An internal command used in replication.",NULL,"2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,PSYNC_History,0,PSYNC_Tips,0,syncCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,PSYNC_Keyspecs,0,NULL,2),.args=PSYNC_Args},
 {MAKE_CMD("replconf","An internal command for configuring the replication stream.","O(1)","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLCONF_History,0,REPLCONF_Tips,0,replconfCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_ALLOW_BUSY,0,REPLCONF_Keyspecs,0,NULL,0)},
-{MAKE_CMD("replicaof","Configures a server as replica of another, or promotes it to a master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLICAOF_History,0,REPLICAOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,REPLICAOF_Keyspecs,0,NULL,2),.args=REPLICAOF_Args},
+{MAKE_CMD("replicaof","Configures a server as replica of another, or promotes it to a master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLICAOF_History,0,REPLICAOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,REPLICAOF_Keyspecs,0,NULL,1),.args=REPLICAOF_Args},
 {MAKE_CMD("restore-asking","An internal command for migrating keys in a cluster.","O(1) to create the new key and additional O(N*M) to reconstruct the serialized value, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for sorted set values the complexity is O(N*M*log(N)) because inserting values into sorted sets is O(log(N)).","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,"server",COMMAND_GROUP_SERVER,RESTORE_ASKING_History,3,RESTORE_ASKING_Tips,0,restoreCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_ASKING,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,RESTORE_ASKING_Keyspecs,1,NULL,7),.args=RESTORE_ASKING_Args},
 {MAKE_CMD("role","Returns the replication role.","O(1)","2.8.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ROLE_History,0,ROLE_Tips,0,roleCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_ADMIN|ACL_CATEGORY_DANGEROUS,ROLE_Keyspecs,0,NULL,0)},
 {MAKE_CMD("save","Synchronously saves the database(s) to disk.","O(N) where N is the total number of keys in all databases","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SAVE_History,0,SAVE_Tips,0,saveCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_NO_MULTI,0,SAVE_Keyspecs,0,NULL,0)},
 {MAKE_CMD("shutdown","Synchronously saves the database(s) to disk and shuts down the Redis server.","O(N) when saving, where N is the total number of keys in all databases when saving data, otherwise O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SHUTDOWN_History,1,SHUTDOWN_Tips,0,shutdownCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_NO_MULTI|CMD_SENTINEL|CMD_ALLOW_BUSY,0,SHUTDOWN_Keyspecs,0,NULL,4),.args=SHUTDOWN_Args},
-{MAKE_CMD("slaveof","Sets a Redis server as a replica of another, or promotes it to being a master.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`REPLICAOF`","5.0.0","server",COMMAND_GROUP_SERVER,SLAVEOF_History,0,SLAVEOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,SLAVEOF_Keyspecs,0,NULL,2),.args=SLAVEOF_Args},
+{MAKE_CMD("slaveof","Sets a Redis server as a replica of another, or promotes it to being a master.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`REPLICAOF`","5.0.0","server",COMMAND_GROUP_SERVER,SLAVEOF_History,0,SLAVEOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,SLAVEOF_Keyspecs,0,NULL,1),.args=SLAVEOF_Args},
 {MAKE_CMD("slowlog","A container for slow log commands.","Depends on subcommand.","2.2.12",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SLOWLOG_History,0,SLOWLOG_Tips,0,NULL,-2,0,0,SLOWLOG_Keyspecs,0,NULL,0),.subcommands=SLOWLOG_Subcommands},
 {MAKE_CMD("swapdb","Swaps two Redis databases.","O(N) where N is the count of clients watching or blocking on keys from both databases.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SWAPDB_History,0,SWAPDB_Tips,0,swapdbCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,SWAPDB_Keyspecs,0,NULL,2),.args=SWAPDB_Args},
 {MAKE_CMD("sync","An internal command used in replication.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,SYNC_History,0,SYNC_Tips,0,syncCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,SYNC_Keyspecs,0,NULL,0)},
@@ -10807,7 +10861,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xlen","Return the number of messages in a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XLEN_History,0,XLEN_Tips,0,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XLEN_Keyspecs,1,NULL,1),.args=XLEN_Args},
 {MAKE_CMD("xpending","Returns the information and entries from a stream consumer group's pending entries list.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XPENDING_History,1,XPENDING_Tips,1,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XPENDING_Keyspecs,1,NULL,3),.args=XPENDING_Args},
 {MAKE_CMD("xrange","Returns the messages from a stream within a range of IDs.","O(N) with N being the number of elements being returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XRANGE_History,1,XRANGE_Tips,0,xrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XRANGE_Keyspecs,1,NULL,4),.args=XRANGE_Args},
-{MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,0,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY|CMD_BLOCKING,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,3),.args=XREAD_Args},
+{MAKE_CMD("xread","Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREAD_History,0,XREAD_Tips,0,xreadCommand,-4,CMD_BLOCKING|CMD_READONLY,ACL_CATEGORY_STREAM,XREAD_Keyspecs,1,xreadGetKeys,3),.args=XREAD_Args},
 {MAKE_CMD("xreadgroup","Returns new or historical messages from a stream for a consumer in a group. Blocks until a message is available otherwise.","For each stream mentioned: O(M) with M being the number of elements returned. If M is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1). On the other side when XREADGROUP blocks, XADD will pay the O(N) time in order to serve the N clients blocked on the stream getting new data.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREADGROUP_History,0,XREADGROUP_Tips,0,xreadCommand,-7,CMD_BLOCKING|CMD_WRITE,ACL_CATEGORY_STREAM,XREADGROUP_Keyspecs,1,xreadGetKeys,5),.args=XREADGROUP_Args},
 {MAKE_CMD("xrevrange","Returns the messages from a stream within a range of IDs in reverse order.","O(N) with N being the number of elements returned. If N is constant (e.g. always asking for the first 10 elements with COUNT), you can consider it O(1).","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XREVRANGE_History,1,XREVRANGE_Tips,0,xrevrangeCommand,-4,CMD_READONLY,ACL_CATEGORY_STREAM,XREVRANGE_Keyspecs,1,NULL,4),.args=XREVRANGE_Args},
 {MAKE_CMD("xsetid","An internal command for replicating stream values.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XSETID_History,1,XSETID_Tips,0,xsetidCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XSETID_Keyspecs,1,NULL,4),.args=XSETID_Args},
@@ -10827,7 +10881,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lcs","Finds the longest common substring.","O(N*M) where N and M are the lengths of s1 and s2, respectively","7.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,LCS_History,0,LCS_Tips,0,lcsCommand,-3,CMD_READONLY,ACL_CATEGORY_STRING,LCS_Keyspecs,1,NULL,6),.args=LCS_Args},
 {MAKE_CMD("mget","Atomically returns the string values of one or more keys.","O(N) where N is the number of keys to retrieve.","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MGET_History,0,MGET_Tips,1,mgetCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,MGET_Keyspecs,1,NULL,1),.args=MGET_Args},
 {MAKE_CMD("mset","Atomically creates or modifies the string values of one or more keys.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSET_History,0,MSET_Tips,2,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSET_Keyspecs,1,NULL,1),.args=MSET_Args},
-{MAKE_CMD("msetnx","Atomically modifies the string values of one or more keys only when all keys don't exist.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSETNX_History,0,MSETNX_Tips,2,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSETNX_Keyspecs,1,NULL,1),.args=MSETNX_Args},
+{MAKE_CMD("msetnx","Atomically modifies the string values of one or more keys only when all keys don't exist.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSETNX_History,0,MSETNX_Tips,0,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSETNX_Keyspecs,1,NULL,1),.args=MSETNX_Args},
 {MAKE_CMD("psetex","Sets both string value and expiration time in milliseconds of a key. The key is created if it doesn't exist.","O(1)","2.6.0",CMD_DOC_DEPRECATED,"`SET` with the `PX` argument","2.6.12","string",COMMAND_GROUP_STRING,PSETEX_History,0,PSETEX_Tips,0,psetexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,PSETEX_Keyspecs,1,NULL,3),.args=PSETEX_Args},
 {MAKE_CMD("set","Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args},
 {MAKE_CMD("setex","Sets the string value and expiration time of a key. Creates the key if it doesn't exist.","O(1)","2.0.0",CMD_DOC_DEPRECATED,"`SET` with the `EX` argument","2.6.12","string",COMMAND_GROUP_STRING,SETEX_History,0,SETEX_Tips,0,setexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETEX_Keyspecs,1,NULL,3),.args=SETEX_Args},

@@ -356,6 +356,7 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
+    client *c;
 } RedisModuleCommandFilterCtx;
 
 typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
@@ -504,6 +505,10 @@ static struct redisCommandArg *moduleCopyCommandArgs(RedisModuleCommandArg *args
 static redisCommandArgType moduleConvertArgType(RedisModuleCommandArgType type, int *error);
 static int moduleConvertArgFlags(int flags);
 void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_flags);
+
+/* Common helper functions. */
+int moduleVerifyResourceName(const char *name);
+
 /* --------------------------------------------------------------------------
  * ## Heap allocation raw functions
  *
@@ -856,7 +861,7 @@ void moduleCallCommandUnblockedHandler(client *c) {
     moduleCreateContext(&ctx, module, REDISMODULE_CTX_TEMP_CLIENT);
     selectDb(ctx.client, c->db->id);
 
-    CallReply *reply = moduleParseReply(c, &ctx);
+    CallReply *reply = moduleParseReply(c, NULL);
     module->in_call++;
     promise->on_unblocked(&ctx, reply, promise->private_data);
     module->in_call--;
@@ -1444,6 +1449,45 @@ int populateArgsStructure(struct redisCommandArg *args) {
         args++;
     }
     return count;
+}
+
+/* RedisModule_AddACLCategory can be used to add new ACL command categories. Category names
+ * can only contain alphanumeric characters, underscores, or dashes. Categories can only be added
+ * during the RedisModule_OnLoad function. Once a category has been added, it can not be removed. 
+ * Any module can register a command to any added categories using RedisModule_SetCommandACLCategories.
+ * 
+ * Returns:
+ * - REDISMODULE_OK on successfully adding the new ACL category. 
+ * - REDISMODULE_ERR on failure.
+ * 
+ * On error the errno is set to:
+ * - EINVAL if the name contains invalid characters.
+ * - EBUSY if the category name already exists.
+ * - ENOMEM if the number of categories reached the max limit of 64 categories.
+ */
+int RM_AddACLCategory(RedisModuleCtx *ctx, const char *name) {
+    if (!ctx->module->onload) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    if (moduleVerifyResourceName(name) == REDISMODULE_ERR) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    if (ACLGetCommandCategoryFlagByName(name)) {
+        errno = EBUSY;
+        return REDISMODULE_ERR;
+    }
+
+    if (ACLAddCommandCategory(name, 0)) {
+        ctx->module->num_acl_categories_added++;
+        return REDISMODULE_OK;
+    } else {
+        errno = ENOMEM;
+        return REDISMODULE_ERR;
+    }
 }
 
 /* Helper for categoryFlagsFromString(). Attempts to find an acl flag representing the provided flag string
@@ -2251,6 +2295,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->loadmod = NULL;
     module->num_commands_with_acl_categories = 0;
     module->onload = 1;
+    module->num_acl_categories_added = 0;
     ctx->module = module;
 }
 
@@ -2997,15 +3042,15 @@ int RM_ReplyWithError(RedisModuleCtx *ctx, const char *err) {
 
 /* Reply with the error create from a printf format and arguments.
  *
- * If the error code is already passed in the string 'fmt', the error
- * code provided is used, otherwise the string "-ERR " for the generic
- * error code is automatically added.
+ * Note that 'fmt' must contain all the error, including
+ * the initial error code. The function only provides the initial "-", so
+ * the usage is, for example:
  *
- * The usage is, for example:
+ *     RedisModule_ReplyWithErrorFormat(ctx,"ERR Wrong Type: %s",type);
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "An error: %s", "foo");
+ * and not just:
  *
- *     RedisModule_ReplyWithErrorFormat(ctx, "-WRONGTYPE Wrong Type: %s", "foo");
+ *     RedisModule_ReplyWithErrorFormat(ctx,"Wrong Type: %s",type);
  *
  * The function always returns REDISMODULE_OK.
  */
@@ -3013,10 +3058,16 @@ int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
 
+    int len = strlen(fmt) + 2; /* 1 for the \0 and 1 for the hyphen */
+    char *hyphenfmt = zmalloc(len);
+    snprintf(hyphenfmt, len, "-%s", fmt);
+
     va_list ap;
     va_start(ap, fmt);
-    addReplyErrorFormatInternal(c, 0, fmt, ap);
+    addReplyErrorFormatInternal(c, 0, hyphenfmt, ap);
     va_end(ap);
+
+    zfree(hyphenfmt);
 
     return REDISMODULE_OK;
 }
@@ -4192,7 +4243,7 @@ void RM_ResetDataset(int restart_aof, int async) {
 
 /* Returns the number of keys in the current db. */
 unsigned long long RM_DbSize(RedisModuleCtx *ctx) {
-    return dictSize(ctx->client->db->dict);
+    return dbSize(ctx->client->db, DB_MAIN);
 }
 
 /* Returns a name of a random key, or NULL if current db is empty. */
@@ -4829,8 +4880,8 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = key->value->ptr;
         zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslFirstInRange(zsl,zrs) :
-                                      zslLastInRange(zsl,zrs);
+        key->u.zset.current = first ? zslNthInRange(zsl,zrs,0) :
+                                      zslNthInRange(zsl,zrs,-1);
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -4893,8 +4944,8 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = key->value->ptr;
         zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslFirstInLexRange(zsl,zlrs) :
-                                      zslLastInLexRange(zsl,zlrs);
+        key->u.zset.current = first ? zslNthInLexRange(zsl,zlrs,0) :
+                                      zslNthInLexRange(zsl,zlrs,-1);
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -6036,7 +6087,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(buf,len);
         } else if (*p == 'l') {
             long long ll = va_arg(ap,long long);
-            argv[argc++] = createObject(OBJ_STRING,sdsfromlonglong(ll));
+            argv[argc++] = createStringObjectFromLongLongWithSds(ll);
         } else if (*p == 'v') {
              /* A vector of strings */
              robj **v = va_arg(ap, void*);
@@ -6415,7 +6466,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
-                           server.cluster->myself)
+                           getMyClusterNode())
         {
             sds msg = NULL;
             if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
@@ -6566,7 +6617,7 @@ uint64_t moduleTypeEncodeId(const char *name, int encver) {
 /* Search, in the list of exported data types of all the modules registered,
  * a type with the same name as the one given. Returns the moduleType
  * structure pointer if such a module is found, or NULL otherwise. */
-moduleType *moduleTypeLookupModuleByName(const char *name) {
+moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_case) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
@@ -6578,7 +6629,9 @@ moduleType *moduleTypeLookupModuleByName(const char *name) {
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
-            if (memcmp(name,mt->name,sizeof(mt->name)) == 0) {
+            if ((!ignore_case && memcmp(name,mt->name,sizeof(mt->name)) == 0)
+                || (ignore_case && !strcasecmp(name, mt->name)))
+            {
                 dictReleaseIterator(di);
                 return mt;
             }
@@ -6586,6 +6639,15 @@ moduleType *moduleTypeLookupModuleByName(const char *name) {
     }
     dictReleaseIterator(di);
     return NULL;
+}
+/* Search all registered modules by name, and name is case sensitive */
+moduleType *moduleTypeLookupModuleByName(const char *name) {
+    return moduleTypeLookupModuleByNameInternal(name, 0);
+}
+
+/* Search all registered modules by name, but case insensitive */
+moduleType *moduleTypeLookupModuleByNameIgnoreCase(const char *name) {
+    return moduleTypeLookupModuleByNameInternal(name, 1);
 }
 
 /* Lookup a module by ID, with caching. This function is used during RDB
@@ -7670,7 +7732,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
      * commands from Lua or MULTI. We actually create an already aborted
      * (client set to NULL) blocked client handle, and actually reply with
      * an error. */
-    mstime_t timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
@@ -7688,7 +7749,17 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
-    c->bstate.timeout = timeout;
+
+    c->bstate.timeout = 0;
+    if (timeout_ms) {
+        mstime_t now = mstime();
+        if  (timeout_ms > LLONG_MAX - now) {
+            c->bstate.module_blocked_handle = NULL;
+            addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
+            return bc;
+        }
+        c->bstate.timeout = timeout_ms + now;
+    }
 
     if (islua || ismulti) {
         c->bstate.module_blocked_handle = NULL;
@@ -7698,13 +7769,12 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     } else if (ctx->flags & REDISMODULE_CTX_BLOCKED_REPLY) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Blocking module command called from a Reply callback context");
-    }
-    else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
+    } else if (!auth_reply_callback && clientHasModuleAuthInProgress(c)) {
         c->bstate.module_blocked_handle = NULL;
         addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,c->bstate.timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
             blockClient(c,BLOCKED_MODULE);
         }
@@ -8614,8 +8684,14 @@ void firePostExecutionUnitJobs(void) {
  * infinite loops by halting the execution could result in violation of the feature correctness
  * and so Redis will make no attempt to protect the module from infinite loops.
  *
- * 'free_pd' can be NULL and in such case will not be used. */
+ * 'free_pd' can be NULL and in such case will not be used.
+ *
+ * Return REDISMODULE_OK on success and REDISMODULE_ERR if was called while loading data from disk (AOF or RDB) or
+ * if the instance is a readonly replica. */
 int RM_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *privdata, void (*free_privdata)(void*)) {
+    if (server.loading|| (server.masterhost && server.repl_slave_ro)) {
+        return REDISMODULE_ERR;
+    }
     RedisModulePostExecUnitJob *job = zmalloc(sizeof(*job));
     job->module = ctx->module;
     job->callback = callback;
@@ -8687,11 +8763,12 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             /* mark the handler as active to avoid reentrant loops.
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
+            int prev_active = sub->active;
             sub->active = 1;
             server.lazy_expire_disabled++;
             sub->notify_callback(&ctx, type, event, key);
             server.lazy_expire_disabled--;
-            sub->active = 0;
+            sub->active = prev_active;
             moduleFreeContext(&ctx);
         }
     }
@@ -8840,23 +8917,7 @@ char **RM_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
     UNUSED(ctx);
 
     if (!server.cluster_enabled) return NULL;
-    size_t count = dictSize(server.cluster->nodes);
-    char **ids = zmalloc((count+1)*REDISMODULE_NODE_ID_LEN);
-    dictIterator *di = dictGetIterator(server.cluster->nodes);
-    dictEntry *de;
-    int j = 0;
-    while((de = dictNext(di)) != NULL) {
-        clusterNode *node = dictGetVal(de);
-        if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE)) continue;
-        ids[j] = zmalloc(REDISMODULE_NODE_ID_LEN);
-        memcpy(ids[j],node->name,REDISMODULE_NODE_ID_LEN);
-        j++;
-    }
-    *numnodes = j;
-    ids[j] = NULL; /* Null term so that FreeClusterNodesList does not need
-                    * to also get the count argument. */
-    dictReleaseIterator(di);
-    return ids;
+    return getClusterNodesList(numnodes);
 }
 
 /* Free the node list obtained with RedisModule_GetClusterNodesList. */
@@ -8870,7 +8931,7 @@ void RM_FreeClusterNodesList(char **ids) {
  * is disabled. */
 const char *RM_GetMyClusterID(void) {
     if (!server.cluster_enabled) return NULL;
-    return server.cluster->myself->name;
+    return getMyClusterId();
 }
 
 /* Return the number of nodes in the cluster, regardless of their state
@@ -8879,7 +8940,7 @@ const char *RM_GetMyClusterID(void) {
  * cluster mode, zero is returned. */
 size_t RM_GetClusterSize(void) {
     if (!server.cluster_enabled) return 0;
-    return dictSize(server.cluster->nodes);
+    return getClusterSize();
 }
 
 /* Populate the specified info for the node having as ID the specified 'id',
@@ -8906,35 +8967,34 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     UNUSED(ctx);
 
     clusterNode *node = clusterLookupNode(id, strlen(id));
-    if (node == NULL ||
-        node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
+    if (node == NULL || clusterNodePending(node))
     {
         return REDISMODULE_ERR;
     }
 
-    if (ip) redis_strlcpy(ip,node->ip,NET_IP_STR_LEN);
+    if (ip) redis_strlcpy(ip, clusterNodeIp(node),NET_IP_STR_LEN);
 
     if (master_id) {
         /* If the information is not available, the function will set the
          * field to zero bytes, so that when the field can't be populated the
          * function kinda remains predictable. */
-        if (node->flags & CLUSTER_NODE_SLAVE && node->slaveof)
-            memcpy(master_id,node->slaveof->name,REDISMODULE_NODE_ID_LEN);
+        if (clusterNodeIsSlave(node) && clusterNodeGetSlaveof(node))
+            memcpy(master_id, clusterNodeGetName(clusterNodeGetSlaveof(node)) ,REDISMODULE_NODE_ID_LEN);
         else
             memset(master_id,0,REDISMODULE_NODE_ID_LEN);
     }
-    if (port) *port = node->port;
+    if (port) *port = getNodeDefaultClientPort(node);
 
     /* As usually we have to remap flags for modules, in order to ensure
      * we can provide binary compatibility. */
     if (flags) {
         *flags = 0;
-        if (node->flags & CLUSTER_NODE_MYSELF) *flags |= REDISMODULE_NODE_MYSELF;
-        if (node->flags & CLUSTER_NODE_MASTER) *flags |= REDISMODULE_NODE_MASTER;
-        if (node->flags & CLUSTER_NODE_SLAVE) *flags |= REDISMODULE_NODE_SLAVE;
-        if (node->flags & CLUSTER_NODE_PFAIL) *flags |= REDISMODULE_NODE_PFAIL;
-        if (node->flags & CLUSTER_NODE_FAIL) *flags |= REDISMODULE_NODE_FAIL;
-        if (node->flags & CLUSTER_NODE_NOFAILOVER) *flags |= REDISMODULE_NODE_NOFAILOVER;
+        if (clusterNodeIsMyself(node)) *flags |= REDISMODULE_NODE_MYSELF;
+        if (clusterNodeIsMaster(node)) *flags |= REDISMODULE_NODE_MASTER;
+        if (clusterNodeIsSlave(node)) *flags |= REDISMODULE_NODE_SLAVE;
+        if (clusterNodeTimedOut(node)) *flags |= REDISMODULE_NODE_PFAIL;
+        if (clusterNodeIsFailing(node)) *flags |= REDISMODULE_NODE_FAIL;
+        if (clusterNodeIsNoFailover(node)) *flags |= REDISMODULE_NODE_NOFAILOVER;
     }
     return REDISMODULE_OK;
 }
@@ -10639,7 +10699,8 @@ void moduleCallCommandFilters(client *c) {
     RedisModuleCommandFilterCtx filter = {
         .argv = c->argv,
         .argv_len = c->argv_len,
-        .argc = c->argc
+        .argc = c->argc,
+        .c = c
     };
 
     while((ln = listNext(&li))) {
@@ -10732,6 +10793,11 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
     return REDISMODULE_OK;
 }
 
+/* Get Client ID for client that issued the command we are filtering */
+unsigned long long RM_CommandFilterGetClientId(RedisModuleCommandFilterCtx *fctx) {
+    return fctx->c->id;
+}
+
 /* For a given pointer allocated via RedisModule_Alloc() or
  * RedisModule_Realloc(), return the amount of memory allocated for it.
  * Note that this may be different (larger) than the memory we allocated
@@ -10796,7 +10862,7 @@ typedef struct {
 } ScanCBData;
 
 typedef struct RedisModuleScanCursor{
-    unsigned long cursor;
+    unsigned long long cursor;
     int done;
 }RedisModuleScanCursor;
 
@@ -10898,7 +10964,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     }
     int ret = 1;
     ScanCBData data = { ctx, privdata, fn };
-    cursor->cursor = dictScan(ctx->client->db->dict, cursor->cursor, moduleScanCallback, &data);
+    cursor->cursor = dbScan(ctx->client->db, DB_MAIN, cursor->cursor, -1, moduleScanCallback, NULL, &data);
     if (cursor->cursor == 0) {
         cursor->done = 1;
         ret = 0;
@@ -11036,12 +11102,12 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             vstr = lpGetValue(p,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createObject(OBJ_STRING,sdsfromlonglong(vll));
+                createStringObjectFromLongLongWithSds(vll);
             p = lpNext(o->ptr,p);
             vstr = lpGetValue(p,&vlen,&vll);
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
-                createObject(OBJ_STRING,sdsfromlonglong(vll));
+                createStringObjectFromLongLongWithSds(vll);
             fn(key, field, value, privdata);
             p = lpNext(o->ptr,p);
             decrRefCount(field);
@@ -11899,6 +11965,13 @@ void moduleRemoveConfigs(RedisModule *module) {
     }
 }
 
+/* Remove ACL categories added by the module when it fails to load. */
+void moduleRemoveCateogires(RedisModule *module) {
+    if (module->num_acl_categories_added) {
+        ACLCleanupCategoriesOnFailure(module->num_acl_categories_added);
+    }
+}
+
 /* Load all the modules in the server.loadmodule_queue list, which is
  * populated by `loadmodule` directives in the configuration file.
  * We can't load modules directly when processing the configuration file
@@ -12077,6 +12150,19 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
     return REDISMODULE_OK;
 }
 
+/* Unregister module-related things, called when moduleLoad fails or moduleUnload. */
+void moduleUnregisterCleanup(RedisModule *module) {
+    moduleFreeAuthenticatedClients(module);
+    moduleUnregisterCommands(module);
+    moduleUnsubscribeNotifications(module);
+    moduleUnregisterSharedAPI(module);
+    moduleUnregisterUsedAPI(module);
+    moduleUnregisterFilters(module);
+    moduleUnsubscribeAllServerEvents(module);
+    moduleRemoveConfigs(module);
+    moduleUnregisterAuthCBs(module);
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
@@ -12111,11 +12197,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
         if (ctx.module) {
-            moduleUnregisterCommands(ctx.module);
-            moduleUnregisterSharedAPI(ctx.module);
-            moduleUnregisterUsedAPI(ctx.module);
-            moduleRemoveConfigs(ctx.module);
-            moduleUnregisterAuthCBs(ctx.module);
+            moduleUnregisterCleanup(ctx.module);
+            moduleRemoveCateogires(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
@@ -12156,8 +12239,6 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     }
 
     if (post_load_err) {
-        /* Unregister module auth callbacks (if any exist) that this Module registered onload. */
-        moduleUnregisterAuthCBs(ctx.module);
         moduleUnload(ctx.module->name, NULL);
         moduleFreeContext(&ctx);
         return C_ERR;
@@ -12215,17 +12296,7 @@ int moduleUnload(sds name, const char **errmsg) {
         }
     }
 
-    moduleFreeAuthenticatedClients(module);
-    moduleUnregisterCommands(module);
-    moduleUnregisterSharedAPI(module);
-    moduleUnregisterUsedAPI(module);
-    moduleUnregisterFilters(module);
-    moduleUnregisterAuthCBs(module);
-    moduleRemoveConfigs(module);
-
-    /* Remove any notification subscribers this module might have */
-    moduleUnsubscribeNotifications(module);
-    moduleUnsubscribeAllServerEvents(module);
+    moduleUnregisterCleanup(module);
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {
@@ -12357,7 +12428,7 @@ sds genModulesInfoString(sds info) {
  * -------------------------------------------------------------------------- */
 	 
 /* Check if the configuration name is already registered */
-int isModuleConfigNameRegistered(RedisModule *module, sds name) {
+int isModuleConfigNameRegistered(RedisModule *module, const char *name) {
     listNode *match = listSearchKey(module->module_configs, (void *) name);
     return match != NULL;
 }
@@ -12386,12 +12457,14 @@ int moduleVerifyConfigFlags(unsigned int flags, configType type) {
     return REDISMODULE_OK;
 }
 
-int moduleVerifyConfigName(sds name) {
-    if (sdslen(name) == 0) {
-        serverLogRaw(LL_WARNING, "Module config names cannot be an empty string.");
+/* Verify a module resource or name has only alphanumeric characters, underscores
+ * or dashes. */
+int moduleVerifyResourceName(const char *name) {
+    if (name[0] == '\0') {
         return REDISMODULE_ERR;
     }
-    for (size_t i = 0 ; i < sdslen(name) ; ++i) {
+
+    for (size_t i = 0; name[i] != '\0'; i++) {
         char curr_char = name[i];
         if ((curr_char >= 'a' && curr_char <= 'z') ||
             (curr_char >= 'A' && curr_char <= 'Z') ||
@@ -12400,7 +12473,7 @@ int moduleVerifyConfigName(sds name) {
         {
             continue;
         }
-        serverLog(LL_WARNING, "Invalid character %c in Module Config name %s.", curr_char, name);
+        serverLog(LL_WARNING, "Invalid character %c in Module resource name %s.", curr_char, name);
         return REDISMODULE_ERR;
     }
     return REDISMODULE_OK;
@@ -12545,21 +12618,21 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
  * -------------------------------------------------------------------------- */
 
 /* Create a module config object. */
-ModuleConfig *createModuleConfig(sds name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
+ModuleConfig *createModuleConfig(const char *name, RedisModuleConfigApplyFunc apply_fn, void *privdata, RedisModule *module) {
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
-    new_config->name = sdsdup(name);
+    new_config->name = sdsnew(name);
     new_config->apply_fn = apply_fn;
     new_config->privdata = privdata;
     new_config->module = module;
     return new_config;
 }
 
-int moduleConfigValidityCheck(RedisModule *module, sds name, unsigned int flags, configType type) {
+int moduleConfigValidityCheck(RedisModule *module, const char *name, unsigned int flags, configType type) {
     if (!module->onload) {
         errno = EBUSY;
         return REDISMODULE_ERR;
     }
-    if (moduleVerifyConfigFlags(flags, type) || moduleVerifyConfigName(name)) {
+    if (moduleVerifyConfigFlags(flags, type) || moduleVerifyResourceName(name)) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -12670,13 +12743,10 @@ unsigned int maskModuleEnumConfigFlags(unsigned int flags) {
  * * EALREADY: The provided configuration name is already used. */
 int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
-    sds config_name = sdsnew(name);
-    if (moduleConfigValidityCheck(module, config_name, flags, NUMERIC_CONFIG)) {
-        sdsfree(config_name);
+    if (moduleConfigValidityCheck(module, name, flags, NUMERIC_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
-    sdsfree(config_name);
+    ModuleConfig *new_config = createModuleConfig(name, applyfn, privdata, module);
     new_config->get_fn.get_string = getfn;
     new_config->set_fn.set_string = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -12690,13 +12760,10 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *d
  * RedisModule_RegisterStringConfig for detailed information about configs. */
 int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, RedisModuleConfigGetBoolFunc getfn, RedisModuleConfigSetBoolFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
-    sds config_name = sdsnew(name);
-    if (moduleConfigValidityCheck(module, config_name, flags, BOOL_CONFIG)) {
-        sdsfree(config_name);
+    if (moduleConfigValidityCheck(module, name, flags, BOOL_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
-    sdsfree(config_name);
+    ModuleConfig *new_config = createModuleConfig(name, applyfn, privdata, module);
     new_config->get_fn.get_bool = getfn;
     new_config->set_fn.set_bool = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -12736,13 +12803,10 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
  * See RedisModule_RegisterStringConfig for detailed general information about configs. */
 int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, const int *int_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
-    sds config_name = sdsnew(name);
-    if (moduleConfigValidityCheck(module, config_name, flags, ENUM_CONFIG)) {
-        sdsfree(config_name);
+    if (moduleConfigValidityCheck(module, name, flags, ENUM_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
-    sdsfree(config_name);
+    ModuleConfig *new_config = createModuleConfig(name, applyfn, privdata, module);
     new_config->get_fn.get_enum = getfn;
     new_config->set_fn.set_enum = setfn;
     configEnum *enum_vals = zmalloc((num_enum_vals + 1) * sizeof(configEnum));
@@ -12764,13 +12828,10 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
  * RedisModule_RegisterStringConfig for detailed information about configs. */
 int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long default_val, unsigned int flags, long long min, long long max, RedisModuleConfigGetNumericFunc getfn, RedisModuleConfigSetNumericFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
-    sds config_name = sdsnew(name);
-    if (moduleConfigValidityCheck(module, config_name, flags, NUMERIC_CONFIG)) {
-        sdsfree(config_name);
+    if (moduleConfigValidityCheck(module, name, flags, NUMERIC_CONFIG)) {
         return REDISMODULE_ERR;
     }
-    ModuleConfig *new_config = createModuleConfig(config_name, applyfn, privdata, module);
-    sdsfree(config_name);
+    ModuleConfig *new_config = createModuleConfig(name, applyfn, privdata, module);
     new_config->get_fn.get_numeric = getfn;
     new_config->set_fn.set_numeric = setfn;
     listAddNodeTail(module->module_configs, new_config);
@@ -13467,6 +13528,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateSubcommand);
     REGISTER_API(SetCommandInfo);
     REGISTER_API(SetCommandACLCategories);
+    REGISTER_API(AddACLCategory);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
@@ -13716,6 +13778,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgInsert);
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
+    REGISTER_API(CommandFilterGetClientId);
     REGISTER_API(Fork);
     REGISTER_API(SendChildHeartbeat);
     REGISTER_API(ExitFromChild);

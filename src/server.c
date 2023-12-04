@@ -38,12 +38,13 @@
 #include "functions.h"
 #include "hdr_histogram.h"
 #include "syscheck.h"
+#include "threads_mngr.h"
+#include "fmtargs.h"
 
 #include <time.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <errno.h>
-#include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
 #include <arpa/inet.h>
@@ -67,6 +68,12 @@
 
 #if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
 #include <sys/sysctl.h>
+#endif
+
+#ifdef __GNUC__
+#define GNUC_VERSION_STR STRINGIFY(__GNUC__) "." STRINGIFY(__GNUC_MINOR__) "." STRINGIFY(__GNUC_PATCHLEVEL__)
+#else
+#define GNUC_VERSION_STR "0.0.0"
 #endif
 
 /* Our shared "common" objects */
@@ -160,13 +167,9 @@ void _serverLog(int level, const char *fmt, ...) {
     serverLogRaw(level,msg);
 }
 
-/* Log a fixed message without printf-alike capabilities, in a way that is
- * safe to call from a signal handler.
- *
- * We actually use this only for signals that are not fatal from the point
- * of view of Redis. Signals that are going to kill the server anyway and
- * where we need printf-alike features are served by serverLog(). */
-void serverLogFromHandler(int level, const char *msg) {
+/* Low level logging from signal handler. Should be used with pre-formatted strings. 
+   See serverLogFromHandler. */
+void serverLogRawFromHandler(int level, const char *msg) {
     int fd;
     int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];
@@ -176,16 +179,39 @@ void serverLogFromHandler(int level, const char *msg) {
     fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
-    ll2string(buf,sizeof(buf),getpid());
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,":signal-handler (",17) == -1) goto err;
-    ll2string(buf,sizeof(buf),time(NULL));
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,") ",2) == -1) goto err;
-    if (write(fd,msg,strlen(msg)) == -1) goto err;
-    if (write(fd,"\n",1) == -1) goto err;
+    if (level & LL_RAW) {
+        if (write(fd,msg,strlen(msg)) == -1) goto err;
+    }
+    else {
+        ll2string(buf,sizeof(buf),getpid());
+        if (write(fd,buf,strlen(buf)) == -1) goto err;
+        if (write(fd,":signal-handler (",17) == -1) goto err;
+        ll2string(buf,sizeof(buf),time(NULL));
+        if (write(fd,buf,strlen(buf)) == -1) goto err;
+        if (write(fd,") ",2) == -1) goto err;
+        if (write(fd,msg,strlen(msg)) == -1) goto err;
+        if (write(fd,"\n",1) == -1) goto err;
+    }
 err:
     if (!log_to_stdout) close(fd);
+}
+
+/* An async-signal-safe version of serverLog. if LL_RAW is not included in level flags,
+ * The message format is: <pid>:signal-handler (<time>) <msg> \n
+ * with LL_RAW flag only the msg is printed (with no new line at the end)
+ *
+ * We actually use this only for signals that are not fatal from the point
+ * of view of Redis. Signals that are going to kill the server anyway and
+ * where we need printf-alike features are served by serverLog(). */
+void serverLogFromHandler(int level, const char *fmt, ...) {
+    va_list ap;
+    char msg[LOG_MAX_LEN];
+
+    va_start(ap, fmt);
+    vsnprintf_async_signal_safe(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+
+    serverLogRawFromHandler(level, msg);
 }
 
 /* Return the UNIX time in microseconds */
@@ -393,25 +419,52 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* Returns the size of the DB dict entry metadata in bytes. In cluster mode, the
- * metadata is used for constructing a doubly linked list of the dict entries
- * belonging to the same cluster slot. See the Slot to Key API in cluster.c. */
-size_t dbDictEntryMetadataSize(dict *d) {
-    UNUSED(d);
-    /* NOTICE: this also affects overhead_ht_slot_to_keys in getMemoryOverheadData.
-     * If we ever add non-cluster related data here, that code must be modified too. */
-    return server.cluster_enabled ? sizeof(clusterDictEntryMetadata) : 0;
+/* Updates the bucket count in cluster-mode for the given dictionary in a DB. bucket count
+ * incremented with the new ht size during the rehashing phase.
+ * And also adds dictionary to the rehashing list in cluster mode, which allows us
+ * to quickly find rehash targets during incremental rehashing.
+ * 
+ * In non-cluster mode, bucket count can be retrieved directly from single dict bucket and
+ * we don't need this list as there is only one dictionary per DB. */
+void dictRehashingStarted(dict *d) {
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    if (from == 0) return; /* No entries are to be moved. */
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+    }
 }
 
-/* Returns the size of the DB dict metadata in bytes. In cluster mode, we store
- * a pointer to the db in the main db dict, used for updating the slot-to-key
- * mapping when a dictEntry is reallocated. */
-size_t dbDictMetadataSize(void) {
-    return server.cluster_enabled ? sizeof(clusterDictMetadata) : 0;
+/* Updates the bucket count for the given dictionary in a DB. It removes
+ * the old ht size of the dictionary from the total sum of buckets for a DB.  */
+void dictRehashingCompleted(dict *d) {
+    if (!server.cluster_enabled) return;
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
-void dbDictAfterReplaceEntry(dict *d, dictEntry *de) {
-    if (server.cluster_enabled) slotToKeyReplaceEntry(d, de);
+void dictRehashingStartedForExpires(dict *d) {
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    if (from == 0) return; /* No entries are to be moved. */
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+    }
+}
+
+void dictRehashingCompletedForExpires(dict *d) {
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -469,9 +522,8 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    .dictEntryMetadataBytes = dbDictEntryMetadataSize,
-    .dictMetadataBytes = dbDictMetadataSize,
-    .afterReplaceEntry = dbDictAfterReplaceEntry
+    dictRehashingStarted,
+    dictRehashingCompleted,
 };
 
 /* Db->expires */
@@ -482,7 +534,9 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictExpandAllowed           /* allow to expand */
+    dictExpandAllowed,           /* allow to expand */
+    dictRehashingStartedForExpires,
+    dictRehashingCompletedForExpires,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -593,19 +647,33 @@ dictType sdsHashDictType = {
 int htNeedsResize(dict *dict) {
     long long size, used;
 
-    size = dictSlots(dict);
+    size = dictBuckets(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
             (used*100/size < HASHTABLE_MIN_FILL));
 }
 
-/* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
- * we resize the hash table to save memory */
+/* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
+ * and triggers a resize if the percentage of used buckets in the HT reaches HASHTABLE_MIN_FILL
+ * we resize the hash table to save memory.
+ *
+ * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
-    if (htNeedsResize(server.db[dbid].dict))
-        dictResize(server.db[dbid].dict);
-    if (htNeedsResize(server.db[dbid].expires))
-        dictResize(server.db[dbid].expires);
+    redisDb *db = &server.db[dbid];
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        if (dbSize(db, subdict) == 0) continue;
+
+        if (db->sub_dict[subdict].resize_cursor == -1)
+            db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
+
+        for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
+            int slot = db->sub_dict[subdict].resize_cursor;
+            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
+            if (htNeedsResize(d))
+                dictResize(d);
+            db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
+        }
+    }
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -616,15 +684,42 @@ void tryResizeHashTables(int dbid) {
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
 int incrementallyRehash(int dbid) {
-    /* Keys dictionary */
-    if (dictIsRehashing(server.db[dbid].dict)) {
-        dictRehashMilliseconds(server.db[dbid].dict,1);
-        return 1; /* already used our millisecond for this loop... */
-    }
-    /* Expires */
-    if (dictIsRehashing(server.db[dbid].expires)) {
-        dictRehashMilliseconds(server.db[dbid].expires,1);
-        return 1; /* already used our millisecond for this loop... */
+    /* Rehash main and expire dictionary . */
+    if (server.cluster_enabled) {
+        listNode *node, *nextNode;
+        monotime timer;
+        elapsedStart(&timer);
+        /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
+         * while removing those that already finished rehashing from the queue. */
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.db[dbid].sub_dict[subdict].rehashing));
+            while ((node = listFirst(server.db[dbid].sub_dict[subdict].rehashing))) {
+                if (dictIsRehashing((dict *) listNodeValue(node))) {
+                    dictRehashMilliseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_MS);
+                    if (elapsedMs(timer) >= INCREMENTAL_REHASHING_THRESHOLD_MS) {
+                        return 1;  /* Reached the time limit. */
+                    }
+                } else { /* It is possible that rehashing has already completed for this dictionary, simply remove it from the queue. */
+                    nextNode = listNextNode(node);
+                    listDelNode(server.db[dbid].sub_dict[subdict].rehashing, node);
+                    node = nextNode;
+                }
+            }
+        }
+        /* When cluster mode is disabled, only one dict is used for the entire DB and rehashing list isn't populated. */
+    } else {
+        /* Rehash main dict. */
+        dict *main_dict = server.db[dbid].dict[0];
+        if (dictIsRehashing(main_dict)) {
+            dictRehashMilliseconds(main_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
+            return 1; /* already used our millisecond for this loop... */
+        }
+        /* Rehash expires. */
+        dict *expires_dict = server.db[dbid].expires[0];
+        if (dictIsRehashing(expires_dict)) {
+            dictRehashMilliseconds(expires_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
+            return 1; /* already used our millisecond for this loop... */
+        }
     }
     return 0;
 }
@@ -697,7 +792,7 @@ int allPersistenceDisabled(void) {
 /* Add a sample to the instantaneous metric. This function computes the quotient
  * of the increment of value and base, which is useful to record operation count
  * per second, or the average time consumption of an operation.
- * 
+ *
  * current_value - The dividend
  * current_base - The divisor
  * */
@@ -894,7 +989,7 @@ int clientEvictionAllowed(client *c) {
 
 /* This function is used to cleanup the client's previously tracked memory usage.
  * This is called during incremental client memory usage tracking as well as
- * used to reset when client to bucket allocation is not required when 
+ * used to reset when client to bucket allocation is not required when
  * client eviction is disabled.  */
 void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {
@@ -917,11 +1012,9 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * together clients consuming about the same amount of memory and can quickly
  * free them in case we reach maxmemory-clients (client eviction).
  *
- * Note: This function filters clients of type monitor, master or replica regardless
+ * Note: This function filters clients of type no-evict, master or replica regardless
  * of whether the eviction is enabled or not, so the memory usage we get from these
- * types of clients via the INFO command may be out of date. If someday we wanna
- * improve that to make monitors' memory usage more accurate, we need to re-add this
- * function call to `replicationFeedMonitors()`.
+ * types of clients via the INFO command may be out of date.
  *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
@@ -1351,9 +1444,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             for (j = 0; j < server.dbnum; j++) {
                 long long size, used, vkeys;
 
-                size = dictSlots(server.db[j].dict);
-                used = dictSize(server.db[j].dict);
-                vkeys = dictSize(server.db[j].expires);
+                size = dbBuckets(&server.db[j], DB_MAIN);
+                used = dbSize(&server.db[j], DB_MAIN);
+                vkeys = dbSize(&server.db[j], DB_EXPIRES);
                 if (used || vkeys) {
                     serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
@@ -1435,7 +1528,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Just for the sake of defensive programming, to avoid forgetting to
      * call this function when needed. */
     updateDictResizePolicy();
-
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
@@ -1648,9 +1740,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         return;
     }
 
-    /* Handle precise timeouts of blocked clients. */
-    handleBlockedClientsTimeout();
-
     /* We should handle pending reads clients ASAP after event loop. */
     handleClientsWithPendingReadsUsingThreads();
 
@@ -1660,39 +1749,32 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData());
 
+    /* Call the Redis Cluster before sleep function. Note that this function
+     * may change the state of Redis Cluster (from ok to fail or vice versa),
+     * so it's a good idea to call it before serving the unblocked clients
+     * later in this function, must be done before blockedBeforeSleep. */
+    if (server.cluster_enabled) clusterBeforeSleep();
+
+    /* Handle blocked clients.
+     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
+     * since the unblocked clients may write data. */
+    blockedBeforeSleep();
+
     /* Record cron time in beforeSleep, which is the sum of active-expire, active-defrag and all other
      * tasks done by cron and beforeSleep, but excluding read, write and AOF, that are counted by other
      * sets of metrics. */
     monotime cron_start_time_before_aof = getMonotonicUs();
-
-    /* Call the Redis Cluster before sleep function. Note that this function
-     * may change the state of Redis Cluster (from ok to fail or vice versa),
-     * so it's a good idea to call it before serving the unblocked clients
-     * later in this function. */
-    if (server.cluster_enabled) clusterBeforeSleep();
 
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && iAmMaster())
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
-    /* Unblock all the clients blocked for synchronous replication
-     * in WAIT or WAITAOF. */
-    if (listLength(server.clients_waiting_acks))
-        processClientsWaitingReplicas();
-
-    /* Check if there are clients unblocked by modules that implement
-     * blocking commands. */
     if (moduleCount()) {
         moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                               REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP,
                               NULL);
-        moduleHandleBlockedClients();
     }
-
-    /* Try to process pending commands for clients that were just unblocked. */
-    if (listLength(server.unblocked_clients))
-        processUnblockedClients();
 
     /* Send all the slaves an ACK request if at least one client blocked
      * during the previous event loop iteration. Note that we do this after
@@ -1717,19 +1799,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * we have to flush them after each command, so when we get here, the list
      * must be empty. */
     serverAssert(listLength(server.tracking_pending_keys) == 0);
+    serverAssert(listLength(server.pending_push_messages) == 0);
 
     /* Send the invalidation messages to clients participating to the
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages();
-
-    /* Try to process blocked clients every once in while.
-     *
-     * Example: A module calls RM_SignalKeyAsReady from within a timer callback
-     * (So we don't visit processCommand() at all).
-     *
-     * must be done before flushAppendOnlyFile, in case of appendfsync=always,
-     * since the unblocked clients may write data. */
-    handleClientsBlockedOnKeys();
 
     /* Record time consumption of AOF writing. */
     monotime aof_start_time = getMonotonicUs();
@@ -2542,6 +2616,8 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_reads_processed, 0);
     server.stat_io_writes_processed = 0;
     atomicSet(server.stat_total_writes_processed, 0);
+    atomicSet(server.stat_client_qbuf_limit_disconnections, 0);
+    server.stat_client_outbuf_limit_disconnections = 0;
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
         server.inst_metric[j].last_sample_base = 0;
@@ -2575,12 +2651,23 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+void initDbState(redisDb *db){
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        db->sub_dict[subdict].rehashing = listCreate();
+        db->sub_dict[subdict].key_count = 0;
+        db->sub_dict[subdict].resize_cursor = -1;
+        db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+        db->sub_dict[subdict].bucket_count = 0;
+    }
+}
+
 void initServer(void) {
     int j;
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
+    ThreadsManager_init();
     makeThreadKillable();
 
     if (server.syslog_enabled) {
@@ -2611,6 +2698,7 @@ void initServer(void) {
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
     server.tracking_pending_keys = listCreate();
+    server.pending_push_messages = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.paused_actions = 0;
@@ -2649,8 +2737,9 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType);
-        server.db[j].expires = dictCreate(&dbExpiresDictType);
+        int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+        server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
+        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slotCount);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2659,7 +2748,8 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
-        server.db[j].slots_to_keys = NULL; /* Set by clusterInit later on if necessary. */
+        server.db[j].dict_count = slotCount;
+        initDbState(&server.db[j]);
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
@@ -3714,9 +3804,11 @@ void call(client *c, int flags) {
  * various pre-execution checks. it returns the appropriate error to the client.
  * If there's a transaction is flags it as dirty, and if the command is EXEC,
  * it aborts the transaction.
+ * The duration is reset, since we reject the command, and it did not record.
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
+    c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
@@ -3728,6 +3820,7 @@ void rejectCommand(client *c, robj *reply) {
 
 void rejectCommandSds(client *c, sds s) {
     flagTransaction(c);
+    c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
@@ -3755,7 +3848,14 @@ void afterCommand(client *c) {
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperations();
+
+    /* Flush pending tracking invalidations. */
     trackingHandlePendingKeyInvalidations();
+
+    /* Flush other pending push messages. only when we are not in nested call.
+     * So the messages are not interleaved with transaction response. */
+    if (!server.execution_nesting)
+        listJoin(c->reply, server.pending_push_messages);
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.
@@ -3955,7 +4055,7 @@ int processCommand(client *c) {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &c->slot,&error_code);
-        if (n == NULL || n != server.cluster->myself) {
+        if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
             } else {
@@ -4167,10 +4267,9 @@ int processCommand(client *c) {
         int flags = CMD_CALL_FULL;
         if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
         call(c,flags);
-        if (listLength(server.ready_keys))
+        if (listLength(server.ready_keys) && !isInsideYieldingLongCommand())
             handleClientsBlockedOnKeys();
     }
-
     return C_OK;
 }
 
@@ -5495,60 +5594,33 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             call_uname = 0;
         }
 
-        info = sdscatfmt(info,
-            "# Server\r\n"
-            "redis_version:%s\r\n"
-            "redis_git_sha1:%s\r\n"
-            "redis_git_dirty:%i\r\n"
-            "redis_build_id:%s\r\n"
-            "redis_mode:%s\r\n"
-            "os:%s %s %s\r\n"
-            "arch_bits:%i\r\n"
-            "monotonic_clock:%s\r\n"
-            "multiplexing_api:%s\r\n"
-            "atomicvar_api:%s\r\n"
-            "gcc_version:%i.%i.%i\r\n"
-            "process_id:%I\r\n"
-            "process_supervised:%s\r\n"
-            "run_id:%s\r\n"
-            "tcp_port:%i\r\n"
-            "server_time_usec:%I\r\n"
-            "uptime_in_seconds:%I\r\n"
-            "uptime_in_days:%I\r\n"
-            "hz:%i\r\n"
-            "configured_hz:%i\r\n"
-            "lru_clock:%u\r\n"
-            "executable:%s\r\n"
-            "config_file:%s\r\n"
-            "io_threads_active:%i\r\n",
-            REDIS_VERSION,
-            redisGitSHA1(),
-            strtol(redisGitDirty(),NULL,10) > 0,
-            redisBuildIdString(),
-            mode,
-            name.sysname, name.release, name.machine,
-            server.arch_bits,
-            monotonicInfoString(),
-            aeGetApiName(),
-            REDIS_ATOMIC_API,
-#ifdef __GNUC__
-            __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
-#else
-            0,0,0,
-#endif
-            (int64_t) getpid(),
-            supervised,
-            server.runid,
-            server.port ? server.port : server.tls_port,
-            (int64_t)server.ustime,
-            (int64_t)uptime,
-            (int64_t)(uptime/(3600*24)),
-            server.hz,
-            server.config_hz,
-            server.lruclock,
-            server.executable ? server.executable : "",
-            server.configfile ? server.configfile : "",
-            server.io_threads_active);
+        info = sdscatfmt(info, "# Server\r\n" FMTARGS(
+            "redis_version:%s\r\n", REDIS_VERSION,
+            "redis_git_sha1:%s\r\n", redisGitSHA1(),
+            "redis_git_dirty:%i\r\n", strtol(redisGitDirty(),NULL,10) > 0,
+            "redis_build_id:%s\r\n", redisBuildIdString(),
+            "redis_mode:%s\r\n", mode,
+            "os:%s", name.sysname,
+            " %s", name.release,
+            " %s\r\n", name.machine,
+            "arch_bits:%i\r\n", server.arch_bits,
+            "monotonic_clock:%s\r\n", monotonicInfoString(),
+            "multiplexing_api:%s\r\n", aeGetApiName(),
+            "atomicvar_api:%s\r\n", REDIS_ATOMIC_API,
+            "gcc_version:%s\r\n", GNUC_VERSION_STR,
+            "process_id:%I\r\n", (int64_t) getpid(),
+            "process_supervised:%s\r\n", supervised,
+            "run_id:%s\r\n", server.runid,
+            "tcp_port:%i\r\n", server.port ? server.port : server.tls_port,
+            "server_time_usec:%I\r\n", (int64_t)server.ustime,
+            "uptime_in_seconds:%I\r\n", (int64_t)uptime,
+            "uptime_in_days:%I\r\n", (int64_t)(uptime/(3600*24)),
+            "hz:%i\r\n", server.hz,
+            "configured_hz:%i\r\n", server.config_hz,
+            "lru_clock:%u\r\n", server.lruclock,
+            "executable:%s\r\n", server.executable ? server.executable : "",
+            "config_file:%s\r\n", server.configfile ? server.configfile : "",
+            "io_threads_active:%i\r\n", server.io_threads_active));
 
         /* Conditional properties */
         if (isShutdownInitiated()) {
@@ -5568,27 +5640,17 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         getExpansiveClientsInfo(&maxin,&maxout);
         totalNumberOfBlockingKeys(&blocking_keys, &blocking_keys_on_nokey);
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info,
-            "# Clients\r\n"
-            "connected_clients:%lu\r\n"
-            "cluster_connections:%lu\r\n"
-            "maxclients:%u\r\n"
-            "client_recent_max_input_buffer:%zu\r\n"
-            "client_recent_max_output_buffer:%zu\r\n"
-            "blocked_clients:%d\r\n"
-            "tracking_clients:%d\r\n"
-            "clients_in_timeout_table:%llu\r\n"
-            "total_blocking_keys:%lu\r\n"
-            "total_blocking_keys_on_nokey:%lu\r\n",
-            listLength(server.clients)-listLength(server.slaves),
-            getClusterConnectionsCount(),
-            server.maxclients,
-            maxin, maxout,
-            server.blocked_clients,
-            server.tracking_clients,
-            (unsigned long long) raxSize(server.clients_timeout_table),
-            blocking_keys,
-            blocking_keys_on_nokey);
+        info = sdscatprintf(info, "# Clients\r\n" FMTARGS(
+            "connected_clients:%lu\r\n", listLength(server.clients) - listLength(server.slaves),
+            "cluster_connections:%lu\r\n", getClusterConnectionsCount(),
+            "maxclients:%u\r\n", server.maxclients,
+            "client_recent_max_input_buffer:%zu\r\n", maxin,
+            "client_recent_max_output_buffer:%zu\r\n", maxout,
+            "blocked_clients:%d\r\n", server.blocked_clients,
+            "tracking_clients:%d\r\n", server.tracking_clients,
+            "clients_in_timeout_table:%llu\r\n", (unsigned long long) raxSize(server.clients_timeout_table),
+            "total_blocking_keys:%lu\r\n", blocking_keys,
+            "total_blocking_keys_on_nokey:%lu\r\n", blocking_keys_on_nokey));
     }
 
     /* Memory */
@@ -5625,114 +5687,62 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         bytesToHuman(maxmemory_hmem,sizeof(maxmemory_hmem),server.maxmemory);
 
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info,
-            "# Memory\r\n"
-            "used_memory:%zu\r\n"
-            "used_memory_human:%s\r\n"
-            "used_memory_rss:%zu\r\n"
-            "used_memory_rss_human:%s\r\n"
-            "used_memory_peak:%zu\r\n"
-            "used_memory_peak_human:%s\r\n"
-            "used_memory_peak_perc:%.2f%%\r\n"
-            "used_memory_overhead:%zu\r\n"
-            "used_memory_startup:%zu\r\n"
-            "used_memory_dataset:%zu\r\n"
-            "used_memory_dataset_perc:%.2f%%\r\n"
-            "allocator_allocated:%zu\r\n"
-            "allocator_active:%zu\r\n"
-            "allocator_resident:%zu\r\n"
-            "total_system_memory:%lu\r\n"
-            "total_system_memory_human:%s\r\n"
-            "used_memory_lua:%lld\r\n" /* deprecated, renamed to used_memory_vm_eval */
-            "used_memory_vm_eval:%lld\r\n"
-            "used_memory_lua_human:%s\r\n" /* deprecated */
-            "used_memory_scripts_eval:%lld\r\n"
-            "number_of_cached_scripts:%lu\r\n"
-            "number_of_functions:%lu\r\n"
-            "number_of_libraries:%lu\r\n"
-            "used_memory_vm_functions:%lld\r\n"
-            "used_memory_vm_total:%lld\r\n"
-            "used_memory_vm_total_human:%s\r\n"
-            "used_memory_functions:%lld\r\n"
-            "used_memory_scripts:%lld\r\n"
-            "used_memory_scripts_human:%s\r\n"
-            "maxmemory:%lld\r\n"
-            "maxmemory_human:%s\r\n"
-            "maxmemory_policy:%s\r\n"
-            "allocator_frag_ratio:%.2f\r\n"
-            "allocator_frag_bytes:%zu\r\n"
-            "allocator_rss_ratio:%.2f\r\n"
-            "allocator_rss_bytes:%zd\r\n"
-            "rss_overhead_ratio:%.2f\r\n"
-            "rss_overhead_bytes:%zd\r\n"
-            "mem_fragmentation_ratio:%.2f\r\n"
-            "mem_fragmentation_bytes:%zd\r\n"
-            "mem_not_counted_for_evict:%zu\r\n"
-            "mem_replication_backlog:%zu\r\n"
-            "mem_total_replication_buffers:%zu\r\n"
-            "mem_clients_slaves:%zu\r\n"
-            "mem_clients_normal:%zu\r\n"
-            "mem_cluster_links:%zu\r\n"
-            "mem_aof_buffer:%zu\r\n"
-            "mem_allocator:%s\r\n"
-            "active_defrag_running:%d\r\n"
-            "lazyfree_pending_objects:%zu\r\n"
-            "lazyfreed_objects:%zu\r\n",
-            zmalloc_used,
-            hmem,
-            server.cron_malloc_stats.process_rss,
-            used_memory_rss_hmem,
-            server.stat_peak_memory,
-            peak_hmem,
-            mh->peak_perc,
-            mh->overhead_total,
-            mh->startup_allocated,
-            mh->dataset,
-            mh->dataset_perc,
-            server.cron_malloc_stats.allocator_allocated,
-            server.cron_malloc_stats.allocator_active,
-            server.cron_malloc_stats.allocator_resident,
-            (unsigned long)total_system_mem,
-            total_system_hmem,
-            memory_lua,
-            memory_lua,
-            used_memory_lua_hmem,
-            (long long) mh->lua_caches,
-            dictSize(evalScriptsDict()),
-            functionsNum(),
-            functionsLibNum(),
-            memory_functions,
-            memory_functions + memory_lua,
-            used_memory_vm_total_hmem,
-            (long long) mh->functions_caches,
-            (long long) mh->lua_caches + (long long) mh->functions_caches,
-            used_memory_scripts_hmem,
-            server.maxmemory,
-            maxmemory_hmem,
-            evict_policy,
-            mh->allocator_frag,
-            mh->allocator_frag_bytes,
-            mh->allocator_rss,
-            mh->allocator_rss_bytes,
-            mh->rss_extra,
-            mh->rss_extra_bytes,
-            mh->total_frag,       /* This is the total RSS overhead, including
-                                     fragmentation, but not just it. This field
-                                     (and the next one) is named like that just
-                                     for backward compatibility. */
-            mh->total_frag_bytes,
-            freeMemoryGetNotCountedMemory(),
-            mh->repl_backlog,
-            server.repl_buffer_mem,
-            mh->clients_slaves,
-            mh->clients_normal,
-            mh->cluster_links,
-            mh->aof_buffer,
-            ZMALLOC_LIB,
-            server.active_defrag_running,
-            lazyfreeGetPendingObjectsCount(),
-            lazyfreeGetFreedObjectsCount()
-        );
+        info = sdscatprintf(info, "# Memory\r\n" FMTARGS(
+            "used_memory:%zu\r\n", zmalloc_used,
+            "used_memory_human:%s\r\n", hmem,
+            "used_memory_rss:%zu\r\n", server.cron_malloc_stats.process_rss,
+            "used_memory_rss_human:%s\r\n", used_memory_rss_hmem,
+            "used_memory_peak:%zu\r\n", server.stat_peak_memory,
+            "used_memory_peak_human:%s\r\n", peak_hmem,
+            "used_memory_peak_perc:%.2f%%\r\n", mh->peak_perc,
+            "used_memory_overhead:%zu\r\n", mh->overhead_total,
+            "used_memory_startup:%zu\r\n", mh->startup_allocated,
+            "used_memory_dataset:%zu\r\n", mh->dataset,
+            "used_memory_dataset_perc:%.2f%%\r\n", mh->dataset_perc,
+            "allocator_allocated:%zu\r\n", server.cron_malloc_stats.allocator_allocated,
+            "allocator_active:%zu\r\n", server.cron_malloc_stats.allocator_active,
+            "allocator_resident:%zu\r\n", server.cron_malloc_stats.allocator_resident,
+            "total_system_memory:%lu\r\n", (unsigned long)total_system_mem,
+            "total_system_memory_human:%s\r\n", total_system_hmem,
+            "used_memory_lua:%lld\r\n", memory_lua, /* deprecated, renamed to used_memory_vm_eval */
+            "used_memory_vm_eval:%lld\r\n", memory_lua,
+            "used_memory_lua_human:%s\r\n", used_memory_lua_hmem, /* deprecated */
+            "used_memory_scripts_eval:%lld\r\n", (long long)mh->lua_caches,
+            "number_of_cached_scripts:%lu\r\n", dictSize(evalScriptsDict()),
+            "number_of_functions:%lu\r\n", functionsNum(),
+            "number_of_libraries:%lu\r\n", functionsLibNum(),
+            "used_memory_vm_functions:%lld\r\n", memory_functions,
+            "used_memory_vm_total:%lld\r\n", memory_functions + memory_lua,
+            "used_memory_vm_total_human:%s\r\n", used_memory_vm_total_hmem,
+            "used_memory_functions:%lld\r\n", (long long)mh->functions_caches,
+            "used_memory_scripts:%lld\r\n", (long long)mh->lua_caches + (long long)mh->functions_caches,
+            "used_memory_scripts_human:%s\r\n", used_memory_scripts_hmem,
+            "maxmemory:%lld\r\n", server.maxmemory,
+            "maxmemory_human:%s\r\n", maxmemory_hmem,
+            "maxmemory_policy:%s\r\n", evict_policy,
+            "allocator_frag_ratio:%.2f\r\n", mh->allocator_frag,
+            "allocator_frag_bytes:%zu\r\n", mh->allocator_frag_bytes,
+            "allocator_rss_ratio:%.2f\r\n", mh->allocator_rss,
+            "allocator_rss_bytes:%zd\r\n", mh->allocator_rss_bytes,
+            "rss_overhead_ratio:%.2f\r\n", mh->rss_extra,
+            "rss_overhead_bytes:%zd\r\n", mh->rss_extra_bytes,
+            /* The next field (mem_fragmentation_ratio) is the total RSS
+             * overhead, including fragmentation, but not just it. This field
+             * (and the next one) is named like that just for backward
+             * compatibility. */
+            "mem_fragmentation_ratio:%.2f\r\n", mh->total_frag,
+            "mem_fragmentation_bytes:%zd\r\n", mh->total_frag_bytes,
+            "mem_not_counted_for_evict:%zu\r\n", freeMemoryGetNotCountedMemory(),
+            "mem_replication_backlog:%zu\r\n", mh->repl_backlog,
+            "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem,
+            "mem_clients_slaves:%zu\r\n", mh->clients_slaves,
+            "mem_clients_normal:%zu\r\n", mh->clients_normal,
+            "mem_cluster_links:%zu\r\n", mh->cluster_links,
+            "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
+            "mem_allocator:%s\r\n", ZMALLOC_LIB,
+            "active_defrag_running:%d\r\n", server.active_defrag_running,
+            "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),
+            "lazyfreed_objects:%zu\r\n", lazyfreeGetFreedObjectsCount()));
         freeMemoryOverheadData(mh);
     }
 
@@ -5748,86 +5758,51 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         int aof_bio_fsync_status;
         atomicGet(server.aof_bio_fsync_status,aof_bio_fsync_status);
 
-        info = sdscatprintf(info,
-            "# Persistence\r\n"
-            "loading:%d\r\n"
-            "async_loading:%d\r\n"
-            "current_cow_peak:%zu\r\n"
-            "current_cow_size:%zu\r\n"
-            "current_cow_size_age:%lu\r\n"
-            "current_fork_perc:%.2f\r\n"
-            "current_save_keys_processed:%zu\r\n"
-            "current_save_keys_total:%zu\r\n"
-            "rdb_changes_since_last_save:%lld\r\n"
-            "rdb_bgsave_in_progress:%d\r\n"
-            "rdb_last_save_time:%jd\r\n"
-            "rdb_last_bgsave_status:%s\r\n"
-            "rdb_last_bgsave_time_sec:%jd\r\n"
-            "rdb_current_bgsave_time_sec:%jd\r\n"
-            "rdb_saves:%lld\r\n"
-            "rdb_last_cow_size:%zu\r\n"
-            "rdb_last_load_keys_expired:%lld\r\n"
-            "rdb_last_load_keys_loaded:%lld\r\n"
-            "aof_enabled:%d\r\n"
-            "aof_rewrite_in_progress:%d\r\n"
-            "aof_rewrite_scheduled:%d\r\n"
-            "aof_last_rewrite_time_sec:%jd\r\n"
-            "aof_current_rewrite_time_sec:%jd\r\n"
-            "aof_last_bgrewrite_status:%s\r\n"
-            "aof_rewrites:%lld\r\n"
-            "aof_rewrites_consecutive_failures:%lld\r\n"
-            "aof_last_write_status:%s\r\n"
-            "aof_last_cow_size:%zu\r\n"
-            "module_fork_in_progress:%d\r\n"
-            "module_fork_last_cow_size:%zu\r\n",
-            (int)(server.loading && !server.async_loading),
-            (int)server.async_loading,
-            server.stat_current_cow_peak,
-            server.stat_current_cow_bytes,
-            server.stat_current_cow_updated ? (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0,
-            fork_perc,
-            server.stat_current_save_keys_processed,
-            server.stat_current_save_keys_total,
-            server.dirty,
-            server.child_type == CHILD_TYPE_RDB,
-            (intmax_t)server.lastsave,
-            (server.lastbgsave_status == C_OK) ? "ok" : "err",
-            (intmax_t)server.rdb_save_time_last,
-            (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
-                -1 : time(NULL)-server.rdb_save_time_start),
-            server.stat_rdb_saves,
-            server.stat_rdb_cow_bytes,
-            server.rdb_last_load_keys_expired,
-            server.rdb_last_load_keys_loaded,
-            server.aof_state != AOF_OFF,
-            server.child_type == CHILD_TYPE_AOF,
-            server.aof_rewrite_scheduled,
-            (intmax_t)server.aof_rewrite_time_last,
-            (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
-                -1 : time(NULL)-server.aof_rewrite_time_start),
-            (server.aof_lastbgrewrite_status == C_OK) ? "ok" : "err",
-            server.stat_aof_rewrites,
-            server.stat_aofrw_consecutive_failures,
-            (server.aof_last_write_status == C_OK &&
-                aof_bio_fsync_status == C_OK) ? "ok" : "err",
-            server.stat_aof_cow_bytes,
-            server.child_type == CHILD_TYPE_MODULE,
-            server.stat_module_cow_bytes);
+        info = sdscatprintf(info, "# Persistence\r\n" FMTARGS(
+            "loading:%d\r\n", (int)(server.loading && !server.async_loading),
+            "async_loading:%d\r\n", (int)server.async_loading,
+            "current_cow_peak:%zu\r\n", server.stat_current_cow_peak,
+            "current_cow_size:%zu\r\n", server.stat_current_cow_bytes,
+            "current_cow_size_age:%lu\r\n", (server.stat_current_cow_updated ?
+                                             (unsigned long) elapsedMs(server.stat_current_cow_updated) / 1000 : 0),
+            "current_fork_perc:%.2f\r\n", fork_perc,
+            "current_save_keys_processed:%zu\r\n", server.stat_current_save_keys_processed,
+            "current_save_keys_total:%zu\r\n", server.stat_current_save_keys_total,
+            "rdb_changes_since_last_save:%lld\r\n", server.dirty,
+            "rdb_bgsave_in_progress:%d\r\n", server.child_type == CHILD_TYPE_RDB,
+            "rdb_last_save_time:%jd\r\n", (intmax_t)server.lastsave,
+            "rdb_last_bgsave_status:%s\r\n", (server.lastbgsave_status == C_OK) ? "ok" : "err",
+            "rdb_last_bgsave_time_sec:%jd\r\n", (intmax_t)server.rdb_save_time_last,
+            "rdb_current_bgsave_time_sec:%jd\r\n", (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
+                                                              -1 : time(NULL)-server.rdb_save_time_start),
+            "rdb_saves:%lld\r\n", server.stat_rdb_saves,
+            "rdb_last_cow_size:%zu\r\n", server.stat_rdb_cow_bytes,
+            "rdb_last_load_keys_expired:%lld\r\n", server.rdb_last_load_keys_expired,
+            "rdb_last_load_keys_loaded:%lld\r\n", server.rdb_last_load_keys_loaded,
+            "aof_enabled:%d\r\n", server.aof_state != AOF_OFF,
+            "aof_rewrite_in_progress:%d\r\n", server.child_type == CHILD_TYPE_AOF,
+            "aof_rewrite_scheduled:%d\r\n", server.aof_rewrite_scheduled,
+            "aof_last_rewrite_time_sec:%jd\r\n", (intmax_t)server.aof_rewrite_time_last,
+            "aof_current_rewrite_time_sec:%jd\r\n", (intmax_t)((server.child_type != CHILD_TYPE_AOF) ?
+                                                               -1 : time(NULL)-server.aof_rewrite_time_start),
+            "aof_last_bgrewrite_status:%s\r\n", (server.aof_lastbgrewrite_status == C_OK ?
+                                                 "ok" : "err"),
+            "aof_rewrites:%lld\r\n", server.stat_aof_rewrites,
+            "aof_rewrites_consecutive_failures:%lld\r\n", server.stat_aofrw_consecutive_failures,
+            "aof_last_write_status:%s\r\n", (server.aof_last_write_status == C_OK &&
+                                             aof_bio_fsync_status == C_OK) ? "ok" : "err",
+            "aof_last_cow_size:%zu\r\n", server.stat_aof_cow_bytes,
+            "module_fork_in_progress:%d\r\n", server.child_type == CHILD_TYPE_MODULE,
+            "module_fork_last_cow_size:%zu\r\n", server.stat_module_cow_bytes));
 
         if (server.aof_enabled) {
-            info = sdscatprintf(info,
-                "aof_current_size:%lld\r\n"
-                "aof_base_size:%lld\r\n"
-                "aof_pending_rewrite:%d\r\n"
-                "aof_buffer_length:%zu\r\n"
-                "aof_pending_bio_fsync:%lu\r\n"
-                "aof_delayed_fsync:%lu\r\n",
-                (long long) server.aof_current_size,
-                (long long) server.aof_rewrite_base_size,
-                server.aof_rewrite_scheduled,
-                sdslen(server.aof_buf),
-                bioPendingJobsOfType(BIO_AOF_FSYNC),
-                server.aof_delayed_fsync);
+            info = sdscatprintf(info, FMTARGS(
+                "aof_current_size:%lld\r\n", (long long) server.aof_current_size,
+                "aof_base_size:%lld\r\n", (long long) server.aof_rewrite_base_size,
+                "aof_pending_rewrite:%d\r\n", server.aof_rewrite_scheduled,
+                "aof_buffer_length:%zu\r\n", sdslen(server.aof_buf),
+                "aof_pending_bio_fsync:%lu\r\n", bioPendingJobsOfType(BIO_AOF_FSYNC),
+                "aof_delayed_fsync:%lu\r\n", server.aof_delayed_fsync));
         }
 
         if (server.loading) {
@@ -5854,20 +5829,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 eta = (elapsed*remaining_bytes)/(server.loading_loaded_bytes+1);
             }
 
-            info = sdscatprintf(info,
-                "loading_start_time:%jd\r\n"
-                "loading_total_bytes:%llu\r\n"
-                "loading_rdb_used_mem:%llu\r\n"
-                "loading_loaded_bytes:%llu\r\n"
-                "loading_loaded_perc:%.2f\r\n"
-                "loading_eta_seconds:%jd\r\n",
-                (intmax_t) server.loading_start_time,
-                (unsigned long long) server.loading_total_bytes,
-                (unsigned long long) server.loading_rdb_used_mem,
-                (unsigned long long) server.loading_loaded_bytes,
-                perc,
-                (intmax_t)eta
-            );
+            info = sdscatprintf(info, FMTARGS(
+                "loading_start_time:%jd\r\n", (intmax_t) server.loading_start_time,
+                "loading_total_bytes:%llu\r\n", (unsigned long long) server.loading_total_bytes,
+                "loading_rdb_used_mem:%llu\r\n", (unsigned long long) server.loading_rdb_used_mem,
+                "loading_loaded_bytes:%llu\r\n", (unsigned long long) server.loading_loaded_bytes,
+                "loading_loaded_perc:%.2f\r\n", perc,
+                "loading_eta_seconds:%jd\r\n", (intmax_t)eta));
         }
     }
 
@@ -5880,126 +5848,74 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
             (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
+        long long stat_client_qbuf_limit_disconnections;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
+        atomicGet(server.stat_client_qbuf_limit_disconnections, stat_client_qbuf_limit_disconnections);
 
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info,
-            "# Stats\r\n"
-            "total_connections_received:%lld\r\n"
-            "total_commands_processed:%lld\r\n"
-            "instantaneous_ops_per_sec:%lld\r\n"
-            "total_net_input_bytes:%lld\r\n"
-            "total_net_output_bytes:%lld\r\n"
-            "total_net_repl_input_bytes:%lld\r\n"
-            "total_net_repl_output_bytes:%lld\r\n"
-            "instantaneous_input_kbps:%.2f\r\n"
-            "instantaneous_output_kbps:%.2f\r\n"
-            "instantaneous_input_repl_kbps:%.2f\r\n"
-            "instantaneous_output_repl_kbps:%.2f\r\n"
-            "rejected_connections:%lld\r\n"
-            "sync_full:%lld\r\n"
-            "sync_partial_ok:%lld\r\n"
-            "sync_partial_err:%lld\r\n"
-            "expired_keys:%lld\r\n"
-            "expired_stale_perc:%.2f\r\n"
-            "expired_time_cap_reached_count:%lld\r\n"
-            "expire_cycle_cpu_milliseconds:%lld\r\n"
-            "evicted_keys:%lld\r\n"
-            "evicted_clients:%lld\r\n"
-            "total_eviction_exceeded_time:%lld\r\n"
-            "current_eviction_exceeded_time:%lld\r\n"
-            "keyspace_hits:%lld\r\n"
-            "keyspace_misses:%lld\r\n"
-            "pubsub_channels:%ld\r\n"
-            "pubsub_patterns:%lu\r\n"
-            "pubsubshard_channels:%lu\r\n"
-            "latest_fork_usec:%lld\r\n"
-            "total_forks:%lld\r\n"
-            "migrate_cached_sockets:%ld\r\n"
-            "slave_expires_tracked_keys:%zu\r\n"
-            "active_defrag_hits:%lld\r\n"
-            "active_defrag_misses:%lld\r\n"
-            "active_defrag_key_hits:%lld\r\n"
-            "active_defrag_key_misses:%lld\r\n"
-            "total_active_defrag_time:%lld\r\n"
-            "current_active_defrag_time:%lld\r\n"
-            "tracking_total_keys:%lld\r\n"
-            "tracking_total_items:%lld\r\n"
-            "tracking_total_prefixes:%lld\r\n"
-            "unexpected_error_replies:%lld\r\n"
-            "total_error_replies:%lld\r\n"
-            "dump_payload_sanitizations:%lld\r\n"
-            "total_reads_processed:%lld\r\n"
-            "total_writes_processed:%lld\r\n"
-            "io_threaded_reads_processed:%lld\r\n"
-            "io_threaded_writes_processed:%lld\r\n"
-            "reply_buffer_shrinks:%lld\r\n"
-            "reply_buffer_expands:%lld\r\n"
-            "eventloop_cycles:%llu\r\n"
-            "eventloop_duration_sum:%llu\r\n"
-            "eventloop_duration_cmd_sum:%llu\r\n"
-            "instantaneous_eventloop_cycles_per_sec:%llu\r\n"
-            "instantaneous_eventloop_duration_usec:%llu\r\n",
-            server.stat_numconnections,
-            server.stat_numcommands,
-            getInstantaneousMetric(STATS_METRIC_COMMAND),
-            stat_net_input_bytes + stat_net_repl_input_bytes,
-            stat_net_output_bytes + stat_net_repl_output_bytes,
-            stat_net_repl_input_bytes,
-            stat_net_repl_output_bytes,
-            (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
-            (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
-            (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION)/1024,
-            (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION)/1024,
-            server.stat_rejected_conn,
-            server.stat_sync_full,
-            server.stat_sync_partial_ok,
-            server.stat_sync_partial_err,
-            server.stat_expiredkeys,
-            server.stat_expired_stale_perc*100,
-            server.stat_expired_time_cap_reached_count,
-            server.stat_expire_cycle_time_used/1000,
-            server.stat_evictedkeys,
-            server.stat_evictedclients,
-            (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
-            current_eviction_exceeded_time / 1000,
-            server.stat_keyspace_hits,
-            server.stat_keyspace_misses,
-            dictSize(server.pubsub_channels),
-            dictSize(server.pubsub_patterns),
-            dictSize(server.pubsubshard_channels),
-            server.stat_fork_time,
-            server.stat_total_forks,
-            dictSize(server.migrate_cached_sockets),
-            getSlaveKeyWithExpireCount(),
-            server.stat_active_defrag_hits,
-            server.stat_active_defrag_misses,
-            server.stat_active_defrag_key_hits,
-            server.stat_active_defrag_key_misses,
-            (server.stat_total_active_defrag_time + current_active_defrag_time) / 1000,
-            current_active_defrag_time / 1000,
-            (unsigned long long) trackingGetTotalKeys(),
-            (unsigned long long) trackingGetTotalItems(),
-            (unsigned long long) trackingGetTotalPrefixes(),
-            server.stat_unexpected_error_replies,
-            server.stat_total_error_replies,
-            server.stat_dump_payload_sanitizations,
-            stat_total_reads_processed,
-            stat_total_writes_processed,
-            server.stat_io_reads_processed,
-            server.stat_io_writes_processed,
-            server.stat_reply_buffer_shrinks,
-            server.stat_reply_buffer_expands,
-            server.duration_stats[EL_DURATION_TYPE_EL].cnt,
-            server.duration_stats[EL_DURATION_TYPE_EL].sum,
-            server.duration_stats[EL_DURATION_TYPE_CMD].sum,
-            getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
-            getInstantaneousMetric(STATS_METRIC_EL_DURATION));
+        info = sdscatprintf(info, "# Stats\r\n" FMTARGS(
+            "total_connections_received:%lld\r\n", server.stat_numconnections,
+            "total_commands_processed:%lld\r\n", server.stat_numcommands,
+            "instantaneous_ops_per_sec:%lld\r\n", getInstantaneousMetric(STATS_METRIC_COMMAND),
+            "total_net_input_bytes:%lld\r\n", stat_net_input_bytes + stat_net_repl_input_bytes,
+            "total_net_output_bytes:%lld\r\n", stat_net_output_bytes + stat_net_repl_output_bytes,
+            "total_net_repl_input_bytes:%lld\r\n", stat_net_repl_input_bytes,
+            "total_net_repl_output_bytes:%lld\r\n", stat_net_repl_output_bytes,
+            "instantaneous_input_kbps:%.2f\r\n", (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
+            "instantaneous_output_kbps:%.2f\r\n", (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
+            "instantaneous_input_repl_kbps:%.2f\r\n", (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION)/1024,
+            "instantaneous_output_repl_kbps:%.2f\r\n", (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT_REPLICATION)/1024,
+            "rejected_connections:%lld\r\n", server.stat_rejected_conn,
+            "sync_full:%lld\r\n", server.stat_sync_full,
+            "sync_partial_ok:%lld\r\n", server.stat_sync_partial_ok,
+            "sync_partial_err:%lld\r\n", server.stat_sync_partial_err,
+            "expired_keys:%lld\r\n", server.stat_expiredkeys,
+            "expired_stale_perc:%.2f\r\n", server.stat_expired_stale_perc*100,
+            "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
+            "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
+            "evicted_keys:%lld\r\n", server.stat_evictedkeys,
+            "evicted_clients:%lld\r\n", server.stat_evictedclients,
+            "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
+            "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
+            "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,
+            "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
+            "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
+            "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
+            "pubsubshard_channels:%lu\r\n", dictSize(server.pubsubshard_channels),
+            "latest_fork_usec:%lld\r\n", server.stat_fork_time,
+            "total_forks:%lld\r\n", server.stat_total_forks,
+            "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
+            "slave_expires_tracked_keys:%zu\r\n", getSlaveKeyWithExpireCount(),
+            "active_defrag_hits:%lld\r\n", server.stat_active_defrag_hits,
+            "active_defrag_misses:%lld\r\n", server.stat_active_defrag_misses,
+            "active_defrag_key_hits:%lld\r\n", server.stat_active_defrag_key_hits,
+            "active_defrag_key_misses:%lld\r\n", server.stat_active_defrag_key_misses,
+            "total_active_defrag_time:%lld\r\n", (server.stat_total_active_defrag_time + current_active_defrag_time) / 1000,
+            "current_active_defrag_time:%lld\r\n", current_active_defrag_time / 1000,
+            "tracking_total_keys:%lld\r\n", (unsigned long long) trackingGetTotalKeys(),
+            "tracking_total_items:%lld\r\n", (unsigned long long) trackingGetTotalItems(),
+            "tracking_total_prefixes:%lld\r\n", (unsigned long long) trackingGetTotalPrefixes(),
+            "unexpected_error_replies:%lld\r\n", server.stat_unexpected_error_replies,
+            "total_error_replies:%lld\r\n", server.stat_total_error_replies,
+            "dump_payload_sanitizations:%lld\r\n", server.stat_dump_payload_sanitizations,
+            "total_reads_processed:%lld\r\n", stat_total_reads_processed,
+            "total_writes_processed:%lld\r\n", stat_total_writes_processed,
+            "io_threaded_reads_processed:%lld\r\n", server.stat_io_reads_processed,
+            "io_threaded_writes_processed:%lld\r\n", server.stat_io_writes_processed,
+            "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
+            "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
+            "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,
+            "reply_buffer_expands:%lld\r\n", server.stat_reply_buffer_expands,
+            "eventloop_cycles:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].cnt,
+            "eventloop_duration_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].sum,
+            "eventloop_duration_cmd_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CMD].sum,
+            "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
+            "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION)));
         info = genRedisInfoStringACLStats(info);
     }
 
@@ -6022,42 +5938,26 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 slave_read_repl_offset = server.cached_master->read_reploff;
             }
 
-            info = sdscatprintf(info,
-                "master_host:%s\r\n"
-                "master_port:%d\r\n"
-                "master_link_status:%s\r\n"
-                "master_last_io_seconds_ago:%d\r\n"
-                "master_sync_in_progress:%d\r\n"
-                "slave_read_repl_offset:%lld\r\n"
-                "slave_repl_offset:%lld\r\n"
-                ,server.masterhost,
-                server.masterport,
-                (server.repl_state == REPL_STATE_CONNECTED) ?
-                    "up" : "down",
-                server.master ?
-                ((int)(server.unixtime-server.master->lastinteraction)) : -1,
-                server.repl_state == REPL_STATE_TRANSFER,
-                slave_read_repl_offset,
-                slave_repl_offset
-            );
+            info = sdscatprintf(info, FMTARGS(
+                "master_host:%s\r\n", server.masterhost,
+                "master_port:%d\r\n", server.masterport,
+                "master_link_status:%s\r\n", (server.repl_state == REPL_STATE_CONNECTED) ? "up" : "down",
+                "master_last_io_seconds_ago:%d\r\n", server.master ? ((int)(server.unixtime-server.master->lastinteraction)) : -1,
+                "master_sync_in_progress:%d\r\n", server.repl_state == REPL_STATE_TRANSFER,
+                "slave_read_repl_offset:%lld\r\n", slave_read_repl_offset,
+                "slave_repl_offset:%lld\r\n", slave_repl_offset));
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
                 if (server.repl_transfer_size) {
                     perc = ((double)server.repl_transfer_read / server.repl_transfer_size) * 100;
                 }
-                info = sdscatprintf(info,
-                    "master_sync_total_bytes:%lld\r\n"
-                    "master_sync_read_bytes:%lld\r\n"
-                    "master_sync_left_bytes:%lld\r\n"
-                    "master_sync_perc:%.2f\r\n"
-                    "master_sync_last_io_seconds_ago:%d\r\n",
-                    (long long) server.repl_transfer_size,
-                    (long long) server.repl_transfer_read,
-                    (long long) (server.repl_transfer_size - server.repl_transfer_read),
-                    perc,
-                    (int)(server.unixtime-server.repl_transfer_lastio)
-                );
+                info = sdscatprintf(info, FMTARGS(
+                    "master_sync_total_bytes:%lld\r\n", (long long) server.repl_transfer_size,
+                    "master_sync_read_bytes:%lld\r\n", (long long) server.repl_transfer_read,
+                    "master_sync_left_bytes:%lld\r\n", (long long) (server.repl_transfer_size - server.repl_transfer_read),
+                    "master_sync_perc:%.2f\r\n", perc,
+                    "master_sync_last_io_seconds_ago:%d\r\n", (int)(server.unixtime-server.repl_transfer_lastio)));
             }
 
             if (server.repl_state != REPL_STATE_CONNECTED) {
@@ -6066,13 +5966,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
             }
-            info = sdscatprintf(info,
-                "slave_priority:%d\r\n"
-                "slave_read_only:%d\r\n"
-                "replica_announced:%d\r\n",
-                server.slave_priority,
-                server.repl_slave_ro,
-                server.replica_announced);
+            info = sdscatprintf(info, FMTARGS(
+                "slave_priority:%d\r\n", server.slave_priority,
+                "slave_read_only:%d\r\n", server.repl_slave_ro,
+                "replica_announced:%d\r\n", server.replica_announced));
         }
 
         info = sdscatprintf(info,
@@ -6118,25 +6015,16 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 slaveid++;
             }
         }
-        info = sdscatprintf(info,
-            "master_failover_state:%s\r\n"
-            "master_replid:%s\r\n"
-            "master_replid2:%s\r\n"
-            "master_repl_offset:%lld\r\n"
-            "second_repl_offset:%lld\r\n"
-            "repl_backlog_active:%d\r\n"
-            "repl_backlog_size:%lld\r\n"
-            "repl_backlog_first_byte_offset:%lld\r\n"
-            "repl_backlog_histlen:%lld\r\n",
-            getFailoverStateString(),
-            server.replid,
-            server.replid2,
-            server.master_repl_offset,
-            server.second_replid_offset,
-            server.repl_backlog != NULL,
-            server.repl_backlog_size,
-            server.repl_backlog ? server.repl_backlog->offset : 0,
-            server.repl_backlog ? server.repl_backlog->histlen : 0);
+        info = sdscatprintf(info, FMTARGS(
+            "master_failover_state:%s\r\n", getFailoverStateString(),
+            "master_replid:%s\r\n", server.replid,
+            "master_replid2:%s\r\n", server.replid2,
+            "master_repl_offset:%lld\r\n", server.master_repl_offset,
+            "second_repl_offset:%lld\r\n", server.second_replid_offset,
+            "repl_backlog_active:%d\r\n", server.repl_backlog != NULL,
+            "repl_backlog_size:%lld\r\n", server.repl_backlog_size,
+            "repl_backlog_first_byte_offset:%lld\r\n", server.repl_backlog ? server.repl_backlog->offset : 0,
+            "repl_backlog_histlen:%lld\r\n", server.repl_backlog ? server.repl_backlog->histlen : 0));
     }
 
     /* CPU */
@@ -6225,8 +6113,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
 
-            keys = dictSize(server.db[j].dict);
-            vkeys = dictSize(server.db[j].expires);
+            keys = dbSize(&server.db[j], DB_MAIN);
+            vkeys = dbSize(&server.db[j], DB_EXPIRES);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
                     "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
@@ -6252,16 +6140,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
     if (dictFind(section_dict, "debug") != NULL) {
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info,
-        "# Debug\r\n"
-        "eventloop_duration_aof_sum:%llu\r\n"
-        "eventloop_duration_cron_sum:%llu\r\n"
-        "eventloop_duration_max:%llu\r\n"
-        "eventloop_cmd_per_cycle_max:%lld\r\n",
-        server.duration_stats[EL_DURATION_TYPE_AOF].sum,
-        server.duration_stats[EL_DURATION_TYPE_CRON].sum,
-        server.duration_stats[EL_DURATION_TYPE_EL].max,
-        server.el_cmd_cnt_max);
+        info = sdscatprintf(info, "# Debug\r\n" FMTARGS(
+            "eventloop_duration_aof_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_AOF].sum,
+            "eventloop_duration_cron_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CRON].sum,
+            "eventloop_duration_max:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].max,
+            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max));
     }
 
     return info;
@@ -6508,14 +6391,14 @@ static void sigShutdownHandler(int sig) {
      * the user really wanting to quit ASAP without waiting to persist
      * on disk and without waiting for lagging replicas. */
     if (server.shutdown_asap && sig == SIGINT) {
-        serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
+        serverLogRawFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
         msg = "Received shutdown signal during loading, scheduling shutdown.";
     }
 
-    serverLogFromHandler(LL_WARNING, msg);
+    serverLogRawFromHandler(LL_WARNING, msg);
     server.shutdown_asap = 1;
     server.last_sig_received = sig;
 }
@@ -6523,37 +6406,13 @@ static void sigShutdownHandler(int sig) {
 void setupSignalHandlers(void) {
     struct sigaction act;
 
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
-     * Otherwise, sa_handler is used. */
     sigemptyset(&act.sa_mask);
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
     sigaction(SIGTERM, &act, NULL);
     sigaction(SIGINT, &act, NULL);
 
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
-    act.sa_sigaction = sigsegvHandler;
-    if(server.crashlog_enabled) {
-        sigaction(SIGSEGV, &act, NULL);
-        sigaction(SIGBUS, &act, NULL);
-        sigaction(SIGFPE, &act, NULL);
-        sigaction(SIGILL, &act, NULL);
-        sigaction(SIGABRT, &act, NULL);
-    }
-    return;
-}
-
-void removeSignalHandlers(void) {
-    struct sigaction act;
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_RESETHAND;
-    act.sa_handler = SIG_DFL;
-    sigaction(SIGSEGV, &act, NULL);
-    sigaction(SIGBUS, &act, NULL);
-    sigaction(SIGFPE, &act, NULL);
-    sigaction(SIGILL, &act, NULL);
-    sigaction(SIGABRT, &act, NULL);
+    setupDebugSigHandlers();
 }
 
 /* This is the signal handler for children process. It is currently useful
@@ -6563,7 +6422,7 @@ void removeSignalHandlers(void) {
 static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
-    serverLogFromHandler(level, "Received SIGUSR1 in child, exiting now.");
+    serverLogRawFromHandler(level, "Received SIGUSR1 in child, exiting now.");
     exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
 }
 
@@ -6997,7 +6856,7 @@ int redisIsSupervised(int mode) {
 
 int iAmMaster(void) {
     return ((!server.cluster_enabled && server.masterhost == NULL) ||
-            (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
+            (server.cluster_enabled && clusterNodeIsMaster(getMyClusterNode())));
 }
 
 #ifdef REDIS_TEST
@@ -7046,6 +6905,7 @@ int main(int argc, char **argv) {
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
+    monotonicInit(); /* Required for dict tests, that are relying on monotime during dict rehashing. */
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
         int flags = 0;
         for (j = 3; j < argc; j++) {
@@ -7319,7 +7179,7 @@ int main(int argc, char **argv) {
     ACLLoadUsersAtStartup();
     initListeners();
     if (server.cluster_enabled) {
-        clusterInitListeners();
+        clusterInitLast();
     }
     InitServerLast();
 

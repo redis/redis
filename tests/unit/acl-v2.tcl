@@ -47,6 +47,15 @@ start_server {tags {"acl external:skip"}} {
         catch {r ACL SETUSER selector-syntax on (&* &fail)} e
         assert_match "*ERR Error in ACL SETUSER modifier '(*)*Adding a pattern after the*" $e
 
+        catch {r ACL SETUSER selector-syntax on (+PING (+SELECT (+DEL} e
+        assert_match "*ERR Unmatched parenthesis in acl selector*" $e
+
+        catch {r ACL SETUSER selector-syntax on (+PING (+SELECT (+DEL ) ) ) } e
+        assert_match "*ERR Error in ACL SETUSER modifier*" $e
+
+        catch {r ACL SETUSER selector-syntax on (+PING (+SELECT (+DEL ) } e
+        assert_match "*ERR Error in ACL SETUSER modifier*" $e
+
         assert_equal "" [r ACL GETUSER selector-syntax]
     }
 

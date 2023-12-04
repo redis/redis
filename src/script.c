@@ -292,6 +292,7 @@ void scriptKill(client *c, int is_eval) {
     if (mustObeyClient(curr_run_ctx->original_client)) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
+        return;
     }
     if (curr_run_ctx->flags & SCRIPT_WRITE_DIRTY) {
         addReplyError(c,
@@ -428,7 +429,7 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     c->flags &= ~(CLIENT_READONLY | CLIENT_ASKING);
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
     int hashslot = -1;
-    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != server.cluster->myself) {
+    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != getMyClusterNode()) {
         if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
             *err = sdsnew(
                     "Script attempted to execute a write command while the "
@@ -436,7 +437,22 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
         } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
             *err = sdsnew("Script attempted to execute a command while the "
                     "cluster is down");
+        } else if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
+            *err = sdscatfmt(sdsempty(), 
+                             "Command '%S' in script attempted to access keys that don't hash to the same slot",
+                             c->cmd->fullname);
+        } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
+            /* The request spawns multiple keys in the same slot,
+             * but the slot is not "stable" currently as there is
+             * a migration or import in progress. */
+            *err = sdscatfmt(sdsempty(),
+                             "Unable to execute command '%S' in script "
+                             "because undeclared keys were accessed during rehashing of the slot",
+                             c->cmd->fullname); 
+        } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
+            *err = sdsnew("Script attempted to access a slot not served"); 
         } else {
+            /* error_code == CLUSTER_REDIR_MOVED || error_code == CLUSTER_REDIR_ASK */
             *err = sdsnew("Script attempted to access a non local key in a "
                     "cluster node");
         }

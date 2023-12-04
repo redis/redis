@@ -1,7 +1,8 @@
 set testmodule [file normalize tests/modules/postnotifications.so]
 
 tags "modules" {
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+    start_server {} {
+        r module load $testmodule with_key_events
 
         test {Test write on post notification callback} {
             set repl [attach_to_replication_stream]
@@ -9,11 +10,12 @@ tags "modules" {
             r set string_x 1
             assert_equal {1} [r get string_changed{string_x}]
             assert_equal {1} [r get string_total]
-            
+
             r set string_x 2
             assert_equal {2} [r get string_changed{string_x}]
             assert_equal {2} [r get string_total]
 
+            # the {lpush before_overwritten string_x} is a post notification job registered when 'string_x' was overwritten
             assert_replication_stream $repl {
                 {multi}
                 {select *}
@@ -23,6 +25,7 @@ tags "modules" {
                 {exec}
                 {multi}
                 {set string_x 2}
+                {lpush before_overwritten string_x}
                 {incr string_changed{string_x}}
                 {incr string_total}
                 {exec}
@@ -37,7 +40,7 @@ tags "modules" {
             assert_equal {OK} [r postnotification.async_set]
             assert_equal {1} [r get string_changed{string_x}]
             assert_equal {1} [r get string_total]
-            
+
             assert_replication_stream $repl {
                 {multi}
                 {select *}
@@ -63,12 +66,14 @@ tags "modules" {
                 fail "Failed waiting for x to expired"
             }
 
+            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
                 {pexpireat x *}
                 {multi}
                 {del x}
+                {lpush before_expired x}
                 {incr expired}
                 {exec}
             }
@@ -85,12 +90,14 @@ tags "modules" {
             after 10
             assert_equal {} [r get x]
 
+            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
                 {pexpireat x *}
                 {multi}
                 {del x}
+                {lpush before_expired x}
                 {incr expired}
                 {exec}
             }
@@ -108,6 +115,7 @@ tags "modules" {
             after 10
             assert_equal {OK} [r set read_x 1]
 
+            # the {lpush before_expired x} is a post notification job registered before 'x' got expired
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
@@ -115,6 +123,7 @@ tags "modules" {
                 {multi}
                 {set read_x 1}
                 {del x}
+                {lpush before_expired x}
                 {incr expired}
                 {exec}
             }
@@ -143,16 +152,18 @@ tags "modules" {
             r flushall
             set repl [attach_to_replication_stream]
             r set x 1
-            r config set maxmemory-policy allkeys-random 
+            r config set maxmemory-policy allkeys-random
             r config set maxmemory 1
 
             assert_error {OOM *} {r set y 1}
 
+            # the {lpush before_evicted x} is a post notification job registered before 'x' got evicted
             assert_replication_stream $repl {
                 {select *}
                 {set x 1}
                 {multi}
                 {del x}
+                {lpush before_evicted x}
                 {incr evicted}
                 {exec}
             }
@@ -164,7 +175,8 @@ tags "modules" {
 set testmodule2 [file normalize tests/modules/keyspace_events.so]
 
 tags "modules" {
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+    start_server {} {
+        r module load $testmodule with_key_events
         r module load $testmodule2
         test {Test write on post notification callback} {
             set repl [attach_to_replication_stream]
@@ -172,7 +184,7 @@ tags "modules" {
             r set string_x 1
             assert_equal {1} [r get string_changed{string_x}]
             assert_equal {1} [r get string_total]
-            
+
             r set string_x 2
             assert_equal {2} [r get string_changed{string_x}]
             assert_equal {2} [r get string_total]
@@ -181,6 +193,7 @@ tags "modules" {
             assert_equal {1} [r get string_changed{string1_x}]
             assert_equal {3} [r get string_total]
 
+            # the {lpush before_overwritten string_x} is a post notification job registered before 'string_x' got overwritten
             assert_replication_stream $repl {
                 {multi}
                 {select *}
@@ -190,6 +203,7 @@ tags "modules" {
                 {exec}
                 {multi}
                 {set string_x 2}
+                {lpush before_overwritten string_x}
                 {incr string_changed{string_x}}
                 {incr string_total}
                 {exec}

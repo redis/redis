@@ -195,8 +195,16 @@ test "New master [join $addr {:}] role matches" {
 }
 
 test "SENTINEL RESET can resets the master" {
-     assert_equal 1 [S 0 SENTINEL RESET mymaster]
-     assert_equal 0 [llength [S 0 SENTINEL SENTINELS mymaster]]
-     assert_equal 0 [llength [S 0 SENTINEL SLAVES mymaster]]
-     assert_equal 0 [llength [S 0 SENTINEL REPLICAS mymaster]]
+    # After SENTINEL RESET, sometimes the sentinel can sense the master again,
+    # causing the test to fail. Here we give it a few more chances.
+    for {set j 0} {$j < 10} {incr j} {
+        assert_equal 1 [S 0 SENTINEL RESET mymaster]
+        set res1 [llength [S 0 SENTINEL SENTINELS mymaster]]
+        set res2 [llength [S 0 SENTINEL SLAVES mymaster]]
+        set res3 [llength [S 0 SENTINEL REPLICAS mymaster]]
+        if {$res1 eq 0 && $res2 eq 0 && $res3 eq 0} break
+    }
+    assert_equal 0 $res1
+    assert_equal 0 $res2
+    assert_equal 0 $res3
 }

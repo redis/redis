@@ -32,6 +32,7 @@
 #include "cluster.h"
 #include "script.h"
 #include "fpconv_dtoa.h"
+#include "fmtargs.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -83,10 +84,6 @@ void *dupClientReplyValue(void *o) {
 
 void freeClientReplyValue(void *o) {
     zfree(o);
-}
-
-int listMatchObjects(void *a, void *b) {
-    return equalStringObjects(a,b);
 }
 
 /* This function links the client to the global linked list of clients.
@@ -197,7 +194,7 @@ client *createClient(connection *conn) {
     c->woff = 0;
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType);
-    c->pubsub_patterns = listCreate();
+    c->pubsub_patterns = dictCreate(&objectKeyPointerValueDictType);
     c->pubsubshard_channels = dictCreate(&objectKeyPointerValueDictType);
     c->peerid = NULL;
     c->sockname = NULL;
@@ -214,8 +211,6 @@ client *createClient(connection *conn) {
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
     listInitNode(&c->clients_pending_write_node, c);
-    listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
-    listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     c->mem_usage_bucket = NULL;
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
@@ -351,8 +346,8 @@ size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
 
 /* Adds the reply to the reply linked list.
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
-void _addReplyProtoToList(client *c, const char *s, size_t len) {
-    listNode *ln = listLast(c->reply);
+void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len) {
+    listNode *ln = listLast(reply_list);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
@@ -380,11 +375,21 @@ void _addReplyProtoToList(client *c, const char *s, size_t len) {
         tail->size = usable_size - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
-        listAddNodeTail(c->reply, tail);
+        listAddNodeTail(reply_list, tail);
         c->reply_bytes += tail->size;
 
         closeClientOnOutputBufferLimitReached(c, 1);
     }
+}
+
+/* The subscribe / unsubscribe command family has a push as a reply,
+ * or in other words, it responds with a push (or several of them
+ * depending on how many arguments it got), and has no reply. */
+int cmdHasPushAsReply(struct redisCommand *cmd) {
+    if (!cmd) return 0;
+    return cmd->proc == subscribeCommand  || cmd->proc == unsubscribeCommand ||
+           cmd->proc == psubscribeCommand || cmd->proc == punsubscribeCommand ||
+           cmd->proc == ssubscribeCommand || cmd->proc == sunsubscribeCommand;
 }
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
@@ -405,8 +410,20 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * buffer offset (see function comment) */
     reqresSaveClientReplyOffset(c);
 
+    /* If we're processing a push message into the current client (i.e. executing PUBLISH
+     * to a channel which we are subscribed to, then we wanna postpone that message to be added
+     * after the command's reply (specifically important during multi-exec). the exception is
+     * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
+     * The check for executing_client also avoids affecting push messages that are part of eviction. */
+    if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&
+        server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
+    {
+        _addReplyProtoToList(c,server.pending_push_messages,s,len);
+        return;
+    }
+
     size_t reply_len = _addReplyToBuffer(c,s,len);
-    if (len > reply_len) _addReplyProtoToList(c,s+reply_len,len-reply_len);
+    if (len > reply_len) _addReplyProtoToList(c,c->reply,s+reply_len,len-reply_len);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1100,14 +1117,18 @@ void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext) {
     }
 }
 
-/* Add an array of C strings as status replies with a heading.
- * This function is typically invoked by from commands that support
- * subcommands in response to the 'help' subcommand. The help array
- * is terminated by NULL sentinel. */
-void addReplyHelp(client *c, const char **help) {
+/* This function is similar to the addReplyHelp function but adds the
+ * ability to pass in two arrays of strings. Some commands have
+ * some additional subcommands based on the specific feature implementation
+ * Redis is compiled with (currently just clustering). This function allows
+ * to pass is the common subcommands in `help` and any implementation
+ * specific subcommands in `extended_help`.
+ */
+void addExtendedReplyHelp(client *c, const char **help, const char **extended_help) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     void *blenp = addReplyDeferredLen(c);
     int blen = 0;
+    int idx = 0;
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
@@ -1115,6 +1136,10 @@ void addReplyHelp(client *c, const char **help) {
     sdsfree(cmd);
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
+    if (extended_help) {
+        while (extended_help[idx]) addReplyStatus(c,extended_help[idx++]);
+    }
+    blen += idx;
 
     addReplyStatus(c,"HELP");
     addReplyStatus(c,"    Print this help.");
@@ -1122,6 +1147,14 @@ void addReplyHelp(client *c, const char **help) {
     blen += 1;  /* Account for the header. */
     blen += 2;  /* Account for the footer. */
     setDeferredArrayLen(c,blenp,blen);
+}
+
+/* Add an array of C strings as status replies with a heading.
+ * This function is typically invoked by commands that support
+ * subcommands in response to the 'help' subcommand. The help array
+ * is terminated by NULL sentinel. */
+void addReplyHelp(client *c, const char **help) {
+    addExtendedReplyHelp(c, help, NULL);
 }
 
 /* Add a suggestive error reply.
@@ -1599,7 +1632,7 @@ void freeClient(client *c) {
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
-    listRelease(c->pubsub_patterns);
+    dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
 
     /* Free data structures. */
@@ -2689,6 +2722,7 @@ void readQueryFromClient(connection *conn) {
         sdsfree(ci);
         sdsfree(bytes);
         freeClientAsync(c);
+        atomicIncr(server.stat_client_qbuf_limit_disconnections, 1);
         goto done;
     }
 
@@ -2798,39 +2832,37 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
-    sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
-        (unsigned long long) client->id,
-        getClientPeerId(client),
-        getClientSockname(client),
-        connGetInfo(client->conn, conninfo, sizeof(conninfo)),
-        client->name ? (char*)client->name->ptr : "",
-        (long long)(server.unixtime - client->ctime),
-        (long long)(server.unixtime - client->lastinteraction),
-        flags,
-        client->db->id,
-        (int) dictSize(client->pubsub_channels),
-        (int) listLength(client->pubsub_patterns),
-        (int) dictSize(client->pubsubshard_channels),
-        (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
-        (unsigned long long) sdslen(client->querybuf),
-        (unsigned long long) sdsavail(client->querybuf),
-        (unsigned long long) client->argv_len_sum,
-        (unsigned long long) client->mstate.argv_len_sums,
-        (unsigned long long) client->buf_usable_size,
-        (unsigned long long) client->buf_peak,
-        (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
-        (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
-        (unsigned long long) total_mem,
-        events,
-        client->lastcmd ? client->lastcmd->fullname : "NULL",
-        client->user ? client->user->name : "(superuser)",
-        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
-        client->resp,
-        client->lib_name ? (char*)client->lib_name->ptr : "",
-        client->lib_ver ? (char*)client->lib_ver->ptr : ""
-        );
+    sds ret = sdscatfmt(s, FMTARGS(
+        "id=%U", (unsigned long long) client->id,
+        " addr=%s", getClientPeerId(client),
+        " laddr=%s", getClientSockname(client),
+        " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)),
+        " name=%s", client->name ? (char*)client->name->ptr : "",
+        " age=%I", (long long)(server.unixtime - client->ctime),
+        " idle=%I", (long long)(server.unixtime - client->lastinteraction),
+        " flags=%s", flags,
+        " db=%i", client->db->id,
+        " sub=%i", (int) dictSize(client->pubsub_channels),
+        " psub=%i", (int) dictSize(client->pubsub_patterns),
+        " ssub=%i", (int) dictSize(client->pubsubshard_channels),
+        " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
+        " qbuf=%U", (unsigned long long) sdslen(client->querybuf),
+        " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf),
+        " argv-mem=%U", (unsigned long long) client->argv_len_sum,
+        " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
+        " rbs=%U", (unsigned long long) client->buf_usable_size,
+        " rbp=%U", (unsigned long long) client->buf_peak,
+        " obl=%U", (unsigned long long) client->bufpos,
+        " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
+        " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
+        " tot-mem=%U", (unsigned long long) total_mem,
+        " events=%s", events,
+        " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
+        " user=%s", client->user ? client->user->name : "(superuser)",
+        " redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
+        " resp=%i", client->resp,
+        " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "",
+        " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : ""));
     return ret;
 }
 
@@ -3792,7 +3824,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
  * classes of clients.
  *
  * The function will return one of the following:
- * CLIENT_TYPE_NORMAL -> Normal client
+ * CLIENT_TYPE_NORMAL -> Normal client, including MONITOR
  * CLIENT_TYPE_SLAVE  -> Slave
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  * CLIENT_TYPE_MASTER -> The client representing our replication master.
@@ -3913,6 +3945,7 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
                       client);
         }
         sdsfree(client);
+        server.stat_client_outbuf_limit_disconnections++;
         return  1;
     }
     return 0;
@@ -3947,6 +3980,7 @@ void flushSlavesOutputBuffers(void) {
          * 3. Obviously if the slave is not ONLINE.
          */
         if (slave->replstate == SLAVE_STATE_ONLINE &&
+            !(slave->flags & CLIENT_CLOSE_ASAP) &&
             can_receive_writes &&
             !slave->repl_start_cmd_stream_on_ack &&
             clientHasPendingReplies(slave))
