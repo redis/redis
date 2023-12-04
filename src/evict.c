@@ -309,7 +309,7 @@ uint8_t LFULogIncr(uint8_t counter) {
 /* If the object's ldt (last access time) is reached, decrement the LFU counter but
  * do not update LFU fields of the object, we update the access time
  * and counter in an explicit way when the object is really accessed.
- * And we will times decrement the counter according to the times of
+ * And we will decrement the counter according to the times of
  * elapsed time than server.lfu_decay_time.
  * Return the object frequency counter.
  *
