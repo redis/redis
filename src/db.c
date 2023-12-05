@@ -33,6 +33,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "cluster.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -993,13 +994,22 @@ void randomkeyCommand(client *c) {
 void keysCommand(client *c) {
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern), allkeys;
+    int plen = sdslen(pattern), allkeys, pslot = -1;
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-    dbIterator *dbit = dbIteratorInit(c->db, DB_MAIN);
     allkeys = (pattern[0] == '*' && plen == 1);
+    if (!allkeys) {
+        pslot = patternHashSlot(pattern, plen);
+    }
+    dictIterator *di = NULL;
+    dbIterator *dbit = NULL;
+    if (server.cluster_enabled && !allkeys && pslot != -1) {
+        di = dictGetSafeIterator(c->db->dict[pslot]);
+    } else {
+        dbit = dbIteratorInit(c->db, DB_MAIN);
+    }
     robj keyobj;
-    while ((de = dbIteratorNext(dbit)) != NULL) {
+    while ((de = di ? dictNext(di) : dbIteratorNext(dbit)) != NULL) {
         sds key = dictGetKey(de);
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -1012,7 +1022,10 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    dbReleaseIterator(dbit);
+    if (di)
+        dictReleaseIterator(di);
+    if (dbit)
+        dbReleaseIterator(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
