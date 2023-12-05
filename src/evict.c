@@ -575,7 +575,7 @@ int performEvictions(void) {
     /* Evictions are performed on random keys that have nothing to do with the current command slot. */
 
     while (mem_freed < (long long)mem_tofree) {
-        int j, k, i, l;
+        int j, k, i;
         static unsigned int next_db = 0;
         sds bestkey = NULL;
         int bestdbid;
@@ -603,7 +603,9 @@ int performEvictions(void) {
                     if (current_db_keys == 0) continue;
 
                     total_keys += current_db_keys;
-                    for (l = 0; l < dbNonEmptySlots(db, keyType); l++) {
+                    int l = dbNonEmptySlots(db, keyType);
+                    /* Do not exceed the number of non-empty slots when looping. */
+                    while (l--) {
                         int slot = getFairRandomSlot(db, keyType);
                         dict = (keyType == DB_MAIN ? db->dict[slot] : db->expires[slot]);
                         sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
