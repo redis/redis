@@ -162,7 +162,7 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[calculateKeySlot(key)], key);
+            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[slot], key);
             o = dictGetVal(de);
         }
 
@@ -682,6 +682,7 @@ int performEvictions(void) {
              *
              * AOF and Output buffer memory will be freed eventually so
              * we only care about memory used by the key space. */
+            enterExecutionUnit(1, 0);
             delta = (long long) zmalloc_used_memory();
             latencyStartMonitor(eviction_latency);
             dbGenericDelete(db,keyobj,server.lazyfree_lazy_eviction,DB_FLAG_KEY_EVICTED);
@@ -694,6 +695,7 @@ int performEvictions(void) {
             notifyKeyspaceEvent(NOTIFY_EVICTED, "evicted",
                 keyobj, db->id);
             propagateDeletion(db,keyobj,server.lazyfree_lazy_eviction);
+            exitExecutionUnit();
             postExecutionUnitOperations();
             decrRefCount(keyobj);
             keys_freed++;
