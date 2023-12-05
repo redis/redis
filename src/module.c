@@ -8202,7 +8202,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
          * argument, but better to be safe than sorry. */
         if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
         if (bc->unblocked) return REDISMODULE_OK;
-        if (bc->client) moduleBlockedClientTimedOut(bc->client);
+        if (bc->client) moduleBlockedClientTimedOut(bc->client, 1);
     }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
@@ -8301,8 +8301,11 @@ void moduleHandleBlockedClients(void) {
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
          */
-        if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
-            updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
+        if (c && !clientHasModuleAuthInProgress(c)) {
+            int had_errors = c->deferred_reply_errors ?
+                (c->deferred_reply_errors ? !!listLength(c->deferred_reply_errors) : 0) :
+                (server.stat_total_error_replies != prev_error_replies);
+            updateStatsOnUnblock(c, bc->background_duration, reply_us, had_errors);
         }
 
         if (c != NULL) {
@@ -8355,8 +8358,15 @@ int moduleBlockedClientMayTimeout(client *c) {
 /* Called when our client timed out. After this function unblockClient()
  * is called, and it will invalidate the blocked client. So this function
  * does not need to do any cleanup. Eventually the module will call the
- * API to unblock the client and the memory will be released. */
-void moduleBlockedClientTimedOut(client *c) {
+ * API to unblock the client and the memory will be released. 
+ *
+ * If this function is called from a module, we handle the timeout callback
+ * and the update of the unblock status in a thread-safe manner to avoid race
+ * conditions with the main thread.
+ * If this function is called from the main thread, we must handle the unblocking
+ * of the client synchronously. This ensures that we can reply to the client before
+ * resetClient() is called. */
+void moduleBlockedClientTimedOut(client *c, int from_module) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
@@ -8365,14 +8375,22 @@ void moduleBlockedClientTimedOut(client *c) {
     if (bc->unblocked) return;
 
     RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_TIMEOUT);
+    int flags = REDISMODULE_CTX_BLOCKED_TIMEOUT;
+    if (from_module) flags |= REDISMODULE_CTX_THREAD_SAFE;
+    moduleCreateContext(&ctx, bc->module, flags);
     ctx.client = bc->client;
     ctx.blocked_client = bc;
     ctx.blocked_privdata = bc->privdata;
-    long long prev_error_replies = server.stat_total_error_replies;
+
+    long long prev_error_replies;
+    if (!from_module)
+        prev_error_replies = server.stat_total_error_replies;
+
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
-    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+
+    if (!from_module)
+        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
 
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in

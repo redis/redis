@@ -46,14 +46,14 @@ void *worker(void *arg) {
     // Wait for thread
     pthread_join(tid, NULL);
 
+    // Release GIL
+    RedisModule_ThreadSafeContextUnlock(ctx);
+
     // Reply to client
     RedisModule_ReplyWithSimpleString(ctx, "OK");
 
     // Unblock client
     RedisModule_UnblockClient(bc, NULL);
-
-    // Release GIL
-    RedisModule_ThreadSafeContextUnlock(ctx);
 
     // Free the Redis module context
     RedisModule_FreeThreadSafeContext(ctx);
