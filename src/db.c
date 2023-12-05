@@ -186,14 +186,7 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     return o;
 }
 
-void keyAddedToMainDict(dictarray *da, int slot) {
-    da->state.key_count++;
-    daCumulativeKeyCountAdd(da, slot, 1);
-}
-
 void keyRemovedFromMainDict(dictarray *da, int slot) {
-    serverAssert(da->state.key_count);
-    da->state.key_count--;
     daCumulativeKeyCountAdd(da, slot, -1);
 }
 
@@ -216,7 +209,7 @@ static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_exist
     initObjectLRUOrLFU(val);
     dictSetVal(d, de, val);
     signalKeyAsReady(db, key, val->type);
-    keyAddedToMainDict(db->keys, slot);
+    daCumulativeKeyCountAdd(db->keys, slot, 1);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
 
@@ -265,7 +258,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     if (de == NULL) return 0;
     initObjectLRUOrLFU(val);
     dictSetVal(d, de, val);
-    keyAddedToMainDict(db->keys, slot);
+    daCumulativeKeyCountAdd(db->keys, slot, 1);
     return 1;
 }
 
@@ -424,11 +417,11 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         dict *dv = daGetDict(db->volatile_keys, slot);
         if (dictSize(dv) > 0) {
             if (dictDelete(dv, key->ptr) == DICT_OK) {
-                keyRemovedFromMainDict(db->volatile_keys, slot);
+                daCumulativeKeyCountAdd(db->volatile_keys, slot, -1);
             }
         } 
         dictTwoPhaseUnlinkFree(d,de,plink,table);
-        keyRemovedFromMainDict(db->keys, slot);
+        daCumulativeKeyCountAdd(db->keys, slot, -1);
         return 1;
     } else {
         return 0;
@@ -1677,7 +1670,7 @@ int removeExpire(redisDb *db, robj *key) {
     int slot = getKeySlot(key->ptr);
     dict *d = daGetDict(db->volatile_keys, slot);
     if (dictDelete(d, key->ptr) == DICT_OK) {
-        keyRemovedFromMainDict(db->volatile_keys, slot);
+        daCumulativeKeyCountAdd(db->volatile_keys, slot, -1 );
         return 1;
     } else {
         return 0;
@@ -1700,7 +1693,7 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
         dictSetSignedIntegerVal(existing, when);
     } else {
         dictSetSignedIntegerVal(de, when);
-        keyAddedToMainDict(db->volatile_keys, slot);
+        daCumulativeKeyCountAdd(db->volatile_keys, slot, 1);
     }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;

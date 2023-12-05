@@ -3101,6 +3101,7 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
+int dbExpand(dictarray *da, uint64_t db_size, int try_expand);
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);
@@ -3299,7 +3300,6 @@ size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
 void freeObjAsync(robj *key, robj *obj, int dbid);
 void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
-int dbExpand(dictarray *da, uint64_t db_size, int try_expand);
 
 /* API to get key arguments from commands */
 #define GET_KEYSPEC_DEFAULT 0

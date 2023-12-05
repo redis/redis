@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "zmalloc.h"
+#include "monotonic.h"
 #include "dictarray.h"
 
 /* Returns total (cumulative) number of keys up until given slot (inclusive).
@@ -25,8 +26,11 @@ static unsigned long long cumulativeKeyCountRead(dictarray *da, int slot) {
  * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
  * Time complexity is O(log(da->num_slots)). */
 void daCumulativeKeyCountAdd(dictarray *da, int slot, long delta) {
+    da->state.key_count += delta;
     if (da->num_slots == 1)
         return;
+
+    /* Update the BIT */
     int idx = slot + 1; /* Unlike slots, BIT is 1-based, so we need to add 1. */
     while (idx <= da->num_slots) {
         if (delta < 0) {
@@ -370,4 +374,66 @@ int daExpand(dictarray *da, uint64_t newsize, int try_expand, dictarrayExpandSho
             return 0;
     }
     return 1;
+}
+
+
+/* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
+ * and triggers a resize if the percentage of used buckets in the HT reaches HASHTABLE_MIN_FILL
+ * we resize the hash table to save memory.
+ *
+ * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
+void daTryResizeHashTables(dictarray *da, int attempts) {
+    if (daSize(da) == 0)
+        return;
+
+    if (da->state.resize_cursor == -1)
+        da->state.resize_cursor = daFindSlotByKeyIndex(da, 1);
+
+    for (int i = 0; i < attempts && da->state.resize_cursor != -1; i++) {
+        int slot = da->state.resize_cursor;
+        dict *d = daGetDict(da, slot);
+        if (htNeedsResize(d))
+            dictResize(d);
+        da->state.resize_cursor = daGetNextNonEmptySlot(da, slot);
+    }
+}
+
+/* Our hash table implementation performs rehashing incrementally while
+ * we write/read from the hash table. Still if the server is idle, the hash
+ * table will use two tables for a long time. So we try to use 1 millisecond
+ * of CPU time at every call of this function to perform some rehashing.
+ *
+ * The function returns 1 if some rehashing was performed, otherwise 0
+ * is returned. */
+int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms) {
+    /* Rehash main and expire dictionary . */
+    if (da->num_slots > 1) {
+        listNode *node, *nextNode;
+        monotime timer;
+        elapsedStart(&timer);
+        /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
+         * while removing those that already finished rehashing from the queue. */
+        while ((node = listFirst(da->state.rehashing))) {
+            dict *d = listNodeValue(node);
+            if (dictIsRehashing(d)) {
+                dictRehashMilliseconds(d, threshold_ms);
+                if (elapsedMs(timer) >= threshold_ms) {
+                    return 1;  /* Reached the time limit. */
+                }
+            } else { /* It is possible that rehashing has already completed for this dictionary, simply remove it from the queue. */
+                nextNode = listNextNode(node);
+                listDelNode(da->state.rehashing, node);
+                node = nextNode;
+            }
+        }
+
+        /* When cluster mode is disabled, only one dict is used for the entire DB and rehashing list isn't populated. */
+    } else {
+        dict *d = daGetDict(da, 0);
+        if (dictIsRehashing(d)) {
+            dictRehashMilliseconds(d, threshold_ms);
+            return 1; /* already used our millisecond for this loop... */
+        }
+    }
+    return 0;
 }

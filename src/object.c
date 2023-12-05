@@ -1254,7 +1254,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].dbid = j;
 
         mem = daMemUsage(db->keys) +
-              daSize(db->keys) * sizeof(robj);
+              keyscount * sizeof(robj);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 

@@ -87,4 +87,7 @@ dict *daGetDictFromIterator(daIterator *dait);
 int daIteratorGetCurrentSlot(daIterator *dait);
 dictEntry *daIteratorNext(daIterator *dait);
 
+void daTryResizeHashTables(dictarray *da, int attempts);
+int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms);
+
 #endif /* DICTARRAY_H_ */
