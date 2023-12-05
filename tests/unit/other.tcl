@@ -486,7 +486,7 @@ proc get_overhead_hashtable_main {} {
     return $main
 }
 
-start_server {} {
+start_server {tags {"other external:skip"}} {
     test "Redis can resize empty dict" {
         # Write and then delete 128 keys, creating an empty dict
         r flushall
