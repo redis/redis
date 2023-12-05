@@ -38,8 +38,8 @@ start_server {tags {"keyspace"}} {
         foreach key {"{a}x" "{a}y" "{a}z" "{b}a" "{b}b" "{b}c"} {
             r set $key hello
         }
-        assert_equal [lsort [r keys "{a}*"]] {{{a}x} {{a}y} {{a}z}}
-        assert_equal [lsort [r keys "*{b}*"]] {{{b}a} {{b}b} {{b}c}}
+        assert_equal [lsort [r keys "{a}*"]] [list "{a}x" "{a}y" "{a}z"]
+        assert_equal [lsort [r keys "*{b}*"]] [list "{b}a" "{b}b" "{b}c"]
     } 
 
     test {DEL all keys} {
