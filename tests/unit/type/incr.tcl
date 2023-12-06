@@ -183,6 +183,16 @@ start_server {tags {"incr"}} {
         r get foo
     } {0}
 
+    test {INCRBY INCRBYFLOAT DECRBY against unhappy path} {
+        r del mykeyincr
+        r set mykeyincr 10
+        assert_error "*value is not an integer or out of range*" {r incrby mykeyincr v}
+        assert_error "*value is not an integer or out of range*" {r incrby mykeyincr 1.5}
+        assert_error "*value is not an integer or out of range*" {r decrby mykeyincr v}
+        assert_error "*value is not an integer or out of range*" {r decrby mykeyincr 1.5}
+        assert_error "*value is not a valid float*" {r incrbyfloat mykeyincr v}
+    }
+
     foreach cmd {"incr" "decr" "incrby" "decrby"} {
         test "$cmd operation should update encoding from raw to int" {
             set res {}
