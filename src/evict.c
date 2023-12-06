@@ -143,8 +143,7 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-
-void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
@@ -162,8 +161,7 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS))
-                de = daFind(db->keys, key, slot);
+            if (sampledict != keydict) de = dictFind(keydict, key);
             o = dictGetVal(de);
         }
 
@@ -241,6 +239,8 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
         pool[k].dbid = dbid;
         pool[k].slot = slot;
     }
+
+    return count;
 }
 
 /* ----------------------------------------------------------------------------
@@ -580,41 +580,47 @@ int performEvictions(void) {
         sds bestkey = NULL;
         int bestdbid;
         redisDb *db;
-        dict *d;
+        dict *sampledict;
         dictEntry *de;
 
         if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
-
             while (bestkey == NULL) {
-                unsigned long total_keys = 0, keys;
+                unsigned long total_keys = 0;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    do {
-                        dictarray *da;
-                        if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                            da = db->keys;
-                        } else {
-                            da = db->volatile_keys;
-                        }
-                        int slot = daGetFairRandomSlot(db->keys);
-                        d = daGetDict(da, slot);
-   
-                        if ((keys = dictSize(d)) != 0) {
-                            evictionPoolPopulate(i, slot, d, db, pool);
-                            total_keys += keys;
-                        }
-                    /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
-                     * visit more than one dictionary in order to populate required number of samples into eviction pool. */
-                    } while (server.cluster_enabled && keys != 0 && server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS &&
-                        total_keys < (unsigned long) server.maxmemory_samples
-                    );
+                    dictarray *da;
+                    if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
+                        da = db->keys;
+                    } else {
+                        da = db->volatile_keys;
+                    }
+                    unsigned long sampled_keys = 0;
+                    unsigned long current_db_keys = daSize(da);
+                    if (current_db_keys == 0) continue;
+
+                    total_keys += current_db_keys;
+                    int l = daNonEmptySlots(da);
+                    /* Do not exceed the number of non-empty slots when looping. */
+                    while (l--) {
+                        int slot = daGetFairRandomSlot(da);
+                        sampledict = daGetDict(da, slot);
+                        sampled_keys += evictionPoolPopulate(i, slot, sampledict, daGetDict(db->keys, slot), pool);
+                        /* We have sampled enough keys in the current db, exit the loop. */
+                        if (sampled_keys >= (unsigned long) server.maxmemory_samples)
+                            break;
+                        /* If there are not a lot of keys in the current db, dict/s may be very
+                         * sparsely populated, exit the loop without meeting the sampling
+                         * requirement. */
+                        if (current_db_keys < (unsigned long) server.maxmemory_samples*10)
+                            break;
+                    }
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
@@ -666,10 +672,10 @@ int performEvictions(void) {
                     da = db->volatile_keys;
                 }
                 int slot = daGetFairRandomSlot(db->keys);
-                d = daGetDict(da, slot);
+                sampledict = daGetDict(da, slot);
 
-                if (dictSize(d) != 0) {
-                    de = dictGetRandomKey(d);
+                if (dictSize(sampledict) != 0) {
+                    de = dictGetRandomKey(sampledict);
                     bestkey = dictGetKey(de);
                     bestdbid = j;
                     break;

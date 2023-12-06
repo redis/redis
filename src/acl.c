@@ -2819,8 +2819,7 @@ void aclCommand(client *c) {
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
-            addReplyErrorFormat(c,
-                "Usernames can't contain spaces or null characters");
+            addReplyError(c, "Usernames can't contain spaces or null characters");
             return;
         }
 

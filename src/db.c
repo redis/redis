@@ -33,7 +33,6 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
-#include "dictarray.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -419,7 +418,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             if (dictDelete(dv, key->ptr) == DICT_OK) {
                 daCumulativeKeyCountAdd(db->volatile_keys, slot, -1);
             }
-        } 
+        }
         dictTwoPhaseUnlinkFree(d,de,plink,table);
         daCumulativeKeyCountAdd(db->keys, slot, -1);
         return 1;
@@ -811,14 +810,22 @@ void randomkeyCommand(client *c) {
 void keysCommand(client *c) {
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern), allkeys;
+    int plen = sdslen(pattern), allkeys, pslot = -1;
     unsigned long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
-
-    daIterator *dait = daIteratorInit(c->db->keys);
     allkeys = (pattern[0] == '*' && plen == 1);
+    if (!allkeys) {
+        pslot = patternHashSlot(pattern, plen);
+    }
+    dictIterator *di = NULL;
+    daIterator *dait = NULL;
+    if (server.cluster_enabled && !allkeys && pslot != -1) {
+        di = dictGetSafeIterator(daGetDict(c->db->keys, pslot));
+    } else {
+        dait = daIteratorInit(c->db->keys);
+    }
     robj keyobj;
-    while ((de = daIteratorNext(dait)) != NULL) {
+    while ((de = di ? dictNext(di) : daIteratorNext(dait)) != NULL) {
         sds key = dictGetKey(de);
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -831,7 +838,10 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    daReleaseIterator(dait);
+    if (di)
+        dictReleaseIterator(di);
+    if (dait)
+        daReleaseIterator(dait);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 

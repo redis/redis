@@ -437,6 +437,7 @@ int clusterLoadConfig(char *filename) {
             if (field_argv == NULL || field_argc != 2) {
                 /* Invalid aux field format */
                 if (field_argv != NULL) sdsfreesplitres(field_argv, field_argc);
+                sdsfreesplitres(aux_argv, aux_argc);
                 sdsfreesplitres(argv,argc);
                 goto fmterr;
             }
@@ -446,6 +447,7 @@ int clusterLoadConfig(char *filename) {
                 if (!isValidAuxString(field_argv[j],sdslen(field_argv[j]))){
                     /* Invalid aux field format */
                     sdsfreesplitres(field_argv, field_argc);
+                    sdsfreesplitres(aux_argv, aux_argc);
                     sdsfreesplitres(argv,argc);
                     goto fmterr;
                 }
@@ -465,6 +467,7 @@ int clusterLoadConfig(char *filename) {
                 if (auxFieldHandlers[j].setter(n, field_argv[1], sdslen(field_argv[1])) != C_OK) {
                     /* Invalid aux field format */
                     sdsfreesplitres(field_argv, field_argc);
+                    sdsfreesplitres(aux_argv, aux_argc);
                     sdsfreesplitres(argv,argc);
                     goto fmterr;
                 }
@@ -473,6 +476,7 @@ int clusterLoadConfig(char *filename) {
             if (field_found == 0) {
                 /* Invalid aux field format */
                 sdsfreesplitres(field_argv, field_argc);
+                sdsfreesplitres(aux_argv, aux_argc);
                 sdsfreesplitres(argv,argc);
                 goto fmterr;
             }

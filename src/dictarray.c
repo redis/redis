@@ -29,6 +29,13 @@ static unsigned long long cumulativeKeyCountRead(dictarray *da, int slot) {
  * Time complexity is O(log(da->num_slots)). */
 void daCumulativeKeyCountAdd(dictarray *da, int slot, long delta) {
     da->state.key_count += delta;
+
+    dict *d = daGetDict(da, slot);
+    size_t dsize = dictSize(d);
+    int non_empty_slots_delta = dsize == 1? 1 : dsize == 0? -1 : 0;
+    da->state.non_empty_slots += non_empty_slots_delta;
+
+    /* BIT does not need to be calculated when the cluster is turned off. */
     if (da->num_slots == 1)
         return;
 
@@ -111,6 +118,7 @@ dictarray *daCreate(dictType *type, int num_slots_bits) {
 
     da->state.rehashing = listCreate();
     da->state.key_count = 0;
+    da->state.non_empty_slots = 0;
     da->state.resize_cursor = -1;
     da->state.slot_size_index = da->num_slots > 1 ? zcalloc(sizeof(unsigned long long) * (da->num_slots + 1)) : NULL;
     da->state.bucket_count = 0;
@@ -129,6 +137,7 @@ void daEmpty(dictarray *da, void(callback)(dict*)) {
     if (da->state.rehashing)
         listEmpty(da->state.rehashing);
     da->state.key_count = 0;
+    da->state.non_empty_slots = 0;
     da->state.resize_cursor = -1;
     da->state.bucket_count = -1;
     if (da->state.slot_size_index)
@@ -437,4 +446,8 @@ int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms) {
         }
     }
     return 0;
+}
+
+int daNonEmptySlots(dictarray *da) {
+    return da->state.non_empty_slots;
 }
