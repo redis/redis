@@ -8305,8 +8305,7 @@ void moduleHandleBlockedClients(void) {
          * module might not define any callback and still do blocking ops.
          */
         if (c && !clientHasModuleAuthInProgress(c)) {
-            int had_errors = c->deferred_reply_errors ?
-                (c->deferred_reply_errors ? !!listLength(c->deferred_reply_errors) : 0) :
+            int had_errors = c->deferred_reply_errors ? !!listLength(c->deferred_reply_errors) :
                 (server.stat_total_error_replies != prev_error_replies);
             updateStatsOnUnblock(c, bc->background_duration, reply_us, had_errors);
         }
