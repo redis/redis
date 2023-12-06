@@ -972,7 +972,6 @@ typedef struct replBufBlock {
 
 typedef struct dbDictState {
     list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
-    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
     int non_empty_slots;                   /* The number of non-empty slots. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize non-empty dictionaries (only used for cluster-enabled). */
     int slow_resize_cursor;                /* Cron job uses this cursor to gradually resize all dictionaries to recycle memory. */
