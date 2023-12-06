@@ -2215,7 +2215,7 @@ int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_exp
     if (server.cluster_enabled) {
         /* We don't know exact number of keys that would fall into each slot, but we can
          * approximate it, assuming even distribution, divide it by the number of slots. */
-        int slots = getMyClusterSlotCount();
+        int slots = getMyShardSlotCount();
         if (slots == 0) return C_OK;
         db_size = db_size / slots;
 
