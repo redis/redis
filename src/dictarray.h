@@ -60,14 +60,9 @@ typedef struct {
 typedef int (dictarrayScanShouldSkipDict)(dict *d);
 typedef int (dictarrayExpandShouldSkipSlot)(int slot);
 
-int daFindSlotByKeyIndex(dictarray *da, unsigned long target);
-int daGetNextNonEmptySlot(dictarray *da, int slot);
-void daCumulativeKeyCountAdd(dictarray *da, int slot, long delta);
-void daGetStats(dictarray *da, char *buf, size_t bufsize, int full);
 dictarray *daCreate(dictType *type, int num_slots_bits);
 void daEmpty(dictarray *da, void(callback)(dict*));
 void daRelease(dictarray *da);
-dict *daGetDict(dictarray *da, int slot);
 unsigned long long daSize(dictarray *da);
 unsigned long daBuckets(dictarray *da);
 size_t daMemUsage(dictarray *da);
@@ -78,18 +73,24 @@ unsigned long long daScan(dictarray *da, unsigned long long cursor,
                           void *privdata);
 int daExpand(dictarray *da, uint64_t newsize, int try_expand, dictarrayExpandShouldSkipSlot *skip_cb);
 int daGetFairRandomSlot(dictarray *da);
-int daFindSlotByKeyIndex(dictarray *da, unsigned long target);
+void daGetStats(dictarray *da, char *buf, size_t bufsize, int full);
+dict *daGetDict(dictarray *da, int slot);
 
-/* DB iterator specific functions */
+int daFindSlotByKeyIndex(dictarray *da, unsigned long target);
+int daGetNextNonEmptySlot(dictarray *da, int slot);
+void daCumulativeKeyCountAdd(dictarray *da, int slot, long delta);
+int daNonEmptySlots(dictarray *da);
+
+/* dictarray iterator specific functions */
 daIterator *daIteratorInit(dictarray *da);
 void daReleaseIterator(daIterator *dait);
 dict *daIteratorNextDict(daIterator *dait);
-dict *daGetDictFromIterator(daIterator *dait);
 int daIteratorGetCurrentSlot(daIterator *dait);
 dictEntry *daIteratorNext(daIterator *dait);
+dict *daGetDictFromIterator(daIterator *dait);
 
+/* Rehashing */
 void daTryResizeHashTables(dictarray *da, int attempts);
 int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms);
-int daNonEmptySlots(dictarray *da);
 
 #endif /* DICTARRAY_H_ */
