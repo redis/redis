@@ -25,7 +25,7 @@ jobs:
       run: |
           tar czvf cov-int.tgz cov-int
           curl \
-            --form project=redis \
+            --form project=redis-unstable \
             --form email=${{ secrets.COVERITY_SCAN_EMAIL }} \
             --form token=${{ secrets.COVERITY_SCAN_TOKEN }} \
             --form file=@cov-int.tgz \
