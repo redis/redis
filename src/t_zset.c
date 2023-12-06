@@ -1596,7 +1596,7 @@ int zsetDel(robj *zobj, sds ele) {
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         if (zsetRemoveFromSkiplist(zs, ele)) {
-            if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+            dictResize(zs->dict);
             return 1;
         }
     } else {
@@ -2023,7 +2023,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             deleted = zslDeleteRangeByLex(zs->zsl,&lexrange,zs->dict);
             break;
         }
-        if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+        dictResize(zs->dict);
         if (dictSize(zs->dict) == 0) {
             dbDelete(c->db,key);
             keyremoved = 1;
@@ -2551,7 +2551,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     }
 
     /* Resize dict if needed after removing multiple elements */
-    if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
+    dictResize(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
      * we have to iterate through all elements to find the max one after. */

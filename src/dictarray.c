@@ -1,10 +1,12 @@
-#include <assert.h>
+#include "fmacros.h"
+
 #include <string.h>
 #include <stddef.h>
 
 #include "zmalloc.h"
-#include "monotonic.h"
 #include "dictarray.h"
+#include "redisassert.h"
+#include "monotonic.h"
 
 /* Returns total (cumulative) number of keys up until given slot (inclusive).
  * Time complexity is O(log(da->num_slots)). */
@@ -392,8 +394,7 @@ void daTryResizeHashTables(dictarray *da, int attempts) {
     for (int i = 0; i < attempts && da->state.resize_cursor != -1; i++) {
         int slot = da->state.resize_cursor;
         dict *d = daGetDict(da, slot);
-        if (htNeedsResize(d))
-            dictResize(d);
+        dictResize(d);
         da->state.resize_cursor = daGetNextNonEmptySlot(da, slot);
     }
 }

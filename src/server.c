@@ -496,6 +496,9 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
+    NULL,                      /* val destructor */
+    NULL,                      /* allow to expand */
+    dictNeedsResize,           /* needs resize */
     .no_value = 1,             /* no values in this dict */
     .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
@@ -508,7 +511,8 @@ dictType zsetDictType = {
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* Note: SDS string shared & freed by skiplist */
     NULL,                      /* val destructor */
-    NULL                       /* allow to expand */
+    NULL,                      /* allow to expand */
+    dictNeedsResize,           /* needs resize */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
@@ -520,6 +524,7 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
+    dictNeedsResize,            /* needs resize */
     dictRehashingStartedForKeys,
     dictRehashingCompletedForKeys,
 };
@@ -532,7 +537,8 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictExpandAllowed,           /* allow to expand */
+    dictExpandAllowed,          /* allow to expand */
+    dictNeedsResize,            /* needs resize */
     dictRehashingStartedForVolatileKeys,
     dictRehashingCompletedForVolatileKeys,
 };
@@ -556,7 +562,8 @@ dictType hashDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictSdsDestructor,          /* val destructor */
-    NULL                        /* allow to expand */
+    NULL,                       /* allow to expand */
+    dictNeedsResize,            /* needs resize */
 };
 
 /* Dict type without destructor */
@@ -642,7 +649,7 @@ dictType sdsHashDictType = {
     NULL                        /* allow to expand */
 };
 
-int htNeedsResize(dict *dict) {
+int dictNeedsResize(dict *dict) {
     long long size, used;
 
     size = dictBuckets(dict);

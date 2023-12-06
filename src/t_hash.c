@@ -293,8 +293,8 @@ int hashTypeDelete(robj *o, sds field) {
         if (dictDelete((dict*)o->ptr, field) == C_OK) {
             deleted = 1;
 
-            /* Always check if the dictionary needs a resize after a delete. */
-            if (htNeedsResize(o->ptr)) dictResize(o->ptr);
+            /* Always try to resize after a delete. */
+            dictResize(o->ptr);
         }
 
     } else {

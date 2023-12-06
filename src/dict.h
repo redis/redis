@@ -55,6 +55,7 @@ typedef struct dictType {
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
+    int (*needsResize)(dict *d);
     /* Invoked at the start of dict initialization/rehashing (old and new ht are already created) */
     void (*rehashingStarted)(dict *d);
     /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists

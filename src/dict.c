@@ -201,6 +201,9 @@ int _dictInit(dict *d, dictType *type)
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
+    if (!(d->type->needsResize && d->type->needsResize(d)))
+        return DICT_OK;
+
     unsigned long minimal;
 
     if (dict_can_resize != DICT_RESIZE_ENABLE || dictIsRehashing(d)) return DICT_ERR;
