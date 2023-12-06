@@ -2,8 +2,8 @@
 name: Coverity Scan
 on:
   schedule:
-  # Run twice daily, since below 500k LOC can have 21 builds per week, per https://scan.coverity.com/faq#frequency
-  - cron: '0 */12 * * *'
+  # Run once daily, since below 500k LOC can have 21 builds per week, per https://scan.coverity.com/faq#frequency
+  - cron: '0 0 * * *'
   # Support manual execution
   workflow_dispatch:
 jobs:
@@ -14,7 +14,7 @@ jobs:
     - uses: actions/checkout@main
     - name: Download and extract the Coverity Build Tool
       run: |
-          wget -q https://scan.coverity.com/download/cxx/linux64 --post-data "token=${{ secrets.COVERITY_SCAN_TOKEN }}&project=redis" -O cov-analysis-linux64.tar.gz
+          wget -q https://scan.coverity.com/download/cxx/linux64 --post-data "token=${{ secrets.COVERITY_SCAN_TOKEN }}&project=redis-unstable" -O cov-analysis-linux64.tar.gz
           mkdir cov-analysis-linux64
           tar xzf cov-analysis-linux64.tar.gz --strip 1 -C cov-analysis-linux64
     - name: Install Redis dependencies
