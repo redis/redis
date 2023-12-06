@@ -42,7 +42,7 @@ static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
 char *getClientSockname(client *c);
-__thread int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
+int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute

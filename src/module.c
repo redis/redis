@@ -304,8 +304,11 @@ static size_t moduleTempClientMinCount = 0; /* Min client count in pool since
 
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
-static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
-
+typedef struct {
+    pthread_mutex_t mutex;
+    redisAtomic pthread_t owner; /* The thread that currently holds the lock */
+} ModuleGIL;
+ModuleGIL moduleGIL = { PTHREAD_MUTEX_INITIALIZER, (pthread_t)0 };
 
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
@@ -8569,17 +8572,26 @@ void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
 }
 
 void moduleAcquireGIL(void) {
-    pthread_mutex_lock(&moduleGIL);
+    pthread_mutex_lock(&moduleGIL.mutex);
+    atomicSet(moduleGIL.owner, pthread_self());
 }
 
 int moduleTryAcquireGIL(void) {
-    return pthread_mutex_trylock(&moduleGIL);
+    int ret = pthread_mutex_trylock(&moduleGIL.mutex);
+    if (ret == 0) atomicSet(moduleGIL.owner, pthread_self());
+    return ret;
 }
 
 void moduleReleaseGIL(void) {
-    pthread_mutex_unlock(&moduleGIL);
+    atomicSet(moduleGIL.owner, (pthread_t)0);
+    pthread_mutex_unlock(&moduleGIL.mutex);
 }
 
+int moduleOwnsGIL(void) {
+    pthread_t owner_thread;
+    atomicGet(moduleGIL.owner, owner_thread);
+    return pthread_equal(pthread_self(), owner_thread);
+}
 
 /* --------------------------------------------------------------------------
  * ## Module Keyspace Notifications API
@@ -11946,7 +11958,7 @@ void moduleInitModulesSystem(void) {
 
     /* Our thread-safe contexts GIL must start with already locked:
      * it is just unlocked when it's safe. */
-    pthread_mutex_lock(&moduleGIL);
+    moduleAcquireGIL();
 }
 
 void modulesCron(void) {
