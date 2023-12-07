@@ -5781,8 +5781,14 @@ int getClusterSize(void) {
     return dictSize(server.cluster->nodes);
 }
 
-int getMyClusterSlotCount(void) {
-    return server.cluster->myself->numslots;
+int getMyShardSlotCount(void) {
+    if (!nodeIsSlave(server.cluster->myself)) {
+        return server.cluster->myself->numslots;
+    } else if (server.cluster->myself->slaveof) {
+        return server.cluster->myself->slaveof->numslots;
+    } else {
+        return 0;
+    }
 }
 
 char **getClusterNodesList(size_t *numnodes) {
