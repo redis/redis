@@ -3035,7 +3035,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     uint64_t dbid = 0;
     int type, rdbver;
     uint64_t db_size = 0, expires_size = 0;
-    int should_expand_db = 1;
+    int should_expand_db = 0;
     redisDb *db = rdb_loading_ctx->dbarray+0;
     char buf[1024];
     int error;
@@ -3115,6 +3115,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
+            should_expand_db = 1;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_SLOT_INFO) {
             uint64_t slot_id, slot_size, expires_slot_size;
@@ -3442,7 +3443,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     if (retval == C_OK && !(rdbflags & RDBFLAGS_KEEP_CACHE)) {
         /* TODO: maybe we could combine the fopen and open into one in the future */
         rdb_fd = open(filename, O_RDONLY);
-        if (rdb_fd > 0) bioCreateCloseJob(rdb_fd, 0, 1);
+        if (rdb_fd >= 0) bioCreateCloseJob(rdb_fd, 0, 1);
     }
     return (retval==C_OK) ? RDB_OK : RDB_FAILED;
 }

@@ -951,7 +951,11 @@ void syncCommand(client *c) {
         }
 
         if (!strcasecmp(c->argv[1]->ptr,server.replid)) {
-            replicationUnsetMaster();
+            if (server.cluster_enabled) {
+                clusterPromoteSelfToMaster();
+            } else {
+                replicationUnsetMaster();
+            }
             sds client = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE,
                 "MASTER MODE enabled (failover request from '%s')",client);
@@ -1255,7 +1259,7 @@ void replconfCommand(client *c) {
             int filter_count, i;
             sds *filters;
             if (!(filters = sdssplitargs(c->argv[j+1]->ptr, &filter_count))) {
-                addReplyErrorFormat(c, "Missing rdb-filter-only values");
+                addReplyError(c, "Missing rdb-filter-only values");
                 return;
             }
             /* By default filter out all parts of the rdb */
@@ -3774,7 +3778,7 @@ void replicationCron(void) {
          * match the one stored into 'mf_master_offset' state. */
         int manual_failover_in_progress =
             ((server.cluster_enabled &&
-              server.cluster->mf_end) ||
+              clusterManualFailoverTimeLimit()) ||
             server.failover_end_time) &&
             isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA);
 
@@ -4061,12 +4065,10 @@ void abortFailover(const char *err) {
  * will attempt forever and must be manually aborted.
  */
 void failoverCommand(client *c) {
-    if (server.cluster_enabled) {
-        addReplyError(c,"FAILOVER not allowed in cluster mode. "
-                        "Use CLUSTER FAILOVER command instead.");
+    if (!clusterAllowFailoverCmd(c)) {
         return;
     }
-    
+
     /* Handle special case for abort */
     if ((c->argc == 2) && !strcasecmp(c->argv[1]->ptr,"abort")) {
         if (server.failover_state == NO_FAILOVER) {
