@@ -1003,12 +1003,12 @@ void keysCommand(client *c) {
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
     allkeys = (pattern[0] == '*' && plen == 1);
-    if (!allkeys) {
+    if (server.cluster_enabled && !allkeys) {
         pslot = patternHashSlot(pattern, plen);
     }
     dictIterator *di = NULL;
     dbIterator *dbit = NULL;
-    if (server.cluster_enabled && !allkeys && pslot != -1) {
+    if (pslot != -1) {
         di = dictGetSafeIterator(c->db->dict[pslot]);
     } else {
         dbit = dbIteratorInit(c->db, DB_MAIN);
