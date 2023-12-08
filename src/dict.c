@@ -270,7 +270,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
      * it can accept keys. */
     if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
         if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
-        if (d->ht_used[0] == 0) zfree(d->ht_table[0]);
+        if (d->ht_table[0] && d->ht_used[0] == 0) zfree(d->ht_table[0]);
         d->ht_size_exp[0] = new_ht_size_exp;
         d->ht_used[0] = new_ht_used;
         d->ht_table[0] = new_ht_table;
