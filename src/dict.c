@@ -259,11 +259,22 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
     if (d->ht_table[0] == NULL) {
+        /* Expansion during initialization, we will also set the new ht so
+         * that we can trigger the rehashingStarted more conveniently. */
+        d->ht_size_exp[1] = new_ht_size_exp;
+        d->ht_used[1] = new_ht_used;
+        d->ht_table[1] = new_ht_table;
+        d->rehashidx = 0;
         if (d->type->rehashingStarted) d->type->rehashingStarted(d);
+
+        /* Expansion during initialization, set the old ht and cleanup the
+         * new ht set previously by calling _dictReset. */
         if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
         d->ht_size_exp[0] = new_ht_size_exp;
         d->ht_used[0] = new_ht_used;
         d->ht_table[0] = new_ht_table;
+        _dictReset(d, 1);
+        d->rehashidx = -1;
         return DICT_OK;
     }
 
@@ -1510,12 +1521,6 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
 /* Provides the old and new ht size for a given dictionary during rehashing. This method
  * should only be invoked during initialization/rehashing. */
 void dictRehashingInfo(dict *d, unsigned long long *from_size, unsigned long long *to_size) {
-    /* Expansion during initialization. */
-    if (d->ht_size_exp[0] == -1) {
-        *from_size = DICTHT_SIZE(d->ht_size_exp[0]);
-        *to_size = DICTHT_SIZE(DICT_HT_INITIAL_EXP);
-        return;
-    }
     /* Invalid method usage if rehashing isn't ongoing. */
     assert(dictIsRehashing(d));
     *from_size = DICTHT_SIZE(d->ht_size_exp[0]);

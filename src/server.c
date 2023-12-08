@@ -426,45 +426,42 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
  * 
  * In non-cluster mode, bucket count can be retrieved directly from single dict bucket and
  * we don't need this list as there is only one dictionary per DB. */
-void dictRehashingStarted(dict *d) {
+void dictRehashingStartedByKeyType(dict *d, dbKeyType keyType) {
     if (!server.cluster_enabled) return;
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_MAIN].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */
     if (from == 0) return; /* No entries are to be moved. */
     if (server.activerehashing) {
-        listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+        listAddNodeTail(server.db[0].sub_dict[keyType].rehashing, d);
     }
 }
 
 /* Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void dictRehashingCompleted(dict *d) {
+void dictRehashingCompletedByKeyType(dict *d, dbKeyType keyType) {
     if (!server.cluster_enabled) return;
+
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_MAIN].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+    server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+}
+
+void dictRehashingStarted(dict *d) {
+    dictRehashingStartedByKeyType(d, DB_MAIN);
+}
+
+void dictRehashingCompleted(dict *d) {
+    dictRehashingCompletedByKeyType(d, DB_MAIN);
 }
 
 void dictRehashingStartedForExpires(dict *d) {
-    if (!server.cluster_enabled) return;
-
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_EXPIRES].bucket_count += to; /* Started rehashing (Add the new ht size) */
-    if (from == 0) return; /* No entries are to be moved. */
-    if (server.activerehashing) {
-        listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
-    }
+    dictRehashingStartedByKeyType(d, DB_EXPIRES);
 }
 
 void dictRehashingCompletedForExpires(dict *d) {
-    if (!server.cluster_enabled) return;
-
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+    dictRehashingCompletedByKeyType(d, DB_EXPIRES);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
