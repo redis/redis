@@ -248,7 +248,7 @@ void trackingRememberKeys(client *tracking, client *executing) {
         void *result;
         rax *ids;
         if (!raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey),&result)) {
-            rax *ids = raxNew();
+            ids = raxNew();
             int inserted = raxTryInsert(TrackingTable,(unsigned char*)sdskey,
                                         sdslen(sdskey),ids, NULL);
             serverAssert(inserted == 1);
