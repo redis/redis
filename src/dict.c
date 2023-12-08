@@ -238,7 +238,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     signed char new_ht_size_exp = _dictNextExp(size);
 
     /* Detect overflows */
-    size_t newsize = 1ul<<new_ht_size_exp;
+    size_t newsize = DICTHT_SIZE(new_ht_size_exp);
     if (newsize < size || newsize * sizeof(dictEntry*) < newsize)
         return DICT_ERR;
 
