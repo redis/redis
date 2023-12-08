@@ -156,16 +156,17 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
     void *result;
+    bcastState *bs;
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
     if (!raxFind(PrefixTable,(unsigned char*)prefix,plen,&result)) {
-        bcastState *bs = zmalloc(sizeof(*bs));
+        bs = zmalloc(sizeof(*bs));
         bs->keys = raxNew();
         bs->clients = raxNew();
         raxInsert(PrefixTable,(unsigned char*)prefix,plen,bs,NULL);
-        result = bs;
+    } else {
+        bs = result;
     }
-    bcastState *bs = result;
     if (raxTryInsert(bs->clients,(unsigned char*)&c,sizeof(c),NULL,NULL)) {
         if (c->client_tracking_prefixes == NULL)
             c->client_tracking_prefixes = raxNew();
@@ -245,14 +246,15 @@ void trackingRememberKeys(client *tracking, client *executing) {
         int idx = keys[j].pos;
         sds sdskey = executing->argv[idx]->ptr;
         void *result;
+        rax *ids;
         if (!raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey),&result)) {
             rax *ids = raxNew();
             int inserted = raxTryInsert(TrackingTable,(unsigned char*)sdskey,
                                         sdslen(sdskey),ids, NULL);
             serverAssert(inserted == 1);
-            result = ids;
+        } else {
+            ids = result;
         }
-        rax *ids = result;
         if (raxTryInsert(ids,(unsigned char*)&tracking->id,sizeof(tracking->id),NULL,NULL))
             TrackingTableTotalItems++;
     }
