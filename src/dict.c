@@ -273,6 +273,17 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     d->ht_table[1] = new_ht_table;
     d->rehashidx = 0;
     if (d->type->rehashingStarted) d->type->rehashingStarted(d);
+    /* If the dict is empty, we finish rehashing ASAP.*/
+    if (d->ht_used[0] == 0) {
+        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+        zfree(d->ht_table[0]);
+        d->ht_size_exp[0] = new_ht_size_exp;
+        d->ht_used[0] = new_ht_used;
+        d->ht_table[0] = new_ht_table;
+        _dictReset(d, 1);
+        d->rehashidx = -1;
+        return DICT_OK;
+    }
     return DICT_OK;
 }
 
