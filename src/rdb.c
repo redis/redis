@@ -3450,12 +3450,12 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.
  * This function covers the case of actual BGSAVEs. */
-static void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
+static void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal, time_t save_end) {
     if (!bysignal && exitcode == 0) {
         serverLog(LL_NOTICE,
             "Background saving terminated with success");
         server.dirty = server.dirty - server.dirty_before_bgsave;
-        server.lastsave = time(NULL);
+        server.lastsave = save_end;
         server.lastbgsave_status = C_OK;
     } else if (!bysignal && exitcode != 0) {
         serverLog(LL_WARNING, "Background saving error");
@@ -3507,9 +3507,11 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
 /* When a background RDB saving/transfer terminates, call the right handler. */
 void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     int type = server.rdb_child_type;
+    time_t save_end = time(NULL);
+
     switch(server.rdb_child_type) {
     case RDB_CHILD_TYPE_DISK:
-        backgroundSaveDoneHandlerDisk(exitcode,bysignal);
+        backgroundSaveDoneHandlerDisk(exitcode,bysignal,save_end);
         break;
     case RDB_CHILD_TYPE_SOCKET:
         backgroundSaveDoneHandlerSocket(exitcode,bysignal);
@@ -3520,7 +3522,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     }
 
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
-    server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
+    server.rdb_save_time_last = save_end-server.rdb_save_time_start;
     server.rdb_save_time_start = -1;
     /* Possibly there are slaves waiting for a BGSAVE in order to be served
      * (the first stage of SYNC is a bulk transfer of dump.rdb) */
