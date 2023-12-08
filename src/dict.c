@@ -256,15 +256,18 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
 
     new_ht_used = 0;
 
-    /* Prepare a second hash table for incremental rehashing. */
+    /* Prepare a second hash table for incremental rehashing.
+     * We do this even for the first initialization, so that we can trigger the
+     * rehashingStarted more conveniently, we will clean it up right after. */
     d->ht_size_exp[1] = new_ht_size_exp;
     d->ht_used[1] = new_ht_used;
     d->ht_table[1] = new_ht_table;
     d->rehashidx = 0;
     if (d->type->rehashingStarted) d->type->rehashingStarted(d);
 
-    /* Is this the first initialization or is the old ht empty? If so it's not really a rehashing
-     * we just set the first hash table so that it can accept keys. */
+    /* Is this the first initialization or is the first hash table empty? If so
+     * it's not really a rehashing, we can just set the first hash table so that
+     * it can accept keys. */
     if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
         if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
         if (d->ht_used[0] == 0) zfree(d->ht_table[0]);
