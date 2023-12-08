@@ -58,6 +58,7 @@
  * between the number of elements and the buckets > dict_force_resize_ratio. */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
+static unsigned int dict_force_shrink_ratio = 10;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -79,6 +80,7 @@ typedef struct {
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *d);
+static int _dictShrinkIfNeeded(dict *d);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
@@ -578,6 +580,8 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                     dictFreeUnlinkedEntry(d, he);
                 }
                 d->ht_used[table]--;
+                if (_dictShrinkIfNeeded(d) == DICT_ERR) 
+                    return NULL;
                 return he;
             }
             prevHe = he;
@@ -742,6 +746,7 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table
     dictFreeKey(d, he);
     dictFreeVal(d, he);
     if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+    _dictShrinkIfNeeded(d);
     dictResumeRehashing(d);
 }
 
@@ -1419,6 +1424,21 @@ static int _dictExpandIfNeeded(dict *d)
         if (!dictTypeExpandAllowed(d))
             return DICT_OK;
         return dictExpand(d, d->ht_used[0] + 1);
+    }
+    return DICT_OK;
+}
+
+static int _dictShrinkIfNeeded(dict *d) {
+    /* Incremental rehashing already in progress. Return. */
+    if (dictIsRehashing(d)) return DICT_OK;
+    
+    if (dict_can_resize == DICT_RESIZE_ENABLE && 
+        DICTHT_SIZE(d->ht_size_exp[0]) > DICT_HT_INITIAL_SIZE && 
+        (d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_shrink_ratio)) 
+    {
+        if (!dictTypeExpandAllowed(d))
+            return DICT_OK;
+        return dictExpand(d, d->ht_used[0]);
     }
     return DICT_OK;
 }
