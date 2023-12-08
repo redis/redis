@@ -1546,6 +1546,9 @@ void clearClientConnectionState(client *c) {
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
+    if (c->flags & CLIENT_PUBSUB) {
+        server.pubsub_clients--;
+    }
 
     if (c->name) {
         decrRefCount(c->name);
@@ -1628,6 +1631,9 @@ void freeClient(client *c) {
     listRelease(c->watched_keys);
 
     /* Unsubscribe from all the pubsub channels */
+    if (c->flags & CLIENT_PUBSUB) {
+        server.pubsub_clients--;
+    }
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);

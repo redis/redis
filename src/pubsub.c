@@ -327,6 +327,7 @@ void pubsubShardUnsubscribeAllClients(robj *channel) {
              * move out of pubsub mode. */
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
                 c->flags &= ~CLIENT_PUBSUB;
+                server.pubsub_clients--;
             }
         }
     }
@@ -546,7 +547,10 @@ void subscribeCommand(client *c) {
     }
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j],pubSubType);
-    c->flags |= CLIENT_PUBSUB;
+    if (!(c->flags & CLIENT_PUBSUB)) {
+        server.pubsub_clients++;
+        c->flags |= CLIENT_PUBSUB;
+    }
 }
 
 /* UNSUBSCRIBE [channel ...] */
@@ -559,7 +563,10 @@ void unsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribeChannel(c,c->argv[j],1,pubSubType);
     }
-    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0 && (c->flags & CLIENT_PUBSUB)) {
+        c->flags &= ~CLIENT_PUBSUB;
+        server.pubsub_clients--;
+    }                                
 }
 
 /* PSUBSCRIBE pattern [pattern ...] */
@@ -579,7 +586,10 @@ void psubscribeCommand(client *c) {
 
     for (j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
-    c->flags |= CLIENT_PUBSUB;
+    if (!(c->flags & CLIENT_PUBSUB)) {     
+        server.pubsub_clients++;
+        c->flags |= CLIENT_PUBSUB;
+    }
 }
 
 /* PUNSUBSCRIBE [pattern [pattern ...]] */
@@ -592,7 +602,10 @@ void punsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribePattern(c,c->argv[j],1);
     }
-    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0 && (c->flags & CLIENT_PUBSUB)) {
+        c->flags &= ~CLIENT_PUBSUB;
+        server.pubsub_clients--;
+    } 
 }
 
 /* This function wraps pubsubPublishMessage and also propagates the message to cluster.
@@ -727,7 +740,10 @@ void ssubscribeCommand(client *c) {
         }
         pubsubSubscribeChannel(c, c->argv[j], pubSubShardType);
     }
-    c->flags |= CLIENT_PUBSUB;
+    if (!(c->flags & CLIENT_PUBSUB)) {     
+        server.pubsub_clients++;
+        c->flags |= CLIENT_PUBSUB;
+    }
 }
 
 
@@ -740,7 +756,10 @@ void sunsubscribeCommand(client *c) {
             pubsubUnsubscribeChannel(c, c->argv[j], 1, pubSubShardType);
         }
     }
-    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0 && (c->flags & CLIENT_PUBSUB)) {
+        c->flags &= ~CLIENT_PUBSUB;
+        server.pubsub_clients--;
+    } 
 }
 
 size_t pubsubMemOverhead(client *c) {
