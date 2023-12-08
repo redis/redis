@@ -669,9 +669,21 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
+            dbDictMetadata *metadata;
             for (int k = 0; k < dbarray[j].dict_count; k++) {
                 dictEmpty(dbarray[j].dict[k],callback);
+                metadata = (dbDictMetadata *)dictMetadata(dbarray[j].dict[k]);
+                if (metadata->rehashing_node) {
+                    listDelNode(server.rehashing, metadata->rehashing_node);
+                    metadata->rehashing_node = NULL;
+                }
+
                 dictEmpty(dbarray[j].expires[k],callback);
+                metadata = (dbDictMetadata *)dictMetadata(dbarray[j].expires[k]);
+                if (metadata->rehashing_node) {
+                    listDelNode(server.rehashing, metadata->rehashing_node);
+                    metadata->rehashing_node = NULL;
+                }
             }
         }
         /* Because all keys of database are removed, reset average ttl. */
@@ -682,8 +694,6 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             dbarray[j].sub_dict[subdict].key_count = 0;
             dbarray[j].sub_dict[subdict].resize_cursor = -1;
             if (server.cluster_enabled) {
-                if (dbarray[j].sub_dict[subdict].rehashing)
-                    listEmpty(dbarray[j].sub_dict[subdict].rehashing);
                 dbarray[j].sub_dict[subdict].bucket_count = 0;
                 unsigned long long *slot_size_index = dbarray[j].sub_dict[subdict].slot_size_index;
                 memset(slot_size_index, 0, sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
@@ -1443,7 +1453,7 @@ size_t dbMemUsage(redisDb *db, dbKeyType keyType) {
     unsigned long long keys_count = dbSize(db, keyType);
     mem += keys_count * dictEntryMemUsage() +
             dbBuckets(db, keyType) * sizeof(dictEntry*) +
-            db->dict_count * sizeof(dict);
+            db->dict_count * (sizeof(dict) + dictMetadataSize(db->dict[0]));
     if (keyType == DB_MAIN) {
         mem+=keys_count * sizeof(robj);
     }

@@ -181,7 +181,11 @@ static void _dictReset(dict *d, int htidx)
 /* Create a new hash table */
 dict *dictCreate(dictType *type)
 {
-    dict *d = zmalloc(sizeof(*d));
+    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL) : 0;
+    dict *d = zmalloc(sizeof(*d)+metasize);
+    if (metasize > 0) {
+        memset(dictMetadata(d), 0, metasize);
+    }
     _dictInit(d,type);
     return d;
 }

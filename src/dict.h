@@ -60,6 +60,9 @@ typedef struct dictType {
     /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists
      * and are cleaned up after this callback.  */
     void (*rehashingCompleted)(dict *d);
+    /* Allow a dict to carry extra caller-defined metadata. The
+     * extra memory is initialized to 0 when a dict is allocated. */
+    size_t (*dictMetadataBytes)(dict *d);
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -88,6 +91,7 @@ struct dict {
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+    void *metadata[];
 };
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -140,6 +144,10 @@ typedef struct {
         (d)->type->keyCompare((d), key1, key2) : \
         (key1) == (key2))
 
+#define dictMetadata(d) (&(d)->metadata)
+#define dictMetadataSize(d) ((d)->type->dictMetadataBytes \
+                             ? (d)->type->dictMetadataBytes(d) : 0)
+
 #define dictHashKey(d, key) ((d)->type->hashFunction(key))
 #define dictBuckets(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
 #define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
@@ -166,7 +174,6 @@ dict *dictCreate(dictType *type);
 dict **dictCreateMultiple(dictType *type, int count);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
-void *dictMetadata(dict *d);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
 void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing);
