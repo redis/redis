@@ -185,7 +185,8 @@ start_server {tags {"incr"}} {
 
     test {INCRBY INCRBYFLOAT DECRBY against unhappy path} {
         r del mykeyincr
-        r set mykeyincr 10
+        assert_error "*ERR wrong number of arguments*" {r incr mykeyincr v}
+        assert_error "*ERR wrong number of arguments*" {r decr mykeyincr v}
         assert_error "*value is not an integer or out of range*" {r incrby mykeyincr v}
         assert_error "*value is not an integer or out of range*" {r incrby mykeyincr 1.5}
         assert_error "*value is not an integer or out of range*" {r decrby mykeyincr v}
