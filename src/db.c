@@ -757,6 +757,7 @@ redisDb *initTempDb(void) {
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreateMultiple(&dbExpiresDictType, tempDb[i].dict_count);
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            tempDb[i].sub_dict[subdict].rehashing = listCreate();
             tempDb[i].sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         }
     }
@@ -777,8 +778,9 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         }
         zfree(tempDb[i].dict);
         zfree(tempDb[i].expires);
-        if (server.cluster_enabled) {
-            for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            listRelease(tempDb[i].sub_dict[subdict].rehashing);
+            if (server.cluster_enabled) {
                 zfree(tempDb[i].sub_dict[subdict].slot_size_index);
             }
         }
@@ -1888,7 +1890,9 @@ int dbSwapDatabases(int id1, int id2) {
     db1->expires_cursor = db2->expires_cursor;
     db1->dict_count = db2->dict_count;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        db1->sub_dict[subdict].rehashing = db2->sub_dict[subdict].rehashing;
         db1->sub_dict[subdict].key_count = db2->sub_dict[subdict].key_count;
+        db1->sub_dict[subdict].bucket_count = db2->sub_dict[subdict].bucket_count;
         db1->sub_dict[subdict].non_empty_slots = db2->sub_dict[subdict].non_empty_slots;
         db1->sub_dict[subdict].resize_cursor = db2->sub_dict[subdict].resize_cursor;
         db1->sub_dict[subdict].slot_size_index = db2->sub_dict[subdict].slot_size_index;
@@ -1900,7 +1904,9 @@ int dbSwapDatabases(int id1, int id2) {
     db2->expires_cursor = aux.expires_cursor;
     db2->dict_count = aux.dict_count;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        db2->sub_dict[subdict].rehashing = aux.sub_dict[subdict].rehashing;
         db2->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
+        db2->sub_dict[subdict].bucket_count = aux.sub_dict[subdict].bucket_count;
         db2->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;
         db2->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
         db2->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;
@@ -1944,7 +1950,9 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->expires_cursor = newdb->expires_cursor;
         activedb->dict_count = newdb->dict_count;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            activedb->sub_dict[subdict].rehashing = newdb->sub_dict[subdict].rehashing;
             activedb->sub_dict[subdict].key_count = newdb->sub_dict[subdict].key_count;
+            activedb->sub_dict[subdict].bucket_count = newdb->sub_dict[subdict].bucket_count;
             activedb->sub_dict[subdict].non_empty_slots = newdb->sub_dict[subdict].non_empty_slots;
             activedb->sub_dict[subdict].resize_cursor = newdb->sub_dict[subdict].resize_cursor;
             activedb->sub_dict[subdict].slot_size_index = newdb->sub_dict[subdict].slot_size_index;
@@ -1956,7 +1964,9 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->expires_cursor = aux.expires_cursor;
         newdb->dict_count = aux.dict_count;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            newdb->sub_dict[subdict].rehashing = aux.sub_dict[subdict].rehashing;
             newdb->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
+            newdb->sub_dict[subdict].bucket_count = aux.sub_dict[subdict].bucket_count;
             newdb->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;
             newdb->sub_dict[subdict].resize_cursor = aux.sub_dict[subdict].resize_cursor;
             newdb->sub_dict[subdict].slot_size_index = aux.sub_dict[subdict].slot_size_index;

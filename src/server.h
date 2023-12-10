@@ -969,6 +969,7 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
+/* When adding fields, please check the swap db related logic. */
 typedef struct dbDictState {
     list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
