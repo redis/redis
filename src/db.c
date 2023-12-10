@@ -757,6 +757,7 @@ redisDb *initTempDb(void) {
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreateMultiple(&dbExpiresDictType, tempDb[i].dict_count);
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            tempDb[i].sub_dict[subdict].rehashing = listCreate();
             tempDb[i].sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         }
     }
@@ -777,8 +778,9 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         }
         zfree(tempDb[i].dict);
         zfree(tempDb[i].expires);
-        if (server.cluster_enabled) {
-            for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+            listRelease(tempDb[i].sub_dict[subdict].rehashing);
+            if (server.cluster_enabled) {
                 zfree(tempDb[i].sub_dict[subdict].slot_size_index);
             }
         }
