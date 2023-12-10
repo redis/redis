@@ -2236,11 +2236,11 @@ int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_exp
                 }
                 int result = try_expand ? dictTryExpand(d, db_size) : dictExpand(d, db_size);
                 if (try_expand && result == DICT_ERR) {
-                    serverLog(LL_WARNING, "Dict expansion failed for type :%s slot: %d",
+                    serverLog(LL_WARNING, "Dict expansion failed for db type: %s, slot: %d",
                                 keyType == DB_MAIN ? "main" : "expires", i);
                     return C_ERR;
                 } else if (result == DICT_ERR) {
-                    serverLog(LL_DEBUG, "Dict expansion skipped for type :%s slot: %d",
+                    serverLog(LL_DEBUG, "Dict expansion skipped for db type: %s, slot: %d",
                                 keyType == DB_MAIN ? "main" : "expires", i);
                 }
             }
