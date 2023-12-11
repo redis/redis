@@ -2,7 +2,7 @@
 
 source "../tests/includes/init-tests.tcl"
 
-test "Create a 5 nodes cluster" {
+test "Create a cluster with a single primary" {
     create_cluster 1 5
     set first_replica $::cluster_master_nodes
     puts "\nfirst replica: $first_replica"
