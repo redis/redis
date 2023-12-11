@@ -1339,8 +1339,8 @@ void clientAcceptHandler(connection *conn) {
     if (server.io_threads_active) {
         transferClientToIOThread(c);
     }
-    serverLog(LL_DEBUG, "Client id=%li accepted; io_thread_index=%d",
-              c->id, c->io_thread_index);
+    serverLog(LL_DEBUG, "Client id=%ld accepted; io_thread_index=%d",
+              (long)c->id, c->io_thread_index);
 }
 
 void acceptCommonHandler(connection *conn, int flags, char *ip) {
@@ -1747,7 +1747,7 @@ void freeClient(client *c) {
 void freeClientAsync(client *c) {
     if (pthread_self() != server.main_thread_id) {
         /* Code running on an I/O thread. */
-        serverLog(LL_DEBUG, "I/O thread async free client=%ld", c->id);
+        serverLog(LL_DEBUG, "I/O thread async free client=%ld", (long)c->id);
         IOThreadFreeClient(c);
         return;
     }

@@ -988,12 +988,12 @@ static int connTLSSetReadHandler(connection *conn, ConnectionCallbackFunc func) 
     return C_OK;
 }
 
-static int connTLSSetEventLoop(connection *conn_, aeEventLoop *ae) {
-    serverAssert(!conn->read_handler && !conn->write_handler);
+static int connTLSSetEventLoop(connection *conn_, aeEventLoop *el) {
     tls_connection *conn = (tls_connection *)conn_;
+    serverAssert(!conn->c.read_handler && !conn->c.write_handler);
     int has_pending = (conn->pending_list_node != NULL);
     if (has_pending) connTLSPendingListDel(conn);
-    conn->el = el;
+    conn->c.el = el;
     if (has_pending) connTLSPendingListAdd(conn);
     return C_OK;
 }
