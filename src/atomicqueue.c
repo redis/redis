@@ -6,15 +6,23 @@
 #include "zmalloc.h"
 #include "atomicqueue.h"
 
+#ifndef CACHE_LINE_SIZE
+#if defined(__aarch64__) && defined(__APPLE__)
+#define CACHE_LINE_SIZE 128
+#else
+#define CACHE_LINE_SIZE 64
+#endif
+#endif
+
 struct atomicqueue {
-    redisAtomic unsigned int head; /* Start of used space, owned by consumer. */
-    int padding1[31];
-    redisAtomic unsigned int tail; /* Start of free space, owned by producer. */
-    int padding2[31];
-    unsigned int mask;             /* Bitmask for indices. */
-    unsigned int elemsize;         /* Size of each element in bytes. */
-    int padding3[30];
-    char data[];
+    /* Start of used space, owned by consumer. */
+    redisAtomic unsigned int head __attribute__((aligned(CACHE_LINE_SIZE)));
+    /* Start of free space, owned by producer. */
+    redisAtomic unsigned int tail __attribute__((aligned(CACHE_LINE_SIZE)));
+    /* Bitmask for indices. */
+    unsigned int mask __attribute__((aligned(CACHE_LINE_SIZE)));
+    unsigned int elemsize; /* Size of each element in bytes. */
+    char data[] __attribute__((aligned(CACHE_LINE_SIZE)));
 };
 
 /* Allocates and initializes a queue. */
