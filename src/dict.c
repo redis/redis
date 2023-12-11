@@ -58,7 +58,7 @@
  * between the number of elements and the buckets > dict_force_resize_ratio. */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
-static unsigned int dict_force_shrink_ratio = 10;
+static unsigned int dict_force_shrink_ratio = 2;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -1432,9 +1432,11 @@ static int _dictShrinkIfNeeded(dict *d) {
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
     
-    if (dict_can_resize == DICT_RESIZE_ENABLE && 
-        DICTHT_SIZE(d->ht_size_exp[0]) > DICT_HT_INITIAL_SIZE && 
-        (d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_shrink_ratio)) 
+    if (DICTHT_SIZE(d->ht_size_exp[0]) > DICT_HT_INITIAL_SIZE && 
+        ((dict_can_resize == DICT_RESIZE_ENABLE &&  
+          d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < HASHTABLE_MIN_FILL) ||
+         (dict_can_resize != DICT_RESIZE_FORBID &&
+          d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_shrink_ratio))) 
     {
         if (!dictTypeExpandAllowed(d))
             return DICT_OK;
