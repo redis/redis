@@ -167,13 +167,9 @@ void _serverLog(int level, const char *fmt, ...) {
     serverLogRaw(level,msg);
 }
 
-/* Log a fixed message without printf-alike capabilities, in a way that is
- * safe to call from a signal handler.
- *
- * We actually use this only for signals that are not fatal from the point
- * of view of Redis. Signals that are going to kill the server anyway and
- * where we need printf-alike features are served by serverLog(). */
-void serverLogFromHandler(int level, const char *msg) {
+/* Low level logging from signal handler. Should be used with pre-formatted strings. 
+   See serverLogFromHandler. */
+void serverLogRawFromHandler(int level, const char *msg) {
     int fd;
     int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];
@@ -183,16 +179,39 @@ void serverLogFromHandler(int level, const char *msg) {
     fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
-    ll2string(buf,sizeof(buf),getpid());
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,":signal-handler (",17) == -1) goto err;
-    ll2string(buf,sizeof(buf),time(NULL));
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,") ",2) == -1) goto err;
-    if (write(fd,msg,strlen(msg)) == -1) goto err;
-    if (write(fd,"\n",1) == -1) goto err;
+    if (level & LL_RAW) {
+        if (write(fd,msg,strlen(msg)) == -1) goto err;
+    }
+    else {
+        ll2string(buf,sizeof(buf),getpid());
+        if (write(fd,buf,strlen(buf)) == -1) goto err;
+        if (write(fd,":signal-handler (",17) == -1) goto err;
+        ll2string(buf,sizeof(buf),time(NULL));
+        if (write(fd,buf,strlen(buf)) == -1) goto err;
+        if (write(fd,") ",2) == -1) goto err;
+        if (write(fd,msg,strlen(msg)) == -1) goto err;
+        if (write(fd,"\n",1) == -1) goto err;
+    }
 err:
     if (!log_to_stdout) close(fd);
+}
+
+/* An async-signal-safe version of serverLog. if LL_RAW is not included in level flags,
+ * The message format is: <pid>:signal-handler (<time>) <msg> \n
+ * with LL_RAW flag only the msg is printed (with no new line at the end)
+ *
+ * We actually use this only for signals that are not fatal from the point
+ * of view of Redis. Signals that are going to kill the server anyway and
+ * where we need printf-alike features are served by serverLog(). */
+void serverLogFromHandler(int level, const char *fmt, ...) {
+    va_list ap;
+    char msg[LOG_MAX_LEN];
+
+    va_start(ap, fmt);
+    vsnprintf_async_signal_safe(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+
+    serverLogRawFromHandler(level, msg);
 }
 
 /* Return the UNIX time in microseconds */
@@ -400,17 +419,52 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* Adds dictionary to the rehashing list in cluster mode, which allows us
+/* Updates the bucket count in cluster-mode for the given dictionary in a DB. bucket count
+ * incremented with the new ht size during the rehashing phase.
+ * And also adds dictionary to the rehashing list in cluster mode, which allows us
  * to quickly find rehash targets during incremental rehashing.
- * In non-cluster mode, we don't need this list as there is only one dictionary per DB. */
+ * 
+ * In non-cluster mode, bucket count can be retrieved directly from single dict bucket and
+ * we don't need this list as there is only one dictionary per DB. */
 void dictRehashingStarted(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
-    listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    if (from == 0) return; /* No entries are to be moved. */
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
+    }
+}
+
+/* Updates the bucket count for the given dictionary in a DB. It removes
+ * the old ht size of the dictionary from the total sum of buckets for a DB.  */
+void dictRehashingCompleted(dict *d) {
+    if (!server.cluster_enabled) return;
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_MAIN].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 void dictRehashingStartedForExpires(dict *d) {
-    if (!server.cluster_enabled || !server.activerehashing) return;
-    listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    if (from == 0) return; /* No entries are to be moved. */
+    if (server.activerehashing) {
+        listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+    }
+}
+
+void dictRehashingCompletedForExpires(dict *d) {
+    if (!server.cluster_enabled) return;
+
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -469,6 +523,7 @@ dictType dbDictType = {
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictRehashingStarted,
+    dictRehashingCompleted,
 };
 
 /* Db->expires */
@@ -481,6 +536,7 @@ dictType dbExpiresDictType = {
     NULL,                       /* val destructor */
     dictExpandAllowed,           /* allow to expand */
     dictRehashingStartedForExpires,
+    dictRehashingCompletedForExpires,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -604,20 +660,19 @@ int htNeedsResize(dict *dict) {
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
-    int slot = 0;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        dbIterator *dbit = dbIteratorInitFromSlot(db, subdict, db->sub_dict[subdict].resize_cursor);
-        for (int i = 0; i < CRON_DBS_PER_CALL; i++) {
-            dict *d = dbGetDictFromIterator(dbit);
-            slot = dbIteratorGetCurrentSlot(dbit);
-            dbIteratorNextDict(dbit);
-            if (!d) break;
+        if (dbSize(db, subdict) == 0) continue;
+
+        if (db->sub_dict[subdict].resize_cursor == -1)
+            db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
+
+        for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
+            int slot = db->sub_dict[subdict].resize_cursor;
+            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
             if (htNeedsResize(d))
                 dictResize(d);
+            db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
         }
-        /* Save current iterator position in the resize_cursor. */
-        db->sub_dict[subdict].resize_cursor = slot;
-        zfree(dbit);
     }
 }
 
@@ -655,13 +710,13 @@ int incrementallyRehash(int dbid) {
     } else {
         /* Rehash main dict. */
         dict *main_dict = server.db[dbid].dict[0];
-        if (main_dict) {
+        if (dictIsRehashing(main_dict)) {
             dictRehashMilliseconds(main_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
             return 1; /* already used our millisecond for this loop... */
         }
         /* Rehash expires. */
         dict *expires_dict = server.db[dbid].expires[0];
-        if (expires_dict) {
+        if (dictIsRehashing(expires_dict)) {
             dictRehashMilliseconds(expires_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
             return 1; /* already used our millisecond for this loop... */
         }
@@ -737,7 +792,7 @@ int allPersistenceDisabled(void) {
 /* Add a sample to the instantaneous metric. This function computes the quotient
  * of the increment of value and base, which is useful to record operation count
  * per second, or the average time consumption of an operation.
- * 
+ *
  * current_value - The dividend
  * current_base - The divisor
  * */
@@ -934,7 +989,7 @@ int clientEvictionAllowed(client *c) {
 
 /* This function is used to cleanup the client's previously tracked memory usage.
  * This is called during incremental client memory usage tracking as well as
- * used to reset when client to bucket allocation is not required when 
+ * used to reset when client to bucket allocation is not required when
  * client eviction is disabled.  */
 void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
     if (c->mem_usage_bucket) {
@@ -1472,7 +1527,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Just for the sake of defensive programming, to avoid forgetting to
      * call this function when needed. */
     updateDictResizePolicy();
-
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
@@ -2557,7 +2611,7 @@ void resetServerStats(void) {
     atomicSet(server.stat_total_reads_processed, 0);
     server.stat_io_writes_processed = 0;
     atomicSet(server.stat_total_writes_processed, 0);
-    server.stat_client_qbuf_limit_disconnections = 0;
+    atomicSet(server.stat_client_qbuf_limit_disconnections, 0);
     server.stat_client_outbuf_limit_disconnections = 0;
     for (j = 0; j < STATS_METRIC_COUNT; j++) {
         server.inst_metric[j].idx = 0;
@@ -2592,12 +2646,15 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+/* When adding fields, please check the initTempDb related logic. */
 void initDbState(redisDb *db){
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         db->sub_dict[subdict].rehashing = listCreate();
+        db->sub_dict[subdict].non_empty_slots = 0;
         db->sub_dict[subdict].key_count = 0;
-        db->sub_dict[subdict].resize_cursor = 0;
+        db->sub_dict[subdict].resize_cursor = -1;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+        db->sub_dict[subdict].bucket_count = 0;
     }
 }
 
@@ -3994,7 +4051,7 @@ int processCommand(client *c) {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &c->slot,&error_code);
-        if (n == NULL || n != server.cluster->myself) {
+        if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
             } else {
@@ -5787,12 +5844,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
             (long long) elapsedUs(server.stat_last_active_defrag_time): 0;
+        long long stat_client_qbuf_limit_disconnections;
         atomicGet(server.stat_total_reads_processed, stat_total_reads_processed);
         atomicGet(server.stat_total_writes_processed, stat_total_writes_processed);
         atomicGet(server.stat_net_input_bytes, stat_net_input_bytes);
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
+        atomicGet(server.stat_client_qbuf_limit_disconnections, stat_client_qbuf_limit_disconnections);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Stats\r\n" FMTARGS(
@@ -5844,7 +5903,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n", stat_total_writes_processed,
             "io_threaded_reads_processed:%lld\r\n", server.stat_io_reads_processed,
             "io_threaded_writes_processed:%lld\r\n", server.stat_io_writes_processed,
-            "client_query_buffer_limit_disconnections:%lld\r\n", server.stat_client_qbuf_limit_disconnections,
+            "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
             "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
             "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,
             "reply_buffer_expands:%lld\r\n", server.stat_reply_buffer_expands,
@@ -6328,14 +6387,14 @@ static void sigShutdownHandler(int sig) {
      * the user really wanting to quit ASAP without waiting to persist
      * on disk and without waiting for lagging replicas. */
     if (server.shutdown_asap && sig == SIGINT) {
-        serverLogFromHandler(LL_WARNING, "You insist... exiting now.");
+        serverLogRawFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
         msg = "Received shutdown signal during loading, scheduling shutdown.";
     }
 
-    serverLogFromHandler(LL_WARNING, msg);
+    serverLogRawFromHandler(LL_WARNING, msg);
     server.shutdown_asap = 1;
     server.last_sig_received = sig;
 }
@@ -6359,7 +6418,7 @@ void setupSignalHandlers(void) {
 static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
-    serverLogFromHandler(level, "Received SIGUSR1 in child, exiting now.");
+    serverLogRawFromHandler(level, "Received SIGUSR1 in child, exiting now.");
     exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
 }
 
@@ -6793,7 +6852,7 @@ int redisIsSupervised(int mode) {
 
 int iAmMaster(void) {
     return ((!server.cluster_enabled && server.masterhost == NULL) ||
-            (server.cluster_enabled && nodeIsMaster(server.cluster->myself)));
+            (server.cluster_enabled && clusterNodeIsMaster(getMyClusterNode())));
 }
 
 #ifdef REDIS_TEST
@@ -7118,7 +7177,7 @@ int main(int argc, char **argv) {
     ACLLoadUsersAtStartup();
     initListeners();
     if (server.cluster_enabled) {
-        clusterInitListeners();
+        clusterInitLast();
     }
     InitServerLast();
 

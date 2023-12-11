@@ -4036,7 +4036,6 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         if (result_count == 0) { /* Do this only for the first iteration. */
             char *events[2] = {"zpopmin","zpopmax"};
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
-            signalModifiedKey(c,c->db,key);
         }
 
         if (use_nested_array) {
@@ -4055,6 +4054,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         dbDelete(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
+    signalModifiedKey(c,c->db,key);
 
     if (c->cmd->proc == zmpopCommand) {
         /* Always replicate it as ZPOP[MIN|MAX] with COUNT option instead of ZMPOP. */
