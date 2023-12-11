@@ -95,28 +95,6 @@ pubsubtype pubSubShardType = {
     .messageBulk = &shared.smessagebulk,
 };
 
-uint64_t clientHash(const void *key) {
-    return ((client *)key)->id;
-}
-
-int clientKeyCompare(dict *d, const void *key1, const void *key2) {
-    uint64_t l1,l2;
-    UNUSED(d);
-
-    l1 = ((client *)key1)->id;
-    l2 = ((client *)key2)->id;
-    return l1 == l2;
-}
-
-/* Set dictionary type. Keys are client, values are not used. */
-dictType clientDictType = {
-    clientHash,               /* hash function */
-    NULL,                     /* key dup */
-    NULL,                     /* val dup */
-    clientKeyCompare,         /* key compare */
-    .no_value = 1             /* no values in this dict */
-};
-
 /*-----------------------------------------------------------------------------
  * Pubsub client replies API
  *----------------------------------------------------------------------------*/
@@ -283,7 +261,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         } else {
             clients = dictGetVal(de);
         }
-        serverAssert(dictAddRaw(clients, c, NULL) != NULL);
+        serverAssert(dictAdd(clients, c, NULL) != NULL);
     }
     /* Notify the client */
     addReplyPubsubSubscribed(c,channel,type);
@@ -377,7 +355,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
         } else {
             clients = dictGetVal(de);
         }
-        serverAssert(dictAddRaw(clients, c, NULL) != NULL);
+        serverAssert(dictAdd(clients, c, NULL) != NULL);
     }
     /* Notify the client */
     addReplyPubsubPatSubscribed(c,pattern);
@@ -519,7 +497,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
             if (!stringmatchlen((char*)pattern->ptr,
                                 sdslen(pattern->ptr),
                                 (char*)channel->ptr,
-                                sdslen(channel->ptr),0)) continue;            
+                                sdslen(channel->ptr),0)) continue;
             dictEntry *entry;
             dictIterator *iter = dictGetSafeIterator(clients);
             while ((entry = dictNext(iter)) != NULL) {

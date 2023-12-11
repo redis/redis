@@ -357,6 +357,21 @@ uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
+/* Dict hash function for client */
+uint64_t dictClientHash(const void *key) {
+    return ((client *)key)->id;
+}
+
+/* Dict compare function for client */
+int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
+    uint64_t l1,l2;
+    UNUSED(d);
+
+    l1 = ((client *)key1)->id;
+    l2 = ((client *)key2)->id;
+    return l1 == l2;
+}
+
 /* Dict compare function for null terminated string */
 int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     int l1,l2;
@@ -660,6 +675,15 @@ dictType sdsHashDictType = {
     dictSdsDestructor,          /* key destructor */
     dictVanillaFree,            /* val destructor */
     NULL                        /* allow to expand */
+};
+
+/* Client Set dictionary type. Keys are client, values are not used. */
+dictType clientDictType = {
+    dictClientHash,               /* hash function */
+    NULL,                     /* key dup */
+    NULL,                     /* val dup */
+    dictClientKeyCompare,         /* key compare */
+    .no_value = 1             /* no values in this dict */
 };
 
 int htNeedsResize(dict *dict) {
