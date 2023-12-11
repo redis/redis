@@ -4,7 +4,11 @@
 #ifdef JEMALLOC_DEBUG
 #  define JEMALLOC_ALWAYS_INLINE static inline
 #else
-#  define JEMALLOC_ALWAYS_INLINE JEMALLOC_ATTR(always_inline) static inline
+#  ifdef _MSC_VER
+#    define JEMALLOC_ALWAYS_INLINE static __forceinline
+#  else
+#    define JEMALLOC_ALWAYS_INLINE JEMALLOC_ATTR(always_inline) static inline
+#  endif
 #endif
 #ifdef _MSC_VER
 #  define inline _inline
@@ -39,13 +43,6 @@
 
 #define JEMALLOC_VA_ARGS_HEAD(head, ...) head
 #define JEMALLOC_VA_ARGS_TAIL(head, ...) __VA_ARGS__
-
-#if (defined(__GNUC__) || defined(__GNUG__)) && !defined(__clang__) \
-  && defined(JEMALLOC_HAVE_ATTR) && (__GNUC__ >= 7)
-#define JEMALLOC_FALLTHROUGH JEMALLOC_ATTR(fallthrough);
-#else
-#define JEMALLOC_FALLTHROUGH /* falls through */
-#endif
 
 /* Diagnostic suppression macros */
 #if defined(_MSC_VER) && !defined(__clang__)

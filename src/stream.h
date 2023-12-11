@@ -74,7 +74,8 @@ typedef struct streamCG {
 
 /* A specific consumer in a consumer group.  */
 typedef struct streamConsumer {
-    mstime_t seen_time;         /* Last time this consumer was active. */
+    mstime_t seen_time;         /* Last time this consumer tried to perform an action (attempted reading/claiming). */
+    mstime_t active_time;       /* Last time this consumer was active (successful reading/claiming). */
     sds name;                   /* Consumer name. This is how the consumer
                                    will be identified in the consumer group
                                    protocol. Case sensitive. */
@@ -105,10 +106,6 @@ typedef struct streamPropInfo {
 /* Prototypes of exported APIs. */
 struct client;
 
-/* Flags for streamLookupConsumer */
-#define SLC_DEFAULT      0
-#define SLC_NO_REFRESH   (1<<0) /* Do not update consumer's seen-time */
-
 /* Flags for streamCreateConsumer */
 #define SCC_DEFAULT       0
 #define SCC_NO_NOTIFY     (1<<0) /* Do not notify key space if consumer created */
@@ -126,7 +123,7 @@ void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsign
 void streamIteratorRemoveEntry(streamIterator *si, streamID *current);
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int flags);
+streamConsumer *streamLookupConsumer(streamCG *cg, sds name);
 streamConsumer *streamCreateConsumer(streamCG *cg, sds name, robj *key, int dbid, int flags);
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read);
 streamNACK *streamCreateNACK(streamConsumer *consumer);

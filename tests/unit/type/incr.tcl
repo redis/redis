@@ -9,6 +9,16 @@ start_server {tags {"incr"}} {
         r incr novar
     } {2}
 
+    test {DECR against key created by incr} {
+        r decr novar
+    } {1}
+
+    test {DECR against key is not exist and incr} {
+        r del novar_not_exist
+        assert_equal {-1} [r decr novar_not_exist]
+        assert_equal {0} [r incr novar_not_exist]
+    }
+
     test {INCR against key originally set with SET} {
         r set novar 100
         r incr novar
@@ -60,21 +70,26 @@ start_server {tags {"incr"}} {
         r decrby novar 17179869185
     } {-1}
 
+    test {DECRBY against key is not exist} {
+        r del key_not_exist
+        assert_equal {-1} [r decrby key_not_exist 1]
+    }
+
     test {INCR uses shared objects in the 0-9999 range} {
         r set foo -1
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r set foo 9998
         r incr foo
-        assert {[r object refcount foo] > 1}
+        assert_refcount_morethan foo 1
         r incr foo
-        assert {[r object refcount foo] == 1}
-    } {} {needs:debug}
+        assert_refcount 1 foo
+    }
 
     test {INCR can modify objects in-place} {
         r set foo 20000
         r incr foo
-        assert {[r object refcount foo] == 1}
+        assert_refcount 1 foo
         set old [lindex [split [r debug object foo]] 1]
         r incr foo
         set new [lindex [split [r debug object foo]] 1]
@@ -167,4 +182,33 @@ start_server {tags {"incr"}} {
         r incrbyfloat foo [expr double(-1)/41]
         r get foo
     } {0}
+
+    foreach cmd {"incr" "decr" "incrby" "decrby"} {
+        test "$cmd operation should update encoding from raw to int" {
+            set res {}
+            set expected {1 12}
+            if {[string match {*incr*} $cmd]} {
+                lappend expected 13
+            } else {
+                lappend expected 11
+            }
+
+            r set foo 1
+            assert_encoding "int" foo
+            lappend res [r get foo]
+
+            r append foo 2
+            assert_encoding "raw" foo
+            lappend res [r get foo]
+
+            if {[string match {*by*} $cmd]} {
+                r $cmd foo 1
+            } else {
+                r $cmd foo
+            }
+            assert_encoding "int" foo
+            lappend res [r get foo]
+            assert_equal $res $expected
+        }
+    }
 }

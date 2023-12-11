@@ -40,8 +40,12 @@
 #include <fcntl.h>
 #endif
 
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+#define MAC_OS_10_6_DETECTED
+#endif
+
 /* Define redis_fstat to fstat or fstat64() */
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else
@@ -96,7 +100,7 @@
 #define HAVE_ACCEPT4 1
 #endif
 
-#if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
+#if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
 #define HAVE_KQUEUE 1
 #endif
 
@@ -131,7 +135,7 @@
 #endif
 #endif
 
-#if __GNUC__ >= 4
+#if __GNUC__ >= 5 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #define redis_unreachable __builtin_unreachable
 #else
 #define redis_unreachable abort
@@ -293,7 +297,7 @@ void setproctitle(const char *fmt, ...);
 #include <kernel/OS.h>
 #define redis_set_thread_title(name) rename_thread(find_thread(0), name)
 #else
-#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+#if (defined __APPLE__ && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1070)
 int pthread_setname_np(const char *name);
 #include <pthread.h>
 #define redis_set_thread_title(name) pthread_setname_np(name)
@@ -309,14 +313,9 @@ int pthread_setname_np(const char *name);
 void setcpuaffinity(const char *cpulist);
 #endif
 
-/* deprecate unsafe functions
- *
- * NOTE: We do not use the poison pragma since it
- * will error on stdlib definitions in files as well*/
-#if (__GNUC__ && __GNUC__ >= 4) && !defined __APPLE__
-int sprintf(char *str, const char *format, ...) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of snprintf instead")));
-char *strcpy(char *restrict dest, const char *src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcpy instead")));
-char *strcat(char *restrict dest, const char *restrict src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcat instead")));
+/* Test for posix_fadvise() */
+#if defined(__linux__) || __FreeBSD__ >= 10
+#define HAVE_FADVISE
 #endif
 
 #endif

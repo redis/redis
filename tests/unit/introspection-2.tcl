@@ -2,6 +2,17 @@ proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
 }
 
+proc getlru {key} {
+    set objinfo [r debug object $key]
+    foreach info $objinfo {
+        set kvinfo [split $info ":"]
+        if {[string compare [lindex $kvinfo 0] "lru"] == 0} {
+            return [lindex $kvinfo 1]
+        }
+    }
+    fail "Can't get LRU info with DEBUG OBJECT"
+}
+
 start_server {tags {"introspection"}} {
     test {The microsecond part of the TIME command will not overflow} {
         set now [r time]
@@ -25,6 +36,20 @@ start_server {tags {"introspection"}} {
         r touch foo
         assert {[r object idletime foo] < 2}
     }
+
+    test {Operations in no-touch mode do not alter the last access time of a key} {
+        r set foo bar
+        r client no-touch on
+        set oldlru [getlru foo]
+        after 1100
+        r get foo
+        set newlru [getlru foo]
+        assert_equal $newlru $oldlru
+        r client no-touch off
+        r get foo
+        set newlru [getlru foo]
+        assert_morethan $newlru $oldlru
+    } {} {needs:debug}
 
     test {TOUCH returns the number of existing keys specified} {
         r flushdb
@@ -93,6 +118,10 @@ start_server {tags {"introspection"}} {
         assert_match {*calls=1,*} [cmdstat geoadd]
     } {} {needs:config-resetstat}
 
+    test {COMMAND COUNT get total number of Redis commands} {
+        assert_morethan [r command count] 0
+    }
+
     test {COMMAND GETKEYS GET} {
         assert_equal {key} [r command getkeys get key]
     }
@@ -122,6 +151,21 @@ start_server {tags {"introspection"}} {
 
     test {COMMAND GETKEYS LCS} {
         assert_equal {key1 key2} [r command getkeys lcs key1 key2]
+    }
+
+    test {COMMAND GETKEYS MORE THAN 256 KEYS} {
+        set all_keys [list]
+        set numkeys 260
+        for {set i 1} {$i <= $numkeys} {incr i} {
+            lappend all_keys "key$i"
+        }
+        set all_keys_with_target [linsert $all_keys 0 target]
+        # we are using ZUNIONSTORE command since in order to reproduce allocation of a new buffer in getKeysPrepareResult
+        # when numkeys in result > 0
+        # we need a command that the final number of keys is not known in the first call to getKeysPrepareResult
+        # before the fix in that case data of old buffer was not copied to the new result buffer
+        # causing all previous keys (numkeys) data to be uninitialize
+        assert_equal $all_keys_with_target [r command getkeys ZUNIONSTORE target $numkeys {*}$all_keys]
     }
 
     test "COMMAND LIST syntax error" {

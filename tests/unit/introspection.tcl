@@ -7,7 +7,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT LIST} {
         r client list
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=2*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
@@ -17,7 +17,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT INFO} {
         r client info
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=2*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*}
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
@@ -54,6 +54,109 @@ start_server {tags {"introspection"}} {
         # After killing `me`, the first ping will throw an error
         assert_error "*I/O error*" {r ping}
         assert_equal "PONG" [r ping]
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+        $rd4 close
+    }
+
+    test {CLIENT command unhappy path coverage} {
+        assert_error "ERR*wrong number of arguments*" {r client caching}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching maybe}
+        assert_error "ERR*syntax*" {r client no-evict wrongInput}
+        assert_error "ERR*syntax*" {r client reply wrongInput}
+        assert_error "ERR*syntax*" {r client tracking wrongInput}
+        assert_error "ERR*syntax*" {r client tracking on wrongInput}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching off}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching on}
+
+        r CLIENT TRACKING ON optout
+        assert_error "ERR*syntax*" {r client caching on}
+
+        r CLIENT TRACKING off optout
+        assert_error "ERR*when the client is in tracking mode*" {r client caching on}
+
+        assert_error "ERR*No such*" {r client kill 000.123.321.567:0000}
+        assert_error "ERR*No such*" {r client kill 127.0.0.1:}
+
+        assert_error "ERR*timeout is not an integer*" {r client pause abc}
+        assert_error "ERR timeout is negative" {r client pause -1}
+    }
+
+    test "CLIENT KILL close the client connection during bgsave" {
+        # Start a slow bgsave, trigger an active fork.
+        r flushall
+        r set k v
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 1
+        } else {
+            fail "bgsave did not start in time"
+        }
+
+        # Kill (close) the connection
+        r client kill skipme no
+
+        # In the past, client connections needed to wait for bgsave
+        # to end before actually closing, now they are closed immediately.
+        assert_error "*I/O error*" {r ping} ;# get the error very quickly
+        assert_equal "PONG" [r ping]
+
+        # Make sure the bgsave is still in progress
+        assert_equal [s rdb_bgsave_in_progress] 1
+
+        # Stop the child before we proceed to the next test
+        r config set rdb-key-save-delay 0
+        r flushall
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time"
+        }
+    } {} {needs:save}
+
+    test "CLIENT REPLY OFF/ON: disable all commands reply" {
+        set rd [redis_deferring_client]
+
+        # These replies were silenced.
+        $rd client reply off
+        $rd ping pong
+        $rd ping pong2
+
+        $rd client reply on
+        assert_equal {OK} [$rd read]
+        $rd ping pong3
+        assert_equal {pong3} [$rd read]
+
+        $rd close
+    }
+
+    test "CLIENT REPLY SKIP: skip the next command reply" {
+        set rd [redis_deferring_client]
+
+        # The first pong reply was silenced.
+        $rd client reply skip
+        $rd ping pong
+
+        $rd ping pong2
+        assert_equal {pong2} [$rd read]
+
+        $rd close
+    }
+
+    test "CLIENT REPLY ON: unset SKIP flag" {
+        set rd [redis_deferring_client]
+
+        $rd client reply skip
+        $rd client reply on
+        assert_equal {OK} [$rd read] ;# OK from CLIENT REPLY ON command
+
+        $rd ping
+        assert_equal {PONG} [$rd read]
+
+        $rd close
     }
 
     test {MONITOR can log executed commands} {
@@ -77,6 +180,19 @@ start_server {tags {"introspection"}} {
         $rd close
     }
 
+    test {MONITOR can log commands issued by functions} {
+        r function load replace {#!lua name=test
+            redis.register_function('test', function() return redis.call('set', 'foo', 'bar') end)
+        }
+        set rd [redis_deferring_client]
+        $rd monitor
+        $rd read ;# Discard the OK
+        r fcall test 0
+        assert_match {*fcall*test*} [$rd read]
+        assert_match {*lua*"set"*"foo"*"bar"*} [$rd read]
+        $rd close
+    }
+
     test {MONITOR supports redacting command arguments} {
         set rd [redis_deferring_client]
         $rd monitor
@@ -87,14 +203,22 @@ start_server {tags {"introspection"}} {
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH2 user password
         catch {r auth not-real} _
         catch {r auth not-real not-a-password} _
-        catch {r hello 2 AUTH not-real not-a-password} _
-
+        
         assert_match {*"key"*"9"*"5000"*} [$rd read]
         assert_match {*"key"*"9"*"5000"*"(redacted)"*} [$rd read]
         assert_match {*"key"*"9"*"5000"*"(redacted)"*"(redacted)"*} [$rd read]
         assert_match {*"auth"*"(redacted)"*} [$rd read]
         assert_match {*"auth"*"(redacted)"*"(redacted)"*} [$rd read]
-        assert_match {*"hello"*"2"*"AUTH"*"(redacted)"*"(redacted)"*} [$rd read]
+
+        foreach resp {3 2} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$resp == 3} {continue}
+            } elseif {$::force_resp3} {
+                if {$resp == 2} {continue}
+            }
+            catch {r hello $resp AUTH not-real not-a-password} _
+            assert_match "*\"hello\"*\"$resp\"*\"AUTH\"*\"(redacted)\"*\"(redacted)\"*" [$rd read]
+        }
         $rd close
     } {0} {needs:repl}
 
@@ -122,10 +246,58 @@ start_server {tags {"introspection"}} {
 
         $rd close
     }
+    
+    test {MONITOR log blocked command only once} {
+        
+        # need to reconnect in order to reset the clients state
+        reconnect
+        
+        set rd [redis_deferring_client]
+        set bc [redis_deferring_client]
+        r del mylist
+        
+        $rd monitor
+        $rd read ; # Discard the OK
+        
+        $bc blpop mylist 0
+        wait_for_blocked_clients_count 1
+        r lpush mylist 1
+        wait_for_blocked_clients_count 0
+        r lpush mylist 2
+        
+        # we expect to see the blpop on the monitor first
+        assert_match {*"blpop"*"mylist"*"0"*} [$rd read]
+        
+        # we scan out all the info commands on the monitor
+        set monitor_output [$rd read]
+        while { [string match {*"info"*} $monitor_output] } {
+            set monitor_output [$rd read]
+        }
+        
+        # we expect to locate the lpush right when the client was unblocked
+        assert_match {*"lpush"*"mylist"*"1"*} $monitor_output
+        
+        # we scan out all the info commands
+        set monitor_output [$rd read]
+        while { [string match {*"info"*} $monitor_output] } {
+            set monitor_output [$rd read]
+        }
+        
+        # we expect to see the next lpush and not duplicate blpop command
+        assert_match {*"lpush"*"mylist"*"2"*} $monitor_output
+        
+        $rd close
+        $bc close
+    }
 
     test {CLIENT GETNAME should return NIL if name is not assigned} {
         r client getname
     } {}
+
+    test {CLIENT GETNAME check if name set correctly} {
+        r client setname testName
+        r client getName
+    } {testName}
 
     test {CLIENT LIST shows empty fields for unassigned names} {
         r client list
@@ -160,6 +332,31 @@ start_server {tags {"introspection"}} {
         }
     }
 
+    test {CLIENT SETINFO can set a library name to this connection} {
+        r CLIENT SETINFO lib-name redis.py
+        r CLIENT SETINFO lib-ver 1.2.3
+        r client info
+    } {*lib-name=redis.py lib-ver=1.2.3*}
+
+    test {CLIENT SETINFO invalid args} {
+        assert_error {*wrong number of arguments*} {r CLIENT SETINFO lib-name}
+        assert_error {*cannot contain spaces*} {r CLIENT SETINFO lib-name "redis py"}
+        assert_error {*newlines*} {r CLIENT SETINFO lib-name "redis.py\n"}
+        assert_error {*Unrecognized*} {r CLIENT SETINFO badger hamster}
+        # test that all of these didn't affect the previously set values
+        r client info
+    } {*lib-name=redis.py lib-ver=1.2.3*}
+
+    test {RESET does NOT clean library name} {
+        r reset
+        r client info
+    } {*lib-name=redis.py*} {needs:reset}
+
+    test {CLIENT SETINFO can clear library name} {
+        r CLIENT SETINFO lib-name ""
+        r client info
+    } {*lib-name= *}
+
     test {CONFIG save params special case handled properly} {
         # No "save" keyword - defaults should apply
         start_server {config "minimal.conf"} {
@@ -172,18 +369,13 @@ start_server {tags {"introspection"}} {
             assert_match [r config get save] {save {100 100}}
         }
 
-        # First "save" keyword in default config file
-        start_server {config "default.conf"} {
-            assert_match [r config get save] {save {900 1}}
-        }
-
         # First "save" keyword appends default from config file
-        start_server {config "default.conf" args {--save 100 100}} {
+        start_server {config "default.conf" overrides {save {900 1}} args {--save 100 100}} {
             assert_match [r config get save] {save {900 1 100 100}}
         }
 
         # Empty "save" keyword resets all
-        start_server {config "default.conf" args {--save {}}} {
+        start_server {config "default.conf" overrides {save {900 1}} args {--save {}}} {
             assert_match [r config get save] {save {}}
         }
     } {} {external:skip}
@@ -215,6 +407,10 @@ start_server {tags {"introspection"}} {
             replicaof
             slaveof
             requirepass
+            server-cpulist
+            bio-cpulist
+            aof-rewrite-cpulist
+            bgsave-cpulist
             server_cpulist
             bio_cpulist
             aof_rewrite_cpulist
@@ -231,6 +427,8 @@ start_server {tags {"introspection"}} {
             logfile
             dir
             socket-mark-id
+            req-res-logfile
+            client-default-resp
         }
 
         if {!$::tls} {
@@ -465,6 +663,10 @@ start_server {tags {"introspection"}} {
     }
 
     test {redis-server command line arguments - error cases} {
+        # Take '--invalid' as the option.
+        catch {exec src/redis-server --invalid} err
+        assert_match {*Bad directive or wrong number of arguments*} $err
+
         catch {exec src/redis-server --port} err
         assert_match {*'port'*wrong number of arguments*} $err
 
@@ -597,7 +799,7 @@ start_server {config "minimal.conf" tags {"introspection external:skip"} overrid
 }
 
 test {config during loading} {
-    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no]] {
+    start_server [list overrides [list key-load-delay 50 loading-process-events-interval-bytes 1024 rdbcompression no save "900 1"]] {
         # create a big rdb that will take long to load. it is important
         # for keys to be big since the server processes events only once in 2mb.
         # 100mb of rdb, 100k keys will load in more than 5 seconds

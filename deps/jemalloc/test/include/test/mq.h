@@ -1,4 +1,4 @@
-void	mq_nanosleep(unsigned ns);
+#include "test/sleep.h"
 
 /*
  * Simple templated message queue implementation that relies on only mutexes for
@@ -82,7 +82,7 @@ a_prefix##get(a_mq_type *mq) {						\
 									\
 	ns = 1;								\
 	while (true) {							\
-		mq_nanosleep(ns);					\
+		sleep_ns(ns);						\
 		msg = a_prefix##tryget(mq);				\
 		if (msg != NULL) {					\
 			return msg;					\

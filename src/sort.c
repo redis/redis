@@ -328,8 +328,10 @@ void sortCommandGeneric(client *c, int readonly) {
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
-    /* Perform LIMIT start,count sanity checking. */
-    start = (limit_start < 0) ? 0 : limit_start;
+    /* Perform LIMIT start,count sanity checking.
+     * And avoid integer overflow by limiting inputs to object sizes. */
+    start = min(max(limit_start, 0), vectorlen);
+    limit_count = min(max(limit_count, -1), vectorlen);
     end = (limit_count < 0) ? vectorlen-1 : start+limit_count-1;
     if (start >= vectorlen) {
         start = vectorlen-1;
@@ -546,6 +548,8 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
     } else {
+        /* We can't predict the size and encoding of the stored list, we
+         * assume it's a large list and then convert it at the end if needed. */
         robj *sobj = createQuicklistObject();
 
         /* STORE option specified, set the sorting result as a List object */
@@ -578,6 +582,7 @@ void sortCommandGeneric(client *c, int readonly) {
             }
         }
         if (outputlen) {
+            listTypeTryConversion(sobj,LIST_CONV_AUTO,NULL,NULL);
             setKey(c,c->db,storekey,sobj,0);
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);

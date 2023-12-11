@@ -420,7 +420,7 @@ implementations are the following:
 * `lookupKeyRead()` and `lookupKeyWrite()` are used in order to get a pointer to the value associated to a given key, or `NULL` if the key does not exist.
 * `dbAdd()` and its higher level counterpart `setKey()` create a new key in a Redis database.
 * `dbDelete()` removes a key and its associated value.
-* `emptyDb()` removes an entire single database or all the databases defined.
+* `emptyData()` removes an entire single database or all the databases defined.
 
 The rest of the file implements the generic commands exposed to the client.
 

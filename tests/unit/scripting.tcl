@@ -119,6 +119,10 @@ start_server {tags {"scripting"}} {
         r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
     } {myval}
 
+    test {EVALSHA_RO - Can we call a SHA1 if already defined?} {
+        r evalsha_ro fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
+    } {myval}
+
     test {EVALSHA - Can we call a SHA1 in uppercase?} {
         r evalsha FD758D1589D044DD850A6F05D52F2EEFD27F033F 1 mykey
     } {myval}
@@ -213,52 +217,77 @@ start_server {tags {"scripting"}} {
         } {*execution time*}
     }
 
-    test {EVAL - Scripts can't run blpop command} {
-        set e {}
-        catch {run_script {return redis.pcall('blpop','x',0)} 1 x} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on blpop command} {
+        r lpush l 1
+        r lpop l
+        run_script {return redis.pcall('blpop','l',0)} 1 l
+    } {}
 
-    test {EVAL - Scripts can't run brpop command} {
-        set e {}
-        catch {run_script {return redis.pcall('brpop','empty_list',0)} 1 empty_list} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on brpop command} {
+        r lpush l 1
+        r lpop l
+        run_script {return redis.pcall('brpop','l',0)} 1 l
+    } {}
 
-    test {EVAL - Scripts can't run brpoplpush command} {
-        set e {}
-        catch {run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on brpoplpush command} {
+        r lpush empty_list1{t} 1
+        r lpop empty_list1{t}
+        run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}
+    } {}
 
-    test {EVAL - Scripts can't run blmove command} {
-        set e {}
-        catch {run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on blmove command} {
+        r lpush empty_list1{t} 1
+        r lpop empty_list1{t}
+        run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}
+    } {}
 
-    test {EVAL - Scripts can't run bzpopmin command} {
-        set e {}
-        catch {run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on bzpopmin command} {
+        r zadd empty_zset 10 foo
+        r zmpop 1 empty_zset MIN
+        run_script {return redis.pcall('bzpopmin','empty_zset', 0)} 1 empty_zset
+    } {}
 
-    test {EVAL - Scripts can't run bzpopmax command} {
-        set e {}
-        catch {run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset} e
-        set e
-    } {*not allowed*}
+    test {EVAL - Scripts do not block on bzpopmax command} {
+        r zadd empty_zset 10 foo
+        r zmpop 1 empty_zset MIN
+        run_script {return redis.pcall('bzpopmax','empty_zset', 0)} 1 empty_zset
+    } {}
 
-    test {EVAL - Scripts can't run XREAD and XREADGROUP with BLOCK option} {
+    test {EVAL - Scripts do not block on wait} {
+        run_script {return redis.pcall('wait','1','0')} 0
+    } {0}
+
+    test {EVAL - Scripts do not block on XREAD with BLOCK option} {
         r del s
         r xgroup create s g $ MKSTREAM
         set res [run_script {return redis.pcall('xread','STREAMS','s','$')} 1 s]
         assert {$res eq {}}
-        assert_error "*xread command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s}
+        run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s
+    } {}
+
+    test {EVAL - Scripts do not block on XREADGROUP with BLOCK option} {
         set res [run_script {return redis.pcall('xreadgroup','group','g','c','STREAMS','s','>')} 1 s]
         assert {$res eq {}}
-        assert_error "*xreadgroup command is not allowed with BLOCK option from scripts" {run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s}
+        run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s
+    } {}
+
+    test {EVAL - Scripts do not block on XREAD with BLOCK option -- non empty stream} {
+        r XADD s * a 1
+        set res [run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','$')} 1 s]
+        assert {$res eq {}}
+
+        set res [run_script {return redis.pcall('xread','BLOCK',0,'STREAMS','s','0-0')} 1 s]
+        assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {a 1}}
     }
+
+    test {EVAL - Scripts do not block on XREADGROUP with BLOCK option -- non empty stream} {
+        r XADD s * b 2
+        set res [
+            run_script {return redis.pcall('xreadgroup','group','g','c','BLOCK',0,'STREAMS','s','>')} 1 s
+        ]
+        assert {[llength [lindex $res 0 1]] == 2}
+        lindex $res 0 1 0 1
+    } {a 1}
 
     test {EVAL - Scripts can run non-deterministic commands} {
         set e {}
@@ -299,6 +328,13 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
+    test {EVAL - JSON string encoding a string larger than 2GB} {
+        run_script {
+            local s = string.rep("a", 1024 * 1024 * 1024)
+            return #cjson.encode(s..s..s)
+        } 0
+    } {3221225474} {large-memory} ;# length includes two double quotes at both ends
+
     test {EVAL - JSON numeric decoding} {
         # We must return the table as a string because otherwise
         # Redis converts floats to ints and we get 0 and 1023 instead
@@ -315,6 +351,66 @@ start_server {tags {"scripting"}} {
                 return {decoded.keya, decoded.keyb}
         } 0
     } {a b}
+
+    test {EVAL - JSON smoke test} {
+        run_script {
+            local some_map = {
+                s1="Some string",
+                n1=100,
+                a1={"Some","String","Array"},
+                nil1=nil,
+                b1=true,
+                b2=false}
+            local encoded = cjson.encode(some_map)
+            local decoded = cjson.decode(encoded)
+            assert(table.concat(some_map) == table.concat(decoded))
+
+            cjson.encode_keep_buffer(false)
+            encoded = cjson.encode(some_map)
+            decoded = cjson.decode(encoded)
+            assert(table.concat(some_map) == table.concat(decoded))
+
+            -- Table with numeric keys
+            local table1 = {one="one", [1]="one"}
+            encoded = cjson.encode(table1)
+            decoded = cjson.decode(encoded)
+            assert(decoded["one"] == table1["one"])
+            assert(decoded["1"] == table1[1])
+
+            -- Array
+            local array1 = {[1]="one", [2]="two"}
+            encoded = cjson.encode(array1)
+            decoded = cjson.decode(encoded)
+            assert(table.concat(array1) == table.concat(decoded))
+
+            -- Invalid keys
+            local invalid_map = {}
+            invalid_map[false] = "false"
+            local ok, encoded = pcall(cjson.encode, invalid_map)
+            assert(ok == false)
+
+            -- Max depth
+            cjson.encode_max_depth(1)
+            ok, encoded = pcall(cjson.encode, some_map)
+            assert(ok == false)
+
+            cjson.decode_max_depth(1)
+            ok, decoded = pcall(cjson.decode, '{"obj": {"array": [1,2,3,4]}}')
+            assert(ok == false)
+
+            -- Invalid numbers
+            ok, encoded = pcall(cjson.encode, {num1=0/0})
+            assert(ok == false)
+            cjson.encode_invalid_numbers(true)
+            ok, encoded = pcall(cjson.encode, {num1=0/0})
+            assert(ok == true)
+
+            -- Restore defaults
+            cjson.decode_max_depth(1000)
+            cjson.encode_max_depth(1000)
+            cjson.encode_invalid_numbers(false)
+        } 0
+    }
 
     test {EVAL - cmsgpack can pack double?} {
         run_script {local encoded = cmsgpack.pack(0.1)
@@ -335,6 +431,68 @@ start_server {tags {"scripting"}} {
                 return h
         } 0
     } {d3ffffff0000000000}
+
+    test {EVAL - cmsgpack pack/unpack smoke test} {
+        run_script {
+                local str_lt_32 = string.rep("x", 30)
+                local str_lt_255 = string.rep("x", 250)
+                local str_lt_65535 = string.rep("x", 65530)
+                local str_long = string.rep("x", 100000)
+                local array_lt_15 = {1, 2, 3, 4, 5}
+                local array_lt_65535 = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+                local array_big = {}
+                for i=1, 100000 do
+                    array_big[i] = i
+                end
+                local map_lt_15 = {a=1, b=2}
+                local map_big = {}
+                for i=1, 100000 do
+                    map_big[tostring(i)] = i
+                end
+                local some_map = {
+                    s1=str_lt_32,
+                    s2=str_lt_255,
+                    s3=str_lt_65535,
+                    s4=str_long,
+                    d1=0.1,
+                    i1=1,
+                    i2=250,
+                    i3=65530,
+                    i4=100000,
+                    i5=2^40,
+                    i6=-1,
+                    i7=-120,
+                    i8=-32000,
+                    i9=-100000,
+                    i10=-3147483648,
+                    a1=array_lt_15,
+                    a2=array_lt_65535,
+                    a3=array_big,
+                    m1=map_lt_15,
+                    m2=map_big,
+                    b1=false,
+                    b2=true,
+                    n=nil
+                }
+                local encoded = cmsgpack.pack(some_map)
+                local decoded = cmsgpack.unpack(encoded)
+                assert(table.concat(some_map) == table.concat(decoded))
+                local offset, decoded_one = cmsgpack.unpack_one(encoded, 0)
+                assert(table.concat(some_map) == table.concat(decoded_one))
+                assert(offset == -1)
+
+                local encoded_multiple = cmsgpack.pack(str_lt_32, str_lt_255, str_lt_65535, str_long)
+                local offset, obj = cmsgpack.unpack_limit(encoded_multiple, 1, 0)
+                assert(obj == str_lt_32)
+                offset, obj = cmsgpack.unpack_limit(encoded_multiple, 1, offset)
+                assert(obj == str_lt_255)
+                offset, obj = cmsgpack.unpack_limit(encoded_multiple, 1, offset)
+                assert(obj == str_lt_65535)
+                offset, obj = cmsgpack.unpack_limit(encoded_multiple, 1, offset)
+                assert(obj == str_long)
+                assert(offset == -1)
+        } 0
+    }
 
     test {EVAL - cmsgpack can pack and unpack circular references?} {
         run_script {local a = {x=nil,y=5}
@@ -517,6 +675,7 @@ start_server {tags {"scripting"}} {
     } ;# is_eval
 
     test {EVAL does not leak in the Lua stack} {
+        r script flush ;# reset Lua VM
         r set x 0
         # Use a non blocking client to speedup the loop.
         set rd [redis_deferring_client]
@@ -583,6 +742,30 @@ start_server {tags {"scripting"}} {
             {pexpireat expirekey *}
         }
         close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {INCRBYFLOAT: We can call scripts expanding client->argv from Lua} {
+        # coverage for scripts calling commands that expand the argv array
+        # an attempt to add coverage for a possible bug in luaArgsToRedisArgv
+        # this test needs a fresh server so that lua_argv_size is 0.
+        # glibc realloc can return the same pointer even when the size changes
+        # still this test isn't able to trigger the issue, but we keep it anyway.
+        start_server {tags {"scripting"}} {
+            set repl [attach_to_replication_stream]
+            # a command with 5 argsument
+            r eval {redis.call('hmget', KEYS[1], 1, 2, 3)} 1 key
+            # then a command with 3 that is replicated as one with 4
+            r eval {redis.call('incrbyfloat', KEYS[1], 1)} 1 key
+            # then a command with 4 args
+            r eval {redis.call('set', KEYS[1], '1', 'KEEPTTL')} 1 key
+
+            assert_replication_stream $repl {
+                {select *}
+                {set key 1 KEEPTTL}
+                {set key 1 KEEPTTL}
+            }
+            close_replication_stream $repl
+        }
     } {} {needs:repl}
 
     } ;# is_eval
@@ -679,6 +862,7 @@ start_server {tags {"scripting"}} {
         assert_equal $res $expected_list
     } {} {resp3}
 
+    if {!$::log_req_res} { # this test creates a huge nested array which python can't handle (RecursionError: maximum recursion depth exceeded in comparison)
     test {Script return recursive object} {
         r readraw 1
         set res [run_script {local a = {}; local b = {a}; a[1] = b; return a} 0]
@@ -693,6 +877,7 @@ start_server {tags {"scripting"}} {
         r readraw 0
         # make sure the connection is still valid
         assert_equal [r ping] {PONG}
+    }
     }
 
     test {Script check unpack with massive arguments} {
@@ -954,6 +1139,53 @@ start_server {tags {"scripting"}} {
         run_script {for i=1,100000 do redis.call('ping') end return 'ok'} 0
         r ping
     } {PONG}
+
+    test {Timedout scripts and unblocked command} {
+        # make sure a command that's allowed during BUSY doesn't trigger an unblocked command
+
+        # enable AOF to also expose an assertion if the bug would happen
+        r flushall
+        r config set appendonly yes
+
+        # create clients, and set one to block waiting for key 'x'
+        set rd [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set r3 [redis_client]
+        $rd2 blpop x 0
+        wait_for_blocked_clients_count 1
+
+        # hack: allow the script to use client list command so that we can control when it aborts
+        r DEBUG set-disable-deny-scripts 1
+        r config set lua-time-limit 10
+        run_script_on_connection $rd {
+            local clients
+            redis.call('lpush',KEYS[1],'y');
+            while true do
+                clients = redis.call('client','list')
+                if string.find(clients, 'abortscript') ~= nil then break end
+            end
+            redis.call('lpush',KEYS[1],'z');
+            return clients
+            } 1 x
+
+        # wait for the script to be busy
+        after 200
+        catch {r ping} e
+        assert_match {BUSY*} $e
+
+        # run cause the script to abort, and run a command that could have processed
+        # unblocked clients (due to a bug)
+        $r3 hello 2 setname abortscript
+
+        # make sure the script completed before the pop was processed
+        assert_equal [$rd2 read] {x z}
+        assert_match {*abortscript*} [$rd read]
+
+        $rd close
+        $rd2 close
+        $r3 close
+        r DEBUG set-disable-deny-scripts 0
+    } {OK} {external:skip needs:debug}
 
     test {Timedout scripts that modified data can't be killed by SCRIPT KILL} {
         set rd [redis_deferring_client]
@@ -1233,9 +1465,10 @@ start_server {tags {"scripting needs:debug"}} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
             if {[lsearch $::denytags "resp3"] >= 0} {
                 if {$client_proto == 3} {continue}
-            } else {
-                r hello $client_proto
+            } elseif {$::force_resp3} {
+                if {$client_proto == 2} {continue}
             }
+            r hello $client_proto
             set extra "RESP$i/$client_proto"
             r readraw 1
 
@@ -1343,6 +1576,7 @@ start_server {tags {"scripting needs:debug"}} {
             }
 
             r readraw 0
+            r hello 2
         }
     }
 
@@ -1956,5 +2190,45 @@ start_server {tags {"scripting"}} {
             r eval {local status, res = pcall(function() return foo end); return 'status: ' .. tostring(status) .. ' result: ' .. res} 0
         ]
     }
-}
 
+    test "LUA test pcall with non string/integer arg" {
+        assert_error "ERR Lua redis lib command arguments must be strings or integers*" {
+            r eval {
+                local x={}
+                return redis.call("ping", x)
+            } 0
+        }
+        # run another command, to make sure the cached argv array survived
+        assert_equal [
+            r eval {
+                return redis.call("ping", "asdf")
+            } 0
+        ] {asdf}
+    }
+
+    test "LUA test trim string as expected" {
+        # this test may fail if we use different memory allocator than jemalloc, as libc for example may keep the old size on realloc.
+        if {[string match {*jemalloc*} [s mem_allocator]]} {
+            # test that when using LUA cache mechanism, if there is free space in the argv array, the string is trimmed.
+            r set foo [string repeat "a" 45]
+            set expected_memory [r memory usage foo]
+
+            # Jemalloc will allocate for the requested 63 bytes, 80 bytes.
+            # We can't test for larger sizes because LUA_CMD_OBJCACHE_MAX_LEN is 64.
+            # This value will be recycled to be used in the next argument.
+            # We use SETNX to avoid saving the string which will prevent us to reuse it in the next command.
+            r eval {
+                return redis.call("SETNX", "foo", string.rep("a", 63))
+            } 0
+
+            # Jemalloc will allocate for the request 45 bytes, 56 bytes.
+            # we can't test for smaller sizes because OBJ_ENCODING_EMBSTR_SIZE_LIMIT is 44 where no trim is done.
+            r eval {
+                return redis.call("SET", "foo", string.rep("a", 45))
+            } 0
+
+            # Assert the string has been trimmed and the 80 bytes from the previous alloc were not kept.
+            assert { [r memory usage foo] <= $expected_memory};
+        }
+    }
+}

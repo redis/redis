@@ -1,6 +1,6 @@
 {
     "HKEYS": {
-        "summary": "Get all the fields in a hash",
+        "summary": "Returns all fields in a hash.",
         "complexity": "O(N) where N is the size of the hash.",
         "group": "hash",
         "since": "2.0.0",
@@ -35,6 +35,14 @@
                 }
             }
         ],
+        "reply_schema": {
+            "type": "array",
+            "description": "List of fields in the hash, or an empty list when the key does not exist.",
+            "uniqueItems": true,
+            "items": {
+                "type": "string"
+            }
+        },
         "arguments": [
             {
                 "name": "key",

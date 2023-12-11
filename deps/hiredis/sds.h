@@ -35,9 +35,11 @@
 
 #define HI_SDS_MAX_PREALLOC (1024*1024)
 #ifdef _MSC_VER
-#define __attribute__(x)
 typedef long long ssize_t;
 #define SSIZE_MAX (LLONG_MAX >> 1)
+#ifndef __clang__
+#define __attribute__(x)
+#endif
 #endif
 
 #include <sys/types.h>

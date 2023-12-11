@@ -1,6 +1,6 @@
 {
     "LOAD": {
-        "summary": "Create a function with the given arguments (name, code, description)",
+        "summary": "Creates a library.",
         "complexity": "O(1) (considering compilation time is redundant)",
         "group": "scripting",
         "since": "7.0.0",
@@ -30,6 +30,10 @@
                 "name": "function-code",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The library name that was loaded",
+            "type": "string"
+        }
     }
 }

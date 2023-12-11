@@ -78,11 +78,13 @@ typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     aeFileProc *accept_handler;
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
+    int (*is_local)(connection *conn);
     int (*listen)(connListener *listener);
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     connection* (*conn_create)(void);
     connection* (*conn_create_accepted)(int fd, void *priv);
+    void (*shutdown)(struct connection *conn);
     void (*close)(struct connection *conn);
 
     /* connect & accept */
@@ -112,14 +114,15 @@ typedef struct ConnectionType {
 struct connection {
     ConnectionType *type;
     ConnectionState state;
+    int last_errno;
+    int fd;
     short int flags;
     short int refs;
-    int last_errno;
+    unsigned short int iovcnt;
     void *private_data;
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
-    int fd;
 };
 
 #define CONFIG_BINDADDR_MAX 16
@@ -240,6 +243,10 @@ static inline int connSetWriteHandlerWithBarrier(connection *conn, ConnectionCal
     return conn->type->set_write_handler(conn, func, barrier);
 }
 
+static inline void connShutdown(connection *conn) {
+    conn->type->shutdown(conn);
+}
+
 static inline void connClose(connection *conn) {
     conn->type->close(conn);
 }
@@ -310,6 +317,16 @@ static inline int connAddrSockName(connection *conn, char *ip, size_t ip_len, in
     return connAddr(conn, ip, ip_len, port, 0);
 }
 
+/* Test a connection is local or loopback.
+ * Return -1 on failure, 0 is not a local connection, 1 is a local connection */
+static inline int connIsLocal(connection *conn) {
+    if (conn && conn->type->is_local) {
+        return conn->type->is_local(conn);
+    }
+
+    return -1;
+}
+
 static inline int connGetState(connection *conn) {
     return conn->state;
 }
@@ -363,7 +380,7 @@ static inline sds connGetPeerCert(connection *conn) {
 }
 
 /* Initialize the redis connection framework */
-int connTypeInitialize();
+int connTypeInitialize(void);
 
 /* Register a connection type into redis connection framework */
 int connTypeRegister(ConnectionType *ct);
@@ -372,13 +389,13 @@ int connTypeRegister(ConnectionType *ct);
 ConnectionType *connectionByType(const char *typename);
 
 /* Fast path to get TCP connection type */
-ConnectionType *connectionTypeTcp();
+ConnectionType *connectionTypeTcp(void);
 
 /* Fast path to get TLS connection type */
-ConnectionType *connectionTypeTls();
+ConnectionType *connectionTypeTls(void);
 
 /* Fast path to get Unix connection type */
-ConnectionType *connectionTypeUnix();
+ConnectionType *connectionTypeUnix(void);
 
 /* Lookup the index of a connection type by type name, return -1 if not found */
 int connectionIndexByType(const char *typename);
@@ -402,7 +419,7 @@ static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfig
 }
 
 /* Walk all the connection types and cleanup them all if possible */
-void connTypeCleanupAll();
+void connTypeCleanupAll(void);
 
 /* Test all the connection type has pending data or not. */
 int connTypeHasPendingData(void);
@@ -425,8 +442,13 @@ static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {
 /* Get Listeners information, note that caller should free the non-empty string */
 sds getListensInfoString(sds info);
 
-int RedisRegisterConnectionTypeSocket();
-int RedisRegisterConnectionTypeUnix();
-int RedisRegisterConnectionTypeTLS();
+int RedisRegisterConnectionTypeSocket(void);
+int RedisRegisterConnectionTypeUnix(void);
+int RedisRegisterConnectionTypeTLS(void);
+
+/* Return 1 if connection is using TLS protocol, 0 if otherwise. */
+static inline int connIsTLS(connection *conn) {
+    return conn && conn->type == connectionTypeTls();
+}
 
 #endif  /* __REDIS_CONNECTION_H */

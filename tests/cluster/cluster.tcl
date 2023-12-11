@@ -8,8 +8,9 @@
 set ::cluster_master_nodes 0
 set ::cluster_replica_nodes 0
 
-# Returns a parsed CLUSTER NODES output as a list of dictionaries.
-proc get_cluster_nodes id {
+# Returns a parsed CLUSTER NODES output as a list of dictionaries. Optional status field
+# can be specified to only returns entries that match the provided status.
+proc get_cluster_nodes {id {status "*"}} {
     set lines [split [R $id cluster nodes] "\r\n"]
     set nodes {}
     foreach l $lines {
@@ -27,7 +28,9 @@ proc get_cluster_nodes id {
             linkstate [lindex $args 7] \
             slots [lrange $args 8 end] \
         ]
-        lappend nodes $node
+        if {[string match $status [lindex $args 7]]} {
+            lappend nodes $node
+        }
     }
     return $nodes
 }
@@ -216,73 +219,4 @@ proc are_hostnames_propagated {match_string} {
         }
     }
     return 1
-}
-
-# Returns a parsed CLUSTER LINKS output of the instance identified
-# by the given `id` as a list of dictionaries, with each dictionary
-# corresponds to a link.
-proc get_cluster_links id {
-    set lines [R $id cluster links]
-    set links {}
-    foreach l $lines {
-        if {$l eq {}} continue
-        assert_equal [llength $l] 12
-        assert_equal [lindex $l 0] "direction"
-        set dir [lindex $l 1]
-        assert_equal [lindex $l 2] "node"
-        set node [lindex $l 3]
-        assert_equal [lindex $l 4] "create-time"
-        set create_time [lindex $l 5]
-        assert_equal [lindex $l 6] "events"
-        set events [lindex $l 7]
-        assert_equal [lindex $l 8] "send-buffer-allocated"
-        set send_buffer_allocated [lindex $l 9]
-        assert_equal [lindex $l 10] "send-buffer-used"
-        set send_buffer_used [lindex $l 11]
-        set link [dict create \
-            dir $dir \
-            node $node \
-            create_time $create_time \
-            events $events \
-            send_buffer_allocated $send_buffer_allocated \
-            send_buffer_used $send_buffer_used \
-        ]
-        lappend links $link
-    }
-    return $links
-}
-
-proc get_links_with_peer {this_instance_id peer_nodename} {
-    set links [get_cluster_links $this_instance_id]
-    set links_with_peer {}
-    foreach l $links {
-        if {[dict get $l node] eq $peer_nodename} {
-            lappend links_with_peer $l
-        }
-    }
-    return $links_with_peer
-}
-
-# Return the entry in CLUSTER LINKS output by instance identified by `this_instance_id` that
-# corresponds to the link established toward a peer identified by `peer_nodename`
-proc get_link_to_peer {this_instance_id peer_nodename} {
-    set links_with_peer [get_links_with_peer $this_instance_id $peer_nodename]
-    foreach l $links_with_peer {
-        if {[dict get $l dir] eq "to"} {
-            return $l
-        }
-    }
-    return {}
-}
-
-# Return the entry in CLUSTER LINKS output by instance identified by `this_instance_id` that
-# corresponds to the link accepted from a peer identified by `peer_nodename`
-proc get_link_from_peer {this_instance_id peer_nodename} {
-    set links_with_peer [get_links_with_peer $this_instance_id $peer_nodename]
-    foreach l $links_with_peer {
-        if {[dict get $l dir] eq "from"} {
-            return $l
-        }
-    }
-    return {}
 }

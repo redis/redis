@@ -36,6 +36,7 @@
 #include "redismodule.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 ustime_t cached_time = 0;
@@ -44,6 +45,9 @@ ustime_t cached_time = 0;
 RedisModuleDict *loaded_event_log = NULL;
 /** stores all the keys on which we got 'module' keyspace notification **/
 RedisModuleDict *module_event_log = NULL;
+
+/** Counts how many deleted KSN we got on keys with a prefix of "count_dels_" **/
+static size_t dels = 0;
 
 static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(ctx);
@@ -63,7 +67,14 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
 
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
-
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+    if (strncmp(key_str, "count_dels_", 11) == 0 && strcmp(event, "del") == 0) {
+        if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MASTER) {
+            dels++;
+            RedisModule_Replicate(ctx, "keyspace.incr_dels", "");
+        }
+        return REDISMODULE_OK;
+    }
     if (cached_time) {
         RedisModule_Assert(cached_time == RedisModule_CachedMicroseconds());
         usleep(1);
@@ -118,6 +129,49 @@ static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, con
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!c", "missed");
     RedisModule_FreeCallReply(rep);
 
+    return REDISMODULE_OK;
+}
+
+static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+
+    size_t len = 0;
+    /* RedisModule_StringDMA could change the data format and cause the old robj to be freed.
+     * This code verifies that such format change will not cause any crashes.*/
+    char *data = RedisModule_StringDMA(redis_key, &len, REDISMODULE_READ);
+    int res = strncmp(data, "dummy", 5);
+    REDISMODULE_NOT_USED(res);
+
+    RedisModule_CloseKey(redis_key);
+
+    return REDISMODULE_OK;
+}
+
+static void KeySpace_PostNotificationStringFreePD(void *pd) {
+    RedisModule_FreeString(NULL, pd);
+}
+
+static void KeySpace_PostNotificationString(RedisModuleCtx *ctx, void *pd) {
+    REDISMODULE_NOT_USED(ctx);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!s", pd);
+    RedisModule_FreeCallReply(rep);
+}
+
+static int KeySpace_NotificationModuleStringPostNotificationJob(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    if (strncmp(key_str, "string1_", 8) != 0) {
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleString *new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
+    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
     return REDISMODULE_OK;
 }
 
@@ -249,13 +303,22 @@ static int cmdIncrCase3(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+static int cmdIncrDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    dels++;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static int cmdGetDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, dels);
+}
 
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-
     if (RedisModule_Init(ctx,"testkeyspace",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -290,6 +353,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationModuleString) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_STRING, KeySpace_NotificationModuleStringPostNotificationJob) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -320,6 +391,26 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "keyspace.incr_case3", cmdIncrCase3,
                                   "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.incr_dels", cmdIncrDels,
+                                  "write", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_dels", cmdGetDels,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (argc == 1) {
+        const char *ptr = RedisModule_StringPtrLen(argv[0], NULL);
+        if (!strcasecmp(ptr, "noload")) {
+            /* This is a hint that we return ERR at the last moment of OnLoad. */
+            RedisModule_FreeDict(ctx, loaded_event_log);
+            RedisModule_FreeDict(ctx, module_event_log);
+            return REDISMODULE_ERR;
+        }
     }
 
     return REDISMODULE_OK;

@@ -43,7 +43,7 @@
  * This should be the size of the buffer for sprintf with %f */
 #define MAX_DOUBLE_CHARS 400
 
-/* The maximum number of characters needed to for d2string call.
+/* The maximum number of characters needed to for d2string/fpconv_dtoa call.
  * Since it uses %g and not %f, some 40 chars should be enough. */
 #define MAX_D2STRING_CHARS 128
 
@@ -70,10 +70,12 @@ int ull2string(char *s, size_t len, unsigned long long value);
 int string2ll(const char *s, size_t slen, long long *value);
 int string2ull(const char *s, unsigned long long *value);
 int string2l(const char *s, size_t slen, long *value);
+int string2ul_base16_async_signal_safe(const char *src, size_t slen, unsigned long *result_output);
 int string2ld(const char *s, size_t slen, long double *dp);
 int string2d(const char *s, size_t slen, double *dp);
 int trimDoubleString(char *buf, size_t len);
 int d2string(char *buf, size_t len, double value);
+int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_digits);
 int ld2string(char *buf, size_t len, long double value, ld2string_mode mode);
 int double2ll(double d, long long *out);
 int yesnotoi(char *s);
@@ -86,7 +88,15 @@ int dirRemove(char *dname);
 int fileExist(char *filename);
 sds makePath(char *path, char *filename);
 int fsyncFileDir(const char *filename);
-
+int reclaimFilePageCache(int fd, size_t offset, size_t length);
+char *fgets_async_signal_safe(char *dest, int buff_size, int fd);
+int vsnprintf_async_signal_safe(char *to, size_t size, const char *format, va_list ap);
+#ifdef __GNUC__
+int snprintf_async_signal_safe(char *to, size_t n, const char *fmt, ...)
+    __attribute__((format(printf, 3, 4)));
+#else
+int snprintf_async_signal_safe(char *to, size_t n, const char *fmt, ...);
+#endif
 size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
 size_t redis_strlcat(char *dst, const char *src, size_t dsize);
 

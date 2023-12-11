@@ -129,15 +129,15 @@ start_server {tags {"modules"}} {
     test "Module key specs: No spec, only legacy triple - ACL" {
         # legacy triple didn't provide flags, so they require both read and write
         assert_equal "OK" [r ACL DRYRUN testuser kspec.none rw val1]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN testuser kspec.none read val1]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser kspec.none write val1]
+        assert_match {*has no permissions to access the 'read' key*} [r ACL DRYRUN testuser kspec.none read val1]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN testuser kspec.none write val1]
     }
 
     test "Module key specs: tworanges - ACL" {
         assert_equal "OK" [r ACL DRYRUN testuser kspec.tworanges read write]
         assert_equal "OK" [r ACL DRYRUN testuser kspec.tworanges rw rw]
-        assert_equal "This user has no permissions to access the 'read' key" [r ACL DRYRUN testuser kspec.tworanges rw read]
-        assert_equal "This user has no permissions to access the 'write' key" [r ACL DRYRUN testuser kspec.tworanges write rw]
+        assert_match {*has no permissions to access the 'read' key*} [r ACL DRYRUN testuser kspec.tworanges rw read]
+        assert_match {*has no permissions to access the 'write' key*} [r ACL DRYRUN testuser kspec.tworanges write rw]
     }
 
     foreach cmd {kspec.none kspec.tworanges} {
