@@ -146,7 +146,7 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
 
     # wait for termination
     wait_for_condition 100 50 {
-        ! [is_alive $srv]
+        ! [is_alive [dict get $srv pid]]
     } else {
         fail "rdb loading didn't fail"
     }
@@ -800,6 +800,34 @@ test {corrupt payload: fuzzer findings - valgrind fishy value warning} {
     }
 }
 
+test {corrupt payload: fuzzer findings - empty set listpack} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore _key 0 "\x14\x25\x25\x00\x00\x00\x00\x00\x02\x01\x82\x5F\x37\x03\x06\x01\x82\x5F\x35\x03\x82\x5F\x33\x03\x00\x01\x82\x5F\x31\x03\x82\x5F\x39\x03\x04\xA9\x08\x01\xFF\x0B\x00\xA3\x26\x49\xB4\x86\xB0\x0F\x41"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: fuzzer findings - set with duplicate elements causes sdiff to hang} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {r restore _key 0 "\x14\x25\x25\x00\x00\x00\x0A\x00\x06\x01\x82\x5F\x35\x03\x04\x01\x82\x5F\x31\x03\x82\x5F\x33\x03\x00\x01\x82\x5F\x39\x03\x82\x5F\x33\x03\x08\x01\x02\x01\xFF\x0B\x00\x31\xBE\x7D\x41\x01\x03\x5B\xEC" replace} err
+        assert_match "*Bad data format*" $err
+        r ping
+
+        # In the past, it generated a broken protocol and left the client hung in sdiff
+        r config set sanitize-dump-payload no
+        assert_equal {OK} [r restore _key 0 "\x14\x25\x25\x00\x00\x00\x0A\x00\x06\x01\x82\x5F\x35\x03\x04\x01\x82\x5F\x31\x03\x82\x5F\x33\x03\x00\x01\x82\x5F\x39\x03\x82\x5F\x33\x03\x08\x01\x02\x01\xFF\x0B\x00\x31\xBE\x7D\x41\x01\x03\x5B\xEC" replace]
+        assert_type set _key
+        assert_encoding listpack _key
+        assert_equal 10 [r scard _key]
+        assert_equal {0 2 4 6 8 _1 _3 _3 _5 _9} [lsort [r smembers _key]]
+        assert_equal {0 2 4 6 8 _1 _3 _5 _9} [lsort [r sdiff _key]]
+    }
+} {} {logreqres:skip} ;# This test violates {"uniqueItems": true}
 
 } ;# tags
 

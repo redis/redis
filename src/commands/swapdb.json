@@ -1,6 +1,6 @@
 {
     "SWAPDB": {
-        "summary": "Swaps two Redis databases",
+        "summary": "Swaps two Redis databases.",
         "complexity": "O(N) where N is the count of clients watching or blocking on keys from both databases.",
         "group": "server",
         "since": "4.0.0",
@@ -23,6 +23,9 @@
                 "name": "index2",
                 "type": "integer"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

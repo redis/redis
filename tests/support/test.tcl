@@ -24,9 +24,11 @@ proc assert_no_match {pattern value} {
     }
 }
 
-proc assert_match {pattern value {detail ""}} {
+proc assert_match {pattern value {detail ""} {context ""}} {
     if {![string match $pattern $value]} {
-        set context "(context: [info frame -1])"
+        if {$context eq ""} {
+            set context "(context: [info frame -1])"
+        }
         error "assertion:Expected '$value' to match '$pattern' $context $detail"
     }
 }
@@ -103,8 +105,21 @@ proc assert_type {type key} {
 }
 
 proc assert_refcount {ref key} {
+    if {[lsearch $::denytags "needs:debug"] >= 0} {
+        return
+    }
+
     set val [r object refcount $key]
     assert_equal $ref $val
+}
+
+proc assert_refcount_morethan {key ref} {
+    if {[lsearch $::denytags "needs:debug"] >= 0} {
+        return
+    }
+
+    set val [r object refcount $key]
+    assert_morethan $val $ref
 }
 
 # Wait for the specified condition to be true, with the specified number of
@@ -153,7 +168,9 @@ proc test {name code {okpattern undefined} {tags {}}} {
         send_data_packet $::test_server_fd skip $name
         return
     }
-
+    if {$::verbose > 1} {
+        puts "starting test $name"
+    }
     # abort if only_tests was set but test name is not included
     if {[llength $::only_tests] > 0 && ![search_pattern_list $name $::only_tests]} {
         incr ::num_skipped
@@ -185,11 +202,16 @@ proc test {name code {okpattern undefined} {tags {}}} {
             $r close
         }
     } else {
+        set servers {}
         foreach srv $::servers {
             set stdout [dict get $srv stdout]
             set fd [open $stdout "a+"]
             puts $fd "### Starting test $::cur_test"
             close $fd
+            lappend servers $stdout
+        }
+        if {$::verbose > 1} {
+            puts "### Starting test $::cur_test - with servers: $servers"
         }
     }
 

@@ -90,6 +90,7 @@ void listRotateHeadToTail(list *list);
 void listJoin(list *l, list *o);
 void listInitNode(listNode *node, void *value);
 void listLinkNodeHead(list *list, listNode *node);
+void listLinkNodeTail(list *list, listNode *node);
 void listUnlinkNode(list *list, listNode *node);
 
 /* Directions for iterators */

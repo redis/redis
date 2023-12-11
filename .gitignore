@@ -29,6 +29,7 @@ deps/lua/src/lua
 deps/lua/src/luac
 deps/lua/src/liblua.a
 deps/hdr_histogram/libhdrhistogram.a
+deps/fpconv/libfpconv.a
 tests/tls/*
 .make-*
 .prerequisites

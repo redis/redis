@@ -126,6 +126,14 @@ list *listAddNodeTail(list *list, void *value)
     if ((node = zmalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
+    listLinkNodeTail(list, node);
+    return list;
+}
+
+/*
+ * Add a node that has already been allocated to the tail of list
+ */
+void listLinkNodeTail(list *list, listNode *node) {
     if (list->len == 0) {
         list->head = list->tail = node;
         node->prev = node->next = NULL;
@@ -136,7 +144,6 @@ list *listAddNodeTail(list *list, void *value)
         list->tail = node;
     }
     list->len++;
-    return list;
 }
 
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {

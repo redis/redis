@@ -1,6 +1,6 @@
 {
     "KILL": {
-        "summary": "Kill the connection of a client",
+        "summary": "Terminates open connections.",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
         "since": "2.4.0",
@@ -122,14 +122,38 @@
                             {
                                 "token": "SKIPME",
                                 "name": "skipme",
-                                "display": "yes/no",
-                                "type": "string",
-                                "optional": true
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "yes",
+                                        "type": "pure-token",
+                                        "token": "YES"
+                                    },
+                                    {
+                                        "name": "no",
+                                        "type": "pure-token",
+                                        "token": "NO"
+                                    }
+                                ]
                             }
                         ]
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "when called in 3 argument format",
+                    "const": "OK"
+                },
+                {
+                    "description": "when called in filter/value format, the number of clients killed",
+                    "type": "integer",
+                    "minimum": 0
+                }
+            ]
+        }
     }
 }

@@ -1,49 +1,10 @@
-# Returns 1 if no node knows node_id, 0 if any node knows it.
-proc node_is_forgotten {node_id} {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        set cluster_nodes [R $j CLUSTER NODES]
-        if { [string match "*$node_id*" $cluster_nodes] } {
-            return 0
-        }
-    }
-    return 1
-}
-
-# Isolate a node from the cluster and give it a new nodeid
-proc isolate_node {id} {
-    set node_id [R $id CLUSTER MYID]
-    R $id CLUSTER RESET HARD
-    # Here we additionally test that CLUSTER FORGET propagates to all nodes.
-    set other_id [expr $id == 0 ? 1 : 0]
-    R $other_id CLUSTER FORGET $node_id
-    wait_for_condition 50 100 {
-        [node_is_forgotten $node_id]
-    } else {
-        fail "CLUSTER FORGET was not propagated to all nodes"
-    }
-}
-
-# Check if cluster's view of hostnames is consistent
-proc are_hostnames_propagated {match_string} {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        set cfg [R $j cluster slots]
-        foreach node $cfg {
-            for {set i 2} {$i < [llength $node]} {incr i} {
-                if {! [string match $match_string [lindex [lindex [lindex $node $i] 3] 1]] } {
-                    return 0
-                }
-            }
-        }
-    }
-    return 1
-}
-
 proc get_slot_field {slot_output shard_id node_id attrib_id} {
     return [lindex [lindex [lindex $slot_output $shard_id] $node_id] $attrib_id]
 }
 
-# Start a cluster with 3 masters and 4 replicas. 
-start_cluster 3 4 {tags {external:skip cluster}} {
+# Start a cluster with 3 masters and 4 replicas.
+# These tests rely on specific node ordering, so make sure no node fails over.
+start_cluster 3 4 {tags {external:skip cluster} overrides {cluster-replica-no-failover yes}} {
 test "Set cluster hostnames and verify they are propagated" {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         R $j config set cluster-announce-hostname "host-$j.com"
@@ -202,7 +163,9 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     R 0 DEBUG DROP-CLUSTER-PACKET-FILTER -1
     R 6 DEBUG DROP-CLUSTER-PACKET-FILTER -1
 
-    wait_for_condition 50 100 {
+    # This operation sometimes spikes to around 5 seconds to resolve the state,
+    # so it has a higher timeout. 
+    wait_for_condition 50 500 {
         [llength [R 6 CLUSTER SLOTS]] eq 3
     } else {
         fail "Node did not learn about the 2 shards it can talk to"
@@ -219,10 +182,6 @@ test "Test restart will keep hostname information" {
     
     # Store the hostname in the config
     R 0 config rewrite
-
-    # If the primary is slow to reboot it might get demoted, so prevent the replica
-    # from nominating itself.
-    R 3 config set cluster-replica-no-failover yes
 
     restart_server 0 true false
     set slot_result [R 0 CLUSTER SLOTS]

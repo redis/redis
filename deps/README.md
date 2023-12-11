@@ -61,12 +61,11 @@ cd deps/jemalloc
 Hiredis
 ---
 
-Hiredis uses the SDS string library, that must be the same version used inside Redis itself. Hiredis is also very critical for Sentinel. Historically Redis often used forked versions of hiredis in a way or the other. In order to upgrade it is advised to take a lot of care:
+Hiredis is used by Sentinel, `redis-cli` and `redis-benchmark`. Like Redis, uses the SDS string library, but not necessarily the same version. In order to avoid conflicts, this version has all SDS identifiers prefixed by `hi`.
 
-1. Check with diff if hiredis API changed and what impact it could have in Redis.
-2. Make sure that the SDS library inside Hiredis and inside Redis are compatible.
-3. After the upgrade, run the Redis Sentinel test.
-4. Check manually that redis-cli and redis-benchmark behave as expected, since we have no tests for CLI utilities currently.
+1. `git subtree pull --prefix deps/hiredis https://github.com/redis/hiredis.git <version-tag> --squash`<br>
+This should hopefully merge the local changes into the new version.
+2. Conflicts will arise (due to our changes) you'll need to resolve them and commit.
 
 Linenoise
 ---

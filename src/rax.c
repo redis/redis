@@ -32,11 +32,11 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <stdio.h>
 #include <errno.h>
 #include <math.h>
 #include "rax.h"
+#include "redisassert.h"
 
 #ifndef RAX_MALLOC_INCLUDE
 #define RAX_MALLOC_INCLUDE "rax_malloc.h"
@@ -352,7 +352,7 @@ raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode **
      * we don't need to do anything if there was already some padding to use. In
      * that case the final destination of the pointers will be the same, however
      * in our example there was no pre-existing padding, so we added one byte
-     * plus there bytes of padding. After the next memmove() things will look
+     * plus three bytes of padding. After the next memmove() things will look
      * like that:
      *
      * [HDR*][abde][....][Aptr][Bptr][....][Dptr][Eptr]|AUXP|

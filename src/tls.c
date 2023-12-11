@@ -44,6 +44,7 @@
 #include <openssl/decoder.h>
 #endif
 #include <sys/uio.h>
+#include <arpa/inet.h>
 
 #define REDIS_TLS_PROTO_TLSv1       (1<<0)
 #define REDIS_TLS_PROTO_TLSv1_1     (1<<1)
@@ -210,6 +211,7 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
     SSL_CTX *ctx = NULL;
 
     ctx = SSL_CTX_new(SSLv23_method());
+    if (!ctx) goto error;
 
     SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 
@@ -461,6 +463,7 @@ static connection *createTLSConnection(int client_side) {
     tls_connection *conn = zcalloc(sizeof(tls_connection));
     conn->c.type = &CT_TLS;
     conn->c.fd = -1;
+    conn->c.iovcnt = IOV_MAX;
     conn->ssl = SSL_new(ctx);
     return (connection *) conn;
 }
@@ -517,6 +520,7 @@ static connection *connCreateAcceptedTLS(int fd, void *priv) {
 }
 
 static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask);
+static void updateSSLEvent(tls_connection *conn);
 
 /* Process the return code received from OpenSSL>
  * Update the want parameter with expected I/O.
@@ -548,6 +552,47 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
     }
 
     return 0;
+}
+
+/* Handle OpenSSL return code following SSL_write() or SSL_read():
+ *
+ * - Updates conn state and last_errno.
+ * - If update_event is nonzero, calls updateSSLEvent() when necessary.
+ *
+ * Returns ret_value, or -1 on error or dropped connection.
+ */
+static int updateStateAfterSSLIO(tls_connection *conn, int ret_value, int update_event) {
+    /* If system call was interrupted, there's no need to go through the full
+     * OpenSSL error handling and just report this for the caller to retry the
+     * operation.
+     */
+    if (errno == EINTR) {
+        conn->c.last_errno = EINTR;
+        return -1;
+    }
+
+    if (ret_value <= 0) {
+        WantIOType want = 0;
+        int ssl_err;
+        if (!(ssl_err = handleSSLReturnCode(conn, ret_value, &want))) {
+            if (want == WANT_READ) conn->flags |= TLS_CONN_FLAG_WRITE_WANT_READ;
+            if (want == WANT_WRITE) conn->flags |= TLS_CONN_FLAG_READ_WANT_WRITE;
+            if (update_event) updateSSLEvent(conn);
+            errno = EAGAIN;
+            return -1;
+        } else {
+            if (ssl_err == SSL_ERROR_ZERO_RETURN ||
+                ((ssl_err == SSL_ERROR_SYSCALL && !errno))) {
+                conn->c.state = CONN_STATE_CLOSED;
+                return -1;
+            } else {
+                conn->c.state = CONN_STATE_ERROR;
+                return -1;
+            }
+        }
+    }
+
+    return ret_value;
 }
 
 static void registerSSLEvent(tls_connection *conn, WantIOType want) {
@@ -744,8 +789,25 @@ static int connTLSAddr(connection *conn, char *ip, size_t ip_len, int *port, int
     return anetFdToString(conn->fd, ip, ip_len, port, remote);
 }
 
+static int connTLSIsLocal(connection *conn) {
+    return connectionTypeTcp()->is_local(conn);
+}
+
 static int connTLSListen(connListener *listener) {
     return listenToPort(listener);
+}
+
+static void connTLSShutdown(connection *conn_) {
+    tls_connection *conn = (tls_connection *) conn_;
+
+    if (conn->ssl) {
+        if (conn->c.state == CONN_STATE_CONNECTED)
+            SSL_shutdown(conn->ssl);
+        SSL_free(conn->ssl);
+        conn->ssl = NULL;
+    }
+
+    connectionTypeTcp()->shutdown(conn_);
 }
 
 static void connTLSClose(connection *conn_) {
@@ -802,9 +864,15 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
 
 static int connTLSConnect(connection *conn_, const char *addr, int port, const char *src_addr, ConnectionCallbackFunc connect_handler) {
     tls_connection *conn = (tls_connection *) conn_;
+    unsigned char addr_buf[sizeof(struct in6_addr)];
 
     if (conn->c.state != CONN_STATE_NONE) return C_ERR;
     ERR_clear_error();
+
+    /* Check whether addr is an IP address, if not, use the value for Server Name Indication */
+    if (inet_pton(AF_INET, addr, addr_buf) != 1 && inet_pton(AF_INET6, addr, addr_buf) != 1) {
+        SSL_set_tlsext_host_name(conn->ssl, addr);
+    }
 
     /* Initiate Socket connection first */
     if (connectionTypeTcp()->connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
@@ -817,39 +885,12 @@ static int connTLSConnect(connection *conn_, const char *addr, int port, const c
 
 static int connTLSWrite(connection *conn_, const void *data, size_t data_len) {
     tls_connection *conn = (tls_connection *) conn_;
-    int ret, ssl_err;
+    int ret;
 
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_write(conn->ssl, data, data_len);
-    /* If system call was interrupted, there's no need to go through the full
-     * OpenSSL error handling and just report this for the caller to retry the
-     * operation.
-     */
-    if (errno == EINTR) {
-        conn->c.last_errno = EINTR;
-        return -1;
-    }
-    if (ret <= 0) {
-        WantIOType want = 0;
-        if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {
-            if (want == WANT_READ) conn->flags |= TLS_CONN_FLAG_WRITE_WANT_READ;
-            updateSSLEvent(conn);
-            errno = EAGAIN;
-            return -1;
-        } else {
-            if (ssl_err == SSL_ERROR_ZERO_RETURN ||
-                    ((ssl_err == SSL_ERROR_SYSCALL && !errno))) {
-                conn->c.state = CONN_STATE_CLOSED;
-                return -1;
-            } else {
-                conn->c.state = CONN_STATE_ERROR;
-                return -1;
-            }
-        }
-    }
-
-    return ret;
+    return updateStateAfterSSLIO(conn, ret, 1);
 }
 
 static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt) {
@@ -892,40 +933,11 @@ static int connTLSWritev(connection *conn_, const struct iovec *iov, int iovcnt)
 static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     tls_connection *conn = (tls_connection *) conn_;
     int ret;
-    int ssl_err;
 
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, buf_len);
-    /* If system call was interrupted, there's no need to go through the full
-     * OpenSSL error handling and just report this for the caller to retry the
-     * operation.
-     */
-    if (errno == EINTR) {
-        conn->c.last_errno = EINTR;
-        return -1;
-    }
-    if (ret <= 0) {
-        WantIOType want = 0;
-        if (!(ssl_err = handleSSLReturnCode(conn, ret, &want))) {
-            if (want == WANT_WRITE) conn->flags |= TLS_CONN_FLAG_READ_WANT_WRITE;
-            updateSSLEvent(conn);
-
-            errno = EAGAIN;
-            return -1;
-        } else {
-            if (ssl_err == SSL_ERROR_ZERO_RETURN ||
-                    ((ssl_err == SSL_ERROR_SYSCALL) && !errno)) {
-                conn->c.state = CONN_STATE_CLOSED;
-                return 0;
-            } else {
-                conn->c.state = CONN_STATE_ERROR;
-                return -1;
-            }
-        }
-    }
-
-    return ret;
+    return updateStateAfterSSLIO(conn, ret, 1);
 }
 
 static const char *connTLSGetLastError(connection *conn_) {
@@ -992,7 +1004,9 @@ static ssize_t connTLSSyncWrite(connection *conn_, char *ptr, ssize_t size, long
 
     setBlockingTimeout(conn, timeout);
     SSL_clear_mode(conn->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
+    ERR_clear_error();
     int ret = SSL_write(conn->ssl, ptr, size);
+    ret = updateStateAfterSSLIO(conn, ret, 0);
     SSL_set_mode(conn->ssl, SSL_MODE_ENABLE_PARTIAL_WRITE);
     unsetBlockingTimeout(conn);
 
@@ -1003,7 +1017,9 @@ static ssize_t connTLSSyncRead(connection *conn_, char *ptr, ssize_t size, long 
     tls_connection *conn = (tls_connection *) conn_;
 
     setBlockingTimeout(conn, timeout);
+    ERR_clear_error();
     int ret = SSL_read(conn->ssl, ptr, size);
+    ret = updateStateAfterSSLIO(conn, ret, 0);
     unsetBlockingTimeout(conn);
 
     return ret;
@@ -1019,7 +1035,10 @@ static ssize_t connTLSSyncReadLine(connection *conn_, char *ptr, ssize_t size, l
     while(size) {
         char c;
 
-        if (SSL_read(conn->ssl,&c,1) <= 0) {
+        ERR_clear_error();
+        int ret = SSL_read(conn->ssl, &c, 1);
+        ret = updateStateAfterSSLIO(conn, ret, 0);
+        if (ret <= 0) {
             nread = -1;
             goto exit;
         }
@@ -1045,13 +1064,13 @@ static const char *connTLSGetType(connection *conn_) {
     return CONN_TYPE_TLS;
 }
 
-static int tlsHasPendingData() {
+static int tlsHasPendingData(void) {
     if (!pending_list)
         return 0;
     return listLength(pending_list) > 0;
 }
 
-static int tlsProcessPendingData() {
+static int tlsProcessPendingData(void) {
     listIter li;
     listNode *ln;
 
@@ -1101,11 +1120,13 @@ static ConnectionType CT_TLS = {
     .ae_handler = tlsEventHandler,
     .accept_handler = tlsAcceptHandler,
     .addr = connTLSAddr,
+    .is_local = connTLSIsLocal,
     .listen = connTLSListen,
 
-    /* create/close connection */
+    /* create/shutdown/close connection */
     .conn_create = connCreateTLS,
     .conn_create_accepted = connCreateAcceptedTLS,
+    .shutdown = connTLSShutdown,
     .close = connTLSClose,
 
     /* connect & accept */
@@ -1132,13 +1153,13 @@ static ConnectionType CT_TLS = {
     .get_peer_cert = connTLSGetPeerCert,
 };
 
-int RedisRegisterConnectionTypeTLS() {
+int RedisRegisterConnectionTypeTLS(void) {
     return connTypeRegister(&CT_TLS);
 }
 
 #else   /* USE_OPENSSL */
 
-int RedisRegisterConnectionTypeTLS() {
+int RedisRegisterConnectionTypeTLS(void) {
     serverLog(LL_VERBOSE, "Connection type %s not builtin", CONN_TYPE_TLS);
     return C_ERR;
 }
