@@ -261,7 +261,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         } else {
             clients = dictGetVal(de);
         }
-        serverAssert(dictAdd(clients, c, NULL) != NULL);
+        serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
     }
     /* Notify the client */
     addReplyPubsubSubscribed(c,channel,type);
@@ -355,7 +355,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
         } else {
             clients = dictGetVal(de);
         }
-        serverAssert(dictAdd(clients, c, NULL) != NULL);
+        serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
     }
     /* Notify the client */
     addReplyPubsubPatSubscribed(c,pattern);
