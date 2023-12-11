@@ -2627,6 +2627,7 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+/* When adding fields, please check the initTempDb related logic. */
 void initDbState(redisDb *db){
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         db->sub_dict[subdict].non_empty_slots = 0;

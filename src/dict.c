@@ -242,7 +242,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     signed char new_ht_size_exp = _dictNextExp(size);
 
     /* Detect overflows */
-    size_t newsize = 1ul<<new_ht_size_exp;
+    size_t newsize = DICTHT_SIZE(new_ht_size_exp);
     if (newsize < size || newsize * sizeof(dictEntry*) < newsize)
         return DICT_ERR;
 
@@ -260,23 +260,29 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
 
     new_ht_used = 0;
 
-    /* Is this the first initialization? If so it's not really a rehashing
-     * we just set the first hash table so that it can accept keys. */
-    if (d->ht_table[0] == NULL) {
-        if (d->type->rehashingStarted) d->type->rehashingStarted(d);
-        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
-        d->ht_size_exp[0] = new_ht_size_exp;
-        d->ht_used[0] = new_ht_used;
-        d->ht_table[0] = new_ht_table;
-        return DICT_OK;
-    }
-
-    /* Prepare a second hash table for incremental rehashing */
+    /* Prepare a second hash table for incremental rehashing.
+     * We do this even for the first initialization, so that we can trigger the
+     * rehashingStarted more conveniently, we will clean it up right after. */
     d->ht_size_exp[1] = new_ht_size_exp;
     d->ht_used[1] = new_ht_used;
     d->ht_table[1] = new_ht_table;
     d->rehashidx = 0;
     if (d->type->rehashingStarted) d->type->rehashingStarted(d);
+
+    /* Is this the first initialization or is the first hash table empty? If so
+     * it's not really a rehashing, we can just set the first hash table so that
+     * it can accept keys. */
+    if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
+        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+        if (d->ht_table[0]) zfree(d->ht_table[0]);
+        d->ht_size_exp[0] = new_ht_size_exp;
+        d->ht_used[0] = new_ht_used;
+        d->ht_table[0] = new_ht_table;
+        _dictReset(d, 1);
+        d->rehashidx = -1;
+        return DICT_OK;
+    }
+
     return DICT_OK;
 }
 
@@ -1514,12 +1520,6 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
 /* Provides the old and new ht size for a given dictionary during rehashing. This method
  * should only be invoked during initialization/rehashing. */
 void dictRehashingInfo(dict *d, unsigned long long *from_size, unsigned long long *to_size) {
-    /* Expansion during initialization. */
-    if (d->ht_size_exp[0] == -1) {
-        *from_size = DICTHT_SIZE(d->ht_size_exp[0]);
-        *to_size = DICTHT_SIZE(DICT_HT_INITIAL_EXP);
-        return;
-    }
     /* Invalid method usage if rehashing isn't ongoing. */
     assert(dictIsRehashing(d));
     *from_size = DICTHT_SIZE(d->ht_size_exp[0]);

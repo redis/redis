@@ -229,7 +229,7 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *pri
 unsigned long dictScanDefrag(dict *d, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
 dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
-void dictRehashingInfo(dict *d, unsigned long long *from, unsigned long long *to);
+void dictRehashingInfo(dict *d, unsigned long long *from_size, unsigned long long *to_size);
 
 size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full);
 dictStats* dictGetStatsHt(dict *d, int htidx, int full);
