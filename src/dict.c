@@ -58,7 +58,6 @@
  * between the number of elements and the buckets > dict_force_resize_ratio. */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
-static unsigned int dict_force_shrink_ratio = 2;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -1396,9 +1395,9 @@ unsigned long dictScanDefrag(dict *d,
 /* Because we may need to allocate huge memory chunk at once when dict
  * expands, we will check this allocation is allowed or not if the dict
  * type has expandAllowed member function. */
-static int dictTypeReHashAllowed(dict *d) {
-    if (d->type->reHashAllowed == NULL) return 1;
-    return d->type->reHashAllowed(
+static int dictTypeResizeAllowed(dict *d) {
+    if (d->type->resizeAllowed == NULL) return 1;
+    return d->type->resizeAllowed(
                     DICTHT_SIZE(_dictNextExp(d->ht_used[0] + 1)) * sizeof(dictEntry*),
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
@@ -1421,24 +1420,31 @@ static int _dictExpandIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) > dict_force_resize_ratio))
     {
-        if (!dictTypeReHashAllowed(d))
+        if (!dictTypeResizeAllowed(d))
             return DICT_OK;
         return dictExpand(d, d->ht_used[0] + 1);
     }
     return DICT_OK;
 }
 
-static int _dictShrinkIfNeeded(dict *d) {
+static int _dictShrinkIfNeeded(dict *d) 
+{
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
     
-    if (DICTHT_SIZE(d->ht_size_exp[0]) > DICT_HT_INITIAL_SIZE && 
-        ((dict_can_resize == DICT_RESIZE_ENABLE &&  
-          d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < HASHTABLE_MIN_FILL) ||
-         (dict_can_resize != DICT_RESIZE_FORBID &&
-          d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_shrink_ratio))) 
+    /* If the size of hash table is DICT_HT_INITIAL_SIZE, don't shrink it. */
+    if (DICTHT_SIZE(d->ht_size_exp[0]) == DICT_HT_INITIAL_SIZE) return DICT_OK;
+
+    /* If we reached the 1:10 ratio, and we are allowed to resize the hash
+     * table (global setting) or we should avoid it but the ratio between
+     * elements/buckets is below the lower threshold, we shrink to
+     * the next power of 2 greater than elements. */
+    if ((dict_can_resize == DICT_RESIZE_ENABLE &&  
+         d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < HASHTABLE_MIN_FILL) ||
+        (dict_can_resize != DICT_RESIZE_FORBID &&
+         d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < HASHTABLE_MIN_FILL / dict_force_resize_ratio))
     {
-        if (!dictTypeReHashAllowed(d))
+        if (!dictTypeResizeAllowed(d))
             return DICT_OK;
         return dictExpand(d, d->ht_used[0]);
     }

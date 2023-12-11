@@ -411,7 +411,7 @@ uint64_t dictEncObjHash(const void *key) {
  * provisionally if used memory will be over maxmemory after dict expands,
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
-int dictRehashAllowed(size_t moreMem, double usedRatio) {
+int dictResizeAllowed(size_t moreMem, double usedRatio) {
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
     } else {
@@ -521,7 +521,7 @@ dictType dbDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
-    dictRehashAllowed,          /* allow to rehash */
+    dictResizeAllowed,          /* allow to rehash */
     dictRehashingStarted,
     dictRehashingCompleted,
 };
@@ -534,7 +534,7 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictRehashAllowed,          /* allow to rehash */
+    dictResizeAllowed,          /* allow to rehash */
     dictRehashingStartedForExpires,
     dictRehashingCompletedForExpires,
 };
