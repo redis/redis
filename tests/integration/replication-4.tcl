@@ -1,5 +1,5 @@
-start_server {tags {"repl network external:skip"}} {
-    start_server {} {
+start_server {tags {"repl network external:skip singledb:skip"} overrides {save {}}} {
+    start_server { overrides {save {}}} {
 
         set master [srv -1 client]
         set master_host [srv -1 host]
@@ -12,12 +12,26 @@ start_server {tags {"repl network external:skip"}} {
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
-            after 1000
-            s 0 role
-        } {slave}
+            wait_for_condition 50 100 {
+                [s 0 role] eq {slave}
+            } else {
+                fail "Replication not started."
+            }
+        }
 
         test {Test replication with parallel clients writing in different DBs} {
+            # Gives the random workloads a chance to add some complex commands.
             after 5000
+
+            # Make sure all parallel clients have written data.
+            wait_for_condition 1000 50 {
+                [$master select 9] == {OK} && [$master dbsize] > 0 &&
+                [$master select 11] == {OK} && [$master dbsize] > 0 &&
+                [$master select 12] == {OK} && [$master dbsize] > 0
+            } else {
+                fail "Parallel clients are not writing in different DBs."
+            }
+
             stop_bg_complex_data $load_handle0
             stop_bg_complex_data $load_handle1
             stop_bg_complex_data $load_handle2
@@ -34,7 +48,6 @@ start_server {tags {"repl network external:skip"}} {
                 close $fd
                 fail "Master - Replica inconsistency, Run diff -u against /tmp/repldump*.txt for more info"
             }
-            assert {[$master dbsize] > 0}
         }
     }
 }
@@ -91,7 +104,7 @@ start_server {tags {"repl external:skip"}} {
             assert_equal OK [$master set foo 123]
             assert_equal OK [$master eval "return redis.call('set','foo',12345)" 0]
             # Killing a slave to make it become a lagged slave.
-            exec kill -SIGSTOP [srv 0 pid]
+            pause_process [srv 0 pid]
             # Waiting for slave kill.
             wait_for_condition 100 100 {
                 [catch {$master set foo 123}] != 0
@@ -100,7 +113,7 @@ start_server {tags {"repl external:skip"}} {
             }
             assert_error "*NOREPLICAS*" {$master set foo 123}
             assert_error "*NOREPLICAS*" {$master eval "return redis.call('set','foo',12345)" 0}
-            exec kill -SIGCONT [srv 0 pid]
+            resume_process [srv 0 pid]
         }
     }
 }
@@ -133,12 +146,12 @@ start_server {tags {"repl external:skip"}} {
             $master debug set-active-expire 0
             $master set k 1 px $px_ms
             wait_for_ofs_sync $master $slave
-            exec kill -SIGSTOP [srv 0 pid]
+            pause_process [srv 0 pid]
             $master incr k
             after [expr $px_ms + 1]
             # Stopping the replica for one second to makes sure the INCR arrives
             # to the replica after the key is logically expired.
-            exec kill -SIGCONT [srv 0 pid]
+            resume_process [srv 0 pid]
             wait_for_ofs_sync $master $slave
             # Check that k is logically expired but is present in the replica.
             set res [$slave exists k]
@@ -189,6 +202,30 @@ start_server {tags {"repl external:skip"}} {
                 incr retry -1
             }
             assert {[$master dbsize] > 0}
+        }
+
+        test {spopwithcount rewrite srem command} {
+            $master del myset
+
+            set content {}
+            for {set j 0} {$j < 4000} {} {
+                lappend content [incr j]
+            }
+            $master sadd myset {*}$content
+            $master spop myset 1023
+            $master spop myset 1024
+            $master spop myset 1025
+
+            assert_match 928 [$master scard myset]
+            assert_match {*calls=3,*} [cmdrstat spop $master]
+
+            wait_for_condition 50 100 {
+                 [status $slave master_repl_offset] == [status $master master_repl_offset]
+            } else {
+                fail "SREM replication inconsistency."
+            }
+            assert_match {*calls=4,*} [cmdrstat srem $slave]
+            assert_match 928 [$slave scard myset]
         }
 
         test {Replication of SPOP command -- alsoPropagate() API} {

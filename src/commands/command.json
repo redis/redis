@@ -1,6 +1,6 @@
 {
     "COMMAND": {
-        "summary": "Get array of Redis command details",
+        "summary": "Returns detailed information about all commands.",
         "complexity": "O(N) where N is the total number of Redis commands",
         "group": "server",
         "since": "2.8.13",

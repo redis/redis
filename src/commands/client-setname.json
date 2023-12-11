@@ -1,6 +1,6 @@
 {
     "SETNAME": {
-        "summary": "Set the current connection name",
+        "summary": "Sets the connection name.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "2.6.9",
@@ -13,6 +13,10 @@
             "STALE",
             "SENTINEL"
         ],
+        "command_tips": [
+          "REQUEST_POLICY:ALL_NODES",
+          "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],        
         "acl_categories": [
             "CONNECTION"
         ],
@@ -21,6 +25,9 @@
                 "name": "connection-name",
                 "type": "string"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

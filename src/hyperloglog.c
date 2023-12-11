@@ -144,7 +144,7 @@
  * In the example the sparse representation used just 7 bytes instead
  * of 12k in order to represent the HLL registers. In general for low
  * cardinality there is a big win in terms of space efficiency, traded
- * with CPU time since the sparse representation is slower to access:
+ * with CPU time since the sparse representation is slower to access.
  *
  * The following table shows average cardinality vs bytes used, 100
  * samples per cardinality (when the set was not representable because
@@ -676,7 +676,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
         newlen += min(newlen, 300); /* Greediness: double 'newlen' if it is smaller than 300, or add 300 to it when it exceeds 300 */
         if (newlen > server.hll_sparse_max_bytes)
             newlen = server.hll_sparse_max_bytes;
-        o->ptr = sdsResize(o->ptr, newlen);
+        o->ptr = sdsResize(o->ptr, newlen, 1);
     }
 
     /* Step 1: we need to locate the opcode we need to modify to check
@@ -1220,10 +1220,10 @@ void pfaddCommand(client *c) {
     }
     hdr = o->ptr;
     if (updated) {
+        HLL_INVALIDATE_CACHE(hdr);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
         server.dirty += updated;
-        HLL_INVALIDATE_CACHE(hdr);
     }
     addReply(c, updated ? shared.cone : shared.czero);
 }

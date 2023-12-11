@@ -1,6 +1,6 @@
 {
     "PSYNC": {
-        "summary": "Internal command used for replication",
+        "summary": "An internal command used in replication.",
         "group": "server",
         "since": "2.8.0",
         "arity": -3,

@@ -1,6 +1,6 @@
 {
     "RESETSTAT": {
-        "summary": "Reset the stats returned by INFO",
+        "summary": "Resets the server's statistics.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.0.0",
@@ -12,6 +12,13 @@
             "NOSCRIPT",
             "LOADING",
             "STALE"
-        ]
+        ],
+        "command_tips": [
+          "REQUEST_POLICY:ALL_NODES",
+          "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

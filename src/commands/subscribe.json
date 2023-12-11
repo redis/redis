@@ -1,6 +1,6 @@
 {
     "SUBSCRIBE": {
-        "summary": "Listen for messages published to the given channels",
+        "summary": "Listens for messages published to channels.",
         "complexity": "O(N) where N is the number of channels to subscribe to.",
         "group": "pubsub",
         "since": "2.0.0",

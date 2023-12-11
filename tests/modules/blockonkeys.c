@@ -9,6 +9,11 @@
 
 #define LIST_SIZE 1024
 
+/* The FSL (Fixed-Size List) data type is a low-budget imitation of the
+ * native Redis list, in order to test list-like commands implemented
+ * by a module.
+ * Examples: FSL.PUSH, FSL.BPOP, etc. */
+
 typedef struct {
     long long list[LIST_SIZE];
     long long length;
@@ -16,7 +21,7 @@ typedef struct {
 
 static RedisModuleType *fsltype = NULL;
 
-fsl_t *fsl_type_create() {
+fsl_t *fsl_type_create(void) {
     fsl_t *o;
     o = RedisModule_Alloc(sizeof(*o));
     o->length = 0;
@@ -59,31 +64,42 @@ void fsl_free(void *value) {
 
 /* ========================== helper methods ======================= */
 
+/* Wrapper to the boilerplate code of opening a key, checking its type, etc.
+ * Returns 0 if `keyname` exists in the dataset, but it's of the wrong type (i.e. not FSL) */
 int get_fsl(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode, int create, fsl_t **fsl, int reply_on_failure) {
+    *fsl = NULL;
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, mode);
 
-    int type = RedisModule_KeyType(key);
-    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(key) != fsltype) {
-        RedisModule_CloseKey(key);
-        if (reply_on_failure)
-            RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
-        RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
-        RedisModule_FreeCallReply(reply);
-        return 0;
+    if (RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_EMPTY) {
+        /* Key exists */
+        if (RedisModule_ModuleTypeGetType(key) != fsltype) {
+            /* Key is not FSL */
+            RedisModule_CloseKey(key);
+            if (reply_on_failure)
+                RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+            RedisModuleCallReply *reply = RedisModule_Call(ctx, "INCR", "c", "fsl_wrong_type");
+            RedisModule_FreeCallReply(reply);
+            return 0;
+        }
+
+        *fsl = RedisModule_ModuleTypeGetValue(key);
+        if (*fsl && !(*fsl)->length && mode & REDISMODULE_WRITE) {
+            /* Key exists, but it's logically empty */
+            if (create) {
+                create = 0; /* No need to create, key exists in its basic state */
+            } else {
+                RedisModule_DeleteKey(key);
+                *fsl = NULL;
+            }
+        } else {
+            /* Key exists, and has elements in it - no need to create anything */
+            create = 0;
+        }
     }
 
-    /* Create an empty value object if the key is currently empty. */
-    if (type == REDISMODULE_KEYTYPE_EMPTY) {
-        if (!create) {
-            /* Key is empty but we cannot create */
-            RedisModule_CloseKey(key);
-            *fsl = NULL;
-            return 1;
-        }
+    if (create) {
         *fsl = fsl_type_create();
         RedisModule_ModuleTypeSetValue(key, fsltype, *fsl);
-    } else {
-        *fsl = RedisModule_ModuleTypeGetValue(key);
     }
 
     RedisModule_CloseKey(key);
@@ -115,7 +131,70 @@ int fsl_push(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     fsl->list[fsl->length++] = ele;
     RedisModule_SignalKeyAsReady(ctx, argv[1]);
 
+    RedisModule_ReplicateVerbatim(ctx);
+
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+typedef struct {
+    RedisModuleString *keyname;
+    long long ele;
+} timer_data_t;
+
+static void timer_callback(RedisModuleCtx *ctx, void *data)
+{
+    timer_data_t *td = data;
+
+    fsl_t *fsl;
+    if (!get_fsl(ctx, td->keyname, REDISMODULE_WRITE, 1, &fsl, 1))
+        return;
+
+    if (fsl->length == LIST_SIZE)
+        return; /* list is full */
+
+    if (fsl->length != 0 && fsl->list[fsl->length-1] >= td->ele)
+        return; /* new element has to be greater than the head element */
+
+    fsl->list[fsl->length++] = td->ele;
+    RedisModule_SignalKeyAsReady(ctx, td->keyname);
+
+    RedisModule_Replicate(ctx, "FSL.PUSH", "sl", td->keyname, td->ele);
+
+    RedisModule_FreeString(ctx, td->keyname);
+    RedisModule_Free(td);
+}
+
+/* FSL.PUSHTIMER <key> <int> <period-in-ms> - Push the number 9000 to the fixed-size list (to the right).
+ * It must be greater than the element in the head of the list. */
+int fsl_pushtimer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 4)
+        return RedisModule_WrongArity(ctx);
+
+    long long ele;
+    if (RedisModule_StringToLongLong(argv[2],&ele) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx,"ERR invalid integer");
+
+    long long period;
+    if (RedisModule_StringToLongLong(argv[3],&period) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx,"ERR invalid period");
+
+    fsl_t *fsl;
+    if (!get_fsl(ctx, argv[1], REDISMODULE_WRITE, 1, &fsl, 1))
+        return REDISMODULE_OK;
+
+    if (fsl->length == LIST_SIZE)
+        return RedisModule_ReplyWithError(ctx,"ERR list is full");
+
+    timer_data_t *td = RedisModule_Alloc(sizeof(*td));
+    td->keyname = argv[1];
+    RedisModule_RetainString(ctx, td->keyname);
+    td->ele = ele;
+
+    RedisModuleTimerID id = RedisModule_CreateTimer(ctx, period, timer_callback, td);
+    RedisModule_ReplyWithLongLong(ctx, id);
+
+    return REDISMODULE_OK;
 }
 
 int bpop_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -124,10 +203,14 @@ int bpop_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModuleString *keyname = RedisModule_GetBlockedClientReadyKey(ctx);
 
     fsl_t *fsl;
-    if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0) || !fsl)
+    if (!get_fsl(ctx, keyname, REDISMODULE_WRITE, 0, &fsl, 0) || !fsl)
         return REDISMODULE_ERR;
 
+    RedisModule_Assert(fsl->length);
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+
+    /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+    RedisModule_ReplicateVerbatim(ctx);
     return REDISMODULE_OK;
 }
 
@@ -155,14 +238,17 @@ int fsl_bpop(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
 
     fsl_t *fsl;
-    if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
+    if (!get_fsl(ctx, argv[1], REDISMODULE_WRITE, 0, &fsl, 1))
         return REDISMODULE_OK;
 
     if (!fsl) {
         RedisModule_BlockClientOnKeys(ctx, bpop_reply_callback, to_cb ? bpop_timeout_callback : NULL,
                                       NULL, timeout, &argv[1], 1, NULL);
     } else {
+        RedisModule_Assert(fsl->length);
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     }
 
     return REDISMODULE_OK;
@@ -175,13 +261,16 @@ int bpopgt_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     long long *pgt = RedisModule_GetBlockedClientPrivateData(ctx);
 
     fsl_t *fsl;
-    if (!get_fsl(ctx, keyname, REDISMODULE_READ, 0, &fsl, 0) || !fsl)
+    if (!get_fsl(ctx, keyname, REDISMODULE_WRITE, 0, &fsl, 0) || !fsl)
         return RedisModule_ReplyWithError(ctx,"UNBLOCKED key no longer exists");
 
     if (fsl->list[fsl->length-1] <= *pgt)
         return REDISMODULE_ERR;
 
+    RedisModule_Assert(fsl->length);
     RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+    /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+    RedisModule_ReplicateVerbatim(ctx);
     return REDISMODULE_OK;
 }
 
@@ -211,7 +300,7 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
 
     fsl_t *fsl;
-    if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &fsl, 1))
+    if (!get_fsl(ctx, argv[1], REDISMODULE_WRITE, 0, &fsl, 1))
         return REDISMODULE_OK;
 
     if (!fsl)
@@ -226,7 +315,10 @@ int fsl_bpopgt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             bpopgt_free_privdata, timeout, &argv[1], 1, pgt,
             REDISMODULE_BLOCK_UNBLOCK_DELETED);
     } else {
+        RedisModule_Assert(fsl->length);
         RedisModule_ReplyWithLongLong(ctx, fsl->list[--fsl->length]);
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     }
 
     return REDISMODULE_OK;
@@ -239,16 +331,19 @@ int bpoppush_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     RedisModuleString *dst_keyname = RedisModule_GetBlockedClientPrivateData(ctx);
 
     fsl_t *src;
-    if (!get_fsl(ctx, src_keyname, REDISMODULE_READ, 0, &src, 0) || !src)
+    if (!get_fsl(ctx, src_keyname, REDISMODULE_WRITE, 0, &src, 0) || !src)
         return REDISMODULE_ERR;
 
     fsl_t *dst;
     if (!get_fsl(ctx, dst_keyname, REDISMODULE_WRITE, 1, &dst, 0) || !dst)
         return REDISMODULE_ERR;
 
+    RedisModule_Assert(src->length);
     long long ele = src->list[--src->length];
     dst->list[dst->length++] = ele;
     RedisModule_SignalKeyAsReady(ctx, dst_keyname);
+    /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+    RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithLongLong(ctx, ele);
 }
 
@@ -274,7 +369,7 @@ int fsl_bpoppush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
 
     fsl_t *src;
-    if (!get_fsl(ctx, argv[1], REDISMODULE_READ, 0, &src, 1))
+    if (!get_fsl(ctx, argv[1], REDISMODULE_WRITE, 0, &src, 1))
         return REDISMODULE_OK;
 
     if (!src) {
@@ -287,10 +382,14 @@ int fsl_bpoppush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         fsl_t *dst;
         if (!get_fsl(ctx, argv[2], REDISMODULE_WRITE, 1, &dst, 1))
             return REDISMODULE_OK;
+
+        RedisModule_Assert(src->length);
         long long ele = src->list[--src->length];
         dst->list[dst->length++] = ele;
         RedisModule_SignalKeyAsReady(ctx, argv[2]);
         RedisModule_ReplyWithLongLong(ctx, ele);
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     }
 
     return REDISMODULE_OK;
@@ -327,6 +426,8 @@ int blockonkeys_popall_reply_callback(RedisModuleCtx *ctx, RedisModuleString **a
             RedisModule_ReplyWithString(ctx, elem);
             RedisModule_FreeString(ctx, elem);
         }
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
         RedisModule_ReplySetArrayLength(ctx, len);
     } else {
         RedisModule_ReplyWithError(ctx, "ERR Not a list");
@@ -392,6 +493,7 @@ int blockonkeys_lpush(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!strncasecmp(str, "blockonkeys.lpush_unblock", len)) {
         RedisModule_SignalKeyAsReady(ctx, argv[1]);
     }
+    RedisModule_ReplicateVerbatim(ctx);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -410,9 +512,15 @@ int blockonkeys_blpopn_reply_callback(RedisModuleCtx *ctx, RedisModuleString **a
             RedisModule_ReplyWithString(ctx, elem);
             RedisModule_FreeString(ctx, elem);
         }
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
         result = REDISMODULE_OK;
     } else if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_LIST ||
                RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
+        const char *module_cmd = RedisModule_StringPtrLen(argv[0], NULL);
+        if (!strcasecmp(module_cmd, "blockonkeys.blpopn_or_unblock"))
+            RedisModule_UnblockClient(RedisModule_GetBlockedClientHandle(ctx), NULL);
+
         /* continue blocking */
         result = REDISMODULE_ERR;
     } else {
@@ -428,6 +536,12 @@ int blockonkeys_blpopn_timeout_callback(RedisModuleCtx *ctx, RedisModuleString *
     return RedisModule_ReplyWithError(ctx, "ERR Timeout");
 }
 
+int blockonkeys_blpopn_abort_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx, "Action aborted");
+}
+
 /* BLOCKONKEYS.BLPOPN key N
  *
  * Blocks until key has N elements and then pops them or fails after 3 seconds.
@@ -435,11 +549,16 @@ int blockonkeys_blpopn_timeout_callback(RedisModuleCtx *ctx, RedisModuleString *
 int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3) return RedisModule_WrongArity(ctx);
 
-    long long n;
+    long long n, timeout = 3000LL;
     if (RedisModule_StringToLongLong(argv[2], &n) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx, "ERR Invalid N");
     }
 
+    if (argc > 3 ) {
+        if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+            return RedisModule_ReplyWithError(ctx, "ERR Invalid timeout value");
+        }
+    }
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_WRITE);
     int keytype = RedisModule_KeyType(key);
     if (keytype != REDISMODULE_KEYTYPE_EMPTY &&
@@ -453,10 +572,12 @@ int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             RedisModule_ReplyWithString(ctx, elem);
             RedisModule_FreeString(ctx, elem);
         }
+        /* I'm lazy so i'll replicate a potentially blocking command, it shouldn't block in this flow. */
+        RedisModule_ReplicateVerbatim(ctx);
     } else {
         RedisModule_BlockClientOnKeys(ctx, blockonkeys_blpopn_reply_callback,
-                                      blockonkeys_blpopn_timeout_callback,
-                                      NULL, 3000, &argv[1], 1, NULL);
+                                      timeout ? blockonkeys_blpopn_timeout_callback : blockonkeys_blpopn_abort_callback,
+                                      NULL, timeout, &argv[1], 1, NULL);
     }
     RedisModule_CloseKey(key);
     return REDISMODULE_OK;
@@ -484,6 +605,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"write",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"fsl.pushtimer",fsl_pushtimer,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"write",1,1,1) == REDISMODULE_ERR)
@@ -514,5 +638,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "blockonkeys.blpopn_or_unblock", blockonkeys_blpopn,
+                                      "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }

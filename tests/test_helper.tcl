@@ -98,8 +98,11 @@ set ::all_tests {
     unit/cluster/cli
     unit/cluster/scripting
     unit/cluster/hostnames
+    unit/cluster/human-announced-nodename
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
+    unit/cluster/links
+    unit/cluster/cluster-response-tls
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -134,6 +137,7 @@ set ::timeout 1200; # 20 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
 set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
+set ::dont_pre_clean 0
 set ::wait_server 0
 set ::stop_on_failure 0
 set ::dump_logs 0
@@ -144,6 +148,8 @@ set ::cluster_mode 0
 set ::ignoreencoding 0
 set ::ignoredigest 0
 set ::large_memory 0
+set ::log_req_res 0
+set ::force_resp3 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -189,6 +195,12 @@ proc srv {args} {
     }
     set srv [lindex $::servers end+$level]
     dict get $srv $property
+}
+
+# Take an index to get a srv.
+proc get_srv {level} {
+    set srv [lindex $::servers end+$level]
+    return $srv
 }
 
 # Provide easy access to the client for the inner server. It's possible to
@@ -319,7 +331,7 @@ proc cleanup {} {
 }
 
 proc test_server_main {} {
-    cleanup
+    if {!$::dont_pre_clean} cleanup
     set tclsh [info nameofexecutable]
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
@@ -522,6 +534,7 @@ proc signal_idle_client fd {
         incr ::next_test
         if {$::loop && $::next_test == [llength $::all_tests]} {
             set ::next_test 0
+            incr ::loop -1
         }
     } elseif {[llength $::run_solo_tests] != 0 && [llength $::active_clients] == 0} {
         if {!$::quiet} {
@@ -612,9 +625,11 @@ proc print_help_screen {} {
         "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
+        "--dont-pre-clean   Don't delete existing redis log files before the run."
         "--no-latency       Skip latency measurements and validation by some tests."
         "--stop             Blocks once the first test fails."
         "--loop             Execute the specified set of tests forever."
+        "--loops <count>    Execute the specified set of tests several times."
         "--wait-server      Wait after server is started (so that you can attach a debugger)."
         "--dump-logs        Dump server log on test failure."
         "--tls              Run tests in TLS mode."
@@ -650,6 +665,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         lappend ::global_overrides $arg
         lappend ::global_overrides $arg2
         incr j 2
+    } elseif {$opt eq {--log-req-res}} {
+        set ::log_req_res 1
+    } elseif {$opt eq {--force-resp3}} {
+        set ::force_resp3 1
     } elseif {$opt eq {--skipfile}} {
         incr j
         set fp [open $arg r]
@@ -712,7 +731,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         }
         exit 0
     } elseif {$opt eq {--verbose}} {
-        set ::verbose 1
+        incr ::verbose
     } elseif {$opt eq {--client}} {
         set ::client 1
         set ::test_server_port $arg
@@ -724,6 +743,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::durable 1
     } elseif {$opt eq {--dont-clean}} {
         set ::dont_clean 1
+    } elseif {$opt eq {--dont-pre-clean}} {
+        set ::dont_pre_clean 1
     } elseif {$opt eq {--no-latency}} {
         set ::no_latency 1
     } elseif {$opt eq {--wait-server}} {
@@ -733,7 +754,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--stop}} {
         set ::stop_on_failure 1
     } elseif {$opt eq {--loop}} {
-        set ::loop 1
+        set ::loop 2147483647
+    } elseif {$opt eq {--loops}} {
+        set ::loop $arg
+        incr j
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
         incr j
@@ -857,9 +881,22 @@ proc read_from_replication_stream {s} {
 }
 
 proc assert_replication_stream {s patterns} {
+    set errors 0
+    set values_list {}
+    set patterns_list {}
     for {set j 0} {$j < [llength $patterns]} {incr j} {
-        assert_match [lindex $patterns $j] [read_from_replication_stream $s]
+        set pattern [lindex $patterns $j]
+        lappend patterns_list $pattern
+        set value [read_from_replication_stream $s]
+        lappend values_list $value
+        if {![string match $pattern $value]} { incr errors }
     }
+
+    if {$errors == 0} { return }
+
+    set context [info frame -1]
+    close_replication_stream $s ;# for fast exit
+    assert_match $patterns_list $values_list "" $context
 }
 
 proc close_replication_stream {s} {

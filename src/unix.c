@@ -43,6 +43,12 @@ static int connUnixAddr(connection *conn, char *ip, size_t ip_len, int *port, in
     return connectionTypeTcp()->addr(conn, ip, ip_len, port, remote);
 }
 
+static int connUnixIsLocal(connection *conn) {
+    UNUSED(conn);
+
+    return 1; /* Unix socket is always local connection */
+}
+
 static int connUnixListen(connListener *listener) {
     int fd;
     mode_t *perm = (mode_t *)listener->priv;
@@ -72,6 +78,7 @@ static connection *connCreateUnix(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Unix;
     conn->fd = -1;
+    conn->iovcnt = IOV_MAX;
 
     return conn;
 }
@@ -164,6 +171,7 @@ static ConnectionType CT_Unix = {
     .ae_handler = connUnixEventHandler,
     .accept_handler = connUnixAcceptHandler,
     .addr = connUnixAddr,
+    .is_local = connUnixIsLocal,
     .listen = connUnixListen,
 
     /* create/shutdown/close connection */
@@ -193,7 +201,7 @@ static ConnectionType CT_Unix = {
     .process_pending_data = NULL,
 };
 
-int RedisRegisterConnectionTypeUnix()
+int RedisRegisterConnectionTypeUnix(void)
 {
     return connTypeRegister(&CT_Unix);
 }

@@ -33,6 +33,8 @@
 #include "adlist.h"
 #include "atomicvar.h"
 
+#define LOAD_TIMEOUT_MS 500
+
 typedef enum {
     restorePolicy_Flush, restorePolicy_Append, restorePolicy_Replace
 } restorePolicy;
@@ -212,12 +214,12 @@ void functionsLibCtxSwapWithCurrent(functionsLibCtx *new_lib_ctx) {
 }
 
 /* return the current functions ctx */
-functionsLibCtx* functionsLibCtxGetCurrent() {
+functionsLibCtx* functionsLibCtxGetCurrent(void) {
     return curr_functions_lib_ctx;
 }
 
 /* Create a new functions ctx */
-functionsLibCtx* functionsLibCtxCreate() {
+functionsLibCtx* functionsLibCtxCreate(void) {
     functionsLibCtx *ret = zmalloc(sizeof(functionsLibCtx));
     ret->libraries = dictCreate(&librariesDictType);
     ret->functions = dictCreate(&functionDictType);
@@ -961,7 +963,7 @@ void functionFreeLibMetaData(functionsLibMataData *md) {
 
 /* Compile and save the given library, return the loaded library name on success
  * and NULL on failure. In case on failure the err out param is set with relevant error message */
-sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx) {
+sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx, size_t timeout) {
     dictIterator *iter = NULL;
     dictEntry *entry = NULL;
     functionLibInfo *new_li = NULL;
@@ -995,7 +997,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     }
 
     new_li = engineLibraryCreate(md.name, ei, code);
-    if (engine->create(engine->engine_ctx, new_li, md.code, err) != C_OK) {
+    if (engine->create(engine->engine_ctx, new_li, md.code, timeout, err) != C_OK) {
         goto error;
     }
 
@@ -1063,7 +1065,11 @@ void functionLoadCommand(client *c) {
     robj *code = c->argv[argc_pos];
     sds err = NULL;
     sds library_name = NULL;
-    if (!(library_name = functionsCreateWithLibraryCtx(code->ptr, replace, &err, curr_functions_lib_ctx)))
+    size_t timeout = LOAD_TIMEOUT_MS;
+    if (mustObeyClient(c)) {
+        timeout = 0;
+    }
+    if (!(library_name = functionsCreateWithLibraryCtx(code->ptr, replace, &err, curr_functions_lib_ctx, timeout)))
     {
         addReplyErrorSds(c, err);
         return;
@@ -1075,7 +1081,7 @@ void functionLoadCommand(client *c) {
 }
 
 /* Return memory usage of all the engines combine */
-unsigned long functionsMemory() {
+unsigned long functionsMemory(void) {
     dictIterator *iter = dictGetIterator(engines);
     dictEntry *entry = NULL;
     size_t engines_nemory = 0;
@@ -1090,11 +1096,10 @@ unsigned long functionsMemory() {
 }
 
 /* Return memory overhead of all the engines combine */
-unsigned long functionsMemoryOverhead() {
-    size_t memory_overhead = dictSize(engines) * sizeof(dictEntry) +
-            dictSlots(engines) * sizeof(dictEntry*);
-    memory_overhead += dictSize(curr_functions_lib_ctx->functions) * sizeof(dictEntry) +
-            dictSlots(curr_functions_lib_ctx->functions) * sizeof(dictEntry*) + sizeof(functionsLibCtx);
+unsigned long functionsMemoryOverhead(void) {
+    size_t memory_overhead = dictMemUsage(engines);
+    memory_overhead += dictMemUsage(curr_functions_lib_ctx->functions);
+    memory_overhead += sizeof(functionsLibCtx);
     memory_overhead += curr_functions_lib_ctx->cache_memory;
     memory_overhead += engine_cache_memory;
 
@@ -1102,15 +1107,15 @@ unsigned long functionsMemoryOverhead() {
 }
 
 /* Returns the number of functions */
-unsigned long functionsNum() {
+unsigned long functionsNum(void) {
     return dictSize(curr_functions_lib_ctx->functions);
 }
 
-unsigned long functionsLibNum() {
+unsigned long functionsLibNum(void) {
     return dictSize(curr_functions_lib_ctx->libraries);
 }
 
-dict* functionsLibGet() {
+dict* functionsLibGet(void) {
     return curr_functions_lib_ctx->libraries;
 }
 
@@ -1120,7 +1125,7 @@ size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx) {
 
 /* Initialize engine data structures.
  * Should be called once on server initialization */
-int functionsInit() {
+int functionsInit(void) {
     engines = dictCreate(&engineDictType);
 
     if (luaEngineInitEngine() != C_OK) {

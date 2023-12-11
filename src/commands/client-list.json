@@ -1,6 +1,6 @@
 {
     "LIST": {
-        "summary": "Get the list of client connections",
+        "summary": "Lists open connections.",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
         "since": "2.4.0",
@@ -17,8 +17,20 @@
                 "Added optional `TYPE` filter."
             ],
             [
+                "6.0.0",
+                "Added `user` field."
+            ],
+            [
                 "6.2.0",
-                "Added `laddr` field and the optional `ID` filter."
+                "Added `argv-mem`, `tot-mem`, `laddr` and `redir` fields and the optional `ID` filter."
+            ],
+            [
+                "7.0.0",
+                "Added `resp`, `multi-mem`, `rbs` and `rbp` fields."
+            ],
+            [
+                "7.0.3",
+                "Added `ssub` field."
             ]
         ],
         "command_flags": [
@@ -34,6 +46,10 @@
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT"
         ],
+        "reply_schema": {
+            "type": "string",
+            "description": "Information and statistics about client connections"
+        },
         "arguments": [
             {
                 "token": "TYPE",

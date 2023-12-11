@@ -1,6 +1,6 @@
 {
     "HELP": {
-        "summary": "Show helpful text about the different subcommands",
+        "summary": "Returns helpful text about the different subcommands.",
         "complexity": "O(1)",
         "group": "server",
         "since": "6.0.0",
@@ -11,6 +11,13 @@
             "LOADING",
             "STALE",
             "SENTINEL"
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "A list of subcommands and their description",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

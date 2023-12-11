@@ -223,7 +223,7 @@ start_server {
         r XDEL mystream 667
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 10 STREAMS mystream ">"
-        after 20
+        wait_for_blocked_clients_count 0
         assert {[$rd read] == {}} ;# before the fix, client didn't even block, but was served synchronously with {mystream {}}
         $rd close
     }
@@ -234,8 +234,9 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r DEL mystream
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "NOGROUP*" {$rd read}
         $rd close
     }
 
@@ -245,8 +246,9 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r SET mystream val1
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*WRONGTYPE*" {$rd read}
         $rd close
     }
 
@@ -256,11 +258,12 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r MULTI
         r DEL mystream
         r SADD mystream e1
         r EXEC
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*WRONGTYPE*" {$rd read}
         $rd close
     }
 
@@ -270,8 +273,9 @@ start_server {
         r XGROUP CREATE mystream mygroup $
         set rd [redis_deferring_client]
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r FLUSHALL
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*NOGROUP*" {$rd read}
         $rd close
     }
 
@@ -286,8 +290,9 @@ start_server {
         $rd SELECT 9
         $rd read
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r SWAPDB 4 9
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*NOGROUP*" {$rd read}
         $rd close
     } {0} {external:skip}
 
@@ -303,16 +308,26 @@ start_server {
         $rd SELECT 9
         $rd read
         $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
         r SWAPDB 4 9
-        assert_error "*no longer exists*" {$rd read}
+        assert_error "*WRONGTYPE*" {$rd read}
         $rd close
     } {0} {external:skip}
+
+    test {XREAD and XREADGROUP against wrong parameter} {
+        r DEL mystream
+        r XADD mystream 666 f v
+        r XGROUP CREATE mystream mygroup $
+        assert_error "ERR Unbalanced 'xreadgroup' list of streams: for each stream key an ID or '>' must be specified." {r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream }
+        assert_error "ERR Unbalanced 'xread' list of streams: for each stream key an ID or '$' must be specified." {r XREAD COUNT 1 STREAMS mystream }
+    }
 
     test {Blocking XREAD: key deleted} {
         r DEL mystream
         r XADD mystream 666 f v
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 0 STREAMS mystream "$"
+        wait_for_blocked_clients_count 1
         r DEL mystream
 
         r XADD mystream 667 f v
@@ -326,6 +341,7 @@ start_server {
         r XADD mystream 666 f v
         set rd [redis_deferring_client]
         $rd XREAD BLOCK 0 STREAMS mystream "$"
+        wait_for_blocked_clients_count 1
         r SET mystream val1
 
         r DEL mystream
@@ -408,6 +424,78 @@ start_server {
         }
 
         $rd close
+    }
+
+     test {Blocking XREADGROUP for stream key that has clients blocked on list} {
+        set rd [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        
+        # First delete the stream
+        r DEL mystream
+        
+        # now place a client blocked on non-existing key as list
+        $rd2 BLPOP mystream 0
+        
+        # wait until we verify the client is blocked
+        wait_for_blocked_clients_count 1
+        
+        # verify we only have 1 regular blocking key
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
+        
+        # now write mystream as stream
+        r XADD mystream 666 key value
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        
+        # block another client on xreadgroup 
+        $rd XREADGROUP GROUP mygroup myconsumer BLOCK 0 STREAMS mystream ">"
+        
+        # wait until we verify we have 2 blocked clients (one for the list and one for the stream)
+        wait_for_blocked_clients_count 2
+        
+        # verify we have 1 blocking key which also have clients blocked on nokey condition
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
+
+        # now delete the key and verify we have no clients blocked on nokey condition
+        r DEL mystream
+        assert_error "NOGROUP*" {$rd read}
+        assert_equal 1 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
+        
+        # close the only left client and make sure we have no more blocking keys
+        $rd2 close
+        
+        # wait until we verify we have no more blocked clients
+        wait_for_blocked_clients_count 0
+        
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys]
+        assert_equal 0 [getInfoProperty [r info clients] total_blocking_keys_on_nokey]
+        
+        $rd close 
+    }
+
+    test {Blocking XREADGROUP for stream key that has clients blocked on list - avoid endless loop} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set rd3 [redis_deferring_client]
+
+        $rd1 xreadgroup GROUP mygroup myuser COUNT 10 BLOCK 10000 STREAMS mystream >
+        $rd2 xreadgroup GROUP mygroup myuser COUNT 10 BLOCK 10000 STREAMS mystream >
+        $rd3 xreadgroup GROUP mygroup myuser COUNT 10 BLOCK 10000 STREAMS mystream >
+
+        wait_for_blocked_clients_count 3
+
+        r xadd mystream MAXLEN 5000 * field1 value1 field2 value2 field3 value3
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+
+        assert_equal [r ping] {PONG}
     }
 
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
