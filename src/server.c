@@ -704,10 +704,11 @@ int incrementallyRehash(void) {
     monotime timer;
     elapsedStart(&timer);
     while ((node = listFirst(server.rehashing))) {
-        dictRehashMilliseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_MS);
-        if (elapsedMs(timer) >= INCREMENTAL_REHASHING_THRESHOLD_MS) {
+        uint64_t elapsed_us = elapsedUs(timer);
+        if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US) {
             break;  /* Reached the time limit. */
         }
+        dictRehashMicroseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
     }
     return 1;
 }

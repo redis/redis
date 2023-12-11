@@ -403,10 +403,10 @@ long long timeInMilliseconds(void) {
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 }
 
-/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
- * than 0, and is smaller than 1 in most cases. The exact upper bound 
+/* Rehash in us+"delta" microseconds. The value of "delta" is larger
+ * than 0, and is smaller than 1000 in most cases. The exact upper bound
  * depends on the running time of dictRehash(d,100).*/
-int dictRehashMilliseconds(dict *d, unsigned int ms) {
+int dictRehashMicroseconds(dict *d, uint64_t us) {
     if (d->pauserehash > 0) return 0;
 
     monotime timer;
@@ -415,7 +415,7 @@ int dictRehashMilliseconds(dict *d, unsigned int ms) {
 
     while(dictRehash(d,100)) {
         rehashes += 100;
-        if (elapsedMs(timer) >= ms) break;
+        if (elapsedUs(timer) >= us) break;
     }
     return rehashes;
 }
@@ -1718,7 +1718,7 @@ int dictTest(int argc, char **argv, int flags) {
 
     /* Wait for rehashing. */
     while (dictIsRehashing(dict)) {
-        dictRehashMilliseconds(dict,100);
+        dictRehashMicroseconds(dict,100*1000);
     }
 
     start_benchmark();
