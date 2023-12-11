@@ -384,14 +384,22 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal {1} [unsubscribe $rd2 {non-exist-chan}]
             set info [r info clients]
             assert_equal [getInfoProperty $info pubsub_clients] {2}
-            # count change when client unsubscribe all channels                               
+            # count change when client unsubscribe all channels
             assert_equal {0} [unsubscribe $rd2 {chan2}]
             set info [r info clients]
             assert_equal [getInfoProperty $info pubsub_clients] {1}
-            # non-pubsub clients should not be involved                                                                                                         
+            # non-pubsub clients should not be involved
             assert_equal {0} [unsubscribe $rd2 {non-exist-chan}]
             set info [r info clients]
             assert_equal [getInfoProperty $info pubsub_clients] {1}
+            # close all clients
+            $rd1 close
+            $rd2 close
+            wait_for_condition 100 50 {
+                [getInfoProperty [r info clients] pubsub_clients] eq {0}
+            } else {
+                fail "pubsub clients did not clear"
+            }
         }
     }
 }
