@@ -1396,9 +1396,9 @@ unsigned long dictScanDefrag(dict *d,
 /* Because we may need to allocate huge memory chunk at once when dict
  * expands, we will check this allocation is allowed or not if the dict
  * type has expandAllowed member function. */
-static int dictTypeExpandAllowed(dict *d) {
-    if (d->type->expandAllowed == NULL) return 1;
-    return d->type->expandAllowed(
+static int dictTypeReHashAllowed(dict *d) {
+    if (d->type->reHashAllowed == NULL) return 1;
+    return d->type->reHashAllowed(
                     DICTHT_SIZE(_dictNextExp(d->ht_used[0] + 1)) * sizeof(dictEntry*),
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
@@ -1421,7 +1421,7 @@ static int _dictExpandIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) > dict_force_resize_ratio))
     {
-        if (!dictTypeExpandAllowed(d))
+        if (!dictTypeReHashAllowed(d))
             return DICT_OK;
         return dictExpand(d, d->ht_used[0] + 1);
     }
@@ -1438,7 +1438,7 @@ static int _dictShrinkIfNeeded(dict *d) {
          (dict_can_resize != DICT_RESIZE_FORBID &&
           d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < dict_force_shrink_ratio))) 
     {
-        if (!dictTypeExpandAllowed(d))
+        if (!dictTypeReHashAllowed(d))
             return DICT_OK;
         return dictExpand(d, d->ht_used[0]);
     }
