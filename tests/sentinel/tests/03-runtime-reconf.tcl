@@ -126,7 +126,7 @@ test "Sentinels (re)connection following master ACL change" {
     wait_for_condition 100 50 {
         [string match "*disconnected*" [dict get [S $sent2re SENTINEL MASTER mymaster] flags]] != 0
     } else {
-        fail "Expected: Sentinel to be disconnected from master due to wrong password"
+        fail "Expected: Restarted sentinel to be disconnected from master due to obsolete password"
     }
 
     # Verify sentinel with updated password managed to connect (wait for sentinelTimer to reconnect)
@@ -137,8 +137,10 @@ test "Sentinels (re)connection following master ACL change" {
     }
 
     # Verify sentinel untouched gets failed to connect master
-    if {![string match "*disconnected*" [dict get [S $sent2un SENTINEL MASTER mymaster] flags]]} {
-       fail "Expected: Sentinel to be disconnected from master due to wrong password"
+    wait_for_condition 100 50 {
+        [string match "*disconnected*" [dict get [S $sent2un SENTINEL MASTER mymaster] flags]] != 0
+    } else {
+        fail "Expected: Sentinel to be disconnected from master due to obsolete password"
     }
 
     # Now update all sentinels with new password
@@ -167,14 +169,14 @@ test "Set parameters in normal case" {
     set origin_down_after_milliseconds [dict get $info down-after-milliseconds]
     set update_quorum [expr $origin_quorum+1]
     set update_down_after_milliseconds [expr $origin_down_after_milliseconds+1000]
-    
+
     assert_equal [S 0 SENTINEL SET mymaster quorum $update_quorum] "OK"
     assert_equal [S 0 SENTINEL SET mymaster down-after-milliseconds $update_down_after_milliseconds] "OK"
 
     set update_info [S 0 SENTINEL master mymaster]
     assert {[dict get $update_info quorum] != $origin_quorum}
     assert {[dict get $update_info down-after-milliseconds] != $origin_down_after_milliseconds}
-    
+
     #restore to origin config parameters
     assert_equal [S 0 SENTINEL SET mymaster quorum $origin_quorum] "OK"
     assert_equal [S 0 SENTINEL SET mymaster down-after-milliseconds $origin_down_after_milliseconds] "OK"

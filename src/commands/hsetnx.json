@@ -1,6 +1,6 @@
 {
     "HSETNX": {
-        "summary": "Set the value of a hash field, only if the field does not exist",
+        "summary": "Sets the value of a field in a hash only when the field doesn't exist.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",
@@ -34,6 +34,18 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The field is a new field in the hash and value was set.",
+                    "const": 0
+                },
+                {
+                    "description": "The field already exists in the hash and no operation was performed.",
+                    "const": 1
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

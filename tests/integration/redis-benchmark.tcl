@@ -1,5 +1,5 @@
 source tests/support/benchmark.tcl
-
+source tests/support/cli.tcl
 
 proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
@@ -25,10 +25,11 @@ proc default_set_get_checks {} {
     assert_match  {} [cmdstat lrange]
 }
 
-start_server {tags {"benchmark network external:skip"}} {
+tags {"benchmark network external:skip logreqres:skip"} {
     start_server {} {
         set master_host [srv 0 host]
         set master_port [srv 0 port]
+        r select 0
 
         test {benchmark: set,get} {
             set cmd [redisbenchmark $master_host $master_port "-c 5 -n 10 -t set,get"]
@@ -116,6 +117,22 @@ start_server {tags {"benchmark network external:skip"}} {
             # ensure the keyspace has the desired size
             assert_match  {50} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         }
+        
+        test {benchmark: clients idle mode should return error when reached maxclients limit} {
+            set cmd [redisbenchmark $master_host $master_port "-c 10 -I"]
+            set original_maxclients [lindex [r config get maxclients] 1]
+            r config set maxclients 5
+            catch { exec {*}$cmd } error
+            assert_match "*Error*" $error
+            r config set maxclients $original_maxclients
+        }
+
+        test {benchmark: read last argument from stdin} {
+            set base_cmd [redisbenchmark $master_host $master_port "-x -n 10 set key"]
+            set cmd "printf arg | $base_cmd"
+            common_bench_setup $cmd
+            r get key
+        } {arg}
 
         # tls specific tests
         if {$::tls} {

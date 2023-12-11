@@ -62,7 +62,7 @@ static sds read_sysfs_line(char *path) {
     return res;
 }
 
-/* Verify our clokcsource implementation doesn't go through a system call (uses vdso).
+/* Verify our clocksource implementation doesn't go through a system call (uses vdso).
  * Going through a system call to check the time degrades Redis performance. */
 static int checkClocksource(sds *error_msg) {
     unsigned long test_time_us, system_hz;
@@ -150,9 +150,12 @@ int checkOvercommit(sds *error_msg) {
     }
     fclose(fp);
 
-    if (atoi(buf)) {
+    if (strtol(buf, NULL, 10) != 1) {
         *error_msg = sdsnew(
-            "overcommit_memory is set to 0! Background save may fail under low memory condition. "
+            "Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. "
+#if defined(USE_JEMALLOC)
+            "Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. "
+#endif
             "To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the "
             "command 'sysctl vm.overcommit_memory=1' for this to take effect.");
         return -1;

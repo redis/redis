@@ -1,6 +1,6 @@
 {
     "RESET": {
-        "summary": "Reset latency data for one or more events.",
+        "summary": "Resets the latency data for one or more events.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.13",
@@ -15,8 +15,12 @@
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_NODES",
-            "RESPONSE_POLICY:ALL_SUCCEEDED"
+            "RESPONSE_POLICY:AGG_SUM"
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of event time series that were reset."
+        },
         "arguments": [
             {
                 "name": "event",

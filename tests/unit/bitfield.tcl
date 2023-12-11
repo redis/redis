@@ -17,6 +17,22 @@ start_server {tags {"bitops"}} {
         set results
     } {0 255 100}
 
+    test {BITFIELD signed SET and GET together} {
+        r del bits
+        set results [r bitfield bits set i8 0 255 set i8 0 100 get i8 0]
+    } {0 -1 100}
+ 
+    test {BITFIELD unsigned with SET, GET and INCRBY arguments} {
+        r del bits
+        set results [r bitfield bits set u8 0 255 incrby u8 0 100 get u8 0]
+    } {0 99 99}
+
+    test {BITFIELD with only key as argument} {
+        r del bits
+        set result [r bitfield bits]
+        assert {$result eq {}}
+    }
+
     test {BITFIELD #<idx> form} {
         r del bits
         set results {}
@@ -198,6 +214,16 @@ start_server {tags {"bitops"}} {
         }
         r del mystring
     }
+
+    test {BITFIELD_RO with only key as argument} {
+        set res [r bitfield_ro bits]
+        assert {$res eq {}}
+    }
+
+    test {BITFIELD_RO fails when write option is used} {
+        catch {r bitfield_ro bits set u8 0 100 get u8 0} err
+        assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
+    }
 }
 
 start_server {tags {"repl external:skip"}} {
@@ -224,7 +250,12 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 100 [$slave bitfield_ro bits get u8 0]
         }
 
-        test {BITFIELD_RO fails when write option is used} {
+        test {BITFIELD_RO with only key as argument on read-only replica} {
+            set res [$slave bitfield_ro bits]
+            assert {$res eq {}}
+        }
+
+        test {BITFIELD_RO fails when write option is used on read-only replica} {
             catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
             assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
         }

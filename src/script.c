@@ -60,16 +60,16 @@ static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
     blockingOperationStarts();
 }
 
-int scriptIsTimedout() {
+int scriptIsTimedout(void) {
     return scriptIsRunning() && (curr_run_ctx->flags & SCRIPT_TIMEDOUT);
 }
 
-client* scriptGetClient() {
+client* scriptGetClient(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->c;
 }
 
-client* scriptGetCaller() {
+client* scriptGetCaller(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->original_client;
 }
@@ -130,6 +130,7 @@ uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags) {
 /* Prepare the given run ctx for execution */
 int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro) {
     serverAssert(!curr_run_ctx);
+    int client_allow_oom = !!(caller->flags & CLIENT_ALLOW_OOM);
 
     int running_stale = server.masterhost &&
             server.repl_state != REPL_STATE_CONNECTED &&
@@ -159,7 +160,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
                 return C_ERR;
             }
 
-            /* Deny writes if we're unale to persist. */
+            /* Deny writes if we're unable to persist. */
             int deny_write_type = writeCommandsDeniedByDiskError();
             if (deny_write_type != DISK_ERROR_TYPE_NONE && !obey_client) {
                 if (deny_write_type == DISK_ERROR_TYPE_RDB)
@@ -181,11 +182,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
             /* Don't accept write commands if there are not enough good slaves and
              * user configured the min-slaves-to-write option. */
-            if (server.masterhost == NULL &&
-                server.repl_min_slaves_max_lag &&
-                server.repl_min_slaves_to_write &&
-                server.repl_good_slaves_count < server.repl_min_slaves_to_write)
-            {
+            if (!checkGoodReplicasStatus()) {
                 addReplyErrorObject(caller, shared.noreplicaserr);
                 return C_ERR;
             }
@@ -193,7 +190,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
         /* Check OOM state. the no-writes flag imply allow-oom. we tested it
          * after the no-write error, so no need to mention it in the error reply. */
-        if (server.pre_command_oom_state && server.maxmemory &&
+        if (!client_allow_oom && server.pre_command_oom_state && server.maxmemory &&
             !(script_flags & (SCRIPT_FLAG_ALLOW_OOM|SCRIPT_FLAG_NO_WRITES)))
         {
             addReplyError(caller, "-OOM allow-oom flag is not set on the script, "
@@ -215,7 +212,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
 
     client *script_client = run_ctx->c;
     client *curr_client = run_ctx->original_client;
-    server.script_caller = curr_client;
 
     /* Select the right DB in the context of the Lua client */
     selectDb(script_client, curr_client->db->id);
@@ -227,7 +223,6 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     }
 
     run_ctx->start_time = getMonotonicUs();
-    run_ctx->snapshot_time = mstime();
 
     run_ctx->flags = 0;
     run_ctx->repl_flags = PROPAGATE_AOF | PROPAGATE_REPL;
@@ -237,7 +232,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
          * flag, we will not allow write commands. */
         run_ctx->flags |= SCRIPT_READ_ONLY;
     }
-    if (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_ALLOW_OOM)) {
+    if (client_allow_oom || (!(script_flags & SCRIPT_FLAG_EVAL_COMPAT_MODE) && (script_flags & SCRIPT_FLAG_ALLOW_OOM))) {
         /* Note: we don't need to test the no-writes flag here and set this run_ctx flag,
          * since only write commands can are deny-oom. */
         run_ctx->flags |= SCRIPT_ALLOW_OOM;
@@ -260,8 +255,6 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
 
-    server.script_caller = NULL;
-
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);
         /* Restore the client that was protected when the script timeout
@@ -276,16 +269,16 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
 }
 
 /* return true if a script is currently running */
-int scriptIsRunning() {
+int scriptIsRunning(void) {
     return curr_run_ctx != NULL;
 }
 
-const char* scriptCurrFunction() {
+const char* scriptCurrFunction(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->funcname;
 }
 
-int scriptIsEval() {
+int scriptIsEval(void) {
     serverAssert(scriptIsRunning());
     return curr_run_ctx->flags & SCRIPT_EVAL_MODE;
 }
@@ -299,6 +292,7 @@ void scriptKill(client *c, int is_eval) {
     if (mustObeyClient(curr_run_ctx->original_client)) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
+        return;
     }
     if (curr_run_ctx->flags & SCRIPT_WRITE_DIRTY) {
         addReplyError(c,
@@ -339,7 +333,9 @@ static int scriptVerifyACL(client *c, sds *err) {
     int acl_retval = ACLCheckAllPerm(c, &acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,ACL_LOG_CTX_LUA,acl_errpos,NULL,NULL);
-        *err = sdscatfmt(sdsempty(), "The user executing the script %s", getAclErrorMessage(acl_retval));
+        sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
+        *err = sdscatsds(sdsnew("ACL failure in script: "), msg);
+        sdsfree(msg);
         return C_ERR;
     }
     return C_OK;
@@ -361,6 +357,11 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
     /* The other checks below are on the server state and are only relevant for
      *  write commands, return if this is not a write command. */
     if (!(run_ctx->c->cmd->flags & CMD_WRITE))
+        return C_OK;
+
+    /* If the script already made a modification to the dataset, we can't
+     * fail it on unpredictable error state. */
+    if ((run_ctx->flags & SCRIPT_WRITE_DIRTY))
         return C_OK;
 
     /* Write commands are forbidden against read-only slaves, or if a
@@ -428,7 +429,7 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     c->flags &= ~(CLIENT_READONLY | CLIENT_ASKING);
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
     int hashslot = -1;
-    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != server.cluster->myself) {
+    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != getMyClusterNode()) {
         if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
             *err = sdsnew(
                     "Script attempted to execute a write command while the "
@@ -436,7 +437,22 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
         } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
             *err = sdsnew("Script attempted to execute a command while the "
                     "cluster is down");
+        } else if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
+            *err = sdscatfmt(sdsempty(), 
+                             "Command '%S' in script attempted to access keys that don't hash to the same slot",
+                             c->cmd->fullname);
+        } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
+            /* The request spawns multiple keys in the same slot,
+             * but the slot is not "stable" currently as there is
+             * a migration or import in progress. */
+            *err = sdscatfmt(sdsempty(),
+                             "Unable to execute command '%S' in script "
+                             "because undeclared keys were accessed during rehashing of the slot",
+                             c->cmd->fullname); 
+        } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
+            *err = sdsnew("Script attempted to access a slot not served"); 
         } else {
+            /* error_code == CLUSTER_REDIR_MOVED || error_code == CLUSTER_REDIR_ASK */
             *err = sdsnew("Script attempted to access a non local key in a "
                     "cluster node");
         }
@@ -509,22 +525,18 @@ static int scriptVerifyAllowStale(client *c, sds *err) {
  * up to the engine to take and parse.
  * The err out variable is set only if error occurs and describe the error.
  * If err is set on reply is written to the run_ctx client. */
-void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
+void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     client *c = run_ctx->c;
 
     /* Setup our fake client for command execution */
-    c->argv = argv;
-    c->argc = argc;
     c->user = run_ctx->original_client->user;
 
     /* Process module hooks */
     moduleCallCommandFilters(c);
-    argv = c->argv;
-    argc = c->argc;
 
-    struct redisCommand *cmd = lookupCommand(argv, argc);
+    struct redisCommand *cmd = lookupCommand(c->argv, c->argc);
     c->cmd = c->lastcmd = c->realcmd = cmd;
-    if (scriptVerifyCommandArity(cmd, argc, err) != C_OK) {
+    if (scriptVerifyCommandArity(cmd, c->argc, err) != C_OK) {
         goto error;
     }
 
@@ -559,7 +571,7 @@ void scriptCall(scriptRunCtx *run_ctx, robj* *argv, int argc, sds *err) {
         goto error;
     }
 
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
+    int call_flags = CMD_CALL_NONE;
     if (run_ctx->repl_flags & PROPAGATE_AOF) {
         call_flags |= CMD_CALL_PROPAGATE_AOF;
     }
@@ -575,13 +587,7 @@ error:
     incrCommandStatsOnError(cmd, ERROR_COMMAND_REJECTED);
 }
 
-/* Returns the time when the script invocation started */
-mstime_t scriptTimeSnapshot() {
-    serverAssert(curr_run_ctx);
-    return curr_run_ctx->snapshot_time;
-}
-
-long long scriptRunDuration() {
+long long scriptRunDuration(void) {
     serverAssert(scriptIsRunning());
     return elapsedMs(curr_run_ctx->start_time);
 }

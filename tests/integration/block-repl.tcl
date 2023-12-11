@@ -12,7 +12,7 @@ proc stop_bg_block_op {handle} {
 }
 
 start_server {tags {"repl" "external:skip"}} {
-    start_server {} {
+    start_server {overrides {save {}}} {
         set master [srv -1 client]
         set master_host [srv -1 host]
         set master_port [srv -1 port]

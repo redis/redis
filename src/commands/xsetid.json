@@ -1,6 +1,6 @@
 {
     "XSETID": {
-        "summary": "An internal command for replicating stream values",
+        "summary": "An internal command for replicating stream values.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "5.0.0",
@@ -51,17 +51,22 @@
                 "type": "string"
             },
             {
-                "name": "entries_added",
+                "name": "entries-added",
                 "token": "ENTRIESADDED",
                 "type": "integer",
-                "optional": true
+                "optional": true,
+                "since": "7.0.0"
             },
             {
-                "name": "max_deleted_entry_id",
+                "name": "max-deleted-id",
                 "token": "MAXDELETEDID",
                 "type": "string",
-                "optional": true
+                "optional": true,
+                "since": "7.0.0"
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

@@ -13,7 +13,7 @@ thd_producer(void *varg) {
 
 	sz = sizeof(arena);
 	/* Remote arena. */
-	assert_d_eq(mallctl("arenas.create", (void *)&arena, &sz, NULL, 0), 0,
+	expect_d_eq(mallctl("arenas.create", (void *)&arena, &sz, NULL, 0), 0,
 	    "Unexpected mallctl() failure");
 	for (i = 0; i < REMOTE_NALLOC / 2; i++) {
 		mem[i] = mallocx(1, MALLOCX_TCACHE_NONE | MALLOCX_ARENA(arena));
@@ -42,7 +42,7 @@ TEST_BEGIN(test_producer_consumer) {
 	/* Remote deallocation by the current thread. */
 	for (i = 0; i < NTHREADS; i++) {
 		for (unsigned j = 0; j < REMOTE_NALLOC; j++) {
-			assert_ptr_not_null(mem[i][j],
+			expect_ptr_not_null(mem[i][j],
 			    "Unexpected remote allocation failure");
 			dallocx(mem[i][j], 0);
 		}
@@ -53,7 +53,7 @@ TEST_END
 static void *
 thd_start(void *varg) {
 	void *ptr, *ptr2;
-	extent_t *extent;
+	edata_t *edata;
 	unsigned shard1, shard2;
 
 	tsdn_t *tsdn = tsdn_fetch();
@@ -62,15 +62,15 @@ thd_start(void *varg) {
 		ptr = mallocx(1, MALLOCX_TCACHE_NONE);
 		ptr2 = mallocx(129, MALLOCX_TCACHE_NONE);
 
-		extent = iealloc(tsdn, ptr);
-		shard1 = extent_binshard_get(extent);
+		edata = emap_edata_lookup(tsdn, &arena_emap_global, ptr);
+		shard1 = edata_binshard_get(edata);
 		dallocx(ptr, 0);
-		assert_u_lt(shard1, 16, "Unexpected bin shard used");
+		expect_u_lt(shard1, 16, "Unexpected bin shard used");
 
-		extent = iealloc(tsdn, ptr2);
-		shard2 = extent_binshard_get(extent);
+		edata = emap_edata_lookup(tsdn, &arena_emap_global, ptr2);
+		shard2 = edata_binshard_get(edata);
 		dallocx(ptr2, 0);
-		assert_u_lt(shard2, 4, "Unexpected bin shard used");
+		expect_u_lt(shard2, 4, "Unexpected bin shard used");
 
 		if (shard1 > 0 || shard2 > 0) {
 			/* Triggered sharded bin usage. */
@@ -98,7 +98,7 @@ TEST_BEGIN(test_bin_shard_mt) {
 			sharded = true;
 		}
 	}
-	assert_b_eq(sharded, true, "Did not find sharded bins");
+	expect_b_eq(sharded, true, "Did not find sharded bins");
 }
 TEST_END
 
@@ -108,14 +108,14 @@ TEST_BEGIN(test_bin_shard) {
 	size_t miblen, miblen2, len;
 
 	len = sizeof(nbins);
-	assert_d_eq(mallctl("arenas.nbins", (void *)&nbins, &len, NULL, 0), 0,
+	expect_d_eq(mallctl("arenas.nbins", (void *)&nbins, &len, NULL, 0), 0,
 	    "Unexpected mallctl() failure");
 
 	miblen = 4;
-	assert_d_eq(mallctlnametomib("arenas.bin.0.nshards", mib, &miblen), 0,
+	expect_d_eq(mallctlnametomib("arenas.bin.0.nshards", mib, &miblen), 0,
 	    "Unexpected mallctlnametomib() failure");
 	miblen2 = 4;
-	assert_d_eq(mallctlnametomib("arenas.bin.0.size", mib2, &miblen2), 0,
+	expect_d_eq(mallctlnametomib("arenas.bin.0.size", mib2, &miblen2), 0,
 	    "Unexpected mallctlnametomib() failure");
 
 	for (i = 0; i < nbins; i++) {
@@ -124,22 +124,22 @@ TEST_BEGIN(test_bin_shard) {
 
 		mib[2] = i;
 		sz1 = sizeof(nshards);
-		assert_d_eq(mallctlbymib(mib, miblen, (void *)&nshards, &sz1,
+		expect_d_eq(mallctlbymib(mib, miblen, (void *)&nshards, &sz1,
 		    NULL, 0), 0, "Unexpected mallctlbymib() failure");
 
 		mib2[2] = i;
 		sz2 = sizeof(size);
-		assert_d_eq(mallctlbymib(mib2, miblen2, (void *)&size, &sz2,
+		expect_d_eq(mallctlbymib(mib2, miblen2, (void *)&size, &sz2,
 		    NULL, 0), 0, "Unexpected mallctlbymib() failure");
 
 		if (size >= 1 && size <= 128) {
-			assert_u_eq(nshards, 16, "Unexpected nshards");
+			expect_u_eq(nshards, 16, "Unexpected nshards");
 		} else if (size == 256) {
-			assert_u_eq(nshards, 8, "Unexpected nshards");
+			expect_u_eq(nshards, 8, "Unexpected nshards");
 		} else if (size > 128 && size <= 512) {
-			assert_u_eq(nshards, 4, "Unexpected nshards");
+			expect_u_eq(nshards, 4, "Unexpected nshards");
 		} else {
-			assert_u_eq(nshards, 1, "Unexpected nshards");
+			expect_u_eq(nshards, 1, "Unexpected nshards");
 		}
 	}
 }

@@ -1,6 +1,6 @@
 {
     "REWRITE": {
-        "summary": "Rewrite the configuration file with the in memory configuration",
+        "summary": "Persists the effective configuration to file.",
         "complexity": "O(1)",
         "group": "server",
         "since": "2.8.0",
@@ -12,6 +12,13 @@
             "NOSCRIPT",
             "LOADING",
             "STALE"
-        ]
+        ],
+        "command_tips": [
+          "REQUEST_POLICY:ALL_NODES",
+          "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

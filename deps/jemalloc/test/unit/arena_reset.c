@@ -13,7 +13,7 @@ get_nsizes_impl(const char *cmd) {
 	size_t z;
 
 	z = sizeof(unsigned);
-	assert_d_eq(mallctl(cmd, (void *)&ret, &z, NULL, 0), 0,
+	expect_d_eq(mallctl(cmd, (void *)&ret, &z, NULL, 0), 0,
 	    "Unexpected mallctl(\"%s\", ...) failure", cmd);
 
 	return ret;
@@ -37,11 +37,11 @@ get_size_impl(const char *cmd, size_t ind) {
 	size_t miblen = 4;
 
 	z = sizeof(size_t);
-	assert_d_eq(mallctlnametomib(cmd, mib, &miblen),
+	expect_d_eq(mallctlnametomib(cmd, mib, &miblen),
 	    0, "Unexpected mallctlnametomib(\"%s\", ...) failure", cmd);
 	mib[2] = ind;
 	z = sizeof(size_t);
-	assert_d_eq(mallctlbymib(mib, miblen, (void *)&ret, &z, NULL, 0),
+	expect_d_eq(mallctlbymib(mib, miblen, (void *)&ret, &z, NULL, 0),
 	    0, "Unexpected mallctlbymib([\"%s\", %zu], ...) failure", cmd, ind);
 
 	return ret;
@@ -60,35 +60,32 @@ get_large_size(size_t ind) {
 /* Like ivsalloc(), but safe to call on discarded allocations. */
 static size_t
 vsalloc(tsdn_t *tsdn, const void *ptr) {
-	rtree_ctx_t rtree_ctx_fallback;
-	rtree_ctx_t *rtree_ctx = tsdn_rtree_ctx(tsdn, &rtree_ctx_fallback);
-
-	extent_t *extent;
-	szind_t szind;
-	if (rtree_extent_szind_read(tsdn, &extents_rtree, rtree_ctx,
-	    (uintptr_t)ptr, false, &extent, &szind)) {
+	emap_full_alloc_ctx_t full_alloc_ctx;
+	bool missing = emap_full_alloc_ctx_try_lookup(tsdn, &arena_emap_global,
+	    ptr, &full_alloc_ctx);
+	if (missing) {
 		return 0;
 	}
 
-	if (extent == NULL) {
+	if (full_alloc_ctx.edata == NULL) {
 		return 0;
 	}
-	if (extent_state_get(extent) != extent_state_active) {
-		return 0;
-	}
-
-	if (szind == SC_NSIZES) {
+	if (edata_state_get(full_alloc_ctx.edata) != extent_state_active) {
 		return 0;
 	}
 
-	return sz_index2size(szind);
+	if (full_alloc_ctx.szind == SC_NSIZES) {
+		return 0;
+	}
+
+	return sz_index2size(full_alloc_ctx.szind);
 }
 
 static unsigned
 do_arena_create(extent_hooks_t *h) {
 	unsigned arena_ind;
 	size_t sz = sizeof(unsigned);
-	assert_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz,
+	expect_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz,
 	    (void *)(h != NULL ? &h : NULL), (h != NULL ? sizeof(h) : 0)), 0,
 	    "Unexpected mallctl() failure");
 	return arena_ind;
@@ -108,19 +105,19 @@ do_arena_reset_pre(unsigned arena_ind, void ***ptrs, unsigned *nptrs) {
 	nlarge = get_nlarge() > NLARGE ? NLARGE : get_nlarge();
 	*nptrs = nsmall + nlarge;
 	*ptrs = (void **)malloc(*nptrs * sizeof(void *));
-	assert_ptr_not_null(*ptrs, "Unexpected malloc() failure");
+	expect_ptr_not_null(*ptrs, "Unexpected malloc() failure");
 
 	/* Allocate objects with a wide range of sizes. */
 	for (i = 0; i < nsmall; i++) {
 		sz = get_small_size(i);
 		(*ptrs)[i] = mallocx(sz, flags);
-		assert_ptr_not_null((*ptrs)[i],
+		expect_ptr_not_null((*ptrs)[i],
 		    "Unexpected mallocx(%zu, %#x) failure", sz, flags);
 	}
 	for (i = 0; i < nlarge; i++) {
 		sz = get_large_size(i);
 		(*ptrs)[nsmall + i] = mallocx(sz, flags);
-		assert_ptr_not_null((*ptrs)[i],
+		expect_ptr_not_null((*ptrs)[i],
 		    "Unexpected mallocx(%zu, %#x) failure", sz, flags);
 	}
 
@@ -128,7 +125,7 @@ do_arena_reset_pre(unsigned arena_ind, void ***ptrs, unsigned *nptrs) {
 
 	/* Verify allocations. */
 	for (i = 0; i < *nptrs; i++) {
-		assert_zu_gt(ivsalloc(tsdn, (*ptrs)[i]), 0,
+		expect_zu_gt(ivsalloc(tsdn, (*ptrs)[i]), 0,
 		    "Allocation should have queryable size");
 	}
 }
@@ -146,7 +143,7 @@ do_arena_reset_post(void **ptrs, unsigned nptrs, unsigned arena_ind) {
 	}
 	/* Verify allocations no longer exist. */
 	for (i = 0; i < nptrs; i++) {
-		assert_zu_eq(vsalloc(tsdn, ptrs[i]), 0,
+		expect_zu_eq(vsalloc(tsdn, ptrs[i]), 0,
 		    "Allocation should no longer exist");
 	}
 	if (have_background_thread) {
@@ -163,10 +160,10 @@ do_arena_reset_destroy(const char *name, unsigned arena_ind) {
 	size_t miblen;
 
 	miblen = sizeof(mib)/sizeof(size_t);
-	assert_d_eq(mallctlnametomib(name, mib, &miblen), 0,
+	expect_d_eq(mallctlnametomib(name, mib, &miblen), 0,
 	    "Unexpected mallctlnametomib() failure");
 	mib[1] = (size_t)arena_ind;
-	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
+	expect_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
 	    "Unexpected mallctlbymib() failure");
 }
 
@@ -200,23 +197,23 @@ arena_i_initialized(unsigned arena_ind, bool refresh) {
 
 	if (refresh) {
 		uint64_t epoch = 1;
-		assert_d_eq(mallctl("epoch", NULL, NULL, (void *)&epoch,
+		expect_d_eq(mallctl("epoch", NULL, NULL, (void *)&epoch,
 		    sizeof(epoch)), 0, "Unexpected mallctl() failure");
 	}
 
 	miblen = sizeof(mib)/sizeof(size_t);
-	assert_d_eq(mallctlnametomib("arena.0.initialized", mib, &miblen), 0,
+	expect_d_eq(mallctlnametomib("arena.0.initialized", mib, &miblen), 0,
 	    "Unexpected mallctlnametomib() failure");
 	mib[1] = (size_t)arena_ind;
 	sz = sizeof(initialized);
-	assert_d_eq(mallctlbymib(mib, miblen, (void *)&initialized, &sz, NULL,
+	expect_d_eq(mallctlbymib(mib, miblen, (void *)&initialized, &sz, NULL,
 	    0), 0, "Unexpected mallctlbymib() failure");
 
 	return initialized;
 }
 
 TEST_BEGIN(test_arena_destroy_initial) {
-	assert_false(arena_i_initialized(MALLCTL_ARENAS_DESTROYED, false),
+	expect_false(arena_i_initialized(MALLCTL_ARENAS_DESTROYED, false),
 	    "Destroyed arena stats should not be initialized");
 }
 TEST_END
@@ -229,9 +226,9 @@ TEST_BEGIN(test_arena_destroy_hooks_default) {
 	arena_ind = do_arena_create(NULL);
 	do_arena_reset_pre(arena_ind, &ptrs, &nptrs);
 
-	assert_false(arena_i_initialized(arena_ind, false),
+	expect_false(arena_i_initialized(arena_ind, false),
 	    "Arena stats should not be initialized");
-	assert_true(arena_i_initialized(arena_ind, true),
+	expect_true(arena_i_initialized(arena_ind, true),
 	    "Arena stats should be initialized");
 
 	/*
@@ -242,9 +239,9 @@ TEST_BEGIN(test_arena_destroy_hooks_default) {
 
 	do_arena_destroy(arena_ind);
 
-	assert_false(arena_i_initialized(arena_ind, true),
+	expect_false(arena_i_initialized(arena_ind, true),
 	    "Arena stats should not be initialized");
-	assert_true(arena_i_initialized(MALLCTL_ARENAS_DESTROYED, false),
+	expect_true(arena_i_initialized(MALLCTL_ARENAS_DESTROYED, false),
 	    "Destroyed arena stats should be initialized");
 
 	do_arena_reset_post(ptrs, nptrs, arena_ind);
@@ -252,12 +249,27 @@ TEST_BEGIN(test_arena_destroy_hooks_default) {
 	arena_ind_prev = arena_ind;
 	arena_ind = do_arena_create(NULL);
 	do_arena_reset_pre(arena_ind, &ptrs, &nptrs);
-	assert_u_eq(arena_ind, arena_ind_prev,
+	expect_u_eq(arena_ind, arena_ind_prev,
 	    "Arena index should have been recycled");
 	do_arena_destroy(arena_ind);
 	do_arena_reset_post(ptrs, nptrs, arena_ind);
 
 	do_arena_destroy(arena_ind_another);
+
+	/* Try arena.create with custom hooks. */
+	size_t sz = sizeof(extent_hooks_t *);
+	extent_hooks_t *a0_default_hooks;
+	expect_d_eq(mallctl("arena.0.extent_hooks", (void *)&a0_default_hooks,
+	    &sz, NULL, 0), 0, "Unexpected mallctlnametomib() failure");
+
+	/* Default impl; but wrapped as "customized". */
+	extent_hooks_t new_hooks = *a0_default_hooks;
+	extent_hooks_t *hook = &new_hooks;
+	sz = sizeof(unsigned);
+	expect_d_eq(mallctl("arenas.create", (void *)&arena_ind, &sz,
+	    (void *)&hook, sizeof(void *)), 0,
+	    "Unexpected mallctl() failure");
+	do_arena_destroy(arena_ind);
 }
 TEST_END
 
@@ -271,9 +283,9 @@ extent_dalloc_unmap(extent_hooks_t *extent_hooks, void *addr, size_t size,
 	TRACE_HOOK("%s(extent_hooks=%p, addr=%p, size=%zu, committed=%s, "
 	    "arena_ind=%u)\n", __func__, extent_hooks, addr, size, committed ?
 	    "true" : "false", arena_ind);
-	assert_ptr_eq(extent_hooks, &hooks,
+	expect_ptr_eq(extent_hooks, &hooks,
 	    "extent_hooks should be same as pointer used to set hooks");
-	assert_ptr_eq(extent_hooks->dalloc, extent_dalloc_unmap,
+	expect_ptr_eq(extent_hooks->dalloc, extent_dalloc_unmap,
 	    "Wrong hook function");
 	called_dalloc = true;
 	if (!try_dalloc) {
@@ -317,20 +329,20 @@ TEST_BEGIN(test_arena_destroy_hooks_unmap) {
 	arena_ind = do_arena_create(&hooks);
 	do_arena_reset_pre(arena_ind, &ptrs, &nptrs);
 
-	assert_true(did_alloc, "Expected alloc");
+	expect_true(did_alloc, "Expected alloc");
 
-	assert_false(arena_i_initialized(arena_ind, false),
+	expect_false(arena_i_initialized(arena_ind, false),
 	    "Arena stats should not be initialized");
-	assert_true(arena_i_initialized(arena_ind, true),
+	expect_true(arena_i_initialized(arena_ind, true),
 	    "Arena stats should be initialized");
 
 	did_dalloc = false;
 	do_arena_destroy(arena_ind);
-	assert_true(did_dalloc, "Expected dalloc");
+	expect_true(did_dalloc, "Expected dalloc");
 
-	assert_false(arena_i_initialized(arena_ind, true),
+	expect_false(arena_i_initialized(arena_ind, true),
 	    "Arena stats should not be initialized");
-	assert_true(arena_i_initialized(MALLCTL_ARENAS_DESTROYED, false),
+	expect_true(arena_i_initialized(MALLCTL_ARENAS_DESTROYED, false),
 	    "Destroyed arena stats should be initialized");
 
 	do_arena_reset_post(ptrs, nptrs, arena_ind);

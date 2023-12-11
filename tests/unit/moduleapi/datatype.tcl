@@ -8,6 +8,10 @@ start_server {tags {"modules"}} {
         assert {[r datatype.get dtkey] eq {100 stringval}}
     }
 
+    test {test blocking of datatype creation outside of OnLoad} {
+        assert_equal [r block.create.datatype.outside.onload] OK
+    }
+
     test {DataType: RM_SaveDataTypeToString(), RM_LoadDataTypeFromStringEncver() work} {
         r datatype.set dtkey -1111 MyString
         set encoded [r datatype.dump dtkey]
@@ -84,5 +88,47 @@ start_server {tags {"modules"}} {
         }
         $rd read
         $rd close
+    }
+
+    test {DataType: check the type name} {
+        r flushdb
+        r datatype.set foo 111 bar
+        assert_type test___dt foo
+    }
+
+    test {SCAN module datatype} {
+        r flushdb
+        populate 1000
+        r datatype.set foo 111 bar
+        set type [r type foo]
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type $type]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1 [llength $keys]    
+    }
+
+    test {SCAN module datatype with case sensitive} {
+        r flushdb
+        populate 1000
+        r datatype.set foo 111 bar
+        set type "tEsT___dT"
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type $type]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1 [llength $keys]
     }
 }

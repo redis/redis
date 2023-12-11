@@ -37,7 +37,14 @@ start_server {tags {"modules"}} {
         dict unset redis_reply group
         dict unset module_reply group
         dict unset module_reply module
+        if {$::log_req_res} {
+            dict unset redis_reply reply_schema
+        }
 
         assert_equal $redis_reply $module_reply
+    }
+
+    test "Unload the module - cmdintrospection" {
+        assert_equal {OK} [r module unload cmdintrospection]
     }
 }

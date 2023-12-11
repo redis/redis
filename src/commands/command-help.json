@@ -1,6 +1,6 @@
 {
     "HELP": {
-        "summary": "Show helpful text about the different subcommands",
+        "summary": "Returns helpful text about the different subcommands.",
         "complexity": "O(1)",
         "group": "server",
         "since": "5.0.0",
@@ -9,10 +9,18 @@
         "function": "commandHelpCommand",
         "command_flags": [
             "LOADING",
-            "STALE"
+            "STALE",
+            "SENTINEL"
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Helpful text about subcommands.",
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

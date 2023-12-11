@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/misc.so]
 
-start_server {tags {"modules"}} {
+start_server {overrides {save {900 1}} tags {"modules"}} {
     r module load $testmodule
 
     test {test RM_Call} {
@@ -29,6 +29,11 @@ start_server {tags {"modules"}} {
         set ld [r test.ld_conversion]
         assert {[string match $ld "0.00000000000000001"]}
     }
+    
+    test {test unsigned long long conversions} {
+        set ret [r test.ull_conversion]
+        assert {[string match $ret "ok"]}
+    }
 
     test {test module db commands} {
         r set x foo
@@ -37,6 +42,16 @@ start_server {tags {"modules"}} {
         assert_equal [r test.dbsize] 1
         r test.flushall
         assert_equal [r test.dbsize] 0
+    }
+
+    test {test RedisModule_ResetDataset do not reset functions} {
+        r function load {#!lua name=lib
+            redis.register_function('test', function() return 1 end)
+        }
+        assert_equal [r function list] {{library_name lib engine LUA functions {{name test description {} flags {}}}}}
+        r test.flushall
+        assert_equal [r function list] {{library_name lib engine LUA functions {{name test description {} flags {}}}}}
+        r function flush
     }
 
     test {test module keyexists} {
@@ -101,6 +116,61 @@ start_server {tags {"modules"}} {
         r client tracking on
         set info [r test.clientinfo]
         assert { [dict get $info flags] == "${ssl_flag}::tracking::" }
+        r CLIENT TRACKING off
+    }
+
+    test {tracking with rm_call sanity} {
+        set rd_trk [redis_client]
+        $rd_trk HELLO 3
+        $rd_trk CLIENT TRACKING on
+        r MSET key1{t} 1 key2{t} 1
+
+        # GET triggers tracking, SET does not
+        $rd_trk test.rm_call GET key1{t}
+        $rd_trk test.rm_call SET key2{t} 2
+        r MSET key1{t} 2 key2{t} 2
+        assert_equal {invalidate key1{t}} [$rd_trk read]
+        assert_equal "PONG" [$rd_trk ping]
+        $rd_trk close
+    }
+
+    test {tracking with rm_call with script} {
+        set rd_trk [redis_client]
+        $rd_trk HELLO 3
+        $rd_trk CLIENT TRACKING on
+        r MSET key1{t} 1 key2{t} 1
+
+        # GET triggers tracking, SET does not
+        $rd_trk test.rm_call EVAL "redis.call('get', 'key1{t}')" 2 key1{t} key2{t}
+        r MSET key1{t} 2 key2{t} 2
+        assert_equal {invalidate key1{t}} [$rd_trk read]
+        assert_equal "PONG" [$rd_trk ping]
+        $rd_trk close
+    }
+
+    test {publish to self inside rm_call} {
+        r hello 3
+        r subscribe foo
+
+        # published message comes after the response of the command that issued it.
+        assert_equal [r test.rm_call publish foo bar] {1}
+        assert_equal [r read] {message foo bar}
+
+        r unsubscribe foo
+        r hello 2
+        set _ ""
+    } {} {resp3}
+
+    test {test module get/set client name by id api} {
+        catch { r test.getname } e
+        assert_equal "-ERR No name" $e
+        r client setname nobody
+        catch { r test.setname "name with spaces" } e
+        assert_match "*Invalid argument*" $e
+        assert_equal nobody [r client getname]
+        assert_equal nobody [r test.getname]
+        r test.setname somebody
+        assert_equal somebody [r client getname]
     }
 
     test {test module getclientcert api} {
@@ -156,6 +226,44 @@ start_server {tags {"modules"}} {
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
 
+    test {rm_call clear OOM} {
+        r config set maxmemory 1
+
+        # verify rm_call fails with OOM
+        assert_error {OOM *} {
+            r test.rm_call_flags M set x 1
+        }
+
+        # clear OOM state
+        r config set maxmemory 0
+
+        # test set command is allowed
+        r test.rm_call_flags M set x 1
+    } {OK} {needs:config-maxmemory}
+
+    test {rm_call OOM Eval} {
+        r config set maxmemory 1
+        r config set maxmemory-policy volatile-lru
+
+        # use the M flag without allow-oom shebang flag
+        assert_error {OOM *} {
+            r test.rm_call_flags M eval {#!lua
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        }
+
+        # add the M flag with allow-oom shebang flag
+        assert_equal {1} [
+            r test.rm_call_flags M eval {#!lua flags=allow-oom
+                redis.call('set','x',1)
+                return 1
+            } 1 x
+        ]
+
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
     test {rm_call write flag} {
         # add the W flag
         assert_error {ERR Write command 'set' was called while write is not allowed.} {
@@ -180,31 +288,67 @@ start_server {tags {"modules"}} {
         }
     }
 
-    test {rm_call EVAL - OOM} {
+    # Note: each script is unique, to check that flags are extracted correctly
+    test {rm_call EVAL - OOM - with M flag} {
         r config set maxmemory 1
 
-        assert_error {OOM command not allowed when used memory > 'maxmemory'. script*} {
-            r test.rm_call eval {
+        # script without shebang, but uses SET, so fails
+        assert_error {*OOM command not allowed when used memory > 'maxmemory'*} {
+            r test.rm_call_flags M eval {
                 redis.call('set','x',1)
                 return 1
             } 1 x
         }
 
-        r test.rm_call eval {#!lua flags=no-writes
+        # script with an allow-oom flag, succeeds despite using SET
+        r test.rm_call_flags M eval {#!lua flags=allow-oom
+            redis.call('set','x', 1)
+            return 2
+        } 1 x
+
+        # script with no-writes flag, implies allow-oom, succeeds
+        r test.rm_call_flags M eval {#!lua flags=no-writes
             redis.call('get','x')
             return 2
         } 1 x
 
-        assert_error {OOM allow-oom flag is not set on the script,*} {
-            r test.rm_call eval {#!lua
+        # script with shebang using default flags, so fails regardless of using only GET
+        assert_error {*OOM command not allowed when used memory > 'maxmemory'*} {
+            r test.rm_call_flags M eval {#!lua
                 redis.call('get','x')
                 return 3
             } 1 x
         }
 
-        r test.rm_call eval {
+        # script without shebang, but uses GET, so succeeds
+        r test.rm_call_flags M eval {
             redis.call('get','x')
             return 4
+        } 1 x
+
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    # All RM_Call for script succeeds in OOM state without using the M flag
+    test {rm_call EVAL - OOM - without M flag} {
+        r config set maxmemory 1
+
+        # no shebang at all
+        r test.rm_call eval {
+            redis.call('set','x',1)
+            return 6
+        } 1 x
+
+        # Shebang without flags
+        r test.rm_call eval {#!lua
+            redis.call('set','x', 1)
+            return 7
+        } 1 x
+
+        # with allow-oom flag
+        r test.rm_call eval {#!lua flags=allow-oom
+            redis.call('set','x', 1)
+            return 8
         } 1 x
 
         r config set maxmemory 0
@@ -349,6 +493,61 @@ start_server {tags {"modules"}} {
         # server is writable again
         r set x y
     } {OK}
+}
+
+start_server {tags {"modules"}} {
+    r module load $testmodule
+
+    test {test Dry Run - OK OOM/ACL} {
+        set x 5
+        r set x $x
+        catch {r test.rm_call_flags DMC set x 10} e
+        assert_match {*NULL reply returned*} $e
+        assert_equal [r get x] 5
+    }
+
+    test {test Dry Run - Fail OOM} {
+        set x 5
+        r set x $x
+        r config set maxmemory 1
+        catch {r test.rm_call_flags DM set x 10} e
+        assert_match {*OOM*} $e
+        assert_equal [r get x] $x
+        r config set maxmemory 0
+    } {OK} {needs:config-maxmemory}
+
+    test {test Dry Run - Fail ACL} {
+        set x 5
+        r set x $x
+        # deny all permissions besides the dryrun command
+        r acl setuser default resetkeys
+
+        catch {r test.rm_call_flags DC set x 10} e
+        assert_match {*NOPERM No permissions to access a key*} $e
+        r acl setuser default +@all ~*
+        assert_equal [r get x] $x
+    }
+
+    test {test silent open key} {
+        r debug set-active-expire 0
+        r test.clear_n_events
+        r set x 1 PX 10
+        after 1000
+        # now the key has been expired, open it silently and make sure not event were fired.
+        assert_error {key not found} {r test.silent_open_key x}
+        assert_equal {0} [r test.get_n_events]
+    }
+
+if {[string match {*jemalloc*} [s mem_allocator]]} {
+    test {test RM_Call with large arg for SET command} {
+        # set a big value to trigger increasing the query buf
+        r set foo [string repeat A 100000]
+        # set a smaller value but > PROTO_MBULK_BIG_ARG (32*1024) Redis will try to save the query buf itself on the DB.
+        r test.call_generic set bar [string repeat A 33000]
+        # asset the value was trimmed
+        assert {[r memory usage bar] < 42000}; # 42K to count for Jemalloc's additional memory overhead.
+    }
+} ;# if jemalloc
 
     test "Unload the module - misc" {
         assert_equal {OK} [r module unload misc]

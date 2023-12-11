@@ -1,6 +1,6 @@
 {
     "REPLICAOF": {
-        "summary": "Make the server a replica of another instance, or promote it as master.",
+        "summary": "Configures a server as replica of another, or promotes it to a master.",
         "complexity": "O(1)",
         "group": "server",
         "since": "5.0.0",
@@ -14,13 +14,46 @@
         ],
         "arguments": [
             {
-                "name": "host",
-                "type": "string"
-            },
-            {
-                "name": "port",
-                "type": "integer"
+                "name": "args",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "host-port",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "host",
+                                "type": "string"
+                            },
+                            {
+                                "name": "port",
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "no-one",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "no",
+                                "type": "pure-token",
+                                "token": "NO"
+                            },
+                            {
+                                "name": "one",
+                                "type": "pure-token",
+                                "token": "ONE"
+                            }
+                        ]
+                    }
+                ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "replicaOf status",
+            "type": "string",
+            "pattern": "OK*"
+        }
     }
 }

@@ -469,6 +469,20 @@ start_server {
         assert {[lindex $result 1 1 1] eq {value2}}
     }
 
+    test {XDEL multiply id test} {
+        r del somestream
+        r xadd somestream 1-1 a 1
+        r xadd somestream 1-2 b 2
+        r xadd somestream 1-3 c 3
+        r xadd somestream 1-4 d 4
+        r xadd somestream 1-5 e 5
+        assert {[r xlen somestream] == 5}
+        assert {[r xdel somestream 1-1 1-4 1-5 2-1] == 3}
+        assert {[r xlen somestream] == 2}
+        set result [r xrange somestream - +]
+        assert {[dict get [lindex $result 0 1] b] eq {2}}
+        assert {[dict get [lindex $result 1 1] c] eq {3}}
+    }
     # Here the idea is to check the consistency of the stream data structure
     # as we remove all the elements down to zero elements.
     test {XDEL fuzz test} {
@@ -752,7 +766,7 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
     }
 }
 
-start_server {tags {"stream xsetid"}} {
+start_server {tags {"stream"}} {
     test {XADD can CREATE an empty stream} {
         r XADD mystream MAXLEN 0 * a b
         assert {[dict get [r xinfo stream mystream] length] == 0}
@@ -809,9 +823,22 @@ start_server {tags {"stream xsetid"}} {
         r XADD mystream MAXLEN 0 * a b
         set err
     } {ERR *smaller*}
+
+    test {XSETID cannot set smaller ID than current MAXDELETEDID} {
+        r DEL x
+        r XADD x 1-1 a 1
+        r XADD x 1-2 b 2
+        r XADD x 1-3 c 3
+        r XDEL x 1-2
+        r XDEL x 1-3
+        set reply [r XINFO stream x]
+        assert_equal [dict get $reply max-deleted-entry-id] "1-3"
+        catch {r XSETID x "1-2" } err
+        set err
+    } {ERR *smaller*}
 }
 
-start_server {tags {"stream offset"}} {
+start_server {tags {"stream"}} {
     test {XADD advances the entries-added counter and sets the recorded-first-entry-id} {
         r DEL x
         r XADD x 1-0 data a
@@ -851,7 +878,7 @@ start_server {tags {"stream offset"}} {
         assert_equal [dict get $reply recorded-first-entry-id] "4-0"
     }
 
-    test {Maxmimum XDEL ID behaves correctly} {
+    test {Maximum XDEL ID behaves correctly} {
         r DEL x
         r XADD x 1-0 data a
         r XADD x 2-0 data b
@@ -867,6 +894,12 @@ start_server {tags {"stream offset"}} {
         r XDEL x 1-0
         set reply [r XINFO STREAM x FULL]
         assert_equal [dict get $reply max-deleted-entry-id] "2-0"
+    }
+
+    test {XADD with artial ID with maximal seq} {
+        r DEL x
+        r XADD x 1-18446744073709551615 f1 v1
+        assert_error {*The ID specified in XADD is equal or smaller*} {r XADD x 1-* f2 v2}
     }
 }
 

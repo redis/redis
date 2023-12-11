@@ -125,6 +125,14 @@ void SHA1Init(SHA1_CTX* context)
     context->count[0] = context->count[1] = 0;
 }
 
+/* This source code is referenced from
+ * https://github.com/libevent/libevent/commit/e1d7d3e40a7fd50348d849046fbfd9bf976e643c */
+#if defined(__GNUC__) && __GNUC__ >= 12
+#pragma GCC diagnostic push
+/* Ignore the case when SHA1Transform() called with 'char *', that code passed
+ * buffer of 64 bytes anyway (at least now) */
+#pragma GCC diagnostic ignored "-Wstringop-overread"
+#endif
 
 /* Run your data through this. */
 
@@ -149,6 +157,9 @@ void SHA1Update(SHA1_CTX* context, const unsigned char* data, uint32_t len)
     memcpy(&context->buffer[j], &data[i], len - i);
 }
 
+#if defined(__GNUC__) && __GNUC__ >= 12
+#pragma GCC diagnostic pop
+#endif
 
 /* Add padding and return the message digest. */
 

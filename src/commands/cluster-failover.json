@@ -12,9 +12,6 @@
             "ADMIN",
             "STALE"
         ],
-        "command_tips": [
-            "NONDETERMINISTIC_OUTPUT"
-        ],
         "arguments": [
             {
                 "name": "options",
@@ -33,6 +30,9 @@
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
     }
 }

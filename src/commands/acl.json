@@ -1,6 +1,6 @@
 {
     "ACL": {
-        "summary": "A container for Access List Control commands ",
+        "summary": "A container for Access List Control commands.",
         "complexity": "Depends on subcommand.",
         "group": "server",
         "since": "6.0.0",

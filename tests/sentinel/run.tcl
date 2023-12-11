@@ -22,6 +22,7 @@ proc main {} {
     spawn_instance redis $::redis_base_port $::instances_count {
         "enable-protected-configs yes"
         "enable-debug-command yes"
+        "save ''"
     }
     run_tests
     cleanup

@@ -1,6 +1,6 @@
 {
     "RESET": {
-        "summary": "Reset the connection",
+        "summary": "Resets the connection.",
         "complexity": "O(1)",
         "group": "connection",
         "since": "6.2.0",
@@ -16,6 +16,9 @@
         ],
         "acl_categories": [
             "CONNECTION"
-        ]
+        ],
+        "reply_schema": {
+            "const": "RESET"
+        }
     }
 }

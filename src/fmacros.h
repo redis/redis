@@ -58,6 +58,16 @@
 #define _LARGEFILE_SOURCE
 #define _FILE_OFFSET_BITS 64
 
+/* deprecate unsafe functions
+ *
+ * NOTE: We do not use the poison pragma since it
+ * will error on stdlib definitions in files as well*/
+#if (__GNUC__ && __GNUC__ >= 4) && !defined __APPLE__
+int sprintf(char *str, const char *format, ...) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of snprintf instead")));
+char *strcpy(char *restrict dest, const char *src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcpy instead")));
+char *strcat(char *restrict dest, const char *restrict src) __attribute__((deprecated("please avoid use of unsafe C functions. prefer use of redis_strlcat instead")));
+#endif
+
 #ifdef __linux__
 /* features.h uses the defines above to set feature specific defines.  */
 #include <features.h>

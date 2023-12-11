@@ -11,12 +11,13 @@ def markdown(s)
     s.chop! while s[-1] == "\n" || s[-1] == " "
     lines = s.split("\n")
     newlines = []
-    # Fix some markdown, except in code blocks indented by 4 spaces.
+    # Fix some markdown
     lines.each{|l|
+        # Rewrite RM_Xyz() to RedisModule_Xyz().
+        l = l.gsub(/(?<![A-Z_])RM_(?=[A-Z])/, 'RedisModule_')
+        # Fix more markdown, except in code blocks indented by 4 spaces, which we
+        # don't want to mess with.
         if not l.start_with?('    ')
-            # Rewrite RM_Xyz() to `RedisModule_Xyz()`. The () suffix is
-            # optional. Even RM_Xyz*() with * as wildcard is handled.
-            l = l.gsub(/(?<!`)RM_([A-z]+(?:\*?\(\))?)/, '`RedisModule_\1`')
             # Add backquotes around RedisModule functions and type where missing.
             l = l.gsub(/(?<!`)RedisModule[A-z]+(?:\*?\(\))?/){|x| "`#{x}`"}
             # Add backquotes around c functions like malloc() where missing.
