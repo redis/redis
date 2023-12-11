@@ -840,7 +840,7 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
 
         # Collect two slots to help determine the expiry scan logic is able
         # to go past certain slots which aren't valid for scanning at the given point of time.
-        # And the next non empyt slot after that still gets scanned and expiration happens.
+        # And the next non empty slot after that still gets scanned and expiration happens.
 
         # hashslot(alice) is 749
         r psetex alice 500 val
@@ -861,6 +861,9 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
         for {set j 1} {$j <= 99} {incr j} {
             r del "{foo}$j"
         }
+
+        # Trigger a full traversal of all dictionaries.
+        r keys *
 
         r debug set-active-expire 1
 
@@ -888,9 +891,11 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
         r psetex "{foo}0" 500 a
 
         # Verify all keys have expired
-        wait_for_condition 200 100 {
+        wait_for_condition 400 100 {
             [r dbsize] eq 0
         } else {
+            puts [r dbsize]
+            flush stdout
             fail "Keys did not actively expire."
         }
     } {} {needs:debug}

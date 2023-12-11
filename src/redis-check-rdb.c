@@ -277,10 +277,12 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 goto eoferr;
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_SLOT_INFO) {
-            uint64_t slot_id, slot_size;
+            uint64_t slot_id, slot_size, expires_slot_size;
             if ((slot_id = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if ((slot_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
+                goto eoferr;
+            if ((expires_slot_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_AUX) {
