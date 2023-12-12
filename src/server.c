@@ -649,8 +649,8 @@ int htNeedsResize(dict *dict) {
 
     size = dictBuckets(dict);
     used = dictSize(dict);
-    return (size > DICT_HT_INITIAL_SIZE &&
-            (used*100/size < HASHTABLE_MIN_FILL));
+    return (used >= size) || 
+           (size > DICT_HT_INITIAL_SIZE && (used*100/size < HASHTABLE_MIN_FILL));
 }
 
 /* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
