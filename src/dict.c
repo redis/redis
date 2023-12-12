@@ -1435,10 +1435,9 @@ static int _dictShrinkIfNeeded(dict *d)
     /* If the size of hash table is DICT_HT_INITIAL_SIZE, don't shrink it. */
     if (DICTHT_SIZE(d->ht_size_exp[0]) == DICT_HT_INITIAL_SIZE) return DICT_OK;
 
-    /* If we reached the 1:10 ratio, and we are allowed to resize the hash
-     * table (global setting) or we should avoid it but the ratio between
-     * elements/buckets is below the lower threshold, we shrink to
-     * the next power of 2 greater than elements. */
+    /* If we reached below 1:10 elements/buckets ratio, and we are allowed to resize
+     * the hash table (global setting) or we should avoid it but the ratio is below 1:50,
+     * we'll trigger a resize of the hash table. */
     if ((dict_can_resize == DICT_RESIZE_ENABLE &&  
          d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < HASHTABLE_MIN_FILL) ||
         (dict_can_resize != DICT_RESIZE_FORBID &&
