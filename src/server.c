@@ -695,10 +695,10 @@ void tryResizeHashTables(int dbid) {
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
 int incrementallyRehash(void) {
-    serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.rehashing));
     if (listLength(server.rehashing) == 0) return 0;
+    serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.rehashing));
 
-    /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
+    /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
      * after each dictionary completes rehashing, it removes itself from the list. */
     listNode *node;
     monotime timer;
