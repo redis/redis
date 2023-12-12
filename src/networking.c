@@ -2487,7 +2487,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        updateClientMemUsageAndBucket(c);
+        if (c->conn) updateClientMemUsageAndBucket(c);
     }
 
     if (server.current_client == NULL) deadclient = 1;
