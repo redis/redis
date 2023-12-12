@@ -233,7 +233,7 @@ robj *dupStringObject(const robj *o) {
 }
 
 robj *createQuicklistObject(void) {
-    quicklist *l = quicklistCreate();
+    struct quicklist *l = quicklist_new(server.list_max_listpack_size, server.list_compress_depth);
     robj *o = createObject(OBJ_LIST,l);
     o->encoding = OBJ_ENCODING_QUICKLIST;
     return o;
@@ -314,7 +314,7 @@ void freeStringObject(robj *o) {
 
 void freeListObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistRelease(o->ptr);
+        quicklist_free(o->ptr);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         lpFree(o->ptr);
     } else {
@@ -423,19 +423,21 @@ void dismissStringObject(robj *o) {
 /* See dismissObject() */
 void dismissListObject(robj *o, size_t size_hint) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklist *ql = o->ptr;
-        serverAssert(ql->len != 0);
+        struct quicklist *ql = o->ptr;
+        serverAssert(quicklist_node_count(ql) != 0);
         /* We iterate all nodes only when average node size is bigger than a
          * page size, and there's a high chance we'll actually dismiss something. */
-        if (size_hint / ql->len >= server.page_size) {
-            quicklistNode *node = ql->head;
+        if (size_hint / quicklist_node_count(ql) >= server.page_size) {
+            struct quicklist_partition *p;
+            struct quicklist_node *node;
+            quicklist_first_node(ql, &p, &node);
             while (node) {
-                if (quicklistNodeIsCompressed(node)) {
-                    dismissMemory(node->entry, ((quicklistLZF*)node->entry)->sz);
+                if (!node->raw) {
+                    dismissMemory(node->carry, ((struct quicklist_lzf *)node->carry)->sz);
                 } else {
-                    dismissMemory(node->entry, node->sz);
+                    dismissMemory(node->carry, node->raw_sz);
                 }
-                node = node->next;
+                quicklist_next(p, node, &p, &node);
             }
         }
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -1018,14 +1020,17 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         }
     } else if (o->type == OBJ_LIST) {
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-            quicklist *ql = o->ptr;
-            quicklistNode *node = ql->head;
-            asize = sizeof(*o)+sizeof(quicklist);
+            struct quicklist *ql = o->ptr;
+            struct quicklist_partition *p;
+            struct quicklist_node *node;
+            quicklist_first_node(ql, &p, &node);
+            asize = sizeof(*o)+sizeof(struct quicklist);
             do {
-                elesize += sizeof(quicklistNode)+zmalloc_size(node->entry);
+                elesize += sizeof(struct quicklist_node)+zmalloc_size(node->carry);
                 samples++;
-            } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*ql->len;
+                quicklist_next(p, node, &p, &node);
+            } while (node && samples < sample_size);
+            asize += (double)elesize/samples*quicklist_node_count(ql);
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {

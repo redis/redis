@@ -154,9 +154,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         mixStringObjectDigest(digest,o);
     } else if (o->type == OBJ_LIST) {
         listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
-        listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
-            robj *eleobj = listTypeGet(&entry);
+        while(listTypeNext(li)) {
+            robj *eleobj = listTypeGet(li);
             mixStringObjectDigest(digest,eleobj);
             decrRefCount(eleobj);
         }
@@ -470,9 +469,6 @@ void debugCommand(client *c) {
 "    Setting it to 0 disables expiring keys in background when they are not",
 "    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
 "    default.",
-"QUICKLIST-PACKED-THRESHOLD <size>",
-"    Sets the threshold for elements to be inserted as plain vs packed nodes",
-"    Default value is 1GB, allows values up to 4GB. Setting to 0 restores to default.",
 "SET-SKIP-CHECKSUM-VALIDATION <0|1>",
 "    Enables or disables checksum checks for RDB files and RESTORE's payload.",
 "SLEEP <seconds>",
@@ -617,29 +613,36 @@ NULL
         if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
-            quicklist *ql = val->ptr;
+            struct quicklist *ql = val->ptr;
             /* Add number of quicklist nodes */
-            int used = snprintf(nextra, remaining, " ql_nodes:%lu", ql->len);
+            int used = snprintf(nextra, remaining, " ql_nodes:%lu", quicklist_node_count(ql));
             nextra += used;
             remaining -= used;
             /* Add average quicklist fill factor */
-            double avg = (double)ql->count/ql->len;
+            double avg = (double)ql->count/quicklist_node_count(ql);
             used = snprintf(nextra, remaining, " ql_avg_node:%.2f", avg);
             nextra += used;
             remaining -= used;
             /* Add quicklist fill level / max listpack size */
-            used = snprintf(nextra, remaining, " ql_listpack_max:%d", ql->fill);
+            used = snprintf(nextra, remaining, " ql_pack_max_count:%d", ql->fill->pack_max_count);
+            nextra += used;
+            remaining -= used;
+            used = snprintf(nextra, remaining, " ql_pack_max_size:%d", ql->fill->pack_max_size);
             nextra += used;
             remaining -= used;
             /* Add isCompressed? */
-            int compressed = ql->compress != 0;
+            int compressed = ql->head->next->capacity != 0;
             used = snprintf(nextra, remaining, " ql_compressed:%d", compressed);
             nextra += used;
             remaining -= used;
             /* Add total uncompressed size */
             unsigned long sz = 0;
-            for (quicklistNode *node = ql->head; node; node = node->next) {
-                sz += node->sz;
+            struct quicklist_partition *p;
+            struct quicklist_node *node;
+            quicklist_first_node(ql, &p, &node);
+            while (node) {
+                sz += node->raw_sz;
+                quicklist_next(p, node, &p, &node);
             }
             used = snprintf(nextra, remaining, " ql_uncompressed_size:%lu", sz);
             nextra += used;
@@ -702,7 +705,7 @@ NULL
         if (o->encoding != OBJ_ENCODING_QUICKLIST) {
             addReplyError(c,"Not a quicklist encoded object.");
         } else {
-            quicklistRepr(o->ptr, full);
+            quicklist_debug_print((struct quicklist *)o->ptr, full);
             addReplyStatus(c,"Quicklist structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
@@ -850,16 +853,6 @@ NULL
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
-               c->argc == 3)
-    {
-        int memerr;
-        unsigned long long sz = memtoull((const char *)c->argv[2]->ptr, &memerr);
-        if (memerr || !quicklistisSetPackedThreshold(sz)) {
-            addReplyError(c, "argument must be a memory value bigger than 1 and smaller than 4gb");
-        } else {
-            addReply(c,shared.ok);
-        }
     } else if (!strcasecmp(c->argv[1]->ptr,"set-skip-checksum-validation") &&
                c->argc == 3)
     {

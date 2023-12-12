@@ -296,29 +296,25 @@ void activeDefragList(list *l, int val_type) {
     }
 }
 
-void activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
-    quicklistNode *newnode, *node = *node_ref;
+void activeDefragQuickListNode(struct quicklist_node **node_ref) {
+    struct quicklist_node *newnode, *node = *node_ref;
     unsigned char *newzl;
     if ((newnode = activeDefragAlloc(node))) {
-        if (newnode->prev)
-            newnode->prev->next = newnode;
-        else
-            ql->head = newnode;
-        if (newnode->next)
-            newnode->next->prev = newnode;
-        else
-            ql->tail = newnode;
+        newnode->prev->next = newnode;
+        newnode->next->prev = newnode;
         *node_ref = node = newnode;
     }
-    if ((newzl = activeDefragAlloc(node->entry)))
-        node->entry = newzl;
+    if ((newzl = activeDefragAlloc(node->carry)))
+        node->carry = newzl;
 }
 
-void activeDefragQuickListNodes(quicklist *ql) {
-    quicklistNode *node = ql->head;
+void activeDefragQuickListNodes(struct quicklist *ql) {
+    struct quicklist_partition *p;
+    struct quicklist_node *node;
+    quicklist_first_node(ql, &p, &node);
     while (node) {
-        activeDefragQuickListNode(ql, &node);
-        node = node->next;
+        activeDefragQuickListNode(&node);
+        quicklist_next(p, node, &p, &node);
     }
 }
 
@@ -332,8 +328,9 @@ void defragLater(redisDb *db, dictEntry *kde) {
 
 /* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
 long scanLaterList(robj *ob, unsigned long *cursor, long long endtime) {
-    quicklist *ql = ob->ptr;
-    quicklistNode *node;
+    struct quicklist *ql = ob->ptr;
+    struct quicklist_partition *p;
+    struct quicklist_node *node;
     long iterations = 0;
     int bookmark_failed = 0;
     if (ob->type != OBJ_LIST || ob->encoding != OBJ_ENCODING_QUICKLIST)
@@ -341,24 +338,24 @@ long scanLaterList(robj *ob, unsigned long *cursor, long long endtime) {
 
     if (*cursor == 0) {
         /* if cursor is 0, we start new iteration */
-        node = ql->head;
+        quicklist_first_node(ql, &p, &node);
     } else {
-        node = quicklistBookmarkFind(ql, "_AD");
+        node = quicklist_bm_find(ql, "_AD");
         if (!node) {
             /* if the bookmark was deleted, it means we reached the end. */
             *cursor = 0;
             return 0;
         }
-        node = node->next;
+        node = quicklist_next_for_bookmark(ql, node);
     }
 
     (*cursor)++;
     while (node) {
-        activeDefragQuickListNode(ql, &node);
+        activeDefragQuickListNode(&node);
         server.stat_active_defrag_scanned++;
         if (++iterations > 128 && !bookmark_failed) {
             if (ustime() > endtime) {
-                if (!quicklistBookmarkCreate(&ql, "_AD", node)) {
+                if (!quicklist_bm_create(&ql, "_AD", node)) {
                     bookmark_failed = 1;
                 } else {
                     ob->ptr = ql; /* bookmark creation may have re-allocated the quicklist */
@@ -367,9 +364,9 @@ long scanLaterList(robj *ob, unsigned long *cursor, long long endtime) {
             }
             iterations = 0;
         }
-        node = node->next;
+        node = quicklist_next_for_bookmark(ql, node);
     }
-    quicklistBookmarkDelete(ql, "_AD");
+    quicklist_bm_delete(ql, "_AD");
     *cursor = 0;
     return bookmark_failed? 1: 0;
 }
@@ -427,11 +424,11 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
 
 void defragQuicklist(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
-    quicklist *ql = ob->ptr, *newql;
+    struct quicklist *ql = ob->ptr, *newql;
     serverAssert(ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST);
     if ((newql = activeDefragAlloc(ql)))
         ob->ptr = ql = newql;
-    if (ql->len > server.active_defrag_max_scan_fields)
+    if ((unsigned long)quicklist_node_count(ql) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
         activeDefragQuickListNodes(ql);

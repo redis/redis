@@ -821,26 +821,29 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
     } else if (o->type == OBJ_LIST) {
         /* Save a list value */
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-            quicklist *ql = o->ptr;
-            quicklistNode *node = ql->head;
+            struct quicklist *ql = o->ptr;
+            struct quicklist_partition *p;
+            struct quicklist_node *node;
+            quicklist_first_node(ql, &p, &node);
 
-            if ((n = rdbSaveLen(rdb,ql->len)) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,quicklist_node_count(ql))) == -1) return -1;
             nwritten += n;
 
             while(node) {
                 if ((n = rdbSaveLen(rdb,node->container)) == -1) return -1;
                 nwritten += n;
 
-                if (quicklistNodeIsCompressed(node)) {
-                    void *data;
-                    size_t compress_len = quicklistGetLzf(node, &data);
-                    if ((n = rdbSaveLzfBlob(rdb,data,compress_len,node->sz)) == -1) return -1;
+                if (!node->raw) {
+                    struct quicklist_lzf *lzf = node->carry;
+                    void *data = lzf->compressed;
+                    size_t compress_len = lzf->sz;
+                    if ((n = rdbSaveLzfBlob(rdb,data,compress_len,node->raw_sz)) == -1) return -1;
                     nwritten += n;
                 } else {
-                    if ((n = rdbSaveRawString(rdb,node->entry,node->sz)) == -1) return -1;
+                    if ((n = rdbSaveRawString(rdb,node->carry,node->raw_sz)) == -1) return -1;
                     nwritten += n;
                 }
-                node = node->next;
+                quicklist_next(p, node, &p, &node);
             }
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *lp = o->ptr;
@@ -1758,7 +1761,7 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
     unsigned int slen;
     long long vll;
     char longstr[32] = {0};
-    quicklist *ql = (quicklist*)userdata;
+    struct quicklist *ql = userdata;
 
     if (!ziplistGet(p, &str, &slen, &vll)) return 0;
     if (!str) {
@@ -1766,7 +1769,7 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
         slen = ll2string(longstr, sizeof(longstr), vll);
         str = (unsigned char *)longstr;
     }
-    quicklistPushTail(ql, str, slen);
+    quicklist_push_tail(ql, str, slen);
     return 1;
 }
 
@@ -1862,8 +1865,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
-                            server.list_compress_depth);
 
         /* Load every single element of the list */
         while(len--) {
@@ -1873,7 +1874,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             }
             dec = getDecodedObject(ele);
             size_t len = sdslen(dec->ptr);
-            quicklistPushTail(o->ptr, dec->ptr, len);
+            quicklist_push_tail(o->ptr, dec->ptr, len);
             decrRefCount(dec);
             decrRefCount(ele);
         }
@@ -2174,8 +2175,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if (len == 0) goto emptykey;
 
         o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
-                            server.list_compress_depth);
         uint64_t container = QUICKLIST_NODE_CONTAINER_PACKED;
         while (len--) {
             unsigned char *lp;
@@ -2203,7 +2202,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             }
 
             if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
-                quicklistAppendPlainNode(o->ptr, data, encoded_len);
+                quicklist_append_plain(o->ptr, data, encoded_len);
                 continue;
             }
 
@@ -2236,11 +2235,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 zfree(lp);
                 continue;
             } else {
-                quicklistAppendListpack(o->ptr, lp);
+                quicklist_append_listpack(o->ptr, lp);
             }
         }
 
-        if (quicklistCount(o->ptr) == 0) {
+        if (quicklist_count(o->ptr) == 0) {
             decrRefCount(o);
             goto emptykey;
         }
@@ -2325,7 +2324,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 break;
             case RDB_TYPE_LIST_ZIPLIST: 
                 {
-                    quicklist *ql = quicklistNew(server.list_max_listpack_size,
+                    struct quicklist *ql = quicklist_new(server.list_max_listpack_size,
                                                  server.list_compress_depth);
 
                     if (!ziplistValidateIntegrity(encoded, encoded_len, 1,
@@ -2335,15 +2334,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         zfree(encoded);
                         o->ptr = NULL;
                         decrRefCount(o);
-                        quicklistRelease(ql);
+                        quicklist_free(ql);
                         return NULL;
                     }
 
-                    if (ql->len == 0) {
+                    if (quicklist_node_count(ql) == 0) {
                         zfree(encoded);
                         o->ptr = NULL;
                         decrRefCount(o);
-                        quicklistRelease(ql);
+                        quicklist_free(ql);
                         goto emptykey;
                     }
 
