@@ -1136,7 +1136,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 #ifdef HAVE_BACKTRACE
         logStackTrace(NULL, 1);
 #endif
-        printCrashReport();
+        if (new_report) printCrashReport();
     }
 
     // remove the signal handler so on abort() we will output the crash report.
