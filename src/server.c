@@ -364,12 +364,8 @@ uint64_t dictClientHash(const void *key) {
 
 /* Dict compare function for client */
 int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
-    uint64_t l1,l2;
     UNUSED(d);
-
-    l1 = ((client *)key1)->id;
-    l2 = ((client *)key2)->id;
-    return l1 == l2;
+    return ((client *)key1)->id == ((client *)key2)->id;
 }
 
 /* Dict compare function for null terminated string */
@@ -608,7 +604,7 @@ dictType keylistDictType = {
 
 /* KeyDict hash table type has unencoded redis objects as keys and
  * dicts as values. It's used for PUBSUB command to track clients subscribing the channels. */
-dictType keydictDictType = {
+dictType objToDictDictType = {
     dictObjHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
@@ -679,11 +675,11 @@ dictType sdsHashDictType = {
 
 /* Client Set dictionary type. Keys are client, values are not used. */
 dictType clientDictType = {
-    dictClientHash,               /* hash function */
-    NULL,                     /* key dup */
-    NULL,                     /* val dup */
-    dictClientKeyCompare,         /* key compare */
-    .no_value = 1             /* no values in this dict */
+    dictClientHash,             /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictClientKeyCompare,       /* key compare */
+    .no_value = 1               /* no values in this dict */
 };
 
 int htNeedsResize(dict *dict) {
@@ -2795,9 +2791,9 @@ void initServer(void) {
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&keydictDictType);
-    server.pubsub_patterns = dictCreate(&keydictDictType);
-    server.pubsubshard_channels = dictCreate(&keydictDictType);
+    server.pubsub_channels = dictCreate(&objToDictDictType);
+    server.pubsub_patterns = dictCreate(&objToDictDictType);
+    server.pubsubshard_channels = dictCreate(&objToDictDictType);
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;

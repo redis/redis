@@ -284,7 +284,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         de = dictFind(*type.serverPubSubChannels, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        serverAssertWithInfo(c,NULL,dictDelete(clients, c) == DICT_OK);
+        serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
         if (dictSize(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
@@ -376,7 +376,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         de = dictFind(server.pubsub_patterns,pattern);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        serverAssertWithInfo(c,NULL,dictDelete(clients, c) == DICT_OK);
+        serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
         if (dictSize(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client. */
@@ -498,6 +498,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
                                 sdslen(pattern->ptr),
                                 (char*)channel->ptr,
                                 sdslen(channel->ptr),0)) continue;
+
             dictEntry *entry;
             dictIterator *iter = dictGetSafeIterator(clients);
             while ((entry = dictNext(iter)) != NULL) {
@@ -640,10 +641,10 @@ NULL
 
         addReplyArrayLen(c,(c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
-            dict *l = dictFetchValue(server.pubsub_channels,c->argv[j]);
+            dict *d = dictFetchValue(server.pubsub_channels, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
-            addReplyLongLong(c,l ? dictSize(l) : 0);
+            addReplyLongLong(c,d ? dictSize(d) : 0);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
@@ -660,10 +661,10 @@ NULL
 
         addReplyArrayLen(c, (c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
-            dict *l = dictFetchValue(server.pubsubshard_channels, c->argv[j]);
+            dict *d = dictFetchValue(server.pubsubshard_channels, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
-            addReplyLongLong(c,l ? dictSize(l) : 0);
+            addReplyLongLong(c,d ? dictSize(d) : 0);
         }
     } else {
         addReplySubcommandSyntaxError(c);
