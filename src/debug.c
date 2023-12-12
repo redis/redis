@@ -72,7 +72,7 @@ static pthread_mutex_t signal_handler_lock;
 static pthread_mutexattr_t signal_handler_lock_attr;
 static volatile int signal_handler_lock_initialized = 0;
 /* Forward declarations */
-void bugReportStart(void);
+int bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
@@ -1031,7 +1031,7 @@ NULL
 
 __attribute__ ((noinline))
 void _serverAssert(const char *estr, const char *file, int line) {
-    bugReportStart();
+    int new_report = bugReportStart();
     serverLog(LL_WARNING,"=== ASSERTION FAILED ===");
     serverLog(LL_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 
@@ -1039,7 +1039,7 @@ void _serverAssert(const char *estr, const char *file, int line) {
 #ifdef HAVE_BACKTRACE
         logStackTrace(NULL, 1);
 #endif
-        printCrashReport();
+        if (new_report) printCrashReport();
     }
 
     // remove the signal handler so on abort() we will output the crash report.
@@ -1127,7 +1127,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     vsnprintf(fmtmsg,sizeof(fmtmsg),msg,ap);
     va_end(ap);
 
-    bugReportStart();
+    int new_report = bugReportStart();
     serverLog(LL_WARNING,"------------------------------------------------");
     serverLog(LL_WARNING,"!!! Software Failure. Press left mouse button to continue");
     serverLog(LL_WARNING,"Guru Meditation: %s #%s:%d",fmtmsg,file,line);
@@ -1144,14 +1144,18 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     bugReportEnd(0, 0);
 }
 
-void bugReportStart(void) {
+/* Start a bug report, returning 1 if this is the first time this function was called, 0 otherwise. */
+int bugReportStart(void) {
+    int new_report = 0;
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
         serverLogRaw(LL_WARNING|LL_RAW,
         "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
         bug_report_start = 1;
+        new_report = 1;
     }
     pthread_mutex_unlock(&bug_report_start_mutex);
+    return new_report;
 }
 
 #ifdef HAVE_BACKTRACE
@@ -2223,7 +2227,10 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         /* If this thread already owns the lock (meaning we crashed during handling a signal)
          * log that the crash report can't be generated. */
         serverLogRawFromHandler(LL_WARNING,
-            "Crashed running signal handler. Can't continue to generate the crash report");
+            "Crashed running signal handler. Providing reduced version of crash report.");
+#ifdef HAVE_BACKTRACE
+        logStackTrace(NULL, 1);
+#endif
         /* gracefully exit */
         bugReportEnd(1, sig);
         return;
@@ -2268,14 +2275,13 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     }
 
     logRegisters(uc);
-#endif
 
-    printCrashReport();
-
-#ifdef HAVE_BACKTRACE
     if (eip != NULL)
         dumpCodeAroundEIP(eip);
 #endif
+
+    /* printCrashReport has a chance of causing more segfaults, so print it last. */
+    printCrashReport();
 
     bugReportEnd(1, sig);
 }
