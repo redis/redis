@@ -335,8 +335,8 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
             if (type.shard) {
                 if (dictSize(d) == 0) {
                     dictRelease(d);
-                    dict **pd = type.serverPubSubChannels(slot);
-                    *pd = NULL;
+                    dict **d_ptr = type.serverPubSubChannels(slot);
+                    *d_ptr = NULL;
                 }
                 server.shard_channel_count--;
             }
