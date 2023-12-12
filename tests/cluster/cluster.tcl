@@ -210,9 +210,9 @@ proc wait_for_node_to_be_marked_fail {id_to_check} {
     foreach_redis_id id {
         if {[instance_is_killed redis $id]} continue
         wait_for_condition 1000 50 {
-            [has_flag [get_node_by_id $id $id_to_check] fail?]
+            [has_flag [get_node_by_id $id $id_to_check] fail]
         } else {
-        fail "Node $id_to_check was never marked as failed."
+            fail "Node $id_to_check was never marked as failed."
         }
     }
 }
