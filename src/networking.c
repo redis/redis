@@ -2610,12 +2610,12 @@ int processPendingCommandAndInputBuffer(client *c) {
  * pending query buffer, already representing a full command, to process.
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
-    /* When this code is accessed by an I/O thread, it can't access c->flags
+    /* When this code runs in an I/O thread, it can't access c->flags
      * since it's not thread safe. The I/O thread can access the querybuf
      * structures (always when client is pinned to an I/O thread) and the
      * command structures (only when the main thread isn't accessing them). */
     int is_io_thread = (pthread_self() != server.main_thread_id);
-    int flags = is_io_thread ? 0 : c->flags;
+    serverAssert(is_io_thread == isClientHandledByIOThread(c));
 
     if (is_io_thread && !(c->io_thread_flags & IO_THREAD_FLAG_PARSE_COMMAND)) {
         /* The I/O thread is not allowed to parse a command while the main
@@ -2626,6 +2626,9 @@ int processInputBuffer(client *c) {
 
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
+        /* I/O threads can't access c->flags. */
+        uint64_t flags = is_io_thread ? 0 : c->flags;
+
         /* Immediately abort if the client is in the middle of something. */
         if (flags & CLIENT_BLOCKED) break;
 
@@ -2688,7 +2691,7 @@ int processInputBuffer(client *c) {
         }
     }
 
-    if (flags & CLIENT_MASTER) {
+    if (!is_io_thread && c->flags & CLIENT_MASTER) {
         /* If the client is a master, trim the querybuf to repl_applied,
          * since master client is very special, its querybuf not only
          * used to parse command, but also proxy to sub-replicas.
@@ -2729,22 +2732,8 @@ void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;
     size_t qblen, readlen;
-    /* serverLog(LL_DEBUG, "readQueryFromClient pthread=%ld client=%ld", */
-    /*           pthread_self(), c->id); */
-
-    int flags;
-    if (pthread_self() == server.main_thread_id) {
-        flags = c->flags;
-    } else {
-        /* I/O threads can't access c->flags. */
-        /* serverLog(LL_DEBUG, "Client %ld readable in I/O thread. io_thread_flags=%i", */
-        /*           c->id, c->io_thread_flags); */
-        flags = 0;
-        if (c->io_thread_flags & IO_THREAD_FLAG_FREEING) {
-            /* Can this happen? */
-            return;
-        }
-    }
+    int is_master_client = (pthread_self() == server.main_thread_id &&
+                            (c->flags & CLIENT_MASTER));
 
     /* Update total number of reads on server */
     atomicIncr(server.stat_total_reads_processed, 1);
@@ -2768,12 +2757,12 @@ void readQueryFromClient(connection *conn) {
 
         /* Master client needs expand the readlen when meet BIG_ARG(see #9100),
          * but doesn't need align to the next arg, we can read more data. */
-        if (c->flags & CLIENT_MASTER && readlen < PROTO_IOBUF_LEN)
+        if (is_master_client && readlen < PROTO_IOBUF_LEN)
             readlen = PROTO_IOBUF_LEN;
     }
 
     qblen = sdslen(c->querybuf);
-    if (!(flags & CLIENT_MASTER) && // master client's querybuf can grow greedy.
+    if (!is_master_client && // master client's querybuf can grow greedy.
         (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN)) {
         /* When reading a BIG_ARG we won't be reading more than that one arg
          * into the query buffer, so we don't need to pre-allocate more than we
@@ -2814,14 +2803,14 @@ void readQueryFromClient(connection *conn) {
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
     c->lastinteraction = server.unixtime;
-    if (flags & CLIENT_MASTER) {
+    if (is_master_client) {
         c->read_reploff += nread;
         atomicIncr(server.stat_net_repl_input_bytes, nread);
     } else {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
 
-    if (!(flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
+    if (!is_master_client && sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
