@@ -310,7 +310,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 
 static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    int max = server.max_new_conns_per_cycle;
+    int max = server.max_new_plaintext_conns_per_cycle;
     char cip[NET_IP_STR_LEN];
     UNUSED(el);
     UNUSED(mask);
