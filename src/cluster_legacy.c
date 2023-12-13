@@ -5661,24 +5661,18 @@ sds genClusterInfoString(void) {
 
 
 void removeChannelsInSlot(unsigned int slot) {
-    unsigned int channelcount = countChannelsInSlot(slot);
-    if (channelcount == 0) return;
+    if (countChannelsInSlot(slot) == 0) return;
 
-    /* Retrieve all the channels for the slot. */
-    robj **channels = zmalloc(sizeof(robj*)*channelcount);
-    int j = 0;
+    /* Unsubscribe all clients for each channel in the slot. */
     dict *d = server.pubsubshard_channels[slot];
     if (!d) return;
     dictIterator *di = dictGetSafeIterator(d);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *channel = dictGetKey(de);
-        channels[j++] = channel;
-        incrRefCount(channel);
+        pubsubShardUnsubscribeAllClients(slot, channel);
     }
     dictReleaseIterator(di);
-    pubsubUnsubscribeShardChannels(channels, channelcount);
-    zfree(channels);
 }
 
 

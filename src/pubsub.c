@@ -364,9 +364,11 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     return retval;
 }
 
-void pubsubShardUnsubscribeAllClients(robj *channel) {
+/* Though we can compute the slot from the channel name, we still take the slot as 
+ * an input to avoid computing it repeatedly. */
+void pubsubShardUnsubscribeAllClients(unsigned int slot, robj *channel) {
     int retval;
-    dict *d = server.pubsubshard_channels[keyHashSlot(channel->ptr, sdslen(channel->ptr))];
+    dict *d = server.pubsubshard_channels[slot];
     dictEntry *de = dictFind(d, channel);
     serverAssertWithInfo(NULL,channel,de != NULL);
     list *clients = dictGetVal(de);
@@ -389,6 +391,12 @@ void pubsubShardUnsubscribeAllClients(robj *channel) {
     }
     /* Delete the channel from server pubsubshard channels hash table. */
     retval = dictDelete(d, channel);
+    /* Release the dict if it is empty. */
+    if (dictSize(d) == 0) {
+        dictRelease(d);
+        dict **d_ptr = &server.pubsubshard_channels[slot];
+        *d_ptr = NULL;
+    }
     server.shard_channel_count--;
     serverAssertWithInfo(NULL,channel,retval == DICT_OK);
     decrRefCount(channel); /* it is finally safe to release it */
@@ -486,17 +494,6 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
 int pubsubUnsubscribeShardAllChannels(client *c, int notify) {
     int count = pubsubUnsubscribeAllChannelsInternal(c, notify, pubSubShardType);
     return count;
-}
-
-/*
- * Unsubscribe a client from provided shard subscribed channel(s).
- */
-void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count) {
-    for (unsigned int j = 0; j < count; j++) {
-        /* Remove the channel from server and from the clients
-         * subscribed to it as well as notify them. */
-        pubsubShardUnsubscribeAllClients(channels[j]);
-    }
 }
 
 /* Unsubscribe from all the patterns. Return the number of patterns the

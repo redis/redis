@@ -3194,7 +3194,7 @@ robj *hashTypeDup(robj *o);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeShardAllChannels(client *c, int notify);
-void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count);
+void pubsubShardUnsubscribeAllClients(unsigned int slot, robj *channel);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message, int sharded);
 int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded);
