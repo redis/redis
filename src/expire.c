@@ -174,6 +174,7 @@ void activeExpireCycle(int type) {
 
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
+    int dbs_performed = 0;
     long long start = ustime(), timelimit, elapsed;
 
     /* If 'expire' action is paused, for whatever reason, then don't expire any key.
@@ -226,7 +227,12 @@ void activeExpireCycle(int type) {
     /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
 
-    for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
+    /* Stop iteration when one of the following conditions is met:
+     *
+     * 1) We have checked a sufficient number of databases with expiration time.
+     * 2) The time limit has been exceeded.
+     * 3) All databases have been traversed. */
+    for (j = 0; dbs_performed < dbs_per_call && timelimit_exit == 0 && j < server.dbnum; j++) {
         /* Scan callback data including expired and checked count per iteration. */
         expireScanData data;
 
@@ -237,6 +243,8 @@ void activeExpireCycle(int type) {
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
         current_db++;
+
+        if (dbSize(db, DB_EXPIRES)) dbs_performed++;
 
         /* Continue to expire if at the end of the cycle there are still
          * a big percentage of keys to expire, compared to the number of keys

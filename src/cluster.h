@@ -78,7 +78,7 @@ int clusterNodeIsMyself(clusterNode *n);
 clusterNode *getMyClusterNode(void);
 char *getMyClusterId(void);
 int getClusterSize(void);
-int getMyClusterSlotCount(void);
+int getMyShardSlotCount(void);
 int handleDebugClusterCommand(client *c);
 int clusterNodePending(clusterNode  *node);
 int clusterNodeIsMaster(clusterNode *n);

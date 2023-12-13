@@ -60,7 +60,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -104,7 +104,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -144,7 +144,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -181,7 +181,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -222,7 +222,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
-        ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -267,7 +267,7 @@ jobs:
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
-        ./runtest-moduleapi --verbose --dump-logs --tls --dump-logs ${{github.event.inputs.test_args}}
+        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs --tls --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -311,7 +311,7 @@ jobs:
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
-        ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -489,7 +489,7 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: |
@@ -554,7 +554,7 @@ jobs:
         sudo apt-get install tcl8.6 tclx valgrind -y
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --valgrind --no-latency --verbose --clients 1 --timeout 2400 --dump-logs ${{github.event.inputs.test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: |
@@ -597,7 +597,7 @@ jobs:
         run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: module api test
         if: true && !contains(github.event.inputs.skiptests, 'modules')
-        run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+        run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -644,7 +644,7 @@ jobs:
         run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: module api test
         if: true && !contains(github.event.inputs.skiptests, 'modules')
-        run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+        run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -687,7 +687,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -732,7 +732,7 @@ jobs:
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
-        ./runtest-moduleapi --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
+        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -779,7 +779,7 @@ jobs:
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
       run: |
-        ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+        CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
@@ -813,10 +813,10 @@ jobs:
       run: make REDIS_CFLAGS='-Werror'
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
 
   test-macos-latest-sentinel:
     runs-on: macos-latest
@@ -958,7 +958,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -997,7 +997,7 @@ jobs:
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -1034,7 +1034,7 @@ jobs:
       run: ./runtest --log-req-res --no-latency --dont-clean --force-resp3 --tags -slow --verbose --dump-logs  ${{github.event.inputs.test_args}}
     - name: module api test
       if: true && !contains(github.event.inputs.skiptests, 'modules')
-      run: ./runtest-moduleapi --log-req-res --no-latency --dont-clean --force-resp3 --dont-pre-clean --verbose --dump-logs ${{github.event.inputs.test_args}}
+      run: CFLAGS='-Werror' ./runtest-moduleapi --log-req-res --no-latency --dont-clean --force-resp3 --dont-pre-clean --verbose --dump-logs ${{github.event.inputs.test_args}}
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}

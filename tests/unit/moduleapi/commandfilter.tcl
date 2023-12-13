@@ -95,7 +95,7 @@ start_server {tags {"modules"}} {
     test "Unload the module - commandfilter" {
         assert_equal {OK} [r module unload commandfilter]
     }
-} 
+}
 
 test {RM_CommandFilterArgInsert and script argv caching} {
     # coverage for scripts calling commands that expand the argv array
@@ -161,5 +161,15 @@ test {Filtering based on client id} {
         assert_equal [r lrange mylist 0 -1] {elem1 @replaceme elem2}
 
         $rr close
+    }
+}
+
+start_server {} {
+    test {OnLoad failure will handle un-registration} {
+        catch {r module load $testmodule log-key 0 noload}
+        r set mykey @log
+        assert_equal [r lrange log-key 0 -1] {}
+        r rpush mylist elem1 @delme elem2
+        assert_equal [r lrange mylist 0 -1] {elem1 @delme elem2}
     }
 }

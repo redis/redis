@@ -969,9 +969,11 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
+/* When adding fields, please check the swap db related logic. */
 typedef struct dbDictState {
     list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
+    int non_empty_slots;                   /* The number of non-empty slots. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
     unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries (only used for cluster-enabled). */
     unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
@@ -1989,6 +1991,7 @@ struct redisServer {
                                    xor of NOTIFY_... flags. */
     dict **pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
     unsigned long long shard_channel_count;
+    unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -2437,7 +2440,6 @@ typedef struct dbIterator dbIterator;
 
 /* DB iterator specific functions */
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
-dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
 void dbReleaseIterator(dbIterator *dbit);
 dict *dbIteratorNextDict(dbIterator *dbit);
 dict *dbGetDictFromIterator(dbIterator *dbit);
@@ -3090,11 +3092,14 @@ int mustObeyClient(client *c);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
+void serverLogFromHandler(int level, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
 #else
+void serverLogFromHandler(int level, const char *fmt, ...);
 void _serverLog(int level, const char *fmt, ...);
 #endif
 void serverLogRaw(int level, const char *msg);
-void serverLogFromHandler(int level, const char *msg);
+void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
@@ -3128,6 +3133,7 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db, dbKeyType keyType);
+int dbNonEmptySlots(redisDb *db, dbKeyType keyType);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
@@ -3196,6 +3202,7 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bu
 int serverPubsubSubscriptionCount(void);
 int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
+void unmarkClientAsPubSub(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
