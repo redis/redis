@@ -2837,6 +2837,10 @@ void aclCommand(client *c) {
         }
         return;
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
+        /* Initially redact all the arguments to not leak any information
+         * about the users. */
+        for (int j = 2; j < c->argc; j++) redactClientCommandArgument(c, j);
+
         int deleted = 0;
         for (int j = 2; j < c->argc; j++) {
             sds username = c->argv[j]->ptr;
@@ -2859,6 +2863,9 @@ void aclCommand(client *c) {
         }
         addReplyLongLong(c,deleted);
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
+        /* Redact the username to not leak any information about the user. */
+        redactClientCommandArgument(c, 2);
+
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
             addReplyNull(c);

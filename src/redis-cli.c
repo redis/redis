@@ -3266,8 +3266,8 @@ void cliLoadPreferences(void) {
 /* Some commands can include sensitive information and shouldn't be put in the
  * history file. Currently these commands are include:
  * - AUTH
- * - ACL SETUSER, ACL GETUSER
- * - CONFIG SET masterauth/masteruser/requirepass
+ * - ACL DELUSER, ACL SETUSER, ACL GETUSER
+ * - CONFIG SET masterauth/masteruser/tls-key-file-pass/tls-client-key-file-pass/requirepass
  * - HELLO with [AUTH username password]
  * - MIGRATE with [AUTH password] or [AUTH2 username password] 
  * - SENTINEL CONFIG SET sentinel-pass password, SENTINEL CONFIG SET sentinel-user username 
@@ -3277,6 +3277,7 @@ static int isSensitiveCommand(int argc, char **argv) {
         return 1;
     } else if (argc > 1 &&
         !strcasecmp(argv[0],"acl") && (
+            !strcasecmp(argv[1],"deluser") ||
             !strcasecmp(argv[1],"setuser") ||
             !strcasecmp(argv[1],"getuser")))
     {
@@ -3287,6 +3288,8 @@ static int isSensitiveCommand(int argc, char **argv) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
                     !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"tls-key-file-pass") ||
+                    !strcasecmp(argv[j],"tls-client-key-file-pass") ||
                     !strcasecmp(argv[j],"requirepass")) {
                     return 1;
                 }
