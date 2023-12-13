@@ -55,17 +55,21 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         catch {r acl setuser "slowlog test user" +get +set} _
         r config set masterauth ""
         r acl setuser slowlog-test-user +get +set
+        r acl getuser slowlog-test-user
+        r acl deluser slowlog-test-user non-existing-user
         r config set slowlog-log-slower-than 0
         r config set slowlog-log-slower-than -1
         set slowlog_resp [r slowlog get]
 
         # Make sure normal configs work, but the two sensitive
         # commands are omitted or redacted
-        assert_equal 5 [llength $slowlog_resp]
-        assert_equal {slowlog reset} [lindex [lindex $slowlog_resp 4] 3]
+        assert_equal 7 [llength $slowlog_resp]
+        assert_equal {slowlog reset} [lindex [lindex $slowlog_resp 6] 3]
+        assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 5] 3]
+        assert_equal {config set masterauth (redacted)} [lindex [lindex $slowlog_resp 4] 3]
         assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 3] 3]
-        assert_equal {config set masterauth (redacted)} [lindex [lindex $slowlog_resp 2] 3]
-        assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 1] 3]
+        assert_equal {acl getuser (redacted)} [lindex [lindex $slowlog_resp 2] 3]
+        assert_equal {acl deluser (redacted) (redacted)} [lindex [lindex $slowlog_resp 1] 3]
         assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex $slowlog_resp 0] 3]
     } {} {needs:repl}
 
