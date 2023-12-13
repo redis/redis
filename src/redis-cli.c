@@ -3424,7 +3424,7 @@ static void repl(void) {
              * avoid writing them to the history file. */
             int is_sensitive = isSensitiveCommand(argc - skipargs, argv + skipargs);
             if (history) linenoiseHistoryAdd(line, is_sensitive);
-            if (historyfile) linenoiseHistorySave(historyfile);
+            if (!is_sensitive && historyfile) linenoiseHistorySave(historyfile);
 
             if (strcasecmp(argv[0],"quit") == 0 ||
                 strcasecmp(argv[0],"exit") == 0)
