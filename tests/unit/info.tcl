@@ -369,5 +369,37 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [getInfoProperty $info client_output_buffer_limit_disconnections] {1}
             r config set client-output-buffer-limit $org_outbuf_limit
         } {OK} {logreqres:skip} ;# same as obuf-limits.tcl, skip logreqres
+
+        test {clients: pubsub clients} {
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {0}
+            set rd1 [redis_deferring_client]
+            set rd2 [redis_deferring_client]
+            # basic count
+            assert_equal {1} [ssubscribe $rd1 {chan1}]
+            assert_equal {1} [subscribe $rd2 {chan2}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {2}
+            # unsubscribe non existing channel
+            assert_equal {1} [unsubscribe $rd2 {non-exist-chan}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {2}
+            # count change when client unsubscribe all channels
+            assert_equal {0} [unsubscribe $rd2 {chan2}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {1}
+            # non-pubsub clients should not be involved
+            assert_equal {0} [unsubscribe $rd2 {non-exist-chan}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {1}
+            # close all clients
+            $rd1 close
+            $rd2 close
+            wait_for_condition 100 50 {
+                [getInfoProperty [r info clients] pubsub_clients] eq {0}
+            } else {
+                fail "pubsub clients did not clear"
+            }
+        }
     }
 }

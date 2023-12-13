@@ -241,6 +241,20 @@ int clientTotalPubSubSubscriptionCount(client *c) {
     return clientSubscriptionsCount(c) + clientShardSubscriptionsCount(c);
 }
 
+void markClientAsPubSub(client *c) {
+    if (!(c->flags & CLIENT_PUBSUB)) {
+        c->flags |= CLIENT_PUBSUB;
+        server.pubsub_clients++;
+    }
+}
+
+void unmarkClientAsPubSub(client *c) {
+    if (c->flags & CLIENT_PUBSUB) {
+        c->flags &= ~CLIENT_PUBSUB;
+        server.pubsub_clients--;
+    }
+}
+
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
 int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
@@ -326,7 +340,7 @@ void pubsubShardUnsubscribeAllClients(robj *channel) {
             /* If the client has no other pubsub subscription,
              * move out of pubsub mode. */
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
-                c->flags &= ~CLIENT_PUBSUB;
+                unmarkClientAsPubSub(c);
             }
         }
     }
@@ -546,7 +560,7 @@ void subscribeCommand(client *c) {
     }
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j],pubSubType);
-    c->flags |= CLIENT_PUBSUB;
+    markClientAsPubSub(c);
 }
 
 /* UNSUBSCRIBE [channel ...] */
@@ -559,7 +573,9 @@ void unsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribeChannel(c,c->argv[j],1,pubSubType);
     }
-    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0) {
+        unmarkClientAsPubSub(c);
+    }
 }
 
 /* PSUBSCRIBE pattern [pattern ...] */
@@ -579,7 +595,7 @@ void psubscribeCommand(client *c) {
 
     for (j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
-    c->flags |= CLIENT_PUBSUB;
+    markClientAsPubSub(c);
 }
 
 /* PUNSUBSCRIBE [pattern [pattern ...]] */
@@ -592,7 +608,9 @@ void punsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribePattern(c,c->argv[j],1);
     }
-    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0) {
+        unmarkClientAsPubSub(c);
+    }
 }
 
 /* This function wraps pubsubPublishMessage and also propagates the message to cluster.
@@ -727,9 +745,8 @@ void ssubscribeCommand(client *c) {
         }
         pubsubSubscribeChannel(c, c->argv[j], pubSubShardType);
     }
-    c->flags |= CLIENT_PUBSUB;
+    markClientAsPubSub(c);
 }
-
 
 /* SUNSUBSCRIBE [shardchannel [shardchannel ...]] */
 void sunsubscribeCommand(client *c) {
@@ -740,7 +757,9 @@ void sunsubscribeCommand(client *c) {
             pubsubUnsubscribeChannel(c, c->argv[j], 1, pubSubShardType);
         }
     }
-    if (clientTotalPubSubSubscriptionCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
+    if (clientTotalPubSubSubscriptionCount(c) == 0) {
+        unmarkClientAsPubSub(c);
+    }
 }
 
 size_t pubsubMemOverhead(client *c) {
