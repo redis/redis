@@ -9960,10 +9960,10 @@ int RM_DictReplace(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
  * be set by reference to 1 if the key does not exist, or to 0 if the key
  * exists. */
 void *RM_DictGetC(RedisModuleDict *d, void *key, size_t keylen, int *nokey) {
-    void *res;
+    void *res = NULL;
     int found = raxFind(d->rax,key,keylen,&res);
     if (nokey) *nokey = !found;
-    return found ? res : NULL;
+    return res;
 }
 
 /* Like RedisModule_DictGetC() but takes the key as a RedisModuleString. */
@@ -10396,9 +10396,8 @@ RedisModuleString *RM_ServerInfoGetField(RedisModuleCtx *ctx, RedisModuleServerI
 
 /* Similar to RM_ServerInfoGetField, but returns a char* which should not be freed but the caller. */
 const char *RM_ServerInfoGetFieldC(RedisModuleServerInfoData *data, const char* field) {
-    void *result;
-    if (!raxFind(data->rax, (unsigned char *)field, strlen(field), &result))
-        return NULL;
+    void *result = NULL;
+    raxFind(data->rax, (unsigned char *)field, strlen(field), &result);
     return result;
 }
 
