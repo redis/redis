@@ -331,7 +331,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         if (server.cluster_enabled && type.shard) {
-            slot = c->slot != -1 ? c->slot : keyHashSlot(channel->ptr, sdslen(channel->ptr));
+            slot = c->slot != -1 ? (unsigned int)c->slot : keyHashSlot(channel->ptr, sdslen(channel->ptr));
         }
         d = *type.serverPubSubChannels(slot);
         serverAssertWithInfo(c,NULL,d != NULL);
