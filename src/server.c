@@ -4279,13 +4279,15 @@ int processCommand(client *c) {
 /* ====================== Error lookup and execution ===================== */
 
 void incrementErrorCount(const char *fullerr, size_t namelen) {
-    struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
-    if (error == raxNotFound) {
-        error = zmalloc(sizeof(*error));
-        error->count = 0;
+    void *result;
+    if (!raxFind(server.errors,(unsigned char*)fullerr,namelen,&result)) {
+        struct redisError *error = zmalloc(sizeof(*error));
+        error->count = 1;
         raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
+    } else {
+        struct redisError *error = result;
+        error->count++;
     }
-    error->count++;
 }
 
 /*================================== Shutdown =============================== */
