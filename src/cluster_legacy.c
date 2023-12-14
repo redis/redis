@@ -5663,16 +5663,7 @@ sds genClusterInfoString(void) {
 void removeChannelsInSlot(unsigned int slot) {
     if (countChannelsInSlot(slot) == 0) return;
 
-    /* Unsubscribe all clients for each channel in the slot. */
-    dict *d = server.pubsubshard_channels[slot];
-    if (!d) return;
-    dictIterator *di = dictGetSafeIterator(d);
-    dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
-        robj *channel = dictGetKey(de);
-        pubsubShardUnsubscribeAllClients(slot, channel);
-    }
-    dictReleaseIterator(di);
+    pubsubShardUnsubscribeAllClientsInSlot(slot);
 }
 
 

@@ -402,6 +402,19 @@ void pubsubShardUnsubscribeAllClients(unsigned int slot, robj *channel) {
     decrRefCount(channel); /* it is finally safe to release it */
 }
 
+void pubsubShardUnsubscribeAllClientsInSlot(unsigned int slot) {
+    dict *d = server.pubsubshard_channels[slot];
+    if (!d) {
+        return;
+    }
+    dictIterator *di = dictGetSafeIterator(d);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        robj *channel = dictGetKey(de);
+        pubsubShardUnsubscribeAllClients(slot, channel);
+    }
+    dictReleaseIterator(di);
+}
 
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
 int pubsubSubscribePattern(client *c, robj *pattern) {
