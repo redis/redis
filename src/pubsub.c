@@ -322,7 +322,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     list *clients;
     listNode *ln;
     int retval = 0;
-    unsigned int slot = 0;
+    int slot = 0;
 
     /* Remove the channel from the client -> channels hash table */
     incrRefCount(channel); /* channel may be just a pointer to the same object
@@ -331,7 +331,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         if (server.cluster_enabled && type.shard) {
-            slot = c->slot != -1 ? (unsigned int)c->slot : keyHashSlot(channel->ptr, sdslen(channel->ptr));
+            slot = c->slot != -1 ? c->slot : keyHashSlot(channel->ptr, sdslen(channel->ptr));
         }
         d = *type.serverPubSubChannels(slot);
         serverAssertWithInfo(c,NULL,d != NULL);
@@ -364,45 +364,8 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     return retval;
 }
 
-/* Though we can compute the slot from the channel name, we still take the slot as 
- * an input to avoid computing it repeatedly. */
-void pubsubShardUnsubscribeAllClients(unsigned int slot, robj *channel) {
-    int retval;
-    dict *d = server.pubsubshard_channels[slot];
-    dictEntry *de = dictFind(d, channel);
-    serverAssertWithInfo(NULL,channel,de != NULL);
-    list *clients = dictGetVal(de);
-    if (listLength(clients) > 0) {
-        /* For each client subscribed to the channel, unsubscribe it. */
-        listIter li;
-        listNode *ln;
-        listRewind(clients, &li);
-        while ((ln = listNext(&li)) != NULL) {
-            client *c = listNodeValue(ln);
-            retval = dictDelete(c->pubsubshard_channels, channel);
-            serverAssertWithInfo(c,channel,retval == DICT_OK);
-            addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
-            /* If the client has no other pubsub subscription,
-             * move out of pubsub mode. */
-            if (clientTotalPubSubSubscriptionCount(c) == 0) {
-                unmarkClientAsPubSub(c);
-            }
-        }
-    }
-    /* Delete the channel from server pubsubshard channels hash table. */
-    retval = dictDelete(d, channel);
-    /* Release the dict if it is empty. */
-    if (dictSize(d) == 0) {
-        dictRelease(d);
-        dict **d_ptr = &server.pubsubshard_channels[slot];
-        *d_ptr = NULL;
-    }
-    server.shard_channel_count--;
-    serverAssertWithInfo(NULL,channel,retval == DICT_OK);
-    decrRefCount(channel); /* it is finally safe to release it */
-}
-
-void pubsubShardUnsubscribeAllClientsInSlot(unsigned int slot) {
+/* Unsubscribe all shard channels in a slot. */
+void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     dict *d = server.pubsubshard_channels[slot];
     if (!d) {
         return;
@@ -411,9 +374,26 @@ void pubsubShardUnsubscribeAllClientsInSlot(unsigned int slot) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *channel = dictGetKey(de);
-        pubsubShardUnsubscribeAllClients(slot, channel);
+        list *clients = dictGetVal(de);
+        /* For each client subscribed to the channel, unsubscribe it. */
+        listNode *ln;
+        while ((ln = listFirst(clients)) != NULL) {
+            client *c = listNodeValue(ln);
+            int retval = dictDelete(c->pubsubshard_channels, channel);
+            serverAssertWithInfo(c,channel,retval == DICT_OK);
+            addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
+            /* If the client has no other pubsub subscription,
+             * move out of pubsub mode. */
+            if (clientTotalPubSubSubscriptionCount(c) == 0) {
+                unmarkClientAsPubSub(c);
+            }
+        }
+        server.shard_channel_count--;
+        dictDelete(d, channel);
     }
     dictReleaseIterator(di);
+    dictRelease(d);
+    server.pubsubshard_channels[slot] = NULL;
 }
 
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */

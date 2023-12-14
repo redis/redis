@@ -5663,7 +5663,7 @@ sds genClusterInfoString(void) {
 void removeChannelsInSlot(unsigned int slot) {
     if (countChannelsInSlot(slot) == 0) return;
 
-    pubsubShardUnsubscribeAllClientsInSlot(slot);
+    pubsubShardUnsubscribeAllChannelsInSlot(slot);
 }
 
 
