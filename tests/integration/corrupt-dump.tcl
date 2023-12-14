@@ -146,7 +146,7 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
 
     # wait for termination
     wait_for_condition 100 50 {
-        ! [is_alive $srv]
+        ! [is_alive [dict get $srv pid]]
     } else {
         fail "rdb loading didn't fail"
     }

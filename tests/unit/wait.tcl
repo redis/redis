@@ -121,10 +121,10 @@ tags {"wait aof network external:skip"} {
             r config set appendfsync always
             $master incr foo
             assert_equal [$master waitaof 1 0 0] {1 0}
-            r config set appendfsync everysec
         }
 
         test {WAITAOF local wait and then stop aof} {
+            r config set appendfsync no
             set rd [redis_deferring_client]
             $rd incr foo
             $rd read
@@ -138,6 +138,37 @@ tags {"wait aof network external:skip"} {
         test {WAITAOF local on server with aof disabled} {
             $master incr foo
             assert_error {ERR WAITAOF cannot be used when numlocal is set but appendonly is disabled.} {$master waitaof 1 0 0}
+        }
+
+        test {WAITAOF local if AOFRW was postponed} {
+            r config set appendfsync everysec
+
+            # turn off AOF
+            r config set appendonly no
+
+            # create an RDB child that takes a lot of time to run
+            r set x y
+            r config set rdb-key-save-delay 100000000  ;# 100 seconds
+            r bgsave
+            assert_equal [s rdb_bgsave_in_progress] 1
+
+            # turn on AOF
+            r config set appendonly yes
+            assert_equal [s aof_rewrite_scheduled] 1
+
+            # create a write command (to increment master_repl_offset)
+            r set x y
+
+            # reset save_delay and kill RDB child
+            r config set rdb-key-save-delay 0
+            catch {exec kill -9 [get_child_pid 0]}
+
+            # wait for AOF (will unblock after AOFRW finishes)
+            assert_equal [r waitaof 1 0 10000] {1 0}
+
+            # make sure AOFRW finished
+            assert_equal [s aof_rewrite_in_progress] 0
+            assert_equal [s aof_rewrite_scheduled] 0
         }
 
         $master config set appendonly yes

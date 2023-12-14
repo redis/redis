@@ -1657,6 +1657,7 @@ static int cliConnect(int flags) {
             redisFree(context);
             config.dbnum = 0;
             config.in_multi = 0;
+            config.pubsub_mode = 0;
             cliRefreshPrompt();
         }
 
@@ -3027,7 +3028,10 @@ static void usage(int err) {
 "  --askpass          Force user to input password with mask from STDIN.\n"
 "                     If this argument is used, '-a' and " REDIS_CLI_AUTH_ENV "\n"
 "                     environment variable will be ignored.\n"
-"  -u <uri>           Server URI.\n"
+"  -u <uri>           Server URI on format redis://user:password@host:port/dbnum\n"
+"                     User, password and dbnum are optional. For authentication\n"
+"                     without a username, use username 'default'. For TLS, use\n"
+"                     the scheme 'rediss'.\n"
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
 "                     It is possible to specify sub-second times like -i 0.1.\n"
@@ -3112,6 +3116,7 @@ version,tls_usage);
 "  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
 "Examples:\n"
+"  redis-cli -u redis://default:PASSWORD@localhost:6379/0\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
 "  redis-cli -D \"\" --raw dump key > key.dump && redis-cli -X dump_tag restore key2 0 dump_tag replace < key.dump\n"
 "  redis-cli -r 100 lpush mylist x\n"
@@ -3261,16 +3266,20 @@ void cliLoadPreferences(void) {
 /* Some commands can include sensitive information and shouldn't be put in the
  * history file. Currently these commands are include:
  * - AUTH
- * - ACL SETUSER
- * - CONFIG SET masterauth/masteruser/requirepass
+ * - ACL DELUSER, ACL SETUSER, ACL GETUSER
+ * - CONFIG SET masterauth/masteruser/tls-key-file-pass/tls-client-key-file-pass/requirepass
  * - HELLO with [AUTH username password]
- * - MIGRATE with [AUTH password] or [AUTH2 username password] */
+ * - MIGRATE with [AUTH password] or [AUTH2 username password] 
+ * - SENTINEL CONFIG SET sentinel-pass password, SENTINEL CONFIG SET sentinel-user username 
+ * - SENTINEL SET <mastername> auth-pass password, SENTINEL SET <mastername> auth-user username */
 static int isSensitiveCommand(int argc, char **argv) {
     if (!strcasecmp(argv[0],"auth")) {
         return 1;
     } else if (argc > 1 &&
-        !strcasecmp(argv[0],"acl") &&
-        !strcasecmp(argv[1],"setuser"))
+        !strcasecmp(argv[0],"acl") && (
+            !strcasecmp(argv[1],"deluser") ||
+            !strcasecmp(argv[1],"setuser") ||
+            !strcasecmp(argv[1],"getuser")))
     {
         return 1;
     } else if (argc > 2 &&
@@ -3278,8 +3287,10 @@ static int isSensitiveCommand(int argc, char **argv) {
         !strcasecmp(argv[1],"set")) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
-		    !strcasecmp(argv[j],"masteruser") ||
-		    !strcasecmp(argv[j],"requirepass")) {
+                    !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"tls-key-file-pass") ||
+                    !strcasecmp(argv[j],"tls-client-key-file-pass") ||
+                    !strcasecmp(argv[j],"requirepass")) {
                     return 1;
                 }
             }
@@ -3308,6 +3319,24 @@ static int isSensitiveCommand(int argc, char **argv) {
             } else if (!strcasecmp(argv[j],"keys") && moreargs) {
                 return 0;
             }
+        }
+    } else if (argc > 4 && !strcasecmp(argv[0], "sentinel")) {
+        /* SENTINEL CONFIG SET sentinel-pass password
+         * SENTINEL CONFIG SET sentinel-user username */
+        if (!strcasecmp(argv[1], "config") && 
+            !strcasecmp(argv[2], "set") &&
+            (!strcasecmp(argv[3], "sentinel-pass") ||
+             !strcasecmp(argv[3], "sentinel-user"))) 
+        {
+            return 1;
+        }
+        /* SENTINEL SET <mastername> auth-pass password 
+         * SENTINEL SET <mastername> auth-user username */
+        if (!strcasecmp(argv[1], "set") &&
+            (!strcasecmp(argv[3], "auth-pass") || 
+             !strcasecmp(argv[3], "auth-user"))) 
+        {
+            return 1;
         }
     }
     return 0;
@@ -9061,6 +9090,21 @@ static void longStatLoopModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+/* In cluster mode we may need to send the READONLY command.
+   Ignore the error in case the server isn't using cluster mode. */
+static void sendReadOnly(void) {
+    redisReply *read_reply;
+    read_reply = redisCommand(context, "READONLY");
+    if (read_reply == NULL){
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    } else if (read_reply->type == REDIS_REPLY_ERROR && strcmp(read_reply->str, "ERR This instance has cluster support disabled") != 0) {
+        fprintf(stderr, "Error: %s\n", read_reply->str);
+        exit(1);
+    }
+    freeReplyObject(read_reply);
+}
+
 static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
@@ -9086,6 +9130,9 @@ static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     printf("\n# Scanning the entire keyspace to find biggest keys as well as\n");
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
+    
+    /* Use readonly in cluster */
+    sendReadOnly();
 
     /* SCAN loop */
     do {
@@ -9252,6 +9299,9 @@ static void findHotKeys(void) {
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
 
+    /* Use readonly in cluster */
+    sendReadOnly();
+    
     /* SCAN loop */
     do {
         /* Calculate approximate percentage completion */

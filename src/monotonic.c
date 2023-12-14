@@ -3,10 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
-
-#undef NDEBUG
-#include <assert.h>
-
+#include "redisassert.h"
 
 /* The function pointer for clock retrieval.  */
 monotime (*getMonotonicUs)(void) = NULL;

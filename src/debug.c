@@ -36,6 +36,7 @@
 #include "quicklist.h"
 #include "fpconv_dtoa.h"
 #include "cluster.h"
+#include "threads_mngr.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -75,6 +76,8 @@ void bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel);
+void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, dbKeyType keyType);
+void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret);
 
 /* ================================= Debugging ============================== */
 
@@ -279,7 +282,6 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
  * a different digest. */
 void computeDatasetDigest(unsigned char *final) {
     unsigned char digest[20];
-    dictIterator *di = NULL;
     dictEntry *de;
     int j;
     uint32_t aux;
@@ -288,17 +290,15 @@ void computeDatasetDigest(unsigned char *final) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
+        if (dbSize(db, DB_MAIN) == 0) continue;
+        dbIterator *dbit = dbIteratorInit(db, DB_MAIN);
 
-        if (dictSize(db->dict) == 0) continue;
-        di = dictGetSafeIterator(db->dict);
-
-        /* hash the DB id, so the same dataset moved in a different
-         * DB will lead to a different digest */
+        /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
         mixDigest(final,&aux,sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
+        while((de = dbIteratorNext(dbit)) != NULL) {
             sds key;
             robj *keyobj, *o;
 
@@ -315,7 +315,7 @@ void computeDatasetDigest(unsigned char *final) {
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
-        dictReleaseIterator(di);
+        dbReleaseIterator(dbit);
     }
 }
 
@@ -496,11 +496,9 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
-"CLUSTERLINK KILL <to|from|all> <node-id>",
-"    Kills the link based on the direction to/from (both) with the provided node." ,
 NULL
         };
-        addReplyHelp(c, help);
+        addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         /* Compiler gives warnings about writing to a random address
          * e.g "*((char*)-1) = 'x';". As a workaround, we map a read-only area
@@ -608,7 +606,7 @@ NULL
         robj *val;
         char *strenc;
 
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -660,7 +658,7 @@ NULL
         robj *val;
         sds key;
 
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -716,7 +714,12 @@ NULL
         if (getPositiveLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
 
-        if (dictTryExpand(c->db->dict, keys) != DICT_OK) {
+        if (server.loading || server.async_loading) {
+            addReplyErrorObject(c, shared.loadingerr);
+            return;
+        }
+
+        if (dbExpand(c->db, keys, DB_MAIN, 1) == C_ERR) {
             addReplyError(c, "OOM in dictTryExpand");
             return;
         }
@@ -764,7 +767,7 @@ NULL
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
             dictEntry *de;
-            robj *o = ((de = dictFind(c->db->dict,c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
+            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr, DB_MAIN)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -908,11 +911,11 @@ NULL
             full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].dict,full);
+        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DB_MAIN);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].expires,full);
+        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DB_EXPIRES);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
@@ -1018,34 +1021,7 @@ NULL
             return;
         }
         addReply(c, shared.ok);
-    } else if(!strcasecmp(c->argv[1]->ptr,"CLUSTERLINK") &&
-        !strcasecmp(c->argv[2]->ptr,"KILL") &&
-        c->argc == 5) {
-        if (!server.cluster_enabled) {
-            addReplyError(c, "Debug option only available for cluster mode enabled setup!");
-            return;
-        }
-
-        /* Find the node. */
-        clusterNode *n = clusterLookupNode(c->argv[4]->ptr, sdslen(c->argv[4]->ptr));
-        if (!n) {
-            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[4]->ptr);
-            return;
-        }
-
-        /* Terminate the link based on the direction or all. */
-        if (!strcasecmp(c->argv[3]->ptr,"from")) {
-            freeClusterLink(n->inbound_link);
-        } else if (!strcasecmp(c->argv[3]->ptr,"to")) {
-            freeClusterLink(n->link);
-        } else if (!strcasecmp(c->argv[3]->ptr,"all")) {
-            freeClusterLink(n->link);
-            freeClusterLink(n->inbound_link);
-        } else {
-            addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
-        }
-        addReply(c,shared.ok);
-    } else {
+    } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
         return;
     }
@@ -1053,6 +1029,7 @@ NULL
 
 /* =========================== Crash handling  ============================== */
 
+__attribute__ ((noinline))
 void _serverAssert(const char *estr, const char *file, int line) {
     bugReportStart();
     serverLog(LL_WARNING,"=== ASSERTION FAILED ===");
@@ -1142,6 +1119,7 @@ void _serverAssertWithInfo(const client *c, const robj *o, const char *estr, con
     _serverAssert(estr,file,line);
 }
 
+__attribute__ ((noinline))
 void _serverPanic(const char *file, int line, const char *msg, ...) {
     va_list ap;
     va_start(ap,msg);
@@ -1193,7 +1171,7 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     } \
     return old_val; \
 } while(0)
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
     /* OSX < 10.6 */
     #if defined(__x86_64__)
     GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
@@ -1202,7 +1180,7 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     #else
     GET_SET_RETURN(uc->uc_mcontext->__ss.__srr0, eip);
     #endif
-#elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+#elif defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)
     /* OSX >= 10.6 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
@@ -1293,7 +1271,7 @@ void logRegisters(ucontext_t *uc) {
 } while(0)
 
 /* OSX */
-#if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)
   /* OSX AMD64 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     serverLog(LL_WARNING,
@@ -1818,23 +1796,132 @@ void closeDirectLogFiledes(int fd) {
     if (!log_to_stdout) close(fd);
 }
 
+#if defined(HAVE_BACKTRACE) && defined(__linux__)
+static int stacktrace_pipe[2] = {0};
+static void setupStacktracePipe(void) {
+    if (-1 == anetPipe(stacktrace_pipe, O_CLOEXEC | O_NONBLOCK, O_CLOEXEC | O_NONBLOCK)) {
+        serverLog(LL_WARNING, "setupStacktracePipe failed: %s", strerror(errno));
+    }
+}
+#else
+static void setupStacktracePipe(void) {/* we don't need a pipe to write the stacktraces */}
+#endif
 #ifdef HAVE_BACKTRACE
+#define BACKTRACE_MAX_SIZE 100
+
+#ifdef __linux__
+#if !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+#include <sys/prctl.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <dirent.h>
+
+#define TIDS_MAX_SIZE 50
+static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_SIZE]);
+
+typedef struct {
+    char thread_name[16];
+    int trace_size;
+    pid_t tid;
+    void *trace[BACKTRACE_MAX_SIZE];
+} stacktrace_data;
+
+__attribute__ ((noinline)) static void collect_stacktrace_data(void) {
+    stacktrace_data trace_data = {{0}};
+
+    /* Get the stack trace first! */
+    trace_data.trace_size = backtrace(trace_data.trace, BACKTRACE_MAX_SIZE);
+
+    /* get the thread name */
+    prctl(PR_GET_NAME, trace_data.thread_name);
+
+    /* get the thread id */
+    trace_data.tid = syscall(SYS_gettid);
+
+    /* Send the output to the main process*/
+    if (write(stacktrace_pipe[1], &trace_data, sizeof(trace_data)) == -1) {/* Avoid warning. */};
+}
+
+__attribute__ ((noinline))
+static void writeStacktraces(int fd, int uplevel) {
+    /* get the list of all the process's threads that don't block or ignore the THREADS_SIGNAL */
+    pid_t tids[TIDS_MAX_SIZE];
+    size_t len_tids = get_ready_to_signal_threads_tids(THREADS_SIGNAL, tids);
+    if (!len_tids) {
+        serverLogRawFromHandler(LL_WARNING, "writeStacktraces(): Failed to get the process's threads.");
+    }
+
+    char buff[PIPE_BUF];
+    /* Clear the stacktraces pipe */
+    while (read(stacktrace_pipe[0], &buff, sizeof(buff)) > 0) {}
+
+    /* ThreadsManager_runOnThreads returns 0 if it is already running */
+    if (!ThreadsManager_runOnThreads(tids, len_tids, collect_stacktrace_data)) return;
+
+    size_t collected = 0;
+
+    pid_t calling_tid = syscall(SYS_gettid);
+
+    /* Read the stacktrace_pipe until it's empty */
+    stacktrace_data curr_stacktrace_data = {{0}};
+    while (read(stacktrace_pipe[0], &curr_stacktrace_data, sizeof(curr_stacktrace_data)) > 0) {
+        /* stacktrace header includes the tid and the thread's name */
+        snprintf_async_signal_safe(buff, sizeof(buff), "\n%d %s", curr_stacktrace_data.tid, curr_stacktrace_data.thread_name);
+        if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
+
+        /* skip kernel call to the signal handler, the signal handler and the callback addresses */
+        int curr_uplevel = 3;
+
+        if (curr_stacktrace_data.tid == calling_tid) {
+            /* skip signal syscall and ThreadsManager_runOnThreads */
+            curr_uplevel += uplevel + 2;
+            /* Add an indication to header of the thread that is handling the log file */
+            if (write(fd," *\n",strlen(" *\n")) == -1) {/* Avoid warning. */};
+        } else {
+            /* just add a new line */
+            if (write(fd,"\n",strlen("\n")) == -1) {/* Avoid warning. */};
+        }
+
+        /* add the stacktrace */
+        backtrace_symbols_fd(curr_stacktrace_data.trace+curr_uplevel, curr_stacktrace_data.trace_size-curr_uplevel, fd);
+
+        ++collected;
+    }
+
+    snprintf_async_signal_safe(buff, sizeof(buff), "\n%lu/%lu expected stacktraces.\n", (long unsigned)(collected), (long unsigned)len_tids);
+    if (write(fd,buff,strlen(buff)) == -1) {/* Avoid warning. */};
+
+}
+
+#else /* __linux__*/
+__attribute__ ((noinline))
+static void writeStacktraces(int fd, int uplevel) {
+    void *trace[BACKTRACE_MAX_SIZE];
+
+    int trace_size = backtrace(trace, BACKTRACE_MAX_SIZE);
+
+    char *msg = "\nBacktrace:\n";
+    if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
+    backtrace_symbols_fd(trace+uplevel, trace_size-uplevel, fd);
+}
+#endif /* __linux__ */
 
 /* Logs the stack trace using the backtrace() call. This function is designed
  * to be called from signal handlers safely.
  * The eip argument is optional (can take NULL).
  * The uplevel argument indicates how many of the calling functions to skip.
+ * Functions that are taken in consideration in "uplevel" should be declared with
+ * __attribute__ ((noinline)) to make sure the compiler won't inline them.
  */
+__attribute__ ((noinline))
 void logStackTrace(void *eip, int uplevel) {
-    void *trace[100];
-    int trace_size = 0, fd = openDirectLogFiledes();
+    int fd = openDirectLogFiledes();
     char *msg;
     uplevel++; /* skip this function */
 
     if (fd == -1) return; /* If we can't log there is anything to do. */
-
-    /* Get the stack trace first! */
-    trace_size = backtrace(trace, 100);
 
     msg = "\n------ STACK TRACE ------\n";
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
@@ -1847,9 +1934,11 @@ void logStackTrace(void *eip, int uplevel) {
     }
 
     /* Write symbols to log file */
-    msg = "\nBacktrace:\n";
+    ++uplevel;
+    writeStacktraces(fd, uplevel);
+    msg = "\n------ STACK TRACE DONE ------\n";
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
-    backtrace_symbols_fd(trace+uplevel, trace_size-uplevel, fd);
+
 
     /* Cleanup */
     closeDirectLogFiledes(fd);
@@ -1858,11 +1947,17 @@ void logStackTrace(void *eip, int uplevel) {
 #endif /* HAVE_BACKTRACE */
 
 sds genClusterDebugString(sds infostring) {
+    sds cluster_info = genClusterInfoString();
+    sds cluster_nodes = clusterGenNodesDescription(NULL, 0, 0);
+
     infostring = sdscatprintf(infostring, "\r\n# Cluster info\r\n");
-    infostring = sdscatsds(infostring, genClusterInfoString()); 
+    infostring = sdscatsds(infostring, cluster_info);
     infostring = sdscatprintf(infostring, "\n------ CLUSTER NODES OUTPUT ------\n");
-    infostring = sdscatsds(infostring, clusterGenNodesDescription(NULL, 0, 0));
-    
+    infostring = sdscatsds(infostring, cluster_nodes);
+
+    sdsfree(cluster_info);
+    sdsfree(cluster_nodes);
+
     return infostring;
 }
 
@@ -1939,7 +2034,7 @@ void logCurrentClient(client *cc, const char *title) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dictFind(cc->db->dict, key->ptr);
+        de = dbFind(cc->db, key->ptr, DB_MAIN);
         if (de) {
             val = dictGetVal(de);
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
@@ -2119,6 +2214,7 @@ void invalidFunctionWasCalled(void) {}
 
 typedef void (*invalidFunctionWasCalledType)(void);
 
+__attribute__ ((noinline))
 static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
@@ -2126,7 +2222,7 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     if(pthread_mutex_lock(&signal_handler_lock) == EDEADLK) {
         /* If this thread already owns the lock (meaning we crashed during handling a signal)
          * log that the crash report can't be generated. */
-        serverLog(LL_WARNING,
+        serverLogRawFromHandler(LL_WARNING,
             "Crashed running signal handler. Can't continue to generate the crash report");
         /* gracefully exit */
         bugReportEnd(1, sig);
@@ -2184,8 +2280,21 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     bugReportEnd(1, sig);
 }
 
+void setupDebugSigHandlers(void) {
+    setupStacktracePipe();
+
+    setupSigSegvHandler();
+
+    struct sigaction act;
+
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_SIGINFO;
+    act.sa_sigaction = sigalrmSignalHandler;
+    sigaction(SIGALRM, &act, NULL);
+}
+
 void setupSigSegvHandler(void) {
-    /* Initialize the signal handler lock. 
+    /* Initialize the signal handler lock.
     Attempting to initialize an already initialized mutex or mutexattr results in undefined behavior. */
     if (!signal_handler_lock_initialized) {
         /* Set signal handler with error checking attribute. re-lock within the same thread will error. */
@@ -2247,7 +2356,7 @@ void printCrashReport(void) {
 void bugReportEnd(int killViaSignal, int sig) {
     struct sigaction act;
 
-    serverLogRaw(LL_WARNING|LL_RAW,
+    serverLogRawFromHandler(LL_WARNING|LL_RAW,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/redis/redis/issues\n\n"
@@ -2305,22 +2414,27 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 /* =========================== Software Watchdog ============================ */
 #include <sys/time.h>
 
-void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
+void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
 #else
     (void)secret;
 #endif
-    UNUSED(info);
     UNUSED(sig);
 
-    serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+    /* SIGALRM can be sent explicitly to the process calling kill() to get the stacktraces,
+       or every watchdog_period interval. In the last case, si_pid is not set */
+    if(info->si_pid == 0) {
+        serverLogRawFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+    } else {
+        serverLogRawFromHandler(LL_WARNING, "\nReceived SIGALRM");
+    }
 #ifdef HAVE_BACKTRACE
     logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
 #else
-    serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
+    serverLogRawFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
-    serverLogFromHandler(LL_WARNING,"--------\n");
+    serverLogRawFromHandler(LL_WARNING,"--------\n");
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
@@ -2338,25 +2452,10 @@ void watchdogScheduleSignal(int period) {
     setitimer(ITIMER_REAL, &it, NULL);
 }
 void applyWatchdogPeriod(void) {
-    struct sigaction act;
-
     /* Disable watchdog when period is 0 */
     if (server.watchdog_period == 0) {
         watchdogScheduleSignal(0); /* Stop the current timer. */
-
-        /* Set the signal handler to SIG_IGN, this will also remove pending
-         * signals from the queue. */
-        sigemptyset(&act.sa_mask);
-        act.sa_flags = 0;
-        act.sa_handler = SIG_IGN;
-        sigaction(SIGALRM, &act, NULL);
     } else {
-        /* Setup the signal handler. */
-        sigemptyset(&act.sa_mask);
-        act.sa_flags = SA_SIGINFO;
-        act.sa_sigaction = watchdogSignalHandler;
-        sigaction(SIGALRM, &act, NULL);
-
         /* If the configured period is smaller than twice the timer period, it is
          * too short for the software watchdog to work reliably. Fix it now
          * if needed. */
@@ -2374,3 +2473,145 @@ void debugDelay(int usec) {
     if (usec < 0) usec = (rand() % -usec) == 0 ? 1: 0;
     if (usec) usleep(usec);
 }
+
+#ifdef HAVE_BACKTRACE
+#ifdef __linux__
+
+/* =========================== Stacktrace Utils ============================ */
+
+
+
+/** If it doesn't block and doesn't ignore, return 1 (the thread will handle the signal)
+ * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
+ * also returns 0 if something is wrong and prints a warning message to the log file **/
+static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char *tid, int sig_num) {
+    /* Open the threads status file path /proc/<pid>>/task/<tid>/status */
+    char path_buff[PATH_MAX];
+    snprintf_async_signal_safe(path_buff, PATH_MAX, "%s/%s/status", proc_pid_task_path, tid);
+
+    int thread_status_file = open(path_buff, O_RDONLY);
+    char buff[PATH_MAX];
+    if (thread_status_file == -1) {
+        serverLogFromHandler(LL_WARNING, "tid:%s: failed to open %s file", tid, path_buff);
+        return 0;
+    }
+
+    int ret = 1;
+    size_t field_name_len = strlen("SigBlk:\t"); /* SigIgn has the same length */
+    char *line = NULL;
+    size_t fields_count = 2;
+    while ((line = fgets_async_signal_safe(buff, PATH_MAX, thread_status_file)) && fields_count) {
+        /* iterate the file until we reach SigBlk or SigIgn field line */
+        if (!strncmp(buff, "SigBlk:\t", field_name_len) ||  !strncmp(buff, "SigIgn:\t", field_name_len)) {
+            line = buff + field_name_len;
+            unsigned long sig_mask;
+            if (-1 == string2ul_base16_async_signal_safe(line, sizeof(buff), &sig_mask)) {
+                serverLogRawFromHandler(LL_WARNING, "Can't convert signal mask to an unsigned long due to an overflow");
+                ret = 0;
+                break;
+            }
+
+            /* The bit position in a signal mask aligns with the signal number. Since signal numbers start from 1 
+            we need to adjust the signal number by subtracting 1 to align it correctly with the zero-based indexing used */
+            if (sig_mask & (1L << (sig_num - 1))) { /* if the signal is blocked/ignored return 0 */
+                ret = 0;
+                break;
+            }
+            --fields_count;
+        }
+    }
+
+    close(thread_status_file);
+
+    /* if we reached EOF, it means we haven't found SigBlk or/and SigIgn, something is wrong */
+    if (line == NULL)  {
+        ret = 0;
+        serverLogFromHandler(LL_WARNING, "tid:%s: failed to find SigBlk or/and SigIgn field(s) in %s/%s/status file", tid, proc_pid_task_path, tid);
+    }
+    return ret;
+}
+
+/** We are using syscall(SYS_getdents64) to read directories, which unlike opendir(), is considered 
+ * async-signal-safe. This function wrapper getdents64() in glibc is supported as of glibc 2.30.
+ * To support earlier versions of glibc, we use syscall(SYS_getdents64), which requires defining
+ * linux_dirent64 ourselves. This structure is very old and stable: It will not change unless the kernel
+ * chooses to break compatibility with all existing binaries. Highly Unlikely.
+*/
+struct linux_dirent64 {
+   unsigned long long d_ino;
+   long long d_off;
+   unsigned short d_reclen;     /* Length of this linux_dirent */
+   unsigned char  d_type;
+   char           d_name[256];  /* Filename (null-terminated) */
+};
+
+/** Returns the number of the process's threads that can receive signal sig_num.
+ * Writes into tids the tids of these threads.
+ * If it fails, returns 0.
+*/
+static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_SIZE]) {
+    /* Open /proc/<pid>/task file. */
+    char path_buff[PATH_MAX];
+    snprintf_async_signal_safe(path_buff, PATH_MAX, "/proc/%d/task", getpid());
+
+    int dir;
+    if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) return 0;
+
+    size_t tids_count = 0;
+    pid_t calling_tid = syscall(SYS_gettid);
+    int current_thread_index = -1;
+    long nread;
+    char buff[PATH_MAX];
+
+    /* readdir() is not async-signal-safe (AS-safe).
+    Hence, we read the file using SYS_getdents64, which is considered AS-sync*/
+    while ((nread = syscall(SYS_getdents64, dir, buff, PATH_MAX))) {
+        if (nread == -1) {
+            close(dir);
+            serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Failed to read the process's task directory");
+            return 0;
+        }
+        /* Each thread is represented by a directory */
+        for (long pos = 0; pos < nread;) {
+            struct linux_dirent64 *entry = (struct linux_dirent64 *)(buff + pos);
+            pos += entry->d_reclen;
+            /* Skip irrelevant directories. */
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+            /* the thread's directory name is equivalent to its tid. */
+           long tid;
+           string2l(entry->d_name, strlen(entry->d_name), &tid);
+
+            if(!is_thread_ready_to_signal(path_buff, entry->d_name, sig_num)) continue;
+
+            if(tid == calling_tid) {
+                current_thread_index = tids_count;
+            }
+
+            /* save the thread id */
+            tids[tids_count++] = tid;
+            
+            /* Stop if we reached the maximum threads number. */
+            if(tids_count == TIDS_MAX_SIZE) {
+                serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
+                break;
+            }
+        }
+
+        if(tids_count == TIDS_MAX_SIZE) break;
+    }
+
+    /* Swap the last tid with the the current thread id */
+    if(current_thread_index != -1) {
+        pid_t last_tid = tids[tids_count - 1];
+
+        tids[tids_count - 1] = calling_tid;
+        tids[current_thread_index] = last_tid;
+    }
+
+    close(dir);
+
+    return tids_count;
+}
+#endif /* __linux__ */
+#endif /* HAVE_BACKTRACE */
