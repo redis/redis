@@ -611,6 +611,7 @@ static void registerSSLEvent(tls_connection *conn, WantIOType want) {
 }
 
 static void updateSSLEvent(tls_connection *conn) {
+    serverAssert(conn->c.el != NULL);
     int mask = aeGetFileEvents(conn->c.el, conn->c.fd);
     int need_read = conn->c.read_handler || (conn->flags & TLS_CONN_FLAG_WRITE_WANT_READ);
     int need_write = conn->c.write_handler || (conn->flags & TLS_CONN_FLAG_READ_WANT_WRITE);
@@ -651,6 +652,8 @@ static void connTLSPendingListDel(tls_connection *conn) {
 
 static void tlsHandleEvent(tls_connection *conn, int mask) {
     int ret, conn_error;
+    aeEventLoop *el = conn->c.el;
+    serverAssert(conn->c.el != NULL);
 
     TLSCONN_DEBUG("tlsEventHandler(): fd=%d, state=%d, mask=%d, r=%d, w=%d, flags=%d",
             fd, conn->c.state, mask, conn->c.read_handler != NULL, conn->c.write_handler != NULL,
@@ -691,6 +694,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
 
             if (!callHandler((connection *) conn, conn->c.conn_handler)) return;
             conn->c.conn_handler = NULL;
+            if (conn->c.el != el) return;
             break;
         case CONN_STATE_ACCEPTING:
             ret = SSL_accept(conn->ssl);
@@ -713,6 +717,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
 
             if (!callHandler((connection *) conn, conn->c.conn_handler)) return;
             conn->c.conn_handler = NULL;
+            if (conn->c.el != el) return; /* Handler changed event loop. */
             break;
         case CONN_STATE_CONNECTED:
         {
@@ -737,12 +742,14 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             if (!invert && call_read) {
                 conn->flags &= ~TLS_CONN_FLAG_READ_WANT_WRITE;
                 if (!callHandler((connection *) conn, conn->c.read_handler)) return;
+                if (conn->c.el != el) return; /* Handler changed event loop. */
             }
 
             /* Fire the writable event. */
             if (call_write) {
                 conn->flags &= ~TLS_CONN_FLAG_WRITE_WANT_READ;
                 if (!callHandler((connection *) conn, conn->c.write_handler)) return;
+                if (conn->c.el != el) return; /* Handler changed event loop. */
             }
 
             /* If we have to invert the call, fire the readable event now
@@ -750,6 +757,7 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
             if (invert && call_read) {
                 conn->flags &= ~TLS_CONN_FLAG_READ_WANT_WRITE;
                 if (!callHandler((connection *) conn, conn->c.read_handler)) return;
+                if (conn->c.el != el) return; /* Handler changed event loop. */
             }
 
             /* If SSL has pending that, already read from the socket, we're at
@@ -785,6 +793,7 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
     UNUSED(fd);
     tls_connection *conn = clientData;
     serverAssert(el == conn->c.el);
+    serverAssert(conn->c.el != NULL);
     tlsHandleEvent(conn, mask);
 }
 
@@ -991,9 +1000,11 @@ static int connTLSSetReadHandler(connection *conn, ConnectionCallbackFunc func) 
 static int connTLSSetEventLoop(connection *conn_, aeEventLoop *el) {
     tls_connection *conn = (tls_connection *)conn_;
     serverAssert(!conn->c.read_handler && !conn->c.write_handler);
-    int has_pending = (conn->pending_list_node != NULL);
+    aeEventLoop *old_el = conn->c.el;
+    int has_pending = (old_el && conn->pending_list_node != NULL);
     if (has_pending) connTLSPendingListDel(conn);
     conn->c.el = el;
+    if (el && !old_el) has_pending = SSL_pending(conn->ssl);
     if (has_pending) connTLSPendingListAdd(conn);
     return C_OK;
 }

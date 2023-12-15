@@ -283,6 +283,7 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 
         if (!callHandler(conn, conn->conn_handler)) return;
         conn->conn_handler = NULL;
+        if (conn->el != el) return; /* Handler changed event loop. */
     }
 
     /* Normally we execute the readable event first, and the writable
@@ -304,15 +305,18 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     /* Handle normal I/O flows */
     if (!invert && call_read) {
         if (!callHandler(conn, conn->read_handler)) return;
+        if (conn->el != el) return; /* Handler changed event loop. */
     }
     /* Fire the writable event. */
     if (call_write) {
         if (!callHandler(conn, conn->write_handler)) return;
+        if (conn->el != el) return; /* Handler changed event loop. */
     }
     /* If we have to invert the call, fire the readable event now
      * after the writable one. */
     if (invert && call_read) {
         if (!callHandler(conn, conn->read_handler)) return;
+        if (conn->el != el) return; /* Handler changed event loop. */
     }
 }
 
