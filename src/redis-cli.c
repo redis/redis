@@ -3394,7 +3394,7 @@ static void repl(void) {
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
                 fflush(stdout);
-                if (history) linenoiseHistoryAdd(line);
+                if (history) linenoiseHistoryAdd(line, 0);
                 if (historyfile) linenoiseHistorySave(historyfile);
                 linenoiseFree(line);
                 continue;
@@ -3420,10 +3420,11 @@ static void repl(void) {
                 repeat = 1;
             }
 
-            if (!isSensitiveCommand(argc - skipargs, argv + skipargs)) {
-                if (history) linenoiseHistoryAdd(line);
-                if (historyfile) linenoiseHistorySave(historyfile);
-            }
+            /* Always keep in-memory history. But for commands with sensitive information,
+             * avoid writing them to the history file. */
+            int is_sensitive = isSensitiveCommand(argc - skipargs, argv + skipargs);
+            if (history) linenoiseHistoryAdd(line, is_sensitive);
+            if (!is_sensitive && historyfile) linenoiseHistorySave(historyfile);
 
             if (strcasecmp(argv[0],"quit") == 0 ||
                 strcasecmp(argv[0],"exit") == 0)
