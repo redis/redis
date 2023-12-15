@@ -209,7 +209,7 @@ int _dictInit(dict *d, dictType *type)
     d->type = type;
     d->rehashidx = -1;
     d->pauserehash = 0;
-    d->disallowResize = 0;
+    d->pauseAutoResize = 0;
     return DICT_OK;
 }
 
@@ -1429,7 +1429,7 @@ static int dictTypeResizeAllowed(dict *d) {
 static int _dictExpandIfNeeded(dict *d)
 {
     /* Automatic resizing is disallowed. Return */
-    if (d->disallowResize > 0) return DICT_OK;
+    if (d->pauseAutoResize > 0) return DICT_OK;
 
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
@@ -1456,7 +1456,7 @@ static int _dictExpandIfNeeded(dict *d)
 static int _dictShrinkIfNeeded(dict *d) 
 {
     /* Automatic resizing is disallowed. Return */
-    if (d->disallowResize > 0) return DICT_OK;
+    if (d->pauseAutoResize > 0) return DICT_OK;
 
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
@@ -1529,7 +1529,7 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
     _dictClear(d,1,callback);
     d->rehashidx = -1;
     d->pauserehash = 0;
-    d->disallowResize = 0;
+    d->pauseAutoResize = 0;
 }
 
 void dictSetResizeEnabled(dictResizeEnable enable) {

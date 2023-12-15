@@ -2010,7 +2010,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
-        dictDisallowResize(zs->dict);
+        dictPauseAutoResize(zs->dict);
         switch(rangetype) {
         case ZRANGE_AUTO:
         case ZRANGE_RANK:
@@ -2023,7 +2023,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             deleted = zslDeleteRangeByLex(zs->zsl,&lexrange,zs->dict);
             break;
         }
-        dictAllowResize(zs->dict);
+        dictResumeAutoResize(zs->dict);
         if (htNeedsResize(zs->dict)) dictResize(zs->dict);
         if (dictSize(zs->dict) == 0) {
             dbDelete(c->db,key);
