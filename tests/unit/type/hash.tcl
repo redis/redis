@@ -434,7 +434,7 @@ start_server {tags {"hash"}} {
         lsort [r hgetall bighash]
     } [lsort [array get bighash]]
 
-    test {HGETALL against non existing database key} {
+    test {HGETALL against non-existing key} {
         r del htest
         r hgetall htest
     } {}
