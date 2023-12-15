@@ -24,7 +24,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {10}
 
     test {SLOWLOG - GET optional argument to limit output len works} {
-        
+
         assert_equal 5  [llength [r slowlog get 5]]
         assert_equal 10 [llength [r slowlog get -1]]
         assert_equal 10 [llength [r slowlog get 20]]
@@ -50,22 +50,35 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {} {needs:debug}
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
+        r config set slowlog-max-len 100
         r config set slowlog-log-slower-than 0
         r slowlog reset
         catch {r acl setuser "slowlog test user" +get +set} _
+        r config set masteruser ""
         r config set masterauth ""
+        r config set requirepass ""
+        r config set tls-key-file-pass ""
+        r config set tls-client-key-file-pass ""
         r acl setuser slowlog-test-user +get +set
+        r acl getuser slowlog-test-user
+        r acl deluser slowlog-test-user non-existing-user
         r config set slowlog-log-slower-than 0
         r config set slowlog-log-slower-than -1
-        set slowlog_resp [r slowlog get]
+        set slowlog_resp [r slowlog get -1]
 
         # Make sure normal configs work, but the two sensitive
         # commands are omitted or redacted
-        assert_equal 5 [llength $slowlog_resp]
-        assert_equal {slowlog reset} [lindex [lindex $slowlog_resp 4] 3]
+        assert_equal 11 [llength $slowlog_resp]
+        assert_equal {slowlog reset} [lindex [lindex $slowlog_resp 10] 3]
+        assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 9] 3]
+        assert_equal {config set masteruser (redacted)} [lindex [lindex $slowlog_resp 8] 3]
+        assert_equal {config set masterauth (redacted)} [lindex [lindex $slowlog_resp 7] 3]
+        assert_equal {config set requirepass (redacted)} [lindex [lindex $slowlog_resp 6] 3]
+        assert_equal {config set tls-key-file-pass (redacted)} [lindex [lindex $slowlog_resp 5] 3]
+        assert_equal {config set tls-client-key-file-pass (redacted)} [lindex [lindex $slowlog_resp 4] 3]
         assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 3] 3]
-        assert_equal {config set masterauth (redacted)} [lindex [lindex $slowlog_resp 2] 3]
-        assert_equal {acl setuser (redacted) (redacted) (redacted)} [lindex [lindex $slowlog_resp 1] 3]
+        assert_equal {acl getuser (redacted)} [lindex [lindex $slowlog_resp 2] 3]
+        assert_equal {acl deluser (redacted) (redacted)} [lindex [lindex $slowlog_resp 1] 3]
         assert_equal {config set slowlog-log-slower-than 0} [lindex [lindex $slowlog_resp 0] 3]
     } {} {needs:repl}
 

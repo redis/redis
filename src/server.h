@@ -137,7 +137,7 @@ struct hdr_histogram;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
-#define INCREMENTAL_REHASHING_THRESHOLD_MS 1
+#define INCREMENTAL_REHASHING_THRESHOLD_US 1000
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -968,8 +968,8 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
+/* When adding fields, please check the swap db related logic. */
 typedef struct dbDictState {
-    list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
     int non_empty_slots;                   /* The number of non-empty slots. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
@@ -981,6 +981,11 @@ typedef enum dbKeyType {
     DB_MAIN,
     DB_EXPIRES
 } dbKeyType;
+
+/* Dict metadata for database, used for record the position in rehashing list. */
+typedef struct dbDictMetadata {
+    listNode *rehashing_node;   /* list node in rehashing list */
+} dbDictMetadata;
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
@@ -1567,6 +1572,7 @@ struct redisServer {
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
+    list *rehashing;            /* List of dictionaries in DBs that are currently rehashing. */
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
@@ -1988,6 +1994,7 @@ struct redisServer {
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     dict *pubsubshard_channels;  /* Map shard channels to list of subscribed clients */
+    unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -3197,6 +3204,7 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bu
 int serverPubsubSubscriptionCount(void);
 int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
+void unmarkClientAsPubSub(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
