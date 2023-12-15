@@ -205,6 +205,7 @@ int _dictInit(dict *d, dictType *type)
     d->type = type;
     d->rehashidx = -1;
     d->pauserehash = 0;
+    d->disallowResize = 0;
     return DICT_OK;
 }
 
@@ -218,20 +219,15 @@ int dictResize(dict *d)
     minimal = d->ht_used[0];
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
-    return dictExpand(d, minimal);
+    return dictShrink(d, minimal);
 }
 
-/* Expand or create the hash table,
+/* Resize or create the hash table,
  * when malloc_failed is non-NULL, it'll avoid panic if malloc fails (in which case it'll be set to 1).
- * Returns DICT_OK if expand was performed, and DICT_ERR if skipped. */
-int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
+ * Returns DICT_OK if resize was performed, and DICT_ERR if skipped. */
+int _dictResize(dict *d, unsigned long size, int* malloc_failed)
 {
     if (malloc_failed) *malloc_failed = 0;
-
-    /* the size is invalid if it is smaller than the number of
-     * elements already inside the hash table */
-    if (dictIsRehashing(d) || d->ht_used[0] > size)
-        return DICT_ERR;
 
     /* the new hash table */
     dictEntry **new_ht_table;
@@ -279,14 +275,31 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
 
 /* return DICT_ERR if expand was not performed */
 int dictExpand(dict *d, unsigned long size) {
-    return _dictExpand(d, size, NULL);
+    /* the size is invalid if it is smaller than the size of the hash table 
+     * or smaller than the number of elements already inside the hash table */
+    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) >= size)
+        return DICT_ERR;
+    return _dictResize(d, size, NULL);
 }
 
 /* return DICT_ERR if expand failed due to memory allocation failure */
 int dictTryExpand(dict *d, unsigned long size) {
+    /* Don't need memory allocation if the size is smaller than the size of the hash table 
+     * or smaller than the number of elements already inside the hash table */
+    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) >= size)
+        return DICT_OK;
     int malloc_failed;
-    _dictExpand(d, size, &malloc_failed);
+    _dictResize(d, size, &malloc_failed);
     return malloc_failed? DICT_ERR : DICT_OK;
+}
+
+/* return DICT_ERR if shrink was not performed */
+int dictShrink(dict *d, unsigned long size) {
+    /* the size is invalid if it is bigger than the size of the hash table
+     * or smaller than the number of elements already inside the hash table */
+    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) <= size)
+        return DICT_ERR;
+    return _dictResize(d, size, NULL);
 }
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
@@ -1405,6 +1418,9 @@ static int dictTypeResizeAllowed(dict *d) {
 /* Expand the hash table if needed */
 static int _dictExpandIfNeeded(dict *d)
 {
+    /* Automatic resizing is disallowed. Return */
+    if (d->disallowResize > 0) return DICT_OK;
+
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
 
@@ -1429,6 +1445,9 @@ static int _dictExpandIfNeeded(dict *d)
 
 static int _dictShrinkIfNeeded(dict *d) 
 {
+    /* Automatic resizing is disallowed. Return */
+    if (d->disallowResize > 0) return DICT_OK;
+
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
     
@@ -1445,7 +1464,7 @@ static int _dictShrinkIfNeeded(dict *d)
     {
         if (!dictTypeResizeAllowed(d))
             return DICT_OK;
-        return dictExpand(d, d->ht_used[0]);
+        return dictShrink(d, d->ht_used[0]);
     }
     return DICT_OK;
 }
@@ -1500,6 +1519,7 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
     _dictClear(d,1,callback);
     d->rehashidx = -1;
     d->pauserehash = 0;
+    d->disallowResize = 0;
 }
 
 void dictSetResizeEnabled(dictResizeEnable enable) {

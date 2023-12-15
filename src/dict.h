@@ -91,6 +91,7 @@ struct dict {
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+    int16_t disallowResize;  /* If >0 automatic resizing is disallowed (<0 indicates coding error) */
 };
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -150,6 +151,8 @@ typedef struct {
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 #define dictPauseRehashing(d) ((d)->pauserehash++)
 #define dictResumeRehashing(d) ((d)->pauserehash--)
+#define dictDisallowResize(d) ((d)->disallowResize++)
+#define dictAllowResize(d) ((d)->disallowResize--)
 
 /* If our unsigned long type can store a 64 bit number, use a 64 bit PRNG. */
 #if ULONG_MAX >= 0xffffffffffffffff
@@ -169,6 +172,7 @@ dict *dictCreate(dictType *type);
 dict **dictCreateMultiple(dictType *type, int count);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
+int dictShrink(dict *d, unsigned long size);
 void *dictMetadata(dict *d);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
