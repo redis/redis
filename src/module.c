@@ -91,6 +91,7 @@ struct RedisModuleSharedAPI {
 typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
 
 dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
+unsigned long modules_count = 0;
 
 /* Entries in the context->amqueue array, representing objects to free
  * when the callback returns. */
@@ -12237,6 +12238,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
 
     /* Redis module loaded! Register it. */
     dictAdd(modules,ctx.module->name,ctx.module);
+    modules_count = dictSize(modules);
     ctx.module->blocked_clients = 0;
     ctx.module->handle = handle;
     ctx.module->loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
@@ -12343,6 +12345,7 @@ int moduleUnload(sds name, const char **errmsg) {
     /* Remove from list of modules. */
     serverLog(LL_NOTICE,"Module %s unloaded",module->name);
     dictDelete(modules,module->name);
+    modules_count = dictSize(modules);
     module->name = NULL; /* The name was already freed by dictDelete(). */
     moduleFreeModuleStructure(module);
 
@@ -13091,7 +13094,7 @@ NULL
 
 /* Return the number of registered modules. */
 size_t moduleCount(void) {
-    return dictSize(modules);
+    return modules_count;
 }
 
 /* --------------------------------------------------------------------------
