@@ -2024,7 +2024,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             break;
         }
         dictResumeAutoResize(zs->dict);
-        if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+        if (htNeedsShrink(zs->dict)) dictShrinkToFit(zs->dict);
         if (dictSize(zs->dict) == 0) {
             dbDelete(c->db,key);
             keyremoved = 1;
