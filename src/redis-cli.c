@@ -3266,8 +3266,8 @@ void cliLoadPreferences(void) {
 /* Some commands can include sensitive information and shouldn't be put in the
  * history file. Currently these commands are include:
  * - AUTH
- * - ACL SETUSER, ACL GETUSER
- * - CONFIG SET masterauth/masteruser/requirepass
+ * - ACL DELUSER, ACL SETUSER, ACL GETUSER
+ * - CONFIG SET masterauth/masteruser/tls-key-file-pass/tls-client-key-file-pass/requirepass
  * - HELLO with [AUTH username password]
  * - MIGRATE with [AUTH password] or [AUTH2 username password] 
  * - SENTINEL CONFIG SET sentinel-pass password, SENTINEL CONFIG SET sentinel-user username 
@@ -3277,6 +3277,7 @@ static int isSensitiveCommand(int argc, char **argv) {
         return 1;
     } else if (argc > 1 &&
         !strcasecmp(argv[0],"acl") && (
+            !strcasecmp(argv[1],"deluser") ||
             !strcasecmp(argv[1],"setuser") ||
             !strcasecmp(argv[1],"getuser")))
     {
@@ -3287,6 +3288,8 @@ static int isSensitiveCommand(int argc, char **argv) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
                     !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"tls-key-file-pass") ||
+                    !strcasecmp(argv[j],"tls-client-key-file-pass") ||
                     !strcasecmp(argv[j],"requirepass")) {
                     return 1;
                 }
@@ -3391,7 +3394,7 @@ static void repl(void) {
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
                 fflush(stdout);
-                if (history) linenoiseHistoryAdd(line);
+                if (history) linenoiseHistoryAdd(line, 0);
                 if (historyfile) linenoiseHistorySave(historyfile);
                 linenoiseFree(line);
                 continue;
@@ -3417,10 +3420,11 @@ static void repl(void) {
                 repeat = 1;
             }
 
-            if (!isSensitiveCommand(argc - skipargs, argv + skipargs)) {
-                if (history) linenoiseHistoryAdd(line);
-                if (historyfile) linenoiseHistorySave(historyfile);
-            }
+            /* Always keep in-memory history. But for commands with sensitive information,
+             * avoid writing them to the history file. */
+            int is_sensitive = isSensitiveCommand(argc - skipargs, argv + skipargs);
+            if (history) linenoiseHistoryAdd(line, is_sensitive);
+            if (!is_sensitive && historyfile) linenoiseHistorySave(historyfile);
 
             if (strcasecmp(argv[0],"quit") == 0 ||
                 strcasecmp(argv[0],"exit") == 0)
