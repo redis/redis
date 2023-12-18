@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+#include "cli_common.h"
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <regex.h>
@@ -530,7 +531,7 @@ int redis_check_aof_main(int argc, char **argv) {
         goto invalid_args;
     } else if (argc == 2) {
         if (!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version")) {
-            sds version = checkAofVersion();
+            sds version = redisVersion();
             printf("redis-check-aof %s\n", version);
             sdsfree(version);
             exit(0);
