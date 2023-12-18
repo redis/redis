@@ -1701,7 +1701,7 @@ static void sendGetackToReplicas(void) {
     replicationFeedSlaves(server.slaves, -1, argv, 3);
 }
 
-extern int ProcessingEventsWhileBlocked;
+extern __thread int ProcessingEventsWhileBlocked;
 
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
@@ -1886,19 +1886,19 @@ void afterSleep(struct aeEventLoop *eventLoop) {
      * Do NOT add anything above moduleAcquireGIL !!! *
      ***************************** ********************/
     /* Acquire the modules GIL so that their threads won't touch anything. */
-    if (moduleCount() && !moduleOwnsGIL()) {
-        mstime_t latency;
-        latencyStartMonitor(latency);
-
-        moduleAcquireGIL();
-        moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
-                                REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
-                                NULL);
-        latencyEndMonitor(latency);
-        latencyAddSampleIfNeeded("module-acquire-GIL",latency);
-    }
-
     if (!ProcessingEventsWhileBlocked) {
+        /* Acquire the modules GIL so that their threads won't touch anything. */
+        if (moduleCount()) {
+            mstime_t latency;
+            latencyStartMonitor(latency);
+
+            moduleAcquireGIL();
+            moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
+                                  REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
+                                  NULL);
+            latencyEndMonitor(latency);
+            latencyAddSampleIfNeeded("module-acquire-GIL",latency);
+        }
         /* Set the eventloop start time. */
         server.el_start = getMonotonicUs();
         /* Set the eventloop command count at start. */
