@@ -8,6 +8,8 @@
 #include "redisassert.h"
 #include "monotonic.h"
 
+#define UNUSED(V) ((void) V)
+
 /**********************************/
 /*** Helpers **********************/
 /**********************************/
@@ -45,6 +47,59 @@ static int getAndClearSlotIdFromCursor(dictarray *da, unsigned long long *cursor
     return slot;
 }
 
+/* Adds dictionary to the rehashing list, which allows us
+ * to quickly find rehash targets during incremental rehashing.
+ *
+ * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
+ * incremented with the new ht size during the rehashing phase. In non-cluster mode,
+ * bucket count can be retrieved directly from single dict bucket. */
+void dictRehashingStarted(dict *d) {
+    daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
+    listAddNodeTail(metadata->da->state.rehashing, d);
+    metadata->rehashing_node = listLast(metadata->da->state.rehashing);
+
+    if (metadata->da->num_slots == 1)
+        return;
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    metadata->da->state.bucket_count += to; /* Started rehashing (Add the new ht size) */
+}
+
+/**********************************/
+/*** Dict extension ***************/
+/**********************************/
+
+/* Remove dictionary from the rehashing list.
+ *
+ * Updates the bucket count for the given dictionary in a DB. It removes
+ * the old ht size of the dictionary from the total sum of buckets for a DB.  */
+void dictRehashingCompleted(dict *d) {
+    daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
+    if (metadata->rehashing_node) {
+        listDelNode(metadata->da->state.rehashing, metadata->rehashing_node);
+        metadata->rehashing_node = NULL;
+    }
+
+    if (metadata->da->num_slots == 1)
+        return;
+    unsigned long long from, to;
+    dictRehashingInfo(d, &from, &to);
+    metadata->da->state.bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+}
+
+/* Returns the size of the DB dict metadata in bytes. */
+size_t daDictMetadataSize(dict *d) {
+    UNUSED(d);
+    /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
+    return sizeof(daDictMetadata);
+}
+
+dictTypeExt daDictTypeExt = {
+    dictRehashingStarted,
+    dictRehashingCompleted,
+    daDictMetadataSize,
+};
+
 /**********************************/
 /*** API **************************/
 /**********************************/
@@ -55,8 +110,11 @@ dictarray *daCreate(dictType *type, int num_slots_bits) {
     da->num_slots_bits = num_slots_bits;
     da->num_slots = 1 << da->num_slots_bits;
     da->dicts = zmalloc(sizeof(dict*) * da->num_slots);
-    for (int i = 0; i < da->num_slots; i++)
-        da->dicts[i] = dictCreate(type);
+    for (int i = 0; i < da->num_slots; i++) {
+        da->dicts[i] = dictCreateExt(type, &daDictTypeExt);
+        daDictMetadata *metadata = (daDictMetadata *)dictMetadata(da->dicts[i]);
+        metadata->da = da;
+    }
 
     da->state.rehashing = listCreate();
     da->state.key_count = 0;
@@ -71,7 +129,7 @@ dictarray *daCreate(dictType *type, int num_slots_bits) {
 void daEmpty(dictarray *da, void(callback)(dict*)) {
     for (int slot = 0; slot < da->num_slots; slot++) {
         dict *d = daGetDict(da, slot);
-        dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+        daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         dictEmpty(d, callback);
@@ -90,7 +148,7 @@ void daEmpty(dictarray *da, void(callback)(dict*)) {
 void daRelease(dictarray *da) {
     for (int slot = 0; slot < da->num_slots; slot++) {
         dict *d = daGetDict(da, slot);
-        dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+        daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         dictRelease(daGetDict(da, slot));

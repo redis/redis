@@ -80,7 +80,6 @@ typedef struct {
 
 static int _dictExpandIfNeeded(dict *d);
 static signed char _dictNextExp(unsigned long size);
-static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntry **dictGetNextRef(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
@@ -181,24 +180,23 @@ static void _dictReset(dict *d, int htidx)
 /* Create a new hash table */
 dict *dictCreate(dictType *type)
 {
-    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL) : 0;
+    return dictCreateExt(type, NULL);
+}
+
+dict *dictCreateExt(dictType *type, dictTypeExt *typeext)
+{
+    size_t metasize = (typeext && typeext->dictMetadataBytes) ? typeext->dictMetadataBytes(NULL) : 0;
     dict *d = zmalloc(sizeof(*d)+metasize);
     if (metasize > 0) {
         memset(dictMetadata(d), 0, metasize);
     }
-    _dictInit(d,type);
-    return d;
-}
-
-/* Initialize the hash table */
-int _dictInit(dict *d, dictType *type)
-{
     _dictReset(d, 0);
     _dictReset(d, 1);
     d->type = type;
+    d->typeext = typeext;
     d->rehashidx = -1;
     d->pauserehash = 0;
-    return DICT_OK;
+    return d;
 }
 
 /* Resize the table to the minimal size that contains all the elements,
@@ -260,13 +258,13 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     d->ht_used[1] = new_ht_used;
     d->ht_table[1] = new_ht_table;
     d->rehashidx = 0;
-    if (d->type->rehashingStarted) d->type->rehashingStarted(d);
+    if (d->typeext && d->typeext->rehashingStarted) d->typeext->rehashingStarted(d);
 
     /* Is this the first initialization or is the first hash table empty? If so
      * it's not really a rehashing, we can just set the first hash table so that
      * it can accept keys. */
     if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
-        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+        if (d->typeext && d->typeext->rehashingCompleted) d->typeext->rehashingCompleted(d);
         if (d->ht_table[0]) zfree(d->ht_table[0]);
         d->ht_size_exp[0] = new_ht_size_exp;
         d->ht_used[0] = new_ht_used;
@@ -374,7 +372,7 @@ int dictRehash(dict *d, int n) {
 
     /* Check if we already rehashed the whole table... */
     if (d->ht_used[0] == 0) {
-        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+        if (d->typeext && d->typeext->rehashingCompleted) d->typeext->rehashingCompleted(d);
         zfree(d->ht_table[0]);
         /* Copy the new ht onto the old one */
         d->ht_table[0] = d->ht_table[1];

@@ -418,62 +418,6 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
         return 1;
     }
 }
-/* Adds dictionary to the rehashing list, which allows us
- * to quickly find rehash targets during incremental rehashing.
- *
- * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
- * incremented with the new ht size during the rehashing phase. In non-cluster mode,
- * bucket count can be retrieved directly from single dict bucket. */
-void dictRehashingStarted(dict *d, dbKeyType keyType) {
-    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
-    listAddNodeTail(server.rehashing, d);
-    metadata->rehashing_node = listLast(server.rehashing);
-
-    if (!server.cluster_enabled) return;
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */
-}
-
-/* Remove dictionary from the rehashing list.
- *
- * Updates the bucket count for the given dictionary in a DB. It removes
- * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void dictRehashingCompleted(dict *d, dbKeyType keyType) {
-    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
-    if (metadata->rehashing_node) {
-        listDelNode(server.rehashing, metadata->rehashing_node);
-        metadata->rehashing_node = NULL;
-    }
-
-    if (!server.cluster_enabled) return;
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
-}
-
-void dbDictRehashingStarted(dict *d) {
-    dictRehashingStarted(d, DB_MAIN);
-}
-
-void dbDictRehashingCompleted(dict *d) {
-    dictRehashingCompleted(d, DB_MAIN);
-}
-
-void dbExpiresRehashingStarted(dict *d) {
-    dictRehashingStarted(d, DB_EXPIRES);
-}
-
-void dbExpiresRehashingCompleted(dict *d) {
-    dictRehashingCompleted(d, DB_EXPIRES);
-}
-
-/* Returns the size of the DB dict metadata in bytes. */
-size_t dbDictMetadataSize(dict *d) {
-    UNUSED(d);
-    /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
-    return sizeof(dbDictMetadata);
-}
 
 /* Generic hash table type where keys are Redis Objects, Values
  * dummy pointers. */
@@ -535,9 +479,6 @@ dictType dbDictType = {
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictNeedsResize,            /* needs resize */
-    dbDictRehashingStarted,
-    dbDictRehashingCompleted,
-    dbDictMetadataSize,
 };
 
 /* Db->expires */
@@ -550,9 +491,6 @@ dictType dbExpiresDictType = {
     NULL,                       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictNeedsResize,            /* needs resize */
-    dbExpiresRehashingStarted,
-    dbExpiresRehashingCompleted,
-    dbDictMetadataSize,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -2601,18 +2539,6 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
-/* When adding fields, please check the initTempDb related logic. */
-void initDbState(redisDb *db){
-    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        db->sub_dict[subdict].non_empty_slots = 0;
-        db->sub_dict[subdict].key_count = 0;
-        db->sub_dict[subdict].resize_cursor = -1;
-        db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
-        db->sub_dict[subdict].bucket_count = 0;
-    }
-}
-
->>>>>>> origin/unstable
 void initServer(void) {
     int j;
 
