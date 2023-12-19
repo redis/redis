@@ -444,7 +444,6 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
     u->passwords = listCreate();
     u->acl_string = NULL;
-    u->channels_cache = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetDupMethod(u->passwords,ACLListDupSds);
@@ -488,7 +487,6 @@ void ACLFreeUser(user *u) {
     }
     listRelease(u->passwords);
     listRelease(u->selectors);
-    listRelease(u->channels_cache);
     zfree(u);
 }
 
@@ -1905,46 +1903,39 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }
 
-/* Check if the client should be killed because it is subscribed to channels that were
- * permitted for the user `original` but not `new`. If `client` is NULL, this function
- * will return 0 if-and-only-if _all_ channels permitted for `original` user are valid
- * for `new` user. */
-int ACLShouldKillPubsubClient(user *new, user *original, client *c) {
-    /* Do nothing if there are no subscribers. */
-    if (!dictSize(server.pubsub_patterns) &&
-        !dictSize(server.pubsub_channels) &&
-        !dictSize(server.pubsubshard_channels))
-        return 0;
+int totalSubscriptions(void) {
+    return dictSize(server.pubsub_patterns) +
+           dictSize(server.pubsub_channels) +
+           dictSize(server.pubsubshard_channels);
+}
 
+/* If new can access all channels original return NULL;
+   Otherwise return a list of channels that the new user can access */
+list *getUpcomingChannelList(user* new, user *original) {
     listIter li, lpi;
     listNode *ln, *lpn;
-    robj *o;
 
-    /* First optimization is we check if any selector has all channel
-     * permissions. */
+    /* Optimization: we check if any selector has all channel permissions. */
     listRewind(new->selectors,&li);
     while((ln = listNext(&li))) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
-        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return 0;
+        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return NULL;
     }
 
-    /* Second optimization is to check if the new list of channels
+    /* Next, check if the new list of channels
      * is a strict superset of the original. This is done by
      * created an "upcoming" list of all channels that are in
      * the new user and checking each of the existing channels
      * against it.  */
-    if (!new->channels_cache) {
-        new->channels_cache = listCreate();
-        listRewind(new->selectors, &li);
-        while ((ln = listNext(&li))) {
-            aclSelector *s = (aclSelector *) listNodeValue(ln);
-            listRewind(s->channels, &lpi);
-            while ((lpn = listNext(&lpi))) {
-                listAddNodeTail(new->channels_cache, listNodeValue(lpn));
-            }
+    list* upcoming = listCreate();
+    listRewind(new->selectors, &li);
+    while ((ln = listNext(&li))) {
+        aclSelector *s = (aclSelector *) listNodeValue(ln);
+        listRewind(s->channels, &lpi);
+        while ((lpn = listNext(&lpi))) {
+            listAddNodeTail(upcoming, listNodeValue(lpn));
         }
     }
-    list *upcoming = new->channels_cache;
 
     int match = 1;
     listRewind(original->selectors,&li);
@@ -1968,16 +1959,20 @@ int ACLShouldKillPubsubClient(user *new, user *original, client *c) {
 
     if (match) {
         /* All channels were matched, no need to kill clients. */
-        return 0;
+        listRelease(upcoming);
+        return NULL;
     }
 
-    if (!c)
-        return 1;
+    return upcoming;
+}
 
-    /* Permissions have changed, so we need to check if this client's permissions are still valid. */
+/* Check if the client should be killed because it is subscribed to channels that were
+ * permitted in the past, are not in the `upcoming` channel list. */
+int ACLShouldKillPubsubClient(client *c, list *upcoming) {
+    robj *o;
     int kill = 0;
 
-    if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
+    if (getClientType(c) == CLIENT_TYPE_PUBSUB) {
         /* Check for pattern violations. */
         dictIterator *di = dictGetIterator(c->pubsub_patterns);
         dictEntry *de;
@@ -2021,10 +2016,14 @@ int ACLShouldKillPubsubClient(user *new, user *original, client *c) {
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
  * permissions specified via the upcoming argument, and kill them if so. */
 void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
-    /* Before iterating over clients, check if the new user's pubsub permissions
-     * are a strict superset of the original. */
-    if (!ACLShouldKillPubsubClient(new, original, NULL))
-        goto done;
+    /* Do nothing if there are no subscribers. */
+    if (totalSubscriptions() == 0)
+        return;
+
+    list *channels = getUpcomingChannelList(new, original);
+    /* If the new user's pubsub permissions are a strict superset of the original, return early. */
+    if (!channels)
+        return;
 
     listIter li;
     listNode *ln;
@@ -2035,14 +2034,13 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (ACLShouldKillPubsubClient(new, original, c))
+        if (c->user != original)
+            continue;
+        if (ACLShouldKillPubsubClient(c, channels))
             freeClient(c);
     }
 
-done:
-    /* Free cache [possibly] allocated by `ACLShouldKillPubsubClient`. */
-    listRelease(new->channels_cache);
-    new->channels_cache = NULL;
+    listRelease(channels);
 }
 
 /* =============================================================================
@@ -2450,6 +2448,12 @@ sds ACLLoadFromFile(const char *filename) {
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
 
+        /* If there are some subscribers, we need to check if we need to drop some clients. */
+        rax *user_channels = NULL;
+        if (totalSubscriptions() > 0) {
+            user_channels = raxNew();
+        }
+
         listIter li;
         listNode *ln;
 
@@ -2457,25 +2461,25 @@ sds ACLLoadFromFile(const char *filename) {
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
             user *original = c->user;
+            list *channels = NULL;
             user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
-            if (!new || ACLShouldKillPubsubClient(new, original, c)) {
+            if (new && user_channels) {
+                channels = raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name));
+                if (channels == raxNotFound) {
+                    channels = getUpcomingChannelList(new, original);
+                    raxInsert(user_channels, (unsigned char*)(new->name), sdslen(new->name), channels, NULL);
+                }
+            }
+            /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
+            if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
                 freeClient(c);
                 continue;
             }
             c->user = new;
         }
 
-        /* Release the caches allocated by calls to `ACLShouldKillPubsubClient`. */
-        raxIterator ri;
-        raxStart(&ri,Users);
-        raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
-            user *u = ri.data;
-            listRelease(u->channels_cache);
-            u->channels_cache = NULL;
-        }
-        raxStop(&ri);
-
+        if (user_channels)
+            raxFreeWithCallback(user_channels, (void(*)(void*))listRelease);
         raxFreeWithCallback(old_users,(void(*)(void*))ACLFreeUser);
         sdsfree(errors);
         return NULL;
