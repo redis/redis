@@ -13080,6 +13080,10 @@ NULL
 
 /* Return the number of registered modules. */
 size_t moduleCount(void) {
+    /* To ensure thread safety of this method, we use the cached module size
+     * instead of dictSize() to get the module count.
+     * This is because dictSize() may return inaccurate results when modules
+     * is in the process of rehashing. */
     return modules_count;
 }
 

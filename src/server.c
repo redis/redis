@@ -1738,7 +1738,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         processed += handleClientsWithPendingWrites();
         processed += freeClientsInAsyncFreeQueue();
         server.events_processed_while_blocked += processed;
-        goto lock_pool;
+        goto lock_ae;
     }
 
     /* We should handle pending reads clients ASAP after event loop. */
@@ -1872,8 +1872,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /********************* WARNING ********************
      * Do NOT add anything below moduleReleaseGIL !!! *
      ***************************** ********************/
-lock_pool:
-    if (moduleCount()) pthread_mutex_lock(&server.el_poll_mutex);
+lock_ae:
+    /* Before leaving beforeSleep(), we first secure the eventloop to prevent a race
+     * condition between module threads entering via RM_Yield() and the main thread.
+     * This lock will be released before afterSleep(). */
+    if (moduleCount()) pthread_mutex_lock(&server.el_mutex);
 }
 
 /* This function is called immediately after the event loop multiplexing
@@ -1881,7 +1884,7 @@ lock_pool:
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
-    if (moduleCount()) pthread_mutex_unlock(&server.el_poll_mutex);
+    if (moduleCount()) pthread_mutex_unlock(&server.el_mutex);
     /********************* WARNING ********************
      * Do NOT add anything above moduleAcquireGIL !!! *
      ***************************** ********************/
@@ -2739,7 +2742,7 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
-    pthread_mutex_init(&server.el_poll_mutex, NULL);
+    pthread_mutex_init(&server.el_mutex, NULL);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */

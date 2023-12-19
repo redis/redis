@@ -1571,7 +1571,7 @@ struct redisServer {
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
-    pthread_mutex_t el_poll_mutex; /* Mutex for synchronizing the aeApiPoll() call */
+    pthread_mutex_t el_mutex; /* Mutex for synchronizing between beforeSleep() and afterSleep() calls. */
     rax *errors;                /* Errors table */
     unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
