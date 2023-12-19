@@ -690,7 +690,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     }
 
     if (any && !count) {
-        addReplyErrorFormat(c, "the ANY argument requires COUNT argument");
+        addReplyError(c, "the ANY argument requires COUNT argument");
         return;
     }
 

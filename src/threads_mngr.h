@@ -60,7 +60,7 @@ void ThreadsManager_init(void);
  * not be signaled until the calling thread returns from the callback invocation.
  * Hence, it is recommended to place the calling thread last in @param tids.
  *
- * The function returns only when @param tids_len threads have returned from @param callback.
+ * The function returns only when @param tids_len threads have returned from @param callback, or when we reached timeout.
  *
  * @return 1 if successful, 0 If ThreadsManager_runOnThreads is already in the middle of execution.
  *

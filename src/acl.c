@@ -437,7 +437,7 @@ aclSelector *ACLUserGetRootSelector(user *u) {
  *
  * If the user with such name already exists NULL is returned. */
 user *ACLCreateUser(const char *name, size_t namelen) {
-    if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
+    if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED;
@@ -1547,8 +1547,8 @@ unsigned long ACLGetCommandID(sds cmdname) {
     sds lowername = sdsdup(cmdname);
     sdstolower(lowername);
     if (commandId == NULL) commandId = raxNew();
-    void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));
-    if (id != raxNotFound) {
+    void *id;
+    if (raxFind(commandId,(unsigned char*)lowername,sdslen(lowername),&id)) {
         sdsfree(lowername);
         return (unsigned long)id;
     }
@@ -1579,8 +1579,8 @@ void ACLClearCommandID(void) {
 
 /* Return an username by its name, or NULL if the user does not exist. */
 user *ACLGetUserByName(const char *name, size_t namelen) {
-    void *myuser = raxFind(Users,(unsigned char*)name,namelen);
-    if (myuser == raxNotFound) return NULL;
+    void *myuser = NULL;
+    raxFind(Users,(unsigned char*)name,namelen,&myuser);
     return myuser;
 }
 
@@ -2872,8 +2872,7 @@ void aclCommand(client *c) {
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
-            addReplyErrorFormat(c,
-                "Usernames can't contain spaces or null characters");
+            addReplyError(c, "Usernames can't contain spaces or null characters");
             return;
         }
 
@@ -2891,6 +2890,10 @@ void aclCommand(client *c) {
         }
         return;
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
+        /* Initially redact all the arguments to not leak any information
+         * about the users. */
+        for (int j = 2; j < c->argc; j++) redactClientCommandArgument(c, j);
+
         int deleted = 0;
         for (int j = 2; j < c->argc; j++) {
             sds username = c->argv[j]->ptr;
@@ -2913,6 +2916,9 @@ void aclCommand(client *c) {
         }
         addReplyLongLong(c,deleted);
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
+        /* Redact the username to not leak any information about the user. */
+        redactClientCommandArgument(c, 2);
+
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
             addReplyNull(c);

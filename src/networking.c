@@ -1117,14 +1117,18 @@ void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext) {
     }
 }
 
-/* Add an array of C strings as status replies with a heading.
- * This function is typically invoked by from commands that support
- * subcommands in response to the 'help' subcommand. The help array
- * is terminated by NULL sentinel. */
-void addReplyHelp(client *c, const char **help) {
+/* This function is similar to the addReplyHelp function but adds the
+ * ability to pass in two arrays of strings. Some commands have
+ * some additional subcommands based on the specific feature implementation
+ * Redis is compiled with (currently just clustering). This function allows
+ * to pass is the common subcommands in `help` and any implementation
+ * specific subcommands in `extended_help`.
+ */
+void addExtendedReplyHelp(client *c, const char **help, const char **extended_help) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     void *blenp = addReplyDeferredLen(c);
     int blen = 0;
+    int idx = 0;
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
@@ -1132,6 +1136,10 @@ void addReplyHelp(client *c, const char **help) {
     sdsfree(cmd);
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
+    if (extended_help) {
+        while (extended_help[idx]) addReplyStatus(c,extended_help[idx++]);
+    }
+    blen += idx;
 
     addReplyStatus(c,"HELP");
     addReplyStatus(c,"    Print this help.");
@@ -1139,6 +1147,14 @@ void addReplyHelp(client *c, const char **help) {
     blen += 1;  /* Account for the header. */
     blen += 2;  /* Account for the footer. */
     setDeferredArrayLen(c,blenp,blen);
+}
+
+/* Add an array of C strings as status replies with a heading.
+ * This function is typically invoked by commands that support
+ * subcommands in response to the 'help' subcommand. The help array
+ * is terminated by NULL sentinel. */
+void addReplyHelp(client *c, const char **help) {
+    addExtendedReplyHelp(c, help, NULL);
 }
 
 /* Add a suggestive error reply.
@@ -1530,6 +1546,7 @@ void clearClientConnectionState(client *c) {
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
+    unmarkClientAsPubSub(c);
 
     if (c->name) {
         decrRefCount(c->name);
@@ -1540,7 +1557,7 @@ void clearClientConnectionState(client *c) {
      * represent the client library behind the connection. */
     
     /* Selectively clear state flags not covered above */
-    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|CLIENT_REPLY_OFF|
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_REPLY_OFF|
                   CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
 }
 
@@ -1615,6 +1632,7 @@ void freeClient(client *c) {
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
+    unmarkClientAsPubSub(c);
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
@@ -1794,8 +1812,9 @@ int freeClientsInAsyncFreeQueue(void) {
  * are not registered clients. */
 client *lookupClientByID(uint64_t id) {
     id = htonu64(id);
-    client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
-    return (c == raxNotFound) ? NULL : c;
+    void *c = NULL;
+    raxFind(server.clients_index,(unsigned char*)&id,sizeof(id),&c);
+    return c;
 }
 
 /* This function should be called from _writeToClient when the reply list is not empty,

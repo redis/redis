@@ -363,6 +363,11 @@ start_server {tags {"hash"}} {
         assert_error "WRONGTYPE Operation against a key*" {r hvals wrongtype}
         assert_error "WRONGTYPE Operation against a key*" {r hkeys wrongtype}
         assert_error "WRONGTYPE Operation against a key*" {r hexists wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hset wrongtype field1 val1}
+        assert_error "WRONGTYPE Operation against a key*" {r hmset wrongtype field1 val1 field2 val2}
+        assert_error "WRONGTYPE Operation against a key*" {r hsetnx wrongtype field1 val1}
+        assert_error "WRONGTYPE Operation against a key*" {r hlen wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hscan wrongtype 0}
     }
 
     test {HMGET - small hash} {
@@ -428,6 +433,11 @@ start_server {tags {"hash"}} {
     test {HGETALL - big hash} {
         lsort [r hgetall bighash]
     } [lsort [array get bighash]]
+
+    test {HGETALL against non-existing key} {
+        r del htest
+        r hgetall htest
+    } {}
 
     test {HDEL and return value} {
         set rv {}

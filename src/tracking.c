@@ -72,8 +72,10 @@ void disableTracking(client *c) {
         raxStart(&ri,c->client_tracking_prefixes);
         raxSeek(&ri,"^",NULL,0);
         while(raxNext(&ri)) {
-            bcastState *bs = raxFind(PrefixTable,ri.key,ri.key_len);
-            serverAssert(bs != raxNotFound);
+            void *result;
+            int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
+            serverAssert(found);
+            bcastState *bs = result;
             raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
             /* Was it the last client? Remove the prefix from the
              * table. */
@@ -153,14 +155,17 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
-    bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,plen);
+    void *result;
+    bcastState *bs;
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
-    if (bs == raxNotFound) {
+    if (!raxFind(PrefixTable,(unsigned char*)prefix,plen,&result)) {
         bs = zmalloc(sizeof(*bs));
         bs->keys = raxNew();
         bs->clients = raxNew();
         raxInsert(PrefixTable,(unsigned char*)prefix,plen,bs,NULL);
+    } else {
+        bs = result;
     }
     if (raxTryInsert(bs->clients,(unsigned char*)&c,sizeof(c),NULL,NULL)) {
         if (c->client_tracking_prefixes == NULL)
@@ -240,12 +245,15 @@ void trackingRememberKeys(client *tracking, client *executing) {
     for(int j = 0; j < numkeys; j++) {
         int idx = keys[j].pos;
         sds sdskey = executing->argv[idx]->ptr;
-        rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
-        if (ids == raxNotFound) {
+        void *result;
+        rax *ids;
+        if (!raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey),&result)) {
             ids = raxNew();
             int inserted = raxTryInsert(TrackingTable,(unsigned char*)sdskey,
                                         sdslen(sdskey),ids, NULL);
             serverAssert(inserted == 1);
+        } else {
+            ids = result;
         }
         if (raxTryInsert(ids,(unsigned char*)&tracking->id,sizeof(tracking->id),NULL,NULL))
             TrackingTableTotalItems++;
@@ -372,8 +380,9 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     if (bcast && raxSize(PrefixTable) > 0)
         trackingRememberKeyToBroadcast(c,(char *)key,keylen);
 
-    rax *ids = raxFind(TrackingTable,key,keylen);
-    if (ids == raxNotFound) return;
+    void *result;
+    if (!raxFind(TrackingTable,key,keylen,&result)) return;
+    rax *ids = result;
 
     raxIterator ri;
     raxStart(&ri,ids);
