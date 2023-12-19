@@ -56,6 +56,21 @@ test "client can subscribe to multiple shard channels across different slots in 
     $cluster sunsubscribe ch7
 }
 
+test "sunsubscribe without specifying any channel would unsubscribe all shard channels subscirbed" {
+    set publishclient [redis_client_by_addr $publishnode(host) $publishnode(port)]
+    set subscribeclient [redis_deferring_client_by_addr $publishnode(host) $publishnode(port)]
+    
+    set sub_res [ssubscribe $subscribeclient [list "\{channel.0\}1" "\{channel.0\}2" "\{channel.0\}3"]]
+    assert_equal [list 1 2 3] $sub_res
+    sunsubscribe $subscribeclient                  
+   
+    assert_equal 0 [$publishclient spublish "\{channel.0\}1" hello] 
+    assert_equal 0 [$publishclient spublish "\{channel.0\}2" hello] 
+    assert_equal 0 [$publishclient spublish "\{channel.0\}3" hello]                                 
+         
+    $publishclient close
+    $subscribeclient close                                                                                                                   
+}                                      
 
 test "Verify Pub/Sub and Pub/Sub shard no overlap" {
     set slot [$cluster cluster keyslot "channel.0"]
