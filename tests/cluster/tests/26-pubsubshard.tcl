@@ -56,7 +56,7 @@ test "client can subscribe to multiple shard channels across different slots in 
     $cluster sunsubscribe ch7
 }
 
-test "sunsubscribe without specifying any channel would unsubscribe all shard channels subscirbed" {
+test "sunsubscribe without specifying any channel would unsubscribe all shard channels subscribed" {
     set publishclient [redis_client_by_addr $publishnode(host) $publishnode(port)]
     set subscribeclient [redis_deferring_client_by_addr $publishnode(host) $publishnode(port)]
     
