@@ -2464,8 +2464,7 @@ sds ACLLoadFromFile(const char *filename) {
             list *channels = NULL;
             user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
             if (new && user_channels) {
-                channels = raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name));
-                if (channels == raxNotFound) {
+                if (!raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name), (void**)&channels)) {
                     channels = getUpcomingChannelList(new, original);
                     raxInsert(user_channels, (unsigned char*)(new->name), sdslen(new->name), channels, NULL);
                 }
