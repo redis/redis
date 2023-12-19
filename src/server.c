@@ -418,51 +418,61 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
         return 1;
     }
 }
-
-/* Updates the bucket count in cluster-mode for the given dictionary in a DB. bucket count
- * incremented with the new ht size during the rehashing phase.
- * And also adds dictionary to the rehashing list in cluster mode, which allows us
+/* Adds dictionary to the rehashing list, which allows us
  * to quickly find rehash targets during incremental rehashing.
- * 
- * In non-cluster mode, bucket count can be retrieved directly from single dict bucket and
- * we don't need this list as there is only one dictionary per DB. */
-void dictRehashingStartedLogic(dictarray *da, dict *d) {
-    if (!server.cluster_enabled)
-        return;
+ *
+ * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
+ * incremented with the new ht size during the rehashing phase. In non-cluster mode,
+ * bucket count can be retrieved directly from single dict bucket. */
+void dictRehashingStarted(dict *d, dbKeyType keyType) {
+    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+    listAddNodeTail(server.rehashing, d);
+    metadata->rehashing_node = listLast(server.rehashing);
+
+    if (!server.cluster_enabled) return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    da->state.bucket_count += to; /* Started rehashing (Add the new ht size) */
-    if (from == 0)
-        return; /* No entries are to be moved. */
-    if (server.activerehashing) {
-        listAddNodeTail(da->state.rehashing, d);
-    }
+    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */
 }
 
-void dictRehashingStartedForKeys(dict *d) {
-    dictRehashingStartedLogic(server.db[0].keys, d);
-}
-
-void dictRehashingStartedForVolatileKeys(dict *d) {
-    dictRehashingStartedLogic(server.db[0].volatile_keys, d);
-}
-
-/* Updates the bucket count for the given dictionary in a DB. It removes
+/* Remove dictionary from the rehashing list.
+ *
+ * Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void dictRehashingCompletedLogic(dictarray *da, dict *d) {
-    if (!server.cluster_enabled)
-        return;
+void dictRehashingCompleted(dict *d, dbKeyType keyType) {
+    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+    if (metadata->rehashing_node) {
+        listDelNode(server.rehashing, metadata->rehashing_node);
+        metadata->rehashing_node = NULL;
+    }
+
+    if (!server.cluster_enabled) return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    da->state.bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+    server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
-void dictRehashingCompletedForKeys(dict *d) {
-    dictRehashingCompletedLogic(server.db[0].keys, d);
+void dbDictRehashingStarted(dict *d) {
+    dictRehashingStarted(d, DB_MAIN);
 }
 
-void dictRehashingCompletedForVolatileKeys(dict *d) {
-    dictRehashingCompletedLogic(server.db[0].volatile_keys, d);
+void dbDictRehashingCompleted(dict *d) {
+    dictRehashingCompleted(d, DB_MAIN);
+}
+
+void dbExpiresRehashingStarted(dict *d) {
+    dictRehashingStarted(d, DB_EXPIRES);
+}
+
+void dbExpiresRehashingCompleted(dict *d) {
+    dictRehashingCompleted(d, DB_EXPIRES);
+}
+
+/* Returns the size of the DB dict metadata in bytes. */
+size_t dbDictMetadataSize(dict *d) {
+    UNUSED(d);
+    /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
+    return sizeof(dbDictMetadata);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -525,8 +535,9 @@ dictType dbDictType = {
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictNeedsResize,            /* needs resize */
-    dictRehashingStartedForKeys,
-    dictRehashingCompletedForKeys,
+    dbDictRehashingStarted,
+    dbDictRehashingCompleted,
+    dbDictMetadataSize,
 };
 
 /* Db->expires */
@@ -539,8 +550,9 @@ dictType dbExpiresDictType = {
     NULL,                       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
     dictNeedsResize,            /* needs resize */
-    dictRehashingStartedForVolatileKeys,
-    dictRehashingCompletedForVolatileKeys,
+    dbExpiresRehashingStarted,
+    dbExpiresRehashingCompleted,
+    dbDictMetadataSize,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -1115,8 +1127,8 @@ void databasesCron(void) {
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
                 redisDb *db = &server.db[rehash_db];
-                int work_done = daIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_MS) +
-                                daIncrementallyRehash(db->volatile_keys, INCREMENTAL_REHASHING_THRESHOLD_MS);
+                int work_done = daIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US) +
+                                daIncrementallyRehash(db->volatile_keys, INCREMENTAL_REHASHING_THRESHOLD_US);
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */
@@ -2589,6 +2601,18 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+/* When adding fields, please check the initTempDb related logic. */
+void initDbState(redisDb *db){
+    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
+        db->sub_dict[subdict].non_empty_slots = 0;
+        db->sub_dict[subdict].key_count = 0;
+        db->sub_dict[subdict].resize_cursor = -1;
+        db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
+        db->sub_dict[subdict].bucket_count = 0;
+    }
+}
+
+>>>>>>> origin/unstable
 void initServer(void) {
     int j;
 
@@ -2678,10 +2702,12 @@ void initServer(void) {
         server.db[j].defrag_later = listCreate();
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
+    server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
     server.pubsubshard_channels = dictCreate(&keylistDictType);
+    server.pubsub_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -4202,13 +4228,15 @@ int processCommand(client *c) {
 /* ====================== Error lookup and execution ===================== */
 
 void incrementErrorCount(const char *fullerr, size_t namelen) {
-    struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
-    if (error == raxNotFound) {
-        error = zmalloc(sizeof(*error));
-        error->count = 0;
+    void *result;
+    if (!raxFind(server.errors,(unsigned char*)fullerr,namelen,&result)) {
+        struct redisError *error = zmalloc(sizeof(*error));
+        error->count = 1;
         raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
+    } else {
+        struct redisError *error = result;
+        error->count++;
     }
-    error->count++;
 }
 
 /*================================== Shutdown =============================== */
@@ -5574,6 +5602,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "client_recent_max_output_buffer:%zu\r\n", maxout,
             "blocked_clients:%d\r\n", server.blocked_clients,
             "tracking_clients:%d\r\n", server.tracking_clients,
+            "pubsub_clients:%d\r\n", server.pubsub_clients,
             "clients_in_timeout_table:%llu\r\n", (unsigned long long) raxSize(server.clients_timeout_table),
             "total_blocking_keys:%lu\r\n", blocking_keys,
             "total_blocking_keys_on_nokey:%lu\r\n", blocking_keys_on_nokey));

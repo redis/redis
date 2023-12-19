@@ -32,6 +32,7 @@
 #include "server.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
+#include "cluster.h"
 
 zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
@@ -235,10 +236,12 @@ void sortCommandGeneric(client *c, int readonly) {
             if (strchr(c->argv[j+1]->ptr,'*') == NULL) {
                 dontsort = 1;
             } else {
-                /* If BY is specified with a real pattern, we can't accept
-                 * it in cluster mode. */
-                if (server.cluster_enabled) {
-                    addReplyError(c,"BY option of SORT denied in Cluster mode.");
+                /* If BY is specified with a real pattern, we can't accept it in cluster mode,
+                 * unless we can make sure the keys formed by the pattern are in the same slot 
+                 * as the key to sort. */
+                if (server.cluster_enabled && patternHashSlot(sortby->ptr, sdslen(sortby->ptr)) != c->slot) {
+                    addReplyError(c, "BY option of SORT denied in Cluster mode when "
+                                 "keys formed by the pattern may be in different slots.");
                     syntax_error++;
                     break;
                 }
@@ -252,8 +255,12 @@ void sortCommandGeneric(client *c, int readonly) {
             }
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"get") && leftargs >= 1) {
-            if (server.cluster_enabled) {
-                addReplyError(c,"GET option of SORT denied in Cluster mode.");
+            /* If GET is specified with a real pattern, we can't accept it in cluster mode,
+             * unless we can make sure the keys formed by the pattern are in the same slot 
+             * as the key to sort. */
+            if (server.cluster_enabled && patternHashSlot(c->argv[j+1]->ptr, sdslen(c->argv[j+1]->ptr)) != c->slot) {
+                addReplyError(c, "GET option of SORT denied in Cluster mode when "
+                              "keys formed by the pattern may be in different slots.");
                 syntax_error++;
                 break;
             }

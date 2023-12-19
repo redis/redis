@@ -33,6 +33,11 @@
 #include "dict.h"
 #include "adlist.h"
 
+/* Dict metadata for database, used for record the position in rehashing list. */
+typedef struct dbDictMetadata {
+    listNode *rehashing_node;   /* list node in rehashing list */
+} dbDictMetadata;
+
 typedef struct {
     list *rehashing;                       /* List of dictionaries in this dictarray that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries. */

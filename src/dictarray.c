@@ -62,18 +62,23 @@ dictarray *daCreate(dictType *type, int num_slots_bits) {
     da->state.key_count = 0;
     da->state.non_empty_slots = 0;
     da->state.resize_cursor = -1;
-    da->state.slot_size_index = da->num_slots > 1 ? zcalloc(sizeof(unsigned long long) * (da->num_slots + 1)) : NULL;
+    da->state.slot_size_index = da->num_slots > 1? zcalloc(sizeof(unsigned long long) * (da->num_slots + 1)) : NULL;
     da->state.bucket_count = 0;
 
     return da;
 }
 
 void daEmpty(dictarray *da, void(callback)(dict*)) {
-    for (int slot = 0; slot < da->num_slots; slot++)
-        dictEmpty(daGetDict(da, slot), callback);
+    for (int slot = 0; slot < da->num_slots; slot++) {
+        dict *d = daGetDict(da, slot);
+        dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+        if (metadata->rehashing_node)
+            metadata->rehashing_node = NULL;
+        dictEmpty(d, callback);
+    }
 
-    if (da->state.rehashing)
-        listEmpty(da->state.rehashing);
+    listEmpty(da->state.rehashing);
+
     da->state.key_count = 0;
     da->state.non_empty_slots = 0;
     da->state.resize_cursor = -1;
@@ -83,9 +88,13 @@ void daEmpty(dictarray *da, void(callback)(dict*)) {
 }
 
 void daRelease(dictarray *da) {
-    for (int slot = 0; slot < da->num_slots; slot++)
+    for (int slot = 0; slot < da->num_slots; slot++) {
+        dict *d = daGetDict(da, slot);
+        dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+        if (metadata->rehashing_node)
+            metadata->rehashing_node = NULL;
         dictRelease(daGetDict(da, slot));
-    zfree(da->dicts);
+    }
 
     listRelease(da->state.rehashing);
     if (da->state.slot_size_index)
@@ -117,7 +126,7 @@ size_t daMemUsage(dictarray *da) {
     unsigned long long keys_count = daSize(da);
     mem += keys_count * dictEntryMemUsage() +
            daBuckets(da) * sizeof(dictEntry*) +
-           da->num_slots * sizeof(dict);
+           da->num_slots * (sizeof(dict) + dictMetadataSize(daGetDict(da, 0)));
     return mem;
 }
 
@@ -425,35 +434,21 @@ void daTryResizeHashTables(dictarray *da, int attempts) {
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
-int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms) {
-    /* Rehash main and expire dictionary . */
-    if (da->num_slots > 1) {
-        listNode *node, *nextNode;
-        monotime timer;
-        elapsedStart(&timer);
-        /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
-         * while removing those that already finished rehashing from the queue. */
-        while ((node = listFirst(da->state.rehashing))) {
-            dict *d = listNodeValue(node);
-            if (dictIsRehashing(d)) {
-                dictRehashMilliseconds(d, threshold_ms);
-                if (elapsedMs(timer) >= threshold_ms) {
-                    return 1;  /* Reached the time limit. */
-                }
-            } else { /* It is possible that rehashing has already completed for this dictionary, simply remove it from the queue. */
-                nextNode = listNextNode(node);
-                listDelNode(da->state.rehashing, node);
-                node = nextNode;
-            }
-        }
+int daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
+    if (listLength(da->state.rehashing) == 0)
+        return 0;
 
-        /* When cluster mode is disabled, only one dict is used for the entire DB and rehashing list isn't populated. */
-    } else {
-        dict *d = daGetDict(da, 0);
-        if (dictIsRehashing(d)) {
-            dictRehashMilliseconds(d, threshold_ms);
-            return 1; /* already used our millisecond for this loop... */
+    /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
+     * after each dictionary completes rehashing, it removes itself from the list. */
+    listNode *node;
+    monotime timer;
+    elapsedStart(&timer);
+    while ((node = listFirst(da->state.rehashing))) {
+        uint64_t elapsed_us = elapsedUs(timer);
+        if (elapsed_us >= threshold_us) {
+            break;  /* Reached the time limit. */
         }
+        dictRehashMicroseconds(listNodeValue(node), threshold_us - elapsed_us);
     }
-    return 0;
+    return 1;
 }

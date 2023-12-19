@@ -5699,6 +5699,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
     dict *d = daGetDict(server.db->keys, hashslot);
     iter = dictGetSafeIterator(d);
     while((de = dictNext(iter)) != NULL) {
+        enterExecutionUnit(1, 0);
         sds sdskey = dictGetKey(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
@@ -5708,6 +5709,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
          * The modules needs to know that these keys are no longer available locally, so just send the
          * keyspace notification to the modules, but not to clients. */
         moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+        exitExecutionUnit();
         postExecutionUnitOperations();
         decrRefCount(key);
         j++;
@@ -5782,8 +5784,14 @@ int getClusterSize(void) {
     return dictSize(server.cluster->nodes);
 }
 
-int getMyClusterSlotCount(void) {
-    return server.cluster->myself->numslots;
+int getMyShardSlotCount(void) {
+    if (!nodeIsSlave(server.cluster->myself)) {
+        return server.cluster->myself->numslots;
+    } else if (server.cluster->myself->slaveof) {
+        return server.cluster->myself->slaveof->numslots;
+    } else {
+        return 0;
+    }
 }
 
 char **getClusterNodesList(size_t *numnodes) {

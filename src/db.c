@@ -814,12 +814,12 @@ void keysCommand(client *c) {
     unsigned long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
     allkeys = (pattern[0] == '*' && plen == 1);
-    if (!allkeys) {
+    if (server.cluster_enabled && !allkeys) {
         pslot = patternHashSlot(pattern, plen);
     }
     dictIterator *di = NULL;
     daIterator *dait = NULL;
-    if (server.cluster_enabled && !allkeys && pslot != -1) {
+    if (pslot != -1) {
         di = dictGetSafeIterator(daGetDict(c->db->keys, pslot));
     } else {
         dait = daIteratorInit(c->db->keys);
@@ -1884,9 +1884,8 @@ int dbExpand(dictarray *da, uint64_t db_size, int try_expand) {
     if (server.cluster_enabled) {
         /* We don't know exact number of keys that would fall into each slot, but we can
          * approximate it, assuming even distribution, divide it by the number of slots. */
-        int slots = getMyClusterSlotCount();
-        if (slots == 0)
-            return C_OK;
+        int slots = getMyShardSlotCount();
+        if (slots == 0) return C_OK;
         db_size = db_size / slots;
         ret = daExpand(da, db_size, try_expand, dbExpandSkipSlot);
     } else {

@@ -181,7 +181,11 @@ static void _dictReset(dict *d, int htidx)
 /* Create a new hash table */
 dict *dictCreate(dictType *type)
 {
-    dict *d = zmalloc(sizeof(*d));
+    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL) : 0;
+    dict *d = zmalloc(sizeof(*d)+metasize);
+    if (metasize > 0) {
+        memset(dictMetadata(d), 0, metasize);
+    }
     _dictInit(d,type);
     return d;
 }
@@ -231,7 +235,7 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     signed char new_ht_size_exp = _dictNextExp(size);
 
     /* Detect overflows */
-    size_t newsize = 1ul<<new_ht_size_exp;
+    size_t newsize = DICTHT_SIZE(new_ht_size_exp);
     if (newsize < size || newsize * sizeof(dictEntry*) < newsize)
         return DICT_ERR;
 
@@ -249,23 +253,29 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
 
     new_ht_used = 0;
 
-    /* Is this the first initialization? If so it's not really a rehashing
-     * we just set the first hash table so that it can accept keys. */
-    if (d->ht_table[0] == NULL) {
-        if (d->type->rehashingStarted) d->type->rehashingStarted(d);
-        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
-        d->ht_size_exp[0] = new_ht_size_exp;
-        d->ht_used[0] = new_ht_used;
-        d->ht_table[0] = new_ht_table;
-        return DICT_OK;
-    }
-
-    /* Prepare a second hash table for incremental rehashing */
+    /* Prepare a second hash table for incremental rehashing.
+     * We do this even for the first initialization, so that we can trigger the
+     * rehashingStarted more conveniently, we will clean it up right after. */
     d->ht_size_exp[1] = new_ht_size_exp;
     d->ht_used[1] = new_ht_used;
     d->ht_table[1] = new_ht_table;
     d->rehashidx = 0;
     if (d->type->rehashingStarted) d->type->rehashingStarted(d);
+
+    /* Is this the first initialization or is the first hash table empty? If so
+     * it's not really a rehashing, we can just set the first hash table so that
+     * it can accept keys. */
+    if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
+        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+        if (d->ht_table[0]) zfree(d->ht_table[0]);
+        d->ht_size_exp[0] = new_ht_size_exp;
+        d->ht_used[0] = new_ht_used;
+        d->ht_table[0] = new_ht_table;
+        _dictReset(d, 1);
+        d->rehashidx = -1;
+        return DICT_OK;
+    }
+
     return DICT_OK;
 }
 
@@ -386,10 +396,10 @@ long long timeInMilliseconds(void) {
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 }
 
-/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
- * than 0, and is smaller than 1 in most cases. The exact upper bound 
+/* Rehash in us+"delta" microseconds. The value of "delta" is larger
+ * than 0, and is smaller than 1000 in most cases. The exact upper bound
  * depends on the running time of dictRehash(d,100).*/
-int dictRehashMilliseconds(dict *d, unsigned int ms) {
+int dictRehashMicroseconds(dict *d, uint64_t us) {
     if (d->pauserehash > 0) return 0;
 
     monotime timer;
@@ -398,7 +408,7 @@ int dictRehashMilliseconds(dict *d, unsigned int ms) {
 
     while(dictRehash(d,100)) {
         rehashes += 100;
-        if (elapsedMs(timer) >= ms) break;
+        if (elapsedUs(timer) >= us) break;
     }
     return rehashes;
 }
@@ -1503,12 +1513,6 @@ dictEntry *dictFindEntryByPtrAndHash(dict *d, const void *oldptr, uint64_t hash)
 /* Provides the old and new ht size for a given dictionary during rehashing. This method
  * should only be invoked during initialization/rehashing. */
 void dictRehashingInfo(dict *d, unsigned long long *from_size, unsigned long long *to_size) {
-    /* Expansion during initialization. */
-    if (d->ht_size_exp[0] == -1) {
-        *from_size = DICTHT_SIZE(d->ht_size_exp[0]);
-        *to_size = DICTHT_SIZE(DICT_HT_INITIAL_EXP);
-        return;
-    }
     /* Invalid method usage if rehashing isn't ongoing. */
     assert(dictIsRehashing(d));
     *from_size = DICTHT_SIZE(d->ht_size_exp[0]);
@@ -1707,7 +1711,7 @@ int dictTest(int argc, char **argv, int flags) {
 
     /* Wait for rehashing. */
     while (dictIsRehashing(dict)) {
-        dictRehashMilliseconds(dict,100);
+        dictRehashMicroseconds(dict,100*1000);
     }
 
     start_benchmark();
