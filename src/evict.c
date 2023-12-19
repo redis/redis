@@ -633,7 +633,7 @@ int performEvictions(void) {
                     } else {
                         da = server.db[bestdbid].volatile_keys;
                     }
-                    de = daFind(da, pool[k].key, pool[k].slot);
+                    de = daDictFind(da, pool[k].slot, pool[k].key);
 
                     /* Remove the entry from the pool. */
                     if (pool[k].key != pool[k].cached)

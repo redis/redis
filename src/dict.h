@@ -56,6 +56,14 @@ typedef struct dictType {
     void (*valDestructor)(dict *d, void *obj);
     int (*expandAllowed)(size_t moreMem, double usedRatio);
     int (*needsResize)(dict *d);
+    /* Invoked at the start of dict initialization/rehashing (old and new ht are already created) */
+    void (*rehashingStarted)(dict *d);
+    /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists
+     * and are cleaned up after this callback.  */
+    void (*rehashingCompleted)(dict *d);
+    /* Allow a dict to carry extra caller-defined metadata. The
+     * extra memory is initialized to 0 when a dict is allocated. */
+    size_t (*dictMetadataBytes)(dict *d);
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -70,23 +78,11 @@ typedef struct dictType {
      * flag is set. */
 } dictType;
 
-typedef struct dictTypeExt {
-        /* Invoked at the start of dict initialization/rehashing (old and new ht are already created) */
-    void (*rehashingStarted)(dict *d);
-    /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists
-     * and are cleaned up after this callback.  */
-    void (*rehashingCompleted)(dict *d);
-    /* Allow a dict to carry extra caller-defined metadata. The
-     * extra memory is initialized to 0 when a dict is allocated. */
-    size_t (*dictMetadataBytes)(dict *d);
-} dictTypeExt;
-
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))
 #define DICTHT_SIZE_MASK(exp) ((exp) == -1 ? 0 : (DICTHT_SIZE(exp))-1)
 
 struct dict {
     dictType *type;
-    dictTypeExt *typeext;
 
     dictEntry **ht_table[2];
     unsigned long ht_used[2];
@@ -150,8 +146,8 @@ typedef struct {
         (key1) == (key2))
 
 #define dictMetadata(d) (&(d)->metadata)
-#define dictMetadataSize(d) (((d)->typeext && (d)->typeext->dictMetadataBytes) \
-                             ? (d)->typeext->dictMetadataBytes(d) : 0)
+#define dictMetadataSize(d) ((d)->type->dictMetadataBytes \
+                             ? (d)->type->dictMetadataBytes(d) : 0)
 
 #define dictHashKey(d, key) ((d)->type->hashFunction(key))
 #define dictBuckets(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
@@ -176,7 +172,6 @@ typedef enum {
 
 /* API */
 dict *dictCreate(dictType *type);
-dict *dictCreateExt(dictType *type, dictTypeExt *typeext);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);

@@ -1545,7 +1545,7 @@ NULL
                 return;
             }
         }
-        if ((de = daFind(c->db->keys, c->argv[2]->ptr, getKeySlot(c->argv[2]->ptr))) == NULL) {
+        if ((de = dbFind(c->db->keys, c->argv[2]->ptr)) == NULL) {
             addReplyNull(c);
             return;
         }

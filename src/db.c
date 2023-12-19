@@ -86,7 +86,7 @@ void updateLFU(robj *val) {
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
-    dictEntry *de = daFind(db->keys, key->ptr, getKeySlot(key->ptr));
+    dictEntry *de = dbFind(db->keys, key->ptr);
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
@@ -185,10 +185,6 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     return o;
 }
 
-void keyRemovedFromMainDict(dictarray *da, int slot) {
-    daCumulativeKeyCountAdd(da, slot, -1);
-}
-
 /* Add the key to the DB. It's up to the caller to increment the reference
  * counter of the value if needed.
  *
@@ -197,18 +193,16 @@ void keyRemovedFromMainDict(dictarray *da, int slot) {
 static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
     dictEntry *existing;
     int slot = getKeySlot(key->ptr);
-    dict *d = daGetDict(db->keys, slot);
-    dictEntry *de = dictAddRaw(d, key->ptr, &existing);
+    dictEntry *de = daDictAddRaw(db->keys, slot, key->ptr, &existing);
     if (update_if_existing && existing) {
         dbSetValue(db, key, val, 1, existing);
         return;
     }
     serverAssertWithInfo(NULL, key, de != NULL);
-    dictSetKey(d, de, sdsdup(key->ptr));
+    daDictSetKey(db->keys, slot, de, sdsdup(key->ptr));
     initObjectLRUOrLFU(val);
-    dictSetVal(d, de, val);
+    daDictSetVal(db->keys, slot, de, val);
     signalKeyAsReady(db, key, val->type);
-    daCumulativeKeyCountAdd(db->keys, slot, 1);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
 
@@ -252,12 +246,10 @@ int getKeySlot(sds key) {
  * caller to free the SDS string. */
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     int slot = getKeySlot(key);
-    dict *d = daGetDict(db->keys, slot);
-    dictEntry *de = dictAddRaw(d, key, NULL);
+    dictEntry *de = daDictAddRaw(db->keys, slot, key, NULL);
     if (de == NULL) return 0;
     initObjectLRUOrLFU(val);
-    dictSetVal(d, de, val);
-    daCumulativeKeyCountAdd(db->keys, slot, 1);
+    daDictSetVal(db->keys, slot, de, val);
     return 1;
 }
 
@@ -275,7 +267,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * The program is aborted if the key was not already present. */
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de) {
     int slot = getKeySlot(key->ptr);
-    if (!de) de = daFind(db->keys, key->ptr, slot);
+    if (!de) de = daDictFind(db->keys, slot, key->ptr);
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
 
@@ -366,7 +358,7 @@ robj *dbRandomKey(redisDb *db) {
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (daFind(db->volatile_keys, key, getKeySlot(key))) {
+        if (dbFind(db->volatile_keys, key)) {
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -392,8 +384,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     dictEntry **plink;
     int table;
     int slot = getKeySlot(key->ptr);
-    dict *d = daGetDict(db->keys, slot);
-    dictEntry *de = dictTwoPhaseUnlinkFind(d,key->ptr,&plink,&table);
+    dictEntry *de = daDictTwoPhaseUnlinkFind(db->keys, slot, key->ptr, &plink, &table);
     if (de) {
         robj *val = dictGetVal(de);
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
@@ -409,18 +400,13 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         if (async) {
             /* Because of dbUnshareStringValue, the val in de may change. */
             freeObjAsync(key, dictGetVal(de), db->id);
-            dictSetVal(d, de, NULL);
+            daDictSetVal(db->keys, slot, de, NULL);
         }
         /* Deleting an entry from the expires dict will not free the sds of
          * the key, because it is shared with the main dictionary. */
-        dict *dv = daGetDict(db->volatile_keys, slot);
-        if (dictSize(dv) > 0) {
-            if (dictDelete(dv, key->ptr) == DICT_OK) {
-                daCumulativeKeyCountAdd(db->volatile_keys, slot, -1);
-            }
-        }
-        dictTwoPhaseUnlinkFree(d,de,plink,table);
-        daCumulativeKeyCountAdd(db->keys, slot, -1);
+        daDictDelete(db->volatile_keys, slot, key->ptr);
+
+        daDictTwoPhaseUnlinkFree(db->keys, slot, de, plink, table);
         return 1;
     } else {
         return 0;
@@ -1504,7 +1490,7 @@ void scanDatabaseForReadyKeys(redisDb *db) {
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        dictEntry *kde = daFind(db->keys, key->ptr, getKeySlot(key->ptr));
+        dictEntry *kde = dbFind(db->keys, key->ptr);
         if (kde) {
             robj *value = dictGetVal(kde);
             signalKeyAsReady(db, key, value->type);
@@ -1524,7 +1510,7 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
         int existed = 0, exists = 0;
         int original_type = -1, curr_type = -1;
 
-        dictEntry *kde = daFind(emptied->keys, key->ptr, getKeySlot(key->ptr));
+        dictEntry *kde = dbFind(emptied->keys, key->ptr);
         if (kde) {
             robj *value = dictGetVal(kde);
             original_type = value->type;
@@ -1532,7 +1518,7 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
         }
 
         if (replaced_with) {
-            kde = daFind(replaced_with->keys, key->ptr, getKeySlot(key->ptr));
+            kde = dbFind(replaced_with->keys, key->ptr);
             if (kde) {
                 robj *value = dictGetVal(kde);
                 curr_type = value->type;
@@ -1677,14 +1663,7 @@ void swapdbCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 int removeExpire(redisDb *db, robj *key) {
-    int slot = getKeySlot(key->ptr);
-    dict *d = daGetDict(db->volatile_keys, slot);
-    if (dictDelete(d, key->ptr) == DICT_OK) {
-        daCumulativeKeyCountAdd(db->volatile_keys, slot, -1 );
-        return 1;
-    } else {
-        return 0;
-    }
+    return daDictDelete(db->volatile_keys, getKeySlot(key->ptr), key->ptr) == DICT_OK;
 }
 
 /* Set an expire to the specified key. If the expire is set in the context
@@ -1695,15 +1674,14 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de, *existing;
 
     /* Reuse the sds from the main dict in the expire dict */
-    kde = daFind(db->keys, key->ptr, getKeySlot(key->ptr));
-    serverAssertWithInfo(NULL,key,kde != NULL);
     int slot = getKeySlot(key->ptr);
-    de = dictAddRaw(daGetDict(db->volatile_keys, slot), dictGetKey(kde), &existing);
+    kde = daDictFind(db->keys, slot, key->ptr);
+    serverAssertWithInfo(NULL,key,kde != NULL);
+    de = daDictAddRaw(db->volatile_keys, slot, dictGetKey(kde), &existing);
     if (existing) {
         dictSetSignedIntegerVal(existing, when);
     } else {
         dictSetSignedIntegerVal(de, when);
-        daCumulativeKeyCountAdd(db->volatile_keys, slot, 1);
     }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
@@ -1717,7 +1695,7 @@ long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
-    if ((de = daFind(db->volatile_keys, key->ptr, getKeySlot(key->ptr))) == NULL)
+    if ((de = dbFind(db->volatile_keys, key->ptr)) == NULL)
         return -1;
 
     return dictGetSignedIntegerVal(de);
@@ -1893,6 +1871,10 @@ int dbExpand(dictarray *da, uint64_t db_size, int try_expand) {
     }
 
     return ret? C_OK : C_ERR;
+}
+
+dictEntry *dbFind(dictarray *da, void *key) {
+    return daDictFind(da, getKeySlot(key), key);
 }
 
 /* -----------------------------------------------------------------------------

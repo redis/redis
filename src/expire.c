@@ -396,7 +396,7 @@ void expireSlaveKeys(void) {
         while(dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
-                dictEntry *expire = daFind(db->volatile_keys, keyname, getKeySlot(keyname));
+                dictEntry *expire = dbFind(db->volatile_keys, keyname);
                 int expired = 0;
 
                 if (expire &&

@@ -43,6 +43,7 @@ typedef struct {
 } daState;
 
 typedef struct {
+    dictType dtype;
     dict **dicts;
     long long num_slots;
     long long num_slots_bits;
@@ -72,7 +73,6 @@ void daRelease(dictarray *da);
 unsigned long long daSize(dictarray *da);
 unsigned long daBuckets(dictarray *da);
 size_t daMemUsage(dictarray *da);
-dictEntry *daFind(dictarray *da, void *key, int slot);
 unsigned long long daScan(dictarray *da, unsigned long long cursor,
                           int onlyslot, dictScanFunction *scan_cb,
                           dictarrayScanShouldSkipDict *skip_cb,
@@ -84,7 +84,6 @@ dict *daGetDict(dictarray *da, int slot);
 
 int daFindSlotByKeyIndex(dictarray *da, unsigned long target);
 int daGetNextNonEmptySlot(dictarray *da, int slot);
-void daCumulativeKeyCountAdd(dictarray *da, int slot, long delta);
 int daNonEmptySlots(dictarray *da);
 
 /* dictarray iterator specific functions */
@@ -98,5 +97,14 @@ dict *daGetDictFromIterator(daIterator *dait);
 /* Rehashing */
 void daTryResizeHashTables(dictarray *da, int attempts);
 int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms);
+
+/* dict wrappers */
+dictEntry *daDictFind(dictarray *da, int slot, void *key);
+dictEntry *daDictAddRaw(dictarray *da, int slot, void *key, dictEntry **existing);
+void daDictSetKey(dictarray *da, int slot, dictEntry* de, void *key);
+void daDictSetVal(dictarray *da, int slot, dictEntry *de, void *val);
+dictEntry *daDictTwoPhaseUnlinkFind(dictarray *da, int slot, const void *key, dictEntry ***plink, int *table_index);
+void daDictTwoPhaseUnlinkFree(dictarray *da, int slot, dictEntry *he, dictEntry **plink, int table_index);
+int daDictDelete(dictarray *da, int slot, const void *key);
 
 #endif /* DICTARRAY_H_ */

@@ -858,7 +858,7 @@ int defragLaterStep(redisDb *db, int slot, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = daFind(db->keys, defrag_later_current_key, slot);
+        dictEntry *de = daDictFind(db->keys, slot, defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;

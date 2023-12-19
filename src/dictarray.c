@@ -47,13 +47,44 @@ static int getAndClearSlotIdFromCursor(dictarray *da, unsigned long long *cursor
     return slot;
 }
 
+
+/* Updates binary index tree (also known as Fenwick tree), increasing key count for a given slot.
+ * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
+ * Time complexity is O(log(da->num_slots)). */
+static void daCumulativeKeyCountAdd(dictarray *da, int slot, long delta) {
+    da->state.key_count += delta;
+
+    dict *d = daGetDict(da, slot);
+    size_t dsize = dictSize(d);
+    int non_empty_slots_delta = dsize == 1? 1 : dsize == 0? -1 : 0;
+    da->state.non_empty_slots += non_empty_slots_delta;
+
+    /* BIT does not need to be calculated when the cluster is turned off. */
+    if (da->num_slots == 1)
+        return;
+
+    /* Update the BIT */
+    int idx = slot + 1; /* Unlike slots, BIT is 1-based, so we need to add 1. */
+    while (idx <= da->num_slots) {
+        if (delta < 0) {
+            assert(da->state.slot_size_index[idx] >= (unsigned long long)labs(delta));
+        }
+        da->state.slot_size_index[idx] += delta;
+        idx += (idx & -idx);
+    }
+}
+
+/**********************************/
+/*** Dict extension ***************/
+/**********************************/
+
 /* Adds dictionary to the rehashing list, which allows us
  * to quickly find rehash targets during incremental rehashing.
  *
  * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
  * incremented with the new ht size during the rehashing phase. In non-cluster mode,
  * bucket count can be retrieved directly from single dict bucket. */
-void dictRehashingStarted(dict *d) {
+void daDictRehashingStarted(dict *d) {
     daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
     listAddNodeTail(metadata->da->state.rehashing, d);
     metadata->rehashing_node = listLast(metadata->da->state.rehashing);
@@ -65,15 +96,11 @@ void dictRehashingStarted(dict *d) {
     metadata->da->state.bucket_count += to; /* Started rehashing (Add the new ht size) */
 }
 
-/**********************************/
-/*** Dict extension ***************/
-/**********************************/
-
 /* Remove dictionary from the rehashing list.
  *
  * Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void dictRehashingCompleted(dict *d) {
+void daDictRehashingCompleted(dict *d) {
     daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
     if (metadata->rehashing_node) {
         listDelNode(metadata->da->state.rehashing, metadata->rehashing_node);
@@ -94,12 +121,6 @@ size_t daDictMetadataSize(dict *d) {
     return sizeof(daDictMetadata);
 }
 
-dictTypeExt daDictTypeExt = {
-    dictRehashingStarted,
-    dictRehashingCompleted,
-    daDictMetadataSize,
-};
-
 /**********************************/
 /*** API **************************/
 /**********************************/
@@ -107,11 +128,21 @@ dictTypeExt daDictTypeExt = {
 /* Create an array of dictionaries */
 dictarray *daCreate(dictType *type, int num_slots_bits) {
     dictarray *da = zcalloc(sizeof(*da));
+
+    memcpy(&da->dtype, type, sizeof(da->dtype));
+    assert(!type->dictMetadataBytes);
+    assert(!type->rehashingStarted);
+    assert(!type->rehashingCompleted);
+    da->dtype.dictMetadataBytes = daDictMetadataSize;
+    da->dtype.rehashingStarted = daDictRehashingStarted;
+    da->dtype.rehashingCompleted = daDictRehashingCompleted;
+
+
     da->num_slots_bits = num_slots_bits;
     da->num_slots = 1 << da->num_slots_bits;
     da->dicts = zmalloc(sizeof(dict*) * da->num_slots);
     for (int i = 0; i < da->num_slots; i++) {
-        da->dicts[i] = dictCreateExt(type, &daDictTypeExt);
+        da->dicts[i] = dictCreate(&da->dtype);
         daDictMetadata *metadata = (daDictMetadata *)dictMetadata(da->dicts[i]);
         metadata->da = da;
     }
@@ -189,11 +220,6 @@ size_t daMemUsage(dictarray *da) {
     return mem;
 }
 
-dictEntry *daFind(dictarray *da, void *key, int slot) {
-    dict *d = daGetDict(da, slot);
-    return dictFind(d, key);
-}
-
 /*
  * This method is used to iterate over the elements of the entire database specifically across slots.
  * It's a three pronged approach.
@@ -259,22 +285,15 @@ unsigned long long daScan(dictarray *da, unsigned long long cursor,
  * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
  */
 int daExpand(dictarray *da, uint64_t newsize, int try_expand, dictarrayExpandShouldSkipSlot *skip_cb) {
-    dict *d;
-    if (da->num_slots > 1) {
-        for (int i = 0; i < da->num_slots; i++) {
-            if (!(skip_cb && skip_cb(i))) {
-                d = daGetDict(da, i);
-                int result = try_expand ? dictTryExpand(d, newsize) : dictExpand(d, newsize);
-                if (try_expand && result == DICT_ERR)
-                    return 0;
-            }
-        }
-    } else {
-        d = daGetDict(da, 0);
+    for (int i = 0; i < da->num_slots; i++) {
+        if (skip_cb && skip_cb(i))
+            continue;
+        dict *d = daGetDict(da, i);
         int result = try_expand ? dictTryExpand(d, newsize) : dictExpand(d, newsize);
         if (try_expand && result == DICT_ERR)
             return 0;
     }
+
     return 1;
 }
 
@@ -376,32 +395,6 @@ int daFindSlotByKeyIndex(dictarray *da, unsigned long target) {
 int daGetNextNonEmptySlot(dictarray *da, int slot) {
     unsigned long long next_key = cumulativeKeyCountRead(da, slot) + 1;
     return next_key <= daSize(da) ? daFindSlotByKeyIndex(da, next_key) : -1;
-}
-
-/* Updates binary index tree (also known as Fenwick tree), increasing key count for a given slot.
- * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
- * Time complexity is O(log(da->num_slots)). */
-void daCumulativeKeyCountAdd(dictarray *da, int slot, long delta) {
-    da->state.key_count += delta;
-
-    dict *d = daGetDict(da, slot);
-    size_t dsize = dictSize(d);
-    int non_empty_slots_delta = dsize == 1? 1 : dsize == 0? -1 : 0;
-    da->state.non_empty_slots += non_empty_slots_delta;
-
-    /* BIT does not need to be calculated when the cluster is turned off. */
-    if (da->num_slots == 1)
-        return;
-
-    /* Update the BIT */
-    int idx = slot + 1; /* Unlike slots, BIT is 1-based, so we need to add 1. */
-    while (idx <= da->num_slots) {
-        if (delta < 0) {
-            assert(da->state.slot_size_index[idx] >= (unsigned long long)labs(delta));
-        }
-        da->state.slot_size_index[idx] += delta;
-        idx += (idx & -idx);
-    }
 }
 
 int daNonEmptySlots(dictarray *da) {
@@ -510,4 +503,40 @@ int daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
         dictRehashMicroseconds(listNodeValue(node), threshold_us - elapsed_us);
     }
     return 1;
+}
+
+dictEntry *daDictFind(dictarray *da, int slot, void *key) {
+    dict *d = daGetDict(da, slot);
+    return dictFind(d, key);
+}
+
+dictEntry *daDictAddRaw(dictarray *da, int slot, void *key, dictEntry **existing) {
+    dictEntry *ret = dictAddRaw(daGetDict(da, slot), key, existing);
+    if (ret)
+        daCumulativeKeyCountAdd(da, slot, 1);
+    return ret;
+}
+
+void daDictSetKey(dictarray *da, int slot, dictEntry* de, void *key) {
+    dictSetKey(daGetDict(da, slot), de, key);
+}
+
+void daDictSetVal(dictarray *da, int slot, dictEntry *de, void *val) {
+    dictSetVal(daGetDict(da, slot), de, val);
+}
+
+dictEntry *daDictTwoPhaseUnlinkFind(dictarray *da, int slot, const void *key, dictEntry ***plink, int *table_index) {
+    return dictTwoPhaseUnlinkFind(daGetDict(da, slot), key, plink, table_index);
+}
+
+void daDictTwoPhaseUnlinkFree(dictarray *da, int slot, dictEntry *he, dictEntry **plink, int table_index) {
+    dictTwoPhaseUnlinkFree(daGetDict(da, slot), he, plink, table_index);
+    daCumulativeKeyCountAdd(da, slot, -1);
+}
+
+int daDictDelete(dictarray *da, int slot, const void *key) {
+    int ret = dictDelete(daGetDict(da, slot), key);
+    if (ret == DICT_OK)
+        daCumulativeKeyCountAdd(da, slot, -1);
+    return ret;
 }

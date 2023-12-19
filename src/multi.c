@@ -394,7 +394,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
             /* The key was already expired when WATCH was called. */
             if (db == wk->db &&
                 equalStringObjects(key, wk->key) &&
-                daFind(db->keys, key->ptr, calculateKeySlot(key->ptr)) == NULL)
+                dbFind(db->keys, key->ptr) == NULL)
             {
                 /* Already expired key is deleted, so logically no change. Clear
                  * the flag. Deleted keys are not flagged as expired. */
@@ -432,9 +432,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        int exists_in_emptied = daFind(emptied->keys, key->ptr, calculateKeySlot(key->ptr)) != NULL;
+        int exists_in_emptied = dbFind(emptied->keys, key->ptr) != NULL;
         if (exists_in_emptied ||
-            (replaced_with && daFind(replaced_with->keys, key->ptr, calculateKeySlot(key->ptr)) != NULL))
+            (replaced_with && dbFind(replaced_with->keys, key->ptr) != NULL))
         {
             list *clients = dictGetVal(de);
             if (!clients) continue;
@@ -442,7 +442,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             while((ln = listNext(&li))) {
                 watchedKey *wk = redis_member2struct(watchedKey, node, ln);
                 if (wk->expired) {
-                    if (!replaced_with || !daFind(replaced_with->keys, key->ptr, calculateKeySlot(key->ptr))) {
+                    if (!replaced_with || !dbFind(replaced_with->keys, key->ptr)) {
                         /* Expired key now deleted. No logical change. Clear the
                          * flag. Deleted keys are not flagged as expired. */
                         wk->expired = 0;

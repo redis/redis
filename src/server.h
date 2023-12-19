@@ -3103,7 +3103,10 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
+
+/* dictarray wrappers */
 int dbExpand(dictarray *da, uint64_t db_size, int try_expand);
+dictEntry *dbFind(dictarray *da, void *key);
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);
