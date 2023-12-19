@@ -508,20 +508,6 @@ void checkOldStyleAof(char *filepath, int fix, int preamble) {
     printAofStyle(ret, filepath, (char *)"AOF");
 }
 
-static sds checkAofVersion(void) {
-    sds version;
-    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
-
-    /* Add git commit and working tree status when available */
-    if (strtoll(redisGitSHA1(),NULL,16)) {
-        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtoll(redisGitDirty(),NULL,10))
-            version = sdscatprintf(version, "-dirty");
-        version = sdscat(version, ")");
-    }
-    return version;
-}
-
 int redis_check_aof_main(int argc, char **argv) {
     char *filepath;
     char temp_filepath[PATH_MAX + 1];
