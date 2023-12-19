@@ -91,7 +91,7 @@ struct RedisModuleSharedAPI {
 typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
 
 dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
-unsigned long modules_count = 0;
+unsigned long modules_count = 0; /* Cached count of modules, updated only in the main thread */
 
 /* Entries in the context->amqueue array, representing objects to free
  * when the callback returns. */
