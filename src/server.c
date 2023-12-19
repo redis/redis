@@ -1890,7 +1890,6 @@ void afterSleep(struct aeEventLoop *eventLoop) {
      ***************************** ********************/
     /* Acquire the modules GIL so that their threads won't touch anything. */
     if (!ProcessingEventsWhileBlocked) {
-        /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
             latencyStartMonitor(latency);
