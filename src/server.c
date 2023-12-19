@@ -1738,7 +1738,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         processed += handleClientsWithPendingWrites();
         processed += freeClientsInAsyncFreeQueue();
         server.events_processed_while_blocked += processed;
-        goto lock_ae;
+        goto lock_el;
     }
 
     /* We should handle pending reads clients ASAP after event loop. */
@@ -1872,7 +1872,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /********************* WARNING ********************
      * Do NOT add anything below moduleReleaseGIL !!! *
      ***************************** ********************/
-lock_ae:
+lock_el:
     /* Before leaving beforeSleep(), we first secure the eventloop to prevent a race
      * condition between module threads entering via RM_Yield() and the main thread.
      * This lock will be released before afterSleep(). */
