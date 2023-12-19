@@ -153,6 +153,7 @@ void daRelease(dictarray *da) {
             metadata->rehashing_node = NULL;
         dictRelease(daGetDict(da, slot));
     }
+    zfree(da->dicts);
 
     listRelease(da->state.rehashing);
     if (da->state.slot_size_index)
