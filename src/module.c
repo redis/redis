@@ -13083,7 +13083,7 @@ size_t moduleCount(void) {
     /* To ensure thread safety of this method, we use the cached module size
      * instead of dictSize() to get the module count.
      * This is because dictSize() may return inaccurate results when modules
-     * is in the process of rehashing. */
+     * is in the process of rehashing under multithreading conditions. */
     return modules_count;
 }
 
