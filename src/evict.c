@@ -669,7 +669,7 @@ int performEvictions(void) {
                 } else {
                     da = db->volatile_keys;
                 }
-                int slot = daGetFairRandomDictIndex(db->keys);
+                int slot = daGetFairRandomDictIndex(da);
                 sampledict = daGetDict(da, slot);
 
                 if (dictSize(sampledict) != 0) {
