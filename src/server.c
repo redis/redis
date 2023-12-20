@@ -1063,7 +1063,7 @@ void databasesCron(void) {
 
         /* Rehash */
         if (server.activerehashing) {
-            uint64_t elapsed_us;
+            uint64_t elapsed_us = 0;
             for (j = 0; j < dbs_per_call; j++) {
                 redisDb *db = &server.db[rehash_db % server.dbnum];
                 elapsed_us += daIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US);
