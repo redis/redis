@@ -792,6 +792,8 @@ static void tlsHandleEvent(tls_connection *conn, int mask) {
 static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, int mask) {
     UNUSED(fd);
     tls_connection *conn = clientData;
+    /* printf("tlsEventHandler(el=%p, fd=%d) for conn with el=%p\n", */
+    /*        (void*)el, fd, (void*)conn->c.el); */
     serverAssert(el == conn->c.el);
     serverAssert(conn->c.el != NULL);
     tlsHandleEvent(conn, mask);

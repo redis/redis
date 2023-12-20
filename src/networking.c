@@ -44,36 +44,38 @@ static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 char *getClientSockname(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 
-static inline int isClientHandledByIOThread(client *c) {
-    return c->io_thread_index >= 0;
-}
+static inline int isClientHandledByIOThread(client *c);
+static inline int runningAsIOThread(client *c);
+
 void transferClientToIOThread(client *c);
 static inline void sendMessageToIOThread(client *c, int action);
 
 static inline void IOThreadReplyLock(client *c);
 static inline void IOThreadReplyUnlock(client *c);
-static void IOThreadFreeClient(client *c);
 static void IOThreadMessageToMain(client *c, int action);
 static int IOThreadWriteToClient(client *c, ssize_t *nwritten);
 
 /* I/O thread message actions, for messages in both directions. */
-#define IO_THREAD_TRANSFER_CLIENT 1 /* Transfer a client to the target thread,
-                                     * which adds the client to its event
-                                     * loop. */
-#define IO_THREAD_REQUEST_CLIENT_TRANSFER 2 /* Request the target thread to transfer the
-                                     * client back to the requesting thread. */
-#define IO_THREAD_PARSE_COMMAND 4   /* From main to I/O thread. */
-#define IO_THREAD_EXEC_COMMAND 8    /* From I/O to main thread. */
-#define IO_THREAD_SEND_REPLY 16     /* From main to I/O thread. */
-#define IO_THREAD_FREE_CLIENT 32    /* From I/O to main thread. */
-#define IO_THREAD_CLOSE_AFTER_REPLY 64 /* From main to I/O thread. */
+#define IO_THREAD_ADD_CLIENT 1         /* Transfer a client to the I/O thread,
+                                        * which adds the client to its event
+                                        * loop. */
+#define IO_THREAD_REMOVE_CLIENT 2      /* Tell the I/O thread to remove the
+                                        * client from its event loop. The I/O
+                                        * thread replies with REMOVE_ACK. */
+#define IO_THREAD_REMOVE_ACK 4         /* From I/O to main thread. */
+#define IO_THREAD_PARSE_COMMAND 8      /* From main to I/O thread. */
+#define IO_THREAD_EXEC_COMMAND 16      /* From I/O to main thread. */
+#define IO_THREAD_SEND_REPLY 32        /* From main to I/O thread. */
+#define IO_THREAD_CLOSE_AFTER_REPLY 64 /* From main to I/O thread, together with
+                                        * SEND_REPLY. */
+#define IO_THREAD_CLOSED 128           /* From I/O to main thread. */
 
 /* I/O thread-local client flags, c->io_thread_flags */
 #define IO_THREAD_FLAG_PARSE_COMMAND 1 /* The I/O thread is allowed to parse a
                                         * command. */
-#define IO_THREAD_FLAG_FREEING 2       /* The I/O thread has given the client
-                                        * back to the main thread for
-                                        * freeing. */
+#define IO_THREAD_FLAG_CLOSED 2        /* The socket is closed and the I/O
+                                        * thread has notified main. Ignore any
+                                        * messages except REMOVE_CLIENT. */
 #define IO_THREAD_FLAG_CLOSE_AFTER_REPLY 4 /* Close after sending reply. */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -413,8 +415,6 @@ void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len
         tail->used = len;
         memcpy(tail->buf, s, len);
         listAddNodeTail(reply_list, tail);
-        /* serverLog(LL_DEBUG, "Adding %ld bytes to reply_bytes (%lld => %lld)", */
-        /*           tail->size, c->reply_bytes, c->reply_bytes + tail->size); */
         c->reply_bytes += tail->size;
 
         closeClientOnOutputBufferLimitReached(c, 1);
@@ -1601,6 +1601,7 @@ void clearClientConnectionState(client *c) {
 void freeClient(client *c) {
     listNode *ln;
 
+    serverAssert(!isClientHandledByIOThread(c));
     /* If a client is protected, yet we need to free it right now, make sure
      * to at least use asynchronous freeing. */
     if ((c->flags & CLIENT_PROTECTED) || isClientHandledByIOThread(c)) {
@@ -1756,26 +1757,31 @@ void freeClient(client *c) {
     zfree(c);
 }
 
+void removeFromIOThreadAndFreeClient(client *c) {
+    if (c->flags & CLIENT_CLOSE_ASAP) return;
+    sendMessageToIOThread(c, IO_THREAD_REMOVE_CLIENT);
+    c->flags |= CLIENT_CLOSE_ASAP;
+}
+
 /* Schedule a client to free it at a safe time in the serverCron() function.
  * This function is useful when we need to terminate a client but we are in
  * a context where calling freeClient() is not possible, because the client
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(client *c) {
-    if (pthread_self() != server.main_thread_id) {
-        /* Code running on an I/O thread. */
-        serverLog(LL_DEBUG, "I/O thread async free client=%ld", (long)c->id);
-        IOThreadFreeClient(c);
+    if (isClientHandledByIOThread(c)) {
+        if (runningAsIOThread(c)) {
+            /* Code running on an I/O thread. */
+            IOThreadMessageToMain(c, IO_THREAD_CLOSED);
+            c->io_thread_flags |= IO_THREAD_FLAG_CLOSED;
+        } else {
+            /* Code running on main thread. */
+            removeFromIOThreadAndFreeClient(c);
+        }
         return;
     }
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_SCRIPT) return;
     c->flags |= CLIENT_CLOSE_ASAP;
-    if (isClientHandledByIOThread(c)) {
-        /* The I/O thread needs to stop its concurrent access to the client and
-         * transfer ownership back to the main thread. */
-        sendMessageToIOThread(c, IO_THREAD_FREE_CLIENT);
-    } else {
-        listAddNodeTail(server.clients_to_close,c);
-    }
+    listAddNodeTail(server.clients_to_close,c);
 }
 
 /* Log errors for invalid use and free the client in async way.
@@ -1807,7 +1813,7 @@ int beforeNextClient(client *c) {
      * blocked client as well */
 
     /* Skip the client processing if we're in an IO thread. */
-    if (pthread_self() != server.main_thread_id)
+    if (runningAsIOThread(c))
         return C_OK;
     /* Handle async frees */
     /* Note: this doesn't make the server.clients_to_close list redundant because of
@@ -1928,13 +1934,10 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
  * way. Appends all elements of reply to the io reply list. */
 int moveReplyToIOThread(client *c) {
     IOThreadReplyLock(c);
-    /* serverLog(LL_DEBUG, "Main thread moving %lld bytes to IO reply list (%ld bytes)", */
-    /*           c->reply_bytes, c->io_reply_bytes); */
     listJoin(c->io_reply_list, c->reply); /* Moves all elements. */
     atomicIncr(c->io_reply_bytes, c->reply_bytes);
     c->reply_bytes = 0;
     IOThreadReplyUnlock(c);
-    /* serverLog(LL_DEBUG, "After moving, IO reply list is now %ldB", c->io_reply_bytes); */
     int action = IO_THREAD_SEND_REPLY;
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) action |= IO_THREAD_CLOSE_AFTER_REPLY;
     sendMessageToIOThread(c, action);
@@ -2604,6 +2607,8 @@ int processPendingCommandAndInputBuffer(client *c) {
     return C_OK;
 }
 
+int clientsCronResizeQueryBuffer(client *c); /* Defined in server.c */
+
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
@@ -2614,13 +2619,12 @@ int processInputBuffer(client *c) {
      * since it's not thread safe. The I/O thread can access the querybuf
      * structures (always when client is pinned to an I/O thread) and the
      * command structures (only when the main thread isn't accessing them). */
-    int is_io_thread = (pthread_self() != server.main_thread_id);
+    int is_io_thread = runningAsIOThread(c);
     serverAssert(is_io_thread == isClientHandledByIOThread(c));
 
     if (is_io_thread && !(c->io_thread_flags & IO_THREAD_FLAG_PARSE_COMMAND)) {
         /* The I/O thread is not allowed to parse a command while the main
          * thread is accessing the command structures. */
-        /* serverLog(LL_DEBUG, "I/O thread not allowed to parse command now!"); */
         return C_OK;
     }
 
@@ -2649,6 +2653,8 @@ int processInputBuffer(client *c) {
          * The same applies for clients we want to terminate ASAP. */
         if (flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
+        if (is_io_thread && c->io_thread_flags & IO_THREAD_CLOSE_AFTER_REPLY) break;
+
         /* Determine request type when unknown. */
         if (!c->reqtype) {
             if (c->querybuf[c->qb_pos] == '*') {
@@ -2670,10 +2676,12 @@ int processInputBuffer(client *c) {
          * that this client has a command ready to execute. We can't parse
          * another command until the main thread is done executing it. */
         if (is_io_thread) {
-            /* serverLog(LL_DEBUG, "I/O thread sending command \"%s\" to main for exec", */
-            /*           c->argc > 0 ? (char*)c->argv[0]->ptr : "(empty)"); */
             c->io_thread_flags &= ~IO_THREAD_FLAG_PARSE_COMMAND;
             IOThreadMessageToMain(c, IO_THREAD_EXEC_COMMAND);
+            /* For clients not handled by an I/O thread, resize query buffer is
+             * done in clientsCron, but for I/O thread we don't have that (yet)
+             * so we do it after parsing a full command. */
+            clientsCronResizeQueryBuffer(c);
             break;
         }
 
@@ -2732,8 +2740,7 @@ void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;
     size_t qblen, readlen;
-    int is_master_client = (pthread_self() == server.main_thread_id &&
-                            (c->flags & CLIENT_MASTER));
+    int is_master_client = (!runningAsIOThread(c) && c->flags & CLIENT_MASTER);
 
     /* Update total number of reads on server */
     atomicIncr(server.stat_total_reads_processed, 1);
@@ -4290,6 +4297,15 @@ static iothread io_threads[IO_THREADS_MAX_NUM];
 static atomicqueue *main_thread_inbox;
 static int main_thread_inbox_wakeup_pipe[2]; /* io-threads write wake up main */
 
+static inline int isClientHandledByIOThread(client *c) {
+    return c->io_thread_index >= 0;
+}
+
+static inline int runningAsIOThread(client *c) {
+    return c->io_thread_index >= 0 &&
+        pthread_self() == io_threads[c->io_thread_index].tid;
+}
+
 /* Messages between main thread and I/O threads. */
 
 /* Send message to the I/O thread the client is pinned to. Called from the main
@@ -4299,12 +4315,8 @@ int trySendMessageToIOThread(client *c, int action) {
     iothread *t = &io_threads[c->io_thread_index];
     int was_empty = 0;
     if (!atomicqueueTryPush(t->inbox, &message, &was_empty)) return 0;
-    /* serverLog(LL_DEBUG, "Main sent %d to I/O thread %d, was_empty=%d", */
-    /*           action, t->index, was_empty); */
     if (was_empty) {
         /* Wake the thread using pipe. */
-        /* serverLog(LL_DEBUG, "Waking up thread on pipe[%d, %d]", */
-        /*           t->wakeup_pipe[0], t->wakeup_pipe[1]); */
         if (write(t->wakeup_pipe[1], "W", 1) != 1) {
             /* Write fails when the pipe is full. That's OK. We just want to
              * trigger a readable event in the thread. */
@@ -4314,13 +4326,18 @@ int trySendMessageToIOThread(client *c, int action) {
 }
 
 static inline void sendMessageToIOThread(client *c, int action) {
+    if (c->flags & CLIENT_CLOSE_ASAP) {
+        /* Don't send any more message after initiating freeing. */
+        return;
+    }
     while (!trySendMessageToIOThread(c, action)) {
         /* Don't yield. This is the main thread. */
     }
 }
 
 static void IOThreadMessageToMain(client *c, int action) {
-    /* TODO: Use an MPSC queue and no mutex, instead of SPSC + mutex. */
+    /* To prevent multiple I/O threads from writing to the SPSC queue at the
+     * same time, we use a mutex. TODO: Use an MPSC queue and no mutex. */
     static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     io_thread_message message = {.client = c, .action = action};
     int was_empty = 0;
@@ -4330,12 +4347,8 @@ static void IOThreadMessageToMain(client *c, int action) {
         usleep(1);
     }
     pthread_mutex_unlock(&mutex);
-    /* serverLog(LL_DEBUG, "I/O thread sent %d to main for client=%ld", action, c->id); */
     if (was_empty) {
         /* Wake the thread using pipe. */
-        /* serverLog(LL_DEBUG, "I/O thread waking up main on pipe[%d,%d]", */
-        /*           main_thread_inbox_wakeup_pipe[0], */
-        /*           main_thread_inbox_wakeup_pipe[1]); */
         if (write(main_thread_inbox_wakeup_pipe[1], "M", 1) != 1) {
             /* Write fails when the pipe is full. That's OK. We just want to
              * trigger a readable event in the thread. */
@@ -4362,36 +4375,24 @@ void transferClientToIOThread(client *c) {
     listSetDupMethod(c->io_reply_list, dupClientReplyValue);
 
     /* Transfer to thread and let the thread parse a command. */
-    int action = IO_THREAD_TRANSFER_CLIENT | IO_THREAD_PARSE_COMMAND;
+    int action = IO_THREAD_ADD_CLIENT | IO_THREAD_PARSE_COMMAND;
     do {
         c->io_thread_index = target_thread_index++ % (server.io_threads_num - 1);
     } while (!trySendMessageToIOThread(c, action));
-    /* serverLog(LL_DEBUG, "Client transferred to I/O thread %d", c->io_thread_index); */
 }
 
 void handleMessagesFromIOThreads(void) {
     io_thread_message message;
     while (atomicqueueTryPop(main_thread_inbox, &message, NULL)) {
-        client *c = message.client;
-        /* serverLog(LL_DEBUG, "Main thread handling message action=%d client=%ld", */
-        /*           message.action, c->id); */
-        if (message.action & IO_THREAD_FREE_CLIENT) {
-            c->io_thread_index = -1;
-            c->io_thread_flags = 0;
-            c->flags &= ~CLIENT_CLOSE_ASAP;
-            freeClient(c);
-            continue;
-        }
 
-        if (message.action & IO_THREAD_TRANSFER_CLIENT) {
+        client *c = message.client;
+        if (message.action & IO_THREAD_REMOVE_ACK) {
             c->io_thread_index = -1;
             c->io_thread_flags = 0;
             if (c->flags & CLIENT_CLOSE_ASAP) {
-                /* Can't happen? I/O threads use IO_THREAD_FREE_CLIENT. */
-                serverPanic("I/O thread transferred a client with CLOSE ASAP set");
-                /* c->flags &= ~CLIENT_CLOSE_ASAP; */
-                /* freeClient(c); */
-                /* continue; */
+                c->flags &= ~CLIENT_CLOSE_ASAP;
+                freeClient(c);
+                continue;
             }
 
             /* Add to main thread's event loop. */
@@ -4404,8 +4405,8 @@ void handleMessagesFromIOThreads(void) {
                 c->sentlen = c->io_reply_sentlen;
                 c->io_reply_sentlen = 0;
 
-                /* Swap c->reply and c->io_reply_list. Then move all elements to
-                 * the end of c->reply. */
+                /* First swap c->reply and c->io_reply_list, then move all
+                 * elements to the end of c->reply. */
                 list *tmp = c->reply;
                 c->reply = c->io_reply_list;
                 c->io_reply_list = tmp;
@@ -4428,6 +4429,13 @@ void handleMessagesFromIOThreads(void) {
                 }
             }
         }
+
+        if (message.action & IO_THREAD_CLOSED) {
+            /* Connection closed. */
+            removeFromIOThreadAndFreeClient(c);
+            continue;
+        }
+
         if (message.action & IO_THREAD_EXEC_COMMAND) {
             /* A command has been read by the I/O thread. */
             server.stat_io_reads_processed++; /* FIXME: move this to where
@@ -4446,7 +4454,7 @@ void handleMessagesFromIOThreads(void) {
                 /* The command (e.g. PSYNC) needs to run on the main thread.
                  * Request the thread to transfer the client back to the main
                  * thread. Then, the command will be retried. */
-                sendMessageToIOThread(c, IO_THREAD_REQUEST_CLIENT_TRANSFER);
+                sendMessageToIOThread(c, IO_THREAD_REMOVE_CLIENT);
             }
         }
     }
@@ -4474,7 +4482,7 @@ void pipeFromIOThreadsReadable(aeEventLoop *el, int fd, void *privdata, int mask
 
 /* Lock a client's io_reply_list. */
 static inline void IOThreadReplyLock(client *c) {
-    int locked_by_other;
+    int locked_by_other = 0;
     do {
         /* Spin until we compare-and-swap the flag from 0 to 1. */
         atomicFlagGetSet(c->io_reply_lock, locked_by_other);
@@ -4564,21 +4572,19 @@ static int IOThreadWriteToClient(client *c, ssize_t *nwritten) {
  * similar to writeToClient(c, handler_installed) running on the main thread. */
 int IOThreadSendRepliesToClient(client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
-    /* serverLog(LL_DEBUG, "I/O thread sending reply"); */
     while (IOThreadClientHasPendingReplies(c)) {
         int ret = IOThreadWriteToClient(c, &nwritten);
         if (ret != C_OK) break;
         totwritten += nwritten;
     }
-    /* serverLog(LL_DEBUG, "I/O thread sent totwritten=%ld (last nwritten=%ld)", */
-    /*           totwritten, nwritten); */
     atomicIncr(server.stat_net_output_bytes, totwritten);
 
     if (nwritten < 0) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE, "Error writing to client: %s",
                       connGetLastError(c->conn));
-            IOThreadFreeClient(c);
+            IOThreadMessageToMain(c, IO_THREAD_CLOSED);
+            c->io_thread_flags |= IO_THREAD_FLAG_CLOSED;
             return C_ERR;
         }
     }
@@ -4605,39 +4611,27 @@ void IOThreadWriteHandler(connection *conn) {
     IOThreadSendRepliesToClient(c, 1);
 }
 
-/* The I/O thread gives the client back to the main thread for freeing. */
-static void IOThreadFreeClient(client *c) {
-    c->io_thread_flags |= IO_THREAD_FLAG_FREEING;
-    connSetReadHandler(c->conn, NULL);
-    connSetWriteHandler(c->conn, NULL);
-    IOThreadMessageToMain(c, IO_THREAD_FREE_CLIENT);
-}
-
 /* Called by I/O thread to handle incoming messages from the main thread. */
 static void IOThreadHandleMessages(iothread *t) {
     io_thread_message message;
     while (atomicqueueTryPop(t->inbox, &message, NULL)) {
         client *c = message.client;
-        /* serverLog(LL_DEBUG, "I/O thread got message %d for client %ld, ioflags=%d", */
-        /*           message.action, c->id, c->io_thread_flags); */
-        if (c->io_thread_flags & IO_THREAD_FLAG_FREEING) {
-            /* Ignore stray message. */
+        if (message.action & IO_THREAD_REMOVE_CLIENT) {
+            /* Detach it from the event loop. */
+            connSetReadHandler(c->conn, NULL);
+            connSetWriteHandler(c->conn, NULL);
+            IOThreadMessageToMain(c, IO_THREAD_REMOVE_ACK);
             continue;
         }
-        if (message.action & IO_THREAD_TRANSFER_CLIENT) {
+        if (c->io_thread_flags & IO_THREAD_FLAG_CLOSED) {
+            /* Socket is closed. Ignore all messages except REMOVE CLIENT. */
+            continue;
+        }
+        if (message.action & IO_THREAD_ADD_CLIENT) {
             /* Add client to current I/O thread's event loop. */
             connSetEventLoop(c->conn, t->el);
             connSetReadHandler(c->conn, readQueryFromClient);
-        }
-        if (message.action & IO_THREAD_FREE_CLIENT) {
-            IOThreadFreeClient(c);
-            continue;
-        }
-        if (message.action & IO_THREAD_REQUEST_CLIENT_TRANSFER) {
-            /* We're asked to transfer the client back to the main thread. */
-            connSetReadHandler(c->conn, NULL);
-            connSetWriteHandler(c->conn, NULL);
-            IOThreadMessageToMain(c, IO_THREAD_TRANSFER_CLIENT);
+            /* Do we need to send any ADD ACK? */
         }
         if (message.action & IO_THREAD_SEND_REPLY) {
             if (message.action & IO_THREAD_CLOSE_AFTER_REPLY) {
@@ -4652,7 +4646,8 @@ static void IOThreadHandleMessages(iothread *t) {
                                   server.aof_fsync == AOF_FSYNC_ALWAYS);
                 if (connSetWriteHandlerWithBarrier(c->conn, IOThreadWriteHandler,
                                                    ae_barrier) == C_ERR) {
-                    IOThreadFreeClient(c);
+                    IOThreadMessageToMain(c, IO_THREAD_CLOSED);
+                    c->io_thread_flags & IO_THREAD_FLAG_CLOSED;
                     continue;
                 }
             }
@@ -4660,8 +4655,6 @@ static void IOThreadHandleMessages(iothread *t) {
         if (message.action & IO_THREAD_PARSE_COMMAND) {
             /* Parse one command. When a command is parsed, it is sent to main
              * for execution and then command parsing is paused again. */
-            /* serverLog(LL_DEBUG, "I/O thread parsing next command. Anything in buffer? %d", */
-            /*           c->querybuf && sdslen(c->querybuf) > 0); */
             c->io_thread_flags |= IO_THREAD_FLAG_PARSE_COMMAND;
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
@@ -4708,8 +4701,10 @@ void *IOThreadMain(void *myid) {
     iothread *t = &io_threads[id];
 
     /* Create event loop */
-    int maxevents = server.maxclients / server.io_threads_num + CONFIG_FDSET_INCR;
+    int maxevents = server.maxclients + CONFIG_FDSET_INCR;
     t->el = aeCreateEventLoop(maxevents);
+    serverLog(LL_DEBUG, "I/O thread %d (%ld) has event loop %p\n",
+              id, pthread_self(), (void*)t->el);
     if (t->el == NULL) {
         serverLog(LL_WARNING,
                   "Failed creating the io-thread event loop. Error message: '%s'",
@@ -4755,6 +4750,7 @@ void initThreadedIO(void) {
                   strerror(errno));
         exit(1);
     }
+
     /* Register a readable event for the pipe used to awake the event loop from
      * I/O threads. */
     if (aeCreateFileEvent(server.el, main_thread_inbox_wakeup_pipe[0],
