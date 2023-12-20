@@ -604,10 +604,10 @@ int performEvictions(void) {
                     if (current_db_keys == 0) continue;
 
                     total_keys += current_db_keys;
-                    int l = daNonEmptySlots(da);
+                    int l = daNonEmptyDicts(da);
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
-                        int slot = daGetFairRandomSlot(da);
+                        int slot = daGetFairRandomDictIndex(da);
                         sampledict = daGetDict(da, slot);
                         sampled_keys += evictionPoolPopulate(i, slot, sampledict, daGetDict(db->keys, slot), pool);
                         /* We have sampled enough keys in the current db, exit the loop. */
@@ -669,7 +669,7 @@ int performEvictions(void) {
                 } else {
                     da = db->volatile_keys;
                 }
-                int slot = daGetFairRandomSlot(db->keys);
+                int slot = daGetFairRandomDictIndex(db->keys);
                 sampledict = daGetDict(da, slot);
 
                 if (dictSize(sampledict) != 0) {

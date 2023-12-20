@@ -36,17 +36,17 @@
 typedef struct {
     list *rehashing;                       /* List of dictionaries in this dictarray that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries. */
-    int non_empty_slots;                   /* The number of non-empty slots. */
+    int non_empty_dicts;                   /* The number of non-empty dicts. */
     unsigned long long key_count;          /* Total number of keys in this dictarray. */
     unsigned long long bucket_count;       /* Total number of buckets in this dictarray across dictionaries. */
-    unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
+    unsigned long long *dict_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
 } daState;
 
 typedef struct {
     dictType dtype;
     dict **dicts;
-    long long num_slots;
-    long long num_slots_bits;
+    long long num_dicts;
+    long long num_dicts_bits;
     daState state;
 } dictarray;
 
@@ -56,41 +56,41 @@ typedef struct {
     listNode *rehashing_node;   /* list node in rehashing list */
 } daDictMetadata;
 
-/* Structure for DB iterator that allows iterating across multiple slot specific dictionaries in cluster mode. */
+/* Structure for dictarray iterator that allows iterating across multiple dicts. */
 typedef struct {
     dictarray *da;
-    long long slot;
-    long long next_slot;
+    long long didx;
+    long long next_didx;
     dictIterator di;
 } daIterator;
 
 typedef int (dictarrayScanShouldSkipDict)(dict *d);
-typedef int (dictarrayExpandShouldSkipSlot)(int slot);
+typedef int (dictarrayExpandShouldSkipDictIndex)(int didx);
 
-dictarray *daCreate(dictType *type, int num_slots_bits);
+dictarray *daCreate(dictType *type, int num_dicts_bits);
 void daEmpty(dictarray *da, void(callback)(dict*));
 void daRelease(dictarray *da);
 unsigned long long daSize(dictarray *da);
 unsigned long daBuckets(dictarray *da);
 size_t daMemUsage(dictarray *da);
 unsigned long long daScan(dictarray *da, unsigned long long cursor,
-                          int onlyslot, dictScanFunction *scan_cb,
+                          int onlydidx, dictScanFunction *scan_cb,
                           dictarrayScanShouldSkipDict *skip_cb,
                           void *privdata);
-int daExpand(dictarray *da, uint64_t newsize, int try_expand, dictarrayExpandShouldSkipSlot *skip_cb);
-int daGetFairRandomSlot(dictarray *da);
+int daExpand(dictarray *da, uint64_t newsize, int try_expand, dictarrayExpandShouldSkipDictIndex *skip_cb);
+int daGetFairRandomDictIndex(dictarray *da);
 void daGetStats(dictarray *da, char *buf, size_t bufsize, int full);
-dict *daGetDict(dictarray *da, int slot);
+dict *daGetDict(dictarray *da, int didx);
 
-int daFindSlotByKeyIndex(dictarray *da, unsigned long target);
-int daGetNextNonEmptySlot(dictarray *da, int slot);
-int daNonEmptySlots(dictarray *da);
+int daFindDictIndexByKeyIndex(dictarray *da, unsigned long target);
+int daGetNextNonEmptyDictIndex(dictarray *da, int didx);
+int daNonEmptyDicts(dictarray *da);
 
 /* dictarray iterator specific functions */
 daIterator *daIteratorInit(dictarray *da);
 void daReleaseIterator(daIterator *dait);
 dict *daIteratorNextDict(daIterator *dait);
-int daIteratorGetCurrentSlot(daIterator *dait);
+int daIteratorGetCurrentDictIndex(daIterator *dait);
 dictEntry *daIteratorNext(daIterator *dait);
 dict *daGetDictFromIterator(daIterator *dait);
 
@@ -99,12 +99,13 @@ void daTryResizeHashTables(dictarray *da, int attempts);
 int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms);
 
 /* dict wrappers */
-dictEntry *daDictFind(dictarray *da, int slot, void *key);
-dictEntry *daDictAddRaw(dictarray *da, int slot, void *key, dictEntry **existing);
-void daDictSetKey(dictarray *da, int slot, dictEntry* de, void *key);
-void daDictSetVal(dictarray *da, int slot, dictEntry *de, void *val);
-dictEntry *daDictTwoPhaseUnlinkFind(dictarray *da, int slot, const void *key, dictEntry ***plink, int *table_index);
-void daDictTwoPhaseUnlinkFree(dictarray *da, int slot, dictEntry *he, dictEntry **plink, int table_index);
-int daDictDelete(dictarray *da, int slot, const void *key);
+dictEntry *daDictFind(dictarray *da, int didx, void *key);
+dictEntry *daDictAddRaw(dictarray *da, int didx, void *key, dictEntry **existing);
+void daDictSetKey(dictarray *da, int didx, dictEntry* de, void *key);
+void daDictSetVal(dictarray *da, int didx, dictEntry *de, void *val);
+dictEntry *daDictTwoPhaseUnlinkFind(dictarray *da, int didx, const void *key, dictEntry ***plink, int *table_index);
+void daDictTwoPhaseUnlinkFree(dictarray *da, int didx, dictEntry *he, dictEntry **plink, int table_index);
+int daDictDelete(dictarray *da, int didx, const void *key);
+int daDictDelete(dictarray *da, int didx, const void *key);
 
 #endif /* DICTARRAY_H_ */

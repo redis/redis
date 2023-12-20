@@ -351,7 +351,7 @@ robj *dbRandomKey(redisDb *db) {
     while(1) {
         sds key;
         robj *keyobj;
-        int randomSlot = daGetFairRandomSlot(db->keys);
+        int randomSlot = daGetFairRandomDictIndex(db->keys);
         dict *d = daGetDict(db->keys, randomSlot);
         de = dictGetFairRandomKey(d);
         if (de == NULL) return NULL;
@@ -1087,15 +1087,15 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
-        int onlyslot = -1;
+        int onlydidx = -1;
         if (o == NULL && use_pattern && server.cluster_enabled) {
-            onlyslot = patternHashSlot(pat, patlen);
+            onlydidx = patternHashSlot(pat, patlen);
         }
         do {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL) {
-                cursor = daScan(c->db->keys, cursor, onlyslot, scanCallback, NULL, &data);
+                cursor = daScan(c->db->keys, cursor, onlydidx, scanCallback, NULL, &data);
             } else {
                 cursor = dictScan(ht, cursor, scanCallback, &data);
             }

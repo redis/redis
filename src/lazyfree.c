@@ -175,8 +175,8 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
     dictarray *oldda1 = db->keys, *oldda2 = db->volatile_keys;
-    db->keys = daCreate(&dbDictType, db->keys->num_slots_bits);
-    db->volatile_keys = daCreate(&dbExpiresDictType, db->volatile_keys->num_slots_bits);
+    db->keys = daCreate(&dbDictType, db->keys->num_dicts_bits);
+    db->volatile_keys = daCreate(&dbExpiresDictType, db->volatile_keys->num_dicts_bits);
     atomicIncr(lazyfree_objects, daSize(oldda1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldda1, oldda2);
 }

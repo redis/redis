@@ -1328,7 +1328,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     int last_slot = -1;
     /* Iterate this DB writing every entry */
     while ((de = daIteratorNext(dait)) != NULL) {
-        int curr_slot = daIteratorGetCurrentSlot(dait);
+        int curr_slot = daIteratorGetCurrentDictIndex(dait);
         /* Save slot info. */
         if (server.cluster_enabled && curr_slot != last_slot) {
             if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;

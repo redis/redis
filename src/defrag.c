@@ -1024,7 +1024,7 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
             expires_cursor = 0;
-            slot = daFindSlotByKeyIndex(db->keys, 1);
+            slot = daFindDictIndexByKeyIndex(db->keys, 1);
             defrag_later_item_in_progress = 0;
             ctx.db = db;
             ctx.slot = slot;
@@ -1054,7 +1054,7 @@ void activeDefragCycle(void) {
                     defrag_later_item_in_progress = 1;
                     continue;
                 }
-                slot = daGetNextNonEmptySlot(db->keys, slot);
+                slot = daGetNextNonEmptyDictIndex(db->keys, slot);
                 defrag_later_item_in_progress = 0;
                 ctx.slot = slot;
             }
