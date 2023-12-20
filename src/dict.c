@@ -298,6 +298,56 @@ int dictTryExpand(dict *d, unsigned long size) {
     return malloc_failed? DICT_ERR : DICT_OK;
 }
 
+/* Helper function for `dictRehash` and `dictBucketRehash` to move all the keys
+ * in a bucket from the old to the new hash HT*/
+void moveKeysInBucketOldtoNew(dict *d, dictEntry *de, uint64_t idx) {
+    uint64_t h;
+    dictEntry *nextde;
+    while (de) {
+        nextde = dictGetNext(de);
+        void *key = dictGetKey(de);
+        /* Get the index in the new hash table */
+        if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
+            h = dictHashKey(d, key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+        } else {
+            /* We're shrinking the table. The tables sizes are powers of
+                * two, so we simply mask the bucket index in the larger table
+                * to get the bucket index in the smaller table. */
+            h = idx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+        }
+        if (d->type->no_value) {
+            if (d->type->keys_are_odd && !d->ht_table[1][h]) {
+                /* Destination bucket is empty and we can store the key
+                    * directly without an allocated entry. Free the old entry
+                    * if it's an allocated entry.
+                    *
+                    * TODO: Add a flag 'keys_are_even' and if set, we can use
+                    * this optimization for these dicts too. We can set the LSB
+                    * bit when stored as a dict entry and clear it again when
+                    * we need the key back. */
+                assert(entryIsKey(key));
+                if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
+                de = key;
+            } else if (entryIsKey(de)) {
+                /* We don't have an allocated entry but we need one. */
+                de = createEntryNoValue(key, d->ht_table[1][h]);
+            } else {
+                /* Just move the existing entry to the destination table and
+                 * update the 'next' field. */
+                assert(entryIsNoValue(de));
+                dictSetNext(de, d->ht_table[1][h]);
+            }
+        } else {
+            dictSetNext(de, d->ht_table[1][h]);
+        }
+        d->ht_table[1][h] = de;
+        d->ht_used[0]--;
+        d->ht_used[1]++;
+        de = nextde;
+    }
+    d->ht_table[0][idx] = NULL;
+}
+
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
  *
@@ -320,7 +370,7 @@ int dictRehash(dict *d, int n) {
     }
 
     while(n-- && d->ht_used[0] != 0) {
-        dictEntry *de, *nextde;
+        dictEntry *de;
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
@@ -331,51 +381,7 @@ int dictRehash(dict *d, int n) {
         }
         de = d->ht_table[0][d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
-        while(de) {
-            uint64_t h;
-
-            nextde = dictGetNext(de);
-            void *key = dictGetKey(de);
-            /* Get the index in the new hash table */
-            if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
-                h = dictHashKey(d, key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
-            } else {
-                /* We're shrinking the table. The tables sizes are powers of
-                 * two, so we simply mask the bucket index in the larger table
-                 * to get the bucket index in the smaller table. */
-                h = d->rehashidx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
-            }
-            if (d->type->no_value) {
-                if (d->type->keys_are_odd && !d->ht_table[1][h]) {
-                    /* Destination bucket is empty and we can store the key
-                     * directly without an allocated entry. Free the old entry
-                     * if it's an allocated entry.
-                     *
-                     * TODO: Add a flag 'keys_are_even' and if set, we can use
-                     * this optimization for these dicts too. We can set the LSB
-                     * bit when stored as a dict entry and clear it again when
-                     * we need the key back. */
-                    assert(entryIsKey(key));
-                    if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
-                    de = key;
-                } else if (entryIsKey(de)) {
-                    /* We don't have an allocated entry but we need one. */
-                    de = createEntryNoValue(key, d->ht_table[1][h]);
-                } else {
-                    /* Just move the existing entry to the destination table and
-                     * update the 'next' field. */
-                    assert(entryIsNoValue(de));
-                    dictSetNext(de, d->ht_table[1][h]);
-                }
-            } else {
-                dictSetNext(de, d->ht_table[1][h]);
-            }
-            d->ht_table[1][h] = de;
-            d->ht_used[0]--;
-            d->ht_used[1]++;
-            de = nextde;
-        }
-        d->ht_table[0][d->rehashidx] = NULL;
+        moveKeysInBucketOldtoNew(d, de, d->rehashidx);
         d->rehashidx++;
     }
 
@@ -513,6 +519,18 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
     d->ht_used[htidx]++;
 
     return entry;
+}
+
+/* Performs rehashing on a single bucket. */
+static void dictBucketRehash(dict *d, uint64_t hs) {
+    if (d->pauserehash != 0) return;
+    dictEntry *de;
+    uint64_t idx;
+    idx = hs & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+    de = d->ht_table[0][idx];
+    /* Move all the keys in this bucket from the old to the new hash HT */
+    moveKeysInBucketOldtoNew(d, de, idx);
+    return;
 }
 
 /* Add or Overwrite:
@@ -676,22 +694,36 @@ void dictRelease(dict *d)
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
-    uint64_t h, idx, table;
+    uint64_t h, idx;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
-    if (dictIsRehashing(d)) _dictRehashStep(d);
+
     h = dictHashKey(d, key);
-    for (table = 0; table <= 1; table++) {
-        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        if (table == 0 && (long)idx < d->rehashidx) continue; 
-        he = d->ht_table[table][idx];
-        while(he) {
-            void *he_key = dictGetKey(he);
-            if (key == he_key || dictCompareKeys(d, key, he_key))
-                return he;
-            he = dictGetNext(he);
+    idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+    he = d->ht_table[0][idx];
+
+    if (dictIsRehashing(d)) {
+        if ((long)idx >= d->rehashidx && he) {
+            dictBucketRehash(d, h);
+            /* After rehashing the bucket, the he will be in ht1. */
+            idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            he = d->ht_table[1][idx];
+        /* If the he is not in ht0, we will try to look up in ht1
+         * and following that we do a random bucket rehash. */
+        } else if (!he) {
+            idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            he = d->ht_table[1][idx];
+            _dictRehashStep(d);
+        } else {
+            assert(0);
         }
-        if (!dictIsRehashing(d)) return NULL;
+    }
+
+    while(he) {
+        void *he_key = dictGetKey(he);
+        if (key == he_key || dictCompareKeys(d, key, he_key))
+            return he;
+        he = dictGetNext(he);
     }
     return NULL;
 }
