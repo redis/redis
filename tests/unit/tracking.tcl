@@ -484,7 +484,7 @@ start_server {tags {"tracking network logreqres:skip"}} {
         # We use SETBIT here, so we can set a big key and get the used_memory
         # bigger than maxmemory. Next command will evict volatile keys. We
         # can't use SET, as SET uses big input buffer, so it will fail.
-        r setbit big-key 1600000 0 ;# this will consume 200kb
+        r setbit big-key 2400000 0 ;# this will consume 300kb
         # volatile-key is evicted before response.
         set res [r getbit big-key 0]
         assert_equal $res {invalidate volatile-key}
