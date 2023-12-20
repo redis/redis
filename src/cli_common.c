@@ -31,7 +31,6 @@
 #include "fmacros.h"
 #include "cli_common.h"
 #include "version.h"
-#include "zmalloc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,7 +52,6 @@
 
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
-uint64_t redisBuildId(void);
 
 /* Wrapper around redisSecureConnection to avoid hiredis_ssl dependencies if
  * not building with TLS support.
@@ -416,13 +414,10 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
 
 sds getVersion(const char *title) {
     sds version = sdscatprintf(sdsempty(),
-        "%s v=%s sha=%s:%d malloc=%s bits=%d build=%llx",
+        "%s v=%s sha=%s:%d",
         title,
         REDIS_VERSION,
         redisGitSHA1(),
-        atoi(redisGitDirty()) > 0,
-        ZMALLOC_LIB,
-        sizeof(long) == 4 ? 32 : 64,
-        (unsigned long long) redisBuildId());
+        atoi(redisGitDirty()) > 0);
     return version;
 }
