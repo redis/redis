@@ -2791,7 +2791,15 @@ void readQueryFromClient(connection *conn) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
         } else {
-            serverLog(LL_VERBOSE, "Reading from client: %s",connGetLastError(c->conn));
+            /* For TLS, we get here if the connection was closed. */
+            if (connGetState(conn) == CONN_STATE_CLOSED) {
+                sds info = catClientInfoString(sdsempty(), c);
+                serverLog(LL_VERBOSE, "Client closed connection %s", info);
+                sdsfree(info);
+            } else {
+                /* DEBUG */
+                serverLog(LL_VERBOSE, "Reading from client, last error: %s (errno %d)",connGetLastError(c->conn),errno);
+            }
             freeClientAsync(c);
             goto done;
         }
@@ -4297,6 +4305,23 @@ static iothread io_threads[IO_THREADS_MAX_NUM];
 static atomicqueue *main_thread_inbox;
 static int main_thread_inbox_wakeup_pipe[2]; /* io-threads write wake up main */
 
+/* Statistics/debugging */
+static int main_inbox_full_cnt;
+static int main_inbox_read_cnt;
+static int io_inbox_write_cnt;
+static int io_inbox_empty_cnt;
+static int io_inbox_write_spin_cnt;
+
+sds appendIOTHreadsInfoString(sds info) {
+    info = sdscatprintf(info,
+                        FMTARGS("io-main-inbox-read:%d\n", main_inbox_read_cnt,
+                                "io-main-inbox-full:%d\n", main_inbox_full_cnt,
+                                "io-inbox-write:%d\n", io_inbox_write_cnt,
+                                "io-inbox-write-spin:%d\n", io_inbox_write_spin_cnt,
+                                "io-inbox-empty:%d\n", io_inbox_empty_cnt));
+    return info;
+}
+
 static inline int isClientHandledByIOThread(client *c) {
     return c->io_thread_index >= 0;
 }
@@ -4315,7 +4340,9 @@ int trySendMessageToIOThread(client *c, int action) {
     iothread *t = &io_threads[c->io_thread_index];
     int was_empty = 0;
     if (!atomicqueueTryPush(t->inbox, &message, &was_empty)) return 0;
+    io_inbox_write_cnt++;
     if (was_empty) {
+        io_inbox_empty_cnt++;
         /* Wake the thread using pipe. */
         if (write(t->wakeup_pipe[1], "W", 1) != 1) {
             /* Write fails when the pipe is full. That's OK. We just want to
@@ -4331,6 +4358,7 @@ static inline void sendMessageToIOThread(client *c, int action) {
         return;
     }
     while (!trySendMessageToIOThread(c, action)) {
+        io_inbox_write_spin_cnt++;
         /* Don't yield. This is the main thread. */
     }
 }
@@ -4383,7 +4411,10 @@ void transferClientToIOThread(client *c) {
 
 void handleMessagesFromIOThreads(void) {
     io_thread_message message;
-    while (atomicqueueTryPop(main_thread_inbox, &message, NULL)) {
+    int was_full = 0;
+    while (atomicqueueTryPop(main_thread_inbox, &message, &was_full)) {
+        main_inbox_read_cnt++;
+        if (was_full) main_inbox_full_cnt++;
 
         client *c = message.client;
         if (message.action & IO_THREAD_REMOVE_ACK) {

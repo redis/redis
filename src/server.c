@@ -97,6 +97,7 @@ static inline int isShutdownInitiated(void);
 int isReadyToShutdown(void);
 int finishShutdown(void);
 const char *replstateToString(int replstate);
+sds appendIOTHreadsInfoString(sds info); /* implemented in networking.c */
 
 /*============================ Utility functions ============================ */
 
@@ -4305,6 +4306,17 @@ void closeListeningSockets(int unlink_unix_socket) {
     }
 }
 
+void debugShutdown(void) {
+    sds info = appendIOTHreadsInfoString(sdsempty());
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ I/O theads info ------\n");
+    serverLogRaw(LL_WARNING|LL_RAW, info);
+    serverLogRaw(LL_WARNING|LL_RAW, "\n-----------------------------\n");
+    sds clients = getAllClientsInfoString(-1);
+    serverLogRaw(LL_WARNING|LL_RAW, clients);
+    sdsfree(info);
+    sdsfree(clients);
+}
+
 /* Prepare for shutting down the server. Flags:
  *
  * - SHUTDOWN_SAVE: Save a database dump even if the server is configured not to
@@ -4343,6 +4355,8 @@ int prepareForShutdown(int flags) {
     server.shutdown_flags = flags;
 
     serverLog(LL_NOTICE,"User requested shutdown...");
+    debugShutdown();
+
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
         redisCommunicateSystemd("STOPPING=1\n");
 
@@ -5617,6 +5631,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "executable:%s\r\n", server.executable ? server.executable : "",
             "config_file:%s\r\n", server.configfile ? server.configfile : "",
             "io_threads_active:%i\r\n", server.io_threads_active));
+
+        info = appendIOTHreadsInfoString(info);
 
         /* Conditional properties */
         if (isShutdownInitiated()) {
