@@ -486,7 +486,7 @@ int daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
      * after each dictionary completes rehashing, it removes itself from the list. */
     listNode *node;
     monotime timer;
-    uint64_t elapsed_us;
+    uint64_t elapsed_us = 0;
     elapsedStart(&timer);
     while ((node = listFirst(da->state.rehashing))) {
         elapsed_us = elapsedUs(timer);
