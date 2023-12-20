@@ -1056,26 +1056,23 @@ void databasesCron(void) {
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
             redisDb *db = &server.db[resize_db % server.dbnum];
-            daTryResizeHashTables(db->keys, CRON_DBS_PER_CALL);
-            daTryResizeHashTables(db->volatile_keys, CRON_DBS_PER_CALL);
+            daTryResizeHashTables(db->keys, CRON_DICT_RESIZE_LIMIT_PER_CALL);
+            daTryResizeHashTables(db->volatile_keys, CRON_DICT_RESIZE_LIMIT_PER_CALL);
             resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
+            uint64_t elapsed_us;
             for (j = 0; j < dbs_per_call; j++) {
-                redisDb *db = &server.db[rehash_db];
-                int work_done = daIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US) +
-                                daIncrementallyRehash(db->volatile_keys, INCREMENTAL_REHASHING_THRESHOLD_US);
-                if (work_done) {
-                    /* If the function did some work, stop here, we'll do
-                     * more at the next cron loop. */
+                redisDb *db = &server.db[rehash_db % server.dbnum];
+                elapsed_us += daIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
-                } else {
-                    /* If this db didn't need rehash, we'll try the next one. */
-                    rehash_db++;
-                    rehash_db %= server.dbnum;
-                }
+                elapsed_us += daIncrementallyRehash(db->volatile_keys, INCREMENTAL_REHASHING_THRESHOLD_US);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                rehash_db++;
             }
         }
     }

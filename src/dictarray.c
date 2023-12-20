@@ -456,14 +456,14 @@ dict *daGetDictFromIterator(daIterator *dait) {
 }
 
 /* Cursor-scan the dictarray and attempt to resize (if needed, handled by dictResize) */
-void daTryResizeHashTables(dictarray *da, int attempts) {
+void daTryResizeHashTables(dictarray *da, int limit) {
     if (daSize(da) == 0)
         return;
 
     if (da->state.resize_cursor == -1)
         da->state.resize_cursor = daFindDictIndexByKeyIndex(da, 1);
 
-    for (int i = 0; i < attempts && da->state.resize_cursor != -1; i++) {
+    for (int i = 0; i < limit && da->state.resize_cursor != -1; i++) {
         int didx = da->state.resize_cursor;
         dict *d = daGetDict(da, didx);
         dictResize(d);
@@ -476,25 +476,27 @@ void daTryResizeHashTables(dictarray *da, int attempts) {
  * table will use two tables for a long time. So we try to use 1 millisecond
  * of CPU time at every call of this function to perform some rehashing.
  *
- * The function returns 1 if some rehashing was performed, otherwise 0
- * is returned. */
+ * The function returns the amount of microsecs spent if some rehashing was
+ * performed, otherwise -1 is returned. */
 int daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
     if (listLength(da->state.rehashing) == 0)
-        return 0;
+        return -1;
 
     /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
      * after each dictionary completes rehashing, it removes itself from the list. */
     listNode *node;
     monotime timer;
+    uint64_t elapsed_us;
     elapsedStart(&timer);
     while ((node = listFirst(da->state.rehashing))) {
-        uint64_t elapsed_us = elapsedUs(timer);
+        elapsed_us = elapsedUs(timer);
         if (elapsed_us >= threshold_us) {
             break;  /* Reached the time limit. */
         }
         dictRehashMicroseconds(listNodeValue(node), threshold_us - elapsed_us);
     }
-    return 1;
+    assert(elapsed_us != 0);
+    return elapsed_us;
 }
 
 dictEntry *daDictFind(dictarray *da, int didx, void *key) {

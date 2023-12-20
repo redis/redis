@@ -95,7 +95,7 @@ dictEntry *daIteratorNext(daIterator *dait);
 dict *daGetDictFromIterator(daIterator *dait);
 
 /* Rehashing */
-void daTryResizeHashTables(dictarray *da, int attempts);
+void daTryResizeHashTables(dictarray *da, int limit);
 int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms);
 
 /* dict wrappers */
