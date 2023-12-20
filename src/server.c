@@ -6269,15 +6269,17 @@ void daemonize(void) {
     }
 }
 
-void version(void) {
-    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
+sds getVersion(const char *title) {
+    sds version = sdscatprintf(sdsempty(),
+        "%s v=%s sha=%s:%d malloc=%s bits=%d build=%llx",
+        title,
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
         sizeof(long) == 4 ? 32 : 64,
         (unsigned long long) redisBuildId());
-    exit(0);
+    return version;
 }
 
 void usage(void) {
@@ -7011,7 +7013,13 @@ int main(int argc, char **argv) {
 
         /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
-            strcmp(argv[1], "--version") == 0) version();
+            strcmp(argv[1], "--version") == 0)
+        {
+            sds version = getVersion("redis-server");
+            printf("%s\n", version);
+            sdsfree(version);
+            exit(0);
+        }
         if (strcmp(argv[1], "--help") == 0 ||
             strcmp(argv[1], "-h") == 0) usage();
         if (strcmp(argv[1], "--test-memory") == 0) {

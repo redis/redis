@@ -944,9 +944,9 @@ static void cliOutputCommandHelp(struct commandDocs *help, int group) {
 
 /* Print generic help. */
 static void cliOutputGenericHelp(void) {
-    sds version = redisVersion();
+    sds version = getVersion("redis-cli");
     printf(
-        "redis-cli %s\n"
+        "%s\n"
         "To get help about Redis commands type:\n"
         "      \"help @<group>\" to get a list of commands in <group>\n"
         "      \"help <command>\" for help on <command>\n"
@@ -2880,8 +2880,8 @@ static int parseOptions(int argc, char **argv) {
         #endif
 #endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
-            sds version = redisVersion();
-            printf("redis-cli %s\n", version);
+            sds version = getVersion("redis-cli");
+            printf("%s\n", version);
             sdsfree(version);
             exit(0);
         } else if (!strcmp(argv[i],"-2")) {
@@ -2969,7 +2969,7 @@ static void parseEnv(void) {
 }
 
 static void usage(int err) {
-    sds version = redisVersion();
+    sds version = getVersion("redis-cli");
     FILE *target = err ? stderr: stdout;
     const char *tls_usage =
 #ifdef USE_OPENSSL
@@ -2995,7 +2995,7 @@ static void usage(int err) {
 "";
 
     fprintf(target,
-"redis-cli %s\n"
+"%s\n"
 "\n"
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
 "  -h <hostname>      Server hostname (default: 127.0.0.1).\n"

@@ -3782,6 +3782,7 @@ void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
 void swapMainDbWithTempDb(redisDb *tempDb);
+sds getVersion(const char *title);
 
 /* Use macro for checking log level to avoid evaluating arguments in cases log
  * should be ignored due to low level. */

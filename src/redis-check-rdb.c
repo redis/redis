@@ -30,7 +30,6 @@
 #include "mt19937-64.h"
 #include "server.h"
 #include "rdb.h"
-#include "cli_common.h"
 
 #include <stdarg.h>
 #include <sys/time.h>
@@ -414,8 +413,8 @@ int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
         fprintf(stderr, "Usage: %s <rdb-file-name>\n", argv[0]);
         exit(1);
     } else if (!strcmp(argv[1],"-v") || !strcmp(argv[1], "--version")) {
-        sds version = redisVersion();
-        printf("redis-check-rdb %s\n", version);
+        sds version = getVersion("redis-check-rdb");
+        printf("%s\n", version);
         sdsfree(version);
         exit(0);
     }
