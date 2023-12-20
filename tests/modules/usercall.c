@@ -137,7 +137,7 @@ void *bg_call_worker(void *arg) {
     RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + 3, bg->argc - 3);
     RedisModule_FreeString(NULL, format_redis_str);
 
-    /* Free the arguments */
+    /* Free the arguments within GIL to prevent simultaneous freeing in main thread. */
     for (int i=0; i<bg->argc; i++)
         RedisModule_FreeString(ctx, bg->argv[i]);
     RedisModule_Free(bg->argv);
