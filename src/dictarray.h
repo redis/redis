@@ -96,7 +96,7 @@ dict *daGetDictFromIterator(daIterator *dait);
 
 /* Rehashing */
 void daTryResizeHashTables(dictarray *da, int limit);
-int daIncrementallyRehash(dictarray *da, uint64_t threshold_ms);
+uint64_t daIncrementallyRehash(dictarray *da, uint64_t threshold_ms);
 
 /* dict wrappers */
 dictEntry *daDictFind(dictarray *da, int didx, void *key);

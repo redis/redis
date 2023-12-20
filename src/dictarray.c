@@ -477,10 +477,10 @@ void daTryResizeHashTables(dictarray *da, int limit) {
  * of CPU time at every call of this function to perform some rehashing.
  *
  * The function returns the amount of microsecs spent if some rehashing was
- * performed, otherwise -1 is returned. */
-int daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
+ * performed, otherwise 0 is returned. */
+uint64_t daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
     if (listLength(da->state.rehashing) == 0)
-        return -1;
+        return 0;
 
     /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
      * after each dictionary completes rehashing, it removes itself from the list. */
