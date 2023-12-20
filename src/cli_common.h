@@ -51,6 +51,6 @@ void freeCliConnInfo(cliConnInfo connInfo);
 
 sds escapeJsonString(sds s, const char *p, size_t len);
 
-sds getVersion(const char *title);
+sds cliVersion(void);
 
 #endif /* __CLICOMMON_H */

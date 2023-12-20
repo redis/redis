@@ -412,12 +412,15 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
     return sdscatlen(s,"\"",1);
 }
 
-sds getVersion(const char *title) {
-    sds version = sdscatprintf(sdsempty(),
-        "%s v=%s sha=%s:%d",
-        title,
-        REDIS_VERSION,
-        redisGitSHA1(),
-        atoi(redisGitDirty()) > 0);
+sds cliVersion(void) {
+    sds version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
+
+    /* Add git commit and working tree status when available. */
+    if (strtoll(redisGitSHA1(),NULL,16)) {
+        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
+        if (strtoll(redisGitDirty(),NULL,10))
+            version = sdscatprintf(version, "-dirty");
+        version = sdscat(version, ")");
+    }
     return version;
 }

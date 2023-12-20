@@ -517,8 +517,8 @@ int redis_check_aof_main(int argc, char **argv) {
         goto invalid_args;
     } else if (argc == 2) {
         if (!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version")) {
-            sds version = getVersion("redis-check-aof");
-            printf("%s\n", version);
+            sds version = getVersion();
+            printf("redis-check-aof %s\n", version);
             sdsfree(version);
             exit(0);
         }

@@ -6269,10 +6269,9 @@ void daemonize(void) {
     }
 }
 
-sds getVersion(const char *title) {
+sds getVersion(void) {
     sds version = sdscatprintf(sdsempty(),
-        "%s v=%s sha=%s:%d malloc=%s bits=%d build=%llx",
-        title,
+        "v=%s sha=%s:%d malloc=%s bits=%d build=%llx",
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
@@ -7015,8 +7014,8 @@ int main(int argc, char **argv) {
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0)
         {
-            sds version = getVersion("redis-server");
-            printf("%s\n", version);
+            sds version = getVersion();
+            printf("Redis server %s\n", version);
             sdsfree(version);
             exit(0);
         }

@@ -1406,8 +1406,8 @@ int parseOptions(int argc, char **argv) {
             if (lastarg) goto invalid;
             config.numclients = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
-            sds version = getVersion("redis-benchmark");
-            printf("%s\n", version);
+            sds version = cliVersion();
+            printf("redis-benchmark %s\n", version);
             sdsfree(version);
             exit(0);
         } else if (!strcmp(argv[i],"-n")) {

@@ -413,8 +413,8 @@ int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
         fprintf(stderr, "Usage: %s <rdb-file-name>\n", argv[0]);
         exit(1);
     } else if (!strcmp(argv[1],"-v") || !strcmp(argv[1], "--version")) {
-        sds version = getVersion("redis-check-rdb");
-        printf("%s\n", version);
+        sds version = getVersion();
+        printf("redis-check-rdb %s\n", version);
         sdsfree(version);
         exit(0);
     }
