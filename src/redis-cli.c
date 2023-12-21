@@ -275,6 +275,7 @@ static struct config {
     char *server_version;
     char *test_hint;
     char *test_hint_file;
+    int print_duration_threshold; /* Print duration threshold in interactive mode, in milliseconds. */
 } config;
 
 /* User preferences. */
@@ -2768,6 +2769,12 @@ static int parseOptions(int argc, char **argv) {
             config.set_errcode = 1;
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
+        } else if (!strcmp(argv[i], "--print-duration-threshold") && !lastarg) {
+            config.print_duration_threshold = atoi(argv[++i]);
+            if (config.print_duration_threshold < 0) {
+                fprintf(stderr, "The threshold option must be greater than 0.\n");
+                exit(1);
+            }
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
             if (CLUSTER_MANAGER_MODE()) usage(1);
             char *cmd = argv[++i];
@@ -3089,6 +3096,8 @@ version,tls_usage);
 "  --verbose          Verbose mode.\n"
 "  --no-auth-warning  Don't show warning message when using password on command\n"
 "                     line interface.\n"
+"  --print-duration-threshold <mill-sec> Commands that exceed the set threshold will be\n"
+"                                        printed out the time-consuming (default: 500).\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
 "\n");
@@ -3453,7 +3462,7 @@ static void repl(void) {
                 }
 
                 elapsed = mstime()-start_time;
-                if (elapsed >= 500 &&
+                if (elapsed >= config.print_duration_threshold &&
                     config.output == OUTPUT_STANDARD)
                 {
                     printf("(%.2fs)\n",(double)elapsed/1000);
@@ -9862,6 +9871,7 @@ int main(int argc, char **argv) {
     config.no_auth_warning = 0;
     config.in_multi = 0;
     config.server_version = NULL;
+    config.print_duration_threshold = 500;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;

@@ -569,6 +569,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_match "*All data transferred*errors: 0*replies: ${cmds_count}*" $output
 
         file delete $cmds
+        close_cli $cli_fd
     }
 
     test "Options -X with illegal argument" {
@@ -606,4 +607,26 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_equal 3 [exec {*}$cmdline ZCARD new_zset]
         assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmdline ZRANGE new_zset 0 -1 WITHSCORES]
     }
+
+    test "Options --print-duration-threshold with illegal argument" {
+        assert_error "*Unrecognized option or bad number*" {run_cli --print-duration-threshold}
+
+        assert_error "*must be greater than 0*" {run_cli --print-duration-threshold -1}
+    }
+
+    test "redis-cli OUTPUT_STANDARD with --print-duration-threshold option" {
+        set cmds [tmpfile "cli_cmds"]
+        set cmds_fd [open $cmds "w"]
+        puts $cmds_fd "debug sleep 0" ;# OK\n(0.00s)\n
+        puts $cmds_fd "debug sleep 0.01" ;# OK\n(0.01s)\n
+        close $cmds_fd
+
+        # We set the threshold to 0ms, so every (*s) will be printed.
+        set cli_fd [open_cli "--no-raw --print-duration-threshold 0" $cmds]
+        fconfigure $cli_fd -blocking true
+        assert_match "OK\n(*s)\nOK\n(*s)\n" [read_cli $cli_fd]
+
+        file delete $cmds
+        close_cli $cli_fd
+    } {} {needs:debug}
 }
