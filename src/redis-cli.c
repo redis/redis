@@ -29,7 +29,6 @@
  */
 
 #include "fmacros.h"
-#include "version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -64,7 +63,6 @@
 #include "connection.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
-
 #include "cli_commands.h"
 
 #define UNUSED(V) ((void) V)
@@ -287,8 +285,6 @@ static struct pref {
 static volatile sig_atomic_t force_cancel_loop = 0;
 static void usage(int err);
 static void slaveMode(int send_sync);
-char *redisGitSHA1(void);
-char *redisGitDirty(void);
 static int cliConnect(int flags);
 
 static char *getInfoField(char *info, char *field);
@@ -423,20 +419,6 @@ typedef struct {
 
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
-
-static sds cliVersion(void) {
-    sds version;
-    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
-
-    /* Add git commit and working tree status when available */
-    if (strtoll(redisGitSHA1(),NULL,16)) {
-        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtoll(redisGitDirty(),NULL,10))
-            version = sdscatprintf(version, "-dirty");
-        version = sdscat(version, ")");
-    }
-    return version;
-}
 
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
