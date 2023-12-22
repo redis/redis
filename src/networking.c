@@ -2798,9 +2798,13 @@ void readQueryFromClient(connection *conn) {
         } else {
             /* For TLS, we get here if the connection was closed. */
             if (connGetState(conn) == CONN_STATE_CLOSED) {
-                sds info = catClientInfoString(sdsempty(), c);
-                serverLog(LL_VERBOSE, "Client closed connection %s", info);
-                sdsfree(info);
+                if (runningAsIOThread(c)) {
+                    serverLog(LL_VERBOSE, "Client closed connection %ld", c->id);
+                } else {
+                    sds info = catClientInfoString(sdsempty(), c);
+                    serverLog(LL_VERBOSE, "Client closed connection %s", info);
+                    sdsfree(info);
+                }
             } else {
                 /* DEBUG */
                 serverLog(LL_VERBOSE, "Reading from client, last error: %s (errno %d)",connGetLastError(c->conn),errno);
@@ -2810,9 +2814,14 @@ void readQueryFromClient(connection *conn) {
         }
     } else if (nread == 0) {
         if (server.verbosity <= LL_VERBOSE) {
-            sds info = catClientInfoString(sdsempty(), c);
-            serverLog(LL_VERBOSE, "Client closed connection %s", info);
-            sdsfree(info);
+            if (runningAsIOThread(c)) {
+                /* catClientInfoString isn't thread safe. */
+                serverLog(LL_VERBOSE, "Client closed connection %ld", c->id);
+            } else {
+                sds info = catClientInfoString(sdsempty(), c);
+                serverLog(LL_VERBOSE, "Client closed connection %s", info);
+                sdsfree(info);
+            }
         }
         freeClientAsync(c);
         goto done;

@@ -1122,7 +1122,12 @@ void clientsCron(void) {
         if (c->io_thread_index < 0 && clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronResizeOutputBuffer(c,now)) continue;
 
-        if (c->io_thread_index < 0 && clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
+        /* There are data races getting client memory usage and tracking
+         * expensive clients, so skip that if the client is pinned to an I/O
+         * thread. */
+        if (c->io_thread_index >= 0) continue;
+
+        if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
 
         /* Iterating all the clients in getMemoryOverheadData() is too slow and
          * in turn would make the INFO command too slow. So we perform this
