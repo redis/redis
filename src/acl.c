@@ -3183,12 +3183,22 @@ void authCommand(client *c) {
         redactClientCommandArgument(c, 2);
     }
 
+    static int auth_fail = 1;
     robj *err = NULL;
     int result = ACLAuthenticateUser(c, username, password, &err);
     if (result == AUTH_OK) {
         addReply(c, shared.ok);
     } else if (result == AUTH_ERR) {
         addAuthErrReply(c, err);
+        if (server.auth_fail_threshold > 0) {
+            if (auth_fail == server.auth_fail_threshold) {
+                serverLog(LL_WARNING, "Too many auth failures, maybe under attacked from %s.", getClientPeerId(c));
+                blockClientDelay(c, commandTimeSnapshot() + server.auth_fail_delay * 1000);
+                auth_fail = 1;
+            } else {
+                auth_fail++;
+            }
+        }
     }
     if (err) decrRefCount(err);
 }
