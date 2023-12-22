@@ -175,7 +175,11 @@ client *createClient(connection *conn) {
     c->io_thread_flags = 0;
     c->io_reply_list = NULL; /* Created when assigned to an I/O thread. */
     c->io_reply_sentlen = 0;
+#if IO_REPLY_LOCK_USE_MUTEX
+    pthread_mutex_init(&c->io_reply_lock, NULL);
+#else
     atomicSet(c->io_reply_lock, 0);
+#endif
     atomicSet(c->io_reply_bytes, 0);
 
 #ifdef LOG_REQ_RES
@@ -4513,16 +4517,24 @@ void pipeFromIOThreadsReadable(aeEventLoop *el, int fd, void *privdata, int mask
 
 /* Lock a client's io_reply_list. */
 static inline void IOThreadReplyLock(client *c) {
+#if IO_REPLY_LOCK_USE_MUTEX
+    pthread_mutex_lock(&c->io_reply_lock);
+#else
     int locked_by_other = 0;
     do {
         /* Spin until we compare-and-swap the flag from 0 to 1. */
         atomicFlagGetSet(c->io_reply_lock, locked_by_other);
     } while (locked_by_other);
+#endif
 }
 
 /* Unlock a client's io_reply_list. */
 static inline void IOThreadReplyUnlock(client *c) {
+#if IO_REPLY_LOCK_USE_MUTEX
+    pthread_mutex_unlock(&c->io_reply_lock);
+#else
     atomicSetWithSync(c->io_reply_lock, 0);
+#endif
 }
 
 /* I/O thread analogue to clientHasPendingReplies. Can be called by any

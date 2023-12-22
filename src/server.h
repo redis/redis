@@ -139,6 +139,9 @@ struct hdr_histogram;
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 #define INCREMENTAL_REHASHING_THRESHOLD_MS 1
 
+/* Debugging stuff for threaded I/O. */
+#define IO_REPLY_LOCK_USE_MUTEX 1 /* 1 = mutex, 0 = spinlock on atomic var */
+
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
 #define CLIENT_MEM_USAGE_BUCKET_MIN_LOG 15 /* Bucket sizes start at up to 32KB (2^15) */
@@ -1297,7 +1300,11 @@ typedef struct client {
     /* I/O Threads */
     int io_thread_index;           /* Index in io_threads array; -1 = main. */
     int io_thread_flags;           /* Flags local to the I/O thread. */
+#if IO_REPLY_LOCK_USE_MUTEX
+    pthread_mutex_t io_reply_lock; /* Mutex guarding io_reply_list. */
+#else
     redisAtomic int io_reply_lock; /* Spinlock guarding io_reply_list. */
+#endif
     redisAtomic size_t io_reply_bytes; /* Num bytes in io_reply_list. */
     list *io_reply_list;           /* Replies to be sent by io thread. */
     size_t io_reply_sentlen;       /* Bytes in io_reply_list already sent. */
