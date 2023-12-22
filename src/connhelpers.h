@@ -50,7 +50,7 @@
  * it can go beyond 1 as well; currently it is only done by connAccept().
  */
 static inline void connIncrRefs(connection *conn) {
-    conn->refs++;
+    atomicIncr(conn->refs, 1);
 }
 
 /* Decrement connection references.
@@ -62,11 +62,13 @@ static inline void connIncrRefs(connection *conn) {
  */
 
 static inline void connDecrRefs(connection *conn) {
-    conn->refs--;
+    atomicIncr(conn->refs, -1);
 }
 
 static inline int connHasRefs(connection *conn) {
-    return conn->refs;
+    short int refs;
+    atomicGet(conn->refs, refs);
+    return refs;
 }
 
 /* Helper for connection implementations to call handlers:

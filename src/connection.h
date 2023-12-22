@@ -37,6 +37,7 @@
 #include <sys/uio.h>
 
 #include "ae.h"
+#include "atomicvar.h"
 
 #define CONN_INFO_LEN   32
 #define CONN_ADDR_STR_LEN 128 /* Similar to INET6_ADDRSTRLEN, hoping to handle other protocols. */
@@ -118,7 +119,7 @@ struct connection {
     int last_errno;
     int fd;
     short int flags;
-    short int refs;
+    redisAtomic short int refs;
     unsigned short int iovcnt;
     void *private_data;
     ConnectionCallbackFunc conn_handler;
