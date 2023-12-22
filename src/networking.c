@@ -2148,9 +2148,13 @@ void resetClient(client *c) {
 
     freeClientArgv(c);
     c->cur_script = NULL;
-    c->reqtype = 0;
-    c->multibulklen = 0;
-    c->bulklen = -1;
+    if (!isClientHandledByIOThread(c)) {
+        /* The I/O thread may access these variables concurrently in
+         * readQueryFromClient() */
+        c->reqtype = 0;
+        c->multibulklen = 0;
+        c->bulklen = -1;
+    }
     c->slot = -1;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
 
@@ -2277,7 +2281,7 @@ int processInlineBuffer(client *c) {
      *
      * However there is an exception: masters may send us just a newline
      * to keep the connection active. */
-    if (querylen != 0 && c->flags & CLIENT_MASTER) {
+    if (querylen != 0 && !isClientHandledByIOThread(c) && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
         serverLog(LL_WARNING,"WARNING: Receiving inline protocol from master, master stream corruption? Closing the master connection and discarding the cached master.");
         setProtocolError("Master using the inline protocol. Desync?",c);
@@ -2353,6 +2357,7 @@ int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int ok;
     long long ll;
+    int is_master_client = !isClientHandledByIOThread(c) && c->flags & CLIENT_MASTER;
 
     if (c->multibulklen == 0) {
         /* The client should have been reset */
@@ -2428,7 +2433,7 @@ int processMultibulkBuffer(client *c) {
 
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
             if (!ok || ll < 0 ||
-                (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
+                (!is_master_client && ll > server.proto_max_bulk_len)) {
                 addReplyError(c,"Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length",c);
                 return C_ERR;
@@ -2439,7 +2444,7 @@ int processMultibulkBuffer(client *c) {
             }
 
             c->qb_pos = newline-c->querybuf+2;
-            if (!(c->flags & CLIENT_MASTER) && ll >= PROTO_MBULK_BIG_ARG) {
+            if (!is_master_client && ll >= PROTO_MBULK_BIG_ARG) {
                 /* When the client is not a master client (because master
                  * client's querybuf can only be trimmed after data applied
                  * and sent to replicas).
@@ -2481,7 +2486,7 @@ int processMultibulkBuffer(client *c) {
             /* Optimization: if a non-master client's buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
-            if (!(c->flags & CLIENT_MASTER) &&
+            if (!is_master_client &&
                 c->qb_pos == 0 &&
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
@@ -4715,6 +4720,12 @@ static void IOThreadHandleMessages(iothread *t) {
             /* Parse one command. When a command is parsed, it is sent to main
              * for execution and then command parsing is paused again. */
             c->io_thread_flags |= IO_THREAD_FLAG_PARSE_COMMAND;
+            /* Reset variables otherwise reset in resetClient() in main thread,
+             * but that's not thread safe with I/O threads. These variables are
+             * accessed by readQueryFromClient(). */
+            c->reqtype = 0;
+            c->multibulklen = 0;
+            c->bulklen = -1;
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
             }
