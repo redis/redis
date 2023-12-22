@@ -54,6 +54,7 @@ static inline void IOThreadReplyLock(client *c);
 static inline void IOThreadReplyUnlock(client *c);
 static void IOThreadMessageToMain(client *c, int action);
 static int IOThreadWriteToClient(client *c, ssize_t *nwritten);
+static void IOThreadClientClosed(client *c);
 
 /* I/O thread message actions, for messages in both directions. */
 #define IO_THREAD_ADD_CLIENT 1         /* Transfer a client to the I/O thread,
@@ -1775,8 +1776,7 @@ void freeClientAsync(client *c) {
     if (isClientHandledByIOThread(c)) {
         if (runningAsIOThread(c)) {
             /* Code running on an I/O thread. */
-            IOThreadMessageToMain(c, IO_THREAD_CLOSED);
-            c->io_thread_flags |= IO_THREAD_FLAG_CLOSED;
+            IOThreadClientClosed(c);
         } else {
             /* Code running on main thread. */
             removeFromIOThreadAndFreeClient(c);
@@ -2737,7 +2737,7 @@ int processInputBuffer(client *c) {
     return C_OK;
 }
 
-/* This functions is called by main thread and I/O threads. For client's pinned
+/* This functions is called by main thread and I/O threads. For clients pinned
  * to an I/O thread, the I/O thread owns the connection and the client's query
  * buffer. */
 void readQueryFromClient(connection *conn) {
@@ -2745,6 +2745,7 @@ void readQueryFromClient(connection *conn) {
     int nread, big_arg = 0;
     size_t qblen, readlen;
     int is_master_client = (!runningAsIOThread(c) && c->flags & CLIENT_MASTER);
+    if (runningAsIOThread(c) && c->io_thread_flags & IO_THREAD_FLAG_CLOSED) return;
 
     /* Update total number of reads on server */
     atomicIncr(server.stat_total_reads_processed, 1);
@@ -4335,6 +4336,12 @@ static inline int runningAsIOThread(client *c) {
         pthread_self() == io_threads[c->io_thread_index].tid;
 }
 
+static void IOThreadClientClosed(client *c) {
+    serverAssert(!(c->io_thread_flags & IO_THREAD_FLAG_CLOSED));
+    IOThreadMessageToMain(c, IO_THREAD_CLOSED);
+    c->io_thread_flags |= IO_THREAD_FLAG_CLOSED;
+}
+
 /* Messages between main thread and I/O threads. */
 
 /* Send message to the I/O thread the client is pinned to. Called from the main
@@ -4615,6 +4622,8 @@ static int IOThreadWriteToClient(client *c, ssize_t *nwritten) {
  * similar to writeToClient(c, handler_installed) running on the main thread. */
 int IOThreadSendRepliesToClient(client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
+    serverAssert(!(c->io_thread_flags & IO_THREAD_FLAG_CLOSED));
+
     while (IOThreadClientHasPendingReplies(c)) {
         int ret = IOThreadWriteToClient(c, &nwritten);
         if (ret != C_OK) break;
@@ -4626,8 +4635,7 @@ int IOThreadSendRepliesToClient(client *c, int handler_installed) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE, "Error writing to client: %s",
                       connGetLastError(c->conn));
-            IOThreadMessageToMain(c, IO_THREAD_CLOSED);
-            c->io_thread_flags |= IO_THREAD_FLAG_CLOSED;
+            IOThreadClientClosed(c);
             return C_ERR;
         }
     }
@@ -4689,8 +4697,7 @@ static void IOThreadHandleMessages(iothread *t) {
                                   server.aof_fsync == AOF_FSYNC_ALWAYS);
                 if (connSetWriteHandlerWithBarrier(c->conn, IOThreadWriteHandler,
                                                    ae_barrier) == C_ERR) {
-                    IOThreadMessageToMain(c, IO_THREAD_CLOSED);
-                    c->io_thread_flags & IO_THREAD_FLAG_CLOSED;
+                    IOThreadClientClosed(c);
                     continue;
                 }
             }
