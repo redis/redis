@@ -239,7 +239,11 @@ int anetRecvTimeout(char *err, int fd, long long ms) {
  *
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
- * into a validating / normalizing function. */
+ * into a validating / normalizing function.
+ *
+ * If the flag ANET_PREFER_IPV4 is set, IPv4 is preferred over IPv6.
+ * If the flag ANET_PREFER_IPV6 is set, IPv6 is preferred over IPv4.
+ * */
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
                        int flags)
 {
@@ -249,9 +253,20 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     memset(&hints,0,sizeof(hints));
     if (flags & ANET_IP_ONLY) hints.ai_flags = AI_NUMERICHOST;
     hints.ai_family = AF_UNSPEC;
+    if (flags & ANET_PREFER_IPV4 && !(flags & ANET_PREFER_IPV6)) {
+        hints.ai_family = AF_INET;
+    } else if (flags & ANET_PREFER_IPV6 && !(flags & ANET_PREFER_IPV4)) {
+        hints.ai_family = AF_INET6;
+    }
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
-    if ((rv = getaddrinfo(host, NULL, &hints, &info)) != 0) {
+    rv = getaddrinfo(host, NULL, &hints, &info);
+    if (rv != 0 && hints.ai_family != AF_UNSPEC) {
+        /* Try the other IP version. */
+        hints.ai_family = (hints.ai_family == AF_INET) ? AF_INET6 : AF_INET;
+        rv = getaddrinfo(host, NULL, &hints, &info);
+    }
+    if (rv != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }
