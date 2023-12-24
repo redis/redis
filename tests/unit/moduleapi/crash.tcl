@@ -17,8 +17,9 @@ if {!$::valgrind} {
             set res [wait_for_log_messages 0 {"*RECURSIVE ASSERTION FAILED*"} $loglines 10 1000]
             set loglines [lindex $res 1]
 
-            wait_for_log_messages 0 {"*=== REDIS BUG REPORT END. Make sure to include from START to END. ===*"} 0 10 1000
+            wait_for_log_messages 0 {"*=== REDIS BUG REPORT END. Make sure to include from START to END. ===*"} $loglines 10 1000
             assert_equal 1 [count_log_message 0 "=== REDIS BUG REPORT END. Make sure to include from START to END. ==="]
+            assert_equal 2 [count_log_message 0 "ASSERTION FAILED"]
             assert_equal 1 [count_log_message 0 "RECURSIVE ASSERTION FAILED"]
             assert_equal 1 [count_log_message 0 "=== REDIS BUG REPORT START: Cut & paste starting from here ==="]
         }
@@ -39,7 +40,7 @@ if {!$::valgrind} {
             set res [wait_for_log_messages 0 {"*Crashed running the instruction at*"} $loglines 10 1000]
             set loglines [lindex $res 1]
 
-            wait_for_log_messages 0 {"*=== REDIS BUG REPORT END. Make sure to include from START to END. ===*"} 0 10 1000
+            wait_for_log_messages 0 {"*=== REDIS BUG REPORT END. Make sure to include from START to END. ===*"} $loglines 10 1000
             assert_equal 1 [count_log_message 0 "=== REDIS BUG REPORT END. Make sure to include from START to END. ==="]
             assert_equal 1 [count_log_message 0 "Crashed running signal handler. Providing reduced version of recursive crash report"]
             assert_equal 2 [count_log_message 0 "Crashed running the instruction at"]
