@@ -1909,9 +1909,9 @@ int totalSubscriptions(void) {
            dictSize(server.pubsubshard_channels);
 }
 
-/* If new can access all channels original return NULL;
+/* If 'new' can access all channels 'original' could then return NULL;
    Otherwise return a list of channels that the new user can access */
-list *getUpcomingChannelList(user* new, user *original) {
+list *getUpcomingChannelList(user *new, user *original) {
     listIter li, lpi;
     listNode *ln, *lpn;
 
@@ -1927,12 +1927,12 @@ list *getUpcomingChannelList(user* new, user *original) {
      * created an "upcoming" list of all channels that are in
      * the new user and checking each of the existing channels
      * against it.  */
-    list* upcoming = listCreate();
-    listRewind(new->selectors, &li);
-    while ((ln = listNext(&li))) {
+    list *upcoming = listCreate();
+    listRewind(new->selectors,&li);
+    while((ln = listNext(&li))) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
         listRewind(s->channels, &lpi);
-        while ((lpn = listNext(&lpi))) {
+        while((lpn = listNext(&lpi))) {
             listAddNodeTail(upcoming, listNodeValue(lpn));
         }
     }
