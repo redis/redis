@@ -147,12 +147,11 @@ int anetKeepAlive(char *err, int fd, int interval)
 
 /* There are platforms that are expected to support the full mechanism of TCP keep-alive,
  * we want the compiler to emit warnings of unused variables if the preprocessor directives 
- * somehow fail, and other than those platforms, the rest just omit them.
+ * somehow fail, and other than those platforms, just omit these warnings if they happen.
  */
 #if !(defined(_AIX) || defined(__APPLE__) || defined(__DragonFly__) || \
     defined(__FreeBSD__) || defined(__illumos__) || defined(__linux__) || \
     defined(__NetBSD__) || defined(__sun))
-    /* Prevent compiler from complaining unused variables warnings. */
     UNUSED(interval);
     UNUSED(idle);
     UNUSED(intvl);
