@@ -108,8 +108,8 @@ void lazyfreeResetStats(void) {
  * representing the list. */
 size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     if (obj->type == OBJ_LIST && obj->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklist *ql = obj->ptr;
-        return ql->len;
+        struct quicklist *ql = obj->ptr;
+        return quicklist_node_count(ql);
     } else if (obj->type == OBJ_SET && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);

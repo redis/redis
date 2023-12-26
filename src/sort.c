@@ -376,13 +376,12 @@ void sortCommandGeneric(client *c, int readonly) {
          * way, just getting the required range, as an optimization. */
         if (end >= start) {
             listTypeIterator *li;
-            listTypeEntry entry;
             li = listTypeInitIterator(sortval,
                     desc ? (long)(listTypeLength(sortval) - start - 1) : start,
                     desc ? LIST_HEAD : LIST_TAIL);
 
-            while(j < vectorlen && listTypeNext(li,&entry)) {
-                vector[j].obj = listTypeGet(&entry);
+            while(j < vectorlen && listTypeNext(li)) {
+                vector[j].obj = listTypeGet(li);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
@@ -394,9 +393,8 @@ void sortCommandGeneric(client *c, int readonly) {
         }
     } else if (sortval->type == OBJ_LIST) {
         listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
-        listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
-            vector[j].obj = listTypeGet(&entry);
+        while(listTypeNext(li)) {
+            vector[j].obj = listTypeGet(li);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;

@@ -1802,8 +1802,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
     listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
-    listTypeEntry entry;
-    while (listTypeNext(li,&entry)) {
+    while (listTypeNext(li)) {
         if (count == 0) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
@@ -1819,7 +1818,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
         unsigned char *vstr;
         size_t vlen;
         long long lval;
-        vstr = listTypeGetValue(&entry,&vlen,&lval);
+        vstr = listTypeGetValue(li,&vlen,&lval);
         if (vstr) {
             if (!rioWriteBulkString(r,(char*)vstr,vlen)) {
                 listTypeReleaseIterator(li);

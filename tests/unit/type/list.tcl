@@ -46,10 +46,9 @@ start_server [list overrides [list save ""] ] {
     }
 
     # repeating the 3 tests with plain nodes
-    # (by adjusting quicklist-packed-threshold)
-
+    # (by adjusting list-max-listpack-size)
     test {plain node check compression} {
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r lpush list4 [string repeat a 500]
         r lpush list4 [string repeat b 500]
         r lpush list4 [string repeat c 500]
@@ -66,30 +65,30 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop list4] [string repeat c 500]
         assert_equal [r lpop list4] [string repeat b 500]
         assert_equal [r lpop list4] [string repeat a 500]
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     test {plain node check compression with ltrim} {
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r lpush list5 [string repeat a 500]
         r linsert list5 after  [string repeat a 500] [string repeat b 500]
         r rpush list5 [string repeat c 500]
         assert_equal [string repeat b 500] [r lindex list5 1]
         r LTRIM list5 1 -1
         assert_equal [r llen list5] 2
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     test {plain node check compression using lset} {
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r lpush list6 [string repeat a 500]
         r LSET list6 0 [string repeat b 500]
         assert_equal [string repeat b 500] [r lindex list6 0]
         r lpush list6 [string repeat c 500]
         r LSET list6 0 [string repeat d 500]
         assert_equal [string repeat d 500] [r lindex list6 0]
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     # revert config for external mode tests.
     r config set list-compress-depth 0
@@ -100,7 +99,7 @@ start_server [list overrides [list save ""] ] {
     # basic command check for plain nodes - "LPUSH & LPOP"
     test {Test LPUSH and LPOP on plain nodes} {
         r flushdb
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r lpush lst 9
         r lpush lst xxxxxxxxxx
         r lpush lst xxxxxxxxxx
@@ -118,13 +117,13 @@ start_server [list overrides [list save ""] ] {
         r lpush lst bb
         r debug reload
         assert_equal [r rpop lst] "xxxxxxxxxx"
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    } {} {needs:debug}
 
     # basic command check for plain nodes - "LINDEX & LINSERT"
     test {Test LINDEX and LINSERT on plain nodes} {
         r flushdb
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r lpush lst xxxxxxxxxxx
         r lpush lst 9
         r lpush lst xxxxxxxxxxx
@@ -133,25 +132,25 @@ start_server [list overrides [list save ""] ] {
         r linsert lst BEFORE "9" "7"
         r linsert lst BEFORE "9" "xxxxxxxxxxx"
         assert {[r lindex lst 3] eq "xxxxxxxxxxx"}
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     # basic command check for plain nodes - "LTRIM"
     test {Test LTRIM on plain nodes} {
         r flushdb
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r lpush lst1 9
         r lpush lst1 xxxxxxxxxxx
         r lpush lst1 9
         r LTRIM lst1 1 -1
         assert_equal [r llen lst1] 2
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     # basic command check for plain nodes - "LREM"
     test {Test LREM on plain nodes} {
         r flushdb
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r lpush lst one
         r lpush lst xxxxxxxxxxx
         set s0 [s used_memory]
@@ -159,25 +158,25 @@ start_server [list overrides [list save ""] ] {
         r lpush lst 9
         r LREM lst -2 "one"
         assert_equal [r llen lst] 2
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     # basic command check for plain nodes - "LPOS"
     test {Test LPOS on plain nodes} {
         r flushdb
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r RPUSH lst "aa"
         r RPUSH lst "bb"
         r RPUSH lst "cc"
         r LSET lst 0 "xxxxxxxxxxx"
         assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     # basic command check for plain nodes - "LMOVE"
     test {Test LMOVE on plain nodes} {
         r flushdb
-        r debug quicklist-packed-threshold 1b
+        set origin_config [config_get_set list-max-listpack-size 0]
         r RPUSH lst2{t} "aa"
         r RPUSH lst2{t} "bb"
         r LSET lst2{t} 0 xxxxxxxxxxx
@@ -191,13 +190,13 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst2{t}] "cc"
         assert_equal [r lpop lst{t}] "dd"
         assert_equal [r lpop lst{t}] "xxxxxxxxxxx"
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     # testing LSET with combinations of node types
     # plain->packed , packed->plain, plain->plain, packed->packed
     test {Test LSET with packed / plain combinations} {
-        r debug quicklist-packed-threshold 5b
+        set origin_config [config_get_set list-max-listpack-size -2]
         r RPUSH lst "aa"
         r RPUSH lst "bb"
         r lset lst 0 [string repeat d 50001]
@@ -215,34 +214,33 @@ start_server [list overrides [list save ""] ] {
         r lset lst 0 "cc"
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
     # checking LSET in case ziplist needs to be split
     test {Test LSET with packed is split in the middle} {
         r flushdb
-        r debug quicklist-packed-threshold 5b
+        set origin_config [config_get_set list-max-listpack-size -2]
         r RPUSH lst "aa"
         r RPUSH lst "bb"
         r RPUSH lst "cc"
         r RPUSH lst "dd"
         r RPUSH lst "ee"
-        r lset lst 2 [string repeat e 10]
+        r lset lst 2 [string repeat e 50001]
         assert_equal [r lpop lst] "aa"
         assert_equal [r lpop lst] "bb"
-        assert_equal [r lpop lst] [string repeat e 10]
+        assert_equal [r lpop lst] [string repeat e 50001]
         assert_equal [r lpop lst] "dd"
         assert_equal [r lpop lst] "ee"
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        config_set list-max-listpack-size $origin_config
+    }
 
 
     # repeating "plain check LSET with combinations"
     # but now with single item in each ziplist
     test {Test LSET with packed consist only one item} {
         r flushdb
-        set original_config [config_get_set list-max-ziplist-size 1]
-        r debug quicklist-packed-threshold 1b
+        set original_config [config_get_set list-max-ziplist-size 0]
         r RPUSH lst "aa"
         r RPUSH lst "bb"
         r lset lst 0 [string repeat d 50001]
@@ -260,17 +258,16 @@ start_server [list overrides [list save ""] ] {
         r lset lst 0 "cc"
         set s1 [r lpop lst]
         assert_equal $s1 "cc"
-        r debug quicklist-packed-threshold 0
         r config set list-max-ziplist-size $original_config
-    } {OK} {needs:debug}
+    }
 
     test {Crash due to delete entry from a compress quicklist node} {
         r flushdb
-        r debug quicklist-packed-threshold 100b
+        set original_config_fill [config_get_set list-max-ziplist-size -2]
         set original_config [config_get_set list-compress-depth 1]
 
         set small_ele [string repeat x 32]
-        set large_ele [string repeat x 100]
+        set large_ele [string repeat x 50001]
 
         # Push a large element
         r RPUSH lst $large_ele
@@ -284,22 +281,22 @@ start_server [list overrides [list save ""] ] {
         r LSET lst -1 $large_ele
         assert_equal "$large_ele $small_ele $large_ele" [r LRANGE lst 0 -1]
 
-        r debug quicklist-packed-threshold 0
+        r config set list-max-ziplist-size $original_config_fill
         r config set list-compress-depth $original_config
-    } {OK} {needs:debug}
+    }
 
     test {Crash due to split quicklist node wrongly} {
         r flushdb
-        r debug quicklist-packed-threshold 10b
+        set original_config [config_get_set list-max-ziplist-size -2]
 
         r LPUSH lst "aa"
         r LPUSH lst "bb"
-        r LSET lst -2 [string repeat x 10]
+        r LSET lst -2 [string repeat x 50001]
         r RPOP lst
-        assert_equal [string repeat x 10] [r LRANGE lst 0 -1]
+        assert_equal [string repeat x 50001] [r LRANGE lst 0 -1]
 
-        r debug quicklist-packed-threshold 0
-    } {OK} {needs:debug}
+        r config set list-max-ziplist-size $original_config
+    }
 }
 
 run_solo {list-large-memory} {

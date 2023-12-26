@@ -2421,15 +2421,9 @@ typedef struct {
     unsigned char direction; /* Iteration direction */
 
     unsigned char *lpi; /* listpack iterator */
-    quicklistIter *iter; /* quicklist iterator */
-} listTypeIterator;
-
-/* Structure for an entry while iterating over a list. */
-typedef struct {
-    listTypeIterator *li;
     unsigned char *lpe; /* Entry in listpack */
-    quicklistEntry entry; /* Entry in quicklist */
-} listTypeEntry;
+    struct quicklist_iter *iter; /* quicklist iterator */
+} listTypeIterator;
 
 /* Structure to hold set iteration abstraction. */
 typedef struct {
@@ -2733,14 +2727,13 @@ robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
 listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
 void listTypeReleaseIterator(listTypeIterator *li);
-void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, unsigned char direction);
-int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
-robj *listTypeGet(listTypeEntry *entry);
-unsigned char *listTypeGetValue(listTypeEntry *entry, size_t *vlen, long long *lval);
-void listTypeInsert(listTypeEntry *entry, robj *value, int where);
-void listTypeReplace(listTypeEntry *entry, robj *value);
-int listTypeEqual(listTypeEntry *entry, robj *o);
-void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
+int listTypeNext(listTypeIterator *entry);
+robj *listTypeGet(listTypeIterator *entry);
+unsigned char *listTypeGetValue(listTypeIterator *entry, size_t *vlen, long long *lval);
+void listTypeInsert(listTypeIterator *entry, robj *value, int where);
+void listTypeReplace(listTypeIterator *entry, robj *value);
+int listTypeEqual(listTypeIterator *entry, robj *o);
+void listTypeDelete(listTypeIterator *entry);
 robj *listTypeDup(robj *o);
 void listTypeDelRange(robj *o, long start, long stop);
 void popGenericCommand(client *c, int where);
