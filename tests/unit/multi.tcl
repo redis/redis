@@ -684,19 +684,44 @@ start_server {tags {"multi"}} {
         $r1 close
     } {0} {needs:repl cluster:skip}
 
-    test {EXEC with only read commands should not be rejected when OOM} {
+    test {EXEC with few read commands should not be rejected when OOM} {
         set r2 [redis_client]
 
         r set x value
-        r multi
-        r get x
-        r ping
 
         # enforcing OOM
         $r2 config set maxmemory 1
 
+        r multi
+        r get x
+        r ping
+
         # finish the multi transaction with exec
-        assert { [r exec] == {value PONG} }
+        assert_equal [r exec] {value PONG}
+
+        # releasing OOM
+        $r2 config set maxmemory 0
+        $r2 close
+    } {0} {needs:config-maxmemory}
+
+    test {EXEC with many read commands should be rejected when OOM} {
+        set r2 [redis_client]
+
+        r set x value
+
+        # enforcing OOM
+        $r2 config set maxmemory 1
+
+        r multi
+        for {set j 0} {$j < 1024*32} {incr j} {
+            if {[catch {r get x} e]} {
+                assert_match {OOM*} $e
+            }
+        }
+
+        # finish the multi transaction with exec
+        catch {r exec} e
+        assert_match {EXECABORT*} $e
 
         # releasing OOM
         $r2 config set maxmemory 0

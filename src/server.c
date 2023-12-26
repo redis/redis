@@ -4076,12 +4076,13 @@ int processCommand(client *c) {
         if (server.current_client == NULL) return C_ERR;
 
         int reject_cmd_on_oom = is_denyoom_command;
-        /* If client is in MULTI/EXEC context, queuing may consume an unlimited
-         * amount of memory, so we want to stop that.
+        /* If client is in MULTI/EXEC context, even if no DENYOOM command is used, 
+         * we want to limit the amount of memory used for queuing.
          * However, we never want to reject DISCARD, or even EXEC (unless it
          * contains denied commands, in which case is_denyoom_command is already
          * set. */
         if (c->flags & CLIENT_MULTI &&
+            c->mstate.argv_len_sums > MULTI_MAX_BYTES_ON_OOM && 
             c->cmd->proc != execCommand &&
             c->cmd->proc != discardCommand &&
             c->cmd->proc != quitCommand &&
