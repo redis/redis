@@ -134,16 +134,6 @@ int anetCloexec(int fd) {
  * TCP_KEEPIDLE, TCP_KEEPINTVL and TCP_KEEPCNT will be set accordingly. */
 int anetKeepAlive(char *err, int fd, int interval)
 {
-    int idle;
-    int intvl;
-    int cnt;
-
-    /* Prevent compiler from complaining unused variables warnings. */
-    UNUSED(interval);
-    UNUSED(idle);
-    UNUSED(intvl);
-    UNUSED(cnt);
-
     int enabled = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled)))
     {
@@ -151,12 +141,22 @@ int anetKeepAlive(char *err, int fd, int interval)
         return ANET_ERR;
     }
 
-    /* If there is at least one option of TCP keep-alive is missing,
-     * we will just bail out from this process and just leave the default settings.
-     */
-#if (!defined(TCP_KEEPIDLE) && !defined(TCP_KEEPALIVE)) || !defined(TCP_KEEPINTVL) || !defined(TCP_KEEPCNT)
-    anetSetError(err, "anetKeepAlive: %s", "missing TCP keep-alive macros");
-    return;
+    int idle;
+    int intvl;
+    int cnt;
+
+/* There are platforms that are expected to support the full mechanism of TCP keep-alive,
+ * we want the compiler to emit warnings of unused variables if the preprocessor directives 
+ * somehow fail, and other than those platforms, the rest just omit them.
+ */
+#if !(defined(_AIX) || defined(__APPLE__) || defined(__DragonFly__) || \
+    defined(__FreeBSD__) || defined(__illumos__) || defined(__linux__) || \
+    defined(__NetBSD__) || defined(__sun))
+    /* Prevent compiler from complaining unused variables warnings. */
+    UNUSED(interval);
+    UNUSED(idle);
+    UNUSED(intvl);
+    UNUSED(cnt);
 #endif
 
 /* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual 
