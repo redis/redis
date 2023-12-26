@@ -151,6 +151,14 @@ int anetKeepAlive(char *err, int fd, int interval)
         return ANET_ERR;
     }
 
+    /* If there is at least one option of TCP keep-alive is missing,
+     * we will just bail out from this process and just leave the default settings.
+     */
+#if (!defined(TCP_KEEPIDLE) && !defined(TCP_KEEPALIVE)) || !defined(TCP_KEEPINTVL) || !defined(TCP_KEEPCNT)
+    anetSetError(err, "anetKeepAlive: %s", "missing TCP keep-alive macros");
+    return;
+#endif
+
 /* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual 
  * compared to other Unix-like systems. 
  * Thus, we need to specialize it on Solaris. */
