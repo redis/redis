@@ -113,17 +113,18 @@ if {$system_name eq {linux}} {
         }
 
         test {CONFIG SET oom score relative and absolute} {
-            set custom_oom [expr [get_oom_score_adj] + 1]
             r config set oom-score-adj no
             set base_oom [get_oom_score_adj]
 
+            set custom_oom 9
             r config set oom-score-adj-values "$custom_oom $custom_oom $custom_oom" oom-score-adj relative
             # Check that current oom_score_adj is between base_oom and base_oom+custom_oom,
             # which may exceed the limit.
             set current_oom [get_oom_score_adj]
             assert {$current_oom > $base_oom && $current_oom <= [expr $base_oom+$custom_oom]}
 
-            r config set oom-score-adj absolute
+            set custom_oom [expr [get_oom_score_adj] + 1]
+            r config set "$custom_oom $custom_oom $custom_oom" oom-score-adj absolute
             assert_equal [get_oom_score_adj] $custom_oom
         }
 
