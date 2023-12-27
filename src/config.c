@@ -1128,7 +1128,14 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     int linenum = -1;
     struct rewriteConfigState *state = rewriteConfigCreateState();
 
-    if (fp == NULL || sb.st_size == 0) return state;
+    if (fp == NULL) {
+        return state;
+    }
+
+    if (sb.st_size == 0) {
+        fclose(fp);
+        return state;
+    } 
 
     /* Load the file content */
     sds config = sdsnewlen(SDS_NOINIT,sb.st_size);
