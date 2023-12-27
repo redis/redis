@@ -121,7 +121,7 @@ if {$system_name eq {linux}} {
             assert_equal [get_oom_score_adj] [expr $base_oom+$custom_oom]
 
             set custom_oom [expr [get_oom_score_adj] + 1]
-             config set oom-score-adj-values "$custom_oom $custom_oom $custom_oom" oom-score-adj absolute
+            r config set oom-score-adj-values "$custom_oom $custom_oom $custom_oom" oom-score-adj absolute
             assert_equal [get_oom_score_adj] $custom_oom
         }
 
