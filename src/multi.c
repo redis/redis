@@ -79,9 +79,9 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
-    if(c->argv == c-> argv_static) {
+    if(c->argv == c->argv_static) {
         c->argv = zmalloc(sizeof(robj*)*c->argc);
-        c->argv = memcpy(c->argv, c->argv_static, sizeof(robj*)*c->argc);
+        memcpy(c->argv, c->argv_static, sizeof(robj*)*c->argc);
         mc->argv = c->argv;
         mc->argv_len = c->argc;
     } else {

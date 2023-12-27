@@ -1409,9 +1409,7 @@ void freeClientArgv(client *c) {
     c->cmd = NULL;
     c->argv_len_sum = 0;
     c->argv_len = 0;
-    if(c->argv != c->argv_static) {
-        zfree(c->argv);
-    }
+    if(c->argv != c->argv_static) zfree(c->argv);
     c->argv = NULL;
 }
 
@@ -3763,9 +3761,9 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
      */
     if (i >= c->argc) {
         if (i >= c->argv_len) {
-            if(c->argv == c-> argv_static) {
+            if(c->argv == c->argv_static) {
                 c->argv = zmalloc(sizeof(robj*)*(i+1));
-                c->argv = memcpy(c->argv, c->argv_static, sizeof(robj*)*c->argv_len);
+                memcpy(c->argv, c->argv_static, sizeof(robj*)*c->argv_len);
             } else {
                 c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
             }
