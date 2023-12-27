@@ -29,7 +29,6 @@
  */
 
 #include "fmacros.h"
-#include "version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -186,8 +185,6 @@ typedef struct redisConfig {
 } redisConfig;
 
 /* Prototypes */
-char *redisGitSHA1(void);
-char *redisGitDirty(void);
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 static benchmarkThread *createBenchmarkThread(int index);
@@ -204,20 +201,6 @@ static int fetchClusterSlotsConfiguration(client c);
 static void updateClusterSlotsConfiguration(void);
 int showThroughput(struct aeEventLoop *eventLoop, long long id,
                    void *clientData);
-
-static sds benchmarkVersion(void) {
-    sds version;
-    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
-
-    /* Add git commit and working tree status when available */
-    if (strtoll(redisGitSHA1(),NULL,16)) {
-        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtoll(redisGitDirty(),NULL,10))
-            version = sdscatprintf(version, "-dirty");
-        version = sdscat(version, ")");
-    }
-    return version;
-}
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
@@ -1423,7 +1406,7 @@ int parseOptions(int argc, char **argv) {
             if (lastarg) goto invalid;
             config.numclients = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
-            sds version = benchmarkVersion();
+            sds version = cliVersion();
             printf("redis-benchmark %s\n", version);
             sdsfree(version);
             exit(0);
