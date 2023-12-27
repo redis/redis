@@ -71,6 +71,12 @@ start_server {tags {"keyspace"}} {
         append res [r exists emptykey]
     } {10}
 
+    test {MEXISTS} {
+        r set a 1
+        r set b 2
+        r mexists a b c d
+    } {1 1 0 0}
+
     test {Commands pipelining} {
         set fd [r channel]
         puts -nonewline $fd "SET k1 xyzk\r\nGET k1\r\nPING\r\n"

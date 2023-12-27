@@ -1945,6 +1945,32 @@ struct COMMAND_ARG KEYS_Args[] = {
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** MEXISTS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* MEXISTS history */
+#define MEXISTS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* MEXISTS tips */
+const char *MEXISTS_Tips[] = {
+"request_policy:multi_shard",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* MEXISTS key specs */
+keySpec MEXISTS_Keyspecs[1] = {
+{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+};
+#endif
+
+/* MEXISTS argument table */
+struct COMMAND_ARG MEXISTS_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /********** MIGRATE ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10667,6 +10693,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("expireat","Sets the expiration time of a key to a Unix timestamp.","O(1)","1.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,EXPIREAT_History,1,EXPIREAT_Tips,0,expireatCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,EXPIREAT_Keyspecs,1,NULL,3),.args=EXPIREAT_Args},
 {MAKE_CMD("expiretime","Returns the expiration time of a key as a Unix timestamp.","O(1)","7.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,EXPIRETIME_History,0,EXPIRETIME_Tips,0,expiretimeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,EXPIRETIME_Keyspecs,1,NULL,1),.args=EXPIRETIME_Args},
 {MAKE_CMD("keys","Returns all key names that match a pattern.","O(N) with N being the number of keys in the database, under the assumption that the key names in the database and the given pattern have limited length.","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,KEYS_History,0,KEYS_Tips,2,keysCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,KEYS_Keyspecs,0,NULL,1),.args=KEYS_Args},
+{MAKE_CMD("mexists","Determines whether one or more keys exist but returns list of existing at the specified keys","O(N) where N is the number of keys to check.","8.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,MEXISTS_History,0,MEXISTS_Tips,1,mexistsCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,MEXISTS_Keyspecs,1,NULL,1),.args=MEXISTS_Args},
 {MAKE_CMD("migrate","Atomically transfers a key from one Redis instance to another.","This command actually executes a DUMP+DEL in the source instance, and a RESTORE in the target instance. See the pages of these commands for time complexity. Also an O(N) data transfer between the two instances is performed.","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,MIGRATE_History,4,MIGRATE_Tips,1,migrateCommand,-6,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,MIGRATE_Keyspecs,2,migrateGetKeys,9),.args=MIGRATE_Args},
 {MAKE_CMD("move","Moves a key to another database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,MOVE_History,0,MOVE_Tips,0,moveCommand,3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,MOVE_Keyspecs,1,NULL,2),.args=MOVE_Args},
 {MAKE_CMD("object","A container for object introspection commands.","Depends on subcommand.","2.2.3",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,OBJECT_History,0,OBJECT_Tips,0,NULL,-2,0,0,OBJECT_Keyspecs,0,NULL,0),.subcommands=OBJECT_Subcommands},

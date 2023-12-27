@@ -1,0 +1,57 @@
+{
+    "MEXISTS": {
+        "summary": "Determines whether one or more keys exist but returns list of existing at the specified keys",
+        "complexity": "O(N) where N is the number of keys to check.",
+        "group": "generic",
+        "since": "8.0.0",
+        "arity": -2,
+        "function": "mexistsCommand",
+        "history": [],
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:MULTI_SHARD"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "List of existing at the specified keys.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "boolean"
+            }
+
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0,
+                "multiple": true
+            }
+        ]
+    }
+}

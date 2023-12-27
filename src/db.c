@@ -977,6 +977,21 @@ void existsCommand(client *c) {
     addReplyLongLong(c,count);
 }
 
+/* MEXISTS key1 key2 ... key_N.
+ * Return value is the list of existing at the specified keys */
+void mexistsCommand(client *c) {
+    int j;
+
+    addReplyArrayLen(c, c->argc-1);
+    for (j = 1; j < c->argc; j++) {
+        if (lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH)) {
+          addReplyBool(c, 1);
+        } else {
+          addReplyBool(c, 0);
+        }
+    }
+}
+
 void selectCommand(client *c) {
     int id;
 
