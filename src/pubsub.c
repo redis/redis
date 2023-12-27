@@ -741,6 +741,9 @@ void channelList(client *c, sds pat, dict **pubsub_channels, int is_sharded) {
 
     replylen = addReplyDeferredLen(c);
     for (unsigned int i = 0; i < slot_cnt; i++) {
+        if (pubsub_channels[i] == NULL) {
+            continue;
+        }
         dictIterator *di = dictGetIterator(pubsub_channels[i]);
         dictEntry *de;
         while((de = dictNext(di)) != NULL) {
