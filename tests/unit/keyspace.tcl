@@ -72,9 +72,9 @@ start_server {tags {"keyspace"}} {
     } {10}
 
     test {MEXISTS} {
-        r set a 1
-        r set b 2
-        r mexists a b c d
+        r set a{t} 1
+        r set b{t} 2
+        r mexists a{t} b{t} c{t} d{t}
     } {1 1 0 0}
 
     test {Commands pipelining} {
