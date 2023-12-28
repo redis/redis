@@ -295,8 +295,10 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         d_ptr = type.serverPubSubChannels(slot);
         if (*d_ptr == NULL) {
             *d_ptr = dictCreate(&keylistDictType);
+            de = NULL;
+        } else {
+            de = dictFind(*d_ptr, channel);
         }
-        de = dictFind(*d_ptr, channel);
         if (de == NULL) {
             clients = listCreate();
             dictAdd(*d_ptr, channel, clients);
@@ -387,6 +389,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
                 unmarkClientAsPubSub(c);
             }
+            listDelNode(clients, ln);
         }
         server.shard_channel_count--;
         dictDelete(d, channel);
