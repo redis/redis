@@ -1281,7 +1281,7 @@ start_server {
             }
         }
 
-        test {streamPropagateXCLAIM propagate group->entries_read} {
+        test {XREADGROUP ACK would propagate entries-read} {
             $master del mystream
             $master xadd mystream * a b c d e f
             $master xgroup create mystream mygroup $
