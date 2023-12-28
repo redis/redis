@@ -825,6 +825,7 @@ start_server {tags {"multi"}} {
                 {multi}
                 {xclaim *}
                 {xclaim *}
+                {xgroup*SETID*ENTRIESREAD}
                 {xclaim *}
                 {exec}
             }
