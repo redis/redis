@@ -82,12 +82,10 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
     if(c->argv == c->argv_static) {
         c->argv = zmalloc(sizeof(robj*)*c->argc);
         memcpy(c->argv, c->argv_static, sizeof(robj*)*c->argc);
-        mc->argv = c->argv;
-        mc->argv_len = c->argc;
-    } else {
-        mc->argv = c->argv;
-        mc->argv_len = c->argv_len;
+        c->argv_len = c->argc;
     }
+    mc->argv = c->argv;
+    mc->argv_len = c->argv_len;
 
     c->mstate.count++;
     c->mstate.cmd_flags |= cmd_flags;
