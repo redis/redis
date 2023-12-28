@@ -72,6 +72,7 @@ start_server {tags {"keyspace"}} {
     } {10}
 
     test {MEXISTS} {
+        r del a{t} b{t} c{t} d{t}
         r set a{t} 1
         r set b{t} 2
         r mexists a{t} b{t} c{t} d{t}
