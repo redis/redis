@@ -1215,7 +1215,7 @@ typedef struct client {
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
-    time_t lastinteraction; /* Time of the last interaction, used for timeout */
+    redisAtomic time_t lastinteraction; /* Time of the last interaction, used for timeout. FIXME: change the accesses to atomicGet, atomicSet. */
     time_t obuf_soft_limit_reached_time;
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
