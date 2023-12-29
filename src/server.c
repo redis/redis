@@ -436,52 +436,61 @@ int dictExpandAllowed(size_t moreMem, double usedRatio) {
     }
 }
 
-/* Updates the bucket count in cluster-mode for the given dictionary in a DB. bucket count
- * incremented with the new ht size during the rehashing phase.
- * And also adds dictionary to the rehashing list in cluster mode, which allows us
+/* Adds dictionary to the rehashing list, which allows us
  * to quickly find rehash targets during incremental rehashing.
- * 
- * In non-cluster mode, bucket count can be retrieved directly from single dict bucket and
- * we don't need this list as there is only one dictionary per DB. */
-void dictRehashingStarted(dict *d) {
-    if (!server.cluster_enabled) return;
+ *
+ * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
+ * incremented with the new ht size during the rehashing phase. In non-cluster mode,
+ * bucket count can be retrieved directly from single dict bucket. */
+void dictRehashingStarted(dict *d, dbKeyType keyType) {
+    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+    listAddNodeTail(server.rehashing, d);
+    metadata->rehashing_node = listLast(server.rehashing);
 
+    if (!server.cluster_enabled) return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_MAIN].bucket_count += to; /* Started rehashing (Add the new ht size) */
-    if (from == 0) return; /* No entries are to be moved. */
-    if (server.activerehashing) {
-        listAddNodeTail(server.db[0].sub_dict[DB_MAIN].rehashing, d);
-    }
+    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */
 }
 
-/* Updates the bucket count for the given dictionary in a DB. It removes
+/* Remove dictionary from the rehashing list.
+ *
+ * Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void dictRehashingCompleted(dict *d) {
-    if (!server.cluster_enabled) return;
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_MAIN].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
-}
-
-void dictRehashingStartedForExpires(dict *d) {
-    if (!server.cluster_enabled) return;
-
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_EXPIRES].bucket_count += to; /* Started rehashing (Add the new ht size) */
-    if (from == 0) return; /* No entries are to be moved. */
-    if (server.activerehashing) {
-        listAddNodeTail(server.db[0].sub_dict[DB_EXPIRES].rehashing, d);
+void dictRehashingCompleted(dict *d, dbKeyType keyType) {
+    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
+    if (metadata->rehashing_node) {
+        listDelNode(server.rehashing, metadata->rehashing_node);
+        metadata->rehashing_node = NULL;
     }
-}
 
-void dictRehashingCompletedForExpires(dict *d) {
     if (!server.cluster_enabled) return;
-
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[DB_EXPIRES].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+    server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+}
+
+void dbDictRehashingStarted(dict *d) {
+    dictRehashingStarted(d, DB_MAIN);
+}
+
+void dbDictRehashingCompleted(dict *d) {
+    dictRehashingCompleted(d, DB_MAIN);
+}
+
+void dbExpiresRehashingStarted(dict *d) {
+    dictRehashingStarted(d, DB_EXPIRES);
+}
+
+void dbExpiresRehashingCompleted(dict *d) {
+    dictRehashingCompleted(d, DB_EXPIRES);
+}
+
+/* Returns the size of the DB dict metadata in bytes. */
+size_t dbDictMetadataSize(dict *d) {
+    UNUSED(d);
+    /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
+    return sizeof(dbDictMetadata);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -539,8 +548,9 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictExpandAllowed,          /* allow to expand */
-    dictRehashingStarted,
-    dictRehashingCompleted,
+    dbDictRehashingStarted,
+    dbDictRehashingCompleted,
+    dbDictMetadataSize,
 };
 
 /* Db->expires */
@@ -552,8 +562,9 @@ dictType dbExpiresDictType = {
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     dictExpandAllowed,           /* allow to expand */
-    dictRehashingStartedForExpires,
-    dictRehashingCompletedForExpires,
+    dbExpiresRehashingStarted,
+    dbExpiresRehashingCompleted,
+    dbDictMetadataSize,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -721,45 +732,23 @@ void tryResizeHashTables(int dbid) {
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
-int incrementallyRehash(int dbid) {
-    /* Rehash main and expire dictionary . */
-    if (server.cluster_enabled) {
-        listNode *node, *nextNode;
-        monotime timer;
-        elapsedStart(&timer);
-        /* Our goal is to rehash as many slot specific dictionaries as we can before reaching predefined threshold,
-         * while removing those that already finished rehashing from the queue. */
-        for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-            serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.db[dbid].sub_dict[subdict].rehashing));
-            while ((node = listFirst(server.db[dbid].sub_dict[subdict].rehashing))) {
-                if (dictIsRehashing((dict *) listNodeValue(node))) {
-                    dictRehashMilliseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_MS);
-                    if (elapsedMs(timer) >= INCREMENTAL_REHASHING_THRESHOLD_MS) {
-                        return 1;  /* Reached the time limit. */
-                    }
-                } else { /* It is possible that rehashing has already completed for this dictionary, simply remove it from the queue. */
-                    nextNode = listNextNode(node);
-                    listDelNode(server.db[dbid].sub_dict[subdict].rehashing, node);
-                    node = nextNode;
-                }
-            }
+int incrementallyRehash(void) {
+    if (listLength(server.rehashing) == 0) return 0;
+    serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.rehashing));
+
+    /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
+     * after each dictionary completes rehashing, it removes itself from the list. */
+    listNode *node;
+    monotime timer;
+    elapsedStart(&timer);
+    while ((node = listFirst(server.rehashing))) {
+        uint64_t elapsed_us = elapsedUs(timer);
+        if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US) {
+            break;  /* Reached the time limit. */
         }
-        /* When cluster mode is disabled, only one dict is used for the entire DB and rehashing list isn't populated. */
-    } else {
-        /* Rehash main dict. */
-        dict *main_dict = server.db[dbid].dict[0];
-        if (dictIsRehashing(main_dict)) {
-            dictRehashMilliseconds(main_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
-            return 1; /* already used our millisecond for this loop... */
-        }
-        /* Rehash expires. */
-        dict *expires_dict = server.db[dbid].expires[0];
-        if (dictIsRehashing(expires_dict)) {
-            dictRehashMilliseconds(expires_dict, INCREMENTAL_REHASHING_THRESHOLD_MS);
-            return 1; /* already used our millisecond for this loop... */
-        }
+        dictRehashMicroseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
     }
-    return 0;
+    return 1;
 }
 
 /* This function is called once a background process of some kind terminates,
@@ -1200,7 +1189,6 @@ void databasesCron(void) {
          * DB we'll be able to start from the successive in the next
          * cron loop iteration. */
         static unsigned int resize_db = 0;
-        static unsigned int rehash_db = 0;
         int dbs_per_call = CRON_DBS_PER_CALL;
         int j;
 
@@ -1215,18 +1203,7 @@ void databasesCron(void) {
 
         /* Rehash */
         if (server.activerehashing) {
-            for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehash(rehash_db);
-                if (work_done) {
-                    /* If the function did some work, stop here, we'll do
-                     * more at the next cron loop. */
-                    break;
-                } else {
-                    /* If this db didn't need rehash, we'll try the next one. */
-                    rehash_db++;
-                    rehash_db %= server.dbnum;
-                }
-            }
+            incrementallyRehash();
         }
     }
 }
@@ -1785,7 +1762,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     connTypeProcessPendingData();
 
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
-    aeSetDontWait(server.el, connTypeHasPendingData());
+    int dont_sleep = connTypeHasPendingData();
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -1847,6 +1824,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     monotime aof_start_time = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
     monotime duration_before_aof = aof_start_time - cron_start_time_before_aof;
+    /* Record the fsync'd offset before flushAppendOnly */
+    long long prev_fsynced_reploff = server.fsynced_reploff;
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
@@ -1864,6 +1843,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         long long fsynced_reploff_pending;
         atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
         server.fsynced_reploff = fsynced_reploff_pending;
+
+        /* If we have blocked [WAIT]AOF clients, and fsynced_reploff changed, we want to try to
+         * wake them up ASAP. */
+        if (listLength(server.clients_waiting_acks) && prev_fsynced_reploff != server.fsynced_reploff)
+            dont_sleep = 1;
     }
 
     /* Handle writes with pending output buffers. */
@@ -1901,6 +1885,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
             server.el_cmd_cnt_max = el_command_cnt;
         }
     }
+
+    /* Don't sleep at all before the next beforeSleep() if needed (e.g. a
+     * connection has pending data) */
+    aeSetDontWait(server.el, dont_sleep);
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -2689,9 +2677,10 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+/* When adding fields, please check the initTempDb related logic. */
 void initDbState(redisDb *db){
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        db->sub_dict[subdict].rehashing = listCreate();
+        db->sub_dict[subdict].non_empty_slots = 0;
         db->sub_dict[subdict].key_count = 0;
         db->sub_dict[subdict].resize_cursor = -1;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
@@ -2774,10 +2763,10 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    for (j = 0; j < server.dbnum; j++) {
-        int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
-        server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
-        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slotCount);
+    int slot_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+    for (j = 0; j < server.dbnum; j++) {  
+        server.db[j].dict = dictCreateMultiple(&dbDictType, slot_count);
+        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slot_count);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2786,14 +2775,17 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
-        server.db[j].dict_count = slotCount;
+        server.db[j].dict_count = slot_count;
         initDbState(&server.db[j]);
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
+    server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&objToDictDictType);
     server.pubsub_patterns = dictCreate(&objToDictDictType);
-    server.pubsubshard_channels = dictCreate(&objToDictDictType);
+    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
+    server.shard_channel_count = 0;
+    server.pubsub_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -4314,13 +4306,15 @@ int processCommand(client *c) {
 /* ====================== Error lookup and execution ===================== */
 
 void incrementErrorCount(const char *fullerr, size_t namelen) {
-    struct redisError *error = raxFind(server.errors,(unsigned char*)fullerr,namelen);
-    if (error == raxNotFound) {
-        error = zmalloc(sizeof(*error));
-        error->count = 0;
+    void *result;
+    if (!raxFind(server.errors,(unsigned char*)fullerr,namelen,&result)) {
+        struct redisError *error = zmalloc(sizeof(*error));
+        error->count = 1;
         raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
+    } else {
+        struct redisError *error = result;
+        error->count++;
     }
-    error->count++;
 }
 
 /*================================== Shutdown =============================== */
@@ -5686,6 +5680,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "client_recent_max_output_buffer:%zu\r\n", maxout,
             "blocked_clients:%d\r\n", server.blocked_clients,
             "tracking_clients:%d\r\n", server.tracking_clients,
+            "pubsub_clients:%d\r\n", server.pubsub_clients,
             "clients_in_timeout_table:%llu\r\n", (unsigned long long) raxSize(server.clients_timeout_table),
             "total_blocking_keys:%lu\r\n", blocking_keys,
             "total_blocking_keys_on_nokey:%lu\r\n", blocking_keys_on_nokey));
@@ -5924,7 +5919,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
             "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%lu\r\n", dictSize(server.pubsubshard_channels),
+            "pubsubshard_channels:%llu\r\n", server.shard_channel_count,
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
@@ -6305,15 +6300,16 @@ void daemonize(void) {
     }
 }
 
-void version(void) {
-    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
+sds getVersion(void) {
+    sds version = sdscatprintf(sdsempty(),
+        "v=%s sha=%s:%d malloc=%s bits=%d build=%llx",
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
         sizeof(long) == 4 ? 32 : 64,
         (unsigned long long) redisBuildId());
-    exit(0);
+    return version;
 }
 
 void usage(void) {
@@ -7047,7 +7043,13 @@ int main(int argc, char **argv) {
 
         /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
-            strcmp(argv[1], "--version") == 0) version();
+            strcmp(argv[1], "--version") == 0)
+        {
+            sds version = getVersion();
+            printf("Redis server %s\n", version);
+            sdsfree(version);
+            exit(0);
+        }
         if (strcmp(argv[1], "--help") == 0 ||
             strcmp(argv[1], "-h") == 0) usage();
         if (strcmp(argv[1], "--test-memory") == 0) {

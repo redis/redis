@@ -108,7 +108,7 @@ to search and re-edit already inserted lines of text.
 
 The followings are the history API calls:
 
-    int linenoiseHistoryAdd(const char *line);
+    int linenoiseHistoryAdd(const char *line, int is_sensitive);
     int linenoiseHistorySetMaxLen(int len);
     int linenoiseHistorySave(const char *filename);
     int linenoiseHistoryLoad(const char *filename);
