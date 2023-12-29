@@ -6,8 +6,8 @@
 typedef struct atomicqueue atomicqueue;
 
 atomicqueue *atomicqueueCreate(unsigned capacity, unsigned elemsize);
-int atomicqueueTryPush(atomicqueue *queue, void *value, int *was_empty);
-int atomicqueueTryPop(atomicqueue *queue, void *value, int *was_full);
+int atomicqueueTryPush(atomicqueue *queue, void *value);
+int atomicqueueTryPop(atomicqueue *queue, void *value);
 
 #ifdef REDIS_TEST
 int atomicqueueTest(int argc, char *argv[], int flags);

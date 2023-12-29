@@ -39,7 +39,7 @@ atomicqueue *atomicqueueCreate(unsigned capacity, unsigned elemsize) {
 }
 
 /* Adds to the end of the queue. Returns 1 on success, 0 if full. */
-int atomicqueueTryPush(atomicqueue *queue, void *value, int *was_empty) {
+int atomicqueueTryPush(atomicqueue *queue, void *value) {
     unsigned int head, tail;
     tail = queue->tail;
     atomicGetWithSync(queue->head, head); /* acquire consumer's writes */
@@ -48,13 +48,11 @@ int atomicqueueTryPush(atomicqueue *queue, void *value, int *was_empty) {
     memcpy(&queue->data[tail * queue->elemsize], value, queue->elemsize);
     /* Release the writes to the consumer */
     atomicSetWithSync(queue->tail, (tail + 1) & queue->mask);
-    if (was_empty)
-        *was_empty = (head == tail);
     return 1;
 }
 
 /* Pops the element first in the queue. Returns 1 on success, 0 if empty. */
-int atomicqueueTryPop(atomicqueue *queue, void *value, int *was_full) {
+int atomicqueueTryPop(atomicqueue *queue, void *value) {
     unsigned int head, tail;
     head = queue->head;
     atomicGetWithSync(queue->tail, tail); /* acquire producer's writes */
@@ -63,11 +61,8 @@ int atomicqueueTryPop(atomicqueue *queue, void *value, int *was_full) {
     memcpy(value, &queue->data[head * queue->elemsize], queue->elemsize);
     /* Release the writes to the producer */
     atomicSetWithSync(queue->head, (head + 1) & queue->mask);
-    if (was_full)
-        *was_full = (((tail + 1) & queue->mask) == head);
     return 1;
 }
-
 
 #ifdef REDIS_TEST
 
@@ -75,6 +70,7 @@ int atomicqueueTryPop(atomicqueue *queue, void *value, int *was_full) {
 #include <pthread.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #define UNUSED(x) (void)(x)
 #define TEST(name) printf("test — %s\n", name);
@@ -93,20 +89,17 @@ typedef struct {
 void *writerThreadMain(void *arg) {
     sharedData *data = arg;
     atomicqueue *queue = data->queue;
-    long long spin = 0, full = 0, empty = 0;
+    long long spin = 0, full = 0;
     for (long long i = data->iterations; i >= 0; i--) {
-        int was_empty;
-        if (!atomicqueueTryPush(queue, (void *)&i, &was_empty)) {
+        if (!atomicqueueTryPush(queue, (void *)&i)) {
             full++;
             do {
                 spin++;
                 usleep(0);
-            } while (!atomicqueueTryPush(queue, (void *)&i, &was_empty));
+            } while (!atomicqueueTryPush(queue, (void *)&i));
         }
-        empty += was_empty;
     }
-    printf("Writer thread: empty=%-7lld full=%-7lld spin=%-7lld (spin on full)\n",
-           empty, full, spin);
+    printf("Writer thread: full=%-8lld spin=%-7lld\n", full, spin);
     return NULL;
 }
 
@@ -128,32 +121,25 @@ int atomicqueueTest(int argc, char *argv[], int flags) {
     usleep(100000);
     long long start = usec();
 
-    long long spin = 0, full = 0, empty = 0, i = 0, n = iterations;
+    long long spin = 0, empty = 0, i = 0, n = iterations;
     do {
-        int was_full;
-        if (!atomicqueueTryPop(queue, (void *)&i, &was_full)) {
+        if (!atomicqueueTryPop(queue, (void *)&i)) {
             empty++;
             do {
                 spin++;
                 usleep(0);
-            } while (!atomicqueueTryPop(queue, (void *)&i, &was_full));
+            } while (!atomicqueueTryPop(queue, (void *)&i));
         }
-        full += was_full;
         if (i != n--) {
-            printf("Reader got unexpected value %lld expecting %lld\n",
-                   i, n);
+            printf("Reader got unexpected value %lld expecting %lld\n", i, n);
             exit(1);
         }
     } while (i > 0);
     long long end = usec();
     pthread_join(writer, NULL);
-    printf("Reader thread: empty=%-7lld full=%-7lld spin=%-7lld (spin on empty)\n",
-           empty, full, spin);
+    printf("Reader thread: empty=%-7lld spin=%-7lld\n", empty, spin);
     printf("Total: %lld elements in %lldµs (%lfµs per element)\n",
            iterations, (end - start), (end - start)/(double)iterations);
-    usleep(10);
-    
-    //int accurate = (flags & REDIS_TEST_ACCURATE);
     return 0;
 }
 
