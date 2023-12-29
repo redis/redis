@@ -1750,6 +1750,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
     aeSetDontWait(server.el, connTypeHasPendingData(server.el));
 
+    if (server.io_threads_active) handleMessagesFromIOThreads();
+
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
@@ -1846,6 +1848,18 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Disconnect some clients if they are consuming too much memory. */
     evictClients();
 
+    if (server.io_threads_active) {
+        /* Empty the inbox from I/O threads. */
+        handleMessagesFromIOThreads();
+        atomicSetWithSync(server.sleeping, 1);
+        /* Handle any messages sent before we set the sleeping flag. */
+        handleMessagesFromIOThreads();
+        if (listLength(server.clients_pending_write) > 0) {
+            /* We need to send these after fsynching the AOF next time. */
+            aeSetDontWait(server.el, 1);
+        }
+    }
+
     /* Record cron time in beforeSleep. */
     monotime duration_after_write = getMonotonicUs() - cron_start_time_after_write;
 
@@ -1910,6 +1924,8 @@ void afterSleep(struct aeEventLoop *eventLoop) {
     if (!ProcessingEventsWhileBlocked) {
         server.cmd_time_snapshot = server.mstime;
     }
+
+    atomicSet(server.sleeping, 0);
 }
 
 /* =========================== Server initialization ======================== */
@@ -2735,6 +2751,7 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
+    atomicSet(server.sleeping, 0);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */

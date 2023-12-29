@@ -1587,6 +1587,7 @@ struct redisServer {
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
+    redisAtomic int sleeping;   /* Is set to 1 during event loop pull. */
     rax *errors;                /* Errors table */
     unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
@@ -2678,8 +2679,7 @@ void whileBlockedCron(void);
 void blockingOperationStarts(void);
 void blockingOperationEnds(void);
 int handleClientsWithPendingWrites(void);
-int handleClientsWithPendingWritesUsingThreads(void);
-int handleClientsWithPendingReadsUsingThreads(void);
+void handleMessagesFromIOThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
 int updateClientMemUsageAndBucket(client *c);

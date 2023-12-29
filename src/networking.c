@@ -4309,6 +4309,7 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) iothread {
     /* Queue for main thread to pass data to this thread. */
     atomicqueue *inbox;
 
+    redisAtomic int sleeping; /* Flag set to 1 while polling event loop. */
     //redisAtomic unsigned long num_clients;
 
 } iothread;
@@ -4324,20 +4325,23 @@ static iothread io_threads[IO_THREADS_MAX_NUM];
 static atomicqueue *main_thread_inbox;
 static int main_thread_inbox_wakeup_pipe[2]; /* io-threads write wake up main */
 
+/* Current thread needed in before sleep and after sleep. (TODO: Can we use
+ * __thread (GCC) or _Thread_local (C11) or do we need to solve this without
+ * thread local storage?) */
+static __thread iothread *thisIOThread = NULL;
+
 /* Statistics/debugging */
-static int main_inbox_full_cnt;
 static int main_inbox_read_cnt;
 static int io_inbox_write_cnt;
-static int io_inbox_empty_cnt;
+static int io_inbox_wakeup_cnt;
 static int io_inbox_write_spin_cnt;
 
 sds appendIOTHreadsInfoString(sds info) {
     info = sdscatprintf(info,
                         FMTARGS("io-main-inbox-read:%d\n", main_inbox_read_cnt,
-                                "io-main-inbox-full:%d\n", main_inbox_full_cnt,
                                 "io-inbox-write:%d\n", io_inbox_write_cnt,
                                 "io-inbox-write-spin:%d\n", io_inbox_write_spin_cnt,
-                                "io-inbox-empty:%d\n", io_inbox_empty_cnt));
+                                "io-inbox-wakeup:%d\n", io_inbox_wakeup_cnt));
     return info;
 }
 
@@ -4363,12 +4367,14 @@ static void IOThreadClientClosed(client *c) {
 int trySendMessageToIOThread(client *c, int action) {
     io_thread_message message = {.client = c, .action = action};
     iothread *t = &io_threads[c->io_thread_index];
-    int was_empty = 0;
-    if (!atomicqueueTryPush(t->inbox, &message, &was_empty)) return 0;
+    if (!atomicqueueTryPush(t->inbox, &message)) return 0;
     io_inbox_write_cnt++;
-    if (was_empty) {
-        io_inbox_empty_cnt++;
+    int sleeping;
+    atomicGetWithSync(t->sleeping, sleeping);
+    if (sleeping) {
+        io_inbox_wakeup_cnt++;
         /* Wake the thread using pipe. */
+        atomicSet(t->sleeping, 0);
         if (write(t->wakeup_pipe[1], "W", 1) != 1) {
             /* Write fails when the pipe is full. That's OK. We just want to
              * trigger a readable event in the thread. */
@@ -4393,15 +4399,18 @@ static void IOThreadMessageToMain(client *c, int action) {
      * same time, we use a mutex. TODO: Use an MPSC queue and no mutex. */
     static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     io_thread_message message = {.client = c, .action = action};
-    int was_empty = 0;
     pthread_mutex_lock(&mutex);
-    while (!atomicqueueTryPush(main_thread_inbox, &message, &was_empty)) {
+    while (!atomicqueueTryPush(main_thread_inbox, &message)) {
         /* Main thread's inbox is full. Let main thread work. */
+        serverLog(LL_DEBUG, "Main's inbox was full.");
         usleep(1);
     }
     pthread_mutex_unlock(&mutex);
-    if (was_empty) {
+    int sleeping;
+    atomicGetWithSync(server.sleeping, sleeping);
+    if (sleeping) {
         /* Wake the thread using pipe. */
+        atomicSet(server.sleeping, 0);
         if (write(main_thread_inbox_wakeup_pipe[1], "M", 1) != 1) {
             /* Write fails when the pipe is full. That's OK. We just want to
              * trigger a readable event in the thread. */
@@ -4436,10 +4445,8 @@ void transferClientToIOThread(client *c) {
 
 void handleMessagesFromIOThreads(void) {
     io_thread_message message;
-    int was_full = 0;
-    while (atomicqueueTryPop(main_thread_inbox, &message, &was_full)) {
+    while (atomicqueueTryPop(main_thread_inbox, &message)) {
         main_inbox_read_cnt++;
-        if (was_full) main_inbox_full_cnt++;
 
         client *c = message.client;
         if (message.action & IO_THREAD_REMOVE_ACK) {
@@ -4679,7 +4686,7 @@ void IOThreadWriteHandler(connection *conn) {
 /* Called by I/O thread to handle incoming messages from the main thread. */
 static void IOThreadHandleMessages(iothread *t) {
     io_thread_message message;
-    while (atomicqueueTryPop(t->inbox, &message, NULL)) {
+    while (atomicqueueTryPop(t->inbox, &message)) {
         client *c = message.client;
         if (message.action & IO_THREAD_REMOVE_CLIENT) {
             /* Detach it from the event loop. */
@@ -4755,6 +4762,20 @@ void IOThreadBeforeSleep(aeEventLoop *el) {
     /* If any connection type (typically TLS) still has pending unread data,
      * don't sleep at all. */
     aeSetDontWait(el, connTypeHasPendingData(el));
+
+    /* Empty messages from main thread. Then set the sleeping flag and empty the
+     * messages again to make sure the main thread sees the sleeping flag and
+     * can wake us up when sending the next message. */
+    iothread *t = thisIOThread;
+    IOThreadHandleMessages(t);
+    atomicSetWithSync(t->sleeping, 1);
+    IOThreadHandleMessages(t);
+}
+
+void IOThreadAfterSleep(aeEventLoop *el) {
+    UNUSED(el);
+    iothread *t = thisIOThread;
+    atomicSet(t->sleeping, 0);
 }
 
 void *IOThreadMain(void *myid) {
@@ -4769,6 +4790,7 @@ void *IOThreadMain(void *myid) {
     makeThreadKillable();
 
     iothread *t = &io_threads[id];
+    thisIOThread = t;
 
     /* Create event loop */
     int maxevents = server.maxclients + CONFIG_FDSET_INCR;
@@ -4782,6 +4804,7 @@ void *IOThreadMain(void *myid) {
         exit(1);
     }
     aeSetBeforeSleepProc(t->el, IOThreadBeforeSleep);
+    aeSetAfterSleepProc(t->el, IOThreadAfterSleep);
 
     /* Register a readable event for the pipe used to wake the IO thread from
      * the main thread. */
