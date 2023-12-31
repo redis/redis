@@ -2357,6 +2357,30 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
     return REDISMODULE_OK;
 }
 
+void moduleProcessEventsWhileBlocked(void) {
+    if (pthread_equal(server.main_thread_id, pthread_self())) {
+        /* If we are in the main thread, we can safely process events. */
+        processEventsWhileBlocked();
+    } else {
+        /* Write to a pipe to wake up the main thread. */
+        if (write(server.module_pipe[1],"A",1) != 1) {
+            /* Ignore the error, this is best-effort. */
+        }
+
+        /* Save the current command time snapshot. */
+        mstime_t prev_cmd_time_snapshot = server.cmd_time_snapshot;
+
+        /* Release the GIL, yield the CPU to main thread, and then reacquire the GIL
+         * when the main thread comes back the event loop once. */
+        moduleReleaseGIL();
+        usleep(0);
+        moduleAcquireGIL();
+
+        /* Restore the command time snapshot. */
+        server.cmd_time_snapshot = prev_cmd_time_snapshot;
+    }
+}
+
 /* This API allows modules to let Redis process background tasks, and some
  * commands during long blocking execution of a module command.
  * The module can call this API periodically.
@@ -2392,7 +2416,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
          * commands with -LOADING. */
         if (server.loading) {
             /* Let redis process events */
-            processEventsWhileBlocked();
+            moduleProcessEventsWhileBlocked();
         } else {
             const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
             server.busy_module_yield_reply = busy_reply;
@@ -2407,7 +2431,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                 server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
 
             /* Let redis process events */
-            processEventsWhileBlocked();
+            moduleProcessEventsWhileBlocked();
 
             server.busy_module_yield_reply = prev_busy_module_yield_reply;
             /* Possibly restore the previous flags in case of two nested contexts
