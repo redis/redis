@@ -787,16 +787,16 @@ void lcsCommand(client *c) {
         goto cleanup;
     }
 
-    /* Detect string truncation or later overflows. */
-    if (sdslen(a) >= UINT32_MAX-1 || sdslen(b) >= UINT32_MAX-1) {
-        addReplyError(c, "String too long for LCS");
-        goto cleanup;
-    }
-
     /* Compute the LCS using the vanilla dynamic programming technique of
      * building a table of LCS(x,y) substrings. */
     uint32_t alen = sdslen(a);
     uint32_t blen = sdslen(b);
+
+    /* Detect string truncation or later overflows. */
+    if (alen >= UINT32_MAX-1 || blen >= UINT32_MAX-1) {
+        addReplyError(c, "String too long for LCS");
+        goto cleanup;
+    }
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
      * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
