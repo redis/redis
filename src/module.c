@@ -2401,12 +2401,14 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                 int acquiring;
                 atomicGet(server.module_gil_acquring, acquiring);
                 if (!acquiring) {
-                    /* Wake up the event loop from module thread. */
+                    /* If the main thread has not yet entered the acquiring GIL state,
+                     * we attempt to wake it up and exit without waiting for it to
+                     * acquire the GIL. This avoids blocking the caller, allowing them to
+                     * continue with unfinished tasks before the next yield. */
                     if (write(server.module_pipe[1],"A",1) != 1) {
                         /* Ignore the error, this is best-effort. */
                     }
-                    goto end; /* We can do nothing if the main thread
-                               * is not yet in acquiring GIL state. */
+                    goto end;
                 }
             }
 
