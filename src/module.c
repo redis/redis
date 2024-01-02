@@ -2357,20 +2357,6 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
     return REDISMODULE_OK;
 }
 
- /* Process events while the module is blocked. */
-void moduleProcessEventsWhileBlocked(void) {
-    /* Check if the current thread is the main thread.
-     * If it is not the main thread, we need to wait for the main thread to enter acquiring GIL
-     * state in order to protect the ae and avoid potential race conditions. */
-    if (!pthread_equal(server.main_thread_id, pthread_self())) {
-        int acquiring;
-        atomicGet(server.module_gil_acquring, acquiring);
-        if (!acquiring) return; /* Return ASAP if the main thread is not yes in acquiring GIL state. */
-    }
-
-    processEventsWhileBlocked();
-}
-
 /* This API allows modules to let Redis process background tasks, and some
  * commands during long blocking execution of a module command.
  * The module can call this API periodically.
@@ -2408,6 +2394,14 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             /* Let redis process events */
             processEventsWhileBlocked();
         } else {
+            /* If it is not the main thread, we need to wait for the main thread to enter acquiring GIL
+             * state in order to protect the ae and avoid potential race conditions. */
+            if (!pthread_equal(server.main_thread_id, pthread_self())) {
+                int acquiring;
+                atomicGet(server.module_gil_acquring, acquiring);
+                if (!acquiring) goto end; /* We can do nothing if the main thread is not yet in acquiring GIL state. */
+            }
+
             const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
             server.busy_module_yield_reply = busy_reply;
             /* start the blocking operation if not already started. */
@@ -2421,7 +2415,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                 server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
 
             /* Let redis process events */
-            moduleProcessEventsWhileBlocked();
+            processEventsWhileBlocked();
 
             server.busy_module_yield_reply = prev_busy_module_yield_reply;
             /* Possibly restore the previous flags in case of two nested contexts
@@ -2433,6 +2427,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
         /* decide when the next event should fire. */
         ctx->next_yield_time = now + 1000000 / server.hz;
     }
+end:
     yield_nesting--;
 }
 
