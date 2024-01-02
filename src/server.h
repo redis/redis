@@ -1975,7 +1975,8 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    dict *pubsubshard_channels;  /* Map shard channels to list of subscribed clients */
+    dict **pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
+    unsigned long long shard_channel_count;
     unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
@@ -2465,6 +2466,7 @@ extern dictType sdsHashDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
+extern dictType keylistDictType;
 extern dict *modules;
 
 /*-----------------------------------------------------------------------------
@@ -3155,7 +3157,7 @@ robj *hashTypeDup(robj *o);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeShardAllChannels(client *c, int notify);
-void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count);
+void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message, int sharded);
 int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded);
@@ -3747,6 +3749,7 @@ void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
 void swapMainDbWithTempDb(redisDb *tempDb);
+sds getVersion(void);
 
 /* Use macro for checking log level to avoid evaluating arguments in cases log
  * should be ignored due to low level. */

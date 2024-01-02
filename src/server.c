@@ -1632,7 +1632,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     connTypeProcessPendingData();
 
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
-    aeSetDontWait(server.el, connTypeHasPendingData());
+    int dont_sleep = connTypeHasPendingData();
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -1694,6 +1694,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     monotime aof_start_time = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
     monotime duration_before_aof = aof_start_time - cron_start_time_before_aof;
+    /* Record the fsync'd offset before flushAppendOnly */
+    long long prev_fsynced_reploff = server.fsynced_reploff;
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
@@ -1711,6 +1713,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         long long fsynced_reploff_pending;
         atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
         server.fsynced_reploff = fsynced_reploff_pending;
+
+        /* If we have blocked [WAIT]AOF clients, and fsynced_reploff changed, we want to try to
+         * wake them up ASAP. */
+        if (listLength(server.clients_waiting_acks) && prev_fsynced_reploff != server.fsynced_reploff)
+            dont_sleep = 1;
     }
 
     /* Handle writes with pending output buffers. */
@@ -1748,6 +1755,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
             server.el_cmd_cnt_max = el_command_cnt;
         }
     }
+
+    /* Don't sleep at all before the next beforeSleep() if needed (e.g. a
+     * connection has pending data) */
+    aeSetDontWait(server.el, dont_sleep);
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -2611,10 +2622,10 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
+    int slot_count_bits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
     for (j = 0; j < server.dbnum; j++) {
-        int slotCountBits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
-        server.db[j].keys = daCreate(&dbDictType, slotCountBits);
-        server.db[j].volatile_keys = daCreate(&dbExpiresDictType,slotCountBits);
+        server.db[j].keys = daCreate(&dbDictType, slot_count_bits);
+        server.db[j].volatile_keys = daCreate(&dbExpiresDictType, slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2629,7 +2640,8 @@ void initServer(void) {
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsubshard_channels = dictCreate(&keylistDictType);
+    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
+    server.shard_channel_count = 0;
     server.pubsub_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
@@ -5764,7 +5776,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
             "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%lu\r\n", dictSize(server.pubsubshard_channels),
+            "pubsubshard_channels:%llu\r\n", server.shard_channel_count,
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
@@ -6145,15 +6157,16 @@ void daemonize(void) {
     }
 }
 
-void version(void) {
-    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
+sds getVersion(void) {
+    sds version = sdscatprintf(sdsempty(),
+        "v=%s sha=%s:%d malloc=%s bits=%d build=%llx",
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
         sizeof(long) == 4 ? 32 : 64,
         (unsigned long long) redisBuildId());
-    exit(0);
+    return version;
 }
 
 void usage(void) {
@@ -6887,7 +6900,13 @@ int main(int argc, char **argv) {
 
         /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
-            strcmp(argv[1], "--version") == 0) version();
+            strcmp(argv[1], "--version") == 0)
+        {
+            sds version = getVersion();
+            printf("Redis server %s\n", version);
+            sdsfree(version);
+            exit(0);
+        }
         if (strcmp(argv[1], "--help") == 0 ||
             strcmp(argv[1], "-h") == 0) usage();
         if (strcmp(argv[1], "--test-memory") == 0) {
