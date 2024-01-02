@@ -2357,28 +2357,18 @@ int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
     return REDISMODULE_OK;
 }
 
+ /* Process events while the module is blocked. */
 void moduleProcessEventsWhileBlocked(void) {
-    if (pthread_equal(server.main_thread_id, pthread_self())) {
-        /* If we are in the main thread, we can safely process events. */
-        processEventsWhileBlocked();
-    } else {
-        /* Write to a pipe to wake up the main thread. */
-        if (write(server.module_pipe[1],"A",1) != 1) {
-            /* Ignore the error, this is best-effort. */
-        }
-
-        /* Save the current command time snapshot. */
-        mstime_t prev_cmd_time_snapshot = server.cmd_time_snapshot;
-
-        /* Release the GIL, yield the CPU to main thread, and then reacquire the GIL
-         * when the main thread comes back the event loop once. */
-        moduleReleaseGIL();
-        usleep(0);
-        moduleAcquireGIL();
-
-        /* Restore the command time snapshot. */
-        server.cmd_time_snapshot = prev_cmd_time_snapshot;
+    /* Check if the current thread is the main thread.
+     * If it is not the main thread, we need to wait for the main thread to enter acquiring GIL
+     * state in order to protect the ae and avoid potential race conditions. */
+    if (!pthread_equal(server.main_thread_id, pthread_self())) {
+        int acquiring;
+        atomicGet(server.module_gil_acquring, acquiring);
+        if (!acquiring) return; /* Return ASAP if the main thread is not yes in acquiring GIL state. */
     }
+
+    processEventsWhileBlocked();
 }
 
 /* This API allows modules to let Redis process background tasks, and some
@@ -2416,7 +2406,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
          * commands with -LOADING. */
         if (server.loading) {
             /* Let redis process events */
-            moduleProcessEventsWhileBlocked();
+            processEventsWhileBlocked();
         } else {
             const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
             server.busy_module_yield_reply = busy_reply;
