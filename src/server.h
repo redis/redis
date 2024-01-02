@@ -454,11 +454,11 @@ typedef enum {
     /* --- End of handshake states --- */
     REPL_STATE_TRANSFER,        /* Receiving .rdb from master */
     /* --- Second channel related states --- */
-    REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY,   /* Wait for REPLCONF reply */
-    REPL_SEC_CONN_RECEIVE_ENDOFF,           /* Wait for $ENDOFF reply */
-    REPL_SEC_CONN_SEND_PSYNC,          /* Same as REPL_STATE_SEND_PSYNC but during RDB load */
-    REPL_SEC_CONN_RECEIVE_PSYNC_REPLY, /* Same as REPL_STATE_RECEIVE_PSYNC_REPLY but during RDB load */
-    REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE, /* Replica's main connection is partial syncing while it's RDB connection loading the RDB */
+    REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY,   /* Wait for REPLCONF reply */
+    REPL_RDB_CONN_RECEIVE_ENDOFF,           /* Wait for $ENDOFF reply */
+    REPL_RDB_CONN_SEND_PSYNC,          /* Same as REPL_STATE_SEND_PSYNC but during RDB load */
+    REPL_RDB_CONN_RECEIVE_PSYNC_REPLY, /* Same as REPL_STATE_RECEIVE_PSYNC_REPLY but during RDB load */
+    REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE, /* Replica's main connection is partial syncing while it's RDB connection loading the RDB */
     /* --- Replication steady state ---*/
     REPL_STATE_CONNECTED,       /* Connected to master */
 } repl_state;

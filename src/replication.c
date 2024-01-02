@@ -1787,16 +1787,16 @@ void shiftReplicationId(void) {
 int slaveIsInHandshakeState(void) {
     return (server.repl_state >= REPL_STATE_RECEIVE_PING_REPLY &&
            server.repl_state <= REPL_STATE_RECEIVE_PSYNC_REPLY) ||
-           (server.repl_state >= REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY &&
-           server.repl_state <= REPL_SEC_CONN_RECEIVE_PSYNC_REPLY);
+           (server.repl_state >= REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY &&
+           server.repl_state <= REPL_RDB_CONN_RECEIVE_PSYNC_REPLY);
 }
 
 /* Returns 1 if the given replication state is a rdb transfer state,
  * 0 otherwise. */
 int slaveIsInTransferState(void) {
     return server.repl_state == REPL_STATE_TRANSFER ||
-           (server.repl_state >= REPL_SEC_CONN_SEND_PSYNC &&
-           server.repl_state <= REPL_SEC_CONN_RECEIVE_PSYNC_REPLY);
+           (server.repl_state >= REPL_RDB_CONN_SEND_PSYNC &&
+           server.repl_state <= REPL_RDB_CONN_RECEIVE_PSYNC_REPLY);
 }
 
 /* Avoid the master to detect the slave is timing out while loading the
@@ -2536,7 +2536,7 @@ int reInitReplicaMainConnection(connection *conn) {
     serverAssert(conn == server.repl_transfer_s);
     /* Init the main connection for psync */
     conn->state = CONN_STATE_CONNECTED;
-    server.repl_state = REPL_SEC_CONN_SEND_PSYNC;
+    server.repl_state = REPL_RDB_CONN_SEND_PSYNC;
     serverAssert(connSetReadHandler(server.psync_master->conn, syncWithMaster) != C_ERR);
     syncWithMaster(conn);
     return C_OK;
@@ -2602,7 +2602,7 @@ void fullSyncWithMaster(connection* conn) {
                             "rdb-only", "1", "end-offset", "1", "listening-port", portstr, NULL);
         sdsfree(portstr);
         if (err) goto write_error;
-        server.repl_state = REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY;
+        server.repl_state = REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY;
 
         if (connSetReadHandler(conn, fullSyncWithMaster) == C_ERR) {
             char conninfo[CONN_INFO_LEN];
@@ -2614,7 +2614,7 @@ void fullSyncWithMaster(connection* conn) {
         return;
     }
     /* Receive replconf response */
-    if (server.repl_state == REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY) {
+    if (server.repl_state == REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY) {
         err = receiveSynchronousResponse(conn);
         if (err == NULL) goto no_response_error;
 
@@ -2631,11 +2631,11 @@ void fullSyncWithMaster(connection* conn) {
             goto error;
         }
 
-        server.repl_state = REPL_SEC_CONN_RECEIVE_ENDOFF;
+        server.repl_state = REPL_RDB_CONN_RECEIVE_ENDOFF;
         return;
     }
     /* Receive ENDOFF reply */
-    if (server.repl_state == REPL_SEC_CONN_RECEIVE_ENDOFF) {
+    if (server.repl_state == REPL_RDB_CONN_RECEIVE_ENDOFF) {
         char buf[PROTO_IOBUF_LEN];
         connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
         if (buf[0] == '\0') {
@@ -2790,14 +2790,14 @@ void streamReplDataBufToDb(client *c) {
 void updateReplicationStateActive(connection *conn) {
     if (conn == server.repl_transfer_s) {
         /* Main connection */
-        if (server.repl_state == REPL_SEC_CONN_RECEIVE_PSYNC_REPLY && server.repl_full_sync_s != NULL) {
+        if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_full_sync_s != NULL) {
             /* RDB is still loading */
-            server.repl_state = REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE;
+            server.repl_state = REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE;
             replicationSteadyStateInit(server.psync_master);
             replDataBufInit();
             return;
         }
-        if (server.repl_state == REPL_SEC_CONN_RECEIVE_PSYNC_REPLY && server.repl_full_sync_s == NULL) {
+        if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_full_sync_s == NULL) {
             /* RDB is loaded */
             goto sync_success;
         }
@@ -2805,11 +2805,11 @@ void updateReplicationStateActive(connection *conn) {
     } 
     if (conn == server.repl_full_sync_s) {
         /* RDB connection */
-        if (server.repl_state == REPL_SEC_CONN_RECEIVE_PSYNC_REPLY) {
+        if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY) {
             /* Main psync connection hasn't been established yet, exit without changing the state */
             return;
         }
-        if (server.repl_state == REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE) {
+        if (server.repl_state == REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE) {
             /* Wait for the accumulated buffer to be processed before reading any more replication updates */
             connSetReadHandler(server.repl_transfer_s, NULL);
             streamReplDataBufToDb(server.psync_master);
@@ -3300,22 +3300,22 @@ void syncWithMaster(connection *conn) {
         }
         server.repl_state = REPL_STATE_RECEIVE_PSYNC_REPLY;
         return;
-    } else if (server.repl_state == REPL_SEC_CONN_SEND_PSYNC) {
+    } else if (server.repl_state == REPL_RDB_CONN_SEND_PSYNC) {
         if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
             err = sdsnew("Unable to PSYNC using main connection");
             abortFailover("Write error to failover target");
             goto rdb_conn_error;
         }
-        server.repl_state = REPL_SEC_CONN_RECEIVE_PSYNC_REPLY;
+        server.repl_state = REPL_RDB_CONN_RECEIVE_PSYNC_REPLY;
         return;
     }
 
-    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY or REPL_SEC_CONN_RECEIVE_PSYNC_REPLY. */
+    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY or REPL_RDB_CONN_RECEIVE_PSYNC_REPLY. */
     if (useRdbChannelSync() && server.repl_state == REPL_STATE_CONNECTED) {
         /* If we use rdb channel to load the RDB, there is a race condition in which we already 
          * done loading the RDB and thus the replica might already be connected */ 
         serverLog(LL_NOTICE, "RDB Channel Sync: Trying psync after replica done loading the snapshot");
-    } else if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY && server.repl_state != REPL_SEC_CONN_RECEIVE_PSYNC_REPLY) {
+    } else if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY && server.repl_state != REPL_RDB_CONN_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
                              "state should be RECEIVE_PSYNC but is %d",
                              server.repl_state);
@@ -3781,7 +3781,7 @@ void roleCommand(client *c) {
             case REPL_STATE_NONE: slavestate = "none"; break;
             case REPL_STATE_CONNECT: slavestate = "connect"; break;
             case REPL_STATE_CONNECTING: slavestate = "connecting"; break;
-            case REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE: slavestate = "rdb-channel-sync"; break;
+            case REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE: slavestate = "rdb-channel-sync"; break;
             case REPL_STATE_TRANSFER: slavestate = "sync"; break;
             case REPL_STATE_CONNECTED: slavestate = "connected"; break;
             default: slavestate = "unknown"; break;
@@ -3951,7 +3951,7 @@ void replicationResurrectMaster(connection *conn, client** master) {
  * prerequisite: server.master is already initialized */
 void replicationSteadyStateInit(client *master) {
     int retval;
-    if (server.repl_state == REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE) {
+    if (server.repl_state == REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE) {
         retval = connSetReadHandler(master->conn, bufferReplData);
     } else {
         retval = connSetReadHandler(master->conn, readQueryFromClient);

@@ -704,8 +704,8 @@ int isReplicaRdbChannel(client *c) {
 
 /* Used on replica side to check if rdb-channel sync is currently in progress */
 int isOngoingRdbChannelSync(void) {
-    return server.repl_state >= REPL_SEC_CONN_RECEIVE_REPLCONF_REPLY &&
-           server.repl_state <= REPL_SEC_CONN_TWO_CONNECTIONS_ACTIVE;
+    return server.repl_state >= REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY &&
+           server.repl_state <= REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE;
 }
 
 /* ======================= Cron: called every 100 ms ======================== */
