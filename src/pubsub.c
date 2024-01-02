@@ -341,7 +341,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         clients = dictGetVal(de);
         serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
         if (dictSize(clients) == 0) {
-            /* Free the list and associated hash entry at all if this was
+            /* Free the dict and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
             dictDelete(d, channel);
@@ -374,7 +374,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     while ((de = dictNext(di)) != NULL) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
-        if (dictSize(clients) == 0) continue;
+        if (dictSize(clients) == 0) goto cleanup;
         /* For each client subscribed to the channel, unsubscribe it. */
         dictIterator *iter = dictGetSafeIterator(clients);
         dictEntry *entry;
@@ -388,9 +388,9 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
                 unmarkClientAsPubSub(c);
             }
-            dictDelete(clients, c);
         }
         dictReleaseIterator(iter);
+cleanup:
         server.shard_channel_count--;
         dictDelete(d, channel);
     }
@@ -440,7 +440,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         clients = dictGetVal(de);
         serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
         if (dictSize(clients) == 0) {
-            /* Free the list and associated hash entry at all if this was
+            /* Free the dict and associated hash entry at all if this was
              * the latest client. */
             dictDelete(server.pubsub_patterns,pattern);
         }
@@ -705,7 +705,7 @@ NULL
             dict *d = dictFetchValue(server.pubsub_channels, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
-            addReplyLongLong(c,d ? dictSize(d) : 0);
+            addReplyLongLong(c, d ? dictSize(d) : 0);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
@@ -726,7 +726,7 @@ NULL
             dict *clients = d ? dictFetchValue(d, c->argv[j]) : NULL;
 
             addReplyBulk(c,c->argv[j]);
-            addReplyLongLong(c,d ? dictSize(clients) : 0);
+            addReplyLongLong(c, d ? dictSize(clients) : 0);
         }
     } else {
         addReplySubcommandSyntaxError(c);
