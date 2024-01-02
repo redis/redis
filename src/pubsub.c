@@ -36,7 +36,7 @@ typedef struct pubsubtype {
     int shard;
     dict *(*clientPubSubChannels)(client*);
     int (*subscriptionCount)(client*);
-    dict **(*serverPubSubChannels)(unsigned int);
+    dictarray **serverPubSubChannels;
     robj **subscribeMsg;
     robj **unsubscribeMsg;
     robj **messageBulk;
@@ -63,21 +63,11 @@ dict* getClientPubSubChannels(client *c);
 dict* getClientPubSubShardChannels(client *c);
 
 /*
- * Get server's global Pub/Sub channels dict.
- */
-dict **getServerPubSubChannels(unsigned int slot);
-
-/*
- * Get server's shard level Pub/Sub channels dict.
- */
-dict **getServerPubSubShardChannels(unsigned int slot);
-
-/*
  * Get list of channels client is subscribed to.
  * If a pattern is provided, the subset of channels is returned
  * matching the pattern.
  */
-void channelList(client *c, sds pat, dict** pubsub_channels, int is_sharded);
+void channelList(client *c, sds pat, dictarray *pubsub_channels);
 
 /*
  * Pub/Sub type for global channels.
@@ -86,7 +76,7 @@ pubsubtype pubSubType = {
     .shard = 0,
     .clientPubSubChannels = getClientPubSubChannels,
     .subscriptionCount = clientSubscriptionsCount,
-    .serverPubSubChannels = getServerPubSubChannels,
+    .serverPubSubChannels = &server.pubsub_channels,
     .subscribeMsg = &shared.subscribebulk,
     .unsubscribeMsg = &shared.unsubscribebulk,
     .messageBulk = &shared.messagebulk,
@@ -99,7 +89,7 @@ pubsubtype pubSubShardType = {
     .shard = 1,
     .clientPubSubChannels = getClientPubSubShardChannels,
     .subscriptionCount = clientShardSubscriptionsCount,
-    .serverPubSubChannels = getServerPubSubShardChannels,
+    .serverPubSubChannels = &server.pubsubshard_channels,
     .subscribeMsg = &shared.ssubscribebulk,
     .unsubscribeMsg = &shared.sunsubscribebulk,
     .messageBulk = &shared.smessagebulk,
@@ -218,14 +208,13 @@ void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
 
 /* Return the number of pubsub channels + patterns is handled. */
 int serverPubsubSubscriptionCount(void) {
-    return dictSize(server.pubsub_channels) + dictSize(server.pubsub_patterns);
+    return daSize(server.pubsub_channels) + dictSize(server.pubsub_patterns);
 }
 
 /* Return the number of pubsub shard level channels is handled. */
 int serverPubsubShardSubscriptionCount(void) {
-    return server.shard_channel_count;
+    return daSize(server.pubsubshard_channels);
 }
-
 
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(client *c) {
@@ -243,16 +232,6 @@ dict* getClientPubSubChannels(client *c) {
 
 dict* getClientPubSubShardChannels(client *c) {
     return c->pubsubshard_channels;
-}
-
-dict **getServerPubSubChannels(unsigned int slot) {
-    UNUSED(slot);
-    return &server.pubsub_channels;
-}
-
-dict **getServerPubSubShardChannels(unsigned int slot) {
-    serverAssert(server.cluster_enabled || slot == 0);
-    return &server.pubsubshard_channels[slot];
 }
 
 /* Return the number of pubsub + pubsub shard level channels
@@ -278,8 +257,7 @@ void unmarkClientAsPubSub(client *c) {
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
 int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
-    dict **d_ptr;
-    dictEntry *de;
+    dictEntry *de, *existing;
     list *clients = NULL;
     int retval = 0;
     unsigned int slot = 0;
@@ -292,23 +270,17 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         if (server.cluster_enabled && type.shard) {
             slot = c->slot;
         }
-        d_ptr = type.serverPubSubChannels(slot);
-        if (*d_ptr == NULL) {
-            *d_ptr = dictCreate(&keylistDictType);
-            de = NULL;
+
+        de = daDictAddRaw(*type.serverPubSubChannels, slot, channel, &existing);
+
+        if (existing) {
+            clients = dictGetVal(existing);
         } else {
-            de = dictFind(*d_ptr, channel);
-        }
-        if (de == NULL) {
             clients = listCreate();
-            dictAdd(*d_ptr, channel, clients);
+            daDictSetVal(*type.serverPubSubChannels, slot, de, clients);
             incrRefCount(channel);
-            if (type.shard) {
-                server.shard_channel_count++;
-            }
-        } else {
-            clients = dictGetVal(de);
         }
+
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
@@ -319,7 +291,6 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype type) {
-    dict *d;
     dictEntry *de;
     list *clients;
     listNode *ln;
@@ -335,9 +306,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         if (server.cluster_enabled && type.shard) {
             slot = c->slot != -1 ? c->slot : (int)keyHashSlot(channel->ptr, sdslen(channel->ptr));
         }
-        d = *type.serverPubSubChannels(slot);
-        serverAssertWithInfo(c,NULL,d != NULL);
-        de = dictFind(d, channel);
+        de = daDictFind(*type.serverPubSubChannels, slot, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
@@ -347,15 +316,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
-            dictDelete(d, channel);
-            if (type.shard) {
-                if (dictSize(d) == 0) {
-                    dictRelease(d);
-                    dict **d_ptr = type.serverPubSubChannels(slot);
-                    *d_ptr = NULL;
-                }
-                server.shard_channel_count--;
-            }
+            daDictDelete(*type.serverPubSubChannels, slot, channel);
         }
     }
     /* Notify the client */
@@ -368,11 +329,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
 
 /* Unsubscribe all shard channels in a slot. */
 void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
-    dict *d = server.pubsubshard_channels[slot];
-    if (!d) {
-        return;
-    }
-    dictIterator *di = dictGetSafeIterator(d);
+    dictIterator *di = dictGetSafeIterator(daGetDict(server.pubsubshard_channels, slot));
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *channel = dictGetKey(de);
@@ -391,12 +348,9 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
             }
             listDelNode(clients, ln);
         }
-        server.shard_channel_count--;
-        dictDelete(d, channel);
+        daDictDelete(server.pubsubshard_channels, slot, channel);
     }
     dictReleaseIterator(di);
-    dictRelease(d);
-    server.pubsubshard_channels[slot] = NULL;
 }
 
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
@@ -518,7 +472,6 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
  */
 int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) {
     int receivers = 0;
-    dict *d;
     dictEntry *de;
     dictIterator *di;
     listNode *ln;
@@ -529,8 +482,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     if (server.cluster_enabled && type.shard) {
         slot = keyHashSlot(channel->ptr, sdslen(channel->ptr));
     }
-    d = *type.serverPubSubChannels(slot);
-    de = d ? dictFind(d, channel) : NULL;
+    de = daDictFind(*type.serverPubSubChannels, slot, channel);
     if (de) {
         list *list = dictGetVal(de);
         listNode *ln;
@@ -699,14 +651,14 @@ NULL
     {
         /* PUBSUB CHANNELS [<pattern>] */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
-        channelList(c, pat, &server.pubsub_channels, 0);
+        channelList(c, pat, server.pubsub_channels);
     } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
 
         addReplyArrayLen(c,(c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
-            list *l = dictFetchValue(server.pubsub_channels,c->argv[j]);
+            list *l = dictFetchValue(daGetDict(server.pubsub_channels, 0),c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
@@ -719,15 +671,15 @@ NULL
     {
         /* PUBSUB SHARDCHANNELS */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
-        channelList(c,pat,server.pubsubshard_channels,server.cluster_enabled);
+        channelList(c,pat,server.pubsubshard_channels);
     } else if (!strcasecmp(c->argv[1]->ptr,"shardnumsub") && c->argc >= 2) {
         /* PUBSUB SHARDNUMSUB [ShardChannel_1 ... ShardChannel_N] */
         int j;
         addReplyArrayLen(c, (c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
             unsigned int slot = calculateKeySlot(c->argv[j]->ptr);
-            dict *d = server.pubsubshard_channels[slot];
-            list *l = d ? dictFetchValue(d, c->argv[j]) : NULL;
+            dict *d = daGetDict(server.pubsubshard_channels, slot);
+            list *l = dictFetchValue(d, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c,l ? listLength(l) : 0);
@@ -737,17 +689,14 @@ NULL
     }
 }
 
-void channelList(client *c, sds pat, dict **pubsub_channels, int is_sharded) {
+void channelList(client *c, sds pat, dictarray *pubsub_channels) {
     long mblen = 0;
     void *replylen;
-    unsigned int slot_cnt = is_sharded ? CLUSTER_SLOTS : 1;
+    unsigned int slot_cnt = pubsub_channels->num_dicts;
 
     replylen = addReplyDeferredLen(c);
     for (unsigned int i = 0; i < slot_cnt; i++) {
-        if (pubsub_channels[i] == NULL) {
-            continue;
-        }
-        dictIterator *di = dictGetIterator(pubsub_channels[i]);
+        dictIterator *di = dictGetIterator(daGetDict(pubsub_channels, i));
         dictEntry *de;
         while((de = dictNext(di)) != NULL) {
             robj *cobj = dictGetKey(de);

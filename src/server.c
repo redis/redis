@@ -2638,10 +2638,9 @@ void initServer(void) {
     }
     server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&keylistDictType);
+    server.pubsub_channels = daCreate(&keylistDictType, 0);
     server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
-    server.shard_channel_count = 0;
+    server.pubsubshard_channels = daCreate(&keylistDictType, slot_count_bits);
     server.pubsub_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
@@ -5774,9 +5773,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
             "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
-            "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
+            "pubsub_channels:%llu\r\n", daSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%llu\r\n", server.shard_channel_count,
+            "pubsubshard_channels:%llu\r\n", daSize(server.pubsubshard_channels),
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),

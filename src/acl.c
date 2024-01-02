@@ -1905,8 +1905,8 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
 
 int totalSubscriptions(void) {
     return dictSize(server.pubsub_patterns) +
-           dictSize(server.pubsub_channels) +
-           server.shard_channel_count;
+           daSize(server.pubsub_channels) +
+           daSize(server.pubsubshard_channels);
 }
 
 /* If 'new' can access all channels 'original' could then return NULL;
