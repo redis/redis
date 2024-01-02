@@ -2423,7 +2423,6 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                 server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
 
             /* Let redis process events */
-            // if (listLength(server.clients) != 0) processEventsWhileBlocked();
             processEventsWhileBlocked();
 
             server.busy_module_yield_reply = prev_busy_module_yield_reply;
