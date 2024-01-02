@@ -2394,9 +2394,9 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             /* Let redis process events */
             processEventsWhileBlocked();
         } else {
-            /* If it is not the main thread, we need to wait for the main thread
-             * to enter acquiring GIL state in order to protect the ae and avoid
-             * potential race conditions. */
+            /* If it is not the main thread, we need to process events after the
+             * main thread enter acquiring GIL state in order to protect the ae and
+             * avoid potential race conditions. */
             if (!pthread_equal(server.main_thread_id, pthread_self())) {
                 int acquiring;
                 atomicGet(server.module_gil_acquring, acquiring);
