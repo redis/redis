@@ -2394,12 +2394,20 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             /* Let redis process events */
             processEventsWhileBlocked();
         } else {
-            /* If it is not the main thread, we need to wait for the main thread to enter acquiring GIL
-             * state in order to protect the ae and avoid potential race conditions. */
+            /* If it is not the main thread, we need to wait for the main thread
+             * to enter acquiring GIL state in order to protect the ae and avoid
+             * potential race conditions. */
             if (!pthread_equal(server.main_thread_id, pthread_self())) {
                 int acquiring;
                 atomicGet(server.module_gil_acquring, acquiring);
-                if (!acquiring) goto end; /* We can do nothing if the main thread is not yet in acquiring GIL state. */
+                if (!acquiring) {
+                    /* Wake up the event loop from module thread. */
+                    if (write(server.module_pipe[1],"A",1) != 1) {
+                        /* Ignore the error, this is best-effort. */
+                    }
+                    goto end; /* We can do nothing if the main thread
+                               * is not yet in acquiring GIL state. */
+                }
             }
 
             const char *prev_busy_module_yield_reply = server.busy_module_yield_reply;
@@ -2415,6 +2423,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                 server.busy_module_yield_flags |= BUSY_MODULE_YIELD_CLIENTS;
 
             /* Let redis process events */
+            // if (listLength(server.clients) != 0) processEventsWhileBlocked();
             processEventsWhileBlocked();
 
             server.busy_module_yield_reply = prev_busy_module_yield_reply;
