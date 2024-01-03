@@ -1780,8 +1780,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
                 } else {
                     fail "Replica buffer should fill"
                 }
-
-                assert {[s -2 replicas_replication_buffer_size] <= 16384}
+                assert {[s -2 replicas_replication_buffer_size] <= 16385*2}
 
                 # Wait for sync to succeed 
                 wait_for_value_to_propegate_to_replica $master $replica1 "key4"

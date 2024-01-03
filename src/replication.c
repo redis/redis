@@ -2738,9 +2738,13 @@ void bufferReplData(connection *conn) {
                 serverLog(LL_DEBUG, "Replication buffer limit reached, stopping buffering");
                 break;
             }
-            /* Create a new node */
-            tail = zmalloc(sizeof(replDataBufBlock));
-            tail->size = PROTO_IOBUF_LEN;
+            /* Create a new node, make sure it is allocated to at least PROTO_REPLY_CHUNK_BYTES. 
+             * Use the same upper boundary as the shared replication buffer, as they share the same purpose */
+            size_t usable_size;
+            size_t limit = max((size_t)server.repl_backlog_size / 16, (size_t)PROTO_REPLY_CHUNK_BYTES);
+            size_t size = min(max(readlen, (size_t)PROTO_REPLY_CHUNK_BYTES), limit);
+            tail = zmalloc_usable(size + sizeof(replDataBufBlock), &usable_size);
+            tail->size = usable_size - sizeof(replDataBufBlock);
             tail->used = 0;
             listAddNodeTail(server.pending_repl_data.blocks, tail);
             server.pending_repl_data.len += tail->size;

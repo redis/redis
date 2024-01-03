@@ -973,7 +973,7 @@ typedef struct replBufBlock {
  * replication data */
 typedef struct replDataBufBlock {
     size_t size, used;
-    char buf[PROTO_IOBUF_LEN];
+    char buf[];
 } replDataBufBlock;
 
 /* Opaque type for the Slot to Key API. */
@@ -1139,8 +1139,8 @@ typedef struct replBacklog {
 } replBacklog;
 
 typedef struct replDataBuf {
-    list *blocks; /* list of replDataBufBlock */
-    size_t len;
+    list *blocks; /* List of replDataBufBlock */
+    size_t len;   /* Number of bytes stored in all blocks */
 } replDataBuf;
 
 typedef struct {
