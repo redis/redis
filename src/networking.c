@@ -2818,19 +2818,7 @@ void readQueryFromClient(connection *conn) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             return;
         } else {
-            /* For TLS, we get here if the connection was closed. */
-            if (connGetState(conn) == CONN_STATE_CLOSED) {
-                if (runningAsIOThread(c)) {
-                    serverLog(LL_VERBOSE, "Client closed connection %ld", c->id);
-                } else {
-                    sds info = catClientInfoString(sdsempty(), c);
-                    serverLog(LL_VERBOSE, "Client closed connection %s", info);
-                    sdsfree(info);
-                }
-            } else {
-                /* DEBUG */
-                serverLog(LL_VERBOSE, "Reading from client, last error: %s (errno %d)",connGetLastError(c->conn),errno);
-            }
+            serverLog(LL_VERBOSE, "Reading from client: %s",connGetLastError(c->conn));
             freeClientAsync(c);
             goto done;
         }
@@ -2838,7 +2826,8 @@ void readQueryFromClient(connection *conn) {
         if (server.verbosity <= LL_VERBOSE) {
             if (runningAsIOThread(c)) {
                 /* catClientInfoString isn't thread safe. */
-                serverLog(LL_VERBOSE, "Client closed connection %ld", c->id);
+                serverLog(LL_VERBOSE, "Client closed connection id=%llu",
+                          (unsigned long long)c->id);
             } else {
                 sds info = catClientInfoString(sdsempty(), c);
                 serverLog(LL_VERBOSE, "Client closed connection %s", info);
@@ -4419,7 +4408,6 @@ static void IOThreadMessageToMain(client *c, int action) {
     pthread_mutex_lock(&mutex);
     while (!atomicqueueTryPush(main_thread_inbox, &message)) {
         /* Main thread's inbox is full. Let main thread work. */
-        serverLog(LL_DEBUG, "Main's inbox was full.");
         usleep(1);
     }
     pthread_mutex_unlock(&mutex);
@@ -4850,8 +4838,6 @@ void *IOThreadMain(void *myid) {
     /* Create event loop */
     int maxevents = server.maxclients + CONFIG_FDSET_INCR;
     t->el = aeCreateEventLoop(maxevents);
-    serverLog(LL_DEBUG, "I/O thread %d (%ld) has event loop %p\n",
-              id, pthread_self(), (void*)t->el);
     if (t->el == NULL) {
         serverLog(LL_WARNING,
                   "Failed creating the io-thread event loop. Error message: '%s'",
