@@ -2394,9 +2394,9 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             /* Let redis process events */
             processEventsWhileBlocked();
         } else {
-            /* If it is not the main thread, we need to process events after the
-             * main thread enter acquiring GIL state in order to protect the ae and
-             * avoid potential race conditions. */
+            /* If we are not in the main thread, we need to process events after the
+             * main thread enters acquiring GIL state in order to protect the event
+             * loop (ae.c) and avoid potential race conditions. */
             if (!pthread_equal(server.main_thread_id, pthread_self())) {
                 int acquiring;
                 atomicGet(server.module_gil_acquring, acquiring);
@@ -2404,7 +2404,8 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                     /* If the main thread has not yet entered the acquiring GIL state,
                      * we attempt to wake it up and exit without waiting for it to
                      * acquire the GIL. This avoids blocking the caller, allowing them to
-                     * continue with unfinished tasks before the next yield. */
+                     * continue with unfinished tasks before the next yield.
+		     * We assume the caller keeps the GIL locked. */
                     if (write(server.module_pipe[1],"A",1) != 1) {
                         /* Ignore the error, this is best-effort. */
                     }
