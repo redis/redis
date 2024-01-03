@@ -815,7 +815,9 @@ long long getInstantaneousMetric(int metric) {
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
     size_t querybuf_size = sdsalloc(c->querybuf);
-    time_t idletime = server.unixtime - c->lastinteraction;
+    time_t lastinteraction;
+    atomicGet(c->lastinteraction, lastinteraction);
+    time_t idletime = server.unixtime - lastinteraction;
 
     /* Only resize the query buffer if the buffer is actually wasting at least a
      * few kbytes */
@@ -5965,11 +5967,17 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 slave_read_repl_offset = server.cached_master->read_reploff;
             }
 
+            int master_last_io_seconds_ago = -1;
+            if (server.master) {
+                time_t lastinteraction;
+                atomicGet(server.master->lastinteraction, lastinteraction);
+                master_last_io_seconds_ago = (int)(server.unixtime - lastinteraction);
+            }
             info = sdscatprintf(info, FMTARGS(
                 "master_host:%s\r\n", server.masterhost,
                 "master_port:%d\r\n", server.masterport,
                 "master_link_status:%s\r\n", (server.repl_state == REPL_STATE_CONNECTED) ? "up" : "down",
-                "master_last_io_seconds_ago:%d\r\n", server.master ? ((int)(server.unixtime-server.master->lastinteraction)) : -1,
+                "master_last_io_seconds_ago:%d\r\n", master_last_io_seconds_ago,
                 "master_sync_in_progress:%d\r\n", server.repl_state == REPL_STATE_TRANSFER,
                 "slave_read_repl_offset:%lld\r\n", slave_read_repl_offset,
                 "slave_repl_offset:%lld\r\n", slave_repl_offset));

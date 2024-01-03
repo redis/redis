@@ -217,7 +217,8 @@ client *createClient(connection *conn) {
     c->sentlen = 0;
     c->flags = 0;
     c->slot = -1;
-    c->ctime = c->lastinteraction = server.unixtime;
+    c->ctime = server.unixtime;
+    atomicSet(c->lastinteraction, server.unixtime);
     c->duration = 0;
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
@@ -2086,7 +2087,7 @@ int writeToClient(client *c, int handler_installed) {
          * as an interaction, since we always send REPLCONF ACK commands
          * that take some time to just fill the socket output buffer.
          * We just rely on data / pings received for timeout detection. */
-        if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
+        if (!(c->flags & CLIENT_MASTER)) atomicSet(c->lastinteraction, server.unixtime);
     }
     if (!clientHasPendingReplies(c)) {
         serverAssert(c->sentlen == 0 || isClientHandledByIOThread(c));
@@ -2842,7 +2843,7 @@ void readQueryFromClient(connection *conn) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
-    c->lastinteraction = server.unixtime;
+    atomicSet(c->lastinteraction, server.unixtime);
     if (is_master_client) {
         c->read_reploff += nread;
         atomicIncr(server.stat_net_repl_input_bytes, nread);
@@ -2968,6 +2969,8 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
+    time_t lastinteraction;
+    atomicGet(client->lastinteraction, lastinteraction);
     sds ret = sdscatfmt(s, FMTARGS(
         "id=%U", (unsigned long long) client->id,
         " addr=%s", getClientPeerId(client),
@@ -2975,7 +2978,7 @@ sds catClientInfoString(sds s, client *client) {
         " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)),
         " name=%s", client->name ? (char*)client->name->ptr : "",
         " age=%I", (long long)(server.unixtime - client->ctime),
-        " idle=%I", (long long)(server.unixtime - client->lastinteraction),
+        " idle=%I", (long long)(server.unixtime - lastinteraction),
         " flags=%s", flags,
         " db=%i", client->db->id,
         " sub=%i", (int) dictSize(client->pubsub_channels),
@@ -4704,7 +4707,7 @@ int IOThreadSendRepliesToClient(client *c, int handler_installed) {
         }
     }
 
-    if (totwritten > 0) c->lastinteraction = server.unixtime;
+    if (totwritten > 0) atomicSet(c->lastinteraction, server.unixtime);
 
     if (!IOThreadClientHasPendingReplies(c)) {
         serverAssert(c->sentlen == 0);

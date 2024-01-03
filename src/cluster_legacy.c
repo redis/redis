@@ -4125,7 +4125,9 @@ void clusterHandleSlaveFailover(void) {
     /* Set data_age to the number of milliseconds we are disconnected from
      * the master. */
     if (server.repl_state == REPL_STATE_CONNECTED) {
-        data_age = (mstime_t)(server.unixtime - server.master->lastinteraction)
+        time_t lastinteraction;
+        atomicGet(server.master->lastinteraction, lastinteraction);
+        data_age = (mstime_t)(server.unixtime - lastinteraction)
                    * 1000;
     } else {
         data_age = (mstime_t)(server.unixtime - server.repl_down_since) * 1000;

@@ -3409,7 +3409,7 @@ void replicationResurrectCachedMaster(connection *conn) {
     connSetPrivateData(server.master->conn, server.master);
     server.master->flags &= ~(CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP);
     server.master->authenticated = 1;
-    server.master->lastinteraction = server.unixtime;
+    atomicSet(server.master->lastinteraction, server.unixtime);
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
 
@@ -3746,11 +3746,13 @@ void replicationCron(void) {
     }
 
     /* Timed out master when we are an already connected slave? */
-    if (server.masterhost && server.repl_state == REPL_STATE_CONNECTED &&
-        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
-    {
-        serverLog(LL_WARNING,"MASTER timeout: no data nor PING received...");
-        freeClient(server.master);
+    if (server.masterhost && server.repl_state == REPL_STATE_CONNECTED) {
+        time_t lastinteraction;
+        atomicGet(server.master->lastinteraction, lastinteraction);
+        if (time(NULL) - lastinteraction > server.repl_timeout) {
+            serverLog(LL_WARNING,"MASTER timeout: no data nor PING received...");
+            freeClient(server.master);
+        }
     }
 
     /* Check if we should connect to a MASTER */
@@ -3944,7 +3946,9 @@ int shouldStartChildReplication(int *mincapa_out, int *req_out) {
                     /* Skip slaves that don't match */
                     continue;
                 }
-                idle = server.unixtime - slave->lastinteraction;
+                time_t lastinteraction;
+                atomicGet(slave->lastinteraction, lastinteraction);
+                idle = server.unixtime - lastinteraction;
                 if (idle > max_idle) max_idle = idle;
                 slaves_waiting++;
                 mincapa = first ? slave->slave_capa : (mincapa & slave->slave_capa);
