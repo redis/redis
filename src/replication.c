@@ -1905,7 +1905,7 @@ static int useDisklessLoad(void) {
 }
 
 static int useRdbChannelSync(void) {
-    return server.rdb_channel_enabled && (server.primary_can_sync_using_rdb_channel == 1);
+    return server.rdb_channel_enabled && (server.master_supports_rdb_channel == 1);
 }
 
 /* Helper function for readSyncBulkPayload() to initialize tempDb
@@ -2527,7 +2527,7 @@ void abortRdbConnectionSync(int should_retry) {
 
     if (!should_retry) {
         /* Make sure next time we will try different approach */
-        server.primary_can_sync_using_rdb_channel = 0;
+        server.master_supports_rdb_channel = 0;
     }
     return;
 }
@@ -3590,7 +3590,7 @@ void replicationSetMaster(char *ip, int port) {
                               NULL);
 
     server.repl_state = REPL_STATE_CONNECT;
-    server.primary_can_sync_using_rdb_channel = 1;
+    server.master_supports_rdb_channel = 1;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
     connectWithMaster();
