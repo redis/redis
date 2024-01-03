@@ -290,7 +290,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
-            slot = c->slot;
+            slot = getKeySlot(channel->ptr);
         }
         d_ptr = type.serverPubSubChannels(slot);
         if (*d_ptr == NULL) {
@@ -333,7 +333,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         if (server.cluster_enabled && type.shard) {
-            slot = c->slot != -1 ? c->slot : (int)keyHashSlot(channel->ptr, sdslen(channel->ptr));
+            slot = getKeySlot(channel->ptr);
         }
         d = *type.serverPubSubChannels(slot);
         serverAssertWithInfo(c,NULL,d != NULL);

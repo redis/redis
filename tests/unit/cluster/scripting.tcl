@@ -62,6 +62,10 @@ start_cluster 1 0 {tags {external:skip cluster}} {
             } 1 bar}
     }
 
+    test {Cross slot commands are allowed by default if they disagree with pre-declared keys} {
+        r 0 eval "redis.call('set', 'foo', 'bar')" 1 bar
+    }
+
     test "Function no-cluster flag" {
         R 0 function load {#!lua name=test
             redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
