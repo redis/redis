@@ -1826,7 +1826,7 @@ int beforeNextClient(client *c) {
      * blocked client as well */
 
     /* Skip the client processing if we're in an IO thread. */
-    if (runningAsIOThread(c))
+    if (c && runningAsIOThread(c))
         return C_OK;
     /* Handle async frees */
     /* Note: this doesn't make the server.clients_to_close list redundant because of
