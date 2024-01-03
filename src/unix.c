@@ -93,7 +93,8 @@ static connection *connCreateAcceptedUnix(int fd, void *priv, aeEventLoop *el) {
 }
 
 static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cfd, max = MAX_ACCEPTS_PER_CALL;
+    int cfd;
+    int max = server.max_new_conns_per_cycle;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);

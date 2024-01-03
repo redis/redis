@@ -29,7 +29,6 @@
  */
 
 #include "fmacros.h"
-#include "version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -64,7 +63,6 @@
 #include "connection.h"
 #include "cli_common.h"
 #include "mt19937-64.h"
-
 #include "cli_commands.h"
 
 #define UNUSED(V) ((void) V)
@@ -277,6 +275,8 @@ static struct config {
     char *server_version;
     char *test_hint;
     char *test_hint_file;
+    int prefer_ipv4; /* Prefer IPv4 over IPv6 on DNS lookup. */
+    int prefer_ipv6; /* Prefer IPv6 over IPv4 on DNS lookup. */
 } config;
 
 /* User preferences. */
@@ -287,8 +287,6 @@ static struct pref {
 static volatile sig_atomic_t force_cancel_loop = 0;
 static void usage(int err);
 static void slaveMode(int send_sync);
-char *redisGitSHA1(void);
-char *redisGitDirty(void);
 static int cliConnect(int flags);
 
 static char *getInfoField(char *info, char *field);
@@ -423,20 +421,6 @@ typedef struct {
 
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
-
-static sds cliVersion(void) {
-    sds version;
-    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
-
-    /* Add git commit and working tree status when available */
-    if (strtoll(redisGitSHA1(),NULL,16)) {
-        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtoll(redisGitDirty(),NULL,10))
-            version = sdscatprintf(version, "-dirty");
-        version = sdscat(version, ")");
-    }
-    return version;
-}
 
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
@@ -2786,6 +2770,10 @@ static int parseOptions(int argc, char **argv) {
             config.set_errcode = 1;
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
+        } else if (!strcmp(argv[i],"-4")) {
+            config.prefer_ipv4 = 1;
+        } else if (!strcmp(argv[i],"-6")) {
+            config.prefer_ipv6 = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
             if (CLUSTER_MANAGER_MODE()) usage(1);
             char *cmd = argv[++i];
@@ -2970,6 +2958,11 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
+    if (config.prefer_ipv4 && config.prefer_ipv6) {
+        fprintf(stderr, "Options -4 and -6 are mutually exclusive.\n");
+        exit(1);
+    }
+
     return i;
 }
 
@@ -3046,6 +3039,8 @@ static void usage(int err) {
 "  -D <delimiter>     Delimiter between responses for raw formatting (default: \\n).\n"
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 "  -e                 Return exit error code when command execution fails.\n"
+"  -4                 Prefer IPv4 over IPv6 on DNS lookup.\n"
+"  -6                 Prefer IPv6 over IPv4 on DNS lookup.\n"
 "%s"
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
@@ -3266,8 +3261,8 @@ void cliLoadPreferences(void) {
 /* Some commands can include sensitive information and shouldn't be put in the
  * history file. Currently these commands are include:
  * - AUTH
- * - ACL SETUSER, ACL GETUSER
- * - CONFIG SET masterauth/masteruser/requirepass
+ * - ACL DELUSER, ACL SETUSER, ACL GETUSER
+ * - CONFIG SET masterauth/masteruser/tls-key-file-pass/tls-client-key-file-pass/requirepass
  * - HELLO with [AUTH username password]
  * - MIGRATE with [AUTH password] or [AUTH2 username password] 
  * - SENTINEL CONFIG SET sentinel-pass password, SENTINEL CONFIG SET sentinel-user username 
@@ -3277,6 +3272,7 @@ static int isSensitiveCommand(int argc, char **argv) {
         return 1;
     } else if (argc > 1 &&
         !strcasecmp(argv[0],"acl") && (
+            !strcasecmp(argv[1],"deluser") ||
             !strcasecmp(argv[1],"setuser") ||
             !strcasecmp(argv[1],"getuser")))
     {
@@ -3287,6 +3283,8 @@ static int isSensitiveCommand(int argc, char **argv) {
             for (int j = 2; j < argc; j = j+2) {
                 if (!strcasecmp(argv[j],"masterauth") ||
                     !strcasecmp(argv[j],"masteruser") ||
+                    !strcasecmp(argv[j],"tls-key-file-pass") ||
+                    !strcasecmp(argv[j],"tls-client-key-file-pass") ||
                     !strcasecmp(argv[j],"requirepass")) {
                     return 1;
                 }
@@ -3391,7 +3389,7 @@ static void repl(void) {
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
                 fflush(stdout);
-                if (history) linenoiseHistoryAdd(line);
+                if (history) linenoiseHistoryAdd(line, 0);
                 if (historyfile) linenoiseHistorySave(historyfile);
                 linenoiseFree(line);
                 continue;
@@ -3417,10 +3415,11 @@ static void repl(void) {
                 repeat = 1;
             }
 
-            if (!isSensitiveCommand(argc - skipargs, argv + skipargs)) {
-                if (history) linenoiseHistoryAdd(line);
-                if (historyfile) linenoiseHistorySave(historyfile);
-            }
+            /* Always keep in-memory history. But for commands with sensitive information,
+             * avoid writing them to the history file. */
+            int is_sensitive = isSensitiveCommand(argc - skipargs, argv + skipargs);
+            if (history) linenoiseHistoryAdd(line, is_sensitive);
+            if (!is_sensitive && historyfile) linenoiseHistorySave(historyfile);
 
             if (strcasecmp(argv[0],"quit") == 0 ||
                 strcasecmp(argv[0],"exit") == 0)
@@ -3766,7 +3765,7 @@ typedef struct clusterManagerCommandDef {
 } clusterManagerCommandDef;
 
 clusterManagerCommandDef clusterManagerCommands[] = {
-    {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN",
+    {"create", clusterManagerCommandCreate, -1, "host1:port1 ... hostN:portN",
      "replicas <arg>"},
     {"check", clusterManagerCommandCheck, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "search-multiple-owners"},
@@ -7085,7 +7084,10 @@ assign_replicas:
                 first = node;
                 /* Although hiredis supports connecting to a hostname, CLUSTER
                  * MEET requires an IP address, so we do a DNS lookup here. */
-                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE)
+                int anet_flags = ANET_NONE;
+                if (config.prefer_ipv4) anet_flags |= ANET_PREFER_IPV4;
+                if (config.prefer_ipv6) anet_flags |= ANET_PREFER_IPV6;
+                if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), anet_flags)
                     == ANET_ERR)
                 {
                     fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
@@ -7280,7 +7282,10 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
                           "join the cluster.\n", ip, port);
     /* CLUSTER MEET requires an IP address, so we do a DNS lookup here. */
     char first_ip[NET_IP_STR_LEN];
-    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), ANET_NONE) == ANET_ERR) {
+    int anet_flags = ANET_NONE;
+    if (config.prefer_ipv4) anet_flags |= ANET_PREFER_IPV4;
+    if (config.prefer_ipv6) anet_flags |= ANET_PREFER_IPV6;
+    if (anetResolve(NULL, first->ip, first_ip, sizeof(first_ip), anet_flags) == ANET_ERR) {
         fprintf(stderr, "Invalid IP address or hostname specified: %s\n", first->ip);
         success = 0;
         goto cleanup;
@@ -9876,6 +9881,8 @@ int main(int argc, char **argv) {
     config.no_auth_warning = 0;
     config.in_multi = 0;
     config.server_version = NULL;
+    config.prefer_ipv4 = 0;
+    config.prefer_ipv6 = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;

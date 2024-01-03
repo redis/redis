@@ -72,10 +72,10 @@ static pthread_mutex_t signal_handler_lock;
 static pthread_mutexattr_t signal_handler_lock_attr;
 static volatile int signal_handler_lock_initialized = 0;
 /* Forward declarations */
-void bugReportStart(void);
+int bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
-void logStackTrace(void *eip, int uplevel);
+void logStackTrace(void *eip, int uplevel, int current_thread);
 void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, dbKeyType keyType);
 void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret);
 
@@ -1031,15 +1031,17 @@ NULL
 
 __attribute__ ((noinline))
 void _serverAssert(const char *estr, const char *file, int line) {
-    bugReportStart();
-    serverLog(LL_WARNING,"=== ASSERTION FAILED ===");
+    int new_report = bugReportStart();
+    serverLog(LL_WARNING,"=== %sASSERTION FAILED ===", new_report ? "" : "RECURSIVE ");
     serverLog(LL_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 
     if (server.crashlog_enabled) {
 #ifdef HAVE_BACKTRACE
-        logStackTrace(NULL, 1);
+        logStackTrace(NULL, 1, 0);
 #endif
-        printCrashReport();
+        /* If this was a recursive assertion, it what most likely generated
+         * from printCrashReport. */
+        if (new_report) printCrashReport();
     }
 
     // remove the signal handler so on abort() we will output the crash report.
@@ -1127,16 +1129,18 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     vsnprintf(fmtmsg,sizeof(fmtmsg),msg,ap);
     va_end(ap);
 
-    bugReportStart();
+    int new_report = bugReportStart();
     serverLog(LL_WARNING,"------------------------------------------------");
     serverLog(LL_WARNING,"!!! Software Failure. Press left mouse button to continue");
     serverLog(LL_WARNING,"Guru Meditation: %s #%s:%d",fmtmsg,file,line);
 
     if (server.crashlog_enabled) {
 #ifdef HAVE_BACKTRACE
-        logStackTrace(NULL, 1);
+        logStackTrace(NULL, 1, 0);
 #endif
-        printCrashReport();
+        /* If this was a recursive panic, it what most likely generated
+         * from printCrashReport. */
+        if (new_report) printCrashReport();
     }
 
     // remove the signal handler so on abort() we will output the crash report.
@@ -1144,14 +1148,18 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
     bugReportEnd(0, 0);
 }
 
-void bugReportStart(void) {
+/* Start a bug report, returning 1 if this is the first time this function was called, 0 otherwise. */
+int bugReportStart(void) {
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
         serverLogRaw(LL_WARNING|LL_RAW,
         "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
         bug_report_start = 1;
+        pthread_mutex_unlock(&bug_report_start_mutex);
+        return 1;
     }
     pthread_mutex_unlock(&bug_report_start_mutex);
+    return 0;
 }
 
 #ifdef HAVE_BACKTRACE
@@ -1895,9 +1903,9 @@ static void writeStacktraces(int fd, int uplevel) {
 
 }
 
-#else /* __linux__*/
+#endif /* __linux__ */
 __attribute__ ((noinline))
-static void writeStacktraces(int fd, int uplevel) {
+static void writeCurrentThreadsStackTrace(int fd, int uplevel) {
     void *trace[BACKTRACE_MAX_SIZE];
 
     int trace_size = backtrace(trace, BACKTRACE_MAX_SIZE);
@@ -1906,7 +1914,6 @@ static void writeStacktraces(int fd, int uplevel) {
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
     backtrace_symbols_fd(trace+uplevel, trace_size-uplevel, fd);
 }
-#endif /* __linux__ */
 
 /* Logs the stack trace using the backtrace() call. This function is designed
  * to be called from signal handlers safely.
@@ -1916,7 +1923,7 @@ static void writeStacktraces(int fd, int uplevel) {
  * __attribute__ ((noinline)) to make sure the compiler won't inline them.
  */
 __attribute__ ((noinline))
-void logStackTrace(void *eip, int uplevel) {
+void logStackTrace(void *eip, int uplevel, int current_thread) {
     int fd = openDirectLogFiledes();
     char *msg;
     uplevel++; /* skip this function */
@@ -1935,7 +1942,17 @@ void logStackTrace(void *eip, int uplevel) {
 
     /* Write symbols to log file */
     ++uplevel;
-    writeStacktraces(fd, uplevel);
+#ifdef __linux__
+    if (current_thread) {
+        writeCurrentThreadsStackTrace(fd, uplevel);
+    } else {
+        writeStacktraces(fd, uplevel);
+    }
+#else
+    /* Outside of linux, we only support writing the current thread. */
+    UNUSED(current_thread);
+    writeCurrentThreadsStackTrace(fd, uplevel);
+#endif
     msg = "\n------ STACK TRACE DONE ------\n";
     if (write(fd,msg,strlen(msg)) == -1) {/* Avoid warning. */};
 
@@ -2218,15 +2235,14 @@ __attribute__ ((noinline))
 static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     UNUSED(secret);
     UNUSED(info);
+    int print_full_crash_info = 1;
     /* Check if it is safe to enter the signal handler. second thread crashing at the same time will deadlock. */
     if(pthread_mutex_lock(&signal_handler_lock) == EDEADLK) {
-        /* If this thread already owns the lock (meaning we crashed during handling a signal)
-         * log that the crash report can't be generated. */
+        /* If this thread already owns the lock (meaning we crashed during handling a signal) switch
+         * to printing the minimal information about the crash. */
         serverLogRawFromHandler(LL_WARNING,
-            "Crashed running signal handler. Can't continue to generate the crash report");
-        /* gracefully exit */
-        bugReportEnd(1, sig);
-        return;
+            "Crashed running signal handler. Providing reduced version of recursive crash report.");
+        print_full_crash_info = 0;
     }
 
     bugReportStart();
@@ -2260,7 +2276,9 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         getAndSetMcontextEip(uc, ptr);
     }
 
-    logStackTrace(eip, 1);
+    /* When printing the reduced crash info, just print the current thread
+     * to avoid race conditions with the multi-threaded stack collector. */
+    logStackTrace(eip, 1, !print_full_crash_info);
 
     if (eip == info->si_addr) {
         /* Restore old eip */
@@ -2270,7 +2288,7 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     logRegisters(uc);
 #endif
 
-    printCrashReport();
+    if (print_full_crash_info) printCrashReport();
 
 #ifdef HAVE_BACKTRACE
     if (eip != NULL)
@@ -2430,7 +2448,7 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
         serverLogRawFromHandler(LL_WARNING, "\nReceived SIGALRM");
     }
 #ifdef HAVE_BACKTRACE
-    logStackTrace(getAndSetMcontextEip(uc, NULL), 1);
+    logStackTrace(getAndSetMcontextEip(uc, NULL), 1, 0);
 #else
     serverLogRawFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif

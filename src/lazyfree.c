@@ -179,6 +179,20 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
+    dbDictMetadata *metadata;
+    for (int i = 0; i < db->dict_count; i++) {
+        metadata = (dbDictMetadata *)dictMetadata(db->dict[i]);
+        if (metadata->rehashing_node) {
+            listDelNode(server.rehashing, metadata->rehashing_node);
+            metadata->rehashing_node = NULL;
+        }
+
+        metadata = (dbDictMetadata *)dictMetadata(db->expires[i]);
+        if (metadata->rehashing_node) {
+            listDelNode(server.rehashing, metadata->rehashing_node);
+            metadata->rehashing_node = NULL;
+        }
+    }
     dict **oldDict = db->dict;
     dict **oldExpires = db->expires;
     atomicIncr(lazyfree_objects,dbSize(db, DB_MAIN));
