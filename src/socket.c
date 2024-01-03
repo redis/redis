@@ -204,9 +204,7 @@ static int connSocketAccept(connection *conn, ConnectionCallbackFunc accept_hand
     if (conn->state != CONN_STATE_ACCEPTING) return C_ERR;
     conn->state = CONN_STATE_CONNECTED;
 
-    connIncrRefs(conn);
     if (!callHandler(conn, accept_handler)) ret = C_ERR;
-    connDecrRefs(conn);
 
     return ret;
 }
