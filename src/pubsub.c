@@ -278,14 +278,15 @@ void unmarkClientAsPubSub(client *c) {
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
 int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
-    dict **d_ptr;
-    dictEntry *de;
-    list *clients = NULL;
     int retval = 0;
-    unsigned int slot = 0;
 
     /* Add the channel to the client -> channels hash table */
     if (dictAdd(type.clientPubSubChannels(c),channel,NULL) == DICT_OK) {
+        dict **d_ptr;
+        dictEntry *de;
+        list *clients = NULL;
+        unsigned int slot = 0;
+
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
