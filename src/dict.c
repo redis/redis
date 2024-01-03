@@ -299,7 +299,7 @@ int dictTryExpand(dict *d, unsigned long size) {
 }
 
 /* Helper function for `dictRehash` and `dictBucketRehash` to move all the keys
- * in a bucket from the old to the new hash HT*/
+ * in a bucket `de` from the old to the new hash HT */
 void moveKeysInBucketOldtoNew(dict *d, dictEntry *de, uint64_t idx) {
     uint64_t h;
     dictEntry *nextde;
@@ -522,13 +522,12 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
 }
 
 /* Performs rehashing on a single bucket. */
-static void dictBucketRehash(dict *d, uint64_t hs) {
+static void dictBucketRehash(dict *d, uint64_t hash) {
     if (d->pauserehash != 0) return;
     dictEntry *de;
     uint64_t idx;
-    idx = hs & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     de = d->ht_table[0][idx];
-    /* Move all the keys in this bucket from the old to the new hash HT */
     moveKeysInBucketOldtoNew(d, de, idx);
     return;
 }
