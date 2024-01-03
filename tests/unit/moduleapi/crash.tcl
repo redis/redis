@@ -20,6 +20,8 @@ if {!$::valgrind} {
             wait_for_log_messages 0 {"*=== REDIS BUG REPORT END. Make sure to include from START to END. ===*"} $loglines 10 1000
             assert_equal 1 [count_log_message 0 "=== REDIS BUG REPORT END. Make sure to include from START to END. ==="]
             assert_equal 2 [count_log_message 0 "ASSERTION FAILED"]
+            # There will be 3 crash assertions, 1 in the first stack trace and 2 in the second
+            assert_equal 3 [count_log_message 0 "assertCrash"]
             assert_equal 1 [count_log_message 0 "RECURSIVE ASSERTION FAILED"]
             assert_equal 1 [count_log_message 0 "=== REDIS BUG REPORT START: Cut & paste starting from here ==="]
         }
