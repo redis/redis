@@ -1298,16 +1298,20 @@ typedef struct client {
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
     /* I/O Threads */
-    int io_thread_index;           /* Index in io_threads array; -1 = main. */
-    int io_thread_flags;           /* Flags local to the I/O thread. */
+    int io_thread_index;             /* Index in io_threads array; -1 = main. */
+    int io_thread_flags;             /* Flags local to the I/O thread. */
 #if IO_REPLY_LOCK_USE_MUTEX
-    pthread_mutex_t io_reply_lock; /* Mutex guarding io_reply_list. */
+    pthread_mutex_t io_reply_lock;   /* Mutex guarding io_reply_list. */
 #else
-    redisAtomic int io_reply_lock; /* Spinlock guarding io_reply_list. */
+    redisAtomic int io_reply_lock;   /* Spinlock guarding io_reply_list. */
 #endif
+    redisAtomic int io_reply_bufpos; /* Position in io_reply_buf. */
+    size_t io_reply_buf_usable_size; /* Usable size of io_reply_buf (UNUSED). */
+    char *io_reply_buf;              /* Reply buffer. */
     redisAtomic size_t io_reply_bytes; /* Num bytes in io_reply_list. */
-    list *io_reply_list;           /* Replies to be sent by io thread. */
-    size_t io_reply_sentlen;       /* Bytes in io_reply_list already sent. */
+    list *io_reply_list;             /* Replies to be sent by io thread. */
+    /* Additionally, I/O threads use sentlen (not used by main thread when
+     * client is pinned to an I/O thread). */
 
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;

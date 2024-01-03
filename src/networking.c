@@ -55,6 +55,7 @@ static inline void IOThreadReplyUnlock(client *c);
 static void IOThreadMessageToMain(client *c, int action);
 static int IOThreadWriteToClient(client *c, ssize_t *nwritten);
 static void IOThreadClientClosed(client *c);
+static int IOThreadClientHasPendingReplies(client *c);
 
 /* I/O thread message actions, for messages in both directions. */
 #define IO_THREAD_ADD_CLIENT 1         /* Transfer a client to the I/O thread,
@@ -174,13 +175,14 @@ client *createClient(connection *conn) {
     /* I/O thread related variables. */
     c->io_thread_index = -1; /* -1 = Handled by the main thread. */
     c->io_thread_flags = 0;
+    c->io_reply_buf = NULL;
     c->io_reply_list = NULL; /* Created when assigned to an I/O thread. */
-    c->io_reply_sentlen = 0;
 #if IO_REPLY_LOCK_USE_MUTEX
     pthread_mutex_init(&c->io_reply_lock, NULL);
 #else
     atomicSet(c->io_reply_lock, 0);
 #endif
+    atomicSet(c->io_reply_bufpos, 0);
     atomicSet(c->io_reply_bytes, 0);
 
 #ifdef LOG_REQ_RES
@@ -370,15 +372,18 @@ int prepareClientToWrite(client *c) {
  * sanitizer and generates a false positive out-of-bounds error */
 REDIS_NO_SANITIZE("bounds")
 size_t _addReplyToBuffer(client *c, const char *s, size_t len) {
-    size_t available = c->buf_usable_size - c->bufpos;
-
-    /* For clients handled by I/O threads, don't use the static buffer. */
-    if (isClientHandledByIOThread(c)) return 0;
-
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
     if (listLength(c->reply) > 0) return 0;
 
+    /* If there are any replies to be sent by the I/O thread, we cannot add
+     * anything to the static buffer. */
+    if (isClientHandledByIOThread(c) && IOThreadClientHasPendingReplies(c)) {
+        return 0;
+    }
+
+    serverAssert(c->buf != NULL);
+    size_t available = c->buf_usable_size - c->bufpos;
     size_t reply_len = len > available ? available : len;
     memcpy(c->buf+c->bufpos,s,reply_len);
     c->bufpos+=reply_len;
@@ -1682,6 +1687,7 @@ void freeClient(client *c) {
     /* Free data structures. */
     listRelease(c->reply);
     zfree(c->buf);
+    if (c->io_reply_buf) zfree(c->io_reply_buf);
     if (c->io_reply_list) listRelease(c->io_reply_list);
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
@@ -1936,16 +1942,25 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
 
 /* Called by main thread to give a reply over to the I/O thread in a thread-safe
  * way. Appends all elements of reply to the io reply list. */
-int moveReplyToIOThread(client *c) {
+void moveReplyToIOThread(client *c) {
     IOThreadReplyLock(c);
-    listJoin(c->io_reply_list, c->reply); /* Moves all elements. */
+    if (c->bufpos > 0) {
+        /* Move static buffer. */
+        serverAssert(c->buf != NULL);
+        serverAssert(c->io_reply_buf == NULL);
+        c->io_reply_buf = c->buf;
+        c->buf = NULL;
+        atomicSet(c->io_reply_bufpos, c->bufpos);
+        c->bufpos = 0;
+    }
+    /* Moves all elements in reply list. */
+    listJoin(c->io_reply_list, c->reply);
     atomicIncr(c->io_reply_bytes, c->reply_bytes);
     c->reply_bytes = 0;
     IOThreadReplyUnlock(c);
     int action = IO_THREAD_SEND_REPLY;
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) action |= IO_THREAD_CLOSE_AFTER_REPLY;
     sendMessageToIOThread(c, action);
-    return C_OK;
 }
 
 /* This function does actual writing output buffers to different types of
@@ -1985,17 +2000,17 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         return C_OK;
     }
 
+    if (isClientHandledByIOThread(c)) {
+        moveReplyToIOThread(c);
+        server.stat_io_writes_processed++; /* TODO: Make atomic and incr in the
+                                            * I/O thread. */
+        return C_OK;
+    }
+
     /* When the reply list is not empty, it's better to use writev to save us some
      * system calls and TCP packets. */
     if (listLength(c->reply) > 0) {
-        int ret;
-        if (isClientHandledByIOThread(c)) {
-            ret = moveReplyToIOThread(c);
-            server.stat_io_writes_processed++; /* TODO: Make atomic and incr in
-                                                * the I/O thread. */
-        } else {
-            ret = _writevToClient(c, nwritten);
-        }
+        int ret = _writevToClient(c, nwritten);
         if (ret != C_OK) return ret;
 
         /* If there are no longer objects in the list, we expect
@@ -2003,7 +2018,6 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         if (listLength(c->reply) == 0)
             serverAssert(c->reply_bytes == 0);
     } else if (c->bufpos > 0) {
-        serverAssert(!isClientHandledByIOThread(c));
         *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
         if (*nwritten <= 0) return C_ERR;
         c->sentlen += *nwritten;
@@ -2072,7 +2086,7 @@ int writeToClient(client *c, int handler_installed) {
         if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
     }
     if (!clientHasPendingReplies(c)) {
-        c->sentlen = 0;
+        serverAssert(c->sentlen == 0 || isClientHandledByIOThread(c));
         if (handler_installed) {
             /* Only clients pinned to main thread. */
             serverAssert(!isClientHandledByIOThread(c));
@@ -4462,20 +4476,31 @@ void handleMessagesFromIOThreads(void) {
             connSetEventLoop(c->conn, server.el);
             connSetReadHandler(c->conn, readQueryFromClient);
 
-            /* If there are pending replies, move io_reply_list to c->reply. */
-            if (c->io_reply_bytes > 0) {
-                serverAssert(c->sentlen == 0);
-                c->sentlen = c->io_reply_sentlen;
-                c->io_reply_sentlen = 0;
-
-                /* First swap c->reply and c->io_reply_list, then move all
-                 * elements to the end of c->reply. */
-                list *tmp = c->reply;
-                c->reply = c->io_reply_list;
-                c->io_reply_list = tmp;
-                listJoin(c->reply, c->io_reply_list);
-
-                c->reply_bytes += c->io_reply_bytes;
+            /* If there are pending replies, move them back to main thread's
+             * structures. */
+            int io_reply_bufpos;
+            size_t io_reply_bytes;
+            atomicGet(c->io_reply_bufpos, io_reply_bufpos);
+            atomicGet(c->io_reply_bytes, io_reply_bytes);
+            if (io_reply_bufpos || io_reply_bytes) {
+                if (io_reply_bufpos > 0) {
+                    /* Move static buffer to main thread's c->buf. */
+                    serverAssert(c->buf == NULL && c->bufpos == 0);
+                    c->bufpos = io_reply_bufpos;
+                    c->buf = c->io_reply_buf;
+                    c->io_reply_buf = NULL;
+                    atomicSet(c->io_reply_bufpos, 0);
+                }
+                if (io_reply_bytes > 0) {
+                    /* First swap c->reply and c->io_reply_list, then move all
+                     * elements to the end of c->reply. */
+                    list *tmp = c->reply;
+                    c->reply = c->io_reply_list;
+                    c->io_reply_list = tmp;
+                    listJoin(c->reply, c->io_reply_list);
+                    c->reply_bytes += io_reply_bytes;
+                    atomicSet(c->io_reply_bytes, 0);
+                }
                 putClientInPendingWriteQueue(c);
             }
 
@@ -4565,12 +4590,13 @@ static inline void IOThreadReplyUnlock(client *c) {
 #endif
 }
 
-/* I/O thread analogue to clientHasPendingReplies. Can be called by any
- * thread. */
-int IOThreadClientHasPendingReplies(client *c) {
+/* I/O thread analogue to clientHasPendingReplies. Called by any thread. */
+static int IOThreadClientHasPendingReplies(client *c) {
+    int io_reply_bufpos;
     size_t io_reply_bytes;
+    atomicGet(c->io_reply_bufpos, io_reply_bufpos);
     atomicGet(c->io_reply_bytes, io_reply_bytes);
-    return io_reply_bytes > 0;
+    return io_reply_bufpos || io_reply_bytes;
 }
 
 /* Called by an I/O thread to actually write replies to a client. It is similar
@@ -4581,12 +4607,24 @@ static int IOThreadWriteToClient(client *c, ssize_t *nwritten) {
     int iovmax = min(IOV_MAX, c->conn->iovcnt);
     struct iovec iov[iovmax];
     size_t iov_bytes_len = 0;
-    /* The first node of reply list might be incomplete from the last call. */
-    size_t offset = c->io_reply_sentlen;
+
+    IOThreadReplyLock(c);
+
+    /* If the static reply buffer is not empty,
+     * add it to the iov array for writev() as well. */
+    int io_reply_bufpos;
+    atomicGet(c->io_reply_bufpos, io_reply_bufpos);
+    if (io_reply_bufpos > 0) {
+        iov[iovcnt].iov_base = c->io_reply_buf + c->sentlen;
+        iov[iovcnt].iov_len = io_reply_bufpos - c->sentlen;
+        iov_bytes_len += iov[iovcnt++].iov_len;
+    }
+    /* The first node of reply list might be incomplete from the last call,
+     * thus it needs to be calibrated to get the actual data address and length. */
+    size_t offset = io_reply_bufpos > 0 ? 0 : c->sentlen;
     listIter iter;
     listNode *next;
     clientReplyBlock *o;
-    IOThreadReplyLock(c);
     listRewind(c->io_reply_list, &iter);
     while ((next = listNext(&iter)) &&
            iovcnt < iovmax &&
@@ -4622,18 +4660,32 @@ static int IOThreadWriteToClient(client *c, ssize_t *nwritten) {
      * release all nodes in front of it. */
     IOThreadReplyLock(c);
     ssize_t remaining = *nwritten;
+    if (io_reply_bufpos > 0) { /* deal with static reply buffer first. */
+        int buf_len = io_reply_bufpos - c->sentlen;
+        c->sentlen += remaining;
+        /* If the buffer was sent, set bufpos to zero to continue with
+         * the remainder of the reply. */
+        if (remaining >= buf_len) {
+            c->sentlen = 0;
+            /* Move static buffer back to main thread's c->buf. */
+            c->buf = c->io_reply_buf;
+            c->io_reply_buf = NULL;
+            atomicSet(c->io_reply_bufpos, 0);
+        }
+        remaining -= buf_len;
+    }
     listRewind(c->io_reply_list, &iter);
     while (remaining > 0) {
         next = listNext(&iter);
         o = listNodeValue(next);
-        if (remaining < (ssize_t)(o->used - c->io_reply_sentlen)) {
-            c->io_reply_sentlen += remaining;
+        if (remaining < (ssize_t)(o->used - c->sentlen)) {
+            c->sentlen += remaining;
             break;
         }
-        remaining -= (ssize_t)(o->used - c->io_reply_sentlen);
+        remaining -= (ssize_t)(o->used - c->sentlen);
         atomicIncr(c->io_reply_bytes, -o->size);
         listDelNode(c->io_reply_list, next);
-        c->io_reply_sentlen = 0;
+        c->sentlen = 0;
     }
     IOThreadReplyUnlock(c);
     return C_OK;
@@ -4664,7 +4716,7 @@ int IOThreadSendRepliesToClient(client *c, int handler_installed) {
     if (totwritten > 0) c->lastinteraction = server.unixtime;
 
     if (!IOThreadClientHasPendingReplies(c)) {
-        serverAssert(c->io_reply_sentlen == 0);
+        serverAssert(c->sentlen == 0);
         if (handler_installed) connSetWriteHandler(c->conn, NULL);
         if (c->io_thread_flags & IO_THREAD_FLAG_CLOSE_AFTER_REPLY) {
             freeClientAsync(c);
