@@ -30,7 +30,8 @@ atomicqueue *atomicqueueCreate(unsigned capacity, unsigned elemsize) {
     unsigned mask = 1;
     while (mask < capacity)
         mask = (mask << 1) | 1;
-    atomicqueue *queue = zmalloc(sizeof(struct atomicqueue) + (mask + 1) * elemsize);
+    atomicqueue *queue = zmalloc(sizeof(struct atomicqueue) +
+                                 ((size_t)mask + 1) * elemsize);
     atomicSet(queue->head, 0);
     atomicSet(queue->tail, 0);
     queue->mask = mask;
