@@ -348,6 +348,21 @@ void moveKeysInBucketOldtoNew(dict *d, dictEntry *de, uint64_t idx) {
     d->ht_table[0][idx] = NULL;
 }
 
+/* This checks if we already rehashed the whole table and if more rehashing is required */
+int verifyMoreRehashRequired(dict *d) {
+    if (d->ht_used[0] != 0) return 1;
+    
+    if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+    zfree(d->ht_table[0]);
+    /* Copy the new ht onto the old one */
+    d->ht_table[0] = d->ht_table[1];
+    d->ht_used[0] = d->ht_used[1];
+    d->ht_size_exp[0] = d->ht_size_exp[1];
+    _dictReset(d, 1);
+    d->rehashidx = -1;
+    return 0;
+}
+
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
  *
@@ -385,21 +400,7 @@ int dictRehash(dict *d, int n) {
         d->rehashidx++;
     }
 
-    /* Check if we already rehashed the whole table... */
-    if (d->ht_used[0] == 0) {
-        if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
-        zfree(d->ht_table[0]);
-        /* Copy the new ht onto the old one */
-        d->ht_table[0] = d->ht_table[1];
-        d->ht_used[0] = d->ht_used[1];
-        d->ht_size_exp[0] = d->ht_size_exp[1];
-        _dictReset(d, 1);
-        d->rehashidx = -1;
-        return 0;
-    }
-
-    /* More to rehash... */
-    return 1;
+    return verifyMoreRehashRequired(d);
 }
 
 long long timeInMilliseconds(void) {
@@ -529,6 +530,7 @@ static void dictBucketRehash(dict *d, uint64_t hash) {
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     de = d->ht_table[0][idx];
     moveKeysInBucketOldtoNew(d, de, idx);
+    verifyMoreRehashRequired(d);
     return;
 }
 
@@ -692,30 +694,29 @@ void dictRelease(dict *d)
 
 dictEntry *dictFind(dict *d, const void *key)
 {
-    dictEntry *he;
+    dictEntry *he = NULL;
     uint64_t h, idx;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
 
     h = dictHashKey(d, key);
     idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    he = d->ht_table[0][idx];
+    if ((long)idx >= d->rehashidx) {
+        he = d->ht_table[0][idx];
+    }
 
     if (dictIsRehashing(d)) {
         if ((long)idx >= d->rehashidx && he) {
             dictBucketRehash(d, h);
-            /* After rehashing the bucket, the he will be in ht1. */
-            idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
-            he = d->ht_table[1][idx];
-        /* If the he is not in ht0, we will try to look up in ht1
-         * and following that we do a random bucket rehash. */
-        } else if (!he) {
-            idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
-            he = d->ht_table[1][idx];
-            _dictRehashStep(d);
+        /* If the 'he' is not in ht0, we perform a random bucket rehash. */
         } else {
-            assert(0);
+            assert(!he);
+            _dictRehashStep(d);
         }
+        /* If rehashing is still ongoing, we lookup in table 1, otherwise in table 0. */
+        int table = dictIsRehashing(d) ? 1 : 0;
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        he = d->ht_table[table][idx];
     }
 
     while(he) {
