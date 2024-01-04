@@ -2553,6 +2553,20 @@ int prepareRdbConnectionForRdbLoad(connection *conn) {
     return C_OK;
 }
 
+/* Send to replica End Offset response with structure
+ * $ENDOFF:<end-offset> <primary-repl-id> <current-db-id> */
+int sendCurentOffsetToReplica(client* replica) {
+    char buf[128];
+    int buflen;
+    buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d\r\n", server.master_repl_offset, server.replid, server.db->id);
+    serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld", replicationGetSlaveName(replica), server.master_repl_offset);    
+    if (connSyncWrite(replica->conn, buf, buflen, server.repl_syncio_timeout*1000) != buflen) {
+        freeClientAsync(replica);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 int processEndOffsetResponse(char* response) {
     long long reploffset;
     char master_replid[CONFIG_RUN_ID_SIZE+1];

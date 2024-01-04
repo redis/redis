@@ -2846,6 +2846,7 @@ int isReplicaRdbChannel(client *c);
 int isOngoingRdbChannelSync(void);
 void abortRdbConnectionSync(int should_retry);
 void incrReadsProcessed(size_t nread);
+int sendCurentOffsetToReplica(client* replica);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

@@ -60,7 +60,6 @@ char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
-int sendCurentOffsetToReplica(client* replica);
 
 #ifdef __GNUC__
 void rdbReportError(int corruption_error, int linenum, char *reason, ...) __attribute__ ((format (printf, 3, 4)));
@@ -3498,20 +3497,6 @@ void killRDBChild(void) {
      * This includes:
      * - resetChildState
      * - rdbRemoveTempFile */
-}
-
-/* Send to replica End Offset response with structure
- * $ENDOFF:<end-offset> <primary-repl-id> <current-db-id> */
-int sendCurentOffsetToReplica(client* replica) {
-    char buf[128];
-    int buflen;
-    buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d\r\n", server.master_repl_offset, server.replid, server.db->id);
-    serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld", replicationGetSlaveName(replica), server.master_repl_offset);    
-    if (connSyncWrite(replica->conn, buf, buflen, server.repl_syncio_timeout*1000) != buflen) {
-        freeClientAsync(replica);
-        return C_ERR;
-    }
-    return C_OK;
 }
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
