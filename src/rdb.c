@@ -1557,21 +1557,6 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     return C_OK;
 }
 
-void sendReplicationOffsetToReplicas(int req) {
-    listNode *ln;
-    listIter li;
-    listRewind(server.slaves, &li);
-    while((ln = listNext(&li))) {
-        client *replica = ln->value;
-        if ((replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) &&
-            (replica->slave_req == req) &&
-            isReplicaRdbChannel(replica)) 
-        {
-                sendCurentOffsetToReplica(replica);            
-        }
-    }
-}
-
 int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     pid_t childpid;
 
@@ -1580,9 +1565,6 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
-
-    /* Before starting the sync check if some replica needs the primary current offset */
-    sendReplicationOffsetToReplicas(req);
 
     if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
         int retval;
