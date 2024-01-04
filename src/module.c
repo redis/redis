@@ -2405,7 +2405,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                      * we attempt to wake it up and exit without waiting for it to
                      * acquire the GIL. This avoids blocking the caller, allowing them to
                      * continue with unfinished tasks before the next yield.
-		     * We assume the caller keeps the GIL locked. */
+                     * We assume the caller keeps the GIL locked. */
                     if (write(server.module_pipe[1],"A",1) != 1) {
                         /* Ignore the error, this is best-effort. */
                     }
