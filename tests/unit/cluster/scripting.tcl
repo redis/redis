@@ -63,7 +63,12 @@ start_cluster 1 0 {tags {external:skip cluster}} {
     }
 
     test {Cross slot commands are allowed by default if they disagree with pre-declared keys} {
+        r 0 flushall
         r 0 eval "redis.call('set', 'foo', 'bar')" 1 bar
+
+        # Make sure the script writes to the right slot
+        assert_equal 1 [r 0 cluster COUNTKEYSINSLOT 12182] ;# foo slot
+        assert_equal 0 [r 0 cluster COUNTKEYSINSLOT 5061] ;# bar slot
     }
 
     test "Function no-cluster flag" {
