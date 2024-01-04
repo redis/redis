@@ -233,6 +233,9 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
 {
     if (malloc_failed) *malloc_failed = 0;
 
+    /* We can't rehash twice if rehashing is ongoing. */
+    assert(!dictIsRehashing(d));
+    
     /* the new hash table */
     dictEntry **new_ht_table;
     unsigned long new_ht_used;
@@ -283,23 +286,23 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
     return DICT_OK;
 }
 
-/* return DICT_ERR if expand was not performed */
-int dictExpand(dict *d, unsigned long size) {
+int _dictExpand(dict *d, unsigned long size, int* malloc_failed) {
     /* the size is invalid if it is smaller than the size of the hash table 
      * or smaller than the number of elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) >= size)
         return DICT_ERR;
-    return _dictResize(d, size, NULL);
+    return _dictResize(d, size, malloc_failed);
+}
+
+/* return DICT_ERR if expand was not performed */
+int dictExpand(dict *d, unsigned long size) {
+    return _dictExpand(d, size, NULL);
 }
 
 /* return DICT_ERR if expand failed due to memory allocation failure */
 int dictTryExpand(dict *d, unsigned long size) {
-    /* Don't need memory allocation if the size is smaller than the size of the hash table 
-     * or smaller than the number of elements already inside the hash table */
-    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) >= size)
-        return DICT_OK;
     int malloc_failed;
-    _dictResize(d, size, &malloc_failed);
+    _dictExpand(d, size, &malloc_failed);
     return malloc_failed? DICT_ERR : DICT_OK;
 }
 
@@ -602,8 +605,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                     dictFreeUnlinkedEntry(d, he);
                 }
                 d->ht_used[table]--;
-                if (_dictShrinkIfNeeded(d) == DICT_ERR) 
-                    return NULL;
+                _dictShrinkIfNeeded(d);
                 return he;
             }
             prevHe = he;
@@ -1500,8 +1502,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
     /* Expand the hash table if needed */
-    if (_dictExpandIfNeeded(d) == DICT_ERR)
-        return NULL;
+    _dictExpandIfNeeded(d);
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         if (table == 0 && (long)idx < d->rehashidx) continue; 
