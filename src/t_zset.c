@@ -2536,10 +2536,12 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
                 dictAdd(dstzset->dict,tmp,&znode->score);
                 cardinality++;
             } else {
+                dictPauseAutoResize(dstzset->dict);
                 tmp = zuiSdsFromValue(&zval);
                 if (zsetRemoveFromSkiplist(dstzset, tmp)) {
                     cardinality--;
                 }
+                dictResumeAutoResize(dstzset->dict);
             }
 
             /* Exit if result set is empty as any additional removal
@@ -2550,6 +2552,9 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
 
         if (cardinality == 0) break;
     }
+
+    /* Resize dict if needed after removing multiple elements */
+    if (htNeedsShrink(dstzset->dict)) dictShrinkToFit(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
      * we have to iterate through all elements to find the max one after. */
