@@ -235,7 +235,7 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
 
     /* We can't rehash twice if rehashing is ongoing. */
     assert(!dictIsRehashing(d));
-    
+
     /* the new hash table */
     dictEntry **new_ht_table;
     unsigned long new_ht_used;
@@ -301,7 +301,7 @@ int dictExpand(dict *d, unsigned long size) {
 
 /* return DICT_ERR if expand failed due to memory allocation failure */
 int dictTryExpand(dict *d, unsigned long size) {
-    int malloc_failed;
+    int malloc_failed = 0;
     _dictExpand(d, size, &malloc_failed);
     return malloc_failed? DICT_ERR : DICT_OK;
 }
