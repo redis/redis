@@ -2673,19 +2673,19 @@ void fullSyncWithMaster(connection* conn) {
 void replDataBufInit(void) {
     serverAssert(server.pending_repl_data.blocks == NULL);
     server.pending_repl_data.len = 0;
+    server.pending_repl_data.peak = 0;
     server.pending_repl_data.blocks = listCreate();
     server.pending_repl_data.blocks->free = zfree;
 }
 
 /* Track replication data streaming progress, and serve clients from time to time */
-void replStreamProgressCallback(long long offset, int readlen) {
+void replStreamProgressCallback(size_t offset, int readlen) {
     if (server.loading_process_events_interval_bytes &&
         (offset + readlen)/server.loading_process_events_interval_bytes > offset/server.loading_process_events_interval_bytes)
     {
         replicationSendNewlineToMaster();
         processEventsWhileBlocked();
     }
-    atomicIncr(server.stat_repl_processed_bytes, readlen);
 }
 
 /* Reads replication data from primary into specified repl buffer block */
@@ -2748,6 +2748,10 @@ void bufferReplData(connection *conn) {
             tail->used = 0;
             listAddNodeTail(server.pending_repl_data.blocks, tail);
             server.pending_repl_data.len += tail->size;
+            /* Update buffer's peak */
+            if (server.pending_repl_data.peak < server.pending_repl_data.len)
+                server.pending_repl_data.peak = server.pending_repl_data.len;
+
 
             read = min(readlen, tail->size);
             readlen -= read;
@@ -2777,8 +2781,9 @@ void streamReplDataBufToDb(client *c) {
         c->querybuf = sdscatlen(c->querybuf, o->buf, o->used);
         c->read_reploff += o->used;
         processInputBuffer(c);
-        offset += o->used;
+        server.pending_repl_data.len -= o->used;
         replStreamProgressCallback(offset, o->used);
+        offset += o->used;
 
         listDelNode(server.pending_repl_data.blocks, cur);
     } 

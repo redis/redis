@@ -2522,7 +2522,6 @@ void resetServerStats(void) {
     atomicSet(server.stat_net_output_bytes, 0);
     atomicSet(server.stat_net_repl_input_bytes, 0);
     atomicSet(server.stat_net_repl_output_bytes, 0);
-    atomicSet(server.stat_repl_processed_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
@@ -5643,6 +5642,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_replication_backlog:%zu\r\n"
             "mem_total_replication_buffers:%zu\r\n"
             "replicas_replication_buffer_size:%zu\r\n"
+            "replicas_replication_buffer_peak:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_cluster_links:%zu\r\n"
@@ -5698,6 +5698,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             mh->repl_backlog,
             server.repl_buffer_mem,
             server.pending_repl_data.len,
+            server.pending_repl_data.peak,
             mh->clients_slaves,
             mh->clients_normal,
             mh->cluster_links,
@@ -5850,7 +5851,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long stat_total_reads_processed, stat_total_writes_processed;
         long long stat_net_input_bytes, stat_net_output_bytes;
         long long stat_net_repl_input_bytes, stat_net_repl_output_bytes;
-        long long stat_repl_processed_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -5861,7 +5861,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_net_output_bytes, stat_net_output_bytes);
         atomicGet(server.stat_net_repl_input_bytes, stat_net_repl_input_bytes);
         atomicGet(server.stat_net_repl_output_bytes, stat_net_repl_output_bytes);
-        atomicGet(server.stat_repl_processed_bytes, stat_repl_processed_bytes);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -5873,7 +5872,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_net_output_bytes:%lld\r\n"
             "total_net_repl_input_bytes:%lld\r\n"
             "total_net_repl_output_bytes:%lld\r\n"
-            "total_repl_processed_bytes:%lld\r\n"
             "instantaneous_input_kbps:%.2f\r\n"
             "instantaneous_output_kbps:%.2f\r\n"
             "instantaneous_input_repl_kbps:%.2f\r\n"
@@ -5924,7 +5922,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             stat_net_output_bytes + stat_net_repl_output_bytes,
             stat_net_repl_input_bytes,
             stat_net_repl_output_bytes,
-            stat_repl_processed_bytes,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_OUTPUT)/1024,
             (float)getInstantaneousMetric(STATS_METRIC_NET_INPUT_REPLICATION)/1024,
