@@ -5681,6 +5681,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         bytesToHuman(used_memory_rss_hmem,sizeof(used_memory_rss_hmem),server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,sizeof(maxmemory_hmem),server.maxmemory);
 
+        size_t databases_overhead_main = 0;
+        size_t databases_overhead_expires = 0;
+        for (size_t i = 0; i < mh->num_dbs; i++) {
+            databases_overhead_main += mh->db[i].overhead_ht_main;
+            databases_overhead_expires += mh->db[i].overhead_ht_expires;
+        }
+
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Memory\r\n" FMTARGS(
             "used_memory:%zu\r\n", zmalloc_used,
@@ -5735,6 +5742,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
+            "mem_databases_overhead_main:%zu\r\n", databases_overhead_main,
+            "mem_databases_overhead_expires:%zu\r\n", databases_overhead_expires,
+            "databases_rehashing_dict_count:%lu\r\n", listLength(server.rehashing),
             "active_defrag_running:%d\r\n", server.active_defrag_running,
             "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),
             "lazyfreed_objects:%zu\r\n", lazyfreeGetFreedObjectsCount()));

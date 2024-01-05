@@ -401,5 +401,30 @@ start_server {tags {"info" "external:skip"}} {
                 fail "pubsub clients did not clear"
             }
         }
+
+        test {memory: database overhead and rehashing dict count} {
+            r flushall
+            set info_mem [r info memory]
+            assert_equal [getInfoProperty $info_mem mem_databases_overhead_main] {0}
+            assert_equal [getInfoProperty $info_mem mem_databases_overhead_expires] {0}
+            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
+            r set a b ex 10
+            set info_mem [r info memory]
+            assert {[getInfoProperty $info_mem mem_databases_overhead_main] > {0}}
+            assert {[getInfoProperty $info_mem mem_databases_overhead_expires] > {0}}
+            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
+            r select 3
+            for {set i 0} {$i < 40} {incr i} {
+                r set key$i 123
+            }
+            set info_mem [r info memory]
+            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {1}
+            r select 4
+            for {set i 0} {$i < 40} {incr i} {
+                r set key$i 123
+            }
+            set info_mem [r info memory]
+            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {2}
+        }
     }
 }
