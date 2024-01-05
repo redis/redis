@@ -2042,6 +2042,23 @@ static void getClientPortFromGossip(clusterMsgDataGossip *g, int *tls_port, int 
     }
 }
 
+/* Returns a string with the byte representation of the node ID (i.e. nodename)
+ * along with 8 trailing bytes for debugging purposes. */
+char *getCorruptedNodeIdByteString(clusterMsgDataGossip *gossip_msg) {
+    const int num_bytes = CLUSTER_NAMELEN + 8;
+    /* Allocate enough room for 4 chars per byte + null terminator */
+    char *byte_string = (char*) zmalloc((num_bytes*4) + 1); 
+    char *name_ptr = gossip_msg->nodename;
+
+    /* Ensure we won't print beyond the bounds of the message */
+    serverAssert(name_ptr + num_bytes <= (char*)gossip_msg + sizeof(clusterMsgDataGossip));
+
+    for (int i = 0; i < num_bytes; i++) {
+        snprintf(byte_string + 4*i, 5, "\\x%02hhX", name_ptr[i]);
+    }
+    return byte_string;
+}
+
 /* Process the gossip section of PING or PONG packets.
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
@@ -2149,6 +2166,18 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !clusterBlacklistExists(g->nodename))
             {
+                /* Prevent a node with an invalid ID from being added to the nodes dict.
+                 * An invalid ID indicates memory corruption on the sender side. */
+                if (verifyClusterNodeId(g->nodename, CLUSTER_NAMELEN) != C_OK) {
+                    char *raw_node_id = getCorruptedNodeIdByteString(g);
+                    serverLog(LL_WARNING,
+                              "Node %.40s gossiped a node with invalid ID %.40s. For debugging purposes, "
+                              "the 48 bytes including the invalid ID and 8 trailing bytes are: %s",
+                              sender->name, g->nodename, raw_node_id);
+                    zfree(raw_node_id);
+                    continue;
+                }
+
                 clusterNode *node;
                 node = createClusterNode(g->nodename, flags);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
