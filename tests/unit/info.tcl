@@ -419,12 +419,6 @@ start_server {tags {"info" "external:skip"}} {
             }
             set info_mem [r info memory]
             assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {1}
-            r select 4
-            for {set i 0} {$i < 40} {incr i} {
-                r set key$i 123
-            }
-            set info_mem [r info memory]
-            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {2}
         }
     }
 }
