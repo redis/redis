@@ -2423,14 +2423,13 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                     if (write(server.module_pipe[1],"A",1) != 1) {
                         /* Ignore the error, this is best-effort. */
                     }
-                    goto end;
+                } else {
+                    /* Release the GIL, yielding CPU to give the main thread an opportunity to start
+                     * event processing, and then acquire the GIL again until the main thread releases it. */
+                    moduleReleaseGIL();
+                    sched_yield();
+                    moduleAcquireGIL();
                 }
-
-                /* Release the GIL, yielding CPU to give the main thread an opportunity to start
-                 * event processing, and then acquire the GIL again until the main thread releases it. */
-                moduleReleaseGIL();
-                sched_yield();
-                moduleAcquireGIL();
             } else {
                 /* If we are in the main thread, we can safely process events. */
                 processEventsWhileBlocked();
@@ -2446,7 +2445,6 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
         /* decide when the next event should fire. */
         ctx->next_yield_time = now + 1000000 / server.hz;
     }
-end:
     yield_nesting--;
 }
 
