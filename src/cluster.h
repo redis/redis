@@ -87,6 +87,7 @@ int clusterNodeIsMaster(clusterNode *n);
 char *clusterNodeIp(clusterNode *node);
 int clusterNodeIsSlave(clusterNode *node);
 clusterNode *clusterNodeGetSlaveof(clusterNode *node);
+clusterNode *clusterNodeGetMaster(clusterNode *node);
 char *clusterNodeGetName(clusterNode *node);
 int clusterNodeTimedOut(clusterNode *node);
 int clusterNodeIsFailing(clusterNode *node);
