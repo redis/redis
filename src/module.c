@@ -8604,6 +8604,7 @@ void moduleReleaseGIL(void) {
     pthread_mutex_unlock(&moduleGIL);
 }
 
+
 /* --------------------------------------------------------------------------
  * ## Module Keyspace Notifications API
  * -------------------------------------------------------------------------- */
