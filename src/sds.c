@@ -349,20 +349,22 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
      * type. */
     int use_realloc = (oldtype==type || (type < oldtype && type > SDS_TYPE_8));
     size_t newlen = use_realloc ? oldhdrlen+size+1 : hdrlen+size+1;
-    int alloc_already_optimal = 0;
-    #if defined(USE_JEMALLOC)
-        /* je_nallocx returns the expected allocation size for the newlen.
-         * We aim to avoid calling realloc() when using Jemalloc if there is no
-         * change in the allocation size, as it incurs a cost even if the
-         * allocation size stays the same. */
-        alloc_already_optimal = (je_nallocx(newlen, 0) == zmalloc_size(sh));
-    #endif
 
-    if (use_realloc && !alloc_already_optimal) {
-        newsh = s_realloc(sh, newlen);
-        if (newsh == NULL) return NULL;
-        s = (char*)newsh+oldhdrlen;
-    } else if (!alloc_already_optimal) {
+    if (use_realloc) {
+        int alloc_already_optimal = 0;
+        #if defined(USE_JEMALLOC)
+            /* je_nallocx returns the expected allocation size for the newlen.
+             * We aim to avoid calling realloc() when using Jemalloc if there is no
+             * change in the allocation size, as it incurs a cost even if the
+             * allocation size stays the same. */
+            alloc_already_optimal = (je_nallocx(newlen, 0) == zmalloc_size(sh));
+        #endif
+        if (!alloc_already_optimal) {
+            newsh = s_realloc(sh, newlen);
+            if (newsh == NULL) return NULL;
+            s = (char*)newsh+oldhdrlen;
+        }
+    } else {
         newsh = s_malloc(newlen);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len);
