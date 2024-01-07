@@ -2751,13 +2751,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                         decrRefCount(o);
                         return NULL;
                     }
-                    streamNACK *nack = raxFind(cgroup->pel,rawid,sizeof(rawid));
-                    if (nack == raxNotFound) {
+                    void *result;
+                    if (!raxFind(cgroup->pel,rawid,sizeof(rawid),&result)) {
                         rdbReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
                         decrRefCount(o);
                         return NULL;
                     }
+                    streamNACK *nack = result;
 
                     /* Set the NACK consumer, that was left to NULL when
                      * loading the global PEL. Then set the same shared
@@ -3264,14 +3265,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            if (dbExpand(db, db_size, DB_MAIN, 0) == C_ERR) {
-                serverLog(LL_WARNING, "OOM in dict expand of main dict");
-                return C_ERR;
-            }
-            if (dbExpand(db, expires_size, DB_EXPIRES, 0) == C_ERR) {
-                serverLog(LL_WARNING, "OOM in dict expand of expire dict");
-                return C_ERR;
-            }
+            dbExpand(db, db_size, DB_MAIN, 0);
+            dbExpand(db, expires_size, DB_EXPIRES, 0);
             should_expand_db = 0;
         }
 
