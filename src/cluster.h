@@ -413,6 +413,7 @@ void clusterInit(void);
 void clusterInitListeners(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
+clusterNode *clusterNodeGetMaster(clusterNode *node);
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 int verifyClusterNodeId(const char *name, int length);
 clusterNode *clusterLookupNode(const char *name, int length);

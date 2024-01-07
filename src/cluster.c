@@ -2675,11 +2675,24 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         /* We know this will be valid since we validated it ahead of time */
         ext = getNextPingExt(ext);
     }
+
     /* If the node did not send us a hostname extension, assume
      * they don't have an announced hostname. Otherwise, we'll
      * set it now. */
     updateAnnouncedHostname(sender, ext_hostname);
     updateAnnouncedHumanNodename(sender, ext_humannodename);
+
+    /* If the node did not send us a shard-id extension, it means the sender
+     * does not support it (old version), node->shard_id is randomly generated.
+     * A cluster-wide consensus for the node's shard_id is not necessary.
+     * The key is maintaining consistency of the shard_id on each individual 7.2 node.
+     * As the cluster progressively upgrades to version 7.2, we can expect the shard_ids
+     * across all nodes to naturally converge and align.
+     *
+     * If sender is a replica, set the shard_id to the shard_id of its master.
+     * Otherwise, we'll set it now. */
+    if (ext_shardid == NULL) ext_shardid = clusterNodeGetMaster(sender)->shard_id;
+
     updateShardId(sender, ext_shardid);
 }
 
@@ -5710,7 +5723,7 @@ void addShardReplyForClusterShards(client *c, list *nodes) {
     addReplyBulkCString(c, "slots");
 
     /* Use slot_info_pairs from the primary only */
-    while (n->slaveof != NULL) n = n->slaveof;
+    n = clusterNodeGetMaster(n);
 
     if (n->slot_info_pairs != NULL) {
         serverAssert((n->slot_info_pairs_count % 2) == 0);
@@ -7642,6 +7655,11 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
     return (*server.db->slots_to_keys).by_slot[hashslot].count;
+}
+
+clusterNode *clusterNodeGetMaster(clusterNode *node) {
+    while (node->slaveof != NULL) node = node->slaveof;
+    return node;
 }
 
 /* -----------------------------------------------------------------------------
