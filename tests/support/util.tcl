@@ -667,6 +667,13 @@ proc resume_process pid {
     exec kill -SIGCONT $pid
 }
 
+# Get the command stats for a given index
+proc cmdistat {index cmd} {
+    if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [R $index info commandstats] _ value]} {
+        set _ $value
+    }
+}
+
 proc cmdrstat {cmd r} {
     if {[regexp "\r\ncmdstat_$cmd:(.*?)\r\n" [$r info commandstats] _ value]} {
         set _ $value
