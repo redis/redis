@@ -242,7 +242,7 @@ void installClientWriteHandler(client *c) {
 
 /* Determining whether a replica requires online data updates based on its state */
 int isReplDataRequired(client *c) {
-    return c->replstate == SLAVE_STATE_ONLINE || c->replstate == SLAVE_STATE_BACKGROUND_RDB_LOAD;
+    return c->replstate == SLAVE_STATE_ONLINE || c->replstate == SLAVE_STATE_BG_TRANSFER;
 }
 
 /* This function puts the client in the queue of clients that should write
@@ -2684,7 +2684,7 @@ void readQueryFromClient(connection *conn) {
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) {
         c->read_reploff += nread;
-        incrReadsProcessed(nread);
+        atomicIncr(server.stat_total_reads_processed, nread);
     } else {
         atomicIncr(server.stat_net_input_bytes, nread);
     }

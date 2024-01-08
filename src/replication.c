@@ -52,6 +52,9 @@ void syncWithMaster(connection *conn);
 void replicationSteadyStateInit(client *master);
 int processEndOffsetResponse(char* response);
 void updateReplicationStateActive(connection *conn);
+int isReplicaMainChannel(client *c);
+int isReplicaRdbChannel(client *c);
+int isOngoingRdbChannelSync(void);
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -90,7 +93,7 @@ char *replicationGetSlaveName(client *c) {
             (unsigned long long) c->id);
     }
     /* RDB channel SYNC */
-    if (isReplicaPsyncChannel(c)) {
+    if (isReplicaMainChannel(c)) {
         redis_strlcat(buf, ":<main-conn>", sizeof(buf));
     } else if (isReplicaRdbChannel(c)) {
         redis_strlcat(buf, ":<rdb-conn>", sizeof(buf));
@@ -802,8 +805,8 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
-    if (isReplicaPsyncChannel(c)) {
-        c->replstate = SLAVE_STATE_BACKGROUND_RDB_LOAD;
+    if (isReplicaMainChannel(c)) {
+        c->replstate = SLAVE_STATE_BG_TRANSFER;
     } else {
         c->replstate = SLAVE_STATE_ONLINE;
     }
@@ -1028,7 +1031,7 @@ void syncCommand(client *c) {
         if (masterTryPartialResynchronization(c, psync_offset) == C_OK) {
             server.stat_sync_partial_ok++;
             return; /* No full resync needed, return. */
-        } else if (isReplicaPsyncChannel(c)) {
+        } else if (isReplicaMainChannel(c)) {
             serverLog(LL_NOTICE,"Replica %s is marked as psync-only, and psync isn't possible. returning.", replicationGetSlaveName(c));
             addReply(c, shared.emptybulk);
             return;
@@ -1245,8 +1248,8 @@ void replconfCommand(client *c) {
                 checkChildrenDone();
             if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 replicaStartCommandStream(c);
-            if (c->replstate == SLAVE_STATE_BACKGROUND_RDB_LOAD) {
-                c->flags &= ~CLIENT_RDB_CHANNEL_PSYNCCHAN;
+            if (c->replstate == SLAVE_STATE_BG_TRANSFER) {
+                c->flags &= ~CLIENT_REPL_MAIN_CHANNEL;
                 replicaPutOnline(c);
             }
             /* Note: this command does not reply anything! */
@@ -1301,9 +1304,9 @@ void replconfCommand(client *c) {
                 return;
             } 
             if (start_with_offset == 1) {
-                c->flags |= CLIENT_RDB_CHANNEL_RDBCHAN;
+                c->flags |= CLIENT_REPL_RDB_CHANNEL;
             } else {
-                c->flags &= ~CLIENT_RDB_CHANNEL_RDBCHAN;
+                c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr, "psync-only")) {
             /* REPLCONF psync-only is used to identify the client wants
@@ -1325,10 +1328,10 @@ void replconfCommand(client *c) {
                     addReplyErrorFormat(c,"Rdb channel sync is not allowed when repl-diskless-sync disabled on primary");
                     return;
                 }
-                c->flags |= CLIENT_RDB_CHANNEL_PSYNCCHAN;
+                c->flags |= CLIENT_REPL_MAIN_CHANNEL;
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
             } else {
-                c->flags &= ~CLIENT_RDB_CHANNEL_PSYNCCHAN;
+                c->flags &= ~CLIENT_REPL_MAIN_CHANNEL;
             }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
@@ -1940,6 +1943,22 @@ int isRdbConnectionSync(connection *conn) {
     return conn == server.repl_full_sync_s;
 }
 
+/* Return true if the client is the replica`s psync connection */
+int isReplicaMainChannel(client *c) {
+    return (c->flags & CLIENT_REPL_MAIN_CHANNEL) != 0;
+}
+
+/* Return true if the client is a replica`s sub client for RDB only */
+int isReplicaRdbChannel(client *c) {
+    return (c->flags & CLIENT_REPL_RDB_CHANNEL) != 0;
+}
+
+/* Used on replica side to check if rdb-channel sync is currently in progress */
+int isOngoingRdbChannelSync(void) {
+    return server.repl_state >= REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY &&
+           server.repl_state <= REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE;
+}
+
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(connection *conn) {
@@ -1970,7 +1989,7 @@ void readSyncBulkPayload(connection *conn) {
         } else {
             /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
              * convert "\r\n" to '\0' so 1 byte is lost. */
-            incrReadsProcessed(nread+1);
+            atomicIncr(server.stat_total_reads_processed, nread+1);
         }
 
         if (buf[0] == '-') {
@@ -2041,7 +2060,7 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             return;
         }
-        incrReadsProcessed(nread);
+        atomicIncr(server.stat_total_reads_processed, nread);
 
         /* When a mark is used, we want to detect EOF asap in order to avoid
          * writing the EOF mark into the file... */
@@ -2722,7 +2741,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
         return C_ERR;
     }
     o->used += nread;
-    incrReadsProcessed(nread);
+    atomicIncr(server.stat_total_reads_processed, nread);
     return read - nread;
 }
 
@@ -3208,7 +3227,7 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
-        /* Mark main connection as psync connection in case we use rdb-channel for sync*/
+        /* Mark main connection for psync only, in case we use rdb-channel for sync*/
         if (useRdbChannelSync()) {
            err = sendCommand(conn,"REPLCONF", "psync-only", "1", NULL);
         }

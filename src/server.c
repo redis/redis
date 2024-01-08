@@ -692,22 +692,6 @@ int allPersistenceDisabled(void) {
     return server.saveparamslen == 0 && server.aof_state == AOF_OFF;
 }
 
-/* Return true if the client is the replica`s psync connection */
-int isReplicaPsyncChannel(client *c) {
-    return (c->flags & CLIENT_RDB_CHANNEL_PSYNCCHAN) != 0;
-}
-
-/* Return true if the client is a replica`s sub client for RDB only */
-int isReplicaRdbChannel(client *c) {
-    return (c->flags & CLIENT_RDB_CHANNEL_RDBCHAN) != 0;
-}
-
-/* Used on replica side to check if rdb-channel sync is currently in progress */
-int isOngoingRdbChannelSync(void) {
-    return server.repl_state >= REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY &&
-           server.repl_state <= REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE;
-}
-
 /* ======================= Cron: called every 100 ms ======================== */
 
 /* Add a sample to the operations per second array of samples. */
@@ -3194,10 +3178,6 @@ int mustObeyClient(client *c) {
     return c->id == CLIENT_ID_AOF || c->flags & CLIENT_MASTER;
 }
 
-void incrReadsProcessed(size_t nread) {
-    atomicIncr(server.stat_total_reads_processed, nread);
-}
-
 static int shouldPropagate(int target) {
     if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
         return 0;
@@ -5274,8 +5254,8 @@ const char *replstateToString(int replstate) {
     case SLAVE_STATE_WAIT_BGSAVE_START:
     case SLAVE_STATE_WAIT_BGSAVE_END:
         return "wait_bgsave";
-    case SLAVE_STATE_BACKGROUND_RDB_LOAD:
-        return "psync";
+    case SLAVE_STATE_BG_TRANSFER:
+        return "bg_transfer";
     case SLAVE_STATE_SEND_BULK:
         return "send_bulk";
     case SLAVE_STATE_ONLINE:
@@ -5641,8 +5621,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
             "mem_total_replication_buffers:%zu\r\n"
-            "replicas_replication_buffer_size:%zu\r\n"
-            "replicas_replication_buffer_peak:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"
             "mem_clients_normal:%zu\r\n"
             "mem_cluster_links:%zu\r\n"
@@ -5697,8 +5675,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             freeMemoryGetNotCountedMemory(),
             mh->repl_backlog,
             server.repl_buffer_mem,
-            server.pending_repl_data.len,
-            server.pending_repl_data.peak,
             mh->clients_slaves,
             mh->clients_normal,
             mh->cluster_links,
@@ -6038,6 +6014,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 server.slave_priority,
                 server.repl_slave_ro,
                 server.replica_announced);
+
+            info = sdscatprintf(info,
+                "replicas_repl_buffer_size:%zu\r\n"
+                "replicas_repl_buffer_peak:%zu\r\n",
+                server.pending_repl_data.len,
+                server.pending_repl_data.peak);
         }
 
         info = sdscatprintf(info,

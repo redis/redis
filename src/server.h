@@ -399,9 +399,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 
-#define CLIENT_RDB_CHANNEL_PSYNCCHAN (1ULL<<50) /* RDB Channel: track a connection
+#define CLIENT_REPL_MAIN_CHANNEL (1ULL<<50) /* RDB Channel: track a connection
                                                    which used for PSYNC only */
-#define CLIENT_RDB_CHANNEL_RDBCHAN (1ULL<<51) /* RDB Channel: track a connection
+#define CLIENT_REPL_RDB_CHANNEL (1ULL<<51) /* RDB Channel: track a connection
                                                  which used for RDB only */
 
 /* Client block type (btype field in client structure)
@@ -481,7 +481,7 @@ typedef enum {
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 #define SLAVE_STATE_RDB_TRANSMITTED 10 /* RDB file transmitted - This state is used only for
                                         * a replica that only wants RDB without replication buffer  */
-#define SLAVE_STATE_BACKGROUND_RDB_LOAD 11 /* Main connection of a replica which uses rdb-channel-sync. */
+#define SLAVE_STATE_BG_TRANSFER 11 /* Main connection of a replica which uses rdb-channel-sync. */
 
 
 /* Slave capabilities. */
@@ -2841,11 +2841,8 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString(void);
-int isReplicaPsyncChannel(client *c);
 int isReplicaRdbChannel(client *c);
-int isOngoingRdbChannelSync(void);
 void abortRdbConnectionSync(int should_retry);
-void incrReadsProcessed(size_t nread);
 int sendCurentOffsetToReplica(client* replica);
 
 /* Generic persistence functions */
