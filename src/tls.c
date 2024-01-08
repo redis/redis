@@ -766,7 +766,8 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
 }
 
 static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    int cport, cfd;
+    int max = server.max_new_tls_conns_per_cycle;
     char cip[NET_IP_STR_LEN];
     UNUSED(el);
     UNUSED(mask);

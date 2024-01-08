@@ -258,7 +258,7 @@ void unmarkClientAsPubSub(client *c) {
  * 0 if the client was already subscribed to that channel. */
 int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     dictEntry *de, *existing;
-    list *clients = NULL;
+    dict *clients = NULL;
     int retval = 0;
     unsigned int slot = 0;
 
@@ -276,12 +276,12 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         if (existing) {
             clients = dictGetVal(existing);
         } else {
-            clients = listCreate();
+            clients = dictCreate(&clientDictType);
             daDictSetVal(*type.serverPubSubChannels, slot, de, clients);
             incrRefCount(channel);
         }
 
-        listAddNodeTail(clients,c);
+        serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
     }
     /* Notify the client */
     addReplyPubsubSubscribed(c,channel,type);
@@ -292,8 +292,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype type) {
     dictEntry *de;
-    list *clients;
-    listNode *ln;
+    dict *clients;
     int retval = 0;
     int slot = 0;
 
@@ -309,11 +308,9 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
         de = daDictFind(*type.serverPubSubChannels, slot, channel);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        ln = listSearchKey(clients,c);
-        serverAssertWithInfo(c,NULL,ln != NULL);
-        listDelNode(clients,ln);
-        if (listLength(clients) == 0) {
-            /* Free the list and associated hash entry at all if this was
+        serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
+        if (dictSize(clients) == 0) {
+            /* Free the dict and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
             daDictDelete(*type.serverPubSubChannels, slot, channel);
@@ -333,11 +330,13 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *channel = dictGetKey(de);
-        list *clients = dictGetVal(de);
+        dict *clients = dictGetVal(de);
+        if (dictSize(clients) == 0) goto cleanup;
         /* For each client subscribed to the channel, unsubscribe it. */
-        listNode *ln;
-        while ((ln = listFirst(clients)) != NULL) {
-            client *c = listNodeValue(ln);
+        dictIterator *iter = dictGetSafeIterator(clients);
+        dictEntry *entry;
+        while ((entry = dictNext(iter)) != NULL) {
+            client *c = dictGetKey(entry);
             int retval = dictDelete(c->pubsubshard_channels, channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
             addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
@@ -346,8 +345,9 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
             if (clientTotalPubSubSubscriptionCount(c) == 0) {
                 unmarkClientAsPubSub(c);
             }
-            listDelNode(clients, ln);
         }
+        dictReleaseIterator(iter);
+cleanup:
         daDictDelete(server.pubsubshard_channels, slot, channel);
     }
     dictReleaseIterator(di);
@@ -356,7 +356,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
 int pubsubSubscribePattern(client *c, robj *pattern) {
     dictEntry *de;
-    list *clients;
+    dict *clients;
     int retval = 0;
 
     if (dictAdd(c->pubsub_patterns, pattern, NULL) == DICT_OK) {
@@ -365,13 +365,13 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
         /* Add the client to the pattern -> list of clients hash table */
         de = dictFind(server.pubsub_patterns,pattern);
         if (de == NULL) {
-            clients = listCreate();
+            clients = dictCreate(&clientDictType);
             dictAdd(server.pubsub_patterns,pattern,clients);
             incrRefCount(pattern);
         } else {
             clients = dictGetVal(de);
         }
-        listAddNodeTail(clients,c);
+        serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
     }
     /* Notify the client */
     addReplyPubsubPatSubscribed(c,pattern);
@@ -382,8 +382,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     dictEntry *de;
-    list *clients;
-    listNode *ln;
+    dict *clients;
     int retval = 0;
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
@@ -393,11 +392,9 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         de = dictFind(server.pubsub_patterns,pattern);
         serverAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
-        ln = listSearchKey(clients,c);
-        serverAssertWithInfo(c,NULL,ln != NULL);
-        listDelNode(clients,ln);
-        if (listLength(clients) == 0) {
-            /* Free the list and associated hash entry at all if this was
+        serverAssertWithInfo(c, NULL, dictDelete(clients, c) == DICT_OK);
+        if (dictSize(clients) == 0) {
+            /* Free the dict and associated hash entry at all if this was
              * the latest client. */
             dictDelete(server.pubsub_patterns,pattern);
         }
@@ -474,8 +471,6 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     int receivers = 0;
     dictEntry *de;
     dictIterator *di;
-    listNode *ln;
-    listIter li;
     unsigned int slot = 0;
 
     /* Send to clients listening for that channel */
@@ -484,17 +479,16 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     }
     de = daDictFind(*type.serverPubSubChannels, slot, channel);
     if (de) {
-        list *list = dictGetVal(de);
-        listNode *ln;
-        listIter li;
-
-        listRewind(list,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            client *c = ln->value;
+        dict *clients = dictGetVal(de);
+        dictEntry *entry;
+        dictIterator *iter = dictGetSafeIterator(clients);
+        while ((entry = dictNext(iter)) != NULL) {
+            client *c = dictGetKey(entry);
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
             updateClientMemUsageAndBucket(c);
             receivers++;
         }
+        dictReleaseIterator(iter);
     }
 
     if (type.shard) {
@@ -508,19 +502,21 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         channel = getDecodedObject(channel);
         while((de = dictNext(di)) != NULL) {
             robj *pattern = dictGetKey(de);
-            list *clients = dictGetVal(de);
+            dict *clients = dictGetVal(de);
             if (!stringmatchlen((char*)pattern->ptr,
                                 sdslen(pattern->ptr),
                                 (char*)channel->ptr,
                                 sdslen(channel->ptr),0)) continue;
 
-            listRewind(clients,&li);
-            while ((ln = listNext(&li)) != NULL) {
-                client *c = listNodeValue(ln);
+            dictEntry *entry;
+            dictIterator *iter = dictGetSafeIterator(clients);
+            while ((entry = dictNext(iter)) != NULL) {
+                client *c = dictGetKey(entry);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
                 updateClientMemUsageAndBucket(c);
                 receivers++;
             }
+            dictReleaseIterator(iter);
         }
         decrRefCount(channel);
         dictReleaseIterator(di);
@@ -658,10 +654,10 @@ NULL
 
         addReplyArrayLen(c,(c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
-            list *l = dictFetchValue(daGetDict(server.pubsub_channels, 0),c->argv[j]);
+            dict *d = dictFetchValue(daGetDict(server.pubsub_channels, 0),c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
-            addReplyLongLong(c,l ? listLength(l) : 0);
+            addReplyLongLong(c, d ? dictSize(d) : 0);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
@@ -679,10 +675,10 @@ NULL
         for (j = 2; j < c->argc; j++) {
             unsigned int slot = calculateKeySlot(c->argv[j]->ptr);
             dict *d = daGetDict(server.pubsubshard_channels, slot);
-            list *l = dictFetchValue(d, c->argv[j]);
+            dict *clients = dictFetchValue(d, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
-            addReplyLongLong(c,l ? listLength(l) : 0);
+            addReplyLongLong(c, clients ? dictSize(clients) : 0);
         }
     } else {
         addReplySubcommandSyntaxError(c);
@@ -760,3 +756,4 @@ size_t pubsubMemOverhead(client *c) {
     mem += dictMemUsage(c->pubsubshard_channels);
     return mem;
 }
+
