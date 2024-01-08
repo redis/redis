@@ -1609,6 +1609,7 @@ void clusterRenameNode(clusterNode *node, char *newname) {
     serverAssert(retval == DICT_OK);
     memcpy(node->name, newname, CLUSTER_NAMELEN);
     clusterAddNode(node);
+    clusterAddNodeToShard(node->shard_id, node);
 }
 
 void clusterAddNodeToShard(const char *shard_id, clusterNode *node) {
@@ -2156,6 +2157,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 clusterAddNode(node);
+                clusterAddNodeToShard(node->shard_id, node);
             }
         }
 
@@ -2956,6 +2958,10 @@ int clusterProcessPacket(clusterLink *link) {
                         clusterNodeRemoveSlave(sender->slaveof,sender);
                     clusterNodeAddSlave(master,sender);
                     sender->slaveof = master;
+
+                    /* Update the shard_id when a replica is connected to its
+                     * primary in the very first time. */
+                    updateShardId(sender, master->shard_id);
 
                     /* Update config. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
