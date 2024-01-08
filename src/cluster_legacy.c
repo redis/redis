@@ -1021,9 +1021,6 @@ void clusterInit(void) {
         exit(1);
     }
 
-    /* The slots -> channels map is a radix tree. Initialize it here. */
-    server.cluster->slots_to_channels = raxNew();
-
     /* Set myself->port/cport/pport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
     deriveAnnouncedPorts(&myself->tcp_port, &myself->tls_port, &myself->cport);
@@ -1612,6 +1609,7 @@ void clusterRenameNode(clusterNode *node, char *newname) {
     serverAssert(retval == DICT_OK);
     memcpy(node->name, newname, CLUSTER_NAMELEN);
     clusterAddNode(node);
+    clusterAddNodeToShard(node->shard_id, node);
 }
 
 void clusterAddNodeToShard(const char *shard_id, clusterNode *node) {
@@ -2159,6 +2157,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 clusterAddNode(node);
+                clusterAddNodeToShard(node->shard_id, node);
             }
         }
 
@@ -2600,11 +2599,23 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         /* We know this will be valid since we validated it ahead of time */
         ext = getNextPingExt(ext);
     }
+
     /* If the node did not send us a hostname extension, assume
      * they don't have an announced hostname. Otherwise, we'll
      * set it now. */
     updateAnnouncedHostname(sender, ext_hostname);
     updateAnnouncedHumanNodename(sender, ext_humannodename);
+    /* If the node did not send us a shard-id extension, it means the sender
+     * does not support it (old version), node->shard_id is randomly generated.
+     * A cluster-wide consensus for the node's shard_id is not necessary.
+     * The key is maintaining consistency of the shard_id on each individual 7.2 node.
+     * As the cluster progressively upgrades to version 7.2, we can expect the shard_ids
+     * across all nodes to naturally converge and align.
+     *
+     * If sender is a replica, set the shard_id to the shard_id of its master.
+     * Otherwise, we'll set it now. */
+    if (ext_shardid == NULL) ext_shardid = clusterNodeGetMaster(sender)->shard_id;
+
     updateShardId(sender, ext_shardid);
 }
 
@@ -2947,6 +2958,10 @@ int clusterProcessPacket(clusterLink *link) {
                         clusterNodeRemoveSlave(sender->slaveof,sender);
                     clusterNodeAddSlave(master,sender);
                     sender->slaveof = master;
+
+                    /* Update the shard_id when a replica is connected to its
+                     * primary in the very first time. */
+                    updateShardId(sender, master->shard_id);
 
                     /* Update config. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -5075,7 +5090,7 @@ int verifyClusterConfigWithData(void) {
 
 /* Remove all the shard channel related information not owned by the current shard. */
 static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
-    if (!dictSize(server.pubsubshard_channels)) return;
+    if (!server.shard_channel_count) return;
     clusterNode *currmaster = clusterNodeIsMaster(myself) ? myself : myself->slaveof;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] != currmaster) {
@@ -5547,7 +5562,7 @@ void addShardReplyForClusterShards(client *c, list *nodes) {
     addReplyBulkCString(c, "slots");
 
     /* Use slot_info_pairs from the primary only */
-    while (n->slaveof != NULL) n = n->slaveof;
+    n = clusterNodeGetMaster(n);
 
     if (n->slot_info_pairs != NULL) {
         serverAssert((n->slot_info_pairs_count % 2) == 0);
@@ -5664,27 +5679,9 @@ sds genClusterInfoString(void) {
 
 
 void removeChannelsInSlot(unsigned int slot) {
-    unsigned int channelcount = countChannelsInSlot(slot);
-    if (channelcount == 0) return;
+    if (countChannelsInSlot(slot) == 0) return;
 
-    /* Retrieve all the channels for the slot. */
-    robj **channels = zmalloc(sizeof(robj*)*channelcount);
-    raxIterator iter;
-    int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (slot >> 8) & 0xff;
-    indexed[1] = slot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_channels);
-    raxSeek(&iter,">=",indexed,2);
-    while(raxNext(&iter)) {
-        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
-        channels[j++] = createStringObject((char*)iter.key + 2, iter.key_len - 2);
-    }
-    raxStop(&iter);
-
-    pubsubUnsubscribeShardChannels(channels, channelcount);
-    zfree(channels);
+    pubsubShardUnsubscribeAllChannelsInSlot(slot);
 }
 
 
@@ -5719,52 +5716,10 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
     return j;
 }
 
-/* -----------------------------------------------------------------------------
- * Operation(s) on channel rax tree.
- * -------------------------------------------------------------------------- */
-
-void slotToChannelUpdate(sds channel, int add) {
-    size_t keylen = sdslen(channel);
-    unsigned int hashslot = keyHashSlot(channel,keylen);
-    unsigned char buf[64];
-    unsigned char *indexed = buf;
-
-    if (keylen+2 > 64) indexed = zmalloc(keylen+2);
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    memcpy(indexed+2,channel,keylen);
-    if (add) {
-        raxInsert(server.cluster->slots_to_channels,indexed,keylen+2,NULL,NULL);
-    } else {
-        raxRemove(server.cluster->slots_to_channels,indexed,keylen+2,NULL);
-    }
-    if (indexed != buf) zfree(indexed);
-}
-
-void slotToChannelAdd(sds channel) {
-    slotToChannelUpdate(channel,1);
-}
-
-void slotToChannelDel(sds channel) {
-    slotToChannelUpdate(channel,0);
-}
-
 /* Get the count of the channels for a given slot. */
 unsigned int countChannelsInSlot(unsigned int hashslot) {
-    raxIterator iter;
-    int j = 0;
-    unsigned char indexed[2];
-
-    indexed[0] = (hashslot >> 8) & 0xff;
-    indexed[1] = hashslot & 0xff;
-    raxStart(&iter,server.cluster->slots_to_channels);
-    raxSeek(&iter,">=",indexed,2);
-    while(raxNext(&iter)) {
-        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
-        j++;
-    }
-    raxStop(&iter);
-    return j;
+    dict *d = server.pubsubshard_channels[hashslot];
+    return d ? dictSize(d) : 0;
 }
 
 int clusterNodeIsMyself(clusterNode *n) {
@@ -5866,6 +5821,11 @@ int clusterNodeIsSlave(clusterNode *node) {
 
 clusterNode *clusterNodeGetSlaveof(clusterNode *node) {
     return node->slaveof;
+}
+
+clusterNode *clusterNodeGetMaster(clusterNode *node) {
+    while (node->slaveof != NULL) node = node->slaveof;
+    return node;
 }
 
 char *clusterNodeGetName(clusterNode *node) {
