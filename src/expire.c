@@ -396,7 +396,7 @@ void expireSlaveKeys(void) {
         while(dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
-                dictEntry *expire = dbFind(db->expires, keyname);
+                dictEntry *expire = dbFindExpires(db, keyname);
                 int expired = 0;
 
                 if (expire &&

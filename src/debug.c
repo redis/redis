@@ -606,7 +606,7 @@ NULL
         robj *val;
         char *strenc;
 
-        if ((de = dbFind(c->db->keys, c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -658,7 +658,7 @@ NULL
         robj *val;
         sds key;
 
-        if ((de = dbFind(c->db->keys, c->argv[2]->ptr)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -719,7 +719,7 @@ NULL
             return;
         }
 
-        if (dbExpand(c->db->keys, keys, 1) == C_ERR) {
+        if (dbExpand(c->db, keys, 1) == C_ERR) {
             addReplyError(c, "OOM in dictTryExpand");
             return;
         }
@@ -767,7 +767,7 @@ NULL
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
             dictEntry *de;
-            robj *o = ((de = dbFind(c->db->keys, c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
+            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -2051,7 +2051,7 @@ void logCurrentClient(client *cc, const char *title) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dbFind(cc->db->keys, key->ptr);
+        de = dbFind(cc->db, key->ptr);
         if (de) {
             val = dictGetVal(de);
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);

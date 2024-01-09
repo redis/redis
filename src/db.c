@@ -86,7 +86,7 @@ void updateLFU(robj *val) {
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
-    dictEntry *de = dbFind(db->keys, key->ptr);
+    dictEntry *de = dbFind(db, key->ptr);
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
@@ -358,7 +358,7 @@ robj *dbRandomKey(redisDb *db) {
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (dbFind(db->expires, key)) {
+        if (dbFindExpires(db, key)) {
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -1490,7 +1490,7 @@ void scanDatabaseForReadyKeys(redisDb *db) {
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        dictEntry *kde = dbFind(db->keys, key->ptr);
+        dictEntry *kde = dbFind(db, key->ptr);
         if (kde) {
             robj *value = dictGetVal(kde);
             signalKeyAsReady(db, key, value->type);
@@ -1510,7 +1510,7 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
         int existed = 0, exists = 0;
         int original_type = -1, curr_type = -1;
 
-        dictEntry *kde = dbFind(emptied->keys, key->ptr);
+        dictEntry *kde = dbFind(emptied, key->ptr);
         if (kde) {
             robj *value = dictGetVal(kde);
             original_type = value->type;
@@ -1518,7 +1518,7 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
         }
 
         if (replaced_with) {
-            kde = dbFind(replaced_with->keys, key->ptr);
+            kde = dbFind(replaced_with, key->ptr);
             if (kde) {
                 robj *value = dictGetVal(kde);
                 curr_type = value->type;
@@ -1695,7 +1695,7 @@ long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
-    if ((de = dbFind(db->expires, key->ptr)) == NULL)
+    if ((de = dbFindExpires(db, key->ptr)) == NULL)
         return -1;
 
     return dictGetSignedIntegerVal(de);
@@ -1857,7 +1857,7 @@ static int dbExpandSkipSlot(int slot) {
  * `DICT_OK` response is for successful expansion. However ,`DICT_ERR` response signifies failure in allocation in
  * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
  */
-int dbExpand(kvstore *kvs, uint64_t db_size, int try_expand) {
+static int dbExpandGeneric(kvstore *kvs, uint64_t db_size, int try_expand) {
     int ret;
     if (server.cluster_enabled) {
         /* We don't know exact number of keys that would fall into each slot, but we can
@@ -1873,8 +1873,32 @@ int dbExpand(kvstore *kvs, uint64_t db_size, int try_expand) {
     return ret? C_OK : C_ERR;
 }
 
-dictEntry *dbFind(kvstore *kvs, void *key) {
+int dbExpand(redisDb *db, uint64_t db_size, int try_expand) {
+    return dbExpandGeneric(db->keys, db_size, try_expand);
+}
+
+int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand) {
+    return dbExpandGeneric(db->expires, db_size, try_expand);
+}
+
+static dictEntry *dbFindGeneric(kvstore *kvs, void *key) {
     return kvstoreDictFind(kvs, getKeySlot(key), key);
+}
+
+dictEntry *dbFind(redisDb *db, void *key) {
+    return dbFindGeneric(db->keys, key);
+}
+
+dictEntry *dbFindExpires(redisDb *db, void *key) {
+    return dbFindGeneric(db->expires, key);
+}
+
+unsigned long long dbSize(redisDb *db) {
+    return kvstoreSize(db->keys);
+}
+
+unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata) {
+    return kvstoreScan(db->keys, cursor, -1, scan_cb, NULL, privdata);
 }
 
 /* -----------------------------------------------------------------------------

@@ -3112,8 +3112,12 @@ int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 
 /* kvstore wrappers */
-int dbExpand(kvstore *kvs, uint64_t db_size, int try_expand);
-dictEntry *dbFind(kvstore *kvs, void *key);
+int dbExpand(redisDb *db, uint64_t db_size, int try_expand);
+int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand);
+dictEntry *dbFind(redisDb *db, void *key);
+dictEntry *dbFindExpires(redisDb *db, void *key);
+unsigned long long dbSize(redisDb *db);
+unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata);
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);

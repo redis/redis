@@ -3268,8 +3268,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            dbExpand(db->keys, db_size, 0);
-            dbExpand(db->expires, db_size, 0);
+            dbExpand(db, db_size, 0);
+            dbExpandExpires(db, db_size, 0);
             should_expand_db = 0;
         }
 
