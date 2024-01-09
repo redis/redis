@@ -1182,10 +1182,19 @@ void freeClusterLink(clusterLink *link) {
         connClose(link->conn);
         link->conn = NULL;
     }
-    server.stat_cluster_links_memory -= sizeof(list) + listLength(link->send_msg_queue)*sizeof(listNode);
-    listRelease(link->send_msg_queue);
-    server.stat_cluster_links_memory -= link->rcvbuf_alloc;
-    zfree(link->rcvbuf);
+
+    if (link->send_msg_queue) {
+        server.stat_cluster_links_memory -= sizeof(list) + listLength(link->send_msg_queue)*sizeof(listNode);
+        listRelease(link->send_msg_queue);
+        link->send_msg_queue = NULL;
+    }
+
+    if (link->rcvbuf) {
+        server.stat_cluster_links_memory -= link->rcvbuf_alloc;
+        zfree(link->rcvbuf);
+        link->rcvbuf = NULL;
+    }
+
     if (link->node) {
         if (link->node->link == link) {
             serverAssert(!link->inbound);
@@ -5793,12 +5802,12 @@ int handleDebugClusterCommand(client *c) {
 
     /* Terminate the link based on the direction or all. */
     if (!strcasecmp(c->argv[3]->ptr, "from")) {
-        freeClusterLink(n->inbound_link);
+        if (n->inbound_link) freeClusterLink(n->inbound_link);
     } else if (!strcasecmp(c->argv[3]->ptr, "to")) {
-        freeClusterLink(n->link);
+        if (n->link) freeClusterLink(n->link);
     } else if (!strcasecmp(c->argv[3]->ptr, "all")) {
-        freeClusterLink(n->link);
-        freeClusterLink(n->inbound_link);
+        if (n->link) freeClusterLink(n->link);
+        if (n->inbound_link) freeClusterLink(n->inbound_link);
     } else {
         addReplyErrorFormat(c, "Unknown direction %s", (char *) c->argv[3]->ptr);
     }
