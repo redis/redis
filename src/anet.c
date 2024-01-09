@@ -82,7 +82,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
         return ANET_ERR;
     }
 
-    /* Check if this flag has been set or unset, if so, 
+    /* Check if this flag has been set or unset, if so,
      * then there is no need to call fcntl to set/unset it again. */
     if (!!(flags & O_NONBLOCK) == !!non_block)
         return ANET_OK;
@@ -107,8 +107,8 @@ int anetBlock(char *err, int fd) {
     return anetSetBlock(err,fd,0);
 }
 
-/* Enable the FD_CLOEXEC on the given fd to avoid fd leaks. 
- * This function should be invoked for fd's on specific places 
+/* Enable the FD_CLOEXEC on the given fd to avoid fd leaks.
+ * This function should be invoked for fd's on specific places
  * where fork + execve system calls are called. */
 int anetCloexec(int fd) {
     int r;
@@ -145,10 +145,10 @@ int anetKeepAlive(char *err, int fd, int interval)
     int intvl;
     int cnt;
 
-/* There are platforms that are expected to support the full mechanism of TCP keep-alive,
- * we want the compiler to emit warnings of unused variables if the preprocessor directives 
- * somehow fail, and other than those platforms, just omit these warnings if they happen.
- */
+    /* There are platforms that are expected to support the full mechanism of TCP keep-alive,
+     * we want the compiler to emit warnings of unused variables if the preprocessor directives
+     * somehow fail, and other than those platforms, just omit these warnings if they happen.
+     */
 #if !(defined(_AIX) || defined(__APPLE__) || defined(__DragonFly__) || \
     defined(__FreeBSD__) || defined(__illumos__) || defined(__linux__) || \
     defined(__NetBSD__) || defined(__sun))
@@ -158,62 +158,63 @@ int anetKeepAlive(char *err, int fd, int interval)
     UNUSED(cnt);
 #endif
 
-/* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual 
- * compared to other Unix-like systems. 
- * Thus, we need to specialize it on Solaris. */
-#ifdef __sun 
-    /* There are two keep-alive mechanisms on Solaris:
-     * - By default, the first keep-alive probe is sent out after a TCP connection is idle for two hours. 
-     * If the peer does not respond to the probe within eight minutes, the TCP connection is aborted. 
-     * You can alter the interval for sending out the first probe using the socket option TCP_KEEPALIVE_THRESHOLD 
+#ifdef __sun
+    /* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual
+     * compared to other Unix-like systems.
+     * Thus, we need to specialize it on Solaris.
+     *
+     * There are two keep-alive mechanisms on Solaris:
+     * - By default, the first keep-alive probe is sent out after a TCP connection is idle for two hours.
+     * If the peer does not respond to the probe within eight minutes, the TCP connection is aborted.
+     * You can alter the interval for sending out the first probe using the socket option TCP_KEEPALIVE_THRESHOLD
      * in milliseconds or TCP_KEEPIDLE in seconds.
-     * The system default is controlled by the TCP ndd parameter tcp_keepalive_interval. The minimum value is ten seconds. 
-     * The maximum is ten days, while the default is two hours. If you receive no response to the probe, 
+     * The system default is controlled by the TCP ndd parameter tcp_keepalive_interval. The minimum value is ten seconds.
+     * The maximum is ten days, while the default is two hours. If you receive no response to the probe,
      * you can use the TCP_KEEPALIVE_ABORT_THRESHOLD socket option to change the time threshold for aborting a TCP connection.
-     * The option value is an unsigned integer in milliseconds. The value zero indicates that TCP should never time out and 
-     * abort the connection when probing. The system default is controlled by the TCP ndd parameter tcp_keepalive_abort_interval. 
+     * The option value is an unsigned integer in milliseconds. The value zero indicates that TCP should never time out and
+     * abort the connection when probing. The system default is controlled by the TCP ndd parameter tcp_keepalive_abort_interval.
      * The default is eight minutes.
-
-     * - The second implementation is activated if socket option TCP_KEEPINTVL and/or TCP_KEEPCNT are set. 
-     * The time between each consequent probes is set by TCP_KEEPINTVL in seconds. 
-     * The minimum value is ten seconds. The maximum is ten days, while the default is two hours. 
+     *
+     * - The second implementation is activated if socket option TCP_KEEPINTVL and/or TCP_KEEPCNT are set.
+     * The time between each consequent probes is set by TCP_KEEPINTVL in seconds.
+     * The minimum value is ten seconds. The maximum is ten days, while the default is two hours.
      * The TCP connection will be aborted after certain amount of probes, which is set by TCP_KEEPCNT, without receiving response.
      */
 
     idle = interval;
     if (idle < 10) idle = 10; // kernel expects at least 10 seconds
     if (idle > 10*24*60*60) idle = 10*24*60*60; // kernel expects at most 10 days
-    
-    /* `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not available on Solaris 
-     * until version 11.4, but let's take a chance here. */
-    #if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
-        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))) {
-            anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
-            return ANET_ERR;
-        }           
-        intvl = idle/3;
-        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
-            anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
-            return ANET_ERR;
-        }
-        cnt = 3;
-        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt))) {
-            anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
-            return ANET_ERR;
-        }
-        return ANET_OK;
-    #endif
 
-   /* Fall back to the first implementation of tcp-alive mechanism for older Solaris, 
-    * simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` + `TCP_KEEPALIVE_ABORT_THRESHOLD`.
-    */
+    /* `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not available on Solaris
+     * until version 11.4, but let's take a chance here. */
+#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))) {
+        anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    intvl = idle/3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
+        anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    cnt = 3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt))) {
+        anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#else
+    /* Fall back to the first implementation of tcp-alive mechanism for older Solaris,
+     * simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` + `TCP_KEEPALIVE_ABORT_THRESHOLD`.
+     */
     idle *= 1000; // kernel expects milliseconds
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_THRESHOLD, &idle, sizeof(idle))) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
     }
 
-    /* Note that the consequent probes will not be sent at equal intervals on Solaris, 
+    /* Note that the consequent probes will not be sent at equal intervals on Solaris,
      * but will be sent using the exponential backoff algorithm. */
     intvl = idle/3;
     cnt = 3;
@@ -222,13 +223,15 @@ int anetKeepAlive(char *err, int fd, int interval)
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
     }
+#endif
 
     return ANET_OK;
+
 #endif
 
 #ifdef TCP_KEEPIDLE
     /* Default settings are more or less garbage, with the keepalive time
-     * set to 7200 by default on Linux and other Unix-like systems. 
+     * set to 7200 by default on Linux and other Unix-like systems.
      * Modify settings to make the feature actually useful. */
 
     /* Send first probe after interval. */

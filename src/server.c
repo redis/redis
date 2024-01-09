@@ -282,6 +282,12 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
+void dictDictDestructor(dict *d, void *val)
+{
+    UNUSED(d);
+    dictRelease((dict*)val);
+}
+
 int dictSdsKeyCompare(dict *d, const void *key1,
         const void *key2)
 {
@@ -349,6 +355,17 @@ uint64_t dictCStrHash(const void *key) {
 /* Dict hash function for null terminated string */
 uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* Dict hash function for client */
+uint64_t dictClientHash(const void *key) {
+    return ((client *)key)->id;
+}
+
+/* Dict compare function for client */
+int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return ((client *)key1)->id == ((client *)key2)->id;
 }
 
 /* Dict compare function for null terminated string */
@@ -596,6 +613,18 @@ dictType keylistDictType = {
     NULL                        /* allow to expand */
 };
 
+/* KeyDict hash table type has unencoded redis objects as keys and
+ * dicts as values. It's used for PUBSUB command to track clients subscribing the channels. */
+dictType objToDictDictType = {
+    dictObjHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictObjKeyCompare,          /* key compare */
+    dictObjectDestructor,       /* key destructor */
+    dictDictDestructor,         /* val destructor */
+    NULL                        /* allow to expand */
+};
+
 /* Modules system dictionary type. Keys are module name,
  * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
@@ -653,6 +682,15 @@ dictType sdsHashDictType = {
     dictSdsDestructor,          /* key destructor */
     dictVanillaFree,            /* val destructor */
     NULL                        /* allow to expand */
+};
+
+/* Client Set dictionary type. Keys are client, values are not used. */
+dictType clientDictType = {
+    dictClientHash,             /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictClientKeyCompare,       /* key compare */
+    .no_value = 1               /* no values in this dict */
 };
 
 int htNeedsResize(dict *dict) {
@@ -2746,8 +2784,8 @@ void initServer(void) {
     }
     server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&keylistDictType);
-    server.pubsub_patterns = dictCreate(&keylistDictType);
+    server.pubsub_channels = dictCreate(&objToDictDictType);
+    server.pubsub_patterns = dictCreate(&objToDictDictType);
     server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
     server.shard_channel_count = 0;
     server.pubsub_clients = 0;
