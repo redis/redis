@@ -13,6 +13,19 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.0.15    Released Tue 09 Jan 2024 10:45:52 IST
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security fixes
+==============
+* (CVE-2023-41056) In some cases, Redis may incorrectly handle resizing of memory
+  buffers which can result in incorrect accounting of buffer sizes and lead to
+  heap overflow and potential remote code execution.
+
+
+================================================================================
 Redis 7.0.14    Released Wed 18 Oct 2023 10:33:40 IDT
 ================================================================================
 
