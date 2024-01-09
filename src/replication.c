@@ -878,7 +878,7 @@ int startBgsaveForReplication(int mincapa, int req) {
             retval = rdbSaveToSlavesSockets(req,rsiptr);
         else {
             /* Keep the page cache since it'll get used soon */
-            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
+            retval = rdbSaveBackground(req, server.rdb_filename, rsiptr, RDBFLAGS_REPLICATION | RDBFLAGS_KEEP_CACHE);
         }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");

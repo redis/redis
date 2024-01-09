@@ -1441,7 +1441,7 @@ int rdbSaveRioWithEOFMark(int req, rio *rdb, int *error, rdbSaveInfo *rsi) {
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
-    if (rdbSaveRio(req,rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
+    if (rdbSaveRio(req,rdb,error,RDBFLAGS_REPLICATION,rsi) == C_ERR) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     stopSaving(1);
     return C_OK;
@@ -1528,7 +1528,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
 
-    startSaving(RDBFLAGS_NONE);
+    startSaving(rdbflags);
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
 
     if (rdbSaveInternal(req,tmpfile,rsi,rdbflags) != C_OK) {
@@ -2939,6 +2939,8 @@ void startSaving(int rdbflags) {
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START;
     else if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START;
+    else if (rdbflags & RDBFLAGS_REPLICATION)
+        subevent = REDISMODULE_SUBEVENT_PERSISTENCE_REPL_START;
     else if (getpid()!=server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START;
     else
