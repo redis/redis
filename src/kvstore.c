@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 #include "zmalloc.h"
-#include "dictarray.h"
+#include "kvstore.h"
 #include "redisassert.h"
 #include "monotonic.h"
 
@@ -15,66 +15,66 @@
 /**********************************/
 
 /* Returns total (cumulative) number of keys up until given dict-index (inclusive).
- * Time complexity is O(log(da->num_dicts)). */
-static unsigned long long cumulativeKeyCountRead(dictarray *da, int didx) {
-    if (da->num_dicts == 1) {
+ * Time complexity is O(log(kvs->num_dicts)). */
+static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) {
+    if (kvs->num_dicts == 1) {
         assert(didx == 0);
-        return daSize(da);
+        return kvstoreSize(kvs);
     }
     int idx = didx + 1;
     unsigned long long sum = 0;
     while (idx > 0) {
-        sum += da->state.dict_size_index[idx];
+        sum += kvs->state.dict_size_index[idx];
         idx -= (idx & -idx);
     }
     return sum;
 }
 
-static void addDictIndexToCursor(dictarray *da, int didx, unsigned long long *cursor) {
-    if (da->num_dicts == 1)
+static void addDictIndexToCursor(kvstore *kvs, int didx, unsigned long long *cursor) {
+    if (kvs->num_dicts == 1)
         return;
     /* didx can be -1 when iteration is over and there are no more dicts to visit. */
     if (didx < 0)
         return;
-    *cursor = (*cursor << da->num_dicts_bits) | didx;
+    *cursor = (*cursor << kvs->num_dicts_bits) | didx;
 }
 
-static int getAndClearDictIndexFromCursor(dictarray *da, unsigned long long *cursor) {
-    if (da->num_dicts == 1)
+static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *cursor) {
+    if (kvs->num_dicts == 1)
         return 0;
-    int didx = (int) (*cursor & (da->num_dicts-1));
-    *cursor = *cursor >> da->num_dicts_bits;
+    int didx = (int) (*cursor & (kvs->num_dicts-1));
+    *cursor = *cursor >> kvs->num_dicts_bits;
     return didx;
 }
 
 /* Updates binary index tree (also known as Fenwick tree), increasing key count for a given dict.
  * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
- * Time complexity is O(log(da->num_dicts)). */
-static void daCumulativeKeyCountAdd(dictarray *da, int didx, long delta) {
-    da->state.key_count += delta;
+ * Time complexity is O(log(kvs->num_dicts)). */
+static void daCumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
+    kvs->state.key_count += delta;
 
-    dict *d = daGetDict(da, didx);
+    dict *d = kvstoreGetDict(kvs, didx);
     size_t dsize = dictSize(d);
     int non_empty_dicts_delta = dsize == 1? 1 : dsize == 0? -1 : 0;
-    da->state.non_empty_dicts += non_empty_dicts_delta;
+    kvs->state.non_empty_dicts += non_empty_dicts_delta;
 
     /* BIT does not need to be calculated when the cluster is turned off. */
-    if (da->num_dicts == 1)
+    if (kvs->num_dicts == 1)
         return;
 
     /* Update the BIT */
     int idx = didx + 1; /* Unlike dict indices, BIT is 1-based, so we need to add 1. */
-    while (idx <= da->num_dicts) {
+    while (idx <= kvs->num_dicts) {
         if (delta < 0) {
-            assert(da->state.dict_size_index[idx] >= (unsigned long long)labs(delta));
+            assert(kvs->state.dict_size_index[idx] >= (unsigned long long)labs(delta));
         }
-        da->state.dict_size_index[idx] += delta;
+        kvs->state.dict_size_index[idx] += delta;
         idx += (idx & -idx);
     }
 }
 
 /**********************************/
-/*** Dict extension ***************/
+/*** dict callbacks ***************/
 /**********************************/
 
 /* Adds dictionary to the rehashing list, which allows us
@@ -84,15 +84,15 @@ static void daCumulativeKeyCountAdd(dictarray *da, int didx, long delta) {
  * incremented with the new ht size during the rehashing phase. In non-cluster mode,
  * bucket count can be retrieved directly from single dict bucket. */
 void daDictRehashingStarted(dict *d) {
-    daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
-    listAddNodeTail(metadata->da->state.rehashing, d);
-    metadata->rehashing_node = listLast(metadata->da->state.rehashing);
+    kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
+    listAddNodeTail(metadata->kvs->state.rehashing, d);
+    metadata->rehashing_node = listLast(metadata->kvs->state.rehashing);
 
-    if (metadata->da->num_dicts == 1)
+    if (metadata->kvs->num_dicts == 1)
         return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    metadata->da->state.bucket_count += to; /* Started rehashing (Add the new ht size) */
+    metadata->kvs->state.bucket_count += to; /* Started rehashing (Add the new ht size) */
 }
 
 /* Remove dictionary from the rehashing list.
@@ -100,24 +100,24 @@ void daDictRehashingStarted(dict *d) {
  * Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
 void daDictRehashingCompleted(dict *d) {
-    daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
+    kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
     if (metadata->rehashing_node) {
-        listDelNode(metadata->da->state.rehashing, metadata->rehashing_node);
+        listDelNode(metadata->kvs->state.rehashing, metadata->rehashing_node);
         metadata->rehashing_node = NULL;
     }
 
-    if (metadata->da->num_dicts == 1)
+    if (metadata->kvs->num_dicts == 1)
         return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    metadata->da->state.bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+    metadata->kvs->state.bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Returns the size of the DB dict metadata in bytes. */
-size_t daDictMetadataSize(dict *d) {
+size_t kvstoreDictMetadataSize(dict *d) {
     UNUSED(d);
     /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
-    return sizeof(daDictMetadata);
+    return sizeof(kvstoreDictMetadata);
 }
 
 /**********************************/
@@ -125,102 +125,102 @@ size_t daDictMetadataSize(dict *d) {
 /**********************************/
 
 /* Create an array of dictionaries */
-dictarray *daCreate(dictType *type, int num_dicts_bits) {
-    dictarray *da = zcalloc(sizeof(*da));
+kvstore *kvstoreCreate(dictType *type, int num_dicts_bits) {
+    kvstore *kvs = zcalloc(sizeof(*kvs));
 
-    memcpy(&da->dtype, type, sizeof(da->dtype));
+    memcpy(&kvs->dtype, type, sizeof(kvs->dtype));
     assert(!type->dictMetadataBytes);
     assert(!type->rehashingStarted);
     assert(!type->rehashingCompleted);
-    da->dtype.dictMetadataBytes = daDictMetadataSize;
-    da->dtype.rehashingStarted = daDictRehashingStarted;
-    da->dtype.rehashingCompleted = daDictRehashingCompleted;
+    kvs->dtype.dictMetadataBytes = kvstoreDictMetadataSize;
+    kvs->dtype.rehashingStarted = daDictRehashingStarted;
+    kvs->dtype.rehashingCompleted = daDictRehashingCompleted;
 
 
-    da->num_dicts_bits = num_dicts_bits;
-    da->num_dicts = 1 << da->num_dicts_bits;
-    da->dicts = zmalloc(sizeof(dict*) * da->num_dicts);
-    for (int i = 0; i < da->num_dicts; i++) {
-        da->dicts[i] = dictCreate(&da->dtype);
-        daDictMetadata *metadata = (daDictMetadata *)dictMetadata(da->dicts[i]);
-        metadata->da = da;
+    kvs->num_dicts_bits = num_dicts_bits;
+    kvs->num_dicts = 1 << kvs->num_dicts_bits;
+    kvs->dicts = zmalloc(sizeof(dict*) * kvs->num_dicts);
+    for (int i = 0; i < kvs->num_dicts; i++) {
+        kvs->dicts[i] = dictCreate(&kvs->dtype);
+        kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(kvs->dicts[i]);
+        metadata->kvs = kvs;
     }
 
-    da->state.rehashing = listCreate();
-    da->state.key_count = 0;
-    da->state.non_empty_dicts = 0;
-    da->state.resize_cursor = -1;
-    da->state.dict_size_index = da->num_dicts > 1? zcalloc(sizeof(unsigned long long) * (da->num_dicts + 1)) : NULL;
-    da->state.bucket_count = 0;
+    kvs->state.rehashing = listCreate();
+    kvs->state.key_count = 0;
+    kvs->state.non_empty_dicts = 0;
+    kvs->state.resize_cursor = -1;
+    kvs->state.dict_size_index = kvs->num_dicts > 1? zcalloc(sizeof(unsigned long long) * (kvs->num_dicts + 1)) : NULL;
+    kvs->state.bucket_count = 0;
 
-    return da;
+    return kvs;
 }
 
-void daEmpty(dictarray *da, void(callback)(dict*)) {
-    for (int didx = 0; didx < da->num_dicts; didx++) {
-        dict *d = daGetDict(da, didx);
-        daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
+void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
+    for (int didx = 0; didx < kvs->num_dicts; didx++) {
+        dict *d = kvstoreGetDict(kvs, didx);
+        kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         dictEmpty(d, callback);
     }
 
-    listEmpty(da->state.rehashing);
+    listEmpty(kvs->state.rehashing);
 
-    da->state.key_count = 0;
-    da->state.non_empty_dicts = 0;
-    da->state.resize_cursor = -1;
-    da->state.bucket_count = -1;
-    if (da->state.dict_size_index)
-        memset(da->state.dict_size_index, 0, sizeof(unsigned long long) * (da->num_dicts + 1));
+    kvs->state.key_count = 0;
+    kvs->state.non_empty_dicts = 0;
+    kvs->state.resize_cursor = -1;
+    kvs->state.bucket_count = -1;
+    if (kvs->state.dict_size_index)
+        memset(kvs->state.dict_size_index, 0, sizeof(unsigned long long) * (kvs->num_dicts + 1));
 }
 
-void daRelease(dictarray *da) {
-    for (int didx = 0; didx < da->num_dicts; didx++) {
-        dict *d = daGetDict(da, didx);
-        daDictMetadata *metadata = (daDictMetadata *)dictMetadata(d);
+void kvstoreRelease(kvstore *kvs) {
+    for (int didx = 0; didx < kvs->num_dicts; didx++) {
+        dict *d = kvstoreGetDict(kvs, didx);
+        kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
-        dictRelease(daGetDict(da, didx));
+        dictRelease(kvstoreGetDict(kvs, didx));
     }
-    zfree(da->dicts);
+    zfree(kvs->dicts);
 
-    listRelease(da->state.rehashing);
-    if (da->state.dict_size_index)
-        zfree(da->state.dict_size_index);
+    listRelease(kvs->state.rehashing);
+    if (kvs->state.dict_size_index)
+        zfree(kvs->state.dict_size_index);
 
-    zfree(da);
+    zfree(kvs);
 }
 
-unsigned long long int daSize(dictarray *da) {
-    if (da->num_dicts != 1) {
-        return da->state.key_count;
+unsigned long long int kvstoreSize(kvstore *kvs) {
+    if (kvs->num_dicts != 1) {
+        return kvs->state.key_count;
     } else {
-        return dictSize(da->dicts[0]);
+        return dictSize(kvs->dicts[0]);
     }
 }
 
 /* This method provides the cumulative sum of all the dictionary buckets
  * across dictionaries in a database. */
-unsigned long daBuckets(dictarray *da) {
-    if (da->num_dicts != 1) {
-        return da->state.bucket_count;
+unsigned long kvstoreBuckets(kvstore *kvs) {
+    if (kvs->num_dicts != 1) {
+        return kvs->state.bucket_count;
     } else {
-        return dictBuckets(da->dicts[0]);
+        return dictBuckets(kvs->dicts[0]);
     }
 }
 
-size_t daMemUsage(dictarray *da) {
+size_t kvstoreMemUsage(kvstore *kvs) {
     size_t mem = 0;
-    unsigned long long keys_count = daSize(da);
+    unsigned long long keys_count = kvstoreSize(kvs);
     mem += keys_count * dictEntryMemUsage() +
-           daBuckets(da) * sizeof(dictEntry*) +
-           da->num_dicts * (sizeof(dict) + dictMetadataSize(daGetDict(da, 0)));
+           kvstoreBuckets(kvs) * sizeof(dictEntry*) +
+           kvs->num_dicts * (sizeof(dict) + dictMetadataSize(kvstoreGetDict(kvs, 0)));
     return mem;
 }
 
 /*
- * This method is used to iterate over the elements of the entire dictarray specifically across dicts.
+ * This method is used to iterate over the elements of the entire kvstore specifically across dicts.
  * It's a three pronged approach.
  *
  * 1. It uses the provided cursor `cursor` to retrieve the dict index from it.
@@ -232,20 +232,20 @@ size_t daMemUsage(dictarray *da) {
  * To restrict the scan to a single cluster dict, pass a valid dict index as
  * 'onlydidx', otherwise pass -1.
  */
-unsigned long long daScan(dictarray *da, unsigned long long cursor,
+unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
                           int onlydidx, dictScanFunction *scan_cb,
-                          dictarrayScanShouldSkipDict *skip_cb,
+                          kvstoreScanShouldSkipDict *skip_cb,
                           void *privdata)
 {
     unsigned long long _cursor = 0;
     /* During main dictionary traversal in cluster mode, 48 upper bits in the cursor are used for positioning in the HT.
      * Following lower bits are used for the dict index number, ranging from 0 to 2^num_dicts_bits-1.
      * Dict index is always 0 at the start of iteration and can be incremented only if there are multiple dicts. */
-    int didx = getAndClearDictIndexFromCursor(da, &cursor);
+    int didx = getAndClearDictIndexFromCursor(kvs, &cursor);
     if (onlydidx >= 0) {
         if (didx < onlydidx) {
             /* Fast-forward to onlydidx. */
-            assert(onlydidx < da->num_dicts);
+            assert(onlydidx < kvs->num_dicts);
             didx = onlydidx;
             cursor = 0;
         } else if (didx > onlydidx) {
@@ -254,7 +254,7 @@ unsigned long long daScan(dictarray *da, unsigned long long cursor,
         }
     }
 
-    dict *d = daGetDict(da, didx);
+    dict *d = kvstoreGetDict(kvs, didx);
 
     int skip = skip_cb && skip_cb(d);
     if (!skip) {
@@ -264,17 +264,17 @@ unsigned long long daScan(dictarray *da, unsigned long long cursor,
     if (_cursor == 0 || skip) {
         if (onlydidx >= 0)
             return 0;
-        didx = daGetNextNonEmptyDictIndex(da, didx);
+        didx = kvstoreGetNextNonEmptyDictIndex(kvs, didx);
     }
     if (didx == -1) {
         return 0;
     }
-    addDictIndexToCursor(da, didx, &_cursor);
+    addDictIndexToCursor(kvs, didx, &_cursor);
     return _cursor;
 }
 
 /*
- * This functions increases size of dictarray to match desired number.
+ * This functions increases size of kvstore to match desired number.
  * It resizes all individual dictionaries, unless skip_cb indicates otherwise.
  *
  * Based on the parameter `try_expand`, appropriate dict expand API is invoked.
@@ -283,11 +283,11 @@ unsigned long long daScan(dictarray *da, unsigned long long cursor,
  * `DICT_OK` response is for successful expansion. However ,`DICT_ERR` response signifies failure in allocation in
  * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
  */
-int daExpand(dictarray *da, uint64_t newsize, int try_expand, dictarrayExpandShouldSkipDictIndex *skip_cb) {
-    for (int i = 0; i < da->num_dicts; i++) {
+int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb) {
+    for (int i = 0; i < kvs->num_dicts; i++) {
         if (skip_cb && skip_cb(i))
             continue;
-        dict *d = daGetDict(da, i);
+        dict *d = kvstoreGetDict(kvs, i);
         int result = try_expand ? dictTryExpand(d, newsize) : dictExpand(d, newsize);
         if (try_expand && result == DICT_ERR)
             return 0;
@@ -297,22 +297,22 @@ int daExpand(dictarray *da, uint64_t newsize, int try_expand, dictarrayExpandSho
 }
 
 /* Returns fair random dict index, probability of each dict being returned is proportional to the number of elements that dictionary holds.
- * This function guarantees that it returns a dict-index of a non-empty dict, unless the entire dictarray is empty.
- * Time complexity of this function is O(log(da->num_dicts)). */
-int daGetFairRandomDictIndex(dictarray *da) {
-    unsigned long target = daSize(da) ? (randomULong() % daSize(da)) + 1 : 0;
-    return daFindDictIndexByKeyIndex(da, target);
+ * This function guarantees that it returns a dict-index of a non-empty dict, unless the entire kvstore is empty.
+ * Time complexity of this function is O(log(kvs->num_dicts)). */
+int kvstoreGetFairRandomDictIndex(kvstore *kvs) {
+    unsigned long target = kvstoreSize(kvs) ? (randomULong() % kvstoreSize(kvs)) + 1 : 0;
+    return kvstoreFindDictIndexByKeyIndex(kvs, target);
 }
 
-void daGetStats(dictarray *da, char *buf, size_t bufsize, int full) {
+void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full) {
     size_t l;
     char *orig_buf = buf;
     size_t orig_bufsize = bufsize;
     dictStats *mainHtStats = NULL;
     dictStats *rehashHtStats = NULL;
     dict *d;
-    daIterator *dait = daIteratorInit(da);
-    while ((d = daIteratorNextDict(dait))) {
+    kvstoreIterator *kvs_it = kvstoreIteratorInit(kvs);
+    while ((d = kvstoreIteratorNextDict(kvs_it))) {
         dictStats *stats = dictGetStatsHt(d, 0, full);
         if (!mainHtStats) {
             mainHtStats = stats;
@@ -330,7 +330,7 @@ void daGetStats(dictarray *da, char *buf, size_t bufsize, int full) {
             }
         }
     }
-    daReleaseIterator(dait);
+    kvstoreIteratorRelease(kvs_it);
     l = dictGetStatsMsg(buf, bufsize, mainHtStats, full);
     dictFreeStats(mainHtStats);
     buf += l;
@@ -343,8 +343,8 @@ void daGetStats(dictarray *da, char *buf, size_t bufsize, int full) {
     if (orig_bufsize) orig_buf[orig_bufsize - 1] = '\0';
 }
 
-dict *daGetDict(dictarray *da, int didx) {
-    return da->dicts[didx];
+dict *kvstoreGetDict(kvstore *kvs, int didx) {
+    return kvs->dicts[didx];
 }
 
 /* Finds a dict containing target element in a key space ordered by dict index.
@@ -356,26 +356,26 @@ dict *daGetDict(dictarray *da, int didx) {
  *
  * In this case dict #3 contains key that we are trying to find.
  *
- * The return value is 0 based dict-index, and the range of the target is [1..daSize], daSize inclusive.
+ * The return value is 0 based dict-index, and the range of the target is [1..kvstoreSize], kvstoreSize inclusive.
  *
  * To find the dict, we start with the root node of the binary index tree and search through its children
  * from the highest index (2^num_dicts_bits in our case) to the lowest index. At each node, we check if the target
  * value is greater than the node's value. If it is, we remove the node's value from the target and recursively
  * search for the new target using the current node as the parent.
- * Time complexity of this function is O(log(da->num_dicts))
+ * Time complexity of this function is O(log(kvs->num_dicts))
  */
-int daFindDictIndexByKeyIndex(dictarray *da, unsigned long target) {
-    if (da->num_dicts == 1 || daSize(da) == 0)
+int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
+    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
         return 0;
-    assert(target <= daSize(da));
+    assert(target <= kvstoreSize(kvs));
 
-    int result = 0, bit_mask = 1 << da->num_dicts_bits;
+    int result = 0, bit_mask = 1 << kvs->num_dicts_bits;
     for (int i = bit_mask; i != 0; i >>= 1) {
         int current = result + i;
         /* When the target index is greater than 'current' node value the we will update
          * the target and search in the 'current' node tree. */
-        if (target > da->state.dict_size_index[current]) {
-            target -= da->state.dict_size_index[current];
+        if (target > kvs->state.dict_size_index[current]) {
+            target -= kvs->state.dict_size_index[current];
             result = current;
         }
     }
@@ -390,84 +390,84 @@ int daFindDictIndexByKeyIndex(dictarray *da, unsigned long target) {
 }
 
 /* Returns next non-empty dict index strictly after given one, or -1 if provided didx is the last one. */
-int daGetNextNonEmptyDictIndex(dictarray *da, int didx) {
-    unsigned long long next_key = cumulativeKeyCountRead(da, didx) + 1;
-    return next_key <= daSize(da) ? daFindDictIndexByKeyIndex(da, next_key) : -1;
+int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx) {
+    unsigned long long next_key = cumulativeKeyCountRead(kvs, didx) + 1;
+    return next_key <= kvstoreSize(kvs) ? kvstoreFindDictIndexByKeyIndex(kvs, next_key) : -1;
 }
 
-int daNonEmptyDicts(dictarray *da) {
-    return da->state.non_empty_dicts;
+int kvstoreNonEmptyDicts(kvstore *kvs) {
+    return kvs->state.non_empty_dicts;
 }
 
-/* Returns dictarray iterator that can be used to iterate through sub-dictionaries.
+/* Returns kvstore iterator that can be used to iterate through sub-dictionaries.
  *
- * The caller should free the resulting dait with daReleaseIterator. */
-daIterator *daIteratorInit(dictarray *da) {
-    daIterator *dait = zmalloc(sizeof(*dait));
-    dait->da = da;
-    dait->didx = -1;
-    dait->next_didx = daFindDictIndexByKeyIndex(dait->da, 1); /* Finds first non-empty dict index. */
-    dictInitSafeIterator(&dait->di, NULL);
-    return dait;
+ * The caller should free the resulting kvs_it with kvstoreIteratorRelease. */
+kvstoreIterator *kvstoreIteratorInit(kvstore *kvs) {
+    kvstoreIterator *kvs_it = zmalloc(sizeof(*kvs_it));
+    kvs_it->kvs = kvs;
+    kvs_it->didx = -1;
+    kvs_it->next_didx = kvstoreFindDictIndexByKeyIndex(kvs_it->kvs, 1); /* Finds first non-empty dict index. */
+    dictInitSafeIterator(&kvs_it->di, NULL);
+    return kvs_it;
 }
 
 /* Free the dbit returned by dbIteratorInit. */
-void daReleaseIterator(daIterator *dait) {
-    dictIterator *iter = &dait->di;
+void kvstoreIteratorRelease(kvstoreIterator *kvs_it) {
+    dictIterator *iter = &kvs_it->di;
     dictResetIterator(iter);
 
-    zfree(dait);
+    zfree(kvs_it);
 }
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete. */
-dict *daIteratorNextDict(daIterator *dait) {
-    if (dait->next_didx == -1)
+dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it) {
+    if (kvs_it->next_didx == -1)
         return NULL;
-    dait->didx = dait->next_didx;
-    dait->next_didx = daGetNextNonEmptyDictIndex(dait->da, dait->didx);
-    return dait->da->dicts[dait->didx];
+    kvs_it->didx = kvs_it->next_didx;
+    kvs_it->next_didx = kvstoreGetNextNonEmptyDictIndex(kvs_it->kvs, kvs_it->didx);
+    return kvs_it->kvs->dicts[kvs_it->didx];
 }
 
-int daIteratorGetCurrentDictIndex(daIterator *dait) {
-    assert(dait->didx >= 0 && dait->didx < dait->da->num_dicts);
-    return dait->didx;
+int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it) {
+    assert(kvs_it->didx >= 0 && kvs_it->didx < kvs_it->kvs->num_dicts);
+    return kvs_it->didx;
 }
 
 /* Returns next entry. */
-dictEntry *daIteratorNext(daIterator *dait) {
-    dictEntry *de = dait->di.d ? dictNext(&dait->di) : NULL;
+dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
+    dictEntry *de = kvs_it->di.d ? dictNext(&kvs_it->di) : NULL;
     if (!de) { /* No current dict or reached the end of the dictionary. */
-        dict *d = daIteratorNextDict(dait);
+        dict *d = kvstoreIteratorNextDict(kvs_it);
         if (!d)
             return NULL;
-        if (dait->di.d) {
+        if (kvs_it->di.d) {
             /* Before we move to the next dict, reset the iter of the previous dict. */
-            dictIterator *iter = &dait->di;
+            dictIterator *iter = &kvs_it->di;
             dictResetIterator(iter);
         }
-        dictInitSafeIterator(&dait->di, d);
-        de = dictNext(&dait->di);
+        dictInitSafeIterator(&kvs_it->di, d);
+        de = dictNext(&kvs_it->di);
     }
     return de;
 }
 
-dict *daGetDictFromIterator(daIterator *dait) {
-    return daGetDict(dait->da, dait->didx);
+dict *kvstoreGetDictFromIterator(kvstoreIterator *kvs_it) {
+    return kvstoreGetDict(kvs_it->kvs, kvs_it->didx);
 }
 
-/* Cursor-scan the dictarray and attempt to resize (if needed, handled by dictResize) */
-void daTryResizeHashTables(dictarray *da, int limit) {
-    if (daSize(da) == 0)
+/* Cursor-scan the kvstore and attempt to resize (if needed, handled by dictResize) */
+void kvstoreTryResizeHashTables(kvstore *kvs, int limit) {
+    if (kvstoreSize(kvs) == 0)
         return;
 
-    if (da->state.resize_cursor == -1)
-        da->state.resize_cursor = daFindDictIndexByKeyIndex(da, 1);
+    if (kvs->state.resize_cursor == -1)
+        kvs->state.resize_cursor = kvstoreFindDictIndexByKeyIndex(kvs, 1);
 
-    for (int i = 0; i < limit && da->state.resize_cursor != -1; i++) {
-        int didx = da->state.resize_cursor;
-        dict *d = daGetDict(da, didx);
+    for (int i = 0; i < limit && kvs->state.resize_cursor != -1; i++) {
+        int didx = kvs->state.resize_cursor;
+        dict *d = kvstoreGetDict(kvs, didx);
         dictResize(d);
-        da->state.resize_cursor = daGetNextNonEmptyDictIndex(da, didx);
+        kvs->state.resize_cursor = kvstoreGetNextNonEmptyDictIndex(kvs, didx);
     }
 }
 
@@ -478,8 +478,8 @@ void daTryResizeHashTables(dictarray *da, int limit) {
  *
  * The function returns the amount of microsecs spent if some rehashing was
  * performed, otherwise 0 is returned. */
-uint64_t daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
-    if (listLength(da->state.rehashing) == 0)
+uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
+    if (listLength(kvs->state.rehashing) == 0)
         return 0;
 
     /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
@@ -488,7 +488,7 @@ uint64_t daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
     monotime timer;
     uint64_t elapsed_us = UINT64_MAX;
     elapsedStart(&timer);
-    while ((node = listFirst(da->state.rehashing))) {
+    while ((node = listFirst(kvs->state.rehashing))) {
         elapsed_us = elapsedUs(timer);
         if (elapsed_us >= threshold_us) {
             break;  /* Reached the time limit. */
@@ -499,38 +499,38 @@ uint64_t daIncrementallyRehash(dictarray *da, uint64_t threshold_us) {
     return elapsed_us;
 }
 
-dictEntry *daDictFind(dictarray *da, int didx, void *key) {
-    dict *d = daGetDict(da, didx);
+dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
+    dict *d = kvstoreGetDict(kvs, didx);
     return dictFind(d, key);
 }
 
-dictEntry *daDictAddRaw(dictarray *da, int didx, void *key, dictEntry **existing) {
-    dictEntry *ret = dictAddRaw(daGetDict(da, didx), key, existing);
+dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
+    dictEntry *ret = dictAddRaw(kvstoreGetDict(kvs, didx), key, existing);
     if (ret)
-        daCumulativeKeyCountAdd(da, didx, 1);
+        daCumulativeKeyCountAdd(kvs, didx, 1);
     return ret;
 }
 
-void daDictSetKey(dictarray *da, int didx, dictEntry* de, void *key) {
-    dictSetKey(daGetDict(da, didx), de, key);
+void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key) {
+    dictSetKey(kvstoreGetDict(kvs, didx), de, key);
 }
 
-void daDictSetVal(dictarray *da, int didx, dictEntry *de, void *val) {
-    dictSetVal(daGetDict(da, didx), de, val);
+void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val) {
+    dictSetVal(kvstoreGetDict(kvs, didx), de, val);
 }
 
-dictEntry *daDictTwoPhaseUnlinkFind(dictarray *da, int didx, const void *key, dictEntry ***plink, int *table_index) {
-    return dictTwoPhaseUnlinkFind(daGetDict(da, didx), key, plink, table_index);
+dictEntry *kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, dictEntry ***plink, int *table_index) {
+    return dictTwoPhaseUnlinkFind(kvstoreGetDict(kvs, didx), key, plink, table_index);
 }
 
-void daDictTwoPhaseUnlinkFree(dictarray *da, int didx, dictEntry *he, dictEntry **plink, int table_index) {
-    dictTwoPhaseUnlinkFree(daGetDict(da, didx), he, plink, table_index);
-    daCumulativeKeyCountAdd(da, didx, -1);
+void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntry *he, dictEntry **plink, int table_index) {
+    dictTwoPhaseUnlinkFree(kvstoreGetDict(kvs, didx), he, plink, table_index);
+    daCumulativeKeyCountAdd(kvs, didx, -1);
 }
 
-int daDictDelete(dictarray *da, int didx, const void *key) {
-    int ret = dictDelete(daGetDict(da, didx), key);
+int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
+    int ret = dictDelete(kvstoreGetDict(kvs, didx), key);
     if (ret == DICT_OK)
-        daCumulativeKeyCountAdd(da, didx, -1);
+        daCumulativeKeyCountAdd(kvs, didx, -1);
     return ret;
 }

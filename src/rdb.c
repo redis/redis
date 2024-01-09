@@ -1301,12 +1301,12 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     dictEntry *de;
     ssize_t written = 0;
     ssize_t res;
-    daIterator *dait = NULL;
+    kvstoreIterator *kvs_it = NULL;
     static long long info_updated_time = 0;
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
-    unsigned long long int db_size = daSize(db->keys);
+    unsigned long long int db_size = kvstoreSize(db->keys);
     if (db_size == 0) return 0;
 
     /* Write the SELECT DB opcode */
@@ -1316,7 +1316,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     written += res;
 
     /* Write the RESIZE DB opcode. */
-    unsigned long long expires_size = daSize(db->volatile_keys);
+    unsigned long long expires_size = kvstoreSize(db->expires);
     if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
     written += res;
     if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
@@ -1324,21 +1324,21 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    dait = daIteratorInit(db->keys);
+    kvs_it = kvstoreIteratorInit(db->keys);
     int last_slot = -1;
     /* Iterate this DB writing every entry */
-    while ((de = daIteratorNext(dait)) != NULL) {
-        int curr_slot = daIteratorGetCurrentDictIndex(dait);
+    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
         /* Save slot info. */
         if (server.cluster_enabled && curr_slot != last_slot) {
             if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;
             written += res;
             if ((res = rdbSaveLen(rdb, curr_slot)) < 0) goto werr;
             written += res;
-            dict *d = daGetDict(db->keys, curr_slot);
+            dict *d = kvstoreGetDict(db->keys, curr_slot);
             if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
             written += res;
-            d = daGetDict(db->volatile_keys, curr_slot);
+            d = kvstoreGetDict(db->expires, curr_slot);
             if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
             written += res;
             last_slot = curr_slot;
@@ -1370,11 +1370,11 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             }
         }
     }
-    daReleaseIterator(dait);
+    kvstoreIteratorRelease(kvs_it);
     return written;
 
 werr:
-    if (dait) daReleaseIterator(dait);
+    if (kvs_it) kvstoreIteratorRelease(kvs_it);
     return -1;
 }
 
@@ -3131,9 +3131,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue; /* Ignore gracefully. */
             }
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
-            dict *d = daGetDict(db->keys, slot_id);
+            dict *d = kvstoreGetDict(db->keys, slot_id);
             dictExpand(d, slot_size);
-            d = daGetDict(db->volatile_keys, slot_id);
+            d = kvstoreGetDict(db->expires, slot_id);
             dictExpand(d, expires_slot_size);
             should_expand_db = 0;
             continue; /* Read next opcode. */
@@ -3269,7 +3269,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
             dbExpand(db->keys, db_size, 0);
-            dbExpand(db->volatile_keys, db_size, 0);
+            dbExpand(db->expires, db_size, 0);
             should_expand_db = 0;
         }
 

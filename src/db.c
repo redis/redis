@@ -193,15 +193,15 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
     dictEntry *existing;
     int slot = getKeySlot(key->ptr);
-    dictEntry *de = daDictAddRaw(db->keys, slot, key->ptr, &existing);
+    dictEntry *de = kvstoreDictAddRaw(db->keys, slot, key->ptr, &existing);
     if (update_if_existing && existing) {
         dbSetValue(db, key, val, 1, existing);
         return;
     }
     serverAssertWithInfo(NULL, key, de != NULL);
-    daDictSetKey(db->keys, slot, de, sdsdup(key->ptr));
+    kvstoreDictSetKey(db->keys, slot, de, sdsdup(key->ptr));
     initObjectLRUOrLFU(val);
-    daDictSetVal(db->keys, slot, de, val);
+    kvstoreDictSetVal(db->keys, slot, de, val);
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
 }
@@ -246,10 +246,10 @@ int getKeySlot(sds key) {
  * caller to free the SDS string. */
 int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     int slot = getKeySlot(key);
-    dictEntry *de = daDictAddRaw(db->keys, slot, key, NULL);
+    dictEntry *de = kvstoreDictAddRaw(db->keys, slot, key, NULL);
     if (de == NULL) return 0;
     initObjectLRUOrLFU(val);
-    daDictSetVal(db->keys, slot, de, val);
+    kvstoreDictSetVal(db->keys, slot, de, val);
     return 1;
 }
 
@@ -267,7 +267,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * The program is aborted if the key was not already present. */
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de) {
     int slot = getKeySlot(key->ptr);
-    if (!de) de = daDictFind(db->keys, slot, key->ptr);
+    if (!de) de = kvstoreDictFind(db->keys, slot, key->ptr);
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
 
@@ -287,7 +287,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
     }
-    dict *d = daGetDict(db->keys, slot);
+    dict *d = kvstoreGetDict(db->keys, slot);
     dictSetVal(d, de, val);
 
     if (server.lazyfree_lazy_server_del) {
@@ -346,19 +346,19 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
-    int allvolatile = daSize(db->keys) == daSize(db->volatile_keys);
+    int allvolatile = kvstoreSize(db->keys) == kvstoreSize(db->expires);
 
     while(1) {
         sds key;
         robj *keyobj;
-        int randomSlot = daGetFairRandomDictIndex(db->keys);
-        dict *d = daGetDict(db->keys, randomSlot);
+        int randomSlot = kvstoreGetFairRandomDictIndex(db->keys);
+        dict *d = kvstoreGetDict(db->keys, randomSlot);
         de = dictGetFairRandomKey(d);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (dbFind(db->volatile_keys, key)) {
+        if (dbFind(db->expires, key)) {
             if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
@@ -384,7 +384,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     dictEntry **plink;
     int table;
     int slot = getKeySlot(key->ptr);
-    dictEntry *de = daDictTwoPhaseUnlinkFind(db->keys, slot, key->ptr, &plink, &table);
+    dictEntry *de = kvstoreDictTwoPhaseUnlinkFind(db->keys, slot, key->ptr, &plink, &table);
     if (de) {
         robj *val = dictGetVal(de);
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
@@ -400,13 +400,13 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         if (async) {
             /* Because of dbUnshareStringValue, the val in de may change. */
             freeObjAsync(key, dictGetVal(de), db->id);
-            daDictSetVal(db->keys, slot, de, NULL);
+            kvstoreDictSetVal(db->keys, slot, de, NULL);
         }
         /* Deleting an entry from the expires dict will not free the sds of
          * the key, because it is shared with the main dictionary. */
-        daDictDelete(db->volatile_keys, slot, key->ptr);
+        kvstoreDictDelete(db->expires, slot, key->ptr);
 
-        daDictTwoPhaseUnlinkFree(db->keys, slot, de, plink, table);
+        kvstoreDictTwoPhaseUnlinkFree(db->keys, slot, de, plink, table);
         return 1;
     } else {
         return 0;
@@ -488,12 +488,12 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        removed += daSize(dbarray[j].keys);
+        removed += kvstoreSize(dbarray[j].keys);
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
-            daEmpty(dbarray[j].keys, callback);
-            daEmpty(dbarray[j].volatile_keys, callback);
+            kvstoreEmpty(dbarray[j].keys, callback);
+            kvstoreEmpty(dbarray[j].expires, callback);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -563,8 +563,8 @@ redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
         int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
-        tempDb[i].keys = daCreate(&dbDictType, slotCountBits);
-        tempDb[i].volatile_keys = daCreate(&dbExpiresDictType, slotCountBits);
+        tempDb[i].keys = kvstoreCreate(&dbDictType, slotCountBits);
+        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slotCountBits);
     }
 
     return tempDb;
@@ -577,8 +577,8 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
     /* Release temp DBs. */
     emptyDbStructure(tempDb, -1, async, callback);
     for (int i=0; i<server.dbnum; i++) {
-        daRelease(tempDb[i].keys);
-        daRelease(tempDb[i].volatile_keys);
+        kvstoreRelease(tempDb[i].keys);
+        kvstoreRelease(tempDb[i].expires);
     }
 
     zfree(tempDb);
@@ -595,7 +595,7 @@ long long dbTotalServerKeyCount(void) {
     long long total = 0;
     int j;
     for (j = 0; j < server.dbnum; j++) {
-        total += daSize(server.db[j].keys);
+        total += kvstoreSize(server.db[j].keys);
     }
     return total;
 }
@@ -804,14 +804,14 @@ void keysCommand(client *c) {
         pslot = patternHashSlot(pattern, plen);
     }
     dictIterator *di = NULL;
-    daIterator *dait = NULL;
+    kvstoreIterator *kvs_it = NULL;
     if (pslot != -1) {
-        di = dictGetSafeIterator(daGetDict(c->db->keys, pslot));
+        di = dictGetSafeIterator(kvstoreGetDict(c->db->keys, pslot));
     } else {
-        dait = daIteratorInit(c->db->keys);
+        kvs_it = kvstoreIteratorInit(c->db->keys);
     }
     robj keyobj;
-    while ((de = di ? dictNext(di) : daIteratorNext(dait)) != NULL) {
+    while ((de = di ? dictNext(di) : kvstoreIteratorNext(kvs_it)) != NULL) {
         sds key = dictGetKey(de);
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -826,8 +826,8 @@ void keysCommand(client *c) {
     }
     if (di)
         dictReleaseIterator(di);
-    if (dait)
-        daReleaseIterator(dait);
+    if (kvs_it)
+        kvstoreIteratorRelease(kvs_it);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -1095,7 +1095,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL) {
-                cursor = daScan(c->db->keys, cursor, onlydidx, scanCallback, NULL, &data);
+                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, scanCallback, NULL, &data);
             } else {
                 cursor = dictScan(ht, cursor, scanCallback, &data);
             }
@@ -1193,7 +1193,7 @@ void scanCommand(client *c) {
 }
 
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,daSize(c->db->keys));
+    addReplyLongLong(c,kvstoreSize(c->db->keys));
 }
 
 void lastsaveCommand(client *c) {
@@ -1560,12 +1560,12 @@ int dbSwapDatabases(int id1, int id2) {
      * ready_keys and watched_keys, since we want clients to
      * remain in the same DB they were. */
     db1->keys = db2->keys;
-    db1->volatile_keys = db2->volatile_keys;
+    db1->expires = db2->expires;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
 
     db2->keys = aux.keys;
-    db2->volatile_keys = aux.volatile_keys;
+    db2->expires = aux.expires;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
 
@@ -1602,12 +1602,12 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * ready_keys and watched_keys, since clients 
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
-        activedb->volatile_keys = newdb->volatile_keys;
+        activedb->expires = newdb->expires;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 
         newdb->keys = aux.keys;
-        newdb->volatile_keys = aux.volatile_keys;
+        newdb->expires = aux.expires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
 
@@ -1663,7 +1663,7 @@ void swapdbCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 int removeExpire(redisDb *db, robj *key) {
-    return daDictDelete(db->volatile_keys, getKeySlot(key->ptr), key->ptr) == DICT_OK;
+    return kvstoreDictDelete(db->expires, getKeySlot(key->ptr), key->ptr) == DICT_OK;
 }
 
 /* Set an expire to the specified key. If the expire is set in the context
@@ -1675,9 +1675,9 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 
     /* Reuse the sds from the main dict in the expire dict */
     int slot = getKeySlot(key->ptr);
-    kde = daDictFind(db->keys, slot, key->ptr);
+    kde = kvstoreDictFind(db->keys, slot, key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
-    de = daDictAddRaw(db->volatile_keys, slot, dictGetKey(kde), &existing);
+    de = kvstoreDictAddRaw(db->expires, slot, dictGetKey(kde), &existing);
     if (existing) {
         dictSetSignedIntegerVal(existing, when);
     } else {
@@ -1695,7 +1695,7 @@ long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
-    if ((de = dbFind(db->volatile_keys, key->ptr)) == NULL)
+    if ((de = dbFind(db->expires, key->ptr)) == NULL)
         return -1;
 
     return dictGetSignedIntegerVal(de);
@@ -1857,7 +1857,7 @@ static int dbExpandSkipSlot(int slot) {
  * `DICT_OK` response is for successful expansion. However ,`DICT_ERR` response signifies failure in allocation in
  * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
  */
-int dbExpand(dictarray *da, uint64_t db_size, int try_expand) {
+int dbExpand(kvstore *kvs, uint64_t db_size, int try_expand) {
     int ret;
     if (server.cluster_enabled) {
         /* We don't know exact number of keys that would fall into each slot, but we can
@@ -1865,16 +1865,16 @@ int dbExpand(dictarray *da, uint64_t db_size, int try_expand) {
         int slots = getMyShardSlotCount();
         if (slots == 0) return C_OK;
         db_size = db_size / slots;
-        ret = daExpand(da, db_size, try_expand, dbExpandSkipSlot);
+        ret = kvstoreExpand(kvs, db_size, try_expand, dbExpandSkipSlot);
     } else {
-        ret = daExpand(da, db_size, try_expand, NULL);
+        ret = kvstoreExpand(kvs, db_size, try_expand, NULL);
     }
 
     return ret? C_OK : C_ERR;
 }
 
-dictEntry *dbFind(dictarray *da, void *key) {
-    return daDictFind(da, getKeySlot(key), key);
+dictEntry *dbFind(kvstore *kvs, void *key) {
+    return kvstoreDictFind(kvs, getKeySlot(key), key);
 }
 
 /* -----------------------------------------------------------------------------

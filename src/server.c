@@ -1094,8 +1094,8 @@ void databasesCron(void) {
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
             redisDb *db = &server.db[resize_db % server.dbnum];
-            daTryResizeHashTables(db->keys, CRON_DICT_RESIZE_LIMIT_PER_CALL);
-            daTryResizeHashTables(db->volatile_keys, CRON_DICT_RESIZE_LIMIT_PER_CALL);
+            kvstoreTryResizeHashTables(db->keys, CRON_DICT_RESIZE_LIMIT_PER_CALL);
+            kvstoreTryResizeHashTables(db->expires, CRON_DICT_RESIZE_LIMIT_PER_CALL);
             resize_db++;
         }
 
@@ -1104,10 +1104,10 @@ void databasesCron(void) {
             uint64_t elapsed_us = 0;
             for (j = 0; j < dbs_per_call; j++) {
                 redisDb *db = &server.db[rehash_db % server.dbnum];
-                elapsed_us += daIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US);
+                elapsed_us += kvstoreIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
-                elapsed_us += daIncrementallyRehash(db->volatile_keys, INCREMENTAL_REHASHING_THRESHOLD_US);
+                elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 rehash_db++;
@@ -1367,9 +1367,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             for (j = 0; j < server.dbnum; j++) {
                 long long size, used, vkeys;
 
-                size = daBuckets(server.db[j].keys);
-                used = daSize(server.db[j].keys);
-                vkeys = daSize(server.db[j].volatile_keys);
+                size = kvstoreBuckets(server.db[j].keys);
+                used = kvstoreSize(server.db[j].keys);
+                vkeys = kvstoreSize(server.db[j].expires);
                 if (used || vkeys) {
                     serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
@@ -2664,8 +2664,8 @@ void initServer(void) {
     /* Create the Redis databases, and initialize other internal state. */
     int slot_count_bits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].keys = daCreate(&dbDictType, slot_count_bits);
-        server.db[j].volatile_keys = daCreate(&dbExpiresDictType, slot_count_bits);
+        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits);
+        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2678,9 +2678,9 @@ void initServer(void) {
     }
     server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = daCreate(&objToDictDictType, 0);
+    server.pubsub_channels = kvstoreCreate(&objToDictDictType, 0);
     server.pubsub_patterns = dictCreate(&objToDictDictType);
-    server.pubsubshard_channels = daCreate(&objToDictDictType, slot_count_bits);
+    server.pubsubshard_channels = kvstoreCreate(&objToDictDictType, slot_count_bits);
     server.pubsub_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
@@ -5813,9 +5813,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
             "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
-            "pubsub_channels:%llu\r\n", daSize(server.pubsub_channels),
+            "pubsub_channels:%llu\r\n", kvstoreSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%llu\r\n", daSize(server.pubsubshard_channels),
+            "pubsubshard_channels:%llu\r\n", kvstoreSize(server.pubsubshard_channels),
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
@@ -6042,8 +6042,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
 
-            keys = daSize(server.db[j].keys);
-            vkeys = daSize(server.db[j].volatile_keys);
+            keys = kvstoreSize(server.db[j].keys);
+            vkeys = kvstoreSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
                     "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",

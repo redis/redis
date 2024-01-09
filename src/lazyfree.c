@@ -19,12 +19,12 @@ void lazyfreeFreeObject(void *args[]) {
  * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. */
 void lazyfreeFreeDatabase(void *args[]) {
-    dictarray *da1 = args[0];
-    dictarray *da2 = args[1];
+    kvstore *da1 = args[0];
+    kvstore *da2 = args[1];
 
-    size_t numkeys = daSize(da1);
-    daRelease(da1);
-    daRelease(da2);
+    size_t numkeys = kvstoreSize(da1);
+    kvstoreRelease(da1);
+    kvstoreRelease(da2);
     atomicDecr(lazyfree_objects,numkeys);
     atomicIncr(lazyfreed_objects,numkeys);
 }
@@ -174,10 +174,10 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    dictarray *oldda1 = db->keys, *oldda2 = db->volatile_keys;
-    db->keys = daCreate(&dbDictType, db->keys->num_dicts_bits);
-    db->volatile_keys = daCreate(&dbExpiresDictType, db->volatile_keys->num_dicts_bits);
-    atomicIncr(lazyfree_objects, daSize(oldda1));
+    kvstore *oldda1 = db->keys, *oldda2 = db->expires;
+    db->keys = kvstoreCreate(&dbDictType, db->keys->num_dicts_bits);
+    db->expires = kvstoreCreate(&dbExpiresDictType, db->expires->num_dicts_bits);
+    atomicIncr(lazyfree_objects, kvstoreSize(oldda1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldda1, oldda2);
 }
 

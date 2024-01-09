@@ -2244,7 +2244,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     int j;
     long key_count = 0;
     long long updated_time = 0;
-    daIterator *dait = NULL;
+    kvstoreIterator *kvs_it = NULL;
 
     /* Record timestamp at the beginning of rewriting AOF. */
     if (server.aof_timestamp_enabled) {
@@ -2258,15 +2258,15 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db + j;
-        if (daSize(db->keys) == 0) continue;
+        if (kvstoreSize(db->keys) == 0) continue;
 
         /* SELECT the new DB */
         if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
-        dait = daIteratorInit(db->keys);
+        kvs_it = kvstoreIteratorInit(db->keys);
         /* Iterate this DB writing every entry */
-        while((de = daIteratorNext(dait)) != NULL) {
+        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
             sds keystr;
             robj key, *o;
             long long expiretime;
@@ -2331,12 +2331,12 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             if (server.rdb_key_save_delay)
                 debugDelay(server.rdb_key_save_delay);
         }
-        daReleaseIterator(dait);
+        kvstoreIteratorRelease(kvs_it);
     }
     return C_OK;
 
 werr:
-    if (dait) daReleaseIterator(dait);
+    if (kvs_it) kvstoreIteratorRelease(kvs_it);
     return C_ERR;
 }
 

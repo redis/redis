@@ -67,7 +67,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
-#include "dictarray.h" /* Slot-based hash table */
+#include "kvstore.h" /* Slot-based hash table */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
@@ -975,8 +975,8 @@ typedef struct replBufBlock {
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dictarray *keys;            /* The keyspace for this DB */
-    dictarray *volatile_keys;   /* Timeout of keys with a timeout set */
+    kvstore *keys;              /* The keyspace for this DB */
+    kvstore *expires;           /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
@@ -1974,11 +1974,11 @@ struct redisServer {
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
     /* Pubsub */
-    dictarray *pubsub_channels;  /* Map channels to list of subscribed clients */
+    kvstore *pubsub_channels;  /* Map channels to list of subscribed clients */
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    dictarray *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
+    kvstore *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
     unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
@@ -3111,9 +3111,9 @@ int restartServer(int flags, mstime_t delay);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 
-/* dictarray wrappers */
-int dbExpand(dictarray *da, uint64_t db_size, int try_expand);
-dictEntry *dbFind(dictarray *da, void *key);
+/* kvstore wrappers */
+int dbExpand(kvstore *kvs, uint64_t db_size, int try_expand);
+dictEntry *dbFind(kvstore *kvs, void *key);
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);

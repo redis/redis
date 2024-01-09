@@ -593,23 +593,23 @@ int performEvictions(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    dictarray *da;
+                    kvstore *kvs;
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        da = db->keys;
+                        kvs = db->keys;
                     } else {
-                        da = db->volatile_keys;
+                        kvs = db->expires;
                     }
                     unsigned long sampled_keys = 0;
-                    unsigned long current_db_keys = daSize(da);
+                    unsigned long current_db_keys = kvstoreSize(kvs);
                     if (current_db_keys == 0) continue;
 
                     total_keys += current_db_keys;
-                    int l = daNonEmptyDicts(da);
+                    int l = kvstoreNonEmptyDicts(kvs);
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
-                        int slot = daGetFairRandomDictIndex(da);
-                        sampledict = daGetDict(da, slot);
-                        sampled_keys += evictionPoolPopulate(i, slot, sampledict, daGetDict(db->keys, slot), pool);
+                        int slot = kvstoreGetFairRandomDictIndex(kvs);
+                        sampledict = kvstoreGetDict(kvs, slot);
+                        sampled_keys += evictionPoolPopulate(i, slot, sampledict, kvstoreGetDict(db->keys, slot), pool);
                         /* We have sampled enough keys in the current db, exit the loop. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
@@ -627,13 +627,13 @@ int performEvictions(void) {
                     if (pool[k].key == NULL) continue;
                     bestdbid = pool[k].dbid;
 
-                    dictarray *da;
+                    kvstore *kvs;
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        da = server.db[bestdbid].keys;
+                        kvs = server.db[bestdbid].keys;
                     } else {
-                        da = server.db[bestdbid].volatile_keys;
+                        kvs = server.db[bestdbid].expires;
                     }
-                    de = daDictFind(da, pool[k].slot, pool[k].key);
+                    de = kvstoreDictFind(kvs, pool[k].slot, pool[k].key);
 
                     /* Remove the entry from the pool. */
                     if (pool[k].key != pool[k].cached)
@@ -663,14 +663,14 @@ int performEvictions(void) {
             for (i = 0; i < server.dbnum; i++) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
-                dictarray *da;
+                kvstore *kvs;
                 if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
-                    da = db->keys;
+                    kvs = db->keys;
                 } else {
-                    da = db->volatile_keys;
+                    kvs = db->expires;
                 }
-                int slot = daGetFairRandomDictIndex(da);
-                sampledict = daGetDict(da, slot);
+                int slot = kvstoreGetFairRandomDictIndex(kvs);
+                sampledict = kvstoreGetDict(kvs, slot);
 
                 if (dictSize(sampledict) != 0) {
                     de = dictGetRandomKey(sampledict);

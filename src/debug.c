@@ -289,16 +289,16 @@ void computeDatasetDigest(unsigned char *final) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        if (daSize(db->keys) == 0)
+        if (kvstoreSize(db->keys) == 0)
             continue;
-        daIterator *dait = daIteratorInit(db->keys);
+        kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
 
         /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
         mixDigest(final,&aux,sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while((de = daIteratorNext(dait)) != NULL) {
+        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
             sds key;
             robj *keyobj, *o;
 
@@ -315,7 +315,7 @@ void computeDatasetDigest(unsigned char *final) {
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
-        daReleaseIterator(dait);
+        kvstoreIteratorRelease(kvs_it);
     }
 }
 
@@ -911,11 +911,11 @@ NULL
             full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        daGetStats(server.db[dbid].keys, buf, sizeof(buf), full);
+        kvstoreGetStats(server.db[dbid].keys, buf, sizeof(buf), full);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        daGetStats(server.db[dbid].volatile_keys, buf, sizeof(buf), full);
+        kvstoreGetStats(server.db[dbid].expires, buf, sizeof(buf), full);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
