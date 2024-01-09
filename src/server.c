@@ -108,9 +108,8 @@ const char *replstateToString(int replstate);
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
-/* Low level logging. To use only for very big messages, otherwise
- * serverLog() is to prefer. */
-void serverLogRaw(int level, const char *msg) {
+/*Write logs to corresponding files.*/
+void writeInLogfile(int level, const char *msg, const char *logfile) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
     FILE *fp;
@@ -121,7 +120,7 @@ void serverLogRaw(int level, const char *msg) {
     level &= 0xff; /* clear flags */
     if (level < server.verbosity) return;
 
-    fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
+    fp = log_to_stdout ? stdout : fopen(logfile,"a");
     if (!fp) return;
 
     if (rawmode) {
@@ -151,6 +150,58 @@ void serverLogRaw(int level, const char *msg) {
 
     if (!log_to_stdout) fclose(fp);
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+}
+
+/* Low level logging. To use only for very big messages, otherwise
+ * serverLog() is to prefer. */
+void serverLogRaw(int level, const char *msg) {
+    writeInLogfile(level, msg, server.logfile);
+}
+void redisCheckLogName(const char *logfile, char *logfilename)
+{
+    if(NULL == logfile) return;
+
+    int len = strlen(logfile);
+    int i = len - 4;
+    if (i < 0)
+    {
+        strncpy(logfilename, logfile, len);
+        return;
+    }
+
+    if (logfile[i] == '.' && logfile[i+1] == 'l' &&
+        logfile[i+2] == 'o' && logfile[i+3] == 'g')
+    {
+        strncpy(logfilename, logfile, i);
+    }
+    else
+    {
+        strncpy(logfilename, logfile, len);
+    }
+    return;
+}
+
+void serverSlowLogRaw(int level, const char *msg) {
+    sds fname ;
+    char logfilename[1024] = {0};
+    redisCheckLogName(server.logfile, logfilename);
+    fname = sdsnew(logfilename);
+    fname = sdscat(fname, "-slow.log");
+    writeInLogfile(level, msg, fname);
+    sdsfree(fname);
+}
+
+void serverSlowLog(int level, const char *fmt, ...) {
+    va_list ap;
+    char msg[LOG_MAX_LEN];
+
+    if ((level&0xff) < server.verbosity) return;
+
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+
+    serverSlowLogRaw(level,msg);
 }
 
 /* Like serverLogRaw() but with printf-alike support. This is the function that
