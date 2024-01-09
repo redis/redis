@@ -52,6 +52,7 @@ void *BlockDebug_ThreadMain(void *arg) {
         RedisModule_ThreadSafeContextUnlock(ctx);
     }
     RedisModule_Free(targ);
+
     struct timespec ts;
     ts.tv_sec = delay / 1000;
     ts.tv_nsec = (delay % 1000) * 1000000;
