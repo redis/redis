@@ -13,6 +13,26 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.2.4    Released Tue 09 Jan 2024 10:45:52 IST
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security fixes
+==============
+* (CVE-2023-41056) In some cases, Redis may incorrectly handle resizing of memory
+  buffers which can result in incorrect accounting of buffer sizes and lead to
+  heap overflow and potential remote code execution.
+
+Bug fixes
+=========
+
+* Fix crashes of cluster commands clusters with mixed versions of 7.0 and 7.2 (#12805, #12832)
+* Fix slot ownership not being properly handled when deleting a slot from a node (#12564)
+* Fix atomicity issues with the RedisModuleEvent_Key module API event (#12733)
+
+
+================================================================================
 Redis 7.2.3    Released Wed 01 Nov 2023 12:00:00 IST
 ================================================================================
 
