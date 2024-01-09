@@ -763,9 +763,21 @@ void channelList(client *c, sds pat, dict **pubsub_channels, int is_sharded) {
 
 /* SPUBLISH <shardchannel> <message> */
 void spublishCommand(client *c) {
-    int receivers = pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[2],1);
-    if (!server.cluster_enabled)
+    int receivers = pubsubPublishMessage(c->argv[1], c->argv[2], 1);
+    if (server.cluster_enabled) {
+        if (iAmMaster()) {
+            /* Propagate the message to other replica(s) in the shard via replication link. */
+            forceCommandPropagation(c, PROPAGATE_REPL);
+        } else if (!(c->flags & CLIENT_MASTER)) {
+            /* If the command is received from a regular client, propagate it via cluster link. */
+            clusterPropagatePublish(c->argv[1], c->argv[2], 1);
+        } else {
+            /* If the command is received from a master client, no further propagation is required. */
+        }
+    } else {
+        /* if cluster-enabled is no, propagate it via replication link. */
         forceCommandPropagation(c,PROPAGATE_REPL);
+    }
     addReplyLongLong(c,receivers);
 }
 
