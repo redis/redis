@@ -13569,7 +13569,7 @@ int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
 
 /* Remove the specified element from the set and the key will be
  * removed if has no any element in after remove elements operation.
-
+ *
  * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
  * and `errno` is set as follows:
  *
