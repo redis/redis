@@ -42,15 +42,8 @@ void *BlockDebug_ThreadMain(void *arg) {
     RedisModuleBlockedClient *bc = targ[0];
     long long delay = (unsigned long)targ[1];
     long long enable_time_track = (unsigned long)targ[2];
-
-    /* Get Redis module context */
-    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-
-    if (enable_time_track) {
-        RedisModule_ThreadSafeContextLock(ctx);
+    if (enable_time_track)
         RedisModule_BlockedClientMeasureTimeStart(bc);
-        RedisModule_ThreadSafeContextUnlock(ctx);
-    }
     RedisModule_Free(targ);
 
     struct timespec ts;
@@ -59,13 +52,9 @@ void *BlockDebug_ThreadMain(void *arg) {
     nanosleep(&ts, NULL);
     int *r = RedisModule_Alloc(sizeof(int));
     *r = rand();
-    if (enable_time_track) {
-        RedisModule_ThreadSafeContextLock(ctx);
+    if (enable_time_track)
         RedisModule_BlockedClientMeasureTimeEnd(bc);
-        RedisModule_ThreadSafeContextUnlock(ctx);
-    }
     RedisModule_UnblockClient(bc,r);
-    RedisModule_FreeThreadSafeContext(ctx);
     return NULL;
 }
 
@@ -75,13 +64,7 @@ void *DoubleBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
     long long delay = (unsigned long)targ[1];
-
-    /* Get Redis module context */
-    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-
-    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_BlockedClientMeasureTimeStart(bc);
-    RedisModule_ThreadSafeContextUnlock(ctx);
     RedisModule_Free(targ);
     struct timespec ts;
     ts.tv_sec = delay / 1000;
@@ -89,23 +72,15 @@ void *DoubleBlock_ThreadMain(void *arg) {
     nanosleep(&ts, NULL);
     int *r = RedisModule_Alloc(sizeof(int));
     *r = rand();
-    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_ThreadSafeContextUnlock(ctx);
-
     /* call again RedisModule_BlockedClientMeasureTimeStart() and
      * RedisModule_BlockedClientMeasureTimeEnd and ensure that the
      * total execution time is 2x the delay. */
-    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_BlockedClientMeasureTimeStart(bc);
-    RedisModule_ThreadSafeContextUnlock(ctx);
     nanosleep(&ts, NULL);
-    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_ThreadSafeContextUnlock(ctx);
 
     RedisModule_UnblockClient(bc,r);
-    RedisModule_FreeThreadSafeContext(ctx);
     return NULL;
 }
 
