@@ -374,7 +374,6 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     while ((de = dictNext(di)) != NULL) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
-        if (dictSize(clients) == 0) goto cleanup;
         /* For each client subscribed to the channel, unsubscribe it. */
         dictIterator *iter = dictGetSafeIterator(clients);
         dictEntry *entry;
@@ -390,7 +389,6 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
             }
         }
         dictReleaseIterator(iter);
-cleanup:
         server.shard_channel_count--;
         dictDelete(d, channel);
     }
@@ -545,7 +543,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     }
 
     /* Send to clients listening to matching channels */
-    di = dictGetIterator(server.pubsub_patterns);
+    di = dictGetSafeIterator(server.pubsub_patterns);
     if (di) {
         channel = getDecodedObject(channel);
         while((de = dictNext(di)) != NULL) {
@@ -743,7 +741,7 @@ void channelList(client *c, sds pat, dict **pubsub_channels, int is_sharded) {
         if (pubsub_channels[i] == NULL) {
             continue;
         }
-        dictIterator *di = dictGetIterator(pubsub_channels[i]);
+        dictIterator *di = dictGetSafeIterator(pubsub_channels[i]);
         dictEntry *de;
         while((de = dictNext(di)) != NULL) {
             robj *cobj = dictGetKey(de);
