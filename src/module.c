@@ -13615,8 +13615,8 @@ int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
 }
 
 /* Query if member is a member of the set stored at key
-
- * Returns 0 if member is not a member of the set stored at key.
+ *
+ * Returns 0 if member is not a member of the set stored at key. 
  * Returns 1 if member is a member of the set stored at key. 
  * On failure, -1 is returned and `errno` is set as follows:
  *
