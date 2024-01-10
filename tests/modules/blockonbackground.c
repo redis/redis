@@ -19,12 +19,6 @@ int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     UNUSED(argc);
-
-    /* Terminate the module thread. */
-    pthread_t *tid = RedisModule_GetBlockedClientPrivateData(ctx);
-    pthread_cancel(*tid);
-    pthread_join(*tid,NULL);
-
     RedisModuleBlockedClient *bc = RedisModule_GetBlockedClientHandle(ctx);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
@@ -111,7 +105,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
     }
 
-    pthread_t *tid = RedisModule_Alloc(sizeof(pthread_t));
+    pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
 
     /* Here we set a disconnection handler, however since this module will
@@ -128,8 +122,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // pass 1 as flag to enable time tracking
     targ[2] = (void*)(unsigned long) 1;
 
-    RedisModule_BlockClientSetPrivateData(bc, tid);
-    if (pthread_create(tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
+    if (pthread_create(&tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
@@ -153,7 +146,7 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
     }
 
-    pthread_t *tid = RedisModule_Alloc(sizeof(pthread_t));
+    pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
 
     /* Here we set a disconnection handler, however since this module will
@@ -170,8 +163,7 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
     // pass 0 as flag to enable time tracking
     targ[2] = (void*)(unsigned long) 0;
 
-    RedisModule_BlockClientSetPrivateData(bc, tid);
-    if (pthread_create(tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
+    if (pthread_create(&tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
@@ -190,7 +182,7 @@ int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
         return RedisModule_ReplyWithError(ctx,"ERR invalid count");
     }
 
-    pthread_t *tid = RedisModule_Alloc(sizeof(pthread_t));
+    pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,0);
 
     /* Now that we setup a blocking client, we need to pass the control
@@ -200,8 +192,7 @@ int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     targ[0] = bc;
     targ[1] = (void*)(unsigned long) delay;
 
-    RedisModule_BlockClientSetPrivateData(bc, tid);
-    if (pthread_create(tid,NULL,DoubleBlock_ThreadMain,targ) != 0) {
+    if (pthread_create(&tid,NULL,DoubleBlock_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
