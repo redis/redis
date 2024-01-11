@@ -622,17 +622,6 @@ static void fcallCommandGeneric(client *c, int ro) {
     /* Functions need to be fed to monitors before the commands they execute. */
     replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 
-    robj *function_name = c->argv[1];
-    dictEntry *de = c->cur_script;
-    if (!de)
-        de = dictFind(curr_functions_lib_ctx->functions, function_name->ptr);
-    if (!de) {
-        addReplyError(c, "Function not found");
-        return;
-    }
-    functionInfo *fi = dictGetVal(de);
-    engine *engine = fi->li->ei->engine;
-
     long long numkeys;
     /* Get the number of arguments that are keys */
     if (getLongLongFromObject(c->argv[2], &numkeys) != C_OK) {
@@ -646,6 +635,17 @@ static void fcallCommandGeneric(client *c, int ro) {
         addReplyError(c, "Number of keys can't be negative");
         return;
     }
+
+    robj *function_name = c->argv[1];
+    dictEntry *de = c->cur_script;
+    if (!de)
+        de = dictFind(curr_functions_lib_ctx->functions, function_name->ptr);
+    if (!de) {
+        addReplyError(c, "Function not found");
+        return;
+    }
+    functionInfo *fi = dictGetVal(de);
+    engine *engine = fi->li->ei->engine;
 
     scriptRunCtx run_ctx;
 
