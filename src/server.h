@@ -1846,6 +1846,7 @@ struct redisServer {
     int memcheck_enabled;           /* Enable memory check on crash. */
     int use_exit_on_panic;          /* Use exit() on panic and assert rather than
                                      * abort(). useful for Valgrind. */
+    int logfmt;                     /* Print log in logfmt style */
     /* Shutdown */
     int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
     int shutdown_on_sigint;         /* Shutdown flags configured for SIGINT. */

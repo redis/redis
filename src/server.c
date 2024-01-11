@@ -144,8 +144,13 @@ void serverLogRaw(int level, const char *msg) {
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
-        fprintf(fp,"%d:%c %s %c %s\n",
-            (int)getpid(),role_char, buf,c[level],msg);
+        if(server.logfmt) {
+            fprintf(fp,"pid=%d role_char=%c timestamp=\"%s\" level=%c message=\"%s\"\n",
+                (int)getpid(),role_char, buf,c[level],msg);
+        }else {
+            fprintf(fp,"%d:%c %s %c %s\n",
+                (int)getpid(),role_char, buf,c[level],msg);
+        }
     }
     fflush(fp);
 
