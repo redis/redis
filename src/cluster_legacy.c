@@ -1182,19 +1182,10 @@ void freeClusterLink(clusterLink *link) {
         connClose(link->conn);
         link->conn = NULL;
     }
-
-    if (link->send_msg_queue) {
-        server.stat_cluster_links_memory -= sizeof(list) + listLength(link->send_msg_queue)*sizeof(listNode);
-        listRelease(link->send_msg_queue);
-        link->send_msg_queue = NULL;
-    }
-
-    if (link->rcvbuf) {
-        server.stat_cluster_links_memory -= link->rcvbuf_alloc;
-        zfree(link->rcvbuf);
-        link->rcvbuf = NULL;
-    }
-
+    server.stat_cluster_links_memory -= sizeof(list) + listLength(link->send_msg_queue)*sizeof(listNode);
+    listRelease(link->send_msg_queue);
+    server.stat_cluster_links_memory -= link->rcvbuf_alloc;
+    zfree(link->rcvbuf);
     if (link->node) {
         if (link->node->link == link) {
             serverAssert(!link->inbound);
