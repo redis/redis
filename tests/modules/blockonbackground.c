@@ -71,8 +71,8 @@ void *BlockDebug_ThreadMain(void *arg) {
         ts.tv_nsec = (sleep_phase_2 % 1000) * 1000000;
         nanosleep(&ts, NULL);
 
-    if (enable_time_track)
-        RedisModule_BlockedClientMeasureTimeEnd(bc);
+        if (enable_time_track)
+            RedisModule_BlockedClientMeasureTimeEnd(bc);
         RedisModule_ReplyWithLongLong(ctx, rand());
     }
 
