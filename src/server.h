@@ -1292,6 +1292,7 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+    list *monitor_filters;
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif

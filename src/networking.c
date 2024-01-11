@@ -215,6 +215,7 @@ client *createClient(connection *conn) {
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
     initClientMultiState(c);
+    c->monitor_filters = NULL;
     return c;
 }
 
@@ -1704,6 +1705,8 @@ void freeClient(client *c) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
         listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
     }
+
+    if (c->monitor_filters) listRelease(c->monitor_filters);
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */

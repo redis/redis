@@ -3,7 +3,7 @@
         "summary": "Listens for all requests received by the server in real-time.",
         "group": "server",
         "since": "1.0.0",
-        "arity": 1,
+        "arity": -1,
         "function": "monitorCommand",
         "history": [],
         "command_flags": [
@@ -11,6 +11,14 @@
             "NOSCRIPT",
             "LOADING",
             "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "command",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
         ]
     }
 }

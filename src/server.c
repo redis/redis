@@ -6166,6 +6166,40 @@ void infoCommand(client *c) {
     return;
 }
 
+/* Build the MONITOR filters from the MONITOR arguments
+ * returns NULL (if not issues) or a list of incorrect arguments (that are not Redis commands) */
+sds saveMonitorFiltersFromArguments(client *c) {
+    if (c->argc == 1) return NULL; /* MONITOR does not have filters/arguments */
+
+    sds incorrect_args = sdsempty();
+
+    /* even if we do not have a valid argument, monitor_filters will be cleaned in freeClient() */
+    if ((c->monitor_filters = listCreate()) == NULL) {
+        fprintf(stderr, "monitor_filters list creation failed.\n");
+        exit(1);
+    }
+
+    /* validate arguments are commands */
+    for (int i = 1; i < c->argc; i++) {
+        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[i]->ptr);
+        if (cmd) {
+            if (listSearchKey(c->monitor_filters, cmd) == NULL) { /* no duplicate */
+                listAddNodeTail(c->monitor_filters, cmd);
+            }
+        } else {
+            // YLB TODO add if QUIT or AUTH as Monitor does not log them?
+            incorrect_args = sdscatfmt(incorrect_args, " '%s'", (char *)c->argv[i]->ptr);
+        }
+    }
+
+    if (sdslen(incorrect_args) == 0) {
+        sdsfree(incorrect_args);
+        return NULL;
+    } else {
+        return incorrect_args;
+    }
+}
+
 void monitorCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
@@ -6177,6 +6211,13 @@ void monitorCommand(client *c) {
 
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
+
+    sds incorrect_args = saveMonitorFiltersFromArguments(c);
+    if (incorrect_args != NULL) {
+        addReplyErrorFormat(c, "%s argument(s) are not Redis command(s).", incorrect_args);
+        sdsfree(incorrect_args);
+        return;
+    }
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);

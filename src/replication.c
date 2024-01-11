@@ -609,6 +609,9 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
+        if (monitor->monitor_filters && 
+            listSearchKey(monitor->monitor_filters, c->cmd) == NULL) 
+            continue;
         addReply(monitor,cmdobj);
         updateClientMemUsageAndBucket(monitor);
     }
