@@ -2078,6 +2078,7 @@ struct redisServer {
     int failover_state; /* Failover state */
     int cluster_allow_pubsubshard_when_down; /* Is pubsubshard allowed when the cluster
                                                 is down, doesn't affect pubsub global. */
+    int cluster_allow_pubsubshard_publish_replica; /* Allow sharded pubsub PUBLISH on replica. */
     long reply_buffer_peak_reset_time; /* The amount of time (in milliseconds) to wait between reply buffer peak resets */
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
