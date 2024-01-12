@@ -75,7 +75,8 @@ static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const cha
     REDISMODULE_NOT_USED(key);
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "expired", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -95,7 +96,8 @@ static int KeySpace_NotificationEvicted(RedisModuleCtx *ctx, int type, const cha
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "evicted", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -121,7 +123,8 @@ static int KeySpace_NotificationString(RedisModuleCtx *ctx, int type, const char
         new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
     }
 
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -137,7 +140,8 @@ static int KeySpace_LazyExpireInsidePostNotificationJob(RedisModuleCtx *ctx, int
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, key_str + 5, strlen(key_str) - 5);;
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -213,7 +217,7 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
     REDISMODULE_NOT_USED(eid);
     REDISMODULE_NOT_USED(data);
     if (subevent > 3) {
-        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%ld'", subevent);
+        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%llu'", (unsigned long long)subevent);
         return;
     }
     static const char* events[] = {
@@ -236,7 +240,8 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
     KeySpace_EventPostNotificationCtx *pn_ctx = RedisModule_Alloc(sizeof(*pn_ctx));
     pn_ctx->triggered_on = RedisModule_HoldString(NULL, (RedisModuleString*)key_name);
     pn_ctx->new_key = RedisModule_CreateString(NULL, events[subevent], strlen(events[subevent]));
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_ServerEventPostNotification, pn_ctx, KeySpace_ServerEventPostNotificationFree);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_ServerEventPostNotification, pn_ctx, KeySpace_ServerEventPostNotificationFree);
+    if (res == REDISMODULE_ERR) KeySpace_ServerEventPostNotificationFree(pn_ctx);
 }
 
 /* This function must be present on each Redis module. It is used in order to

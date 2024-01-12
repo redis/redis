@@ -143,8 +143,7 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-
-void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
@@ -162,7 +161,7 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (!(server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS)) de = dictFind(db->dict[slot], key);
+            if (sampledict != keydict) de = dictFind(keydict, key);
             o = dictGetVal(de);
         }
 
@@ -240,6 +239,8 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
         pool[k].dbid = dbid;
         pool[k].slot = slot;
     }
+
+    return count;
 }
 
 /* ----------------------------------------------------------------------------
@@ -251,42 +252,40 @@ void evictionPoolPopulate(int dbid, int slot, dict *sampledict, redisDb *db, str
  *
  * We split the 24 bits into two fields:
  *
- *          16 bits      8 bits
- *     +----------------+--------+
- *     + Last decr time | LOG_C  |
- *     +----------------+--------+
+ *            16 bits       8 bits
+ *     +------------------+--------+
+ *     + Last access time | LOG_C  |
+ *     +------------------+--------+
  *
  * LOG_C is a logarithmic counter that provides an indication of the access
  * frequency. However this field must also be decremented otherwise what used
  * to be a frequently accessed key in the past, will remain ranked like that
  * forever, while we want the algorithm to adapt to access pattern changes.
  *
- * So the remaining 16 bits are used in order to store the "decrement time",
+ * So the remaining 16 bits are used in order to store the "access time",
  * a reduced-precision Unix time (we take 16 bits of the time converted
  * in minutes since we don't care about wrapping around) where the LOG_C
- * counter is halved if it has an high value, or just decremented if it
- * has a low value.
+ * counter decays every minute by default (depends on lfu-decay-time).
  *
  * New keys don't start at zero, in order to have the ability to collect
  * some accesses before being trashed away, so they start at LFU_INIT_VAL.
  * The logarithmic increment performed on LOG_C takes care of LFU_INIT_VAL
  * when incrementing the key, so that keys starting at LFU_INIT_VAL
  * (or having a smaller value) have a very high chance of being incremented
- * on access.
+ * on access. (The chance depends on counter and lfu-log-factor.)
  *
- * During decrement, the value of the logarithmic counter is halved if
- * its current value is greater than two times the LFU_INIT_VAL, otherwise
- * it is just decremented by one.
+ * During decrement, the value of the logarithmic counter is decremented by
+ * one when lfu-decay-time minutes elapsed.
  * --------------------------------------------------------------------------*/
 
 /* Return the current time in minutes, just taking the least significant
- * 16 bits. The returned time is suitable to be stored as LDT (last decrement
+ * 16 bits. The returned time is suitable to be stored as LDT (last access
  * time) for the LFU implementation. */
 unsigned long LFUGetTimeInMinutes(void) {
     return (server.unixtime/60) & 65535;
 }
 
-/* Given an object last access time, compute the minimum number of minutes
+/* Given an object ldt (last access time), compute the minimum number of minutes
  * that elapsed since the last access. Handle overflow (ldt greater than
  * the current 16 bits minutes time) considering the time as wrapping
  * exactly once. */
@@ -308,10 +307,10 @@ uint8_t LFULogIncr(uint8_t counter) {
     return counter;
 }
 
-/* If the object decrement time is reached decrement the LFU counter but
+/* If the object's ldt (last access time) is reached, decrement the LFU counter but
  * do not update LFU fields of the object, we update the access time
  * and counter in an explicit way when the object is really accessed.
- * And we will times halve the counter according to the times of
+ * And we will decrement the counter according to the times of
  * elapsed time than server.lfu_decay_time.
  * Return the object frequency counter.
  *
@@ -586,33 +585,37 @@ int performEvictions(void) {
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
+            dbKeyType keyType = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS ?
+                                 DB_MAIN : DB_EXPIRES);
 
             while (bestkey == NULL) {
-                unsigned long total_keys = 0, keys;
+                unsigned long total_keys = 0;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    do {
-                        int slot = 0;
-                        if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                            slot = getFairRandomSlot(db, DB_MAIN);
-                            dict = db->dict[slot];
-                        } else {
-                            slot = getFairRandomSlot(db, DB_EXPIRES);
-                            dict = db->expires[slot];
-                        }
-                        if ((keys = dictSize(dict)) != 0) {
-                            evictionPoolPopulate(i, slot, dict, db, pool);
-                            total_keys += keys;
-                        }
-                    /* Since keys are distributed across smaller slot-specific dictionaries in cluster mode, we may need to
-                     * visit more than one dictionary in order to populate required number of samples into eviction pool. */
-                    } while (server.cluster_enabled && keys != 0 && server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS &&
-                        total_keys < (unsigned long) server.maxmemory_samples
-                    );
+                    unsigned long sampled_keys = 0;
+                    unsigned long current_db_keys = dbSize(db, keyType);
+                    if (current_db_keys == 0) continue;
+
+                    total_keys += current_db_keys;
+                    int l = dbNonEmptySlots(db, keyType);
+                    /* Do not exceed the number of non-empty slots when looping. */
+                    while (l--) {
+                        int slot = getFairRandomSlot(db, keyType);
+                        dict = (keyType == DB_MAIN ? db->dict[slot] : db->expires[slot]);
+                        sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
+                        /* We have sampled enough keys in the current db, exit the loop. */
+                        if (sampled_keys >= (unsigned long) server.maxmemory_samples)
+                            break;
+                        /* If there are not a lot of keys in the current db, dict/s may be very
+                         * sparsely populated, exit the loop without meeting the sampling
+                         * requirement. */
+                        if (current_db_keys < (unsigned long) server.maxmemory_samples*10)
+                            break;
+                    }
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
