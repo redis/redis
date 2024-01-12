@@ -19,6 +19,8 @@ int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     UNUSED(argc);
+    RedisModuleBlockedClient *bc = RedisModule_GetBlockedClientHandle(ctx);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
     return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
 }
 
@@ -40,47 +42,19 @@ void *BlockDebug_ThreadMain(void *arg) {
     RedisModuleBlockedClient *bc = targ[0];
     long long delay = (unsigned long)targ[1];
     long long enable_time_track = (unsigned long)targ[2];
-    long long timeout = (unsigned long)targ[3];
-
-    /* Get Redis module context */
-    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-
     if (enable_time_track)
         RedisModule_BlockedClientMeasureTimeStart(bc);
     RedisModule_Free(targ);
 
-    /* Divide the sleep into two phases, which allows us to immediately
-     * respond to the user if a timeout occurs during sleep. */
-    long long sleep_phase_1 = delay > timeout ? timeout : delay;
-    long long sleep_phase_2 = delay - sleep_phase_1;
-
     struct timespec ts;
-    ts.tv_sec = sleep_phase_1 / 1000;
-    ts.tv_nsec = (sleep_phase_1 % 1000) * 1000000;
+    ts.tv_sec = delay / 1000;
+    ts.tv_nsec = (delay % 1000) * 1000000;
     nanosleep(&ts, NULL);
-
-    if (sleep_phase_2 > 0 && timeout) {
-        /* If further sleep is required but a timeout has occurred,
-         * we track the end time and respond timeout to the user. */
-        if (enable_time_track)
-            RedisModule_BlockedClientMeasureTimeEnd(bc);
-        RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
-    } else {
-        /* Continue the unfinished sleep. */
-        ts.tv_sec = sleep_phase_2 / 1000;
-        ts.tv_nsec = (sleep_phase_2 % 1000) * 1000000;
-        nanosleep(&ts, NULL);
-
+    int *r = RedisModule_Alloc(sizeof(int));
+    *r = rand();
     if (enable_time_track)
         RedisModule_BlockedClientMeasureTimeEnd(bc);
-        RedisModule_ReplyWithLongLong(ctx, rand());
-    }
-
-    RedisModule_UnblockClient(bc, NULL);
-
-    /* Free the Redis module context */
-    RedisModule_FreeThreadSafeContext(ctx);
-
+    RedisModule_UnblockClient(bc,r);
     return NULL;
 }
 
@@ -132,7 +106,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     }
 
     pthread_t tid;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,NULL,NULL,HelloBlock_FreeData,0);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the
@@ -142,12 +116,11 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     /* Now that we setup a blocking client, we need to pass the control
      * to the thread. However we need to pass arguments to the thread:
      * the delay and a reference to the blocked client handle. */
-    void **targ = RedisModule_Alloc(sizeof(void*)*4);
+    void **targ = RedisModule_Alloc(sizeof(void*)*3);
     targ[0] = bc;
     targ[1] = (void*)(unsigned long) delay;
     // pass 1 as flag to enable time tracking
     targ[2] = (void*)(unsigned long) 1;
-    targ[3] = (void*)(unsigned long) timeout;
 
     if (pthread_create(&tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
@@ -174,7 +147,7 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
     }
 
     pthread_t tid;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,NULL,NULL,HelloBlock_FreeData,0);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the
@@ -184,12 +157,11 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
     /* Now that we setup a blocking client, we need to pass the control
      * to the thread. However we need to pass arguments to the thread:
      * the delay and a reference to the blocked client handle. */
-    void **targ = RedisModule_Alloc(sizeof(void*)*4);
+    void **targ = RedisModule_Alloc(sizeof(void*)*3);
     targ[0] = bc;
     targ[1] = (void*)(unsigned long) delay;
     // pass 0 as flag to enable time tracking
     targ[2] = (void*)(unsigned long) 0;
-    targ[3] = (void*)(unsigned long) timeout;
 
     if (pthread_create(&tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);

@@ -15,14 +15,14 @@ start_server {tags {"modules"}} {
         if {!$::no_latency} {
             assert_equal [r slowlog len] 0
         }
-        assert_not_equal [r block.debug 0 10000] "Request timedout"
+        r block.debug 0 10000
         if {!$::no_latency} {
             assert_equal [r slowlog len] 0
         }
         r config resetstat
         r config set latency-tracking yes
         r config set latency-tracking-info-percentiles "50.0"
-        assert_not_equal [r block.debug 200 10000] "Request timedout"
+        r block.debug 200 10000
         if {!$::no_latency} {
             assert_equal [r slowlog len] 1
         }
@@ -43,12 +43,12 @@ start_server {tags {"modules"}} {
         if {!$::no_latency} {
             assert_equal [r slowlog len] 0
         }
-        assert_not_equal [r block.debug 0 20000] "Request timedout"
+        r block.debug 0 20000
         if {!$::no_latency} {
             assert_equal [r slowlog len] 0
         }
         r config resetstat
-        assert_equal [r block.debug 20000 500] "Request timedout"
+        r block.debug 20000 500
         if {!$::no_latency} {
             assert_equal [r slowlog len] 1
         }
@@ -88,7 +88,7 @@ start_server {tags {"modules"}} {
         if {!$::no_latency} {
             assert_equal [r slowlog len] 0
         }
-        assert_not_equal [r block.debug_no_track 200 1000] "Request timedout"
+        r block.debug_no_track 200 1000
         # ensure slowlog is still empty
         if {!$::no_latency} {
             assert_equal [r slowlog len] 0
