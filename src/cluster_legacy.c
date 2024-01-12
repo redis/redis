@@ -2779,7 +2779,7 @@ int clusterProcessPacket(clusterLink *link) {
                 "master manual failover: %lld",
                 server.cluster->mf_master_offset);
         }
-        sender->extensions_supported = ntohs(hdr->extensions_supported);
+        sender->extensions_supported = ntohs(hdr->mflags2);
     }
 
     /* Initial processing of PING and MEET requests replying with a PONG. */
@@ -3611,7 +3611,7 @@ void clusterSendPing(clusterLink *link, int type) {
         }
         dictReleaseIterator(di);
     }
-    hdr->extensions_supported = (uint8_t)htons(1);
+    hdr->mflags2 = htons(1);
     /* Compute the actual total length and send! */
     uint32_t totlen = 0;
     if (link->node && link->node->extensions_supported) {

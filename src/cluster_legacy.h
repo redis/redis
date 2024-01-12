@@ -221,8 +221,8 @@ typedef struct {
     char slaveof[CLUSTER_NAMELEN];
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
     uint16_t extensions; /* Number of extensions sent along with this packet. */
-    uint8_t extensions_supported; /* Does the node support parsing ping extensions. */
-    char notused1[29];   /* 29 bytes reserved for future usage. */
+    uint16_t mflags2; /* Used for passing if the node support parsing ping extensions. */
+    char notused1[28];   /* 28 bytes reserved for future usage. */
     uint16_t pport;      /* Secondary port number: if primary port is TCP port, this is
                             TLS port, and if primary port is TLS port, this is TCP port.*/
     uint16_t cport;      /* Sender TCP cluster bus port */
@@ -255,8 +255,8 @@ static_assert(offsetof(clusterMsg, myslots) == 80, "unexpected field offset");
 static_assert(offsetof(clusterMsg, slaveof) == 2128, "unexpected field offset");
 static_assert(offsetof(clusterMsg, myip) == 2168, "unexpected field offset");
 static_assert(offsetof(clusterMsg, extensions) == 2214, "unexpected field offset");
-static_assert(offsetof(clusterMsg, extensions_supported) == 2216, "unexpected field offset");
-static_assert(offsetof(clusterMsg, notused1) == 2217, "unexpected field offset");
+static_assert(offsetof(clusterMsg, mflags2) == 2216, "unexpected field offset");
+static_assert(offsetof(clusterMsg, notused1) == 2218, "unexpected field offset");
 static_assert(offsetof(clusterMsg, pport) == 2246, "unexpected field offset");
 static_assert(offsetof(clusterMsg, cport) == 2248, "unexpected field offset");
 static_assert(offsetof(clusterMsg, flags) == 2250, "unexpected field offset");
@@ -307,7 +307,7 @@ struct _clusterNode {
     clusterLink *link;          /* TCP/IP link established toward this node */
     clusterLink *inbound_link;  /* TCP/IP link accepted from this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
-    uint8_t extensions_supported; /* Does the node support parsing ping extensions. */
+    uint16_t extensions_supported; /* Does the node support parsing ping extensions. */
 };
 
 struct clusterState {
