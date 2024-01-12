@@ -1,17 +1,13 @@
 # Check cluster info stats
 
-source "../tests/includes/init-tests.tcl"
-
-test "Create a primary with a replica" {
-    create_cluster 2 0
-}
+start_cluster 2 0 {tags {external:skip cluster}} {
 
 test "Cluster should start ok" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
-set primary1 [Rn 0]
-set primary2 [Rn 1]
+set primary1 [srv 0 "client"]
+set primary2 [srv -1 "client"]
 
 proc cmdstat {instance cmd} {
     return [cmdrstat $cmd $instance]
@@ -43,3 +39,5 @@ test "errorstats: rejected call due to MOVED Redirection" {
     assert_match {*count=1*} [errorstat $perr MOVED]
     assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat $perr set]
 }
+
+} ;# start_cluster

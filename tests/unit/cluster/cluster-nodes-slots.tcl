@@ -1,17 +1,13 @@
 # Optimize CLUSTER NODES command by generating all nodes slot topology firstly
 
-source "../tests/includes/init-tests.tcl"
-
-test "Create a 2 nodes cluster" {
-    cluster_create_with_continuous_slots 2 2
-}
+start_cluster 2 2 {tags {external:skip cluster}} {
 
 test "Cluster should start ok" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
-set master1 [Rn 0]
-set master2 [Rn 1]
+set master1 [srv 0 "client"]
+set master2 [srv -1 "client"]
 
 test "Continuous slots distribution" {
     assert_match "* 0-8191*" [$master1 CLUSTER NODES]
@@ -22,7 +18,6 @@ test "Continuous slots distribution" {
     $master1 CLUSTER DELSLOTS 4096
     assert_match "* 0-4095 4097-8191*" [$master1 CLUSTER NODES]
     assert_match "*0 4095*4097 8191*" [$master1 CLUSTER SLOTS]
-
 
     $master2 CLUSTER DELSLOTS 12288
     assert_match "* 8192-12287 12289-16383*" [$master2 CLUSTER NODES]
@@ -48,3 +43,5 @@ test "Discontinuous slots distribution" {
     assert_match "* 8192-12283 12285 12287 12289-16379 16381*" [$master2 CLUSTER NODES]
     assert_match "*8192 12283*12285 12285*12287 12287*12289 16379*16381 16381*" [$master2 CLUSTER SLOTS]
 }
+
+} ;# start_cluster

@@ -1,15 +1,13 @@
-source "../tests/includes/init-tests.tcl"
+source tests/support/cluster.tcl
 
-test "Create a 1 node cluster" {
-    create_cluster 1 0
-}
+start_cluster 1 1 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 proc is_in_slots {master_id replica} {
@@ -90,17 +88,17 @@ test "Replica in loading state is hidden" {
 
     # The master will be the last to know the replica
     # is loading, so we will wait on that and assert
-    # the replica is loading afterwards. 
+    # the replica is loading afterwards.
     wait_for_condition 100 50 {
         ![is_in_slots $master_id $replica]
     } else {
         fail "Replica was always present in cluster slots"
     }
-    assert_equal 1 [s $replica_id loading]
+    assert_equal 1 [s [expr {-1*$replica_id}] loading]
 
     # Wait for the replica to finish full-sync and become online
     wait_for_condition 200 50 {
-        [s $replica_id master_link_status] eq "up"
+        [s [expr {-1*$replica_id}] master_link_status] eq "up"
     } else {
         fail "Replica didn't finish loading"
     }
@@ -115,7 +113,7 @@ test "Replica in loading state is hidden" {
     } else {
         fail "Replica is not back to slots"
     }
-    assert_equal 1 [is_in_slots $replica_id $replica] 
+    assert_equal 1 [is_in_slots $replica_id $replica]
 }
 
 test "Check disconnected replica not hidden from slots" {
@@ -144,3 +142,5 @@ test "Check disconnected replica not hidden from slots" {
     # undo config
     R $master_id config set requirepass ""
 }
+
+} ;# start_cluster

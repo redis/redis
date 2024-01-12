@@ -1,5 +1,90 @@
 # Cluster helper functions
 
+source tests/support/cluster.tcl
+
+proc config_set_all_nodes {keyword value} {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        R $j config set $keyword $value
+    }
+}
+
+proc get_instance_id_by_port {type port} {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        if {[srv [expr -1*$j] port] == $port} {
+            return $j
+        }
+    }
+    fail "Instance port $port not found."
+}
+
+# Check if the cluster is writable and readable. Use node "port"
+# as a starting point to talk with the cluster.
+proc cluster_write_test {port} {
+    set prefix [randstring 20 20 alpha]
+    set cluster [redis_cluster 127.0.0.1:$port]
+    for {set j 0} {$j < 100} {incr j} {
+        $cluster set key.$j $prefix.$j
+    }
+    for {set j 0} {$j < 100} {incr j} {
+        assert {[$cluster get key.$j] eq "$prefix.$j"}
+    }
+    $cluster close
+}
+
+# Helper function to attempt to have each node in a cluster
+# meet each other.
+proc join_nodes_in_cluster {} {
+    # Join node 0 with 1, 1 with 2, ... and so forth.
+    # If auto-discovery works all nodes will know every other node
+    # eventually.
+    set ids {}
+    for {set id 0} {$id < [llength $::servers]} {incr id} {lappend ids $id}
+    for {set j 0} {$j < [expr [llength $ids]-1]} {incr j} {
+        set a [lindex $ids $j]
+        set b [lindex $ids [expr $j+1]]
+        set b_port [srv -$b port]
+        R $a cluster meet 127.0.0.1 $b_port
+    }
+
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        wait_for_condition 1000 50 {
+            [llength [get_cluster_nodes $id connected]] == [llength $ids]
+        } else {
+            return 0
+        }
+    }
+    return 1
+}
+
+# Search the first node starting from ID $first that is not
+# already configured as a replica.
+proc cluster_find_available_replica {first} {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        if {$id < $first} continue
+        set me [cluster_get_myself $id]
+        if {[dict get $me slaveof] eq {-}} {return $id}
+    }
+    fail "No available replicas"
+}
+
+proc fix_cluster {addr} {
+    set code [catch {
+        exec src/redis-cli {*}[rediscli_tls_config "./tests"] --cluster fix $addr << yes
+    } result]
+    if {$code != 0} {
+        puts "redis-cli --cluster fix returns non-zero exit code, output below:\n$result"
+    }
+    # Note: redis-cli --cluster fix may return a non-zero exit code if nodes don't agree,
+    # but we can ignore that and rely on the check below.
+    wait_for_cluster_state ok
+    wait_for_condition 100 100 {
+        [catch {exec src/redis-cli {*}[rediscli_tls_config "./tests"] --cluster check $addr} result] == 0
+    } else {
+        puts "redis-cli --cluster check returns non-zero exit code, output below:\n$result"
+        fail "Cluster could not settle with configuration"
+    }
+}
+
 # Check if cluster configuration is consistent.
 proc cluster_config_consistent {} {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
@@ -27,7 +112,7 @@ proc cluster_size_consistent {cluster_size} {
 
 # Wait for cluster configuration to propagate and be consistent across nodes.
 proc wait_for_cluster_propagation {} {
-    wait_for_condition 50 100 {
+    wait_for_condition 500 100 {
         [cluster_config_consistent] eq 1
     } else {
         fail "cluster config did not reach a consistent state"
@@ -46,7 +131,7 @@ proc wait_for_cluster_size {cluster_size} {
 # Check that cluster nodes agree about "state", or raise an error.
 proc wait_for_cluster_state {state} {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
-        wait_for_condition 100 50 {
+        wait_for_condition 1000 50 {
             [CI $j cluster_state] eq $state
         } else {
             fail "Cluster node $j cluster_state:[CI $j cluster_state]"
@@ -56,7 +141,7 @@ proc wait_for_cluster_state {state} {
 
 # Default slot allocation for clusters, each master has a continuous block
 # and approximately equal number of slots.
-proc continuous_slot_allocation {masters} {
+proc continuous_slot_allocation {masters replicas} {
     set avg [expr double(16384) / $masters]
     set slot_start 0
     for {set j 0} {$j < $masters} {incr j} {
@@ -66,9 +151,47 @@ proc continuous_slot_allocation {masters} {
     }
 }
 
+# Assuming nodes are reset, this function performs slots allocation.
+# Only the first 'masters' nodes are used.
+proc cluster_allocate_slots {masters replicas} {
+    set slot 16383
+    while {$slot >= 0} {
+        # Allocate successive slots to random nodes.
+        set node [randomInt $masters]
+        lappend slots_$node $slot
+        incr slot -1
+    }
+    for {set j 0} {$j < $masters} {incr j} {
+        R $j cluster addslots {*}[set slots_${j}]
+    }
+}
+
+proc default_replica_allocation {masters replicas} {
+    # Setup master/replica relationships
+    set node_count [expr $masters + $replicas]
+    for {set i 0} {$i < $masters} {incr i} {
+        set nodeid [R $i CLUSTER MYID]
+        for {set j [expr $i + $masters]} {$j < $node_count} {incr j $masters} {
+            R $j CLUSTER REPLICATE $nodeid
+        }
+    }
+}
+
+# Add 'replicas' replicas to a cluster composed of 'masters' masters.
+# It assumes that masters are allocated sequentially from instance ID 0
+# to N-1.
+proc cluster_allocate_replicas {masters replicas} {
+    for {set j 0} {$j < $replicas} {incr j} {
+        set master_id [expr {$j % $masters}]
+        set replica_id [cluster_find_available_replica $masters]
+        set master_myself [cluster_get_myself $master_id]
+        R $replica_id cluster replicate [dict get $master_myself id]
+    }
+}
+
 # Setup method to be executed to configure the cluster before the
 # tests run.
-proc cluster_setup {masters node_count slot_allocator code} {
+proc cluster_setup {masters replicas node_count slot_allocator replica_allocator code} {
     # Have all nodes meet
     if {$::tls} {
         set tls_cluster [lindex [R 0 CONFIG GET tls-cluster] 1]
@@ -81,21 +204,17 @@ proc cluster_setup {masters node_count slot_allocator code} {
         for {set i 1} {$i < $node_count} {incr i} {
             R 0 CLUSTER MEET [srv -$i host] [srv -$i port]
         }
-    }  
+    }
 
-    $slot_allocator $masters
+    $slot_allocator $masters $replicas
 
     wait_for_cluster_propagation
 
     # Setup master/replica relationships
-    for {set i 0} {$i < $masters} {incr i} {
-        set nodeid [R $i CLUSTER MYID]
-        for {set j [expr $i + $masters]} {$j < $node_count} {incr j $masters} {
-            R $j CLUSTER REPLICATE $nodeid
-        }
-    }
+    $replica_allocator $masters $replicas
 
     wait_for_cluster_propagation
+
     wait_for_cluster_state "ok"
 
     uplevel 1 $code
@@ -103,11 +222,10 @@ proc cluster_setup {masters node_count slot_allocator code} {
 
 # Start a cluster with the given number of masters and replicas. Replicas
 # will be allocated to masters by round robin.
-proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation}} {
+proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation} {replica_allocator default_replica_allocation}} {
     set node_count [expr $masters + $replicas]
-
     # Set the final code to be the tests + cluster setup
-    set code [list cluster_setup $masters $node_count $slot_allocator $code]
+    set code [list cluster_setup $masters $replicas $node_count $slot_allocator $replica_allocator $code]
 
     # Configure the starting of multiple servers. Set cluster node timeout
     # aggressively since many tests depend on ping/pong messages. 
@@ -136,8 +254,19 @@ proc cluster_get_myself id {
     return {}
 }
 
-# Returns a parsed CLUSTER NODES output as a list of dictionaries.
-proc get_cluster_nodes id {
+# Get a specific node by ID by parsing the CLUSTER NODES output
+# of the instance Number 'instance_id'
+proc cluster_get_node_by_id {instance_id node_id} {
+    set nodes [get_cluster_nodes $instance_id]
+    foreach n $nodes {
+        if {[dict get $n id] eq $node_id} {return $n}
+    }
+    return {}
+}
+
+# Returns a parsed CLUSTER NODES output as a list of dictionaries. Optional status field
+# can be specified to only returns entries that match the provided status.
+proc get_cluster_nodes {id {status "*"}} {
     set lines [split [R $id cluster nodes] "\r\n"]
     set nodes {}
     foreach l $lines {
@@ -155,7 +284,9 @@ proc get_cluster_nodes id {
             linkstate [lindex $args 7] \
             slots [lrange $args 8 end] \
         ]
-        lappend nodes $node
+        if {[string match $status [lindex $args 7]]} {
+            lappend nodes $node
+        }
     }
     return $nodes
 }
