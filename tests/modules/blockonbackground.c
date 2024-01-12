@@ -81,7 +81,7 @@ void *BlockDebug_ThreadMain(void *arg) {
     if (enable_time_track)
         blockClientMeasureTimeEnd(bc, block_privdata, 0);
     block_privdata->myint = rand();
-    RedisModule_UnblockClient(bc,NULL);
+    RedisModule_UnblockClient(bc,block_privdata);
     return NULL;
 }
 
@@ -106,7 +106,7 @@ void *DoubleBlock_ThreadMain(void *arg) {
     nanosleep(&ts, NULL);
     blockClientMeasureTimeEnd(bc, block_privdata, 0);
     block_privdata->myint = rand();
-    RedisModule_UnblockClient(bc,NULL);
+    RedisModule_UnblockClient(bc,block_privdata);
     return NULL;
 }
 
