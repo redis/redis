@@ -2878,7 +2878,10 @@ void initServer(void) {
     }
 
     scriptingInit(1);
-    functionsInit();
+    if (functionsInit() == C_ERR) {
+        serverPanic("Functions initialization failed, check the server logs.");
+        exit(1);
+    }
     slowlogInit();
     latencyMonitorInit();
 
