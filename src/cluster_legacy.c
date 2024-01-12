@@ -2048,7 +2048,7 @@ char *getCorruptedNodeIdByteString(clusterMsgDataGossip *gossip_msg) {
     const int num_bytes = CLUSTER_NAMELEN + 8;
     /* Allocate enough room for 4 chars per byte + null terminator */
     char *byte_string = (char*) zmalloc((num_bytes*4) + 1); 
-    char *name_ptr = gossip_msg->nodename;
+    const char *name_ptr = gossip_msg->nodename;
 
     /* Ensure we won't print beyond the bounds of the message */
     serverAssert(name_ptr + num_bytes <= (char*)gossip_msg + sizeof(clusterMsgDataGossip));
@@ -2059,6 +2059,24 @@ char *getCorruptedNodeIdByteString(clusterMsgDataGossip *gossip_msg) {
     return byte_string;
 }
 
+/* Returns the number of nodes in the gossip with invalid IDs. */
+int verifyGossipSectionNodeIds(clusterMsgDataGossip *g, uint16_t count) {
+    int invalid_ids = 0;
+    for (int i = 0; i < count; i++) {
+        const char *nodename = g[i].nodename;
+        if (verifyClusterNodeId(nodename, CLUSTER_NAMELEN) != C_OK) {
+            invalid_ids++;
+            char *raw_node_id = getCorruptedNodeIdByteString(g);
+            serverLog(LL_WARNING,
+                      "Received gossip about a node with invalid ID %.40s. For debugging purposes, "
+                      "the 48 bytes including the invalid ID and 8 trailing bytes are: %s",
+                      nodename, raw_node_id);
+            zfree(raw_node_id);
+        }
+    }
+    return invalid_ids;
+}
+
 /* Process the gossip section of PING or PONG packets.
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
@@ -2067,6 +2085,14 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     uint16_t count = ntohs(hdr->count);
     clusterMsgDataGossip *g = (clusterMsgDataGossip*) hdr->data.ping.gossip;
     clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
+
+    /* Abort if the gossip contains invalid node IDs to avoid adding incorrect information to
+     * the nodes dictionary. An invalid ID indicates memory corruption on the sender side. */
+    int invalid_ids = verifyGossipSectionNodeIds(g, count);
+    if (invalid_ids) {
+        serverLog(LL_WARNING, "Node %.40s gossiped %d nodes with invalid IDs.", sender->name, invalid_ids);
+        return;
+    }
 
     while(count--) {
         uint16_t flags = ntohs(g->flags);
@@ -2166,18 +2192,6 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !clusterBlacklistExists(g->nodename))
             {
-                /* Prevent a node with an invalid ID from being added to the nodes dict.
-                 * An invalid ID indicates memory corruption on the sender side. */
-                if (verifyClusterNodeId(g->nodename, CLUSTER_NAMELEN) != C_OK) {
-                    char *raw_node_id = getCorruptedNodeIdByteString(g);
-                    serverLog(LL_WARNING,
-                              "Node %.40s gossiped a node with invalid ID %.40s. For debugging purposes, "
-                              "the 48 bytes including the invalid ID and 8 trailing bytes are: %s",
-                              sender->name, g->nodename, raw_node_id);
-                    zfree(raw_node_id);
-                    continue;
-                }
-
                 clusterNode *node;
                 node = createClusterNode(g->nodename, flags);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
