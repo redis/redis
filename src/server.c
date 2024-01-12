@@ -112,7 +112,7 @@ const char* LOG_TIMESTAMP_FORMATS[] = {
     "%d %b %Y %H:%M:%S",            // Default
     "%Y-%m-%dT%H:%M:%S%z",          // ISO 8601 with timezone
     "%Y-%m-%dT%H:%M:%S.%03d%z",     // ISO 8601 with milliseconds and timezone
-    "%s"                            // UNIX
+    "%ld"                           // UNIX
 };
 
 /* Low level logging. To use only for very big messages, otherwise
