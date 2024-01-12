@@ -8185,7 +8185,7 @@ void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
 /* Implements RM_UnblockClient() and moduleUnblockClient(). */
 int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    if (!bc->blocked_on_keys) bc->privdata = privdata;
+    if (!bc->blocked_on_keys && privdata) bc->privdata = privdata;
     bc->unblocked = 1;
     if (listLength(moduleUnblockedClients) == 0) {
         if (write(server.module_pipe[1],"A",1) != 1) {
