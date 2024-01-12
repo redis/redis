@@ -136,7 +136,8 @@ void serverLogRaw(int level, const char *msg) {
         struct tm tm;
         nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
         off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
-        snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
+        time_t zone = server.timezone / 3600;
+        snprintf(buf+off,sizeof(buf)-off,"%03d %c%02ld00",(int)tv.tv_usec/1000,zone>0?'-':'+',labs(zone));
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
         } else if (pid != server.pid) {
