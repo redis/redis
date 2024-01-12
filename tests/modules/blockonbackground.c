@@ -8,9 +8,11 @@
 #define UNUSED(x) (void)(x)
 
 typedef struct {
-    pthread_mutex_t measuretime_mutex; /*  */
-    int measuretime_completed;
-    int myint;
+    /* Mutex for protecting RedisModule_BlockedClientMeasureTime*() API from race
+     * conditions due to timeout callback triggered in the main thread. */
+    pthread_mutex_t measuretime_mutex;
+    int measuretime_completed; /* Indicates that time measure has ended and will not continue further */
+    int myint; /* Used for replying */
 } BlockPrivdata;
 
 void blockClientMeasureTimeStart(RedisModuleBlockedClient *bc, BlockPrivdata *block_privdata) {
