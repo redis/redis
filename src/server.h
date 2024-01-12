@@ -609,6 +609,16 @@ typedef enum {
 #define PAUSE_ACTION_EVICT            (1<<3)
 #define PAUSE_ACTION_REPLICA          (1<<4) /* pause replica traffic */
 
+/* Sets log format */
+#define LOG_FORMAT_DEFAULT 0
+#define LOG_FORMAT_LOGFMT 1
+
+/* Sets log timestamp format */
+#define LOG_TIMESTAMP_DEFAULT 0
+#define LOG_TIMESTAMP_ISO8601 1
+#define LOG_TIMESTAMP_ISO8601_WITH_MS 2
+#define LOG_TIMESTAMP_UNIX 3
+
 /* common sets of actions to pause/unpause */
 #define PAUSE_ACTIONS_CLIENT_WRITE_SET (PAUSE_ACTION_CLIENT_WRITE|\
                                         PAUSE_ACTION_EXPIRE|\
@@ -1846,7 +1856,8 @@ struct redisServer {
     int memcheck_enabled;           /* Enable memory check on crash. */
     int use_exit_on_panic;          /* Use exit() on panic and assert rather than
                                      * abort(). useful for Valgrind. */
-    int logfmt;                     /* Print log in logfmt style */
+    int log_format;                 /* Print log in specific format */
+    int log_timestamp_format;       /* Timestamp format in log */
     /* Shutdown */
     int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
     int shutdown_on_sigint;         /* Shutdown flags configured for SIGINT. */

@@ -108,11 +108,19 @@ const char *replstateToString(int replstate);
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
+const char* LOG_TIMESTAMP_FORMATS[] = {
+    "%d %b %Y %H:%M:%S",            // Default
+    "%Y-%m-%dT%H:%M:%S%z",          // ISO 8601 with timezone
+    "%Y-%m-%dT%H:%M:%S.%03d%z",     // ISO 8601 with milliseconds and timezone
+    "%s"                            // UNIX
+};
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
+    const char* verbose_level[] = {"debug", "info", "notice", "warning"};
     FILE *fp;
     char buf[64];
     int rawmode = (level & LL_RAW);
@@ -130,26 +138,45 @@ void serverLogRaw(int level, const char *msg) {
         int off;
         struct timeval tv;
         int role_char;
+        const char * role;
         pid_t pid = getpid();
 
         gettimeofday(&tv,NULL);
         struct tm tm;
         nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
-        off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
-        snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
+        const char* timestamp_format = LOG_TIMESTAMP_FORMATS[server.log_timestamp_format];
+        if (server.log_timestamp_format == LOG_TIMESTAMP_UNIX) {
+            // UNIX timestamp
+            snprintf(buf, sizeof(buf), timestamp_format, tv.tv_sec);
+        } else {
+            // Other timestamps
+            off = strftime(buf, sizeof(buf), timestamp_format, &tm);
+            // Add milliseconds
+            if (server.log_timestamp_format == LOG_TIMESTAMP_ISO8601_WITH_MS) {
+                snprintf(buf + off, sizeof(buf) - off, ".%03d", (int)tv.tv_usec / 1000);
+            }
+        }
+
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
+            role = "sentinel";
         } else if (pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
+            role = "RDB/AOF";
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+            role = (server.masterhost ? "secondary" : "master");
         }
-        if(server.logfmt) {
-            fprintf(fp,"pid=%d role_char=%c timestamp=\"%s\" level=%c message=\"%s\"\n",
-                (int)getpid(),role_char, buf,c[level],msg);
-        }else {
-            fprintf(fp,"%d:%c %s %c %s\n",
-                (int)getpid(),role_char, buf,c[level],msg);
+        switch (server.log_format) {
+            case LOG_FORMAT_LOGFMT:
+                fprintf(fp, "pid=%d role=%-8s timestamp=\"%s\" level=%-7s message=\"%s\"\n",
+                        (int)getpid(),role,buf,verbose_level[level],msg);
+                break;
+
+            default:
+                fprintf(fp,"%d:%c %s %c %s\n",
+                        (int)getpid(),role_char, buf,c[level],msg);
+                break;
         }
     }
     fflush(fp);
