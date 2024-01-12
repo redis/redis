@@ -1030,9 +1030,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.cmd = cmd;
     }
 
-    int is_pubsubshard = cmd->proc == ssubscribeCommand ||
-                         cmd->proc == sunsubscribeCommand ||
-                         cmd->proc == spublishCommand;
+    uint64_t cmd_flags = getCommandFlags(c);
+    
+    /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
+    int is_pubsubshard = (cmd_flags & CMD_PUBSUB) ||
+                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_PUBSUB));
 
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
@@ -1122,7 +1124,6 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
 
-    uint64_t cmd_flags = getCommandFlags(c);
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (!isClusterHealthy()) {
