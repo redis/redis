@@ -173,7 +173,6 @@ configEnum log_format_enum[] = {
 configEnum log_timestamp_format_enum[] = {
     {"default", LOG_TIMESTAMP_DEFAULT},
     {"iso_8601", LOG_TIMESTAMP_ISO8601},
-    {"iso_8601_with_ms", LOG_TIMESTAMP_ISO8601_WITH_MS},
     {"unix",LOG_TIMESTAMP_UNIX},
     {NULL, 0}
 };

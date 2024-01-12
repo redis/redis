@@ -151,10 +151,7 @@ void serverLogRaw(int level, const char *msg) {
         } else {
             // Other timestamps
             off = strftime(buf, sizeof(buf), timestamp_format, &tm);
-            // Add milliseconds
-            if (server.log_timestamp_format == LOG_TIMESTAMP_ISO8601_WITH_MS) {
-                snprintf(buf + off, sizeof(buf) - off, ".%03d", (int)tv.tv_usec / 1000);
-            }
+            snprintf(buf + off, sizeof(buf) - off, ".%03d", (int)tv.tv_usec / 1000);
         }
 
         if (server.sentinel_mode) {
