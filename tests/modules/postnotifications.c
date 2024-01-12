@@ -75,7 +75,8 @@ static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const cha
     REDISMODULE_NOT_USED(key);
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "expired", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -90,8 +91,13 @@ static int KeySpace_NotificationEvicted(RedisModuleCtx *ctx, int type, const cha
         return REDISMODULE_OK; /* do not count the evicted key */
     }
 
+    if (strncmp(key_str, "before_evicted", 14) == 0) {
+        return REDISMODULE_OK; /* do not count the before_evicted key */
+    }
+
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "evicted", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -117,7 +123,8 @@ static int KeySpace_NotificationString(RedisModuleCtx *ctx, int type, const char
         new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
     }
 
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -133,7 +140,8 @@ static int KeySpace_LazyExpireInsidePostNotificationJob(RedisModuleCtx *ctx, int
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, key_str + 5, strlen(key_str) - 5);;
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -186,6 +194,56 @@ static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleSt
     return REDISMODULE_OK;
 }
 
+typedef struct KeySpace_EventPostNotificationCtx {
+    RedisModuleString *triggered_on;
+    RedisModuleString *new_key;
+} KeySpace_EventPostNotificationCtx;
+
+static void KeySpace_ServerEventPostNotificationFree(void *pd) {
+    KeySpace_EventPostNotificationCtx *pn_ctx = pd;
+    RedisModule_FreeString(NULL, pn_ctx->new_key);
+    RedisModule_FreeString(NULL, pn_ctx->triggered_on);
+    RedisModule_Free(pn_ctx);
+}
+
+static void KeySpace_ServerEventPostNotification(RedisModuleCtx *ctx, void *pd) {
+    REDISMODULE_NOT_USED(ctx);
+    KeySpace_EventPostNotificationCtx *pn_ctx = pd;
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, "lpush", "!ss", pn_ctx->new_key, pn_ctx->triggered_on);
+    RedisModule_FreeCallReply(rep);
+}
+
+static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+    REDISMODULE_NOT_USED(eid);
+    REDISMODULE_NOT_USED(data);
+    if (subevent > 3) {
+        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%llu'", (unsigned long long)subevent);
+        return;
+    }
+    static const char* events[] = {
+            "before_deleted",
+            "before_expired",
+            "before_evicted",
+            "before_overwritten",
+    };
+
+    const RedisModuleString *key_name = RedisModule_GetKeyNameFromModuleKey(((RedisModuleKeyInfo*)data)->key);
+    const char *key_str = RedisModule_StringPtrLen(key_name, NULL);
+
+    for (int i = 0 ; i < 4 ; ++i) {
+        const char *event = events[i];
+        if (strncmp(key_str, event , strlen(event)) == 0) {
+            return; /* don't log any event on our tracking keys */
+        }
+    }
+
+    KeySpace_EventPostNotificationCtx *pn_ctx = RedisModule_Alloc(sizeof(*pn_ctx));
+    pn_ctx->triggered_on = RedisModule_HoldString(NULL, (RedisModuleString*)key_name);
+    pn_ctx->new_key = RedisModule_CreateString(NULL, events[subevent], strlen(events[subevent]));
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_ServerEventPostNotification, pn_ctx, KeySpace_ServerEventPostNotificationFree);
+    if (res == REDISMODULE_ERR) KeySpace_ServerEventPostNotificationFree(pn_ctx);
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -198,6 +256,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (!(RedisModule_GetModuleOptionsAll() & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS)) {
         return REDISMODULE_ERR;
+    }
+
+    int with_key_events = 0;
+    if (argc >= 1) {
+        const char *arg = RedisModule_StringPtrLen(argv[0], 0);
+        if (strcmp(arg, "with_key_events") == 0) {
+            with_key_events = 1;
+        }
     }
 
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS);
@@ -220,6 +286,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_EVICTED, KeySpace_NotificationEvicted) != REDISMODULE_OK){
         return REDISMODULE_ERR;
+    }
+
+    if (with_key_events) {
+        if(RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, KeySpace_ServerEventCallback) != REDISMODULE_OK){
+            return REDISMODULE_ERR;
+        }
     }
 
     if (RedisModule_CreateCommand(ctx, "postnotification.async_set", KeySpace_PostNotificationsAsyncSet,

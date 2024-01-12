@@ -137,7 +137,7 @@ struct hdr_histogram;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
-#define INCREMENTAL_REHASHING_THRESHOLD_MS 1
+#define INCREMENTAL_REHASHING_THRESHOLD_US 1000
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -673,6 +673,14 @@ typedef enum {
 #define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
+/* The following macros provide assertions that are only executed during test builds and should be used to add 
+ * assertions that are too computationally expensive or dangerous to run during normal operations.  */
+#ifdef DEBUG_ASSERTIONS
+#define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#else
+#define debugServerAssertWithInfo(...)
+#endif
+
 /* latency histogram per command init settings */
 #define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */
 #define LATENCY_HISTOGRAM_MAX_VALUE 1000000000L  /* <= 1 secs */
@@ -730,6 +738,7 @@ struct RedisModuleCtx;
 struct moduleLoadQueueEntry;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
+struct clusterState;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -960,9 +969,10 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
+/* When adding fields, please check the swap db related logic. */
 typedef struct dbDictState {
-    list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
+    int non_empty_slots;                   /* The number of non-empty slots. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
     unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries (only used for cluster-enabled). */
     unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
@@ -972,6 +982,11 @@ typedef enum dbKeyType {
     DB_MAIN,
     DB_EXPIRES
 } dbKeyType;
+
+/* Dict metadata for database, used for record the position in rehashing list. */
+typedef struct dbDictMetadata {
+    listNode *rehashing_node;   /* list node in rehashing list */
+} dbDictMetadata;
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
@@ -989,7 +1004,7 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    int dict_count;             /* Indicates total number of dictionaires owned by this DB, 1 dict per slot in cluster mode. */
+    int dict_count;             /* Indicates total number of dictionaries owned by this DB, 1 dict per slot in cluster mode. */
     dbDictState sub_dict[2];  /* Metadata for main and expires dictionaries */
 } redisDb;
 
@@ -1558,6 +1573,7 @@ struct redisServer {
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
+    list *rehashing;            /* List of dictionaries in DBs that are currently rehashing. */
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
@@ -1592,6 +1608,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
+    redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
@@ -1707,7 +1724,7 @@ struct redisServer {
     long long stat_io_writes_processed; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_total_reads_processed; /* Total number of read events processed */
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
-    long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
+    redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
@@ -1758,6 +1775,8 @@ struct redisServer {
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
+    unsigned int max_new_tls_conns_per_cycle; /* The maximum number of tls connections that will be accepted during each invocation of the event loop. */
+    unsigned int max_new_conns_per_cycle; /* The maximum number of tcp connections that will be accepted during each invocation of the event loop. */
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -1978,7 +1997,9 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    dict *pubsubshard_channels;  /* Map shard channels to list of subscribed clients */
+    dict **pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
+    unsigned long long shard_channel_count;
+    unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -2427,7 +2448,7 @@ typedef struct dbIterator dbIterator;
 
 /* DB iterator specific functions */
 dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
-dbIterator *dbIteratorInitFromSlot(redisDb *db, dbKeyType keyType, int slot);
+void dbReleaseIterator(dbIterator *dbit);
 dict *dbIteratorNextDict(dbIterator *dbit);
 dict *dbGetDictFromIterator(dbIterator *dbit);
 int dbIteratorGetCurrentSlot(dbIterator *dbit);
@@ -2478,9 +2499,12 @@ extern dictType hashDictType;
 extern dictType stringSetDictType;
 extern dictType externalStringType;
 extern dictType sdsHashDictType;
+extern dictType clientDictType;
+extern dictType objToDictDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
+extern dictType keylistDictType;
 extern dict *modules;
 
 /*-----------------------------------------------------------------------------
@@ -2617,6 +2641,7 @@ void addReplySetLen(client *c, long length);
 void addReplyAttributeLen(client *c, long length);
 void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
+void addExtendedReplyHelp(client *c, const char **help, const char **extended_help);
 void addReplySubcommandSyntaxError(client *c);
 void addReplyLoadedModules(client *c);
 void copyReplicaOutputBuffer(client *dst, client *src);
@@ -3077,11 +3102,14 @@ int mustObeyClient(client *c);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
+void serverLogFromHandler(int level, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
 #else
+void serverLogFromHandler(int level, const char *fmt, ...);
 void _serverLog(int level, const char *fmt, ...);
 #endif
 void serverLogRaw(int level, const char *msg);
-void serverLogFromHandler(int level, const char *msg);
+void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
@@ -3115,12 +3143,15 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
 unsigned long long int dbSize(redisDb *db, dbKeyType keyType);
+int dbNonEmptySlots(redisDb *db, dbKeyType keyType);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
 size_t dbMemUsage(redisDb *db, dbKeyType keyType);
 dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType);
-unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor, dictScanFunction *fn, int (dictScanValidFunction)(dict *d), void *privdata);
+unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor,
+                          int onlyslot, dictScanFunction *fn,
+                          int (dictScanValidFunction)(dict *d), void *privdata);
 int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand);
 unsigned long long cumulativeKeyCountRead(redisDb *db, int idx, dbKeyType keyType);
 int getFairRandomSlot(redisDb *db, dbKeyType keyType);
@@ -3173,7 +3204,7 @@ robj *hashTypeDup(robj *o);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
 int pubsubUnsubscribeShardAllChannels(client *c, int notify);
-void pubsubUnsubscribeShardChannels(robj **channels, unsigned int count);
+void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot);
 int pubsubUnsubscribeAllPatterns(client *c, int notify);
 int pubsubPublishMessage(robj *channel, robj *message, int sharded);
 int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded);
@@ -3181,6 +3212,7 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bu
 int serverPubsubSubscriptionCount(void);
 int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
+void unmarkClientAsPubSub(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
@@ -3764,6 +3796,7 @@ void killIOThreads(void);
 void killThreads(void);
 void makeThreadKillable(void);
 void swapMainDbWithTempDb(redisDb *tempDb);
+sds getVersion(void);
 
 /* Use macro for checking log level to avoid evaluating arguments in cases log
  * should be ignored due to low level. */

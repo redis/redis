@@ -1600,7 +1600,6 @@ NULL
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
         }
 
-
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);
 

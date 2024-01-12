@@ -44,11 +44,6 @@
 
 #include RAX_MALLOC_INCLUDE
 
-/* This is a special pointer that is guaranteed to never have the same value
- * of a radix tree node. It's used in order to report "not found" error without
- * requiring the function to have multiple return values. */
-void *raxNotFound = (void*)"rax-not-found-pointer";
-
 /* -------------------------------- Debugging ------------------------------ */
 
 void raxDebugShowNode(const char *msg, raxNode *n);
@@ -912,18 +907,19 @@ int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old)
     return raxGenericInsert(rax,s,len,data,old,0);
 }
 
-/* Find a key in the rax, returns raxNotFound special void pointer value
- * if the item was not found, otherwise the value associated with the
- * item is returned. */
-void *raxFind(rax *rax, unsigned char *s, size_t len) {
+/* Find a key in the rax: return 1 if the item is found, 0 otherwise.
+ * If there is an item and 'value' is passed in a non-NULL pointer,
+ * the value associated with the item is set at that address. */
+int raxFind(rax *rax, unsigned char *s, size_t len, void **value) {
     raxNode *h;
 
     debugf("### Lookup: %.*s\n", (int)len, s);
     int splitpos = 0;
     size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL);
     if (i != len || (h->iscompr && splitpos != 0) || !h->iskey)
-        return raxNotFound;
-    return raxGetData(h);
+        return 0;
+    if (value != NULL) *value = raxGetData(h);
+    return 1;
 }
 
 /* Return the memory address where the 'parent' node stores the specified
