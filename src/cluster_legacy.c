@@ -3611,7 +3611,7 @@ void clusterSendPing(clusterLink *link, int type) {
         }
         dictReleaseIterator(di);
     }
-    hdr->extensions_supported = htons(1);
+    hdr->extensions_supported = htons((uint16_t)1);
     /* Compute the actual total length and send! */
     uint32_t totlen = 0;
     if (link->node && link->node->extensions_supported) {
