@@ -109,9 +109,8 @@ const char *replstateToString(int replstate);
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
 const char* LOG_TIMESTAMP_FORMATS[] = {
-    "%d %b %Y %H:%M:%S",            // Default
-    "%Y-%m-%dT%H:%M:%S%z",          // ISO 8601 with timezone
-    "%Y-%m-%dT%H:%M:%S.%03d%z",     // ISO 8601 with milliseconds and timezone
+    "%d %b %Y %H:%M:%S.",            // Default
+    "%Y-%m-%dT%H:%M:%S.",            // ISO 8601
     "%ld"                           // UNIX
 };
 
@@ -147,11 +146,19 @@ void serverLogRaw(int level, const char *msg) {
         const char* timestamp_format = LOG_TIMESTAMP_FORMATS[server.log_timestamp_format];
         if (server.log_timestamp_format == LOG_TIMESTAMP_UNIX) {
             // UNIX timestamp
-            snprintf(buf, sizeof(buf), timestamp_format, tv.tv_sec);
+            snprintf(buf,sizeof(buf),timestamp_format,tv.tv_sec);
         } else {
             // Other timestamps
-            off = strftime(buf, sizeof(buf), timestamp_format, &tm);
-            snprintf(buf + off, sizeof(buf) - off, ".%03d", (int)tv.tv_usec / 1000);
+            off = strftime(buf,sizeof(buf),timestamp_format,&tm);
+            // Add millisecond
+            snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
+            // Add time zone
+            if (server.log_timestamp_format == LOG_TIMESTAMP_ISO8601){
+                char tzbuf[6];
+                strftime(tzbuf, sizeof(tzbuf), "%z", &tm);
+                // strftime(tzbuf, sizeof(tzbuf), "%z", &tm);
+                strncat(buf, tzbuf, sizeof(buf) - strlen(buf) - 1);
+            }
         }
 
         if (server.sentinel_mode) {

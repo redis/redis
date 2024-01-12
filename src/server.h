@@ -614,10 +614,10 @@ typedef enum {
 #define LOG_FORMAT_LOGFMT 1
 
 /* Sets log timestamp format */
+/* Also update LOG_TIMESTAMP_FORMATS */
 #define LOG_TIMESTAMP_DEFAULT 0
 #define LOG_TIMESTAMP_ISO8601 1
-#define LOG_TIMESTAMP_ISO8601_WITH_MS 2
-#define LOG_TIMESTAMP_UNIX 3
+#define LOG_TIMESTAMP_UNIX 2
 
 /* common sets of actions to pause/unpause */
 #define PAUSE_ACTIONS_CLIENT_WRITE_SET (PAUSE_ACTION_CLIENT_WRITE|\
