@@ -15,6 +15,12 @@ typedef struct {
     int myint; /* Used for replying */
 } BlockPrivdata;
 
+void blockClientPrivdataInit(RedisModuleBlockedClient *bc) {
+    BlockPrivdata *block_privdata = RedisModule_Calloc(1, sizeof(*block_privdata));
+    block_privdata->measuretime_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    RedisModule_BlockClientSetPrivateData(bc, block_privdata);
+}
+
 void blockClientMeasureTimeStart(RedisModuleBlockedClient *bc, BlockPrivdata *block_privdata) {
     pthread_mutex_lock(&block_privdata->measuretime_mutex);
     RedisModule_BlockedClientMeasureTimeStart(bc);
@@ -133,10 +139,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
-
-    BlockPrivdata *block_privdata = RedisModule_Calloc(1, sizeof(*block_privdata));
-    block_privdata->measuretime_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    RedisModule_BlockClientSetPrivateData(bc, block_privdata);
+    blockClientPrivdataInit(bc);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the
@@ -178,10 +181,7 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
-
-    BlockPrivdata *block_privdata = RedisModule_Calloc(1, sizeof(*block_privdata));
-    block_privdata->measuretime_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    RedisModule_BlockClientSetPrivateData(bc, block_privdata);
+    blockClientPrivdataInit(bc);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the
@@ -218,10 +218,7 @@ int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,0);
-
-    BlockPrivdata *block_privdata = RedisModule_Calloc(1, sizeof(*block_privdata));
-    block_privdata->measuretime_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
-    RedisModule_BlockClientSetPrivateData(bc, block_privdata);
+    blockClientPrivdataInit(bc);
 
     /* Now that we setup a blocking client, we need to pass the control
      * to the thread. However we need to pass arguments to the thread:
