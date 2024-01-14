@@ -2337,7 +2337,10 @@ ustime_t RM_CachedMicroseconds(void) {
  * Within the same command, you can call multiple times
  * RM_BlockedClientMeasureTimeStart() and RM_BlockedClientMeasureTimeEnd()
  * to accumulate independent time intervals to the background duration.
- * This method always return REDISMODULE_OK. */
+ * This method always return REDISMODULE_OK.
+ * 
+ * This function is not thread safe, If used in module thread and blocked callback (possibly main thread)
+ * simultaneously, it's recommended to protect them with lock owned by caller instead of GIL. */
 int RM_BlockedClientMeasureTimeStart(RedisModuleBlockedClient *bc) {
     elapsedStart(&(bc->background_timer));
     return REDISMODULE_OK;
@@ -2347,7 +2350,10 @@ int RM_BlockedClientMeasureTimeStart(RedisModuleBlockedClient *bc) {
  * to calculate the elapsed execution time.
  * On success REDISMODULE_OK is returned.
  * This method only returns REDISMODULE_ERR if no start time was
- * previously defined ( meaning RM_BlockedClientMeasureTimeStart was not called ). */
+ * previously defined ( meaning RM_BlockedClientMeasureTimeStart was not called ).
+ * 
+ * This function is not thread safe, If used in module thread and blocked callback (possibly main thread)
+ * simultaneously, it's recommended to protect them with lock owned by caller instead of GIL. */
 int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
     // If the counter is 0 then we haven't called RM_BlockedClientMeasureTimeStart
     if (!bc->background_timer)
