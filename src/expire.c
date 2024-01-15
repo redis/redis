@@ -235,6 +235,8 @@ void activeExpireCycle(int type) {
     for (j = 0; dbs_performed < dbs_per_call && timelimit_exit == 0 && j < server.dbnum; j++) {
         /* Scan callback data including expired and checked count per iteration. */
         expireScanData data;
+        data.ttl_sum = 0;
+        data.ttl_samples = 0;
 
         redisDb *db = server.db+(current_db % server.dbnum);
         data.db = db;
@@ -265,8 +267,6 @@ void activeExpireCycle(int type) {
              * with an expire set, checking for expired ones. */
             data.sampled = 0;
             data.expired = 0;
-            data.ttl_sum = 0;
-            data.ttl_samples = 0;
 
             if (num > config_keys_per_loop)
                 num = config_keys_per_loop;
@@ -294,17 +294,6 @@ void activeExpireCycle(int type) {
             total_expired += data.expired;
             total_sampled += data.sampled;
 
-            /* Update the average TTL stats for this database. */
-            if (data.ttl_samples) {
-                long long avg_ttl = data.ttl_sum / data.ttl_samples;
-
-                /* Do a simple running average with a few samples.
-                 * We just use the current estimate with a weight of 2%
-                 * and the previous estimate with a weight of 98%. */
-                if (db->avg_ttl == 0) db->avg_ttl = avg_ttl;
-                db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
-            }
-
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
@@ -321,6 +310,20 @@ void activeExpireCycle(int type) {
              * not reclaimed). */
         } while (data.sampled == 0 ||
                  (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
+    
+        /* Update the average TTL stats for this database. */
+        if (data.ttl_samples) {
+            long long avg_ttl = data.ttl_sum / data.ttl_samples;
+
+            /* Do a simple running average with a few samples.
+             * We just use the current estimate with a weight of 2%
+             * and the previous estimate with a weight of 98%. */
+            if (db->avg_ttl == 0) {
+                db->avg_ttl = avg_ttl;
+            } else {
+                db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
+            }
+        }    
     }
 
     elapsed = ustime()-start;
