@@ -428,7 +428,7 @@ uint64_t dictEncObjHash(const void *key) {
  * provisionally if used memory will be over maxmemory after dict expands,
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
-int dictExpandAllowed(size_t moreMem, double usedRatio) {
+int dictResizeAllowed(size_t moreMem, double usedRatio) {
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
     } else {
@@ -547,7 +547,7 @@ dictType dbDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed,          /* allow to expand */
+    dictResizeAllowed,          /* allow to resize */
     dbDictRehashingStarted,
     dbDictRehashingCompleted,
     dbDictMetadataSize,
@@ -561,7 +561,7 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictExpandAllowed,           /* allow to expand */
+    dictResizeAllowed,          /* allow to resize */
     dbExpiresRehashingStarted,
     dbExpiresRehashingCompleted,
     dbDictMetadataSize,
@@ -693,7 +693,7 @@ dictType clientDictType = {
     .no_value = 1               /* no values in this dict */
 };
 
-int htNeedsResize(dict *dict) {
+int htNeedsShrink(dict *dict) {
     long long size, used;
 
     size = dictBuckets(dict);
@@ -718,8 +718,8 @@ void tryResizeHashTables(int dbid) {
         for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
             int slot = db->sub_dict[subdict].resize_cursor;
             dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            if (htNeedsResize(d))
-                dictResize(d);
+            if (htNeedsShrink(d))
+                dictShrinkToFit(d);
             db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
         }
     }

@@ -198,7 +198,6 @@ struct hdr_histogram;
 extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 
 /* Hash table parameters */
-#define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
 #define HASHTABLE_MAX_LOAD_FACTOR 1.618   /* Maximum hash table load factor. */
 
 /* Command flags. Please check the definition of struct redisCommand in this file
@@ -3112,7 +3111,7 @@ void serverLogRaw(int level, const char *msg);
 void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
-int htNeedsResize(dict *dict);
+int htNeedsShrink(dict *dict);
 void populateCommandTable(void);
 void resetCommandTableStats(dict* commands);
 void resetErrorTableStats(void);
