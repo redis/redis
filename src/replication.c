@@ -816,7 +816,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
     /* We can't use the connection buffers since they are used to accumulate
      * new commands at this stage. But we are sure the socket send buffer is
      * empty so this write will never fail actually. */
-    if (c->slave_capa & SLAVE_CAPA_PSYNC2) {
+        if (c->slave_capa & SLAVE_CAPA_PSYNC2) {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE %s\r\n", server.replid);
     } else {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE\r\n");
@@ -1032,8 +1032,13 @@ void syncCommand(client *c) {
             server.stat_sync_partial_ok++;
             return; /* No full resync needed, return. */
         } else if (isReplicaMainChannel(c)) {
-            serverLog(LL_NOTICE,"Replica %s is marked as psync-only, and psync isn't possible. returning.", replicationGetSlaveName(c));
-            addReply(c, shared.emptybulk);
+            char buf[128];
+            int buflen;
+            serverLog(LL_NOTICE,"Replica %s is marked as psync-only, and psync isn't possible. Full sync will continue with dedicated RDB connection.", replicationGetSlaveName(c));
+            buflen = snprintf(buf,sizeof(buf),"-FULLSYNCNEEDED\r\n");
+            if (connWrite(c->conn,buf,buflen) != buflen) {
+                freeClientAsync(c);
+            }
             return;
         } else {
             char *master_replid = c->argv[1]->ptr;
@@ -3050,8 +3055,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                 server.psync_master->read_reploff = server.psync_master->reploff;
                 /* Disconnect all the sub-slaves: they need to be notified. */
                 disconnectSlaves();
-            }
-            else if (strcmp(new, server.cached_master->replid)) {
+            } else if (strcmp(new, server.cached_master->replid)) {
                 /* Master ID changed. */
                 serverLog(LL_NOTICE,"Master replication ID changed to %s",new);
 
@@ -3103,7 +3107,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         return PSYNC_TRY_LATER;
     }
 
-    if (!strncmp(reply, "$", 1) && useRdbChannelSync()) {
+    if (!strncmp(reply, "-FULLSYNCNEEDED", 15) && useRdbChannelSync()) {
         /* In case the main connection with master is at psync-only mode, the master 
          * will respond with empty bulk to imply that psync is not possible */
         serverLog(LL_NOTICE, "PSYNC is not possible, initialize RDB channel");
