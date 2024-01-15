@@ -94,6 +94,7 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster/announced-endpoints
     unit/cluster/misc
     unit/cluster/cli
     unit/cluster/scripting
@@ -103,6 +104,7 @@ set ::all_tests {
     unit/cluster/slot-ownership
     unit/cluster/links
     unit/cluster/cluster-response-tls
+    unit/cluster/failure-marking
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

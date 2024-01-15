@@ -209,6 +209,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     run_ctx->c = engine_client;
     run_ctx->original_client = caller;
     run_ctx->funcname = funcname;
+    run_ctx->slot = caller->slot;
 
     client *script_client = run_ctx->c;
     client *curr_client = run_ctx->original_client;
@@ -261,6 +262,8 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
          * was detected. */
         unprotectClient(run_ctx->original_client);
     }
+
+    run_ctx->slot = -1;
 
     preventCommandPropagation(run_ctx->original_client);
 
@@ -463,14 +466,18 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
      * already been thrown. This is only checking for cross slot keys being accessed
      * that weren't pre-declared. */
     if (hashslot != -1 && !(run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT)) {
-        if (original_c->slot == -1) {
-            original_c->slot = hashslot;
-        } else if (original_c->slot != hashslot) {
+        if (run_ctx->slot == -1) {
+            run_ctx->slot = hashslot;
+        } else if (run_ctx->slot != hashslot) {
             *err = sdsnew("Script attempted to access keys that do not hash to "
                     "the same slot");
             return C_ERR;
         }
     }
+
+    c->slot = hashslot;
+    original_c->slot = hashslot;
+
     return C_OK;
 }
 

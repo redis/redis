@@ -282,6 +282,12 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
+void dictDictDestructor(dict *d, void *val)
+{
+    UNUSED(d);
+    dictRelease((dict*)val);
+}
+
 int dictSdsKeyCompare(dict *d, const void *key1,
         const void *key2)
 {
@@ -351,6 +357,17 @@ uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
+/* Dict hash function for client */
+uint64_t dictClientHash(const void *key) {
+    return ((client *)key)->id;
+}
+
+/* Dict compare function for client */
+int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return ((client *)key1)->id == ((client *)key2)->id;
+}
+
 /* Dict compare function for null terminated string */
 int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     int l1,l2;
@@ -411,7 +428,7 @@ uint64_t dictEncObjHash(const void *key) {
  * provisionally if used memory will be over maxmemory after dict expands,
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
-int dictExpandAllowed(size_t moreMem, double usedRatio) {
+int dictResizeAllowed(size_t moreMem, double usedRatio) {
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
     } else {
@@ -530,7 +547,7 @@ dictType dbDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed,          /* allow to expand */
+    dictResizeAllowed,          /* allow to resize */
     dbDictRehashingStarted,
     dbDictRehashingCompleted,
     dbDictMetadataSize,
@@ -544,7 +561,7 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictExpandAllowed,           /* allow to expand */
+    dictResizeAllowed,          /* allow to resize */
     dbExpiresRehashingStarted,
     dbExpiresRehashingCompleted,
     dbDictMetadataSize,
@@ -593,6 +610,18 @@ dictType keylistDictType = {
     dictObjKeyCompare,          /* key compare */
     dictObjectDestructor,       /* key destructor */
     dictListDestructor,         /* val destructor */
+    NULL                        /* allow to expand */
+};
+
+/* KeyDict hash table type has unencoded redis objects as keys and
+ * dicts as values. It's used for PUBSUB command to track clients subscribing the channels. */
+dictType objToDictDictType = {
+    dictObjHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictObjKeyCompare,          /* key compare */
+    dictObjectDestructor,       /* key destructor */
+    dictDictDestructor,         /* val destructor */
     NULL                        /* allow to expand */
 };
 
@@ -655,7 +684,16 @@ dictType sdsHashDictType = {
     NULL                        /* allow to expand */
 };
 
-int htNeedsResize(dict *dict) {
+/* Client Set dictionary type. Keys are client, values are not used. */
+dictType clientDictType = {
+    dictClientHash,             /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictClientKeyCompare,       /* key compare */
+    .no_value = 1               /* no values in this dict */
+};
+
+int htNeedsShrink(dict *dict) {
     long long size, used;
 
     size = dictBuckets(dict);
@@ -681,8 +719,8 @@ void tryResizeHashTables(int dbid) {
         for (int i = 0; i < CRON_DICTS_PER_DB && db->sub_dict[subdict].resize_cursor != -1; i++) {
             int slot = db->sub_dict[subdict].resize_cursor;
             dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            if (htNeedsResize(d))
-                dictResize(d);
+            if (htNeedsShrink(d))
+                dictShrinkToFit(d);
             db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
         }
     }
@@ -1736,7 +1774,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     connTypeProcessPendingData();
 
     /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
-    aeSetDontWait(server.el, connTypeHasPendingData());
+    int dont_sleep = connTypeHasPendingData();
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -1798,6 +1836,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     monotime aof_start_time = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
     monotime duration_before_aof = aof_start_time - cron_start_time_before_aof;
+    /* Record the fsync'd offset before flushAppendOnly */
+    long long prev_fsynced_reploff = server.fsynced_reploff;
 
     /* Write the AOF buffer on disk,
      * must be done before handleClientsWithPendingWritesUsingThreads,
@@ -1815,6 +1855,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         long long fsynced_reploff_pending;
         atomicGet(server.fsynced_reploff_pending, fsynced_reploff_pending);
         server.fsynced_reploff = fsynced_reploff_pending;
+
+        /* If we have blocked [WAIT]AOF clients, and fsynced_reploff changed, we want to try to
+         * wake them up ASAP. */
+        if (listLength(server.clients_waiting_acks) && prev_fsynced_reploff != server.fsynced_reploff)
+            dont_sleep = 1;
     }
 
     /* Handle writes with pending output buffers. */
@@ -1853,6 +1898,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         }
     }
 
+    /* Don't sleep at all before the next beforeSleep() if needed (e.g. a
+     * connection has pending data) */
+    aeSetDontWait(server.el, dont_sleep);
+
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
      * time. */
@@ -1876,7 +1925,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             mstime_t latency;
             latencyStartMonitor(latency);
 
+            atomicSet(server.module_gil_acquring, 1);
             moduleAcquireGIL();
+            atomicSet(server.module_gil_acquring, 0);
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
@@ -2727,10 +2778,10 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    for (j = 0; j < server.dbnum; j++) {
-        int slotCount = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
-        server.db[j].dict = dictCreateMultiple(&dbDictType, slotCount);
-        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slotCount);
+    int slot_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
+    for (j = 0; j < server.dbnum; j++) {  
+        server.db[j].dict = dictCreateMultiple(&dbDictType, slot_count);
+        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slot_count);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2739,15 +2790,16 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
-        server.db[j].dict_count = slotCount;
+        server.db[j].dict_count = slot_count;
         initDbState(&server.db[j]);
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&keylistDictType);
-    server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsubshard_channels = dictCreate(&keylistDictType);
+    server.pubsub_channels = dictCreate(&objToDictDictType);
+    server.pubsub_patterns = dictCreate(&objToDictDictType);
+    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
+    server.shard_channel_count = 0;
     server.pubsub_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
@@ -5882,7 +5934,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
             "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%lu\r\n", dictSize(server.pubsubshard_channels),
+            "pubsubshard_channels:%llu\r\n", server.shard_channel_count,
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
@@ -6263,15 +6315,16 @@ void daemonize(void) {
     }
 }
 
-void version(void) {
-    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
+sds getVersion(void) {
+    sds version = sdscatprintf(sdsempty(),
+        "v=%s sha=%s:%d malloc=%s bits=%d build=%llx",
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
         sizeof(long) == 4 ? 32 : 64,
         (unsigned long long) redisBuildId());
-    exit(0);
+    return version;
 }
 
 void usage(void) {
@@ -7005,7 +7058,13 @@ int main(int argc, char **argv) {
 
         /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
-            strcmp(argv[1], "--version") == 0) version();
+            strcmp(argv[1], "--version") == 0)
+        {
+            sds version = getVersion();
+            printf("Redis server %s\n", version);
+            sdsfree(version);
+            exit(0);
+        }
         if (strcmp(argv[1], "--help") == 0 ||
             strcmp(argv[1], "-h") == 0) usage();
         if (strcmp(argv[1], "--test-memory") == 0) {
