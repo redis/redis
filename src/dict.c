@@ -48,14 +48,17 @@
 #include "redisassert.h"
 #include "monotonic.h"
 
-/* Using dictEnableResize() / dictDisableResize() we make possible to disable
+/* Using dictSetResizeEnabled() we make possible to disable
  * resizing and rehashing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
  *
  * Note that even when dict_can_resize is set to DICT_RESIZE_AVOID, not all
- * resizes are prevented: a hash table is still allowed to grow if the ratio
- * between the number of elements and the buckets > dict_force_resize_ratio. */
+ * resizes are prevented:
+ *  - A hash table is still allowed to expand if the ratio between the number
+ *    of elements and the buckets > dict_force_resize_ratio.
+ *  - A hash table is still allowed to shrink if the ratio between the number
+ *    of elements and the buckets < HASHTABLE_MIN_FILL / dict_force_resize_ratio. */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
 
