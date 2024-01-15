@@ -1418,8 +1418,8 @@ unsigned long dictScanDefrag(dict *d,
 /* ------------------------- private functions ------------------------------ */
 
 /* Because we may need to allocate huge memory chunk at once when dict
- * expands, we will check this allocation is allowed or not if the dict
- * type has expandAllowed member function. */
+ * resizes, we will check this allocation is allowed or not if the dict
+ * type has resizeAllowed member function. */
 static int dictTypeResizeAllowed(dict *d, int expanding) {
     if (d->type->resizeAllowed == NULL) return 1;
     return d->type->resizeAllowed(
