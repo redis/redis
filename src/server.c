@@ -698,41 +698,33 @@ int htNeedsShrink(dict *dict) {
 
     size = dictBuckets(dict);
     used = dictSize(dict);
-    return (used >= size) || 
-           (size > DICT_HT_INITIAL_SIZE && (used*100/size < HASHTABLE_MIN_FILL));
+    return size > DICT_HT_INITIAL_SIZE && (used*100/size < HASHTABLE_MIN_FILL);
+}
+
+int htNeedsExpand(dict *dict) {
+    long long size, used;
+
+    size = dictBuckets(dict);
+    used = dictSize(dict);
+    return used >= size;
 }
 
 /* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
- * and triggers a resize if the percentage of used buckets in the HT reaches HASHTABLE_MIN_FILL
- * we resize the hash table to save memory.
+ * and triggers a resize if needed.
  *
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
-    /* Fast resize: try to resize non-empty dicts. */
-    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        if (dbSize(db, subdict) == 0) continue;
-
-        if (db->sub_dict[subdict].resize_cursor == -1)
-            db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
-
-        for (int i = 0; i < CRON_DICTS_PER_DB && db->sub_dict[subdict].resize_cursor != -1; i++) {
-            int slot = db->sub_dict[subdict].resize_cursor;
-            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            if (htNeedsShrink(d))
-                dictShrinkToFit(d);
-            db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
-        }
-    }
-    /* Slow resize: try to resize all dicts to recycle memory. */
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         for (int i = 0; i < CRON_DICTS_PER_DB && i < db->dict_count; i++) {
-            int slot = db->sub_dict[subdict].slow_resize_cursor;
-            dict *d = subdict == DB_MAIN ? db->dict[slot] : db->expires[slot];
-            if (htNeedsResize(d)) {
-                dictResize(d);
+            int slot = db->sub_dict[subdict].resize_cursor;
+            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
+            if (htNeedsShrink(d)) {
+                dictShrinkToFit(d);
+            } else if (htNeedsExpand(d)) {
+                dictExpandToFit(d);
             }
-            db->sub_dict[subdict].slow_resize_cursor = (slot + 1) % db->dict_count;
+            db->sub_dict[subdict].resize_cursor = (slot + 1) % db->dict_count;
         }
     }
 }
@@ -2694,10 +2686,8 @@ void makeThreadKillable(void) {
 /* When adding fields, please check the initTempDb related logic. */
 void initDbState(redisDb *db){
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        db->sub_dict[subdict].non_empty_slots = 0;
-        db->sub_dict[subdict].key_count = 0;
-        db->sub_dict[subdict].resize_cursor = -1;
-        db->sub_dict[subdict].slow_resize_cursor = 0;
+        db->sub_dict[subdict].non_empty_slots = 0;                           
+        db->sub_dict[subdict].resize_cursor = 0;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         db->sub_dict[subdict].bucket_count = 0;
     }

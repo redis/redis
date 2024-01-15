@@ -85,6 +85,7 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntry **dictGetNextRef(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
+static int dictTypeResizeAllowed(dict *d);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -224,6 +225,15 @@ int dictShrinkToFit(dict *d)
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
     return dictShrink(d, minimal);
+}
+
+/* Expand the table to a proper size to contain the elements. */
+int dictExpandToFit(dict *d) {
+    if (dict_can_resize != DICT_RESIZE_ENABLE || dictIsRehashing(d))
+        return DICT_ERR;
+    if (!dictTypeResizeAllowed(d))
+        return DICT_ERR;
+    return dictExpand(d, d->ht_used[0] + 1);
 }
 
 /* Resize or create the hash table,
