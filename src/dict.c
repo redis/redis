@@ -58,6 +58,8 @@
  * between the number of elements and the buckets > dict_force_resize_ratio. */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 5;
+static unsigned int dict_force_expand_rehash_ratio = 8;
+static unsigned int dict_force_shrink_rehash_ratio = 32;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -329,9 +331,13 @@ int dictRehash(dict *d, int n) {
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+     * We can restrict the condition because both s0 and s1 are powers of 2.
+     * - If expanding, the _dictNextExp of dict_force_resize_ratio is 8.
+     * - If shrinking, the _dictNextExp of (HASHTABLE_MIN_FILL / dict_force_resize_ratio) is 1/32. */
     if (dict_can_resize == DICT_RESIZE_AVOID && 
-        ((s1 > s0 && s1 / s0 < dict_force_resize_ratio) ||
-         (s1 < s0 && s0 / s1 < dict_force_resize_ratio)))
+        ((s1 > s0 && s1 / s0 < dict_force_expand_rehash_ratio) ||
+         (s1 < s0 && s0 / s1 < dict_force_shrink_rehash_ratio)))
     {
         return 0;
     }
