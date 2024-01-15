@@ -1423,7 +1423,7 @@ unsigned long dictScanDefrag(dict *d,
 static int dictTypeResizeAllowed(dict *d, int expanding) {
     if (d->type->resizeAllowed == NULL) return 1;
     return d->type->resizeAllowed(
-                    DICTHT_SIZE(_dictNextExp(d->ht_used[0] + expanding?1:0)) * sizeof(dictEntry*),
+                    DICTHT_SIZE(_dictNextExp(d->ht_used[0] + (expanding ? 1 : 0))) * sizeof(dictEntry*),
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
