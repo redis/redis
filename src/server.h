@@ -971,7 +971,6 @@ typedef struct replBufBlock {
 
 /* When adding fields, please check the swap db related logic. */
 typedef struct dbDictState {
-    list *rehashing;                       /* List of dictionaries in this DB that are currently rehashing. */
     int non_empty_slots;                   /* The number of non-empty slots. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize all dictionaries. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
