@@ -1101,6 +1101,11 @@ foreach type {single multiple single_multiple} {
         assert_equal [r scard myset] 30
         assert {[is_rehashing myset]}
 
+        # Wait for the hash set rehashing to finish.
+        while {[is_rehashing myset]} {
+            r srandmember myset 10
+        }
+
         # Now that we have a hash set with only one long chain bucket.
         set htstats [r debug HTSTATS-KEY myset full]
         assert {[regexp {different slots: ([0-9]+)} $htstats - different_slots]}
