@@ -104,6 +104,9 @@ quicklistBookmark *_quicklistBookmarkFindByName(quicklist *ql, const char *name)
 quicklistBookmark *_quicklistBookmarkFindByNode(quicklist *ql, quicklistNode *node);
 void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 
+quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset, int after);
+void _quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
+
 /* Simple way to give quicklistEntry structs default values with one call. */
 #define initEntry(e)                                                           \
     do {                                                                       \
@@ -741,12 +744,28 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
                            void *data, size_t sz)
 {
     quicklist* quicklist = iter->quicklist;
+    quicklistNode *node = entry->node;
 
     if (likely(!QL_NODE_IS_PLAIN(entry->node) && !isLargeElement(sz))) {
         entry->node->entry = lpReplace(entry->node->entry, &entry->zi, data, sz);
         quicklistNodeUpdateSz(entry->node);
-        /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
-        quicklistCompress(quicklist, entry->node);
+
+        if (node->count != 1 && quicklistNodeExceedsLimit(quicklist->fill, lpBytes(node->entry), node->count)) {
+            /* If the node exceeds the limit, make the best effort to split it
+             * and reduce its size. If the entry to be replaced is at the tail,
+             * split from its previous entry, otherwise the opposite.
+             *
+             * In the worst case, its size will not exceed
+             * 64K (size before insertion) + 1GB (size of new entry) */
+            int after = (entry->offset == node->count - 1 || entry->offset == -1) ? 0 : 1;
+            quicklistNode *new_node = _quicklistSplitNode(node, iter->offset, after);
+            quicklistNodeUpdateSz(new_node);
+            __quicklistInsertNode(quicklist, node, new_node, after);
+            _quicklistMergeNodes(quicklist, node);
+        } else {
+            /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
+            quicklistCompress(quicklist, entry->node);
+        }
     } else if (QL_NODE_IS_PLAIN(entry->node)) {
         if (isLargeElement(sz)) {
             zfree(entry->node->entry);

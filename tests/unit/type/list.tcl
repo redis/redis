@@ -381,6 +381,16 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
        assert_equal [read_big_bulk {r rpop lst}] $str_length
    } {} {large-memory}
 
+    test {Test LSET on plain nodes with large elements under packed_threshold over 4GB} {
+        r flushdb
+        r rpush lst a b c d e
+        for {set i 0} {$i < 5} {incr i} {
+            r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
+            write_big_bulk 1000000000
+        }
+        r ping
+    } {PONG} {large-memory}
+
    test {Test LMOVE on plain nodes over 4GB} {
        r flushdb
        r RPUSH lst2{t} "aa"
