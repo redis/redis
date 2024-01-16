@@ -298,9 +298,10 @@ int dictTryExpand(dict *d, unsigned long size) {
     return malloc_failed? DICT_ERR : DICT_OK;
 }
 
-/* Helper function for `dictRehash` and `dictBucketRehash` to move all the keys
- * in a bucket `de` from the old to the new hash HT */
-void moveKeysInBucketOldtoNew(dict *d, dictEntry *de, uint64_t idx) {
+/* Helper function for `dictRehash` and `dictBucketRehash` which rehashes all the keys
+ * in a bucket at index `idx` from the old to the new hash HT. */
+void _rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
+    dictEntry *de = d->ht_table[0][idx];
     uint64_t h;
     dictEntry *nextde;
     while (de) {
@@ -318,13 +319,13 @@ void moveKeysInBucketOldtoNew(dict *d, dictEntry *de, uint64_t idx) {
         if (d->type->no_value) {
             if (d->type->keys_are_odd && !d->ht_table[1][h]) {
                 /* Destination bucket is empty and we can store the key
-                    * directly without an allocated entry. Free the old entry
-                    * if it's an allocated entry.
-                    *
-                    * TODO: Add a flag 'keys_are_even' and if set, we can use
-                    * this optimization for these dicts too. We can set the LSB
-                    * bit when stored as a dict entry and clear it again when
-                    * we need the key back. */
+                 * directly without an allocated entry. Free the old entry
+                 * if it's an allocated entry.
+                 *
+                 * TODO: Add a flag 'keys_are_even' and if set, we can use
+                 * this optimization for these dicts too. We can set the LSB
+                 * bit when stored as a dict entry and clear it again when
+                 * we need the key back. */
                 assert(entryIsKey(key));
                 if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
                 de = key;
@@ -349,8 +350,8 @@ void moveKeysInBucketOldtoNew(dict *d, dictEntry *de, uint64_t idx) {
 }
 
 /* This checks if we already rehashed the whole table and if more rehashing is required */
-int verifyMoreRehashRequired(dict *d) {
-    if (d->ht_used[0] != 0) return 1;
+int dictCheckRehashingCompleted(dict *d) {
+    if (d->ht_used[0] != 0) return 0;
     
     if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
     zfree(d->ht_table[0]);
@@ -360,7 +361,7 @@ int verifyMoreRehashRequired(dict *d) {
     d->ht_size_exp[0] = d->ht_size_exp[1];
     _dictReset(d, 1);
     d->rehashidx = -1;
-    return 0;
+    return 1;
 }
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
@@ -385,8 +386,6 @@ int dictRehash(dict *d, int n) {
     }
 
     while(n-- && d->ht_used[0] != 0) {
-        dictEntry *de;
-
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
         assert(DICTHT_SIZE(d->ht_size_exp[0]) > (unsigned long)d->rehashidx);
@@ -394,13 +393,12 @@ int dictRehash(dict *d, int n) {
             d->rehashidx++;
             if (--empty_visits == 0) return 1;
         }
-        de = d->ht_table[0][d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
-        moveKeysInBucketOldtoNew(d, de, d->rehashidx);
+        _rehashEntriesInBucketAtIndex(d, d->rehashidx);
         d->rehashidx++;
     }
 
-    return verifyMoreRehashRequired(d);
+    return !dictCheckRehashingCompleted(d);
 }
 
 long long timeInMilliseconds(void) {
@@ -523,14 +521,10 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
 }
 
 /* Performs rehashing on a single bucket. */
-static void dictBucketRehash(dict *d, uint64_t hash) {
+static void dictBucketRehash(dict *d, uint64_t idx) {
     if (d->pauserehash != 0) return;
-    dictEntry *de;
-    uint64_t idx;
-    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    de = d->ht_table[0][idx];
-    moveKeysInBucketOldtoNew(d, de, idx);
-    verifyMoreRehashRequired(d);
+    _rehashEntriesInBucketAtIndex(d, idx);
+    dictCheckRehashingCompleted(d);
     return;
 }
 
@@ -706,19 +700,25 @@ dictEntry *dictFind(dict *d, const void *key)
     }
 
     if (dictIsRehashing(d)) {
-        if ((long)idx >= d->rehashidx && he) {
-            dictBucketRehash(d, h);
-        /* If the 'he' is not in ht0, we perform a random bucket rehash. */
+        if (he) {
+            /* If we have a valid `he` at `idx` in ht0,
+             * we perform rehash on the bucket at `idx` */
+            dictBucketRehash(d, idx);
         } else {
-            assert(!he);
+            /* If the 'he' is not in ht0, we perform a random bucket rehash. */
             _dictRehashStep(d);
         }
-        /* If rehashing is still ongoing, we lookup in table 1, otherwise in table 0. */
+        /* `table` will be 1 in two cases where, the index `idx` has been already rehashed
+         * or when we find a bucket index that is not yet rehashes and we re-hashed it right away.
+         * `table` will be 0 in only one case where rehashing has been completed
+         * and the extra table is deleted . */
         int table = dictIsRehashing(d) ? 1 : 0;
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         he = d->ht_table[table][idx];
     }
 
+    /* Here, we have the right table and the bucket,
+     * now we will find the right key. */
     while(he) {
         void *he_key = dictGetKey(he);
         if (key == he_key || dictCompareKeys(d, key, he_key))
