@@ -6168,6 +6168,7 @@ void infoCommand(client *c) {
 
 /* Build the MONITOR filters from the MONITOR arguments
  * returns NULL (if not issues) or a list of incorrect arguments (that are not Redis commands) */
+// TODO signature like int commandCheckExistence(client *c, sds *err) ? why *err and not err as sds is a char*
 sds saveMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return NULL; /* MONITOR does not have filters/arguments */
 
