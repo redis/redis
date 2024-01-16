@@ -134,7 +134,7 @@ struct hdr_histogram;
 #define NET_HOST_STR_LEN 256 /* Longest valid hostname */
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define NET_ADDR_STR_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
-#define NET_HOST_PORT_STR_LEN (NET_HOST_STR_LEN+32) /* Must be enough for hostname:port */
+#define NET_HOST_PORT_STR_LEN (NET_HOST_STR_LEN+64) /* Must be enough for hostname:port:connection-type */
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
@@ -400,9 +400,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 
 #define CLIENT_REPL_MAIN_CHANNEL (1ULL<<50) /* RDB Channel: track a connection
-                                                   which used for PSYNC only */
+                                                 which is used for online replication data */
 #define CLIENT_REPL_RDB_CHANNEL (1ULL<<51) /* RDB Channel: track a connection
-                                                 which used for RDB only */
+                                                 which is used for rdb snapshot */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -447,13 +447,13 @@ typedef enum {
     REPL_STATE_RECEIVE_AUTH_REPLY,  /* Wait for AUTH reply */
     REPL_STATE_RECEIVE_PORT_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
-    REPL_STATE_RECEIVE_PSYNC_ONLY_REPLY, /* If using rdb-channel for sync, mark main connection as psync conn */
+    REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY, /* If using rdb-channel for sync, mark main connection as psync conn */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
     /* --- End of handshake states --- */
     REPL_STATE_TRANSFER,        /* Receiving .rdb from master */
-    /* --- Second channel related states --- */
+    /* --- RDB channel related states --- */
     REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY,   /* Wait for REPLCONF reply */
     REPL_RDB_CONN_RECEIVE_ENDOFF,           /* Wait for $ENDOFF reply */
     REPL_RDB_CONN_SEND_PSYNC,          /* Same as REPL_STATE_SEND_PSYNC but during RDB load */
@@ -481,7 +481,7 @@ typedef enum {
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 #define SLAVE_STATE_RDB_TRANSMITTED 10 /* RDB file transmitted - This state is used only for
                                         * a replica that only wants RDB without replication buffer  */
-#define SLAVE_STATE_BG_TRANSFER 11 /* Main connection of a replica which uses rdb-channel-sync. */
+#define SLAVE_STATE_ACTIVE_RDB_CHAN 11 /* Main connection of a replica which uses rdb-channel-sync. */
 
 
 /* Slave capabilities. */
@@ -1894,15 +1894,15 @@ struct redisServer {
     int masterport;                 /* Port of master */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave */
+    client *repl_provisional_master; /* Client used for psync during rdb load */
     client *cached_master; /* Cached master to be reused for PSYNC. */
-    client *psync_master; /* Client used for psync during rdb load */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
     connection *repl_transfer_s;     /* Slave -> Master SYNC connection */
-    connection *repl_full_sync_s;    /* Master FULL SYNC connection (RDB download) */
+    connection *repl_rdb_transfer_s;    /* Master FULL SYNC connection (RDB download) */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */

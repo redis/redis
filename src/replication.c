@@ -51,7 +51,7 @@ int cancelReplicationHandshake(int reconnect);
 void syncWithMaster(connection *conn);
 void replicationSteadyStateInit(client *master);
 int processEndOffsetResponse(char* response);
-void updateReplicationStateActive(connection *conn);
+void completeRDBChannelSync(connection *conn);
 int isReplicaMainChannel(client *c);
 int isReplicaRdbChannel(client *c);
 int isOngoingRdbChannelSync(void);
@@ -800,13 +800,16 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
         goto need_full_resync;
     }
 
-    /* If we reached this point, we are able to perform a partial resync:
+    /* There are two scenarios that lead to this point. One is that we are able 
+     * to perform a partial resync with the replica. The second is that the replica 
+     * is using rdb-connection sync, while loading the snapshot in the background.
+     * in both cases:
      * 1) Set client state to make it a slave.
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
     if (isReplicaMainChannel(c)) {
-        c->replstate = SLAVE_STATE_BG_TRANSFER;
+        c->replstate = SLAVE_STATE_ACTIVE_RDB_CHAN;
     } else {
         c->replstate = SLAVE_STATE_ONLINE;
     }
@@ -1034,7 +1037,7 @@ void syncCommand(client *c) {
         } else if (isReplicaMainChannel(c)) {
             char buf[128];
             int buflen;
-            serverLog(LL_NOTICE,"Replica %s is marked as psync-only, and psync isn't possible. Full sync will continue with dedicated RDB connection.", replicationGetSlaveName(c));
+            serverLog(LL_NOTICE,"Replica %s is marked as no-fullsync, and psync isn't possible. Full sync will continue with dedicated RDB connection.", replicationGetSlaveName(c));
             buflen = snprintf(buf,sizeof(buf),"-FULLSYNCNEEDED\r\n");
             if (connWrite(c->conn,buf,buflen) != buflen) {
                 freeClientAsync(c);
@@ -1223,7 +1226,7 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
-        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {        
+        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
              * internal only command that normal clients should never use. */
@@ -1253,7 +1256,7 @@ void replconfCommand(client *c) {
                 checkChildrenDone();
             if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 replicaStartCommandStream(c);
-            if (c->replstate == SLAVE_STATE_BG_TRANSFER) {
+            if (c->replstate == SLAVE_STATE_ACTIVE_RDB_CHAN) {
                 c->flags &= ~CLIENT_REPL_MAIN_CHANNEL;
                 replicaPutOnline(c);
             }
@@ -1300,9 +1303,9 @@ void replconfCommand(client *c) {
                 }
             }
             sdsfreesplitres(filters, filter_count);
-        } else if (!strcasecmp(c->argv[j]->ptr, "end-offset")) {
-            /* REPLCONF end-offset is used to identify the client wants
-            *  the snapshot end offset once snapshot is sent. */
+        } else if (!strcasecmp(c->argv[j]->ptr, "rdb-conn")) {
+            /* REPLCONF rdb-conn is used to identify the client as a 
+             * replica's rdb connection in an rdb connection sync session. */
             long start_with_offset = 0;
             if (getRangeLongFromObjectOrReply(c, c->argv[j +1],
                     0, 1, &start_with_offset,NULL) != C_OK) {
@@ -1313,17 +1316,17 @@ void replconfCommand(client *c) {
             } else {
                 c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
             }
-        } else if (!strcasecmp(c->argv[j]->ptr, "psync-only")) {
-            /* REPLCONF psync-only is used to identify the client wants
+        } else if (!strcasecmp(c->argv[j]->ptr, "no-fullsync")) {
+            /* REPLCONF no-fullsync is used to identify the client wants
              * to partial sync if possible. If not, do not auto 
              * trigger full sync. We use it during rdb channel sync
              * to mark the main connection. */
-            long psync_only = 0;
+            long no_fullsync = 0;
             if (getRangeLongFromObjectOrReply(c, c->argv[j +1],
-                    0, 1, &psync_only, NULL) != C_OK) {
+                    0, 1, &no_fullsync, NULL) != C_OK) {
                 return;
             } 
-            if (psync_only == 1) {
+            if (no_fullsync == 1) {
                 if (!server.repl_diskless_sync) {
                     /* When the primary uses disk for full sync, replicas can usually join during the time the 
                      * primary saves the database to disk. RDB-channel-sync, however, does not allow replicas 
@@ -1334,7 +1337,6 @@ void replconfCommand(client *c) {
                     return;
                 }
                 c->flags |= CLIENT_REPL_MAIN_CHANNEL;
-                c->slave_capa |= SLAVE_CAPA_PSYNC2;
             } else {
                 c->flags &= ~CLIENT_REPL_MAIN_CHANNEL;
             }
@@ -1796,7 +1798,7 @@ int slaveIsInHandshakeState(void) {
     return (server.repl_state >= REPL_STATE_RECEIVE_PING_REPLY &&
            server.repl_state <= REPL_STATE_RECEIVE_PSYNC_REPLY) ||
            (server.repl_state >= REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY &&
-           server.repl_state <= REPL_RDB_CONN_RECEIVE_PSYNC_REPLY);
+           server.repl_state <= REPL_RDB_CONN_RECEIVE_ENDOFF);
 }
 
 /* Returns 1 if the given replication state is a rdb transfer state,
@@ -1804,7 +1806,7 @@ int slaveIsInHandshakeState(void) {
 int slaveIsInTransferState(void) {
     return server.repl_state == REPL_STATE_TRANSFER ||
            (server.repl_state >= REPL_RDB_CONN_SEND_PSYNC &&
-           server.repl_state <= REPL_RDB_CONN_RECEIVE_PSYNC_REPLY);
+           server.repl_state <= REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE);
 }
 
 /* Avoid the master to detect the slave is timing out while loading the
@@ -1836,7 +1838,7 @@ void replicationEmptyDbCallback(dict *d) {
 /* Once we have a link with the master and the synchronization was
  * performed, this function materializes the master client we store
  * at server.master, starting from the specified file descriptor. */
-client *replicationCreateMasterClient(connection *conn, int dbid) {
+client *replicaCreateMasterClient(connection *conn, int dbid) {
     client* master_client = createClient(conn);
     if (conn)
         connSetReadHandler(master_client->conn, readQueryFromClient);
@@ -1913,7 +1915,7 @@ static int useDisklessLoad(void) {
 }
 
 static int useRdbChannelSync(void) {
-    return server.rdb_channel_enabled && (server.master_supports_rdb_channel == 1);
+    return server.rdb_channel_enabled && server.master_supports_rdb_channel;
 }
 
 /* Helper function for readSyncBulkPayload() to initialize tempDb
@@ -1944,8 +1946,8 @@ void replicationAttachToNewMaster(void) {
 }
 
 /* Used by replica, returns true whether the connection used for RDB only */
-int isRdbConnectionSync(connection *conn) {
-    return conn == server.repl_full_sync_s;
+int isRdbConnection(connection *conn) {
+    return conn == server.repl_rdb_transfer_s;
 }
 
 /* Return true if the client is the replica`s psync connection */
@@ -2354,17 +2356,17 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         zfree(server.repl_transfer_tmpfile);
-            server.repl_transfer_fd = -1;
+        server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }
 
     /* Final setup of the connected slave <- master link */
-    if (isRdbConnectionSync(conn)) {
-        /* In case of fsync using rdb channel, the master client was already created for psync purposes
-         * Instead of creating a new client we will use the one created for psync */
-        updateReplicationStateActive(conn);
+    if (isRdbConnection(conn)) {
+        /* In case of full-sync using rdb channel, the master client was already created for psync purposes
+         * Instead of creating a new client we will use the one created for partial sync */
+        completeRDBChannelSync(conn);
     } else {
-        server.master = replicationCreateMasterClient(server.repl_transfer_s, rsi.repl_stream_db);
+        server.master = replicaCreateMasterClient(server.repl_transfer_s, rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
     }
     server.repl_down_since = 0;
@@ -2394,7 +2396,7 @@ void readSyncBulkPayload(connection *conn) {
     }
 
     /* Send the initial ACK immediately to put this replica in online state. */
-    if (usemark && !isRdbConnectionSync(conn)) replicationSendAck();
+    if (usemark && !isRdbConnection(conn)) replicationSendAck();
 
     /* Restart the AOF subsystem now that we finished the sync. This
      * will trigger an AOF rewrite, and when done will start appending
@@ -2403,9 +2405,9 @@ void readSyncBulkPayload(connection *conn) {
     
     /* In case of RDB Connection Sync we want to close the RDB connection
      * once the connection is established */
-    if (isRdbConnectionSync(conn)) {
+    if (isRdbConnection(conn)) {
         connClose(conn);
-        server.repl_full_sync_s = NULL;
+        server.repl_rdb_transfer_s = NULL;
     }
     return;
 
@@ -2530,13 +2532,13 @@ void abortRdbConnectionSync(int should_retry) {
         connClose(server.repl_transfer_s);
         server.repl_transfer_s = NULL;
     }
-    if (server.repl_full_sync_s) {
-        connClose(server.repl_full_sync_s);
-        server.repl_full_sync_s = NULL;
+    if (server.repl_rdb_transfer_s) {
+        connClose(server.repl_rdb_transfer_s);
+        server.repl_rdb_transfer_s = NULL;
     }
-    if (server.psync_master) {
-        freeClient(server.psync_master);
-        server.psync_master = NULL;
+    if (server.repl_provisional_master) {
+        freeClient(server.repl_provisional_master);
+        server.repl_provisional_master = NULL;
     }
     if (server.repl_transfer_fd != -1) {
         close(server.repl_transfer_fd);
@@ -2561,13 +2563,13 @@ int reInitReplicaMainConnection(connection *conn) {
     /* Init the main connection for psync */
     conn->state = CONN_STATE_CONNECTED;
     server.repl_state = REPL_RDB_CONN_SEND_PSYNC;
-    serverAssert(connSetReadHandler(server.psync_master->conn, syncWithMaster) != C_ERR);
+    serverAssert(connSetReadHandler(server.repl_provisional_master->conn, syncWithMaster) != C_ERR);
     syncWithMaster(conn);
     return C_OK;
 }
 
 int prepareRdbConnectionForRdbLoad(connection *conn) {
-    serverAssert(isRdbConnectionSync(conn));
+    serverAssert(isRdbConnection(conn));
     /* Set connection handler for RDB */
     serverAssert(connSetReadHandler(conn, readSyncBulkPayload) != C_ERR);
     server.repl_transfer_size = -1;
@@ -2578,7 +2580,7 @@ int prepareRdbConnectionForRdbLoad(connection *conn) {
 }
 
 /* Send to replica End Offset response with structure
- * $ENDOFF:<end-offset> <primary-repl-id> <current-db-id> */
+ * $ENDOFF:<rdb-conn> <primary-repl-id> <current-db-id> */
 int sendCurentOffsetToReplica(client* replica) {
     char buf[128];
     int buflen;
@@ -2601,20 +2603,20 @@ int processEndOffsetResponse(char* response) {
         return C_ERR;
     }
     server.master_initial_offset = reploffset;
-    server.psync_master = replicationCreateMasterClient(server.repl_transfer_s, dbid);
-    memcpy(server.psync_master->replid, master_replid, CONFIG_RUN_ID_SIZE);
-    server.psync_master->reploff = reploffset;
-    server.psync_master->read_reploff = reploffset;
+    server.repl_provisional_master = replicaCreateMasterClient(server.repl_transfer_s, dbid);
+    memcpy(server.repl_provisional_master->replid, master_replid, CONFIG_RUN_ID_SIZE);
+    server.repl_provisional_master->reploff = reploffset;
+    server.repl_provisional_master->read_reploff = reploffset;
     return C_OK;
 }
 
 /* This connection handler is used to initialize the RDB connection (repl-rdb-channel sync). 
  * Once a replica with repl-rdb-channel enabled, denied from PSYNC with its primary, 
- * fullSyncWithMaster begins its role. The connection handler prepare server.repl_full_sync_s
+ * fullSyncWithMaster begins its role. The connection handler prepare server.repl_rdb_transfer_s
  * for a rdb stream, and server.repl_transfer_s for replication data stream. */
 void fullSyncWithMaster(connection* conn) {
     char *err = NULL;
-    serverAssert(conn == server.repl_full_sync_s);
+    serverAssert(conn == server.repl_rdb_transfer_s);
 
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
@@ -2637,7 +2639,7 @@ void fullSyncWithMaster(connection* conn) {
         /* Send replica lisening port to master for clarification */
         sds portstr = getReplicaPortString();        
         err = sendCommand(conn, "REPLCONF", "capa", "eof",
-                            "rdb-only", "1", "end-offset", "1", "listening-port", portstr, NULL);
+                            "rdb-only", "1", "rdb-conn", "1", "listening-port", portstr, NULL);
         sdsfree(portstr);
         if (err) goto write_error;
         server.repl_state = REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY;
@@ -2686,7 +2688,7 @@ void fullSyncWithMaster(connection* conn) {
         if (reInitReplicaMainConnection(server.repl_transfer_s) == C_ERR) {
             goto error;
         }      
-        if (prepareRdbConnectionForRdbLoad(server.repl_full_sync_s) == C_ERR) {
+        if (prepareRdbConnectionForRdbLoad(server.repl_rdb_transfer_s) == C_ERR) {
             goto error;
         }
         return;
@@ -2830,27 +2832,29 @@ void streamReplDataBufToDb(client *c) {
 }
 
 /* There are two scenarios in which this method can be called during rdb-channel-sync:
- * 1. Main connection successfully established psync with primary.
+ * 1. Main connection successfully established psync with master.
  * 2. Rdb connection done loading rdb. 
+ *
+ * The 'conn' argument is either server.repl_transfer_s or server.repl_rdb_transfer_s.
  * Each time this method is invoked, we check whether the other connection has completed
- * his part and act accordingly */
-void updateReplicationStateActive(connection *conn) {
+ * its part and act accordingly. */
+void completeRDBChannelSync(connection *conn) {
     if (conn == server.repl_transfer_s) {
         /* Main connection */
-        if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_full_sync_s != NULL) {
+        if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_rdb_transfer_s != NULL) {
             /* RDB is still loading */
             server.repl_state = REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE;
-            replicationSteadyStateInit(server.psync_master);
+            replicationSteadyStateInit(server.repl_provisional_master);
             replDataBufInit();
             return;
         }
-        if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_full_sync_s == NULL) {
+        if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_rdb_transfer_s == NULL) {
             /* RDB is loaded */
             goto sync_success;
         }
         serverPanic("Unrecognized replication state %d using main connection", server.repl_state);
     } 
-    if (conn == server.repl_full_sync_s) {
+    if (conn == server.repl_rdb_transfer_s) {
         /* RDB connection */
         if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY) {
             /* Main psync connection hasn't been established yet, exit without changing the state */
@@ -2859,7 +2863,7 @@ void updateReplicationStateActive(connection *conn) {
         if (server.repl_state == REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE) {
             /* Wait for the accumulated buffer to be processed before reading any more replication updates */
             connSetReadHandler(server.repl_transfer_s, NULL);
-            streamReplDataBufToDb(server.psync_master);
+            streamReplDataBufToDb(server.repl_provisional_master);
             freeReplDataBuf();
             serverLog(LL_NOTICE, "Successfully streamed replication data into memory");
             goto sync_success;
@@ -2869,8 +2873,8 @@ void updateReplicationStateActive(connection *conn) {
     serverPanic("Unknown connection %d", conn->fd);
     
     sync_success:
-    removeFromServerCientList(server.psync_master);
-    replicationResurrectMaster(server.repl_transfer_s, &server.psync_master);
+    removeFromServerCientList(server.repl_provisional_master);
+    replicationResurrectMaster(server.repl_transfer_s, &server.repl_provisional_master);
     replicationSteadyStateInit(server.master);
     replicationSendAck(); /* Send ACK to notify primary that replica is synced */
 }
@@ -2945,8 +2949,8 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
         
         if (isOngoingRdbChannelSync()) {
-            psync_replid = server.psync_master->replid;
-            snprintf(psync_offset, sizeof(psync_offset), "%lld", server.psync_master->reploff+1);
+            psync_replid = server.repl_provisional_master->replid;
+            snprintf(psync_offset, sizeof(psync_offset), "%lld", server.repl_provisional_master->reploff+1);
             serverLog(LL_NOTICE, "Trying a partial resynchronization using main channel (request %s:%s).", psync_replid, psync_offset);
         } else if (server.cached_master) {
             psync_replid = server.cached_master->replid;
@@ -3051,8 +3055,8 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                 /* In case we are using rdb connection sync, the master is already initialized by now 
                  * In this case we will just verify his id. Notice that in this case cached master is not 
                  * relevant because it wasn't used */
-                serverAssert(strcmp(new, server.psync_master->replid) == 0);
-                server.psync_master->read_reploff = server.psync_master->reploff;
+                serverAssert(strcmp(new, server.repl_provisional_master->replid) == 0);
+                server.repl_provisional_master->read_reploff = server.repl_provisional_master->reploff;
                 /* Disconnect all the sub-slaves: they need to be notified. */
                 disconnectSlaves();
             } else if (strcmp(new, server.cached_master->replid)) {
@@ -3077,7 +3081,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         /* Setup the replication to continue. */
         sdsfree(reply);
         if (isOngoingRdbChannelSync()) {
-            updateReplicationStateActive(conn);
+            completeRDBChannelSync(conn);
         } else {
             replicationResurrectMaster(conn, &server.cached_master);
             replicationSteadyStateInit(server.master);
@@ -3108,7 +3112,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     }
 
     if (!strncmp(reply, "-FULLSYNCNEEDED", 15) && useRdbChannelSync()) {
-        /* In case the main connection with master is at psync-only mode, the master 
+        /* In case the main connection with master is at no-fullsync mode, the master 
          * will respond with empty bulk to imply that psync is not possible */
         serverLog(LL_NOTICE, "PSYNC is not possible, initialize RDB channel");
         sdsfree(reply);
@@ -3233,7 +3237,7 @@ void syncWithMaster(connection *conn) {
 
         /* Mark main connection for psync only, in case we use rdb-channel for sync*/
         if (useRdbChannelSync()) {
-           err = sendCommand(conn,"REPLCONF", "psync-only", "1", NULL);
+           err = sendCommand(conn,"REPLCONF", "no-fullsync", "1", NULL);
         }
 
         /* Inform the master of our (slave) capabilities.
@@ -3243,7 +3247,7 @@ void syncWithMaster(connection *conn) {
          *
          * The master will ignore capabilities it does not understand. */
         err = sendCommand(conn,"REPLCONF",
-            "capa","eof","capa","psync2",NULL);
+                "capa","eof","capa","psync2",NULL);
         if (err) goto write_error;
 
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
@@ -3284,7 +3288,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY && !server.slave_announce_ip)
-        server.repl_state = REPL_STATE_RECEIVE_PSYNC_ONLY_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY;
 
     /* Receive REPLCONF ip-address reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
@@ -3297,19 +3301,19 @@ void syncWithMaster(connection *conn) {
                                 "REPLCONF ip-address: %s", err);
         }
         sdsfree(err);
-        server.repl_state = REPL_STATE_RECEIVE_PSYNC_ONLY_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY;
         return;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_PSYNC_ONLY_REPLY && !useRdbChannelSync()) {
+    if (server.repl_state == REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY && !useRdbChannelSync()) {
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_PSYNC_ONLY_REPLY) {
+    if (server.repl_state == REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY) {
         err = receiveSynchronousResponse(conn);
         if (err == NULL) goto rdb_conn_error;
         if (err[0] == '-') {
-            serverLog(LL_WARNING, "Primary does not understand REPLCONF psync-only aborting rdb channel sync %s", err);
+            serverLog(LL_WARNING, "Primary does not understand REPLCONF no-fullsync aborting rdb channel sync %s", err);
             sdsfree(err);
             goto rdb_conn_error;
         }
@@ -3433,13 +3437,13 @@ void syncWithMaster(connection *conn) {
 
     if (useRdbChannelSync()) {
         /* Create a full sync connection */
-        server.repl_full_sync_s = connCreate(connTypeOfReplication());
-        if (connConnect(server.repl_full_sync_s, server.masterhost, server.masterport,
+        server.repl_rdb_transfer_s = connCreate(connTypeOfReplication());
+        if (connConnect(server.repl_rdb_transfer_s, server.masterhost, server.masterport,
                     server.bind_source_addr, fullSyncWithMaster) == C_ERR) {
             serverLog(LL_WARNING,"Unable to connect to Primary: %s",
                     connGetLastError(server.repl_transfer_s));
-            connClose(server.repl_full_sync_s);
-            server.repl_full_sync_s = NULL;
+            connClose(server.repl_rdb_transfer_s);
+            server.repl_rdb_transfer_s = NULL;
             return;
         }
         if (connSetReadHandler(conn, NULL) == C_ERR) {
@@ -3477,9 +3481,9 @@ error:
     if (dfd != -1) close(dfd);
     connClose(conn);
     server.repl_transfer_s = NULL;
-    if (server.repl_full_sync_s) {
-        connClose(server.repl_full_sync_s);
-        server.repl_full_sync_s = NULL;
+    if (server.repl_rdb_transfer_s) {
+        connClose(server.repl_rdb_transfer_s);
+        server.repl_rdb_transfer_s = NULL;
     }
     if (server.repl_transfer_fd != -1)
         close(server.repl_transfer_fd);
@@ -3527,9 +3531,9 @@ void undoConnectWithMaster(void) {
         connClose(server.repl_transfer_s);
         server.repl_transfer_s = NULL;
     }
-    if (server.repl_full_sync_s) {
-        connClose(server.repl_full_sync_s);
-        server.repl_full_sync_s = NULL;
+    if (server.repl_rdb_transfer_s) {
+        connClose(server.repl_rdb_transfer_s);
+        server.repl_rdb_transfer_s = NULL;
     }
 }
 
@@ -3938,14 +3942,14 @@ void replicationCacheMasterUsingMyself(void) {
         "the new master with just a partial transfer.");
 
     /* This will be used to populate the field server.master->reploff
-     * by replicationCreateMasterClient(). We'll later set the created
+     * by replicaCreateMasterClient(). We'll later set the created
      * master as server.cached_master, so the replica will use such
      * offset for PSYNC. */
     server.master_initial_offset = server.master_repl_offset;
 
     /* The master client we create can be set to any DBID, because
      * the new master will start its replication stream with SELECT. */
-    server.master = replicationCreateMasterClient(NULL,-1);
+    server.master = replicaCreateMasterClient(NULL,-1);
 
     /* Use our own ID / offset. */
     memcpy(server.master->replid, server.replid, sizeof(server.replid));
