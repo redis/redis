@@ -58,6 +58,7 @@
 
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "mt19937-64.h"
 #include <math.h>
 
 /*-----------------------------------------------------------------------------
@@ -119,9 +120,6 @@ void zslFree(zskiplist *zsl) {
     zfree(zsl);
 }
 
-#define RANDOM_CTZ_MAX 31
-#define RANDOM_MAX 2147483647
-
 /* Returns a random level for the new skiplist node we are going to create.
  * The return value of this function is between 1 and ZSKIPLIST_MAXLEVEL
  * (both inclusive), with a powerlaw-alike distribution where higher
@@ -129,20 +127,16 @@ void zslFree(zskiplist *zsl) {
 int zslRandomLevel(void) {
 #if ZSKIPLIST_P_DENOMINATOR == 4 && ZSKIPLIST_MAXLEVEL == 32
     /* Optimized implementation for P = 1/4 and MAXLEVEL = 32.
-     * In most cases, only a single random number is generated, enhancing performance.
-     * Calculate the count of trailing zeros in a random number. The random number is
-     * bitwise OR'ed with 1<<MAX_RANDOM_CTZ to ensure it's not zero. */
-    int ctz = __builtin_ctz(random()|(1<<RANDOM_CTZ_MAX));
-    /* If ctz is 31 (all bits are zero), repeat the process to increase level.
-     * This is an extremely rare case. */
-    if (ctz == RANDOM_CTZ_MAX)
-       ctz += __builtin_ctz(random()|(1<<RANDOM_CTZ_MAX));
+     * Only a single random number is generated, enhancing performance.
+     * Calculate the count of trailing zeros in a 64-bit random number. The random
+     * number is bitwise OR'ed with 1<<63 to ensure it's not zero. */
+    int ctz = __builtin_ctzll(genrand64_int64()|(1LL<<63));
     /* Calculate the level based on ctz, with a division by 2 to balance the probability to 1/4. */
     int level = 1+(ctz/2);
     serverAssert(level<=ZSKIPLIST_MAXLEVEL);
     return level;
 #else
-    static const int threshold = RANDOM_MAX/ZSKIPLIST_P_DENOMINATOR;
+    static const int threshold = RAND_MAX/ZSKIPLIST_P_DENOMINATOR;
     int level = 1;
     while (random() < threshold)
         level += 1;
