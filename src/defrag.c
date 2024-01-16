@@ -800,20 +800,25 @@ void defragOtherGlobals(void) {
 int defragLaterItem(dictEntry *de, unsigned long *cursor, long long endtime, int dbid) {
     if (de) {
         robj *ob = dictGetVal(de);
-        if (ob->type == OBJ_LIST) {
-            return scanLaterList(ob, cursor, endtime);
-        } else if (ob->type == OBJ_SET) {
-            scanLaterSet(ob, cursor);
-        } else if (ob->type == OBJ_ZSET) {
-            scanLaterZset(ob, cursor);
-        } else if (ob->type == OBJ_HASH) {
-            scanLaterHash(ob, cursor);
-        } else if (ob->type == OBJ_STREAM) {
-            return scanLaterStreamListpacks(ob, cursor, endtime);
-        } else if (ob->type == OBJ_MODULE) {
-            return moduleLateDefrag(dictGetKey(de), ob, cursor, endtime, dbid);
-        } else {
-            *cursor = 0; /* object type may have changed since we schedule it for later */
+        switch (ob->type) {
+            case OBJ_LIST:
+                return scanLaterList(ob, cursor, endtime);
+            case OBJ_SET:
+                scanLaterSet(ob, cursor);
+                break;
+            case OBJ_ZSET:
+                scanLaterZset(ob, cursor);
+                break;
+            case OBJ_HASH:
+                scanLaterHash(ob, cursor);
+                break;
+            case OBJ_STREAM:
+                return scanLaterStreamListpacks(ob, cursor, endtime);
+            case OBJ_MODULE:
+                return moduleLateDefrag(dictGetKey(de), ob, cursor, endtime, dbid);
+            default:
+                *cursor = 0; /* object type may have changed since we schedule it for later */
+                break;
         }
     } else {
         *cursor = 0; /* object may have been deleted already */
