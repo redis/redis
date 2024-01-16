@@ -2932,6 +2932,7 @@ write_error: /* Handle sendCommand() errors. */
 
 int connectWithMaster(void) {
     server.repl_transfer_s = connCreate(connTypeOfReplication());
+    server.repl_master_connect_time = server.unixtime;
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
         serverLog(LL_WARNING,"Unable to connect to MASTER: %s",
@@ -2940,7 +2941,6 @@ int connectWithMaster(void) {
         server.repl_transfer_s = NULL;
         return C_ERR;
     }
-
 
     server.repl_transfer_lastio = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTING;
