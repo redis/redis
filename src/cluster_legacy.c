@@ -959,7 +959,7 @@ void clusterInit(void) {
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;
     server.cluster->state = CLUSTER_FAIL;
-    server.cluster->size = 1;
+    server.cluster->size = 0;
     server.cluster->todo_before_sleep = 0;
     server.cluster->nodes = dictCreate(&clusterNodesDictType);
     server.cluster->shards = dictCreate(&clusterSdsToListType);
@@ -4691,10 +4691,13 @@ void clusterCron(void) {
             /* Timeout reached. Set the node as possibly failing if it is
              * not already in this state. */
             if (!(node->flags & (CLUSTER_NODE_PFAIL|CLUSTER_NODE_FAIL))) {
-                serverLog(LL_DEBUG,"*** NODE %.40s possibly failing",
-                    node->name);
                 node->flags |= CLUSTER_NODE_PFAIL;
                 update_state = 1;
+                if (clusterNodeIsMaster(myself) && server.cluster->size == 1) {
+                    markNodeAsFailingIfNeeded(node);                    
+                } else {
+                    serverLog(LL_DEBUG,"*** NODE %.40s possibly failing", node->name);
+                }
             }
         }
     }
@@ -5794,12 +5797,12 @@ int handleDebugClusterCommand(client *c) {
 
     /* Terminate the link based on the direction or all. */
     if (!strcasecmp(c->argv[3]->ptr, "from")) {
-        freeClusterLink(n->inbound_link);
+        if (n->inbound_link) freeClusterLink(n->inbound_link);
     } else if (!strcasecmp(c->argv[3]->ptr, "to")) {
-        freeClusterLink(n->link);
+        if (n->link) freeClusterLink(n->link);
     } else if (!strcasecmp(c->argv[3]->ptr, "all")) {
-        freeClusterLink(n->link);
-        freeClusterLink(n->inbound_link);
+        if (n->link) freeClusterLink(n->link);
+        if (n->inbound_link) freeClusterLink(n->inbound_link);
     } else {
         addReplyErrorFormat(c, "Unknown direction %s", (char *) c->argv[3]->ptr);
     }

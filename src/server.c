@@ -428,7 +428,7 @@ uint64_t dictEncObjHash(const void *key) {
  * provisionally if used memory will be over maxmemory after dict expands,
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
-int dictExpandAllowed(size_t moreMem, double usedRatio) {
+int dictResizeAllowed(size_t moreMem, double usedRatio) {
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
     } else {
@@ -494,7 +494,7 @@ dictType dbDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed,          /* allow to expand */
+    dictResizeAllowed,          /* allow to resize */
     dictNeedsResize,            /* needs resize */
 };
 
@@ -506,7 +506,7 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictExpandAllowed,          /* allow to expand */
+    dictResizeAllowed,          /* allow to resize */
     dictNeedsResize,            /* needs resize */
 };
 
@@ -637,7 +637,7 @@ dictType clientDictType = {
     .no_value = 1               /* no values in this dict */
 };
 
-int dictNeedsResize(dict *dict) {
+int dictNeedsShrink(dict *dict) {
     long long size, used;
 
     size = dictBuckets(dict);

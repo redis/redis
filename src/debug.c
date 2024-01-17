@@ -2076,7 +2076,7 @@ int memtest_test_linux_anonymous_maps(void) {
     int regions = 0, j;
 
     int fd = openDirectLogFiledes();
-    if (!fd) return 0;
+    if (fd == -1) return 0;
 
     fp = fopen("/proc/self/maps","r");
     if (!fp) {
