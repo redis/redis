@@ -1424,7 +1424,8 @@ werr:
     return C_ERR;
 }
 
-/* This is just a wrapper to rdbSaveRio() that additionally adds a prefix
+/* This helper function is only used for diskless replication. 
+ * This is just a wrapper to rdbSaveRio() that additionally adds a prefix
  * and a suffix to the generated RDB dump. The prefix is:
  *
  * $EOF:<40 bytes unguessable hex string>\r\n
