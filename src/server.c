@@ -699,7 +699,7 @@ int htNeedsShrink(dict *dict) {
     size = dictBuckets(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
-            ((double)used/size < HASHTABLE_MIN_FILL));
+            (used*100 <= HASHTABLE_MIN_FILL*size));
 }
 
 /* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)

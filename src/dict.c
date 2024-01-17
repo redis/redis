@@ -60,7 +60,7 @@
  *  - A hash table is still allowed to shrink if the ratio between the number
  *    of elements and the buckets < HASHTABLE_MIN_FILL / dict_force_resize_ratio. */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
-static double dict_force_resize_ratio = 5.0;
+static unsigned int dict_force_resize_ratio = 5;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -333,8 +333,8 @@ int dictRehash(dict *d, int n) {
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
     if (dict_can_resize == DICT_RESIZE_AVOID && 
-        ((s1 > s0 && (double)s1 / s0 < dict_force_resize_ratio) ||
-         (s1 < s0 && (double)s0 / s1 < dict_force_resize_ratio)))
+        ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
+         (s1 < s0 && s0 < dict_force_resize_ratio * s1)))
     {
         return 0;
     }
@@ -1452,7 +1452,7 @@ static void _dictExpandIfNeeded(dict *d)
     if ((dict_can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] >= DICTHT_SIZE(d->ht_size_exp[0])) ||
         (dict_can_resize != DICT_RESIZE_FORBID &&
-         (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) >= dict_force_resize_ratio))
+         d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (!dictTypeResizeAllowed(d))
             return;
@@ -1475,9 +1475,9 @@ static void _dictShrinkIfNeeded(dict *d)
      * the hash table (global setting) or we should avoid it but the ratio is below 1:50,
      * we'll trigger a resize of the hash table. */
     if ((dict_can_resize == DICT_RESIZE_ENABLE &&
-         (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) <= HASHTABLE_MIN_FILL) ||
+         d->ht_used[0] * 100 <= HASHTABLE_MIN_FILL * DICTHT_SIZE(d->ht_size_exp[0])) ||
         (dict_can_resize != DICT_RESIZE_FORBID &&
-         (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) <= HASHTABLE_MIN_FILL / dict_force_resize_ratio))
+         d->ht_used[0] * 100 <= HASHTABLE_MIN_FILL / dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (!dictTypeResizeAllowed(d))
             return;
