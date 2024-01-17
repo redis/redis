@@ -548,6 +548,15 @@ static void __quicklistInsertPlainNode(quicklist *quicklist, quicklistNode *old_
     quicklist->count++;
 }
 
+static quicklistNode* __quicklistCreatePackedNode(void *value, size_t sz) {
+    quicklistNode *new_node = quicklistCreateNode();
+    new_node->entry = lpPrepend(lpNew(0), value, sz);
+    new_node->container = QUICKLIST_NODE_CONTAINER_PACKED;
+    new_node->sz = sz;
+    new_node->count++;
+    return new_node;
+}
+
 /* Add new entry to head node of quicklist.
  *
  * Returns 0 if used existing head.
@@ -745,27 +754,15 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
 {
     quicklist* quicklist = iter->quicklist;
     quicklistNode *node = entry->node;
+    unsigned char *newentry;
 
-    if (likely(!QL_NODE_IS_PLAIN(entry->node) && !isLargeElement(sz))) {
-        entry->node->entry = lpReplace(entry->node->entry, &entry->zi, data, sz);
+    if (likely(!QL_NODE_IS_PLAIN(entry->node) && !isLargeElement(sz) &&
+        (newentry = lpReplace(entry->node->entry, &entry->zi, data, sz)) != NULL))
+    {
+        entry->node->entry = newentry;
         quicklistNodeUpdateSz(entry->node);
-
-        if (node->count != 1 && quicklistNodeExceedsLimit(quicklist->fill, lpBytes(node->entry), node->count)) {
-            /* If the node exceeds the limit, make the best effort to split it
-             * and reduce its size. If the entry to be replaced is at the tail,
-             * split from its previous entry, otherwise the opposite.
-             *
-             * In the worst case, its size will not exceed
-             * 64K (size before insertion) + 1GB (size of new entry) */
-            int after = (entry->offset == node->count - 1 || entry->offset == -1) ? 0 : 1;
-            quicklistNode *new_node = _quicklistSplitNode(node, iter->offset, after);
-            quicklistNodeUpdateSz(new_node);
-            __quicklistInsertNode(quicklist, node, new_node, after);
-            _quicklistMergeNodes(quicklist, node);
-        } else {
-            /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
-            quicklistCompress(quicklist, entry->node);
-        }
+        /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
+        quicklistCompress(quicklist, entry->node);
     } else if (QL_NODE_IS_PLAIN(entry->node)) {
         if (isLargeElement(sz)) {
             zfree(entry->node->entry);
@@ -777,9 +774,23 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
             quicklistInsertAfter(iter, entry, data, sz);
             __quicklistDelNode(quicklist, entry->node);
         }
-    } else {
+    } else { /* The node is full or data is a large element */
+        quicklistNode *split_node, *new_node;
         entry->node->dont_compress = 1; /* Prevent compression in quicklistInsertAfter() */
-        quicklistInsertAfter(iter, entry, data, sz);
+
+        /* If the entry is not at the tail, split the node at the entry's offset. */
+        int at_tail = (entry->offset == node->count - 1 || entry->offset == -1);
+        if (!at_tail) split_node = _quicklistSplitNode(node, entry->offset, 1);
+
+        /* Create a new node and insert it after the original node. */
+        new_node = isLargeElement(sz) ? __quicklistCreatePlainNode(data, sz) : __quicklistCreatePackedNode(data, sz);
+        __quicklistInsertNode(quicklist, node, new_node, 1);
+        quicklist->count++;
+
+        /* If the original node was split, insert the split node after the new node. */
+        if (!at_tail) __quicklistInsertNode(quicklist, new_node, split_node, 1);
+
+        /* Delete the replaced element. */
         if (entry->node->count == 1) {
             __quicklistDelNode(quicklist, entry->node);
         } else {
