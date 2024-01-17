@@ -382,7 +382,6 @@ int dictShrink(dict *d, unsigned long size) {
     if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) <= size)
         return DICT_ERR;
     return _dictResize(d, size, NULL);
-
 }
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
