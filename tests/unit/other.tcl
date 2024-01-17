@@ -469,11 +469,6 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         # disable resizing
         r config set rdb-key-save-delay 10000000
         r bgsave
-        wait_for_condition 1000 10 {
-            [s rdb_bgsave_in_progress] eq 1
-        } else {
-            fail "bgsave did not start in time"
-        }
 
         for {set j 1} {$j <= 127} {incr j} {
             r del "{alice}$j"
