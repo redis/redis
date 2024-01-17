@@ -455,8 +455,8 @@ dict *kvstoreGetDictFromIterator(kvstoreIterator *kvs_it) {
     return kvstoreGetDict(kvs_it->kvs, kvs_it->didx);
 }
 
-/* Cursor-scan the kvstore and attempt to resize (if needed, handled by dictResize) */
-void kvstoreTryResizeHashTables(kvstore *kvs, int limit) {
+/* Cursor-scan the kvstore and attempt to shrink (if needed, handled by dictShrinkToFit) */
+void kvstoreTryShrinkHashTables(kvstore *kvs, int limit) {
     if (kvstoreSize(kvs) == 0)
         return;
 
@@ -466,7 +466,7 @@ void kvstoreTryResizeHashTables(kvstore *kvs, int limit) {
     for (int i = 0; i < limit && kvs->state.resize_cursor != -1; i++) {
         int didx = kvs->state.resize_cursor;
         dict *d = kvstoreGetDict(kvs, didx);
-        dictResize(d);
+        dictShrinkToFit(d);
         kvs->state.resize_cursor = kvstoreGetNextNonEmptyDictIndex(kvs, didx);
     }
 }

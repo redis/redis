@@ -206,11 +206,20 @@ int _dictInit(dict *d, dictType *type)
     return DICT_OK;
 }
 
+static int dictNeedsShrink(dict *dict) {
+    long long size, used;
+
+    size = dictBuckets(dict);
+    used = dictSize(dict);
+    return (size > DICT_HT_INITIAL_SIZE &&
+            (used*100/size < HASHTABLE_MIN_FILL));
+}
+
 /* Resize the table to the minimal size that contains all the elements,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictShrinkToFit(dict *d)
 {
-    if (!(d->type->needsResize && d->type->needsResize(d)))
+    if (!dictNeedsShrink(d))
         return DICT_OK;
 
     unsigned long minimal;

@@ -469,7 +469,6 @@ dictType setDictType = {
     dictSdsDestructor,         /* key destructor */
     NULL,                      /* val destructor */
     NULL,                      /* allow to expand */
-    dictNeedsResize,           /* needs resize */
     .no_value = 1,             /* no values in this dict */
     .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
@@ -483,7 +482,6 @@ dictType zsetDictType = {
     NULL,                      /* Note: SDS string shared & freed by skiplist */
     NULL,                      /* val destructor */
     NULL,                      /* allow to expand */
-    dictNeedsResize,           /* needs resize */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
@@ -495,7 +493,6 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictResizeAllowed,          /* allow to resize */
-    dictNeedsResize,            /* needs resize */
 };
 
 /* Db->expires */
@@ -507,7 +504,6 @@ dictType dbExpiresDictType = {
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     dictResizeAllowed,          /* allow to resize */
-    dictNeedsResize,            /* needs resize */
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -530,7 +526,6 @@ dictType hashDictType = {
     dictSdsDestructor,          /* key destructor */
     dictSdsDestructor,          /* val destructor */
     NULL,                       /* allow to expand */
-    dictNeedsResize,            /* needs resize */
 };
 
 /* Dict type without destructor */
@@ -636,15 +631,6 @@ dictType clientDictType = {
     dictClientKeyCompare,       /* key compare */
     .no_value = 1               /* no values in this dict */
 };
-
-int dictNeedsShrink(dict *dict) {
-    long long size, used;
-
-    size = dictBuckets(dict);
-    used = dictSize(dict);
-    return (size > DICT_HT_INITIAL_SIZE &&
-            (used*100/size < HASHTABLE_MIN_FILL));
-}
 
 /* This function is called once a background process of some kind terminates,
  * as we want to avoid resizing the hash tables when there is a child in order
@@ -1094,8 +1080,8 @@ void databasesCron(void) {
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
             redisDb *db = &server.db[resize_db % server.dbnum];
-            kvstoreTryResizeHashTables(db->keys, CRON_DICT_RESIZE_LIMIT_PER_CALL);
-            kvstoreTryResizeHashTables(db->expires, CRON_DICT_RESIZE_LIMIT_PER_CALL);
+            kvstoreTryShrinkHashTables(db->keys, CRON_DICT_RESIZE_LIMIT_PER_CALL);
+            kvstoreTryShrinkHashTables(db->expires, CRON_DICT_RESIZE_LIMIT_PER_CALL);
             resize_db++;
         }
 

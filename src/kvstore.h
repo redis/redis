@@ -66,7 +66,7 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
 dict *kvstoreGetDictFromIterator(kvstoreIterator *kvs_it);
 
 /* Rehashing */
-void kvstoreTryResizeHashTables(kvstore *kvs, int limit);
+void kvstoreTryShrinkHashTables(kvstore *kvs, int limit);
 uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_ms);
 
 /* Specific dict access by dict-index */
