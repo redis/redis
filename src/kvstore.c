@@ -233,9 +233,9 @@ size_t kvstoreMemUsage(kvstore *kvs) {
  * 'onlydidx', otherwise pass -1.
  */
 unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
-                          int onlydidx, dictScanFunction *scan_cb,
-                          kvstoreScanShouldSkipDict *skip_cb,
-                          void *privdata)
+                               int onlydidx, dictScanFunction *scan_cb,
+                               kvstoreScanShouldSkipDict *skip_cb,
+                               void *privdata)
 {
     unsigned long long _cursor = 0;
     /* During main dictionary traversal in cluster mode, 48 upper bits in the cursor are used for positioning in the HT.
