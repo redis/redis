@@ -309,7 +309,6 @@ int dictTryExpand(dict *d, unsigned long size) {
     return malloc_failed? DICT_ERR : DICT_OK;
 }
 
-
 /* Helper function for `dictRehash` and `dictBucketRehash` which rehashes all the keys
  * in a bucket at index `idx` from the old to the new hash HT. */
 void _rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
@@ -374,7 +373,8 @@ int dictCheckRehashingCompleted(dict *d) {
     _dictReset(d, 1);
     d->rehashidx = -1;
     return 1;
-    
+}
+
 /* return DICT_ERR if shrink was not performed */
 int dictShrink(dict *d, unsigned long size) {
     /* the size is invalid if it is bigger than the size of the hash table
