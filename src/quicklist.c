@@ -794,6 +794,7 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
             unsigned char *p = lpSeek(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
             entry->node->dont_compress = 0; /* Re-enable compression */
+            _quicklistMergeNodes(quicklist, entry->node);
             quicklistCompress(quicklist, entry->node);
             quicklistCompress(quicklist, entry->node->next);
         }
