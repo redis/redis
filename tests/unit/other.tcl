@@ -459,13 +459,28 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
     } {} {needs:debug}
 
     test "Redis can rewind and trigger smaller slot resizing" {
+        # hashslot(foo) is 12182
         # hashslot(alice) is 749, smaller than hashslot(foo),
         # attempt to trigger a resize on it, see details in #12802.
         for {set j 1} {$j <= 128} {incr j} {
             r set "{alice}$j" a
         }
+
+        # disable resizing
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+
         for {set j 1} {$j <= 127} {incr j} {
             r del "{alice}$j"
+        }
+
+        # enable resizing
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time."
         }
 
         after 200;# waiting for serverCron
