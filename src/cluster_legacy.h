@@ -221,8 +221,8 @@ typedef struct {
     char slaveof[CLUSTER_NAMELEN];
     char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
     uint16_t extensions; /* Number of extensions sent along with this packet. */
-    uint16_t mflags2; /* Used for passing if the node support parsing ping extensions. */
-    char notused1[28];   /* 28 bytes reserved for future usage. */
+    unsigned char mflags2; /* Used for passing if the node support parsing ping extensions. */
+    char notused1[29];   /* 29 bytes reserved for future usage. */
     uint16_t pport;      /* Secondary port number: if primary port is TCP port, this is
                             TLS port, and if primary port is TLS port, this is TCP port.*/
     uint16_t cport;      /* Sender TCP cluster bus port */
@@ -256,7 +256,7 @@ static_assert(offsetof(clusterMsg, slaveof) == 2128, "unexpected field offset");
 static_assert(offsetof(clusterMsg, myip) == 2168, "unexpected field offset");
 static_assert(offsetof(clusterMsg, extensions) == 2214, "unexpected field offset");
 static_assert(offsetof(clusterMsg, mflags2) == 2216, "unexpected field offset");
-static_assert(offsetof(clusterMsg, notused1) == 2218, "unexpected field offset");
+static_assert(offsetof(clusterMsg, notused1) == 2217, "unexpected field offset");
 static_assert(offsetof(clusterMsg, pport) == 2246, "unexpected field offset");
 static_assert(offsetof(clusterMsg, cport) == 2248, "unexpected field offset");
 static_assert(offsetof(clusterMsg, flags) == 2250, "unexpected field offset");
@@ -272,6 +272,8 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 #define CLUSTERMSG_FLAG0_FORCEACK (1<<1) /* Give ACK to AUTH_REQUEST even if
                                             master is up. */
 #define CLUSTERMSG_FLAG0_EXT_DATA (1<<2) /* Message contains extension data */
+
+#define CLUSTERMSG_FLAG2_NODE_SUPPORTS_EXTENSIONS (1<<0) /* Node supports extension parsing */
 
 struct _clusterNode {
     mstime_t ctime; /* Node object creation time. */
