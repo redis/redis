@@ -481,6 +481,18 @@ tags {"aof external:skip"} {
         assert_match "*Start checking Old-Style AOF*is valid*" $result
     }
 
+    test {Test redis-check-aof for old style resp AOF - has data in the same format as manifest} {
+        create_aof $aof_dirpath $aof_file {
+            append_to_aof [formatCommand set file file]
+            append_to_aof [formatCommand set "file appendonly.aof.2.base.rdb seq 2 type b" "file appendonly.aof.2.base.rdb seq 2 type b"]
+        }
+
+        catch {
+            exec src/redis-check-aof $aof_file
+        } result
+        assert_match "*Start checking Old-Style AOF*is valid*" $result
+    }
+
     test {Test redis-check-aof for old style rdb-preamble AOF} {
         catch {
             exec src/redis-check-aof tests/assets/rdb-preamble.aof
