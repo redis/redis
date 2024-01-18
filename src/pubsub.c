@@ -375,7 +375,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
         /* For each client subscribed to the channel, unsubscribe it. */
-        dictIterator *iter = dictGetSafeIterator(clients);
+        dictIterator *iter = dictGetIterator(clients);
         dictEntry *entry;
         while ((entry = dictNext(iter)) != NULL) {
             client *c = dictGetKey(entry);
@@ -527,7 +527,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     if (de) {
         dict *clients = dictGetVal(de);
         dictEntry *entry;
-        dictIterator *iter = dictGetSafeIterator(clients);
+        dictIterator *iter = dictGetIterator(clients);
         while ((entry = dictNext(iter)) != NULL) {
             client *c = dictGetKey(entry);
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
@@ -555,7 +555,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
                                 sdslen(channel->ptr),0)) continue;
 
             dictEntry *entry;
-            dictIterator *iter = dictGetSafeIterator(clients);
+            dictIterator *iter = dictGetIterator(clients);
             while ((entry = dictNext(iter)) != NULL) {
                 client *c = dictGetKey(entry);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
