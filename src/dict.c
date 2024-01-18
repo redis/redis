@@ -1421,12 +1421,12 @@ unsigned long dictScanDefrag(dict *d,
 /* ------------------------- private functions ------------------------------ */
 
 /* Because we may need to allocate huge memory chunk at once when dict
- * expands, we will check this allocation is allowed or not if the dict
- * type has expandAllowed member function. */
-static int dictTypeResizeAllowed(dict *d) {
+ * resizes, we will check this allocation is allowed or not if the dict
+ * type has resizeAllowed member function. */
+static int dictTypeResizeAllowed(dict *d, size_t size) {
     if (d->type->resizeAllowed == NULL) return 1;
     return d->type->resizeAllowed(
-                    DICTHT_SIZE(_dictNextExp(d->ht_used[0] + 1)) * sizeof(dictEntry*),
+                    DICTHT_SIZE(_dictNextExp(size)) * sizeof(dictEntry*),
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
@@ -1454,7 +1454,7 @@ static void _dictExpandIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (!dictTypeResizeAllowed(d))
+        if (!dictTypeResizeAllowed(d, d->ht_used[0] + 1))
             return;
         dictExpand(d, d->ht_used[0] + 1);
     }
@@ -1479,7 +1479,7 @@ static void _dictShrinkIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * 100 * dict_force_resize_ratio <= HASHTABLE_MIN_FILL * DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (!dictTypeResizeAllowed(d))
+        if (!dictTypeResizeAllowed(d, d->ht_used[0]))
             return;
         dictShrink(d, d->ht_used[0]);
     }
