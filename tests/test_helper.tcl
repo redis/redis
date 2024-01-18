@@ -105,6 +105,7 @@ set ::all_tests {
     unit/cluster/links
     unit/cluster/cluster-response-tls
     unit/cluster/failure-marking
+    unit/fatlog
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

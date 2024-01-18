@@ -1,22 +1,18 @@
 {
     "GET": {
-        "summary": "Returns the slow log's entries.",
+        "summary": "Returns the fat log's entries.",
         "complexity": "O(N) where N is the number of entries returned",
         "group": "server",
-        "since": "2.2.12",
+        "since": "7.2.2",
         "arity": -2,
-        "container": "SLOWLOG",
+        "container": "FATLOG",
         "function": "slowfatlogCommand",
-        "history": [
-            [
-                "4.0.0",
-                "Added client IP address, port and name to the reply."
-            ]
-        ],
+        "history": [],
         "command_flags": [
             "ADMIN",
             "LOADING",
-            "STALE"
+            "STALE",
+            "SKIP_FATLOG"
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_NODES",
@@ -33,7 +29,7 @@
                 "items": [
                     {
                         "type": "integer",
-                        "description": "Slow log entry ID."
+                        "description": "Fat log entry ID."
                     },
                     {
                         "type": "integer",
@@ -42,7 +38,7 @@
                     },
                     {
                         "type": "integer",
-                        "description": "The amount of time needed for its execution, in microseconds.",
+                        "description": "The size of the response to the query in bytes.",
                         "minimum": 0
                     },
                     {

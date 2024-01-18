@@ -10,7 +10,8 @@
         "command_flags": [
             "LOADING",
             "STALE",
-            "SENTINEL"
+            "SENTINEL",
+            "SKIP_FATLOG"
         ],
         "acl_categories": [
             "CONNECTION"

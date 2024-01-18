@@ -3323,6 +3323,7 @@ void replicationCacheMaster(client *c) {
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
     c->sentlen = 0;
+    c->reply_list_buf_size = 0;
     c->reply_bytes = 0;
     c->bufpos = 0;
     resetClient(c);
