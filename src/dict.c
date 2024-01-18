@@ -1477,7 +1477,7 @@ static void _dictShrinkIfNeeded(dict *d)
     if ((dict_can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] * 100 <= HASHTABLE_MIN_FILL * DICTHT_SIZE(d->ht_size_exp[0])) ||
         (dict_can_resize != DICT_RESIZE_FORBID &&
-         d->ht_used[0] * 100 <= HASHTABLE_MIN_FILL / dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
+         d->ht_used[0] * 100 * dict_force_resize_ratio <= HASHTABLE_MIN_FILL * DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (!dictTypeResizeAllowed(d))
             return;
