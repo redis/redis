@@ -1894,7 +1894,13 @@ struct redisServer {
     int masterport;                 /* Port of master */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave */
-    client *repl_provisional_master; /* Client used for psync during rdb load */
+    struct {
+        connection* conn;
+        char replid[CONFIG_RUN_ID_SIZE+1];
+        long long reploff;
+        long long read_reploff;
+        int dbid;
+    } repl_provisional_master;
     client *cached_master; /* Cached master to be reused for PSYNC. */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */
