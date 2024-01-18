@@ -595,54 +595,39 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     uint64_t h, idx;
-    dictEntry *he = NULL;
-    dictEntry *prevHe;
-    int table = 0;
+    dictEntry *he, *prevHe;
+    int table;
 
     /* dict is empty */
     if (dictSize(d) == 0) return NULL;
 
+    if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
-    idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    if ((long)idx >= d->rehashidx) {
-        he = d->ht_table[table][idx];
-    }
 
-    if (dictIsRehashing(d)) {
-        if (he) {
-            /* If we have a valid `he` at `idx` in ht0,
-             * we perform rehash on the bucket at `idx` */
-            dictBucketRehash(d, idx);
-        } else {
-            /* If the 'he' is not in ht0, we perform a random bucket rehash. */
-            _dictRehashStep(d);
-        }
-    }
-    /* `table` will be 1 in two cases where, the index `idx` has been already rehashed
-     * or when we find a bucket index that is not yet rehashes and we re-hashed it right away.
-     * `table` will be 0 in only one case where rehashing has been completed
-     * and the extra table is deleted . */
-    table = dictIsRehashing(d) ? 1 : 0;
-    idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-    he = d->ht_table[table][idx];
-    prevHe = NULL;
-    while(he) {
-        void *he_key = dictGetKey(he);
-        if (key == he_key || dictCompareKeys(d, key, he_key)) {
-            /* Unlink the element from the list */
-            if (prevHe)
-                dictSetNext(prevHe, dictGetNext(he));
-            else
-                d->ht_table[table][idx] = dictGetNext(he);
-            if (!nofree) {
-                dictFreeUnlinkedEntry(d, he);
+    for (table = 0; table <= 1; table++) {
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        if (table == 0 && (long)idx < d->rehashidx) continue;
+        he = d->ht_table[table][idx];
+        prevHe = NULL;
+        while(he) {
+            void *he_key = dictGetKey(he);
+            if (key == he_key || dictCompareKeys(d, key, he_key)) {
+                /* Unlink the element from the list */
+                if (prevHe)
+                    dictSetNext(prevHe, dictGetNext(he));
+                else
+                    d->ht_table[table][idx] = dictGetNext(he);
+                if (!nofree) {
+                    dictFreeUnlinkedEntry(d, he);
+                }
+                d->ht_used[table]--;
+                _dictShrinkIfNeeded(d);
+                return he;
             }
-            d->ht_used[table]--;
-            _dictShrinkIfNeeded(d);
-            return he;
+            prevHe = he;
+            he = dictGetNext(he);
         }
-        prevHe = he;
-        he = dictGetNext(he);
+        if (!dictIsRehashing(d)) break;
     }
     return NULL; /* not found */
 }
@@ -722,7 +707,8 @@ void dictRelease(dict *d)
     zfree(d);
 }
 
-dictEntry *dictFind(dict *d, const void *key) {
+dictEntry *dictFind(dict *d, const void *key)
+{
     dictEntry *he = NULL;
     uint64_t h, idx;
 
