@@ -1420,10 +1420,10 @@ unsigned long dictScanDefrag(dict *d,
 /* Because we may need to allocate huge memory chunk at once when dict
  * resizes, we will check this allocation is allowed or not if the dict
  * type has resizeAllowed member function. */
-static int dictTypeResizeAllowed(dict *d, int expanding) {
+static int dictTypeResizeAllowed(dict *d, size_t size) {
     if (d->type->resizeAllowed == NULL) return 1;
     return d->type->resizeAllowed(
-                    DICTHT_SIZE(_dictNextExp(d->ht_used[0] + (expanding ? 1 : 0))) * sizeof(dictEntry*),
+                    DICTHT_SIZE(_dictNextExp(size)) * sizeof(dictEntry*),
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
@@ -1451,7 +1451,7 @@ static void _dictExpandIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) > dict_force_resize_ratio))
     {
-        if (!dictTypeResizeAllowed(d, 1))
+        if (!dictTypeResizeAllowed(d, d->ht_used[0] + 1))
             return;
         dictExpand(d, d->ht_used[0] + 1);
     }
@@ -1476,7 +1476,7 @@ static void _dictShrinkIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * 100 / DICTHT_SIZE(d->ht_size_exp[0]) < HASHTABLE_MIN_FILL / dict_force_resize_ratio))
     {
-        if (!dictTypeResizeAllowed(d, 0))
+        if (!dictTypeResizeAllowed(d, d->ht_used[0]))
             return;
         dictShrink(d, d->ht_used[0]);
     }
