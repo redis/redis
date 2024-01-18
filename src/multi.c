@@ -56,6 +56,17 @@ void freeClientMultiState(client *c) {
     zfree(c->mstate.commands);
 }
 
+/* Asynchronously close a client if multi buffer limit is reached. */
+void closeClientOnMultiBufferLimitReached(client *c) {
+    /* Master or AOF client is not limited, and no need to free fake client. */
+    if (mustObeyClient(c) || !c->conn) return;
+
+    if (c->mstate.argv_len_sums > server.client_multi_buffer_limit) {
+        freeClientAsync(c);
+        server.stat_client_multibuf_limit_disconnections++;
+    }
+}
+
 /* Add a new command into the MULTI commands queue */
 void queueMultiCommand(client *c, uint64_t cmd_flags) {
     multiCmd *mc;
@@ -93,6 +104,8 @@ void queueMultiCommand(client *c, uint64_t cmd_flags) {
     c->argc = 0;
     c->argv_len_sum = 0;
     c->argv_len = 0;
+
+    closeClientOnMultiBufferLimitReached(c);
 }
 
 void discardTransaction(client *c) {
