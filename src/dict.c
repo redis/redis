@@ -1807,7 +1807,9 @@ int dictTest(int argc, char **argv, int flags) {
         /* Delete keys until 13 keys remain, now is 13:128, so we can
          * satisfy HASHTABLE_MIN_FILL in the next test. */
         for (j = 0; j < 68; j++) {
-            retval = dictDelete(dict,stringFromLongLong(j));
+            char *key = stringFromLongLong(j);
+            retval = dictDelete(dict, key);
+            zfree(key);
             assert(retval == DICT_OK);
         }
         assert(dictSize(dict) == 13);
@@ -1817,7 +1819,9 @@ int dictTest(int argc, char **argv, int flags) {
     }
 
     TEST("Delete one more key, trigger the dict resize") {
-        retval = dictDelete(dict,stringFromLongLong(68));
+        char *key = stringFromLongLong(68);
+        retval = dictDelete(dict, key);
+        zfree(key);
         assert(retval == DICT_OK);
         assert(dictSize(dict) == 12);
         assert(DICTHT_SIZE(dict->ht_size_exp[0]) == 128);
@@ -1849,7 +1853,9 @@ int dictTest(int argc, char **argv, int flags) {
          * HASHTABLE_MIN_FILL / dict_force_resize_ratio. */
         dictSetResizeEnabled(DICT_RESIZE_AVOID);
         for (j = 0; j < 125; j++) {
-            retval = dictDelete(dict,stringFromLongLong(j));
+            char *key = stringFromLongLong(j);
+            retval = dictDelete(dict, key);
+            zfree(key);
             assert(retval == DICT_OK);
         }
         assert(dictSize(dict) == 3);
@@ -1857,7 +1863,9 @@ int dictTest(int argc, char **argv, int flags) {
     }
 
     TEST("Delete one more key, trigger the dict resize") {
-        retval = dictDelete(dict,stringFromLongLong(125));
+        char *key = stringFromLongLong(125);
+        retval = dictDelete(dict, key);
+        zfree(key);
         assert(retval == DICT_OK);
         assert(dictSize(dict) == 2);
         assert(DICTHT_SIZE(dict->ht_size_exp[0]) == 128);
