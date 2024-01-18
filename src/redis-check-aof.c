@@ -406,13 +406,12 @@ int fileIsManifest(char *filepath) {
 
         /* We will skip comments lines.
          * At present, the manifest format is fixed, see aofInfoFormat.
-         * We will be returned directly as long as it encounters other items. */
+         * We will break directly as long as it encounters other items. */
         if (buf[0] == '#') {
             continue;
         } else if (!memcmp(buf, "file", strlen("file"))) {
             is_manifest = 1;
         } else {
-            is_manifest = 0;
             break;
         }
     }
