@@ -234,6 +234,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
     struct redis_stat sb;
     if (redis_fstat(fileno(fp),&sb) == -1) {
         printf("Cannot stat file: %s, aborting...\n", aof_filename);
+        fclose(fp);
         exit(1);
     }
 
