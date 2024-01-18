@@ -720,21 +720,6 @@ void unblockClientOnError(client *c, const char *err_str) {
     unblockClient(c, 1);
 }
 
-/* sets blocking_keys to the total number of keys which has at least one client blocked on them
- * sets blocking_keys_on_nokey to the total number of keys which has at least one client
- * blocked on them to be written or deleted */
-void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey) {
-    unsigned long bkeys=0, bkeys_on_nokey=0;
-    for (int j = 0; j < server.dbnum; j++) {
-        bkeys += dictSize(server.db[j].blocking_keys);
-        bkeys_on_nokey += dictSize(server.db[j].blocking_keys_unblock_on_nokey);
-    }
-    if (blocking_keys)
-        *blocking_keys = bkeys;
-    if (bloking_keys_on_nokey)
-        *bloking_keys_on_nokey = bkeys_on_nokey;
-}
-
 void blockedBeforeSleep(void) {
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();

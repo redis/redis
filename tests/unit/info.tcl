@@ -401,5 +401,41 @@ start_server {tags {"info" "external:skip"}} {
                 fail "pubsub clients did not clear"
             }
         }
+
+        test {clients: watching clients} {
+            assert_equal [s watching_clients] 0
+            set r2 [redis_client]
+            # count after watch
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            # count after unwatch
+            $r2 unwatch
+            assert_equal [s watching_clients] 0
+            # count after watch/multi/exec
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 exec
+            assert_equal [s watching_clients] 0
+            # count after watch/multi/discard
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 discard
+            assert_equal [s watching_clients] 0
+            # discard without multi has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            catch {$r2 discard} e
+            assert_equal [s watching_clients] 1
+            # unwatch without watch has no effect
+            r unwatch
+            assert_equal [s watching_clients] 1
+            # after disconnect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 close
+            assert_equal [s watching_clients] 0
+        }
     }
 }
