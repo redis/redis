@@ -58,7 +58,7 @@
  *  - A hash table is still allowed to expand if the ratio between the number
  *    of elements and the buckets >= dict_force_resize_ratio.
  *  - A hash table is still allowed to shrink if the ratio between the number
- *    of elements and the buckets <= 100 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
+ *    of elements and the buckets <= 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 4;
 
