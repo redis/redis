@@ -16,8 +16,8 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
 
     test {SLOWLOG - zero max length is correctly handled} {
         r SLOWLOG reset
-        r config set slowlog-log-slower-than 0
         r config set slowlog-max-len 0
+        r config set slowlog-log-slower-than 0
         for {set i 0} {$i < 100} {incr i} {
             r ping
         }
