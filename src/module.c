@@ -2723,9 +2723,9 @@ RedisModuleString *RM_CreateStringFromStreamID(RedisModuleCtx *ctx, const RedisM
  * create any issue). Strings created with a context should be freed also passing
  * the context, so if you want to free a string out of context later, make sure
  * to create it using a NULL context.
- * 
+ *
  * This API is not thread safe, access to these retained strings (if they originated
- *  from a client command arguments) must be done with GIL locked. */
+ * from a client command arguments) must be done with GIL locked. */
 void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
     decrRefCount(str);
     if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
@@ -2763,9 +2763,9 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * Threaded modules that reference retained strings from other threads *must*
  * explicitly trim the allocation as soon as the string is retained. Not doing
  * so may result with automatic trimming which is not thread safe.
- * 
- * This API is not thread safe, access to these retained strings must
- * be done with GIL locked. */
+ *
+ * This API is not thread safe, access to these retained strings (if they originated
+ * from a client command arguments) must be done with GIL locked. */
 void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (ctx == NULL || !autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
         /* Increment the string reference counting only if we can't
@@ -2808,9 +2808,9 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * Threaded modules that reference held strings from other threads *must*
  * explicitly trim the allocation as soon as the string is held. Not doing
  * so may result with automatic trimming which is not thread safe.
- * 
- * This API is not thread safe, access to these retained strings must
- * be done with GIL locked. */
+ *
+ * This API is not thread safe, access to these retained strings (if they originated
+ * from a client command arguments) must be done with GIL locked. */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (str->refcount == OBJ_STATIC_REFCOUNT) {
         return RM_CreateStringFromString(ctx, str);
