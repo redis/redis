@@ -1033,7 +1033,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     uint64_t cmd_flags = getCommandFlags(c);
     
     /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
-    int is_pubsubshard = (cmd_flags & CMD_PUBSUB) ||
+    int pubsubshard_included = (cmd_flags & CMD_PUBSUB) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_PUBSUB));
 
     /* Check that all the keys are in the same hash slot, and obtain this
@@ -1111,7 +1111,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * node until the migration completes with CLUSTER SETSLOT <slot>
              * NODE <node-id>. */
             int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY | LOOKUP_NOEXPIRE;
-            if ((migrating_slot || importing_slot) && !is_pubsubshard)
+            if ((migrating_slot || importing_slot) && !pubsubshard_included)
             {
                 if (lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL) missing_keys++;
                 else existing_keys++;
@@ -1127,7 +1127,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (!isClusterHealthy()) {
-        if (is_pubsubshard) {
+        if (pubsubshard_included) {
             if (!server.cluster_allow_pubsubshard_when_down) {
                 if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
                 return NULL;
@@ -1190,7 +1190,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * is serving, we can reply without redirection. */
     int is_write_command = (cmd_flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
+    if (((c->flags & CLIENT_READONLY) || pubsubshard_included) &&
         !is_write_command &&
         clusterNodeIsSlave(myself) &&
         clusterNodeGetSlaveof(myself) == n)
