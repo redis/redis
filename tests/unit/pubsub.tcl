@@ -245,28 +245,6 @@ start_server {tags {"pubsub network"}} {
         concat $reply1 $reply2
     } {punsubscribe {} 0 unsubscribe {} 0}
 
-    # This test is for PUBLISH/PSUBSCRIBE.
-    # PUBLISH/SUBSCRIBE test is in obuf-limits named "Client output buffer hard limit is enforced".
-    test "PUBLISH/PSUBSCRIBE when client-output-buffer-limit hard limit is reached" {
-        r config set client-output-buffer-limit {pubsub 100000 0 0}
-        set rd1 [redis_deferring_client]
-
-        $rd1 psubscribe fo*
-        set reply [$rd1 read]
-        assert {$reply eq "psubscribe fo* 1"}
-
-        set omem 0
-        while 1 {
-            r publish foo bar
-            set clients [split [r client list] "\r\n"]
-            set c [split [lindex $clients 1] " "]
-            if {![regexp {omem=([0-9]+)} $c - omem]} break
-            if {$omem > 200000} break
-        }
-        assert {$omem >= 70000 && $omem < 200000}
-        $rd1 close
-    }
-
     ### Keyspace events notification tests
 
     test "Keyspace notifications: we receive keyspace notifications" {
@@ -525,4 +503,28 @@ start_server {tags {"pubsub network"}} {
         assert_equal [r read] {message foo vaz}
     } {} {resp3}
 
+}
+
+start_server {tags {"pubsub external:skip logreqres:skip"}} {
+    # This test is for PUBLISH/PSUBSCRIBE.
+    # PUBLISH/SUBSCRIBE test is in obuf-limits named "Client output buffer hard limit is enforced".
+    test "PUBLISH/PSUBSCRIBE when client-output-buffer-limit hard limit is reached" {
+        r config set client-output-buffer-limit {pubsub 100000 0 0}
+        set rd1 [redis_deferring_client]
+
+        $rd1 psubscribe fo*
+        set reply [$rd1 read]
+        assert {$reply eq "psubscribe fo* 1"}
+
+        set omem 0
+        while 1 {
+            r publish foo bar
+            set clients [split [r client list] "\r\n"]
+            set c [split [lindex $clients 1] " "]
+            if {![regexp {omem=([0-9]+)} $c - omem]} break
+            if {$omem > 200000} break
+        }
+        assert {$omem >= 70000 && $omem < 200000}
+        $rd1 close
+    }
 }
