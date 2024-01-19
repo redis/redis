@@ -439,8 +439,8 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         r config set rdb-key-save-delay 10000000
         r bgsave
 
-        # delete data to have lot's (98%) of empty buckets
-        for {set j 1} {$j <= 125} {incr j} {
+        # delete data to have lot's (96%) of empty buckets
+        for {set j 1} {$j <= 123} {incr j} {
             r del "{foo}$j"
         }
         assert_match "*table size: 128*" [r debug HTSTATS 0]
@@ -455,7 +455,7 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         }
 
         after 200;# waiting for serverCron
-        assert_match "*table size: 4*" [r debug HTSTATS 0]
+        assert_match "*table size: 8*" [r debug HTSTATS 0]
     } {} {needs:debug}
 
     test "Redis can rewind and trigger smaller slot resizing" {
@@ -470,7 +470,7 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         r config set rdb-key-save-delay 10000000
         r bgsave
 
-        for {set j 1} {$j <= 125} {incr j} {
+        for {set j 1} {$j <= 123} {incr j} {
             r del "{alice}$j"
         }
 
@@ -484,6 +484,6 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         }
 
         after 200;# waiting for serverCron
-        assert_match "*table size: 8*" [r debug HTSTATS 0]
+        assert_match "*table size: 16*" [r debug HTSTATS 0]
     } {} {needs:debug}
 }
