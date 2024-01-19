@@ -699,11 +699,11 @@ int htNeedsShrink(dict *dict) {
     size = dictBuckets(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
-            (used*100 <= HASHTABLE_MIN_FILL*size));
+            (used * HASHTABLE_MIN_FILL <= size));
 }
 
 /* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
- * and triggers a resize if the percentage of used buckets in the HT reaches HASHTABLE_MIN_FILL
+ * and triggers a resize if the percentage of used buckets in the HT reaches (100 / HASHTABLE_MIN_FILL)
  * we resize the hash table to save memory.
  *
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
