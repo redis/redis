@@ -2090,7 +2090,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
      * the nodes dictionary. An invalid ID indicates memory corruption on the sender side. */
     int invalid_ids = verifyGossipSectionNodeIds(g, count);
     if (invalid_ids) {
-        serverLog(LL_WARNING, "Node %.40s gossiped %d nodes with invalid IDs.", sender->name, invalid_ids);
+        serverLog(LL_WARNING, "Node %.40s (%s) gossiped %d nodes with invalid IDs.", sender->name, sender->human_nodename, invalid_ids);
         return;
     }
 
