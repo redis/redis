@@ -2677,6 +2677,9 @@ void ACLUpdateInfoMetrics(int reason){
  * If `object` is not NULL, this functions takes over it.
  */
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
+    if (server.acllog_max_len == 0) {
+        return;
+    }
     /* Update ACL info metrics */
     ACLUpdateInfoMetrics(reason);
     
