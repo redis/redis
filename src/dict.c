@@ -1753,7 +1753,7 @@ int dictTest(int argc, char **argv, int flags) {
     int retval;
     dict *dict = dictCreate(&BenchmarkDictType);
     long count = 0;
-    unsigned long newDictSize, currentDictUsed, remainKeys;
+    unsigned long new_dict_size, current_dict_used, remain_keys;
     int accurate = (flags & REDIS_TEST_ACCURATE);
 
     if (argc == 4) {
@@ -1786,58 +1786,58 @@ int dictTest(int argc, char **argv, int flags) {
             retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
             assert(retval == DICT_OK);
         }
-        currentDictUsed = dict_force_resize_ratio * 16;
-        assert(dictSize(dict) == currentDictUsed);
+        current_dict_used = dict_force_resize_ratio * 16;
+        assert(dictSize(dict) == current_dict_used);
         assert(dictBuckets(dict) == 16);
     }
 
     TEST("Add one more key, trigger the dict resize") {
-        retval = dictAdd(dict,stringFromLongLong(currentDictUsed),(void*)(currentDictUsed));
+        retval = dictAdd(dict,stringFromLongLong(current_dict_used),(void*)(current_dict_used));
         assert(retval == DICT_OK);
-        currentDictUsed++;
-        newDictSize = 1UL << _dictNextExp(currentDictUsed);
-        assert(dictSize(dict) == currentDictUsed);
+        current_dict_used++;
+        new_dict_size = 1UL << _dictNextExp(current_dict_used);
+        assert(dictSize(dict) == current_dict_used);
         assert(DICTHT_SIZE(dict->ht_size_exp[0]) == 16);
-        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == newDictSize);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == new_dict_size);
 
         /* Wait for rehashing. */
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
         while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
-        assert(dictSize(dict) == currentDictUsed);
-        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == newDictSize);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
         assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
     }
 
     TEST("Delete keys until we can trigger shrink in next test") {
         /* Delete keys until we can satisfy (1 / HASHTABLE_MIN_FILL) in the next test. */
-        for (j = newDictSize / HASHTABLE_MIN_FILL + 1; j < (int)currentDictUsed; j++) {
+        for (j = new_dict_size / HASHTABLE_MIN_FILL + 1; j < (int)current_dict_used; j++) {
             char *key = stringFromLongLong(j);
             retval = dictDelete(dict, key);
             zfree(key);
             assert(retval == DICT_OK);
         }
-        currentDictUsed = newDictSize / HASHTABLE_MIN_FILL + 1;
-        assert(dictSize(dict) == currentDictUsed);
-        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == newDictSize);
+        current_dict_used = new_dict_size / HASHTABLE_MIN_FILL + 1;
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
         assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
     }
 
     TEST("Delete one more key, trigger the dict resize") {
-        currentDictUsed--;
-        char *key = stringFromLongLong(currentDictUsed);
+        current_dict_used--;
+        char *key = stringFromLongLong(current_dict_used);
         retval = dictDelete(dict, key);
         zfree(key);
-        unsigned long oldDictSize = newDictSize;
-        newDictSize = 1UL << _dictNextExp(currentDictUsed);
+        unsigned long oldDictSize = new_dict_size;
+        new_dict_size = 1UL << _dictNextExp(current_dict_used);
         assert(retval == DICT_OK);
-        assert(dictSize(dict) == currentDictUsed);
+        assert(dictSize(dict) == current_dict_used);
         assert(DICTHT_SIZE(dict->ht_size_exp[0]) == oldDictSize);
-        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == newDictSize);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == new_dict_size);
 
         /* Wait for rehashing. */
         while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
-        assert(dictSize(dict) == currentDictUsed);
-        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == newDictSize);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
         assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
     }
 
@@ -1856,34 +1856,34 @@ int dictTest(int argc, char **argv, int flags) {
         /* Use DICT_RESIZE_AVOID to disable the dict reset, and reduce
          * the number of keys until we can trigger shrinking in next test. */
         dictSetResizeEnabled(DICT_RESIZE_AVOID);
-        remainKeys = DICTHT_SIZE(dict->ht_size_exp[0]) / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) + 1;
-        for (j = remainKeys; j < 128; j++) {
+        remain_keys = DICTHT_SIZE(dict->ht_size_exp[0]) / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) + 1;
+        for (j = remain_keys; j < 128; j++) {
             char *key = stringFromLongLong(j);
             retval = dictDelete(dict, key);
             zfree(key);
             assert(retval == DICT_OK);
         }
-        currentDictUsed = remainKeys;
-        assert(dictSize(dict) == remainKeys);
+        current_dict_used = remain_keys;
+        assert(dictSize(dict) == remain_keys);
         assert(dictBuckets(dict) == 128);
     }
 
     TEST("Delete one more key, trigger the dict resize") {
-        currentDictUsed--;
-        char *key = stringFromLongLong(currentDictUsed);
+        current_dict_used--;
+        char *key = stringFromLongLong(current_dict_used);
         retval = dictDelete(dict, key);
         zfree(key);
-        newDictSize = 1UL << _dictNextExp(currentDictUsed);
+        new_dict_size = 1UL << _dictNextExp(current_dict_used);
         assert(retval == DICT_OK);
-        assert(dictSize(dict) == currentDictUsed);
+        assert(dictSize(dict) == current_dict_used);
         assert(DICTHT_SIZE(dict->ht_size_exp[0]) == 128);
-        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == newDictSize);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == new_dict_size);
 
         /* Wait for rehashing. */
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
         while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
-        assert(dictSize(dict) == currentDictUsed);
-        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == newDictSize);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
         assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
     }
 

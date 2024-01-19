@@ -455,7 +455,7 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         }
 
         after 200;# waiting for serverCron
-        assert_match "*table size: 4*" [r debug HTSTATS 0]
+        assert_match "*table size: 8*" [r debug HTSTATS 0]
     } {} {needs:debug}
 
     test "Redis can rewind and trigger smaller slot resizing" {
@@ -484,6 +484,6 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         }
 
         after 200;# waiting for serverCron
-        assert_match "*table size: 8*" [r debug HTSTATS 0]
+        assert_match "*table size: 16*" [r debug HTSTATS 0]
     } {} {needs:debug}
 }
