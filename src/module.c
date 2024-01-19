@@ -2724,8 +2724,8 @@ RedisModuleString *RM_CreateStringFromStreamID(RedisModuleCtx *ctx, const RedisM
  * the context, so if you want to free a string out of context later, make sure
  * to create it using a NULL context.
  * 
- * This API is not thread safe, access to these retained strings must
- * be done with GIL locked. */
+ * This API is not thread safe, access to these retained strings (if they originated
+ *  from a client command arguments) must be done with GIL locked. */
 void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
     decrRefCount(str);
     if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
