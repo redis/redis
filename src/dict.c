@@ -1782,7 +1782,7 @@ int dictTest(int argc, char **argv, int flags) {
          * the number of keys to (dict_force_resize_ratio * 16), so we can satisfy
          * dict_force_resize_ratio in next test. */
         dictSetResizeEnabled(DICT_RESIZE_AVOID);
-        for (j = 16; j < dict_force_resize_ratio * 16; j++) {
+        for (j = 16; j < (long)dict_force_resize_ratio * 16; j++) {
             retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
             assert(retval == DICT_OK);
         }
@@ -1810,7 +1810,7 @@ int dictTest(int argc, char **argv, int flags) {
 
     TEST("Delete keys until we can trigger shrink in next test") {
         /* Delete keys until we can satisfy (1 / HASHTABLE_MIN_FILL) in the next test. */
-        for (j = new_dict_size / HASHTABLE_MIN_FILL + 1; j < (int)current_dict_used; j++) {
+        for (j = new_dict_size / HASHTABLE_MIN_FILL + 1; j < (long)current_dict_used; j++) {
             char *key = stringFromLongLong(j);
             retval = dictDelete(dict, key);
             zfree(key);
