@@ -6180,8 +6180,13 @@ sds saveMonitorFiltersFromArguments(client *c) {
         exit(1);
     }
 
+    // DEBUG    
+    printf("ARGV: ");
+
     /* validate arguments are commands */
     for (int i = 1; i < c->argc; i++) {
+        //DEBUG
+        printf("%s ", (char*)c->argv[i]->ptr);
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[i]->ptr);
         if (cmd) {
             if (listSearchKey(c->monitor_filters, cmd) == NULL) { /* no duplicate */
@@ -6192,6 +6197,7 @@ sds saveMonitorFiltersFromArguments(client *c) {
             incorrect_args = sdscatfmt(incorrect_args, " '%s'", (char *)c->argv[i]->ptr);
         }
     }
+    printf("\n");
 
     if (sdslen(incorrect_args) == 0) {
         sdsfree(incorrect_args);

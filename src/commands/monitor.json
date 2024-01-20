@@ -5,7 +5,12 @@
         "since": "1.0.0",
         "arity": -1,
         "function": "monitorCommand",
-        "history": [],
+        "history": [
+            [
+                "8.0",
+                "Added filtering for Command, Address, Local Address, and Username."
+            ]
+        ],
         "command_flags": [
             "ADMIN",
             "NOSCRIPT",
@@ -14,10 +19,35 @@
         ],
         "arguments": [
             {
+                "token": "USER",
+                "name": "username",
+                "type": "string",
+                "optional": true,
+                "since": "8.0"
+            },
+            {
+                "token": "ADDR",
+                "name": "addr",
+                "display": "ip:port",
+                "type": "string",
+                "optional": true,
+                "since": "8.0"
+            },
+            {
+                "token": "LADDR",
+                "name": "laddr",
+                "display": "ip:port",
+                "type": "string",
+                "optional": true,
+                "since": "8.0"
+            },
+            {
+                "token": "COMMANDS",
                 "name": "command",
                 "type": "string",
                 "optional": true,
-                "multiple": true
+                "multiple": true,
+                "since": "8.0"
             }
         ]
     }
