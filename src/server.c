@@ -135,15 +135,16 @@ void serverLogRaw(int level, const char *msg) {
         gettimeofday(&tv,NULL);
         struct tm tm;
         nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
+        char* timestamp_format;
         switch(server.log_timestamp_format) {
             case LOG_TIMESTAMP_DEFAULT:
-                const char* timestamp_format = "%d %b %Y %H:%M:%S.";
+                timestamp_format = "%d %b %Y %H:%M:%S.";
                 off = strftime(buf,sizeof(buf),timestamp_format,&tm);
                 snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
                 break;
 
             case LOG_TIMESTAMP_ISO8601:
-                const char* timestamp_format = "%Y-%m-%dT%H:%M:%S.";
+                timestamp_format = "%Y-%m-%dT%H:%M:%S.";
                 off = strftime(buf,sizeof(buf),timestamp_format,&tm);
                 snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
                 char tzbuf[6];
@@ -159,8 +160,8 @@ void serverLogRaw(int level, const char *msg) {
         }
 
         switch (server.log_format) {
-            case LOG_FORMAT_LOGFMT:
-                const char * role;
+            case LOG_FORMAT_LOGFMT: {
+                char *role;
                 if (server.sentinel_mode) {
                     role = "sentinel";
                 } else if (pid != server.pid) {
@@ -171,8 +172,9 @@ void serverLogRaw(int level, const char *msg) {
                 fprintf(fp, "pid=%d role=%s timestamp=\"%s\" level=%s message=\"%s\"\n",
                         (int)getpid(),role,buf,verbose_level[level],msg);
                 break;
+            }
 
-            default:
+            default: {
                 int role_char;
                 if (server.sentinel_mode) {
                     role_char = 'X'; /* Sentinel. */
@@ -184,6 +186,7 @@ void serverLogRaw(int level, const char *msg) {
                 fprintf(fp,"%d:%c %s %c %s\n",
                         (int)getpid(),role_char, buf,c[level],msg);
                 break;
+            }
         }
     }
     fflush(fp);
