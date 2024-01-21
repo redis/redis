@@ -108,12 +108,6 @@ const char *replstateToString(int replstate);
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
-const char* LOG_TIMESTAMP_FORMATS[] = {
-    "%d %b %Y %H:%M:%S.",            // Default
-    "%Y-%m-%dT%H:%M:%S.",            // ISO 8601
-    "%ld"                           // UNIX
-};
-
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -136,48 +130,57 @@ void serverLogRaw(int level, const char *msg) {
     } else {
         int off;
         struct timeval tv;
-        int role_char;
-        const char * role;
         pid_t pid = getpid();
 
         gettimeofday(&tv,NULL);
         struct tm tm;
         nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
-        const char* timestamp_format = LOG_TIMESTAMP_FORMATS[server.log_timestamp_format];
-        if (server.log_timestamp_format == LOG_TIMESTAMP_UNIX) {
-            // UNIX timestamp
-            snprintf(buf,sizeof(buf),timestamp_format,tv.tv_sec);
-        } else {
-            // Other timestamps
-            off = strftime(buf,sizeof(buf),timestamp_format,&tm);
-            // Add millisecond
-            snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
-            // Add time zone
-            if (server.log_timestamp_format == LOG_TIMESTAMP_ISO8601){
+        switch(server.log_timestamp_format) {
+            case LOG_TIMESTAMP_DEFAULT:
+                const char* timestamp_format = "%d %b %Y %H:%M:%S.";
+                off = strftime(buf,sizeof(buf),timestamp_format,&tm);
+                snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
+                break;
+
+            case LOG_TIMESTAMP_ISO8601:
+                const char* timestamp_format = "%Y-%m-%dT%H:%M:%S.";
+                off = strftime(buf,sizeof(buf),timestamp_format,&tm);
+                snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
                 char tzbuf[6];
                 strftime(tzbuf, sizeof(tzbuf), "%z", &tm);
-                // strftime(tzbuf, sizeof(tzbuf), "%z", &tm);
                 strncat(buf, tzbuf, sizeof(buf) - strlen(buf) - 1);
-            }
+                break;
+
+            case LOG_TIMESTAMP_UNIX:
+                snprintf(buf,sizeof(buf),"%ld",tv.tv_sec);
+                break;
+            default:
+                break;
         }
 
-        if (server.sentinel_mode) {
-            role_char = 'X'; /* Sentinel. */
-            role = "sentinel";
-        } else if (pid != server.pid) {
-            role_char = 'C'; /* RDB / AOF writing child. */
-            role = "RDB/AOF";
-        } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
-            role = (server.masterhost ? "secondary" : "master");
-        }
         switch (server.log_format) {
             case LOG_FORMAT_LOGFMT:
-                fprintf(fp, "pid=%d role=%-8s timestamp=\"%s\" level=%-7s message=\"%s\"\n",
+                const char * role;
+                if (server.sentinel_mode) {
+                    role = "sentinel";
+                } else if (pid != server.pid) {
+                    role = "RDB/AOF";
+                } else {
+                    role = (server.masterhost ? "secondary" : "master");
+                }
+                fprintf(fp, "pid=%d role=%s timestamp=\"%s\" level=%s message=\"%s\"\n",
                         (int)getpid(),role,buf,verbose_level[level],msg);
                 break;
 
             default:
+                int role_char;
+                if (server.sentinel_mode) {
+                    role_char = 'X'; /* Sentinel. */
+                } else if (pid != server.pid) {
+                    role_char = 'C'; /* RDB / AOF writing child. */
+                } else {
+                    role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+                }
                 fprintf(fp,"%d:%c %s %c %s\n",
                         (int)getpid(),role_char, buf,c[level],msg);
                 break;
