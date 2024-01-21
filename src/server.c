@@ -135,17 +135,14 @@ void serverLogRaw(int level, const char *msg) {
         gettimeofday(&tv,NULL);
         struct tm tm;
         nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
-        char* timestamp_format;
         switch(server.log_timestamp_format) {
             case LOG_TIMESTAMP_DEFAULT:
-                timestamp_format = "%d %b %Y %H:%M:%S.";
-                off = strftime(buf,sizeof(buf),timestamp_format,&tm);
+                off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
                 snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
                 break;
 
             case LOG_TIMESTAMP_ISO8601:
-                timestamp_format = "%Y-%m-%dT%H:%M:%S.";
-                off = strftime(buf,sizeof(buf),timestamp_format,&tm);
+                off = strftime(buf,sizeof(buf),"%Y-%m-%dT%H:%M:%S.",&tm);
                 snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
                 char tzbuf[6];
                 strftime(tzbuf, sizeof(tzbuf), "%z", &tm);
