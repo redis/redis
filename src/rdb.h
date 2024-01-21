@@ -81,9 +81,6 @@
 #define RDB_TYPE_MODULE_PRE_GA 6 /* Used in 4.0 release candidates */
 #define RDB_TYPE_MODULE_2 7 /* Module value with annotations for parsing without
                                the generating module being loaded. */
-/* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
-
-/* Object types for encoded objects. */
 #define RDB_TYPE_HASH_ZIPMAP    9
 #define RDB_TYPE_LIST_ZIPLIST  10
 #define RDB_TYPE_SET_INTSET    11
