@@ -2663,10 +2663,10 @@ void ACLUpdateInfoMetrics(int reason){
 
 static void trimACLLogEntriesToMaxLen(void) {
     while(listLength(ACLLog) > server.acllog_max_len) {
-    listNode *ln = listLast(ACLLog);
-    ACLLogEntry *le = listNodeValue(ln);
-    ACLFreeLogEntry(le);
-    listDelNode(ACLLog,ln);
+        listNode *ln = listLast(ACLLog);
+        ACLLogEntry *le = listNodeValue(ln);
+        ACLFreeLogEntry(le);
+        listDelNode(ACLLog,ln);
     }
 }
 
@@ -3079,7 +3079,6 @@ void aclCommand(client *c) {
             if (count < 0) count = 0;
         }
 
-        trimACLLogEntriesToMaxLen();
         /* Fix the count according to the number of entries we got. */
         if ((size_t)count > listLength(ACLLog))
             count = listLength(ACLLog);
