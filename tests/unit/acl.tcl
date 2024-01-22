@@ -823,6 +823,11 @@ start_server {tags {"acl external:skip"}} {
         assert {[llength [r ACL LOG]] == 5}
     }
 
+    test {ACL LOG entries are cleared when maximum amount is set to zero} {
+        r CONFIG SET acllog-max-len 0
+        assert {[llength [r ACL LOG]] == 0}
+    }
+
     test {When default user is off, new connections are not authenticated} {
         r ACL setuser default off
         catch {set rd1 [redis_deferring_client]} e
