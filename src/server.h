@@ -52,6 +52,7 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
+#include <stdbool.h>
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -1172,6 +1173,14 @@ typedef struct {
 } clientReqResInfo;
 #endif
 
+typedef struct monitorFilters {
+    sds username;
+    sds addr;
+    sds laddr;
+    bool exclude_commands;
+    list *commands;
+} monitorFilters;
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
@@ -1292,7 +1301,7 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
-    list *monitor_filters;
+    monitorFilters *monitor_filters;
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif

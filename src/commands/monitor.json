@@ -42,21 +42,27 @@
                 "since": "8.0"
             },
             {
+                "token": "EXCLUDE_COMMANDS",
+                "name": "excludecommands",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "token":"COMMANDS",
                 "name": "commands",
                 "type": "block",
                 "optional": true,
                 "since": "8.0",
                 "arguments": [
-                  {
-                    "token":"COMMANDS",
-                    "name": "count",
-                    "type": "integer"
-                  },
-                  {
-                    "name": "command",
-                    "type": "string",
-                    "multiple": true
-                  }
+                    {
+                        "name": "count",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "command",
+                        "type": "string",
+                        "multiple": true
+                    }
                 ]
             }
         ]

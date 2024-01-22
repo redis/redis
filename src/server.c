@@ -6182,24 +6182,18 @@ sds saveMonitorFiltersFromArguments(client *c) {
         exit(1);
     }
 
-    // DEBUG    
-    printf("ARGV: ");
-
     /* validate arguments are commands */
     for (int i = 1; i < c->argc; i++) {
-        //DEBUG
-        printf("%s ", (char*)c->argv[i]->ptr);
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[i]->ptr);
         if (cmd) {
             if (listSearchKey(c->monitor_filters, cmd) == NULL) { /* no duplicate */
                 listAddNodeTail(c->monitor_filters, cmd);
             }
         } else {
-            // YLB TODO add if QUIT or AUTH as Monitor does not log them?
+            // YLB TODO add if QUIT is used?
             incorrect_args = sdscatfmt(incorrect_args, " '%s'", (char *)c->argv[i]->ptr);
         }
     }
-    printf("\n");
 
     if (sdslen(incorrect_args) == 0) {
         sdsfree(incorrect_args);
@@ -6209,6 +6203,7 @@ sds saveMonitorFiltersFromArguments(client *c) {
     }
 }
 
+/* MONITOR [USER username] [ADDR ip:port] [LADDR ip:port] [EXCLUDE_COMMANDS] [COMMANDS count command [command ...]] */
 void monitorCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
@@ -6221,10 +6216,10 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
-    sds incorrect_args = saveMonitorFiltersFromArguments(c);
-    if (incorrect_args != NULL) {
-        addReplyErrorFormat(c, "%s argument(s) are not Redis command(s).", incorrect_args);
-        sdsfree(incorrect_args);
+    sds error_msg = saveMonitorFiltersFromArguments(c);
+    if (error_msg) {
+        addReplyErrorFormat(c, "%s", error_msg);
+        sdsfree(error_msg);
         return;
     }
 
