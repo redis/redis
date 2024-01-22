@@ -403,7 +403,7 @@ int dictRehash(dict *d, int n) {
      * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
     if (dict_can_resize == DICT_RESIZE_AVOID && 
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
-         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio)))
+         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
         return 0;
     }
