@@ -7244,7 +7244,7 @@ struct COMMAND_STRUCT MODULE_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MONITOR history */
 commandHistory MONITOR_History[] = {
-{"8.0","Added filtering for command, IP address, username, TODO..."},
+{"8.0","Added filtering for Command, Address, Local Address, and Username."},
 };
 #endif
 
@@ -7258,12 +7258,18 @@ commandHistory MONITOR_History[] = {
 #define MONITOR_Keyspecs NULL
 #endif
 
+/* MONITOR commands argument table */
+struct COMMAND_ARG MONITOR_commands_Subargs[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COMMANDS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /* MONITOR argument table */
 struct COMMAND_ARG MONITOR_Args[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
-{MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
-{MAKE_ARG("command",ARG_TYPE_STRING,-1,"COMMANDS",NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,"8.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,"8.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"8.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("commands",ARG_TYPE_BLOCK,-1,NULL,NULL,"8.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=MONITOR_commands_Subargs},
 };
 
 /********** PSYNC ********************/

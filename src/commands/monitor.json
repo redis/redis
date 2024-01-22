@@ -42,12 +42,22 @@
                 "since": "8.0"
             },
             {
-                "token": "COMMANDS",
-                "name": "command",
-                "type": "string",
+                "name": "commands",
+                "type": "block",
                 "optional": true,
-                "multiple": true,
-                "since": "8.0"
+                "since": "8.0",
+                "arguments": [
+                  {
+                    "token":"COMMANDS",
+                    "name": "count",
+                    "type": "integer"
+                  },
+                  {
+                    "name": "command",
+                    "type": "string",
+                    "multiple": true
+                  }
+                ]
             }
         ]
     }
