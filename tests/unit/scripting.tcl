@@ -635,13 +635,28 @@ start_server {tags {"scripting"}} {
     }
 
     test "Prohibited dangerous lua methods in sandbox" {
-        assert_error {ERR *attempt to call field 'execute'*} {run_script {os.execute()} 0}
-        assert_error {ERR *attempt to call field 'exit'*} {run_script {os.exit()} 0}
-        assert_error {ERR *attempt to call field 'getenv'*} {run_script {os.getenv()} 0}
-        assert_error {ERR *attempt to call field 'remove'*} {run_script {os.remove()} 0}
-        assert_error {ERR *attempt to call field 'rename'*} {run_script {os.rename()} 0}
-        assert_error {ERR *attempt to call field 'setlocale'*} {run_script {os.setlocale()} 0}
-        assert_error {ERR *attempt to call field 'tmpname'*} {run_script {os.tmpname()} 0}
+        assert_equal "" [run_script {
+            local allowed_methods = {"clock"}
+            -- Find a value from a tuple and return the position.
+            local indexOf = function(tuple, value)
+                for i, v in ipairs(tuple) do
+                    if v == value then return i end
+                end
+                return nil
+            end
+            -- Check for disallowed methods and verify all allowed methods exist.
+            -- If an allowed method is found, it's removed from 'allowed_functions'.
+            -- If 'allowed_functions' is empty at the end, all allowed methods were found.
+            for key, value in pairs(os) do
+                if type(value) == "function" then
+                    local index = indexOf(allowed_methods, key)
+                    if index == nil then return "Disallowed function:"..key end
+                    table.remove(allowed_methods, index)
+                end
+            end
+            if #allowed_methods ~= 0 then return "Expected method not found: "..table.concat(allowed_methods, ",") end
+            return ""
+        } 0]
     }
 
     test {Globals protection reading an undeclared global variable} {
