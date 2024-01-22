@@ -84,7 +84,7 @@ start_server {tags {"introspection"}} {
 
     test {command stats for BRPOP} {
         r config resetstat
-        r LPUSH list foo
+        r LPUSH list 1000 foo
         r BRPOP list 0
         assert_match {*calls=1,*} [cmdstat brpop]
         assert_match {} [cmdstat rpop]

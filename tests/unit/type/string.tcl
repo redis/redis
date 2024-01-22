@@ -299,7 +299,7 @@ start_server {tags {"string"}} {
 
     test "SETBIT against key with wrong type" {
         r del mykey
-        r lpush mykey "foo"
+        r lpush mykey 1000 "foo"
         assert_error "WRONGTYPE*" {r setbit mykey 0 1}
     }
 
@@ -433,7 +433,7 @@ start_server {tags {"string"}} {
 
     test "SETRANGE against key with wrong type" {
         r del mykey
-        r lpush mykey "foo"
+        r lpush mykey 1000 "foo"
         assert_error "WRONGTYPE*" {r setrange mykey 0 bar}
     }
 
@@ -452,7 +452,7 @@ start_server {tags {"string"}} {
     }
 
     test "GETRANGE against wrong key type" {
-        r lpush lkey1 "list"
+        r lpush lkey1 1000 "list"
         assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r getrange lkey1 0 -1}
     }
 
@@ -576,7 +576,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {Extended SET GET with incorrect type should result in wrong type error} {
       r del foo
-      r rpush foo waffle
+      r rpush foo 100 waffle
       catch {r set foo bar GET} err1
       assert_equal "waffle" [r rpop foo]
       set err1

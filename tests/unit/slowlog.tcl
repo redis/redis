@@ -137,7 +137,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         $rd blpop l 0
         wait_for_blocked_clients_count 1 50 100
         r multi
-        r lpush l foo
+        r lpush l 1000 foo
         r slowlog reset
         r exec
         $rd read
@@ -208,7 +208,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r set key test
         r sadd set a b c
         r incr num
-        r lpush list a
+        r lpush list 1000 a
 
         assert_equal [r slowlog len] 3
         assert_equal 0 [llength [r slowlog get 0]]
@@ -232,7 +232,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         wait_for_blocked_clients_count 1 50 20
         assert_equal 0 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
         
-        r LPUSH mylist 1
+        r LPUSH mylist 1000 1
         wait_for_blocked_clients_count 0 50 20
         assert_equal 1 [llength [regexp -all -inline (?=BLPOP) [r slowlog get]]]
         

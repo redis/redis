@@ -11,9 +11,9 @@ proc wait_for_dbsize {size} {
 start_server {tags {"multi"}} {
     test {MULTI / EXEC basics} {
         r del mylist
-        r rpush mylist a
-        r rpush mylist b
-        r rpush mylist c
+        r rpush mylist 1000 a
+        r rpush mylist 1000 b
+        r rpush mylist 1000 c
         r multi
         set v1 [r lrange mylist 0 -1]
         set v2 [r ping]
@@ -23,9 +23,9 @@ start_server {tags {"multi"}} {
 
     test {DISCARD} {
         r del mylist
-        r rpush mylist a
-        r rpush mylist b
-        r rpush mylist c
+        r rpush mylist 1000 a
+        r rpush mylist 1000 b
+        r rpush mylist 1000 c
         r multi
         set v1 [r del mylist]
         set v2 [r discard]
@@ -74,7 +74,7 @@ start_server {tags {"multi"}} {
         r set foo1{t} bar1
         $rd config set maxmemory 1
         assert  {[$rd read] eq {OK}}
-        catch {r lpush mylist{t} myvalue}
+        catch {r lpush mylist{t} 1000 myvalue}
         $rd config set maxmemory 0
         assert  {[$rd read] eq {OK}}
         r set foo2{t} bar2
@@ -123,7 +123,7 @@ start_server {tags {"multi"}} {
 
     test {EXEC fail on WATCHed key modified by SORT with STORE even if the result is empty} {
         r flushdb
-        r lpush foo bar
+        r lpush foo 1000 bar
         r watch foo
         r sort emptylist store foo
         r multi
@@ -728,7 +728,7 @@ start_server {tags {"multi"}} {
         set m [r multi]
         r blpop empty_list{t} 0
         r brpop empty_list{t} 0
-        r brpoplpush empty_list1{t} empty_list2{t} 0
+        r brpoplpush empty_list1{t} 1000 empty_list2{t} 0
         r blmove empty_list1{t} empty_list2{t} LEFT LEFT 0
         r bzpopmin empty_zset{t} 0
         r bzpopmax empty_zset{t} 0

@@ -59,7 +59,7 @@ start_server {tags {"incr"}} {
     } {ERR*}
 
     test {INCR fails against a key holding a list} {
-        r rpush mylist 1
+        r rpush mylist 100 100 1
         catch {r incr mylist} err
         r rpop mylist
         format $err
@@ -145,7 +145,7 @@ start_server {tags {"incr"}} {
     test {INCRBYFLOAT fails against a key holding a list} {
         r del mylist
         set err {}
-        r rpush mylist 1
+        r rpush mylist 100 1
         catch {r incrbyfloat mylist 1.0} err
         r del mylist
         format $err

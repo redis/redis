@@ -7,8 +7,8 @@ proc generate_cmd_on_list_key {key} {
         set ele [string repeat x [randomInt 10000]][randomInt 1000]
     }
     switch $op {
-        0 {return "lpush $key $ele"}
-        1 {return "rpush $key $ele"}
+        0 {return "lpush $key 100 $ele"}
+        1 {return "rpush $key 100 $ele"}
         2 {return "lpop $key"}
         3 {return "rpop $key"}
         4 {
@@ -43,17 +43,17 @@ start_server {
     test {Explicit regression for a list bug} {
         set mylist {49376042582 {BkG2o\pIC]4YYJa9cJ4GWZalG[4tin;1D2whSkCOW`mX;SFXGyS8sedcff3fQI^tgPCC@^Nu1J6o]meM@Lko]t_jRyo<xSJ1oObDYd`ppZuW6P@fS278YaOx=s6lvdFlMbP0[SbkI^Kr\HBXtuFaA^mDx:yzS4a[skiiPWhT<nNfAf=aQVfclcuwDrfe;iVuKdNvB9kbfq>tK?tH[\EvWqS]b`o2OCtjg:?nUTwdjpcUm]y:pg5q24q7LlCOwQE^}}
         r del l
-        r rpush l [lindex $mylist 0]
-        r rpush l [lindex $mylist 1]
+        r rpush l 100 [lindex $mylist 0]
+        r rpush l 100 [lindex $mylist 1]
         assert_equal [r lindex l 0] [lindex $mylist 0]
         assert_equal [r lindex l 1] [lindex $mylist 1]
     }
 
     test {Regression for quicklist #3343 bug} {
         r del mylist
-        r lpush mylist 401
-        r lpush mylist 392
-        r rpush mylist [string repeat x 5105]"799"
+        r lpush mylist 100 401
+        r lpush mylist 100 392
+        r rpush mylist 100 [string repeat x 5105]"799"
         r lset mylist -1 [string repeat x 1014]"702"
         r lpop mylist
         r lset mylist -1 [string repeat x 4149]"852"
@@ -66,41 +66,41 @@ start_server {
         r del key
         config_set list-compress-depth 1
         config_set list-max-ziplist-size 16
-        r rpush key a
-        r rpush key [string repeat b 50000]
-        r rpush key c
+        r rpush key 100 a
+        r rpush key 100 [string repeat b 50000]
+        r rpush key 100 c
         r lset key 1 d
         r rpop key
-        r rpush key [string repeat e 5000]
+        r rpush key 100 [string repeat e 5000]
         r linsert key before f 1
-        r rpush key g
+        r rpush key 100 g
         r ping
     }
 
     test {Crash due to wrongly recompress after lrem} {
         r del key
         config_set list-compress-depth 2
-        r lpush key a
-        r lpush key [string repeat a 5000]
-        r lpush key [string repeat b 5000]
-        r lpush key [string repeat c 5000]
-        r rpush key [string repeat x 10000]"969"
-        r rpush key b
+        r lpush key 100 a
+        r lpush key 100 [string repeat a 5000]
+        r lpush key 100 [string repeat b 5000]
+        r lpush key 100 [string repeat c 5000]
+        r rpush key 100 [string repeat x 10000]"969"
+        r rpush key 100 b
         r lrem key 1 a
         r rpop key 
         r lrem key 1 [string repeat x 10000]"969"
-        r rpush key crash
+        r rpush key 100 crash
         r ping
     }
 
     test {LINSERT correctly recompress full quicklistNode after inserting a element before it} {
         r del key
         config_set list-compress-depth 1
-        r rpush key b
-        r rpush key c
+        r rpush key 100 b
+        r rpush key 100 c
         r lset key -1 [string repeat x 8192]"969"
-        r lpush key a
-        r rpush key d
+        r lpush key 100 a
+        r rpush key 100 d
         r linsert key before b f
         r rpop key
         r ping
@@ -109,11 +109,11 @@ start_server {
     test {LINSERT correctly recompress full quicklistNode after inserting a element after it} {
         r del key
         config_set list-compress-depth 1
-        r rpush key b
-        r rpush key c
+        r rpush key 100 b
+        r rpush key 100 c
         r lset key 0 [string repeat x 8192]"969"
-        r lpush key a
-        r rpush key d
+        r lpush key 100 a
+        r rpush key 100 d
         r linsert key after c f
         r lpop key
         r ping
@@ -193,7 +193,7 @@ foreach comp {2 1 0} {
                         if {$data eq {-0}} {set data 0}
                     }
                     lappend l $data
-                    r rpush l $data
+                    r rpush l 100 $data
                 }
                 assert_equal [llength $l] [r llen l]
                 # Traverse backward
@@ -214,10 +214,10 @@ foreach comp {2 1 0} {
                     set rv [randomValue]
                     randpath {
                         lappend l $rv
-                        r rpush l $rv
+                        r rpush l 100 $rv
                     } {
                         set l [concat [list $rv] $l]
-                        r lpush l $rv
+                        r lpush l 100 $rv
                     }
                 }
                 assert_equal [llength $l] [r llen l]

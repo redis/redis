@@ -96,7 +96,7 @@ start_server {tags {"aofrw external:skip"} overrides {aof-use-rdb-preamble no}} 
                     } else {
                         set data [randomInt 4000000000]
                     }
-                    r lpush key $data
+                    r lpush key 1000 $data
                 }
                 assert_equal [r object encoding key] $e
                 set d1 [debug_digest]

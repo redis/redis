@@ -99,10 +99,10 @@ start_server {tags {"acl external:skip"}} {
         $r2 auth key-permission-W password
         assert_equal PONG [$r2 PING]
         # Note, SET is a RW command, so it's not used for testing
-        $r2 LPUSH writelist 10
+        $r2 LPUSH writelist 1000 10
         catch {$r2 GET writestr} err
         assert_match "*NOPERM*key*" $err
-        catch {$r2 LPUSH notwrite 10} err
+        catch {$r2 LPUSH notwrite 1000 10} err
         assert_match "*NOPERM*key*" $err
     }
 
@@ -122,10 +122,10 @@ start_server {tags {"acl external:skip"}} {
         assert_equal PONG [$r2 PING]
 
         # Verify write selector
-        $r2 LPUSH writelist 10
+        $r2 LPUSH writelist 1000 10
         catch {$r2 GET writestr} err
         assert_match "*NOPERM*key*" $err
-        catch {$r2 LPUSH notwrite 10} err
+        catch {$r2 LPUSH notwrite 1000 10} err
         assert_match "*NOPERM*key*" $err
 
         # Verify read selector
@@ -455,7 +455,7 @@ start_server {tags {"acl external:skip"}} {
 
     test {Test sort with ACL permissions} {
         r set v1 1
-        r lpush mylist 1
+        r lpush mylist 1000 1
         
         r ACL setuser test-sort-acl on nopass (+sort ~mylist)   
         $r2 auth test-sort-acl nopass

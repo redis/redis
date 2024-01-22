@@ -47,9 +47,9 @@ start_server {
     }
 
     foreach {num cmd enc title} {
-        16 lpush listpack "Listpack"
-        1000 lpush quicklist "Quicklist"
-        10000 lpush quicklist "Big Quicklist"
+        16 lpush listpack 1000 "Listpack"
+        1000 lpush quicklist 1000 "Quicklist"
+        10000 lpush quicklist 1000 "Big Quicklist"
         16 sadd intset "Intset"
         1000 sadd hashtable "Hash table"
         10000 sadd hashtable "Big Hash table"
@@ -126,10 +126,10 @@ foreach command {SORT SORT_RO} {
 
     test "SORT ALPHA against integer encoded strings" {
         r del mylist
-        r lpush mylist 2
-        r lpush mylist 1
-        r lpush mylist 3
-        r lpush mylist 10
+        r lpush mylist 1000 2
+        r lpush mylist 1000 1
+        r lpush mylist 1000 3
+        r lpush mylist 1000 10
         r sort mylist alpha
     } {1 10 2 3}
 
@@ -199,7 +199,7 @@ foreach command {SORT SORT_RO} {
         r flushdb
         set floats {1.1 5.10 3.10 7.44 2.1 5.75 6.12 0.25 1.15}
         foreach x $floats {
-            r lpush mylist $x
+            r lpush mylist 1000 $x
         }
         assert_equal [lsort -real $floats] [r sort mylist]
     }
@@ -211,14 +211,14 @@ foreach command {SORT SORT_RO} {
 
     test "SORT with STORE does not create empty lists (github issue 224)" {
         r flushdb
-        r lpush foo{t} bar
+        r lpush foo{t} 1000 bar
         r sort foo{t} alpha limit 10 10 store zap{t}
         r exists zap{t}
     } {0}
 
     test "SORT with STORE removes key if result is empty (github issue 227)" {
         r flushdb
-        r lpush foo{t} bar
+        r lpush foo{t} 1000 bar
         r sort emptylist{t} store foo{t}
         r exists foo{t}
     } {0}
@@ -258,20 +258,20 @@ foreach command {SORT SORT_RO} {
 
     test "SORT GET with pattern ending with just -> does not get hash field" {
         r del mylist
-        r lpush mylist a
+        r lpush mylist 1000 a
         r set x:a-> 100
         r sort mylist by num get x:*->
     } {100} {cluster:skip}
 
     test "SORT by nosort retains native order for lists" {
         r del testa
-        r lpush testa 2 1 4 3 5
+        r lpush testa 1000 2 1 4 3 5
         r sort testa by nosort
     } {5 3 4 1 2} {cluster:skip}
 
     test "SORT by nosort plus store retains native order for lists" {
         r del testa
-        r lpush testa 2 1 4 3 5
+        r lpush testa 1000 2 1 4 3 5
         r sort testa by nosort store testb
         r lrange testb 0 -1
     } {5 3 4 1 2} {cluster:skip}
@@ -283,7 +283,7 @@ foreach command {SORT SORT_RO} {
 
     test "SORT_RO - Successful case" {
         r del mylist
-        r lpush mylist a
+        r lpush mylist 1000 a
         r set x:a 100
         r sort_ro mylist by nosort get x:*->
     } {100} {cluster:skip}
@@ -347,7 +347,7 @@ foreach command {SORT SORT_RO} {
     }
 
     test {SETRANGE with huge offset} {
-        r lpush L 2 1 0
+        r lpush L 1000 2 1 0
         # expecting a different outcome on 32 and 64 bit systems
         foreach value {9223372036854775807 2147483647} {
             catch {[r sort_ro L by a limit 2 $value]} res
@@ -361,7 +361,7 @@ foreach command {SORT SORT_RO} {
 start_cluster 1 0 {tags {"external:skip cluster sort"}} {
 
     r flushall
-    r lpush "{a}mylist" 1 2 3
+    r lpush "{a}mylist" 1000 1 2 3
     r set "{a}by1" 20
     r set "{a}by2" 30
     r set "{a}by3" 0

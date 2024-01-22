@@ -65,11 +65,11 @@ start_server {tags {"info" "external:skip"}} {
 
             $rd blpop list1{t} 0
             wait_for_blocked_client
-            r lpush list1{t} a
+            r lpush list1{t} 1000 a
             assert_equal [$rd read] {list1{t} a}
             $rd blpop list1{t} 0
             wait_for_blocked_client
-            r lpush list1{t} b
+            r lpush list1{t} 1000 b
             assert_equal [$rd read] {list1{t} b}
             assert_match {*p50=*,p99=*,p99.9=*} [latency_percentiles_usec blpop]
             $rd close

@@ -33,8 +33,8 @@ start_server {tags {"other"}} {
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r
-        r lpush mysavelist hello
-        r lpush mysavelist world
+        r lpush mysavelist 1000 hello
+        r lpush mysavelist 1000 world
         r set myemptykey {}
         r set mynormalkey {blablablba}
         r zadd mytestzset 10 a

@@ -9,10 +9,10 @@ start_server [list overrides [list save ""] ] {
     # 3. using push + insert + set
 
     test {reg node check compression with insert and pop} {
-        r lpush list1 [string repeat a 500]
-        r lpush list1 [string repeat b 500]
-        r lpush list1 [string repeat c 500]
-        r lpush list1 [string repeat d 500]
+        r lpush list1 1000 [string repeat a 500]
+        r lpush list1 1000 [string repeat b 500]
+        r lpush list1 1000 [string repeat c 500]
+        r lpush list1 1000 [string repeat d 500]
         r linsert list1 after [string repeat d 500] [string repeat e 500]
         r linsert list1 after [string repeat d 500] [string repeat f 500]
         r linsert list1 after [string repeat d 500] [string repeat g 500]
@@ -28,19 +28,19 @@ start_server [list overrides [list save ""] ] {
     };
 
     test {reg node check compression combined with trim} {
-        r lpush list2 [string repeat a 500]
+        r lpush list2 1000 [string repeat a 500]
         r linsert list2 after  [string repeat a 500] [string repeat b 500]
-        r rpush list2 [string repeat c 500]
+        r rpush list2 1000 [string repeat c 500]
         assert_equal [string repeat b 500] [r lindex list2 1]
         r LTRIM list2 1 -1
         r llen list2
     } {2}
 
     test {reg node check compression with lset} {
-        r lpush list3 [string repeat a 500]
+        r lpush list3 1000 [string repeat a 500]
         r LSET list3 0 [string repeat b 500]
         assert_equal [string repeat b 500] [r lindex list3 0]
-        r lpush list3 [string repeat c 500]
+        r lpush list3 1000 [string repeat c 500]
         r LSET list3 0 [string repeat d 500]
         assert_equal [string repeat d 500] [r lindex list3 0]
     }
@@ -50,10 +50,10 @@ start_server [list overrides [list save ""] ] {
 
     test {plain node check compression} {
         r debug quicklist-packed-threshold 1b
-        r lpush list4 [string repeat a 500]
-        r lpush list4 [string repeat b 500]
-        r lpush list4 [string repeat c 500]
-        r lpush list4 [string repeat d 500]
+        r lpush list4 1000 [string repeat a 500]
+        r lpush list4 1000 [string repeat b 500]
+        r lpush list4 1000 [string repeat c 500]
+        r lpush list4 1000 [string repeat d 500]
         r linsert list4 after [string repeat d 500] [string repeat e 500]
         r linsert list4 after [string repeat d 500] [string repeat f 500]
         r linsert list4 after [string repeat d 500] [string repeat g 500]
@@ -71,9 +71,9 @@ start_server [list overrides [list save ""] ] {
 
     test {plain node check compression with ltrim} {
         r debug quicklist-packed-threshold 1b
-        r lpush list5 [string repeat a 500]
+        r lpush list5 100 [string repeat a 500]
         r linsert list5 after  [string repeat a 500] [string repeat b 500]
-        r rpush list5 [string repeat c 500]
+        r rpush list5 100 [string repeat c 500]
         assert_equal [string repeat b 500] [r lindex list5 1]
         r LTRIM list5 1 -1
         assert_equal [r llen list5] 2
@@ -82,10 +82,10 @@ start_server [list overrides [list save ""] ] {
 
     test {plain node check compression using lset} {
         r debug quicklist-packed-threshold 1b
-        r lpush list6 [string repeat a 500]
+        r lpush list6 1000 [string repeat a 500]
         r LSET list6 0 [string repeat b 500]
         assert_equal [string repeat b 500] [r lindex list6 0]
-        r lpush list6 [string repeat c 500]
+        r lpush list6 1000 [string repeat c 500]
         r LSET list6 0 [string repeat d 500]
         assert_equal [string repeat d 500] [r lindex list6 0]
         r debug quicklist-packed-threshold 0
@@ -101,9 +101,9 @@ start_server [list overrides [list save ""] ] {
     test {Test LPUSH and LPOP on plain nodes} {
         r flushdb
         r debug quicklist-packed-threshold 1b
-        r lpush lst 9
-        r lpush lst xxxxxxxxxx
-        r lpush lst xxxxxxxxxx
+        r lpush lst 1000 9
+        r lpush lst 1000 xxxxxxxxxx
+        r lpush lst 1000 xxxxxxxxxx
         set s0 [s used_memory]
         assert {$s0 > 10}
         assert {[r llen lst] == 3}
@@ -114,8 +114,8 @@ start_server [list overrides [list save ""] ] {
         r lpop lst
         assert {[string length $s1] == 10}
         # check rdb
-        r lpush lst xxxxxxxxxx
-        r lpush lst bb
+        r lpush lst 1000 xxxxxxxxxx
+        r lpush lst 1000 bb
         r debug reload
         assert_equal [r rpop lst] "xxxxxxxxxx"
         r debug quicklist-packed-threshold 0
@@ -125,9 +125,9 @@ start_server [list overrides [list save ""] ] {
     test {Test LINDEX and LINSERT on plain nodes} {
         r flushdb
         r debug quicklist-packed-threshold 1b
-        r lpush lst xxxxxxxxxxx
-        r lpush lst 9
-        r lpush lst xxxxxxxxxxx
+        r lpush lst 1000 xxxxxxxxxxx
+        r lpush lst 1000 9
+        r lpush lst 1000 xxxxxxxxxxx
         r linsert lst before "9" "8"
         assert {[r lindex lst 1] eq "8"}
         r linsert lst BEFORE "9" "7"
@@ -140,9 +140,9 @@ start_server [list overrides [list save ""] ] {
     test {Test LTRIM on plain nodes} {
         r flushdb
         r debug quicklist-packed-threshold 1b
-        r lpush lst1 9
-        r lpush lst1 xxxxxxxxxxx
-        r lpush lst1 9
+        r lpush lst1 1000 9
+        r lpush lst1 1000 xxxxxxxxxxx
+        r lpush lst1 1000 9
         r LTRIM lst1 1 -1
         assert_equal [r llen lst1] 2
         r debug quicklist-packed-threshold 0
@@ -152,11 +152,11 @@ start_server [list overrides [list save ""] ] {
     test {Test LREM on plain nodes} {
         r flushdb
         r debug quicklist-packed-threshold 1b
-        r lpush lst one
-        r lpush lst xxxxxxxxxxx
+        r lpush lst 1000 one
+        r lpush lst 1000 xxxxxxxxxxx
         set s0 [s used_memory]
         assert {$s0 > 10}
-        r lpush lst 9
+        r lpush lst 1000 9
         r LREM lst -2 "one"
         assert_equal [r llen lst] 2
         r debug quicklist-packed-threshold 0
@@ -166,9 +166,9 @@ start_server [list overrides [list save ""] ] {
     test {Test LPOS on plain nodes} {
         r flushdb
         r debug quicklist-packed-threshold 1b
-        r RPUSH lst "aa"
-        r RPUSH lst "bb"
-        r RPUSH lst "cc"
+        r RPUSH lst 100 "aa"
+        r RPUSH lst 100 "bb"
+        r RPUSH lst 100 "cc"
         r LSET lst 0 "xxxxxxxxxxx"
         assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
         r debug quicklist-packed-threshold 0
@@ -292,8 +292,8 @@ start_server [list overrides [list save ""] ] {
         r flushdb
         r debug quicklist-packed-threshold 10b
 
-        r LPUSH lst "aa"
-        r LPUSH lst "bb"
+        r LPUSH lst 1000 "aa"
+        r LPUSH lst 1000 "bb"
         r LSET lst -2 [string repeat x 10]
         r RPOP lst
         assert_equal [string repeat x 10] [r LRANGE lst 0 -1]
@@ -317,7 +317,7 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
     # repeating all the plain nodes basic checks with 5gb values
     test {Test LPUSH and LPOP on plain nodes over 4GB} {
         r flushdb
-        r lpush lst 9
+        r lpush lst 1000 9
         r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
         write_big_bulk $str_length;
         r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
@@ -335,7 +335,7 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
        r flushdb
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
        write_big_bulk $str_length;
-       r lpush lst 9
+       r lpush lst 1000 9
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
        write_big_bulk $str_length;
        r linsert lst before "9" "8"
@@ -348,10 +348,10 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
 
    test {Test LTRIM on plain nodes over 4GB} {
        r flushdb
-       r lpush lst 9
+       r lpush lst 1000 9
        r write "*3\r\n\$5\r\nLPUSH\r\n\$3\r\nlst\r\n"
        write_big_bulk $str_length;
-       r lpush lst 9
+       r lpush lst 1000 9
        r LTRIM lst 1 -1
        assert_equal [r llen lst] 2
        assert_equal [r rpop lst] 9
@@ -519,9 +519,9 @@ foreach {type large} [array get largevalue] {
 
         # first rpush then lpush
         r del mylist2
-        assert_equal 1 [r rpush mylist2 $large]
-        assert_equal 2 [r lpush mylist2 b]
-        assert_equal 3 [r lpush mylist2 c]
+        assert_equal 1 [r rpush mylist2 1000 $large]
+        assert_equal 2 [r lpush mylist2 1000 b]
+        assert_equal 3 [r lpush mylist2 1000 c]
         assert_encoding $type mylist2
         assert_equal 3 [r llen mylist2]
         assert_equal c [r lindex mylist2 0]

@@ -156,9 +156,9 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Redis multi bulk -> Lua type conversion} {
         r del mylist
-        r rpush mylist a
-        r rpush mylist b
-        r rpush mylist c
+        r rpush mylist 1000 a
+        r rpush mylist 1000 b
+        r rpush mylist 1000 c
         run_script {
             local foo = redis.pcall('lrange',KEYS[1],0,-1)
             return {type(foo),foo[1],foo[2],foo[3],# foo}
@@ -218,25 +218,25 @@ start_server {tags {"scripting"}} {
     }
 
     test {EVAL - Scripts do not block on blpop command} {
-        r lpush l 1
+        r lpush l 1000 1
         r lpop l
         run_script {return redis.pcall('blpop','l',0)} 1 l
     } {}
 
     test {EVAL - Scripts do not block on brpop command} {
-        r lpush l 1
+        r lpush l 1000 1
         r lpop l
         run_script {return redis.pcall('brpop','l',0)} 1 l
     } {}
 
     test {EVAL - Scripts do not block on brpoplpush command} {
-        r lpush empty_list1{t} 1
+        r lpush empty_list1{t} 1000 1
         r lpop empty_list1{t}
         run_script {return redis.pcall('brpoplpush','empty_list1{t}', 'empty_list2{t}',0)} 2 empty_list1{t} empty_list2{t}
     } {}
 
     test {EVAL - Scripts do not block on blmove command} {
-        r lpush empty_list1{t} 1
+        r lpush empty_list1{t} 1000 1
         r lpop empty_list1{t}
         run_script {return redis.pcall('blmove','empty_list1{t}', 'empty_list2{t}', 'LEFT', 'LEFT', 0)} 2 empty_list1{t} empty_list2{t}
     } {}
@@ -778,7 +778,7 @@ start_server {tags {"scripting"}} {
             for i=1,100 do
                 table.insert(x,i)
             end
-            redis.call('rpush','mylist',unpack(x))
+            redis.call('rpush','mylist', '100',unpack(x))
             return redis.call('lrange','mylist',0,-1)
         } 1 mylist
     } {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100}
@@ -886,7 +886,7 @@ start_server {tags {"scripting"}} {
             for i=1,7999 do
                 a[i] = 1
             end
-            return redis.call("lpush", "l", unpack(a))
+            return redis.call("lpush", "l", "1000", unpack(a))
         } 1 l
     } {7999}
 
@@ -1159,12 +1159,12 @@ start_server {tags {"scripting"}} {
         r config set lua-time-limit 10
         run_script_on_connection $rd {
             local clients
-            redis.call('lpush',KEYS[1],'y');
+            redis.call('lpush',KEYS[1], "1000",'y');
             while true do
                 clients = redis.call('client','list')
                 if string.find(clients, 'abortscript') ~= nil then break end
             end
-            redis.call('lpush',KEYS[1],'z');
+            redis.call('lpush',KEYS[1], "1000",'z');
             return clients
             } 1 x
 
@@ -1259,8 +1259,8 @@ start_server {tags {"scripting"}} {
                 set rd [redis_deferring_client]
                 $rd brpop a 0
                 run_script {
-                    redis.call("lpush",KEYS[1],"1");
-                    redis.call("lpush",KEYS[1],"2");
+                    redis.call("lpush",KEYS[1], "1000","1");
+                    redis.call("lpush",KEYS[1], "1000","2");
                 } 1 a
                 set res [$rd read]
                 $rd close

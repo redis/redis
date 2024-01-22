@@ -54,7 +54,7 @@ start_server {
     }
 
     test {SMISMEMBER SMEMBERS SCARD against non set} {
-        r lpush mylist foo
+        r lpush mylist 1000 foo
         assert_error WRONGTYPE* {r smismember mylist bar}
         assert_error WRONGTYPE* {r smembers mylist}
         assert_error WRONGTYPE* {r scard mylist}
@@ -77,7 +77,7 @@ start_server {
     }
 
     test {SADD against non set} {
-        r lpush mylist foo
+        r lpush mylist 1000 foo
         assert_error WRONGTYPE* {r sadd mylist bar}
     }
 

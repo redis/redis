@@ -1163,8 +1163,8 @@ static void test_blocking_connection(struct config config) {
     freeReplyObject(reply);
 
     test("Can parse multi bulk replies: ");
-    freeReplyObject(redisCommand(c,"LPUSH mylist foo"));
-    freeReplyObject(redisCommand(c,"LPUSH mylist bar"));
+    freeReplyObject(redisCommand(c,"LPUSH mylist 1000 foo"));
+    freeReplyObject(redisCommand(c,"LPUSH mylist 1000 bar"));
     reply = redisCommand(c,"LRANGE mylist 0 -1");
     test_cond(reply->type == REDIS_REPLY_ARRAY &&
               reply->elements == 2 &&
@@ -1395,7 +1395,7 @@ static void test_throughput(struct config config) {
 
     test("Throughput:\n");
     for (i = 0; i < 500; i++)
-        freeReplyObject(redisCommand(c,"LPUSH mylist foo"));
+        freeReplyObject(redisCommand(c,"LPUSH mylist 1000 foo"));
 
     num = 1000;
     replies = hi_malloc_safe(sizeof(redisReply*)*num);
@@ -1654,7 +1654,7 @@ void subscribe_cb(redisAsyncContext *ac, void *r, void *privdata) {
                           "unsubscribe");
         /* Send a regular command after unsubscribing, then disconnect */
         state->disconnect = 1;
-        redisAsyncCommand(ac,integer_cb,state,"LPUSH mylist foo");
+        redisAsyncCommand(ac,integer_cb,state,"LPUSH mylist 1000 foo");
 
     } else if (strcmp(reply->element[0]->str,"unsubscribe") == 0) {
         assert(strcmp(reply->element[1]->str,"mychannel") == 0 &&
@@ -1750,9 +1750,9 @@ static void test_pubsub_handling_resp3(struct config config) {
     redisAsyncCommand(ac,subscribe_cb,&state,"subscribe mychannel");
 
     /* Make sure non-subscribe commands are handled in RESP3 */
-    redisAsyncCommand(ac,integer_cb,&state,"LPUSH mylist foo");
-    redisAsyncCommand(ac,integer_cb,&state,"LPUSH mylist foo");
-    redisAsyncCommand(ac,integer_cb,&state,"LPUSH mylist foo");
+    redisAsyncCommand(ac,integer_cb,&state,"LPUSH mylist 1000 foo");
+    redisAsyncCommand(ac,integer_cb,&state,"LPUSH mylist 1000 foo");
+    redisAsyncCommand(ac,integer_cb,&state,"LPUSH mylist 1000 foo");
     /* Handle an array with 3 elements as a non-subscribe command */
     redisAsyncCommand(ac,array_cb,&state,"LRANGE mylist 0 2");
 
@@ -1796,7 +1796,7 @@ void subscribe_with_timeout_cb(redisAsyncContext *ac, void *r, void *privdata) {
 
         /* Send a command that will trigger a timeout */
         redisAsyncCommand(ac,null_cb,state,"DEBUG SLEEP 3");
-        redisAsyncCommand(ac,null_cb,state,"LPUSH mylist foo");
+        redisAsyncCommand(ac,null_cb,state,"LPUSH mylist 1000 foo");
     } else {
         printf("Unexpected pubsub command: %s\n", reply->element[0]->str);
         exit(1);
@@ -1870,7 +1870,7 @@ void subscribe_channel_a_cb(redisAsyncContext *ac, void *r, void *privdata) {
                           "punsubscribe");
         /* Send a regular command after unsubscribing, then disconnect */
         state->disconnect = 1;
-        redisAsyncCommand(ac,integer_cb,state,"LPUSH mylist foo");
+        redisAsyncCommand(ac,integer_cb,state,"LPUSH mylist 1000 foo");
     } else if (strcmp(reply->element[0]->str,"unsubscribe") == 0) {
         assert(strcmp(reply->element[1]->str,"A") == 0);
         state->checkpoint++;

@@ -120,7 +120,7 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         # Total size of all items must be more than 100k
         set item [string repeat "x" 1000]
         for {set i 0} {$i < 150} {incr i} {
-            r lpush mylist $item
+            r lpush mylist 1000 $item
         }
         set orig_mem [s used_memory]
         # Set client name and get all items
@@ -188,7 +188,7 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         # Total size of all items must be more than 100k
         set item [string repeat "x" 1000]
         for {set i 0} {$i < 150} {incr i} {
-            r lpush mylist2 $item
+            r lpush mylist2 1000 $item
         }
 
         # Output buffer limit is enforced during executing transaction

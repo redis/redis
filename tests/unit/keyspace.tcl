@@ -257,7 +257,7 @@ foreach {type large} [array get largevalue] {
     set origin_config [config_get_set list-max-listpack-size -1]
     test "COPY basic usage for list - $type" {
         r del mylist{t} mynewlist{t}
-        r lpush mylist{t} a b $large c d
+        r lpush mylist{t} 1000 a b $large c d
         assert_encoding $type mylist{t}
         r copy mylist{t} mynewlist{t}
         assert_encoding $type mynewlist{t}

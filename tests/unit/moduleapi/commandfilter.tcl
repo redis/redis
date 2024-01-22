@@ -6,7 +6,7 @@ start_server {tags {"modules"}} {
     test {Retain a command filter argument} {
         # Retain an argument now. Later we'll try to re-read it and make sure
         # it is not corrupt and that valgrind does not complain.
-        r rpush some-list @retain my-retained-string
+        r rpush some-list 100 @retain my-retained-string
         r commandfilter.retained
     } {my-retained-string}
 
@@ -16,19 +16,19 @@ start_server {tags {"modules"}} {
     } "{set mykey @log}"
 
     test {Command Filter can call RedisModule_CommandFilterArgDelete} {
-        r rpush mylist elem1 @delme elem2
+        r rpush mylist 100 elem1 @delme elem2
         r lrange mylist 0 -1
     } {elem1 elem2}
 
     test {Command Filter can call RedisModule_CommandFilterArgInsert} {
         r del mylist
-        r rpush mylist elem1 @insertbefore elem2 @insertafter elem3
+        r rpush mylist 100 elem1 @insertbefore elem2 @insertafter elem3
         r lrange mylist 0 -1
     } {elem1 --inserted-before-- @insertbefore elem2 @insertafter --inserted-after-- elem3}
 
     test {Command Filter can call RedisModule_CommandFilterArgReplace} {
         r del mylist
-        r rpush mylist elem1 @replaceme elem2
+        r rpush mylist 100 elem1 @replaceme elem2
         r lrange mylist 0 -1
     } {elem1 --replaced-- elem2}
 

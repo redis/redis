@@ -1927,13 +1927,13 @@ int main(int argc, char **argv) {
         }
 
         if (test_is_selected("lpush")) {
-            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist 1000 100%s %s",tag,data);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpush")) {
-            len = redisFormatCommand(&cmd,"RPUSH mylist%s %s",tag,data);
+            len = redisFormatCommand(&cmd,"RPUSH mylist 1000 100%s %s",tag,data);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
@@ -1991,7 +1991,7 @@ int main(int argc, char **argv) {
             test_is_selected("lrange_500") ||
             test_is_selected("lrange_600"))
         {
-            len = redisFormatCommand(&cmd,"LPUSH mylist%s %s",tag,data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist 1000%s %s",tag,data);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
         }

@@ -18,7 +18,7 @@ start_server {tags {"modules"}} {
     test {Module list set, get, insert, delete} {
         r del k
         assert_error {WRONGTYPE Operation against a key holding the wrong kind of value*} {r list.set k 1 xyz}
-        r rpush k x
+        r rpush k 100 x
         # insert, set, get
         r list.insert k 0 foo
         r list.insert k -1 bar
@@ -44,14 +44,14 @@ start_server {tags {"modules"}} {
 
     test {Module list iteration} {
         r del k
-        r rpush k x y z
+        r rpush k 100 x y z
         assert_equal {x y z} [r list.getall k]
         assert_equal {z y x} [r list.getall k REVERSE]
     }
 
     test {Module list insert & delete} {
         r del k
-        r rpush k x y z
+        r rpush k 100 x y z
         verify_list_edit_reply [r list.edit k ikikdi foo bar baz] {i 3 index 5}
         r list.getall k
     } {foo x bar y baz}

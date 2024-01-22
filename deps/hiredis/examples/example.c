@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
         char buf[64];
 
         snprintf(buf,64,"%u",j);
-        reply = redisCommand(c,"LPUSH mylist element-%s", buf);
+        reply = redisCommand(c,"LPUSH mylist 1000 element-%s", buf);
         freeReplyObject(reply);
     }
 

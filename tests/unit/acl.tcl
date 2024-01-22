@@ -333,7 +333,7 @@ start_server {tags {"acl external:skip"}} {
         $rd BLPOP list1 0
         wait_for_blocked_client
         r ACL setuser psuser resetkeys
-        r LPUSH list1 foo
+        r LPUSH list1 1000 foo
         assert_error {*NOPERM No permissions to access a key*} {$rd read}
         $rd ping
         $rd close

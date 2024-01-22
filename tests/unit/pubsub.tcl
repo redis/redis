@@ -285,7 +285,7 @@ start_server {tags {"pubsub network"}} {
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
         r set foo bar
-        r lpush mylist a
+        r lpush mylist 1000 a
         # No notification for set, because only list commands are enabled.
         assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
         assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
@@ -311,15 +311,15 @@ start_server {tags {"pubsub network"}} {
         r del mylist
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
-        r lpush mylist a
-        r rpush mylist a
+        r lpush mylist 1000 a
+        r rpush mylist 1000 a
         r rpop mylist
         assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
-        assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpush mylist 100" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:mylist rpush" [$rd1 read]
-        assert_equal "pmessage * __keyevent@${db}__:rpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpush mylist 100" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:mylist rpop" [$rd1 read]
-        assert_equal "pmessage * __keyevent@${db}__:rpop mylist" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpop mylist 100" [$rd1 read]
         $rd1 close
     }
 
@@ -394,8 +394,8 @@ start_server {tags {"pubsub network"}} {
         r del foo
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
-        r psetex foo 100 1
-        wait_for_condition 50 100 {
+        r psetex foo 1000 1
+        wait_for_condition 50 1000 {
             [r exists foo] == 0
         } else {
             fail "Key does not expire?!"
@@ -409,7 +409,7 @@ start_server {tags {"pubsub network"}} {
         r del foo
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
-        r psetex foo 100 1
+        r psetex foo 1000 1
         assert_equal "pmessage * __keyevent@${db}__:expired foo" [$rd1 read]
         $rd1 close
     }

@@ -261,9 +261,9 @@ start_server {tags {"introspection"}} {
         
         $bc blpop mylist 0
         wait_for_blocked_clients_count 1
-        r lpush mylist 1
+        r lpush mylist 1000 1
         wait_for_blocked_clients_count 0
-        r lpush mylist 2
+        r lpush mylist 1000 2
         
         # we expect to see the blpop on the monitor first
         assert_match {*"blpop"*"mylist"*"0"*} [$rd read]
@@ -275,7 +275,7 @@ start_server {tags {"introspection"}} {
         }
         
         # we expect to locate the lpush right when the client was unblocked
-        assert_match {*"lpush"*"mylist"*"1"*} $monitor_output
+        assert_match {*"lpush"*"mylist"*"1000"*"1"*} $monitor_output
         
         # we scan out all the info commands
         set monitor_output [$rd read]
@@ -284,7 +284,7 @@ start_server {tags {"introspection"}} {
         }
         
         # we expect to see the next lpush and not duplicate blpop command
-        assert_match {*"lpush"*"mylist"*"2"*} $monitor_output
+        assert_match {*"lpush"*"mylist"*"1000"*"2"*} $monitor_output
         
         $rd close
         $bc close

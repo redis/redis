@@ -3114,7 +3114,7 @@ version,tls_usage);
 "  redis-cli -u redis://default:PASSWORD@localhost:6379/0\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
 "  redis-cli -D \"\" --raw dump key > key.dump && redis-cli -X dump_tag restore key2 0 dump_tag replace < key.dump\n"
-"  redis-cli -r 100 lpush mylist x\n"
+"  redis-cli -r 100 lpush mylist 1000 x\n"
 "  redis-cli -r 100 -i 1 info | grep used_memory_human:\n"
 "  redis-cli --quoted-input set '\"null-\\x00-separated\"' value\n"
 "  redis-cli --eval myscript.lua key1 key2 , arg1 arg2 arg3\n"

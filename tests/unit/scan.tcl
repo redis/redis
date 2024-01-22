@@ -50,7 +50,7 @@ proc test_scan {type} {
         }
 
         set keys [lsort -unique $keys]
-        assert_equal 100 [llength $keys]
+        assert_equal 1000 [llength $keys]
     }
 
     test "{$type} SCAN TYPE" {
@@ -341,7 +341,7 @@ proc test_scan {type} {
         }
 
         set keys2 [lsort -unique $keys2]
-        assert_equal 100 [llength $keys2]
+        assert_equal 1000 [llength $keys2]
     }
 
     test "{$type} SSCAN with integer encoded object (issue #1345)" {
@@ -452,7 +452,7 @@ proc test_scan {type} {
         }
 
         set keys [lsort -unique $keys]
-        assert_equal 100 [llength $keys]
+        assert_equal 1000 [llength $keys]
     }
 }
 

@@ -99,7 +99,7 @@ start_server {tags {"dump"}} {
     test {RESTORE should not store key that are already expired, with REPLACE will propagate it as DEL or UNLINK} {
         r del key1{t} key2{t}
         r set key1{t} value2
-        r lpush key2{t} 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65
+        r lpush key2{t} 1000 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65
 
         r set key{t} value
         set encoded [r dump key{t}]
@@ -171,7 +171,7 @@ start_server {tags {"dump"}} {
     test {MIGRATE is able to copy a key between two instances} {
         set first [srv 0 client]
         r del list
-        r lpush list a b c d
+        r lpush list 1000 a b c d
         start_server {tags {"repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
@@ -190,7 +190,7 @@ start_server {tags {"dump"}} {
     test {MIGRATE will not overwrite existing keys, unless REPLACE is used} {
         set first [srv 0 client]
         r del list
-        r lpush list a b c d
+        r lpush list 1000 a b c d
         start_server {tags {"repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
@@ -233,8 +233,8 @@ start_server {tags {"dump"}} {
         set first [srv 0 client]
         r del key
         for {set j 0} {$j < 40000} {incr j} {
-            r rpush key 1 2 3 4 5 6 7 8 9 10
-            r rpush key "item 1" "item 2" "item 3" "item 4" "item 5" \
+            r rpush key 1000 1 2 3 4 5 6 7 8 9 10
+            r rpush key 1000 "item 1" "item 2" "item 3" "item 4" "item 5" \
                         "item 6" "item 7" "item 8" "item 9" "item 10"
         }
         assert {[string length [r dump key]] > (1024*64)}
@@ -386,7 +386,7 @@ start_server {tags {"dump"}} {
     test {MIGRATE AUTH: correct and wrong password cases} {
         set first [srv 0 client]
         r del list
-        r lpush list a b c d
+        r lpush list 1000 a b c d
         start_server {tags {"repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]

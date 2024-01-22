@@ -15,12 +15,12 @@ start_server {
 
                 # Start with the large value to ensure the
                 # right encoding is used.
-                r rpush mylist $large
+                r rpush mylist 1000 $large
                 lappend mylist $large
 
                 for {set i 0} {$i < $startlen} {incr i} {
                     set str [randomInt 9223372036854775807]
-                    r rpush mylist $str
+                    r rpush mylist 100 $str
                     lappend mylist $str
                 }
 
@@ -36,7 +36,7 @@ start_server {
 
                     for {set j [r llen mylist]} {$j < $startlen} {incr j} {
                         set str [randomInt 9223372036854775807]
-                        r rpush mylist $str
+                        r rpush mylist 100 $str
                         lappend mylist $str
                         assert_equal $mylist [r lrange mylist 0 -1] "failed append match"
                     }

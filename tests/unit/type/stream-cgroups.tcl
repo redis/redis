@@ -299,7 +299,7 @@ start_server {
     test {Blocking XREADGROUP: swapped DB, key is not a stream} {
         r SELECT 4
         r FLUSHDB
-        r LPUSH mystream e1
+        r LPUSH mystream 1000 e1
         r SELECT 9
         r DEL mystream
         r XADD mystream 666 f v

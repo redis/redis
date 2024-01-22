@@ -418,7 +418,7 @@ start_server {
         r multi
         r XADD s1 * old abcd1234
         r DEL s1
-        r LPUSH s1 foo bar
+        r LPUSH s1 1000 foo bar
         r exec
         r DEL s1
         r XADD s1 * new abcd1234

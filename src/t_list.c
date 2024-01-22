@@ -485,6 +485,11 @@ void listTypeDelRange(robj *subject, long start, long count) {
  * 'xx': push if key exists. */
 void pushGenericCommand(client *c, int where, int xx) {
     int j;
+    long long when;
+    robj *param = c->argv[2];
+
+    if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
+        return;
 
     robj *lobj = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c,lobj,OBJ_LIST)) return;
@@ -499,11 +504,12 @@ void pushGenericCommand(client *c, int where, int xx) {
     }
 
     listTypeTryConversionAppend(lobj,c->argv,2,c->argc-1,NULL,NULL);
-    for (j = 2; j < c->argc; j++) {
+    for (j = 3; j < c->argc; j++) {
         listTypePush(lobj,c->argv[j],where);
         server.dirty++;
     }
 
+    setExpire(c, c->db, lobj, when);
     addReplyLongLong(c, listTypeLength(lobj));
 
     char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
@@ -511,22 +517,22 @@ void pushGenericCommand(client *c, int where, int xx) {
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
 }
 
-/* LPUSH <key> <element> [<element> ...] */
+/* LPUSH <key> <seconds> <element> [<element> ...] */
 void lpushCommand(client *c) {
     pushGenericCommand(c,LIST_HEAD,0);
 }
 
-/* RPUSH <key> <element> [<element> ...] */
+/* RPUSH <key> <seconds> <element> [<element> ...] */
 void rpushCommand(client *c) {
     pushGenericCommand(c,LIST_TAIL,0);
 }
 
-/* LPUSHX <key> <element> [<element> ...] */
+/* LPUSHX <key> <seconds> <element> [<element> ...] */
 void lpushxCommand(client *c) {
     pushGenericCommand(c,LIST_HEAD,1);
 }
 
-/* RPUSHX <key> <element> [<element> ...] */
+/* RPUSHX <key> <seconds> <element> [<element> ...] */
 void rpushxCommand(client *c) {
     pushGenericCommand(c,LIST_TAIL,1);
 }

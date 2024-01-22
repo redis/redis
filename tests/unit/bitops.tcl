@@ -47,7 +47,7 @@ proc simulate_bit_op {op args} {
 start_server {tags {"bitops"}} {
     test {BITCOUNT against wrong type} {
         r del mylist
-        r lpush mylist a b c
+        r lpush mylist 1000 a b c
         assert_error "*WRONGTYPE*" {r bitcount mylist}
         assert_error "*WRONGTYPE*" {r bitcount mylist 0 100}
 
@@ -170,7 +170,7 @@ start_server {tags {"bitops"}} {
         assert_error {ERR *not an integer*} {r bitcount s a b}
 
         # against wrong type
-        r lpush s a b c
+        r lpush s 1000 a b c
         assert_error {ERR *not an integer*} {r bitcount s a b}
     }
 
@@ -280,7 +280,7 @@ start_server {tags {"bitops"}} {
         r del c{t}
         r set a{t} 1
         r set b{t} 2
-        r lpush c{t} foo
+        r lpush c{t} 1000 foo
         catch {r bitop xor dest{t} a{t} b{t} c{t} d{t}} e
         set e
     } {WRONGTYPE*}
@@ -293,7 +293,7 @@ start_server {tags {"bitops"}} {
 
     test {BITPOS against wrong type} {
         r del mylist
-        r lpush mylist a b c
+        r lpush mylist a 1000 b c
         assert_error "*WRONGTYPE*" {r bitpos mylist 0}
         assert_error "*WRONGTYPE*" {r bitpos mylist 1 10 100}
     }
@@ -321,7 +321,7 @@ start_server {tags {"bitops"}} {
         assert_error {ERR *not an integer*} {r bitpos s 0 a b}
 
         # against wrong type
-        r lpush s a b c
+        r lpush s 1000 a b c
         assert_error {ERR *not an integer*} {r bitpos s a}
         assert_error {ERR *not an integer*} {r bitpos s 1 a b}
     }

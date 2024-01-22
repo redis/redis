@@ -495,7 +495,7 @@ start_server {tags {"tracking network logreqres:skip"}} {
     }
 
     test {Unblocked BLMOVE gets notification after response} {
-        r RPUSH list2{t} a
+        r RPUSH list2{t} 1000 a
         $rd HELLO 3
         $rd read
         $rd CLIENT TRACKING on
@@ -507,7 +507,7 @@ start_server {tags {"tracking network logreqres:skip"}} {
         $rd BLMOVE list1{t} list2{t} left left 0
         wait_for_blocked_clients_count 1
         # unblock $rd, list2{t} gets element and generate invalidation message
-        r rpush list1{t} foo
+        r rpush list1{t} 1000 foo
         assert_equal [$rd read] {foo}
         assert_equal [$rd read] {invalidate list2{t}}
     }

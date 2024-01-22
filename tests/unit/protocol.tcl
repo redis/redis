@@ -241,9 +241,9 @@ start_server {tags {"regression"}} {
         flush $fd
         set res {}
 
-        $rd rpush nolist a
+        $rd rpush nolist 1000 a
         $rd read
-        $rd rpush nolist a
+        $rd rpush nolist 1000 a
         $rd read
         $rd close
     }

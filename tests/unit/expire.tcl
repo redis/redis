@@ -22,9 +22,9 @@ start_server {tags {"expire"}} {
 
     test {EXPIRE - write on expire should work} {
         r del x
-        r lpush x foo
+        r lpush x 1000 foo
         r expire x 1000
-        r lpush x bar
+        r lpush x 1000 bar
         r lrange x 0 -1
     } {bar foo}
 
