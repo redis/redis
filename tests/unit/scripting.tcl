@@ -616,6 +616,32 @@ start_server {tags {"scripting"}} {
              [run_script {return redis.sha1hex('Pizza & Mandolino')} 0]
     } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
 
+    test "redis.monotonic() implementation" {
+        assert_morethan [run_script {return redis.monotonic()} 0] 0
+    }
+
+    test "os.clock() measures elapsed time" {
+        set start [clock seconds]
+        set escape [run_script {
+            local start = os.clock()
+            for i=1,100 do redis.call('ping') end
+            local escape = os.clock() - start
+            return {double=escape}
+        } 0]
+        assert_morethan $escape 0
+        assert_lessthan $escape [expr [clock seconds]-$start]
+    }
+
+    test "Prohibited dangerous lua methods in sandbox" {
+        assert_error {ERR *attempt to call field 'execute'*} {run_script {os.execute()} 0}
+        assert_error {ERR *attempt to call field 'exit'*} {run_script {os.exit()} 0}
+        assert_error {ERR *attempt to call field 'getenv'*} {run_script {os.getenv()} 0}
+        assert_error {ERR *attempt to call field 'remove'*} {run_script {os.remove()} 0}
+        assert_error {ERR *attempt to call field 'rename'*} {run_script {os.rename()} 0}
+        assert_error {ERR *attempt to call field 'setlocale'*} {run_script {os.setlocale()} 0}
+        assert_error {ERR *attempt to call field 'tmpname'*} {run_script {os.tmpname()} 0}
+    }
+
     test {Globals protection reading an undeclared global variable} {
         catch {run_script {return a} 0} e
         set e

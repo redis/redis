@@ -51,6 +51,7 @@ static char *libraries_allow_list[] = {
     "math",
     "table",
     "struct",
+    "os",
     NULL,
 };
 
@@ -1211,6 +1212,12 @@ static int luaSetResp(lua_State *lua) {
     return 0;
 }
 
+/* redis.monotonic() */
+static int redis_monotonic(lua_State *L) {
+    lua_pushnumber(L, (lua_Number)getMonotonicUs());
+    return 1;
+}
+
 /* ---------------------------------------------------------------------------
  * Lua engine initialization and reset.
  * ------------------------------------------------------------------------- */
@@ -1232,6 +1239,7 @@ static void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
     luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
     luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
     luaLoadLib(lua, "cjson", luaopen_cjson);
     luaLoadLib(lua, "struct", luaopen_struct);
     luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
@@ -1239,7 +1247,6 @@ static void luaLoadLibraries(lua_State *lua) {
 
 #if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
     luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
-    luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
 #endif
 }
 
@@ -1453,6 +1460,10 @@ void luaRegisterRedisAPI(lua_State* lua) {
     /* redis.set_repl and associated flags. */
     lua_pushstring(lua,"set_repl");
     lua_pushcfunction(lua,luaRedisSetReplCommand);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"monotonic");
+    lua_pushcfunction(lua,redis_monotonic);
     lua_settable(lua,-3);
 
     lua_pushstring(lua,"REPL_NONE");
