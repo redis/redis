@@ -96,6 +96,7 @@ void linkClient(client *c) {
     c->client_list_node = listLast(server.clients);
     uint64_t id = htonu64(c->id);
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
+    updateClientMemUsageAndBucket(c);
 }
 
 /* Initialize client authentication state.
@@ -213,8 +214,8 @@ client *createClient(connection *conn) {
     listInitNode(&c->clients_pending_write_node, c);
     c->mem_usage_bucket = NULL;
     c->mem_usage_bucket_node = NULL;
-    if (conn) linkClient(c);
     initClientMultiState(c);
+    if (conn) linkClient(c);
     return c;
 }
 
@@ -1480,6 +1481,15 @@ void unlinkClient(client *c) {
                 }
             }
         }
+
+        /* Remove the contribution that this client gave to the type of memory statistics. */
+        server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
+        /* Remove client from memory usage buckets */
+        if (c->mem_usage_bucket) {
+            c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
+            listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
+        }
+
         /* Only use shutdown when the fork is active and we are the parent. */
         if (server.child_type) connShutdown(c->conn);
         connClose(c->conn);
@@ -1650,12 +1660,6 @@ void freeClient(client *c) {
     reqresReset(c, 1);
 #endif
 
-    /* Remove the contribution that this client gave to our
-     * incrementally computed memory usage. */
-    if (c->conn)
-        server.stat_clients_type_memory[c->last_memory_type] -=
-            c->last_memory_usage;
-
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
      * places where active clients may be referenced. */
@@ -1703,12 +1707,6 @@ void freeClient(client *c) {
     /* Master/slave cleanup Case 2:
      * we lost the connection with the master. */
     if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
-
-    /* Remove client from memory usage buckets */
-    if (c->mem_usage_bucket) {
-        c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
-        listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
-    }
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
