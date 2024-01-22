@@ -5596,7 +5596,7 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
  * sets blocking_keys_on_nokey to the total number of keys which has at least one client
  * blocked on them to be written or deleted.
  * sets watched_keys to the total number of keys which has at least on client watching on them. */
-void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey, unsigned long *watched_keys) {
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blocking_keys_on_nokey, unsigned long *watched_keys) {
     unsigned long bkeys=0, bkeys_on_nokey=0, wkeys=0;
     for (int j = 0; j < server.dbnum; j++) {
         bkeys += dictSize(server.db[j].blocking_keys);
@@ -5605,8 +5605,8 @@ void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blok
     }
     if (blocking_keys)
         *blocking_keys = bkeys;
-    if (bloking_keys_on_nokey)
-        *bloking_keys_on_nokey = bkeys_on_nokey;
+    if (blocking_keys_on_nokey)
+        *blocking_keys_on_nokey = bkeys_on_nokey;
     if (watched_keys)
         *watched_keys = wkeys;
 }
