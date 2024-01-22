@@ -25,6 +25,9 @@ ifeq ($(OPTIMIZATION),-O3)
 	endif
 	REDIS_LDFLAGS+=-O3 -flto
 endif
+ifneq ($(OPTIMIZATION),-O0)
+	REDIS_CFLAGS+=-fno-omit-frame-pointer
+endif
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
 NODEPS:=clean distclean
 
