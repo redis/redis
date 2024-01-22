@@ -616,8 +616,13 @@ start_server {tags {"scripting"}} {
              [run_script {return redis.sha1hex('Pizza & Mandolino')} 0]
     } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
 
-    test "redis.monotonic() implementation" {
-        assert_morethan [run_script {return redis.monotonic()} 0] 0
+    test "redis.monotonic() measures elapsed time" {
+        set escaped [run_script {
+            local start = redis.monotonic()
+            while redis.monotonic() - start < 1000000 do end
+            return {double = redis.monotonic() - start}
+        } 0]
+        assert_morethan_equal $escaped 1000000 ;# 1 second (1 second = 1000000 microseconds)
     }
 
     test "os.clock() measures elapsed time" {
@@ -626,7 +631,7 @@ start_server {tags {"scripting"}} {
             while os.clock() - start < 1 do end
             return {double = os.clock() - start}
         } 0]
-        assert_morethan_equal $escaped 1
+        assert_morethan_equal $escaped 1 ;# 1 second
     }
 
     test "Prohibited dangerous lua methods in sandbox" {
