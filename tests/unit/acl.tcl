@@ -823,9 +823,9 @@ start_server {tags {"acl external:skip"}} {
         assert {[llength [r ACL LOG]] == 5}
     }
 
-    test {ACL LOG entries are cleared when maximum amount is set to zero} {
+    test {ACL LOG entries are still present on update of max len config} {
         r CONFIG SET acllog-max-len 0
-        assert {[llength [r ACL LOG]] == 0}
+        assert {[llength [r ACL LOG]] == 5}
     }
 
     test {When default user is off, new connections are not authenticated} {
