@@ -1917,10 +1917,6 @@ static int useDisklessLoad(void) {
     return enabled;
 }
 
-static int useRdbChannelSync(void) {
-    return server.rdb_channel_enabled && server.master_supports_rdb_channel;
-}
-
 /* Helper function for readSyncBulkPayload() to initialize tempDb
  * before socket-loading the new db from master. The tempDb may be populated
  * by swapMainDbWithTempDb or freed by disklessLoadDiscardTempDb later. */
@@ -2536,7 +2532,7 @@ void clearProvisionalMaster(void) {
     server.repl_provisional_master.dbid = 0;
 }
 
-void abortRdbConnectionSync(int should_retry) {
+void abortRdbConnectionSync(void) {
     serverLog(LL_WARNING, "Aborting RDB connection sync");
     if (server.repl_transfer_s) {
         connClose(server.repl_transfer_s);
@@ -2557,11 +2553,6 @@ void abortRdbConnectionSync(int should_retry) {
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
     freePendingReplDataBuf();
-
-    if (!should_retry) {
-        /* Make sure next time we will try different approach */
-        server.master_supports_rdb_channel = 0;
-    }
     return;
 }
 
@@ -2709,7 +2700,7 @@ void fullSyncWithMaster(connection* conn) {
         /* Fall through to regular error handling */
 
     error:
-        abortRdbConnectionSync(0);
+        abortRdbConnectionSync();
         return;
 
     write_error: /* Handle sendCommand() errors. */
@@ -2744,7 +2735,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
     if (nread == -1) {
         if (connGetState(conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE, "Error reading from primary: %s",connGetLastError(conn));
-            abortRdbConnectionSync(1);
+            abortRdbConnectionSync();
         }
         return C_ERR;
     }
@@ -2754,7 +2745,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
             serverLog(LL_VERBOSE, "Client closed connection %s", info);
             sdsfree(info);
         }
-        abortRdbConnectionSync(1);
+        abortRdbConnectionSync();
         return C_ERR;
     }
     o->used += nread;
@@ -2851,7 +2842,7 @@ void completeTaskRDBChannelSync(connection *conn) {
             server.repl_state = REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE;
             if (connSetReadHandler(server.repl_provisional_master.conn, bufferReplData)) {
                 serverLog(LL_WARNING,"Error while setting readable handler: %s", strerror(errno));
-                abortRdbConnectionSync(1);
+                abortRdbConnectionSync();
             }
             replDataBufInit();
             return;
@@ -3011,7 +3002,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
         if (isOngoingRdbChannelSync()) {
             /* RDB connection sync failure */
-            abortRdbConnectionSync(0);
+            abortRdbConnectionSync();
         }
         /* FULL RESYNC, parse the reply in order to extract the replid
          * and the replication offset. */
@@ -3118,10 +3109,10 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         return PSYNC_TRY_LATER;
     }
 
-    if (!strncmp(reply, "-FULLSYNCNEEDED", 15) && useRdbChannelSync()) {
+    if (!strncmp(reply, "-FULLSYNCNEEDED", 15)) {
         /* In case the main connection with master is at no-fullsync mode, the master 
-         * will respond with empty bulk to imply that psync is not possible */
-        serverLog(LL_NOTICE, "PSYNC is not possible, initialize RDB channel");
+         * will respond with -FULLSYNCNEEDED to imply that psync is not possible */
+        serverLog(LL_NOTICE, "PSYNC is not possible, initialize RDB channel.");
         sdsfree(reply);
         return PSYNC_FULLRESYNC;
     }
@@ -3243,7 +3234,7 @@ void syncWithMaster(connection *conn) {
         }
 
         /* Mark main connection for psync only, in case we use rdb-channel for sync*/
-        if (useRdbChannelSync()) {
+        if (server.rdb_channel_enabled) {
            err = sendCommand(conn,"REPLCONF", "no-fullsync", "1", NULL);
         }
 
@@ -3312,7 +3303,7 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY && !useRdbChannelSync()) {
+    if (server.repl_state == REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY && !server.rdb_channel_enabled) {
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
     }
 
@@ -3320,9 +3311,8 @@ void syncWithMaster(connection *conn) {
         err = receiveSynchronousResponse(conn);
         if (err == NULL) goto rdb_conn_error;
         if (err[0] == '-') {
-            serverLog(LL_WARNING, "Primary does not understand REPLCONF no-fullsync aborting rdb channel sync %s", err);
-            sdsfree(err);
-            goto rdb_conn_error;
+            serverLog(LL_WARNING, "Master does not understand REPLCONF no-fullsync aborting rdb-channel sync %s", err);
+            server.master_supports_rdb_channel = 0;
         }
         sdsfree(err);
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
@@ -3368,7 +3358,7 @@ void syncWithMaster(connection *conn) {
     }
 
     /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY or REPL_RDB_CONN_RECEIVE_PSYNC_REPLY. */
-    if (useRdbChannelSync() && server.repl_state == REPL_STATE_CONNECTED) {
+    if (server.rdb_channel_enabled && server.repl_state == REPL_STATE_CONNECTED) {
         /* If we use rdb channel to load the RDB, there is a race condition in which we already 
          * done loading the RDB and thus the replica might already be connected */ 
         serverLog(LL_NOTICE, "RDB Channel Sync: Trying psync after replica done loading the snapshot");
@@ -3442,7 +3432,7 @@ void syncWithMaster(connection *conn) {
         server.repl_transfer_fd = dfd;
     }
 
-    if (useRdbChannelSync()) {
+    if (server.rdb_channel_enabled && server.master_supports_rdb_channel) {
         /* Create a full sync connection */
         server.repl_rdb_transfer_s = connCreate(connTypeOfReplication());
         if (connConnect(server.repl_rdb_transfer_s, server.masterhost, server.masterport,
@@ -3502,7 +3492,7 @@ error:
     return;
 
 rdb_conn_error:
-    abortRdbConnectionSync(0);
+    abortRdbConnectionSync();
     goto error;
 
 write_error: /* Handle sendCommand() errors. */
@@ -3638,6 +3628,8 @@ void replicationSetMaster(char *ip, int port) {
                               NULL);
 
     server.repl_state = REPL_STATE_CONNECT;
+    /* Allow trying rdb-channel sync with the new master. If new master doesn't 
+     * support rdb-channel sync, we will set to 0 afterwards. */
     server.master_supports_rdb_channel = 1;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);

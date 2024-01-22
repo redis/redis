@@ -2848,7 +2848,7 @@ void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString(void);
 int isReplicaRdbChannel(client *c);
-void abortRdbConnectionSync(int should_retry);
+void abortRdbConnectionSync(void);
 int sendCurentOffsetToReplica(client* replica);
 
 /* Generic persistence functions */
