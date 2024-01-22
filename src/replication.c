@@ -2596,6 +2596,8 @@ int processEndOffsetResponse(char* response) {
     char master_replid[CONFIG_RUN_ID_SIZE+1];
     int dbid;
     char endoff_format[30];
+    /* For scanning master response, create a format string.  Unless we change CONFIG_RUN_ID_SIZE
+     * size, the format string will be "$ENDOFF:%lld %40s %d". */
     snprintf(endoff_format, sizeof(endoff_format), "$ENDOFF:%%lld %%%ds %%d", CONFIG_RUN_ID_SIZE);
     if (sscanf(response, endoff_format, &reploffset, master_replid, &dbid) != 3) {
         return C_ERR;
