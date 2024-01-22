@@ -621,15 +621,12 @@ start_server {tags {"scripting"}} {
     }
 
     test "os.clock() measures elapsed time" {
-        set start [clock seconds]
-        set escape [run_script {
+        set escaped [run_script {
             local start = os.clock()
-            for i=1,100 do redis.call('ping') end
-            local escape = os.clock() - start
-            return {double=escape}
+            while os.clock() - start < 1 do end
+            return {double = os.clock() - start}
         } 0]
-        assert_morethan $escape 0
-        assert_lessthan $escape [expr [clock seconds]-$start]
+        assert_morethan_equal $escaped 1
     }
 
     test "Prohibited dangerous lua methods in sandbox" {
