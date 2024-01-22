@@ -52,7 +52,7 @@ int cancelReplicationHandshake(int reconnect);
 void syncWithMaster(connection *conn);
 void replicationSteadyStateInit(void);
 int processEndOffsetResponse(char* response);
-void completeRDBChannelSync(connection *conn);
+void completeTaskRDBChannelSync(connection *conn);
 int isReplicaMainChannel(client *c);
 int isReplicaRdbChannel(client *c);
 int isOngoingRdbChannelSync(void);
@@ -2367,10 +2367,12 @@ void readSyncBulkPayload(connection *conn) {
     if (isRdbConnection(conn)) {
         /* In case of full-sync using rdb channel, the master client was already created for psync purposes
          * Instead of creating a new client we will use the one created for partial sync */
-        completeRDBChannelSync(conn);
+        completeTaskRDBChannelSync(conn);
     } else {
         replicationCreateMasterClient(server.repl_transfer_s, rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
+/* Send the initial ACK immediately to put this replica in online state. */
+        replicationSendAck();
     }
     server.repl_down_since = 0;
 
@@ -2397,9 +2399,6 @@ void readSyncBulkPayload(connection *conn) {
     if (server.supervised_mode == SUPERVISED_SYSTEMD) {
         redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections in read-write mode.\n");
     }
-
-    /* Send the initial ACK immediately to put this replica in online state. */
-    if (usemark && !isRdbConnection(conn)) replicationSendAck();
 
     /* Restart the AOF subsystem now that we finished the sync. This
      * will trigger an AOF rewrite, and when done will start appending
@@ -2522,7 +2521,7 @@ sds getReplicaPortString(void) {
     return sdsfromlonglong(replica_port);
 }
 
-void freeReplDataBuf(void) {
+void freePendingReplDataBuf(void) {
     if (server.pending_repl_data.blocks) {
         listRelease(server.pending_repl_data.blocks);
     }
@@ -2557,7 +2556,7 @@ void abortRdbConnectionSync(int should_retry) {
     }
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
-    freeReplDataBuf();
+    freePendingReplDataBuf();
 
     if (!should_retry) {
         /* Make sure next time we will try different approach */
@@ -2844,7 +2843,7 @@ void streamReplDataBufToDb(client *c) {
  * The 'conn' argument is either server.repl_transfer_s or server.repl_rdb_transfer_s.
  * Each time this method is invoked, we check whether the other connection has completed
  * its part and act accordingly. */
-void completeRDBChannelSync(connection *conn) {
+void completeTaskRDBChannelSync(connection *conn) {
     if (conn == server.repl_transfer_s) {
         /* Main connection */
         if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_rdb_transfer_s != NULL) {
@@ -2870,7 +2869,6 @@ void completeRDBChannelSync(connection *conn) {
             return;
         }
         if (server.repl_state == REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE) {
-            /* Wait for the accumulated buffer to be processed before reading any more replication updates */
             connSetReadHandler(server.repl_transfer_s, NULL);
             goto sync_success;
         }
@@ -2880,8 +2878,9 @@ void completeRDBChannelSync(connection *conn) {
     
     sync_success:
     replicationResurrectProvisionalMaster();
+    /* Wait for the accumulated buffer to be processed before reading any more replication updates */
     streamReplDataBufToDb(server.master);
-    freeReplDataBuf();
+    freePendingReplDataBuf();
     serverLog(LL_NOTICE, "Successfully streamed replication data into memory");
     /* We can resume reading from the master connection once the local replication buffer has been loaded. */
     replicationSteadyStateInit();
@@ -3090,7 +3089,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         /* Setup the replication to continue. */
         sdsfree(reply);
         if (isOngoingRdbChannelSync()) {
-            completeRDBChannelSync(conn);
+            completeTaskRDBChannelSync(conn);
         } else {
             replicationResurrectCachedMaster(conn);
         }
