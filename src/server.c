@@ -6182,6 +6182,7 @@ sds saveMonitorFiltersFromArguments(client *c) {
         exit(1);
     }
 
+
     /* validate arguments are commands */
     for (int i = 1; i < c->argc; i++) {
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[i]->ptr);
