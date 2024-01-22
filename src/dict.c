@@ -544,11 +544,26 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
 }
 
 /* Performs rehashing on a single bucket. */
-static void dictBucketRehash(dict *d, uint64_t idx) {
-    if (d->pauserehash != 0) return;
+static int dictBucketRehash(dict *d, uint64_t idx) {
+    unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
+    unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
+    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+     * - If expanding, the threshold is dict_force_resize_ratio which is 4.
+     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
+    if (dict_can_resize == DICT_RESIZE_AVOID && 
+        ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
+         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
+    {
+        return 0;
+    }
     _rehashEntriesInBucketAtIndex(d, idx);
     dictCheckRehashingCompleted(d);
-    return;
+    return 1;
+}
+
+static void _dictBucketRehashStep(dict *d, uint64_t idx) {
+    if (d->pauserehash == 0) dictBucketRehash(d, idx);
 }
 
 /* Add or Overwrite:
@@ -727,7 +742,7 @@ dictEntry *dictFind(dict *d, const void *key)
         if (he) {
             /* If we have a valid `he` at `idx` in ht0,
              * we perform rehash on the bucket at `idx` */
-            dictBucketRehash(d, idx);
+            _dictBucketRehashStep(d, idx);
         } else {
             /* If the 'he' is not in ht0, we perform a random bucket rehash. */
             _dictRehashStep(d);
