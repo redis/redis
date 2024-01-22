@@ -454,6 +454,7 @@ typedef enum {
     /* --- End of handshake states --- */
     REPL_STATE_TRANSFER,        /* Receiving .rdb from master */
     /* --- RDB channel related states --- */
+    REPL_RDB_CONN_SEND_CAPA,    /* Send replica cob-channel capabilities */
     REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY,   /* Wait for REPLCONF reply */
     REPL_RDB_CONN_RECEIVE_ENDOFF,           /* Wait for $ENDOFF reply */
     REPL_RDB_CONN_SEND_PSYNC,          /* Same as REPL_STATE_SEND_PSYNC but during RDB load */

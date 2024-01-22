@@ -2636,7 +2636,7 @@ void fullSyncWithMaster(connection* conn) {
     }
 
     /* Send replica capabilities */
-    if (server.repl_state == REPL_STATE_RECEIVE_PSYNC_REPLY) {
+    if (server.repl_state == REPL_RDB_CONN_SEND_CAPA) {
         serverLog(LL_DEBUG, "Received first reply from primary using rdb connection. Sending capa");
         
         /* Send replica lisening port to master for clarification */
@@ -2934,6 +2934,7 @@ void completeTaskRDBChannelSync(connection *conn) {
 #define PSYNC_FULLRESYNC 3
 #define PSYNC_NOT_SUPPORTED 4
 #define PSYNC_TRY_LATER 5
+#define PSYNC_FULLRESYNC_RDB_CONN 6
 int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     char *psync_replid;
     char psync_offset[32];
@@ -3116,7 +3117,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
          * will respond with -FULLSYNCNEEDED to imply that psync is not possible */
         serverLog(LL_NOTICE, "PSYNC is not possible, initialize RDB channel.");
         sdsfree(reply);
-        return PSYNC_FULLRESYNC;
+        return PSYNC_FULLRESYNC_RDB_CONN;
     }
 
     if (strncmp(reply,"-ERR",4)) {
@@ -3341,7 +3342,7 @@ void syncWithMaster(connection *conn) {
      * to start a full resynchronization so that we get the master replid
      * and the global offset, to try a partial resync at the next
      * reconnection attempt. */
-    if (server.repl_state == REPL_STATE_SEND_PSYNC) {
+        if (server.repl_state == REPL_STATE_SEND_PSYNC) {
         if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
             err = sdsnew("Write error sending the PSYNC command.");
             abortFailover("Write error to failover target");
@@ -3415,6 +3416,12 @@ void syncWithMaster(connection *conn) {
                 connGetLastError(conn));
             goto error;
         }
+    }
+
+    /* Using rdb-channel sync, the master responded -FULLSYNCNEEDED. We need to 
+     * initialize the RDB channel. */
+    if (psync_result == PSYNC_FULLRESYNC_RDB_CONN) {
+        server.repl_state = REPL_RDB_CONN_SEND_CAPA;
     }
 
     /* Prepare a suitable temp file for bulk transfer */
