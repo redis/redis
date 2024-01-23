@@ -424,3 +424,21 @@ sds cliVersion(void) {
     }
     return version;
 }
+
+/* This is a wrapper to call redisConnect or redisConnectWithTimeout. */
+redisContext *redisConnectWrapper(const char *ip, int port, const struct timeval *tv) {
+    if (tv == NULL) {
+        return redisConnect(ip, port);
+    } else {
+        return redisConnectWithTimeout(ip, port, *tv);
+    }
+}
+
+/* This is a wrapper to call redisConnectUnix or redisConnectUnixWithTimeout. */
+redisContext *redisConnectUnixWrapper(const char *path, const struct timeval *tv) {
+    if (tv == NULL) {
+        return redisConnectUnix(path);
+    } else {
+        return redisConnectUnixWithTimeout(path, *tv);
+    }
+}
