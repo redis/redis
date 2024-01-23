@@ -102,6 +102,7 @@ typedef struct {
 
 void *bg_call_worker(void *arg) {
     bg_call_data *bg = arg;
+    RedisModuleBlockedClient *bc = bg->bc;
 
     // Get Redis module context
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bg->bc);
@@ -135,6 +136,12 @@ void *bg_call_worker(void *arg) {
     RedisModuleCallReply *rep = RedisModule_Call(ctx, cmd, format, bg->argv + cmd_pos + 1, bg->argc - cmd_pos - 1);
     RedisModule_FreeString(NULL, format_redis_str);
 
+    /* Free the arguments within GIL to prevent simultaneous freeing in main thread. */
+    for (int i=0; i<bg->argc; i++)
+        RedisModule_FreeString(ctx, bg->argv[i]);
+    RedisModule_Free(bg->argv);
+    RedisModule_Free(bg);
+
     // Release GIL
     RedisModule_ThreadSafeContextUnlock(ctx);
 
@@ -147,13 +154,7 @@ void *bg_call_worker(void *arg) {
     }
 
     // Unblock client
-    RedisModule_UnblockClient(bg->bc, NULL);
-
-    /* Free the arguments */
-    for (int i=0; i<bg->argc; i++)
-        RedisModule_FreeString(ctx, bg->argv[i]);
-    RedisModule_Free(bg->argv);
-    RedisModule_Free(bg);
+    RedisModule_UnblockClient(bc, NULL);
 
     // Free the Redis module context
     RedisModule_FreeThreadSafeContext(ctx);

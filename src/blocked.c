@@ -239,7 +239,7 @@ void replyToBlockedClientTimedOut(client *c) {
         addReplyLongLong(c,server.fsynced_reploff >= c->bstate.reploffset);
         addReplyLongLong(c,replicationCountAOFAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_MODULE) {
-        moduleBlockedClientTimedOut(c);
+        moduleBlockedClientTimedOut(c, 0);
     } else {
         serverPanic("Unknown btype in replyToBlockedClientTimedOut().");
     }
