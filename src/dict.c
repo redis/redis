@@ -1547,9 +1547,21 @@ static signed char _dictNextExp(unsigned long size)
 void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) {
     unsigned long idx, table;
     dictEntry *he;
-    uint64_t hash = dictHashKey(d, key);
     if (existing) *existing = NULL;
-    if (dictIsRehashing(d)) _dictRehashStep(d);
+    uint64_t hash = dictHashKey(d, key);
+    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+
+    if (dictIsRehashing(d)) {
+        if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
+            /* If we have a valid hash entry at `idx` in ht0, we perform
+             * rehash on the bucket at `idx` (being more CPU cache friendly) */
+            _dictBucketRehashStep(d, idx);
+        } else {
+            /* If the hash entry is not in ht0, we perform a random access
+             * bucket rehash (uses rehashidx). */
+            _dictRehashStep(d);
+        }
+    }
 
     /* Expand the hash table if needed */
     _dictExpandIfNeeded(d);
