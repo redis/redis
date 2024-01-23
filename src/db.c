@@ -1843,6 +1843,9 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     return 1;
 }
 
+/* CB passed to kvstoreExpand.
+ * The purpose is to skip expansion of unused dicts in cluster mode (all
+ * dicts not mapped to *my* slots) */
 static int dbExpandSkipSlot(int slot) {
     return !clusterNodeCoversSlot(getMyClusterNode(), slot);
 }

@@ -2662,8 +2662,10 @@ void initServer(void) {
         server.db[j].defrag_later = listCreate();
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
-    server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    /* Note that server.pubsub_channels was chosen to be a kvstore (with only one dict, which
+     * seems odd) just to make the code cleaner by making it be the same type as server.pubsubshard_channels
+     * (which has to be kvstore), see pubsubtype.serverPubSubChannels */
     server.pubsub_channels = kvstoreCreate(&objToDictDictType, 0);
     server.pubsub_patterns = dictCreate(&objToDictDictType);
     server.pubsubshard_channels = kvstoreCreate(&objToDictDictType, slot_count_bits);

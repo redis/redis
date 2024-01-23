@@ -1,4 +1,42 @@
-#include "fmacros.h"
+/*
+ * Index-based KV store implemntation
+ * This file implements a KV store comprised of an array of dicts (see dict.c)
+ * The purpose of this KV store is to have easy access to all keys that belong
+ * in the same dict (i.e. are in the same dict-index)
+ *
+ * For exmaple, when Redis is running in cluster mode, we use kvstore to save
+ * all keys that map to the same hash-slot in a seperate dict within the kvstore
+ * struct.
+ * This enables us to easily access all keys that map to a specific hash-slot.
+ *
+ * Copyright (c) 2024, Redis Labs, Inc
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+ #include "fmacros.h"
 
 #include <string.h>
 #include <stddef.h>
@@ -50,7 +88,7 @@ static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *curs
 /* Updates binary index tree (also known as Fenwick tree), increasing key count for a given dict.
  * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
  * Time complexity is O(log(kvs->num_dicts)). */
-static void daCumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
+static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     kvs->state.key_count += delta;
 
     dict *d = kvstoreGetDict(kvs, didx);
@@ -58,7 +96,7 @@ static void daCumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     int non_empty_dicts_delta = dsize == 1? 1 : dsize == 0? -1 : 0;
     kvs->state.non_empty_dicts += non_empty_dicts_delta;
 
-    /* BIT does not need to be calculated when the cluster is turned off. */
+    /* BIT does not need to be calculated when there's only one dict. */
     if (kvs->num_dicts == 1)
         return;
 
@@ -80,10 +118,10 @@ static void daCumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
 /* Adds dictionary to the rehashing list, which allows us
  * to quickly find rehash targets during incremental rehashing.
  *
- * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
- * incremented with the new ht size during the rehashing phase. In non-cluster mode,
- * bucket count can be retrieved directly from single dict bucket. */
-void daDictRehashingStarted(dict *d) {
+ * If there are multiple dicts, updates the bucket count for the given dictionary
+ * in a DB, bucket count incremented with the new ht size during the rehashing phase.
+ * If there's one dict, bucket count can be retrieved directly from single dict bucket. */
+static void _dictRehashingStarted(dict *d) {
     kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
     listAddNodeTail(metadata->kvs->state.rehashing, d);
     metadata->rehashing_node = listLast(metadata->kvs->state.rehashing);
@@ -99,7 +137,7 @@ void daDictRehashingStarted(dict *d) {
  *
  * Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void daDictRehashingCompleted(dict *d) {
+static void _dictRehashingCompleted(dict *d) {
     kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
     if (metadata->rehashing_node) {
         listDelNode(metadata->kvs->state.rehashing, metadata->rehashing_node);
@@ -114,9 +152,8 @@ void daDictRehashingCompleted(dict *d) {
 }
 
 /* Returns the size of the DB dict metadata in bytes. */
-size_t kvstoreDictMetadataSize(dict *d) {
+static size_t _dictMetadataSize(dict *d) {
     UNUSED(d);
-    /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
     return sizeof(kvstoreDictMetadata);
 }
 
@@ -124,18 +161,25 @@ size_t kvstoreDictMetadataSize(dict *d) {
 /*** API **************************/
 /**********************************/
 
-/* Create an array of dictionaries */
+/* Create an array of dictionaries
+ * num_dicts_bits is the log2 of the amount of dictionaries needed (e.g. 0 for 1 dict,
+ * 3 for 8 dicts, etc.) */
 kvstore *kvstoreCreate(dictType *type, int num_dicts_bits) {
-    kvstore *kvs = zcalloc(sizeof(*kvs));
+    /* We can't support more than 2^16 dicts because we want to save 48 bits
+     * for the dict cursor, see kvstoreScan */
+    assert(num_dicts_bits <= 16);
 
+    kvstore *kvs = zcalloc(sizeof(*kvs));
     memcpy(&kvs->dtype, type, sizeof(kvs->dtype));
+
+    /* kvstore must be the one to set this callbacks, so we make sure the
+     * caller didn't do it */
     assert(!type->dictMetadataBytes);
     assert(!type->rehashingStarted);
     assert(!type->rehashingCompleted);
-    kvs->dtype.dictMetadataBytes = kvstoreDictMetadataSize;
-    kvs->dtype.rehashingStarted = daDictRehashingStarted;
-    kvs->dtype.rehashingCompleted = daDictRehashingCompleted;
-
+    kvs->dtype.dictMetadataBytes = _dictMetadataSize;
+    kvs->dtype.rehashingStarted = _dictRehashingStarted;
+    kvs->dtype.rehashingCompleted = _dictRehashingCompleted;
 
     kvs->num_dicts_bits = num_dicts_bits;
     kvs->num_dicts = 1 << kvs->num_dicts_bits;
@@ -211,11 +255,19 @@ unsigned long kvstoreBuckets(kvstore *kvs) {
 }
 
 size_t kvstoreMemUsage(kvstore *kvs) {
-    size_t mem = 0;
+    size_t mem = sizeof(*kvs);
+
     unsigned long long keys_count = kvstoreSize(kvs);
     mem += keys_count * dictEntryMemUsage() +
            kvstoreBuckets(kvs) * sizeof(dictEntry*) +
            kvs->num_dicts * (sizeof(dict) + dictMetadataSize(kvstoreGetDict(kvs, 0)));
+
+    /* Values are dict* shared with kvs->dicts */
+    mem += listLength(kvs->state.rehashing) * sizeof(listNode);
+
+    if (kvs->state.dict_size_index)
+        mem += sizeof(unsigned long long) * (kvs->num_dicts + 1);
+
     return mem;
 }
 
@@ -229,7 +281,7 @@ size_t kvstoreMemUsage(kvstore *kvs) {
  * 3. If the dict is entirely scanned i.e. the cursor has reached 0, the next non empty dict is discovered.
  *    The dict information is embedded into the cursor and returned.
  *
- * To restrict the scan to a single cluster dict, pass a valid dict index as
+ * To restrict the scan to a single dict, pass a valid dict index as
  * 'onlydidx', otherwise pass -1.
  */
 unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
@@ -238,9 +290,10 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
                                void *privdata)
 {
     unsigned long long _cursor = 0;
-    /* During main dictionary traversal in cluster mode, 48 upper bits in the cursor are used for positioning in the HT.
+    /* During dictionary traversal, 48 upper bits in the cursor are used for positioning in the HT.
      * Following lower bits are used for the dict index number, ranging from 0 to 2^num_dicts_bits-1.
-     * Dict index is always 0 at the start of iteration and can be incremented only if there are multiple dicts. */
+     * Dict index is always 0 at the start of iteration and can be incremented only if there are
+     * multiple dicts. */
     int didx = getAndClearDictIndexFromCursor(kvs, &cursor);
     if (onlydidx >= 0) {
         if (didx < onlydidx) {
@@ -507,7 +560,7 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
     dictEntry *ret = dictAddRaw(kvstoreGetDict(kvs, didx), key, existing);
     if (ret)
-        daCumulativeKeyCountAdd(kvs, didx, 1);
+        cumulativeKeyCountAdd(kvs, didx, 1);
     return ret;
 }
 
@@ -525,12 +578,12 @@ dictEntry *kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key
 
 void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntry *he, dictEntry **plink, int table_index) {
     dictTwoPhaseUnlinkFree(kvstoreGetDict(kvs, didx), he, plink, table_index);
-    daCumulativeKeyCountAdd(kvs, didx, -1);
+    cumulativeKeyCountAdd(kvs, didx, -1);
 }
 
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
     int ret = dictDelete(kvstoreGetDict(kvs, didx), key);
     if (ret == DICT_OK)
-        daCumulativeKeyCountAdd(kvs, didx, -1);
+        cumulativeKeyCountAdd(kvs, didx, -1);
     return ret;
 }
