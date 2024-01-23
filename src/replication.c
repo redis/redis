@@ -2263,6 +2263,7 @@ void readSyncBulkPayload(connection *conn) {
     replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
+    server.repl_up_since = server.unixtime;
 
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
@@ -3100,8 +3101,9 @@ void replicationUnsetMaster(void) {
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
     
-    /* Reset down time so it'll be ready for when we turn into replica again. */
+    /* Reset up and down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
+    server.repl_up_since = 0;
 
     /* Fire the role change modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
@@ -3125,6 +3127,7 @@ void replicationHandleMasterDisconnection(void) {
     server.master = NULL;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;
+    server.repl_up_since = 0;
     /* We lost connection with our master, don't disconnect slaves yet,
      * maybe we'll be able to PSYNC with our master later. We'll disconnect
      * the slaves only if we'll have to do a full resync with our master. */
@@ -3405,6 +3408,7 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.master->lastinteraction = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
+    server.repl_up_since = server.unixtime;
 
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,

@@ -2210,6 +2210,7 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
+    server.repl_up_since = 0;
     server.repl_master_connect_time = -1;
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
@@ -6002,6 +6003,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     "master_link_down_since_seconds:%jd\r\n",
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
+            } else {
+                info = sdscatprintf(info,
+                    "master_link_up_since_seconds:%jd\r\n",
+                    server.repl_up_since ? // defensive code, should never be 0 when connected
+                    (intmax_t)(server.unixtime-server.repl_up_since) : -1);
             }
             info = sdscatprintf(info, FMTARGS(
                 "slave_priority:%d\r\n", server.slave_priority,

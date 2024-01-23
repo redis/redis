@@ -1922,6 +1922,7 @@ struct redisServer {
     int repl_slave_ro;          /* Slave is read only? */
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
     time_t repl_down_since; /* Unix time at which link with master went down */
+    time_t repl_up_since;   /* Unix time that master link is fully up and healthy */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
     int replica_announced;          /* If true, replica is announced by Sentinel */
