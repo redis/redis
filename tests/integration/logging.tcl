@@ -1,22 +1,10 @@
 tags {"external:skip"} {
 
 set system_name [string tolower [exec uname -s]]
-set backtrace_supported 0
+set backtrace_supported [system_backtrace_supported]
 set threads_mngr_supported 0 ;# Do we support printing stack trace from all threads, not just the one that got the signal?
-
-# We only support darwin or Linux with glibc
-if {$system_name eq {darwin}} {
-    set backtrace_supported 1
-} elseif {$system_name eq {linux}} {
+if {$system_name eq {linux}} {
     set threads_mngr_supported 1
-    # Avoid the test on libmusl, which does not support backtrace
-    # and on static binaries (ldd exit code 1) where we can't detect libmusl
-    catch {
-        set ldd [exec ldd src/redis-server]
-        if {![string match {*libc.*musl*} $ldd]} {
-            set backtrace_supported 1
-        }
-    }
 }
 
 # look for the DEBUG command in the backtrace, used when we triggered

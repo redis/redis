@@ -48,16 +48,19 @@
 #include "redisassert.h"
 #include "monotonic.h"
 
-/* Using dictEnableResize() / dictDisableResize() we make possible to disable
+/* Using dictSetResizeEnabled() we make possible to disable
  * resizing and rehashing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
  *
  * Note that even when dict_can_resize is set to DICT_RESIZE_AVOID, not all
- * resizes are prevented: a hash table is still allowed to grow if the ratio
- * between the number of elements and the buckets > dict_force_resize_ratio. */
+ * resizes are prevented:
+ *  - A hash table is still allowed to expand if the ratio between the number
+ *    of elements and the buckets >= dict_force_resize_ratio.
+ *  - A hash table is still allowed to shrink if the ratio between the number
+ *    of elements and the buckets <= 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
 static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
-static unsigned int dict_force_resize_ratio = 5;
+static unsigned int dict_force_resize_ratio = 4;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -78,7 +81,8 @@ typedef struct {
 
 /* -------------------------- private prototypes ---------------------------- */
 
-static int _dictExpandIfNeeded(dict *d);
+static void _dictExpandIfNeeded(dict *d);
+static void _dictShrinkIfNeeded(dict *d);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
@@ -181,7 +185,11 @@ static void _dictReset(dict *d, int htidx)
 /* Create a new hash table */
 dict *dictCreate(dictType *type)
 {
-    dict *d = zmalloc(sizeof(*d));
+    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL) : 0;
+    dict *d = zmalloc(sizeof(*d)+metasize);
+    if (metasize > 0) {
+        memset(dictMetadata(d), 0, metasize);
+    }
     _dictInit(d,type);
     return d;
 }
@@ -204,12 +212,13 @@ int _dictInit(dict *d, dictType *type)
     d->type = type;
     d->rehashidx = -1;
     d->pauserehash = 0;
+    d->pauseAutoResize = 0;
     return DICT_OK;
 }
 
 /* Resize the table to the minimal size that contains all the elements,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
-int dictResize(dict *d)
+int dictShrinkToFit(dict *d)
 {
     unsigned long minimal;
 
@@ -217,20 +226,18 @@ int dictResize(dict *d)
     minimal = d->ht_used[0];
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
-    return dictExpand(d, minimal);
+    return dictShrink(d, minimal);
 }
 
-/* Expand or create the hash table,
+/* Resize or create the hash table,
  * when malloc_failed is non-NULL, it'll avoid panic if malloc fails (in which case it'll be set to 1).
- * Returns DICT_OK if expand was performed, and DICT_ERR if skipped. */
-int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
+ * Returns DICT_OK if resize was performed, and DICT_ERR if skipped. */
+int _dictResize(dict *d, unsigned long size, int* malloc_failed)
 {
     if (malloc_failed) *malloc_failed = 0;
 
-    /* the size is invalid if it is smaller than the number of
-     * elements already inside the hash table */
-    if (dictIsRehashing(d) || d->ht_used[0] > size)
-        return DICT_ERR;
+    /* We can't rehash twice if rehashing is ongoing. */
+    assert(!dictIsRehashing(d));
 
     /* the new hash table */
     dictEntry **new_ht_table;
@@ -282,6 +289,14 @@ int _dictExpand(dict *d, unsigned long size, int* malloc_failed)
     return DICT_OK;
 }
 
+int _dictExpand(dict *d, unsigned long size, int* malloc_failed) {
+    /* the size is invalid if it is smaller than the size of the hash table 
+     * or smaller than the number of elements already inside the hash table */
+    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) >= size)
+        return DICT_ERR;
+    return _dictResize(d, size, malloc_failed);
+}
+
 /* return DICT_ERR if expand was not performed */
 int dictExpand(dict *d, unsigned long size) {
     return _dictExpand(d, size, NULL);
@@ -289,9 +304,18 @@ int dictExpand(dict *d, unsigned long size) {
 
 /* return DICT_ERR if expand failed due to memory allocation failure */
 int dictTryExpand(dict *d, unsigned long size) {
-    int malloc_failed;
+    int malloc_failed = 0;
     _dictExpand(d, size, &malloc_failed);
     return malloc_failed? DICT_ERR : DICT_OK;
+}
+
+/* return DICT_ERR if shrink was not performed */
+int dictShrink(dict *d, unsigned long size) {
+    /* the size is invalid if it is bigger than the size of the hash table
+     * or smaller than the number of elements already inside the hash table */
+    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) <= size)
+        return DICT_ERR;
+    return _dictResize(d, size, NULL);
 }
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
@@ -308,9 +332,12 @@ int dictRehash(dict *d, int n) {
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+     * - If expanding, the threshold is dict_force_resize_ratio which is 4.
+     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
     if (dict_can_resize == DICT_RESIZE_AVOID && 
-        ((s1 > s0 && s1 / s0 < dict_force_resize_ratio) ||
-         (s1 < s0 && s0 / s1 < dict_force_resize_ratio)))
+        ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
+         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
         return 0;
     }
@@ -399,10 +426,10 @@ long long timeInMilliseconds(void) {
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 }
 
-/* Rehash in ms+"delta" milliseconds. The value of "delta" is larger 
- * than 0, and is smaller than 1 in most cases. The exact upper bound 
+/* Rehash in us+"delta" microseconds. The value of "delta" is larger
+ * than 0, and is smaller than 1000 in most cases. The exact upper bound
  * depends on the running time of dictRehash(d,100).*/
-int dictRehashMilliseconds(dict *d, unsigned int ms) {
+int dictRehashMicroseconds(dict *d, uint64_t us) {
     if (d->pauserehash > 0) return 0;
 
     monotime timer;
@@ -411,7 +438,7 @@ int dictRehashMilliseconds(dict *d, unsigned int ms) {
 
     while(dictRehash(d,100)) {
         rehashes += 100;
-        if (elapsedMs(timer) >= ms) break;
+        if (elapsedUs(timer) >= us) break;
     }
     return rehashes;
 }
@@ -584,6 +611,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
                     dictFreeUnlinkedEntry(d, he);
                 }
                 d->ht_used[table]--;
+                _dictShrinkIfNeeded(d);
                 return he;
             }
             prevHe = he;
@@ -748,6 +776,7 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table
     dictFreeKey(d, he);
     dictFreeVal(d, he);
     if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+    _dictShrinkIfNeeded(d);
     dictResumeRehashing(d);
 }
 
@@ -1395,23 +1424,29 @@ unsigned long dictScanDefrag(dict *d,
 /* ------------------------- private functions ------------------------------ */
 
 /* Because we may need to allocate huge memory chunk at once when dict
- * expands, we will check this allocation is allowed or not if the dict
- * type has expandAllowed member function. */
-static int dictTypeExpandAllowed(dict *d) {
-    if (d->type->expandAllowed == NULL) return 1;
-    return d->type->expandAllowed(
-                    DICTHT_SIZE(_dictNextExp(d->ht_used[0] + 1)) * sizeof(dictEntry*),
+ * resizes, we will check this allocation is allowed or not if the dict
+ * type has resizeAllowed member function. */
+static int dictTypeResizeAllowed(dict *d, size_t size) {
+    if (d->type->resizeAllowed == NULL) return 1;
+    return d->type->resizeAllowed(
+                    DICTHT_SIZE(_dictNextExp(size)) * sizeof(dictEntry*),
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
 /* Expand the hash table if needed */
-static int _dictExpandIfNeeded(dict *d)
+static void _dictExpandIfNeeded(dict *d)
 {
+    /* Automatic resizing is disallowed. Return */
+    if (d->pauseAutoResize > 0) return;
+
     /* Incremental rehashing already in progress. Return. */
-    if (dictIsRehashing(d)) return DICT_OK;
+    if (dictIsRehashing(d)) return;
 
     /* If the hash table is empty expand it to the initial size. */
-    if (DICTHT_SIZE(d->ht_size_exp[0]) == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);
+    if (DICTHT_SIZE(d->ht_size_exp[0]) == 0) {
+        dictExpand(d, DICT_HT_INITIAL_SIZE);
+        return;
+    }
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
      * table (global setting) or we should avoid it but the ratio between
@@ -1420,13 +1455,37 @@ static int _dictExpandIfNeeded(dict *d)
     if ((dict_can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] >= DICTHT_SIZE(d->ht_size_exp[0])) ||
         (dict_can_resize != DICT_RESIZE_FORBID &&
-         d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]) > dict_force_resize_ratio))
+         d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (!dictTypeExpandAllowed(d))
-            return DICT_OK;
-        return dictExpand(d, d->ht_used[0] + 1);
+        if (!dictTypeResizeAllowed(d, d->ht_used[0] + 1))
+            return;
+        dictExpand(d, d->ht_used[0] + 1);
     }
-    return DICT_OK;
+}
+
+static void _dictShrinkIfNeeded(dict *d) 
+{
+    /* Automatic resizing is disallowed. Return */
+    if (d->pauseAutoResize > 0) return;
+
+    /* Incremental rehashing already in progress. Return. */
+    if (dictIsRehashing(d)) return;
+    
+    /* If the size of hash table is DICT_HT_INITIAL_SIZE, don't shrink it. */
+    if (DICTHT_SIZE(d->ht_size_exp[0]) == DICT_HT_INITIAL_SIZE) return;
+
+    /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
+     * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
+     * we'll trigger a resize of the hash table. */
+    if ((dict_can_resize == DICT_RESIZE_ENABLE &&
+         d->ht_used[0] * HASHTABLE_MIN_FILL <= DICTHT_SIZE(d->ht_size_exp[0])) ||
+        (dict_can_resize != DICT_RESIZE_FORBID &&
+         d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
+    {
+        if (!dictTypeResizeAllowed(d, d->ht_used[0]))
+            return;
+        dictShrink(d, d->ht_used[0]);
+    }
 }
 
 /* Our hash table capability is a power of two */
@@ -1450,8 +1509,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
     /* Expand the hash table if needed */
-    if (_dictExpandIfNeeded(d) == DICT_ERR)
-        return NULL;
+    _dictExpandIfNeeded(d);
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         if (table == 0 && (long)idx < d->rehashidx) continue; 
@@ -1479,6 +1537,7 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
     _dictClear(d,1,callback);
     d->rehashidx = -1;
     d->pauserehash = 0;
+    d->pauseAutoResize = 0;
 }
 
 void dictSetResizeEnabled(dictResizeEnable enable) {
@@ -1637,6 +1696,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
 #include "testhelp.h"
 
 #define UNUSED(V) ((void) V)
+#define TEST(name) printf("test — %s\n", name);
 
 uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
@@ -1690,8 +1750,10 @@ dictType BenchmarkDictType = {
 int dictTest(int argc, char **argv, int flags) {
     long j;
     long long start, elapsed;
+    int retval;
     dict *dict = dictCreate(&BenchmarkDictType);
     long count = 0;
+    unsigned long new_dict_size, current_dict_used, remain_keys;
     int accurate = (flags & REDIS_TEST_ACCURATE);
 
     if (argc == 4) {
@@ -1704,9 +1766,135 @@ int dictTest(int argc, char **argv, int flags) {
         count = 5000;
     }
 
+    TEST("Add 16 keys and verify dict resize is ok") {
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+        for (j = 0; j < 16; j++) {
+            retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
+            assert(retval == DICT_OK);
+        }
+        while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
+        assert(dictSize(dict) == 16);
+        assert(dictBuckets(dict) == 16);
+    }
+
+    TEST("Use DICT_RESIZE_AVOID to disable the dict resize and pad to (dict_force_resize_ratio * 16)") {
+        /* Use DICT_RESIZE_AVOID to disable the dict resize, and pad
+         * the number of keys to (dict_force_resize_ratio * 16), so we can satisfy
+         * dict_force_resize_ratio in next test. */
+        dictSetResizeEnabled(DICT_RESIZE_AVOID);
+        for (j = 16; j < (long)dict_force_resize_ratio * 16; j++) {
+            retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
+            assert(retval == DICT_OK);
+        }
+        current_dict_used = dict_force_resize_ratio * 16;
+        assert(dictSize(dict) == current_dict_used);
+        assert(dictBuckets(dict) == 16);
+    }
+
+    TEST("Add one more key, trigger the dict resize") {
+        retval = dictAdd(dict,stringFromLongLong(current_dict_used),(void*)(current_dict_used));
+        assert(retval == DICT_OK);
+        current_dict_used++;
+        new_dict_size = 1UL << _dictNextExp(current_dict_used);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == 16);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == new_dict_size);
+
+        /* Wait for rehashing. */
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+        while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
+    }
+
+    TEST("Delete keys until we can trigger shrink in next test") {
+        /* Delete keys until we can satisfy (1 / HASHTABLE_MIN_FILL) in the next test. */
+        for (j = new_dict_size / HASHTABLE_MIN_FILL + 1; j < (long)current_dict_used; j++) {
+            char *key = stringFromLongLong(j);
+            retval = dictDelete(dict, key);
+            zfree(key);
+            assert(retval == DICT_OK);
+        }
+        current_dict_used = new_dict_size / HASHTABLE_MIN_FILL + 1;
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
+    }
+
+    TEST("Delete one more key, trigger the dict resize") {
+        current_dict_used--;
+        char *key = stringFromLongLong(current_dict_used);
+        retval = dictDelete(dict, key);
+        zfree(key);
+        unsigned long oldDictSize = new_dict_size;
+        new_dict_size = 1UL << _dictNextExp(current_dict_used);
+        assert(retval == DICT_OK);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == oldDictSize);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == new_dict_size);
+
+        /* Wait for rehashing. */
+        while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
+    }
+
+    TEST("Empty the dictionary and add 128 keys") {
+        dictEmpty(dict, NULL);
+        for (j = 0; j < 128; j++) {
+            retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
+            assert(retval == DICT_OK);
+        }
+        while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
+        assert(dictSize(dict) == 128);
+        assert(dictBuckets(dict) == 128);
+    }
+
+    TEST("Use DICT_RESIZE_AVOID to disable the dict resize and reduce to 3") {
+        /* Use DICT_RESIZE_AVOID to disable the dict reset, and reduce
+         * the number of keys until we can trigger shrinking in next test. */
+        dictSetResizeEnabled(DICT_RESIZE_AVOID);
+        remain_keys = DICTHT_SIZE(dict->ht_size_exp[0]) / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) + 1;
+        for (j = remain_keys; j < 128; j++) {
+            char *key = stringFromLongLong(j);
+            retval = dictDelete(dict, key);
+            zfree(key);
+            assert(retval == DICT_OK);
+        }
+        current_dict_used = remain_keys;
+        assert(dictSize(dict) == remain_keys);
+        assert(dictBuckets(dict) == 128);
+    }
+
+    TEST("Delete one more key, trigger the dict resize") {
+        current_dict_used--;
+        char *key = stringFromLongLong(current_dict_used);
+        retval = dictDelete(dict, key);
+        zfree(key);
+        new_dict_size = 1UL << _dictNextExp(current_dict_used);
+        assert(retval == DICT_OK);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == 128);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == new_dict_size);
+
+        /* Wait for rehashing. */
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+        while (dictIsRehashing(dict)) dictRehashMicroseconds(dict,1000);
+        assert(dictSize(dict) == current_dict_used);
+        assert(DICTHT_SIZE(dict->ht_size_exp[0]) == new_dict_size);
+        assert(DICTHT_SIZE(dict->ht_size_exp[1]) == 0);
+    }
+
+    TEST("Restore to original state") {
+        dictEmpty(dict, NULL);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+    }
+
     start_benchmark();
     for (j = 0; j < count; j++) {
-        int retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
+        retval = dictAdd(dict,stringFromLongLong(j),(void*)j);
         assert(retval == DICT_OK);
     }
     end_benchmark("Inserting");
@@ -1714,7 +1902,7 @@ int dictTest(int argc, char **argv, int flags) {
 
     /* Wait for rehashing. */
     while (dictIsRehashing(dict)) {
-        dictRehashMilliseconds(dict,100);
+        dictRehashMicroseconds(dict,100*1000);
     }
 
     start_benchmark();
@@ -1764,7 +1952,7 @@ int dictTest(int argc, char **argv, int flags) {
     start_benchmark();
     for (j = 0; j < count; j++) {
         char *key = stringFromLongLong(j);
-        int retval = dictDelete(dict,key);
+        retval = dictDelete(dict,key);
         assert(retval == DICT_OK);
         key[0] += 17; /* Change first number to letter. */
         retval = dictAdd(dict,key,(void*)j);

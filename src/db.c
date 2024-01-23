@@ -669,9 +669,21 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
+            dbDictMetadata *metadata;
             for (int k = 0; k < dbarray[j].dict_count; k++) {
                 dictEmpty(dbarray[j].dict[k],callback);
+                metadata = (dbDictMetadata *)dictMetadata(dbarray[j].dict[k]);
+                if (metadata->rehashing_node) {
+                    listDelNode(server.rehashing, metadata->rehashing_node);
+                    metadata->rehashing_node = NULL;
+                }
+
                 dictEmpty(dbarray[j].expires[k],callback);
+                metadata = (dbDictMetadata *)dictMetadata(dbarray[j].expires[k]);
+                if (metadata->rehashing_node) {
+                    listDelNode(server.rehashing, metadata->rehashing_node);
+                    metadata->rehashing_node = NULL;
+                }
             }
         }
         /* Because all keys of database are removed, reset average ttl. */
@@ -682,8 +694,6 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             dbarray[j].sub_dict[subdict].key_count = 0;
             dbarray[j].sub_dict[subdict].resize_cursor = -1;
             if (server.cluster_enabled) {
-                if (dbarray[j].sub_dict[subdict].rehashing)
-                    listEmpty(dbarray[j].sub_dict[subdict].rehashing);
                 dbarray[j].sub_dict[subdict].bucket_count = 0;
                 unsigned long long *slot_size_index = dbarray[j].sub_dict[subdict].slot_size_index;
                 memset(slot_size_index, 0, sizeof(unsigned long long) * (CLUSTER_SLOTS + 1));
@@ -753,11 +763,11 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
 redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
+        tempDb[i].id = i;
         tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreateMultiple(&dbExpiresDictType, tempDb[i].dict_count);
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-            tempDb[i].sub_dict[subdict].rehashing = listCreate();
             tempDb[i].sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         }
     }
@@ -779,7 +789,6 @@ void discardTempDb(redisDb *tempDb, void(callback)(dict*)) {
         zfree(tempDb[i].dict);
         zfree(tempDb[i].expires);
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-            listRelease(tempDb[i].sub_dict[subdict].rehashing);
             if (server.cluster_enabled) {
                 zfree(tempDb[i].sub_dict[subdict].slot_size_index);
             }
@@ -1445,7 +1454,7 @@ size_t dbMemUsage(redisDb *db, dbKeyType keyType) {
     unsigned long long keys_count = dbSize(db, keyType);
     mem += keys_count * dictEntryMemUsage() +
             dbBuckets(db, keyType) * sizeof(dictEntry*) +
-            db->dict_count * sizeof(dict);
+            db->dict_count * (sizeof(dict) + dictMetadataSize(db->dict[0]));
     if (keyType == DB_MAIN) {
         mem+=keys_count * sizeof(robj);
     }
@@ -1890,7 +1899,6 @@ int dbSwapDatabases(int id1, int id2) {
     db1->expires_cursor = db2->expires_cursor;
     db1->dict_count = db2->dict_count;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        db1->sub_dict[subdict].rehashing = db2->sub_dict[subdict].rehashing;
         db1->sub_dict[subdict].key_count = db2->sub_dict[subdict].key_count;
         db1->sub_dict[subdict].bucket_count = db2->sub_dict[subdict].bucket_count;
         db1->sub_dict[subdict].non_empty_slots = db2->sub_dict[subdict].non_empty_slots;
@@ -1904,7 +1912,6 @@ int dbSwapDatabases(int id1, int id2) {
     db2->expires_cursor = aux.expires_cursor;
     db2->dict_count = aux.dict_count;
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        db2->sub_dict[subdict].rehashing = aux.sub_dict[subdict].rehashing;
         db2->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
         db2->sub_dict[subdict].bucket_count = aux.sub_dict[subdict].bucket_count;
         db2->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;
@@ -1950,7 +1957,6 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->expires_cursor = newdb->expires_cursor;
         activedb->dict_count = newdb->dict_count;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-            activedb->sub_dict[subdict].rehashing = newdb->sub_dict[subdict].rehashing;
             activedb->sub_dict[subdict].key_count = newdb->sub_dict[subdict].key_count;
             activedb->sub_dict[subdict].bucket_count = newdb->sub_dict[subdict].bucket_count;
             activedb->sub_dict[subdict].non_empty_slots = newdb->sub_dict[subdict].non_empty_slots;
@@ -1964,7 +1970,6 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         newdb->expires_cursor = aux.expires_cursor;
         newdb->dict_count = aux.dict_count;
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-            newdb->sub_dict[subdict].rehashing = aux.sub_dict[subdict].rehashing;
             newdb->sub_dict[subdict].key_count = aux.sub_dict[subdict].key_count;
             newdb->sub_dict[subdict].bucket_count = aux.sub_dict[subdict].bucket_count;
             newdb->sub_dict[subdict].non_empty_slots = aux.sub_dict[subdict].non_empty_slots;

@@ -327,6 +327,8 @@ test {Migrate the last slot away from a node using redis-cli} {
     }
 }
 
+foreach ip_or_localhost {127.0.0.1 localhost} {
+
 # Test redis-cli --cluster create, add-node with cluster-port.
 # Create five nodes, three with custom cluster_port and two with default values.
 start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cluster-port [find_available_port $::baseport $::portcount]]] {
@@ -337,17 +339,12 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
 
     # The first three are used to test --cluster create.
     # The last two are used to test --cluster add-node
-    set node1_rd [redis_client 0]
-    set node2_rd [redis_client -1]
-    set node3_rd [redis_client -2]
-    set node4_rd [redis_client -3]
-    set node5_rd [redis_client -4]
 
-    test {redis-cli --cluster create with cluster-port} {
-        exec src/redis-cli --cluster-yes --cluster create \
-                           127.0.0.1:[srv 0 port] \
-                           127.0.0.1:[srv -1 port] \
-                           127.0.0.1:[srv -2 port]
+    test "redis-cli -4 --cluster create using $ip_or_localhost with cluster-port" {
+        exec src/redis-cli -4 --cluster-yes --cluster create \
+                           $ip_or_localhost:[srv 0 port] \
+                           $ip_or_localhost:[srv -1 port] \
+                           $ip_or_localhost:[srv -2 port]
 
         wait_for_condition 1000 50 {
             [CI 0 cluster_state] eq {ok} &&
@@ -363,11 +360,11 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
         assert_equal 3 [CI 2 cluster_known_nodes]
     }
 
-    test {redis-cli --cluster add-node with cluster-port} {
+    test "redis-cli -4 --cluster add-node using $ip_or_localhost with cluster-port" {
         # Adding node to the cluster (without cluster-port)
-        exec src/redis-cli --cluster-yes --cluster add-node \
-                           127.0.0.1:[srv -3 port] \
-                           127.0.0.1:[srv 0 port]
+        exec src/redis-cli -4 --cluster-yes --cluster add-node \
+                           $ip_or_localhost:[srv -3 port] \
+                           $ip_or_localhost:[srv 0 port]
 
         wait_for_cluster_size 4
 
@@ -381,9 +378,9 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
         }
 
         # Adding node to the cluster (with cluster-port)
-        exec src/redis-cli --cluster-yes --cluster add-node \
-                           127.0.0.1:[srv -4 port] \
-                           127.0.0.1:[srv 0 port]
+        exec src/redis-cli -4 --cluster-yes --cluster add-node \
+                           $ip_or_localhost:[srv -4 port] \
+                           $ip_or_localhost:[srv 0 port]
 
         wait_for_cluster_size 5
 
@@ -410,6 +407,8 @@ start_server [list overrides [list cluster-enabled yes cluster-node-timeout 1 cl
 }
 }
 }
+
+} ;# foreach ip_or_localhost
 
 } ;# tags
 

@@ -48,8 +48,6 @@ void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
 void clusterUpdateMyselfHumanNodename(void);
 
-void slotToChannelAdd(sds channel);
-void slotToChannelDel(sds channel);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 
 unsigned long getClusterConnectionsCount(void);
@@ -89,6 +87,7 @@ int clusterNodeIsMaster(clusterNode *n);
 char *clusterNodeIp(clusterNode *node);
 int clusterNodeIsSlave(clusterNode *node);
 clusterNode *clusterNodeGetSlaveof(clusterNode *node);
+clusterNode *clusterNodeGetMaster(clusterNode *node);
 char *clusterNodeGetName(clusterNode *node);
 int clusterNodeTimedOut(clusterNode *node);
 int clusterNodeIsFailing(clusterNode *node);
