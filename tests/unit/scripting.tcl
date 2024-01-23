@@ -653,11 +653,11 @@ start_server {tags {"scripting"}} {
             -- If an allowed method is found, it's removed from 'allowed_functions'.
             -- If 'allowed_functions' is empty at the end, all allowed methods were found.
             for key, value in pairs(os) do
-                if type(value) == "function" then
-                    local index = indexOf(allowed_methods, key)
-                    if index == nil then return "Disallowed function:"..key end
-                    table.remove(allowed_methods, index)
+                local index = indexOf(allowed_methods, key)
+                if index == nil or type(value) ~= "function" then
+                    return "Disallowed "..type(value)..":"..key
                 end
+                table.remove(allowed_methods, index)
             end
             if #allowed_methods ~= 0 then
                 return "Expected method not found: "..table.concat(allowed_methods, ",")
