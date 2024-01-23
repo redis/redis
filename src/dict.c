@@ -742,7 +742,6 @@ dictEntry *dictFind(dict *d, const void *key)
              * rehash on the bucket at `idx` (being more CPU cache friendly) */
             _dictBucketRehashStep(d, idx);
         } else {
---------------------------------------------------------------------------------
             /* If the hash entry is not in ht0, we perform a random access
              * bucket rehash (uses rehashidx). */
             _dictRehashStep(d);
