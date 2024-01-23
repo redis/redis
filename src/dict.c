@@ -460,6 +460,30 @@ static void _dictRehashStep(dict *d) {
     if (d->pauserehash == 0) dictRehash(d,1);
 }
 
+/* Performs rehashing on a single bucket. */
+static int dictBucketRehash(dict *d, uint64_t idx) {
+    unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
+    unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
+    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+     * - If expanding, the threshold is dict_force_resize_ratio which is 4.
+     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
+    if (dict_can_resize == DICT_RESIZE_AVOID && 
+        ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
+         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
+    {
+        return 0;
+    }
+    _rehashEntriesInBucketAtIndex(d, idx);
+    dictCheckRehashingCompleted(d);
+    return 1;
+}
+
+static int _dictBucketRehashStep(dict *d, uint64_t idx) {
+    if (d->pauserehash == 0) return dictBucketRehash(d, idx);
+    return 0;
+}
+
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
 {
@@ -541,29 +565,6 @@ dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
     d->ht_used[htidx]++;
 
     return entry;
-}
-
-/* Performs rehashing on a single bucket. */
-static int dictBucketRehash(dict *d, uint64_t idx) {
-    unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
-    unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
-    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
-     * - If expanding, the threshold is dict_force_resize_ratio which is 4.
-     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
-        ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
-         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
-    {
-        return 0;
-    }
-    _rehashEntriesInBucketAtIndex(d, idx);
-    dictCheckRehashingCompleted(d);
-    return 1;
-}
-
-static void _dictBucketRehashStep(dict *d, uint64_t idx) {
-    if (d->pauserehash == 0) dictBucketRehash(d, idx);
 }
 
 /* Add or Overwrite:
@@ -727,42 +728,36 @@ void dictRelease(dict *d)
 
 dictEntry *dictFind(dict *d, const void *key)
 {
-    dictEntry *he = NULL;
-    uint64_t h, idx;
+    dictEntry *he;
+    uint64_t h, idx, table;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
 
     h = dictHashKey(d, key);
     idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    if ((long)idx >= d->rehashidx) {
-        he = d->ht_table[0][idx];
-    }
 
     if (dictIsRehashing(d)) {
-        if (he) {
-            /* If we have a valid `he` at `idx` in ht0,
+        if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
+            /* If we have a valid hash entry at `idx` in ht0,
              * we perform rehash on the bucket at `idx` */
             _dictBucketRehashStep(d, idx);
         } else {
-            /* If the 'he' is not in ht0, we perform a random bucket rehash. */
+            /* If the hash entry is not in ht0, we perform a random bucket rehash. */
             _dictRehashStep(d);
         }
-        /* `table` will be 1 in two cases where, the index `idx` has been already rehashed
-         * or when we find a bucket index that is not yet rehashes and we re-hashed it right away.
-         * `table` will be 0 in only one case where rehashing has been completed
-         * and the extra table is deleted . */
-        int table = dictIsRehashing(d) ? 1 : 0;
-        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        he = d->ht_table[table][idx];
     }
 
-    /* Here, we have the right table and the bucket,
-     * now we will find the right key. */
-    while(he) {
-        void *he_key = dictGetKey(he);
-        if (key == he_key || dictCompareKeys(d, key, he_key))
-            return he;
-        he = dictGetNext(he);
+    for (table = 0; table <= 1; table++) {
+        if (table == 0 && (long)idx < d->rehashidx) continue;
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        he = d->ht_table[table][idx];
+        while(he) {
+            void *he_key = dictGetKey(he);
+            if (key == he_key || dictCompareKeys(d, key, he_key))
+                return he;
+            he = dictGetNext(he);
+        }
+        if (!dictIsRehashing(d)) return NULL;
     }
     return NULL;
 }
