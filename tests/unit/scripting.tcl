@@ -650,8 +650,8 @@ start_server {tags {"scripting"}} {
                 return nil
             end
             -- Check for disallowed methods and verify all allowed methods exist.
-            -- If an allowed method is found, it's removed from 'allowed_functions'.
-            -- If 'allowed_functions' is empty at the end, all allowed methods were found.
+            -- If an allowed method is found, it's removed from 'allowed_methods'.
+            -- If 'allowed_methods' is empty at the end, all allowed methods were found.
             for key, value in pairs(os) do
                 local index = indexOf(allowed_methods, key)
                 if index == nil or type(value) ~= "function" then
