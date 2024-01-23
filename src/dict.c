@@ -738,11 +738,13 @@ dictEntry *dictFind(dict *d, const void *key)
 
     if (dictIsRehashing(d)) {
         if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
-            /* If we have a valid hash entry at `idx` in ht0,
-             * we perform rehash on the bucket at `idx` */
+            /* If we have a valid hash entry at `idx` in ht0, we perform
+             * rehash on the bucket at `idx` (being more CPU cache friendly) */
             _dictBucketRehashStep(d, idx);
         } else {
-            /* If the hash entry is not in ht0, we perform a random bucket rehash. */
+--------------------------------------------------------------------------------
+            /* If the hash entry is not in ht0, we perform a random access
+             * bucket rehash (uses rehashidx). */
             _dictRehashStep(d);
         }
     }
