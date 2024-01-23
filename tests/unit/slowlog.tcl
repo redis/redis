@@ -14,6 +14,16 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal [r slowlog len] 1
     } {} {needs:debug}
 
+    test {SLOWLOG - zero max length is correctly handled} {
+        r SLOWLOG reset
+        r config set slowlog-max-len 0
+        r config set slowlog-log-slower-than 0
+        for {set i 0} {$i < 100} {incr i} {
+            r ping
+        }
+        r slowlog len
+    } {0}
+
     test {SLOWLOG - max entries is correctly handled} {
         r config set slowlog-log-slower-than 0
         r config set slowlog-max-len 10
@@ -42,7 +52,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         set e [lindex [r slowlog get] 0]
         assert_equal [llength $e] 6
         if {!$::external} {
-            assert_equal [lindex $e 0] 107
+            assert_equal [lindex $e 0] 106
         }
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}

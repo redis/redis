@@ -45,7 +45,7 @@
 #define DICT_ERR 1
 
 /* Hash table parameters */
-#define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
+#define HASHTABLE_MIN_FILL        8      /* Minimal hash table fill 12.5%(100/8) */
 
 typedef struct dictEntry dictEntry; /* opaque */
 typedef struct dict dict;

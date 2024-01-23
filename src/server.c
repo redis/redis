@@ -875,6 +875,7 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * usage bucket.
  */
 void updateClientMemoryUsage(client *c) {
+    serverAssert(c->conn);
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
     /* Now that we have the memory used by the client, remove the old
@@ -887,7 +888,7 @@ void updateClientMemoryUsage(client *c) {
 }
 
 int clientEvictionAllowed(client *c) {
-    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT) {
+    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT || !c->conn) {
         return 0;
     }
     int type = getClientType(c);
@@ -927,7 +928,7 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
 int updateClientMemUsageAndBucket(client *c) {
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    serverAssert(io_threads_op == IO_THREADS_OP_IDLE && c->conn);
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 

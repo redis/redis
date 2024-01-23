@@ -2661,6 +2661,15 @@ void ACLUpdateInfoMetrics(int reason){
     }
 }
 
+static void trimACLLogEntriesToMaxLen(void) {
+    while(listLength(ACLLog) > server.acllog_max_len) {
+        listNode *ln = listLast(ACLLog);
+        ACLLogEntry *le = listNodeValue(ln);
+        ACLFreeLogEntry(le);
+        listDelNode(ACLLog,ln);
+    }
+}
+
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
  * to find similar entries in the current log in order to bump the counter of
@@ -2679,6 +2688,11 @@ void ACLUpdateInfoMetrics(int reason){
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Update ACL info metrics */
     ACLUpdateInfoMetrics(reason);
+    
+    if (server.acllog_max_len == 0) {
+        trimACLLogEntriesToMaxLen();
+        return;
+    }
     
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
@@ -2742,12 +2756,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
          * to its maximum size. */
         ACLLogEntryCount++; /* Incrementing the entry_id count to make each record in the log unique. */
         listAddNodeHead(ACLLog, le);
-        while(listLength(ACLLog) > server.acllog_max_len) {
-            listNode *ln = listLast(ACLLog);
-            ACLLogEntry *le = listNodeValue(ln);
-            ACLFreeLogEntry(le);
-            listDelNode(ACLLog,ln);
-        }
+        trimACLLogEntriesToMaxLen();
     }
 }
 

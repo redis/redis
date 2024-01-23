@@ -306,7 +306,6 @@ static size_t moduleTempClientMinCount = 0; /* Min client count in pool since
  * allow thread safe contexts to execute commands at a safe moment. */
 static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 
-
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
@@ -2338,7 +2337,10 @@ ustime_t RM_CachedMicroseconds(void) {
  * Within the same command, you can call multiple times
  * RM_BlockedClientMeasureTimeStart() and RM_BlockedClientMeasureTimeEnd()
  * to accumulate independent time intervals to the background duration.
- * This method always return REDISMODULE_OK. */
+ * This method always return REDISMODULE_OK.
+ * 
+ * This function is not thread safe, If used in module thread and blocked callback (possibly main thread)
+ * simultaneously, it's recommended to protect them with lock owned by caller instead of GIL. */
 int RM_BlockedClientMeasureTimeStart(RedisModuleBlockedClient *bc) {
     elapsedStart(&(bc->background_timer));
     return REDISMODULE_OK;
@@ -2348,7 +2350,10 @@ int RM_BlockedClientMeasureTimeStart(RedisModuleBlockedClient *bc) {
  * to calculate the elapsed execution time.
  * On success REDISMODULE_OK is returned.
  * This method only returns REDISMODULE_ERR if no start time was
- * previously defined ( meaning RM_BlockedClientMeasureTimeStart was not called ). */
+ * previously defined ( meaning RM_BlockedClientMeasureTimeStart was not called ).
+ * 
+ * This function is not thread safe, If used in module thread and blocked callback (possibly main thread)
+ * simultaneously, it's recommended to protect them with lock owned by caller instead of GIL. */
 int RM_BlockedClientMeasureTimeEnd(RedisModuleBlockedClient *bc) {
     // If the counter is 0 then we haven't called RM_BlockedClientMeasureTimeStart
     if (!bc->background_timer)
@@ -2717,7 +2722,10 @@ RedisModuleString *RM_CreateStringFromStreamID(RedisModuleCtx *ctx, const RedisM
  * pass ctx as NULL when releasing the string (but passing a context will not
  * create any issue). Strings created with a context should be freed also passing
  * the context, so if you want to free a string out of context later, make sure
- * to create it using a NULL context. */
+ * to create it using a NULL context.
+ *
+ * This API is not thread safe, access to these retained strings (if they originated
+ * from a client command arguments) must be done with GIL locked. */
 void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
     decrRefCount(str);
     if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
@@ -2754,7 +2762,10 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
  *
  * Threaded modules that reference retained strings from other threads *must*
  * explicitly trim the allocation as soon as the string is retained. Not doing
- * so may result with automatic trimming which is not thread safe. */
+ * so may result with automatic trimming which is not thread safe.
+ *
+ * This API is not thread safe, access to these retained strings (if they originated
+ * from a client command arguments) must be done with GIL locked. */
 void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (ctx == NULL || !autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
         /* Increment the string reference counting only if we can't
@@ -2796,7 +2807,10 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
  *
  * Threaded modules that reference held strings from other threads *must*
  * explicitly trim the allocation as soon as the string is held. Not doing
- * so may result with automatic trimming which is not thread safe. */
+ * so may result with automatic trimming which is not thread safe.
+ *
+ * This API is not thread safe, access to these retained strings (if they originated
+ * from a client command arguments) must be done with GIL locked. */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
     if (str->refcount == OBJ_STATIC_REFCOUNT) {
         return RM_CreateStringFromString(ctx, str);
@@ -8228,7 +8242,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
          * argument, but better to be safe than sorry. */
         if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
         if (bc->unblocked) return REDISMODULE_OK;
-        if (bc->client) moduleBlockedClientTimedOut(bc->client);
+        if (bc->client) moduleBlockedClientTimedOut(bc->client, 1);
     }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
@@ -8327,8 +8341,10 @@ void moduleHandleBlockedClients(void) {
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
          */
-        if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
-            updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
+        if (c && !clientHasModuleAuthInProgress(c)) {
+            int had_errors = c->deferred_reply_errors ? !!listLength(c->deferred_reply_errors) :
+                (server.stat_total_error_replies != prev_error_replies);
+            updateStatsOnUnblock(c, bc->background_duration, reply_us, had_errors);
         }
 
         if (c != NULL) {
@@ -8346,7 +8362,7 @@ void moduleHandleBlockedClients(void) {
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
             if (!clientHasModuleAuthInProgress(c) && clientHasPendingReplies(c) &&
-                !(c->flags & CLIENT_PENDING_WRITE))
+                !(c->flags & CLIENT_PENDING_WRITE) && c->conn)
             {
                 c->flags |= CLIENT_PENDING_WRITE;
                 listLinkNodeHead(server.clients_pending_write, &c->clients_pending_write_node);
@@ -8381,8 +8397,15 @@ int moduleBlockedClientMayTimeout(client *c) {
 /* Called when our client timed out. After this function unblockClient()
  * is called, and it will invalidate the blocked client. So this function
  * does not need to do any cleanup. Eventually the module will call the
- * API to unblock the client and the memory will be released. */
-void moduleBlockedClientTimedOut(client *c) {
+ * API to unblock the client and the memory will be released. 
+ *
+ * If this function is called from a module, we handle the timeout callback
+ * and the update of the unblock status in a thread-safe manner to avoid race
+ * conditions with the main thread.
+ * If this function is called from the main thread, we must handle the unblocking
+ * of the client synchronously. This ensures that we can reply to the client before
+ * resetClient() is called. */
+void moduleBlockedClientTimedOut(client *c, int from_module) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
@@ -8391,14 +8414,22 @@ void moduleBlockedClientTimedOut(client *c) {
     if (bc->unblocked) return;
 
     RedisModuleCtx ctx;
-    moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_TIMEOUT);
+    int flags = REDISMODULE_CTX_BLOCKED_TIMEOUT;
+    if (from_module) flags |= REDISMODULE_CTX_THREAD_SAFE;
+    moduleCreateContext(&ctx, bc->module, flags);
     ctx.client = bc->client;
     ctx.blocked_client = bc;
     ctx.blocked_privdata = bc->privdata;
-    long long prev_error_replies = server.stat_total_error_replies;
+
+    long long prev_error_replies;
+    if (!from_module)
+        prev_error_replies = server.stat_total_error_replies;
+
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
-    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+
+    if (!from_module)
+        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
 
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in

@@ -562,6 +562,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
 redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
+        tempDb[i].id = i;
         int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
         tempDb[i].keys = kvstoreCreate(&dbDictType, slotCountBits);
         tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slotCountBits);
