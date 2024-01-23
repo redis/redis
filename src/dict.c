@@ -212,7 +212,7 @@ static int dictNeedsShrink(dict *dict) {
     size = dictBuckets(dict);
     used = dictSize(dict);
     return (size > DICT_HT_INITIAL_SIZE &&
-            (used*100/size < HASHTABLE_MIN_FILL));
+            (used * HASHTABLE_MIN_FILL <= size));
 }
 
 /* Resize the table to the minimal size that contains all the elements,

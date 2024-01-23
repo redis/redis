@@ -1,11 +1,11 @@
 /*
- * Index-based KV store implemntation
+ * Index-based KV store implementation
  * This file implements a KV store comprised of an array of dicts (see dict.c)
  * The purpose of this KV store is to have easy access to all keys that belong
  * in the same dict (i.e. are in the same dict-index)
  *
- * For exmaple, when Redis is running in cluster mode, we use kvstore to save
- * all keys that map to the same hash-slot in a seperate dict within the kvstore
+ * For example, when Redis is running in cluster mode, we use kvstore to save
+ * all keys that map to the same hash-slot in a separate dict within the kvstore
  * struct.
  * This enables us to easily access all keys that map to a specific hash-slot.
  *
