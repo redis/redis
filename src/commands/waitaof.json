@@ -7,6 +7,7 @@
         "arity": 4,
         "function": "waitaofCommand",
         "command_flags": [
+            "BLOCKING"
         ],
         "acl_categories": [
             "CONNECTION"
