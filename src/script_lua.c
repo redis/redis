@@ -1212,9 +1212,21 @@ static int luaSetResp(lua_State *lua) {
     return 0;
 }
 
-/* redis.monotonic() */
-static int redis_monotonic(lua_State *L) {
-    lua_pushnumber(L, (lua_Number)getMonotonicUs());
+/* redis.elapsed_start() */
+static int redis_elapsed_start(lua_State *L) {
+    monotime *timer = lua_newuserdata(L, sizeof(monotime));
+    *timer = getMonotonicUs();
+    return 1;
+}
+
+/* redis.elapsed_us() */
+static int redis_elapsed_us(lua_State *L) {
+    if (lua_gettop(L) != 1)
+        return luaL_error(L, "Wrong number of arguments for redis.elapsed_us");
+
+    monotime *timer = (monotime *)lua_touserdata(L, -1);
+    if (!timer) return luaL_error(L, "Invalid timer object");
+    lua_pushnumber(L, (lua_Number)elapsedUs(*timer));
     return 1;
 }
 
@@ -1462,8 +1474,12 @@ void luaRegisterRedisAPI(lua_State* lua) {
     lua_pushcfunction(lua,luaRedisSetReplCommand);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"monotonic");
-    lua_pushcfunction(lua,redis_monotonic);
+    lua_pushstring(lua,"elapsed_start");
+    lua_pushcfunction(lua,redis_elapsed_start);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"elapsed_us");
+    lua_pushcfunction(lua,redis_elapsed_us);
     lua_settable(lua,-3);
 
     lua_pushstring(lua,"REPL_NONE");

@@ -616,16 +616,21 @@ start_server {tags {"scripting"}} {
              [run_script {return redis.sha1hex('Pizza & Mandolino')} 0]
     } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
 
-    test "redis.monotonic() measures elapsed time" {
+    test "Measures elapsed time with redis.elapsed_start() and redis.elapsed_us()" {
+        # Test if redis.elapsed_us() correctly handles incorrect number of arguments and invalid timer object
+        assert_error {ERR* Wrong number of arguments for redis.elapsed_us*} {run_script {redis.elapsed_us()} 0}
+        assert_error {ERR* Invalid timer object*} {run_script {redis.elapsed_us("invalid")} 0}
+
+        # Test accurate calculation of Lua script execution time.
         set escaped [run_script {
-            local start = redis.monotonic()
-            while redis.monotonic() - start < 1000000 do end
-            return {double = redis.monotonic() - start}
+            local start_timer = redis.elapsed_start()
+            while redis.elapsed_us(start_timer) < 1000000 do end
+            return {double = redis.elapsed_us(start_timer)}
         } 0]
         assert_morethan_equal $escaped 1000000 ;# 1 second (1 second = 1000000 microseconds)
     }
 
-    test "os.clock() measures elapsed time" {
+    test "Measures elapsed time os.clock()" {
         set escaped [run_script {
             local start = os.clock()
             while os.clock() - start < 1 do end
@@ -654,7 +659,9 @@ start_server {tags {"scripting"}} {
                     table.remove(allowed_methods, index)
                 end
             end
-            if #allowed_methods ~= 0 then return "Expected method not found: "..table.concat(allowed_methods, ",") end
+            if #allowed_methods ~= 0 then
+                return "Expected method not found: "..table.concat(allowed_methods, ",")
+            end
             return ""
         } 0]
     }
