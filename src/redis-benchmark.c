@@ -70,6 +70,7 @@
 #define CONFIG_LATENCY_HISTOGRAM_MAX_VALUE 3000000L          /* <= 3 secs(us precision) */
 #define CONFIG_LATENCY_HISTOGRAM_INSTANT_MAX_VALUE 3000000L   /* <= 3 secs(us precision) */
 #define SHOW_THROUGHPUT_INTERVAL 250  /* 250ms */
+#define MAX_KEYSPACELEN 1000000000000 /* 10^12 (12 digits) */
 
 #define CLIENT_GET_EVENTLOOP(c) \
     (c->thread_id >= 0 ? config.threads[c->thread_id]->el : config.el)
@@ -95,7 +96,7 @@ static struct config {
     int keysize;
     int datasize;
     int randomkeys;
-    int randomkeys_keyspacelen;
+    long long randomkeys_keyspacelen;
     int keepalive;
     int pipeline;
     long long start;
@@ -401,13 +402,18 @@ static void randomizeClientKey(client c) {
     for (i = 0; i < c->randlen; i++) {
         char *p = c->randptr[i]+11;
         size_t r = 0;
-        if (config.randomkeys_keyspacelen != 0)
-            r = random() % config.randomkeys_keyspacelen;
-        size_t j;
+        if (config.randomkeys_keyspacelen != 0) {
+            if (sizeof(size_t) == sizeof(long long)) {
+                unsigned long long rand64 = genrand64_int64();
+                r = (size_t)(rand64 % config.randomkeys_keyspacelen);
+            } else
+                r = (size_t)(random() % config.randomkeys_keyspacelen);
+        }
 
+        size_t j;
         for (j = 0; j < 12; j++) {
-            *p = '0'+r%10;
-            r/=10;
+            *p = '0' + r % 10;
+            r /= 10;
             p--;
         }
     }
@@ -1464,9 +1470,15 @@ int parseOptions(int argc, char **argv) {
                 if (*p < '0' || *p > '9') goto invalid;
             }
             config.randomkeys = 1;
-            config.randomkeys_keyspacelen = atoi(next);
+            config.randomkeys_keyspacelen = atoll(next);
             if (config.randomkeys_keyspacelen < 0)
                 config.randomkeys_keyspacelen = 0;
+            if (config.randomkeys_keyspacelen > MAX_KEYSPACELEN) {
+                fprintf(stderr,
+                    "WARNING: keyspacelen truncated to 10^12 from %lld.\n",
+                    config.randomkeys_keyspacelen);
+                config.randomkeys_keyspacelen = MAX_KEYSPACELEN;
+            }
         } else if (!strcmp(argv[i],"-q")) {
             config.quiet = 1;
         } else if (!strcmp(argv[i],"--csv")) {
