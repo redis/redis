@@ -211,7 +211,7 @@ static int createClusterManagerCommand(char *cmdname, int argc, char **argv);
 static redisContext *context;
 static struct config {
     cliConnInfo conn_info;
-    struct timeval *connect_timeout;
+    struct timeval connect_timeout;
     char *hostsocket;
     int tls;
     cliSSLconfig sslconfig;
@@ -2658,10 +2658,8 @@ static int parseOptions(int argc, char **argv) {
                 fprintf(stderr, "Invalid connection timeout for -t.\n");
                 exit(1);
             }
-            if (config.connect_timeout == NULL)
-                config.connect_timeout = zmalloc(sizeof(*config.connect_timeout));
-            config.connect_timeout->tv_sec = (long long)seconds;
-            config.connect_timeout->tv_usec = ((long long)(seconds * 1000000)) % 1000000;
+            config.connect_timeout.tv_sec = (long long)seconds;
+            config.connect_timeout.tv_usec = ((long long)(seconds * 1000000)) % 1000000;
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -3025,7 +3023,8 @@ static void usage(int err) {
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
 "  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
 "  -p <port>          Server port (default: 6379).\n"
-"  -t <timeout>       Server connection timeout in seconds (default: 60, decimals allowed).\n"
+"  -t <timeout>       Server connection timeout in seconds (decimals allowed).\n"
+"                     Default timeout is 0, meaning no limit, depending on the OS.\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
@@ -9847,7 +9846,8 @@ int main(int argc, char **argv) {
     memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.conn_info.hostip = sdsnew("127.0.0.1");
     config.conn_info.hostport = 6379;
-    config.connect_timeout = NULL;
+    config.connect_timeout.tv_sec = 0;
+    config.connect_timeout.tv_usec = 0;
     config.hostsocket = NULL;
     config.repeat = 1;
     config.interval = 0;
