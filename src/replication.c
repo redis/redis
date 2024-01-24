@@ -2751,7 +2751,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
 }
 
 int isReplicaBufferLimitReached(void) {
-    return server.pending_repl_data.len > server.client_obuf_limits[1].hard_limit_bytes;
+    return server.pending_repl_data.len > server.client_obuf_limits[CLIENT_SLAVE].hard_limit_bytes;
 }
 
 /* Read handler for buffering incoming repl data during RDB download/loading. */
@@ -2772,7 +2772,9 @@ void bufferReplData(connection *conn) {
         }
         if (readlen && read == 0) {
             if (isReplicaBufferLimitReached()) {
-                serverLog(LL_DEBUG, "Replication buffer limit reached, stopping buffering");
+                serverLog(LL_NOTICE, "Replication buffer limit reached, stopping buffering.");
+                /* Stop accumulating master commands. */
+                connSetReadHandler(conn, NULL);
                 break;
             }
             /* Create a new node, make sure it is allocated to at least PROTO_REPLY_CHUNK_BYTES. 
