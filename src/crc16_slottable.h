@@ -769,7 +769,7 @@ const char *crc16_slot_table[] = {
 "KW", "0he", "4SK", "6fh", "6kX", "5NZ", "0eU", "Fg", "hK", "0Ky", "4pW", "4e6", "4j7", "5ow", "0Dx", "gJ", "If", "0jT", "4Qz", "6dY", 
 "6ii", "5Lk", "Q7", "DV", "jz", "0IH", "46n", "6GE", "3PN", "01D", "4Nb", "aQS", "6Um", "54g", "m3", "xR", "1j", "0VP", "59W", "a6G", 
 "4V3", "4CR", "85l", "194", "TO", "03u", "4LS", "4Y2", "a9F", "56V", "0YQ", "zc", "wS", "b2", "4oO", "6Zl", "60H", "4Ac", "0zM", "2On", 
-"0dO", "2Ql", "6jB", "aU1", "45E", "6Dn", "iQ", "88", "0GS", "da", "acL", "48u", "4RQ", "4G0", "JM", "94N", "12W", "EL", "4H1", "5Mq",
+"0dO", "2Ql", "6jB", "aU1", "45E", "6Dn", "iQ", "88", "0GS", "da", "acL", "48u", "4RQ", "4G0", "JM", "94N", "12W", "EL", "4H1", "5Mq", 
 "47t", "524", "29y", "0HR", "79", "fP", "6Ko", "5nm", "aZ0", "6eC", "3NL", "0kN", "O1", "ZP", "63g", "4BL", "58I", "6YC", "0t", "0WN", 
 "8Sf", "yL", "409", "4aP", "b1G", "aPM", "0a3", "00Z", "1kr", "Xa", "61V", "bzN", "4nQ", "7KS", "2E", "215", "0XO", "2ml", "6VB", "4ca", 
 "4MM", "6xn", "UQ", "02k", "KS", "0ha", "4SO", "6fl", "7Xa", "49k", "0FM", "27f", "hO", "8Be", "4pS", "4e2", "aAN", "bdL", "0eQ", "Fc", 

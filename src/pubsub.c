@@ -755,3 +755,8 @@ size_t pubsubMemOverhead(client *c) {
     return mem;
 }
 
+int pubsubTotalSubscriptions(void) {
+    return dictSize(server.pubsub_patterns) +
+           kvstoreSize(server.pubsub_channels) +
+           kvstoreSize(server.pubsubshard_channels);
+}

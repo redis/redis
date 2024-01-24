@@ -287,14 +287,11 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetVal(de);
     }
-    dict *d = kvstoreGetDict(db->keys, slot);
-    dictSetVal(d, de, val);
-
+    kvstoreDictSetVal(db->keys, slot, de, val);
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key,old,db->id);
     } else {
-        /* This is just decrRefCount(old); */
-        d->type->valDestructor(d, old);
+        decrRefCount(old);
     }
 }
 
@@ -1695,7 +1692,6 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
-    /* No expire? return ASAP */
     if ((de = dbFindExpires(db, key->ptr)) == NULL)
         return -1;
 

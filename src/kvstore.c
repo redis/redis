@@ -9,7 +9,7 @@
  * struct.
  * This enables us to easily access all keys that map to a specific hash-slot.
  *
- * Copyright (c) 2024, Redis Labs, Inc
+ * Copyright (c) Redis contributors.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
- #include "fmacros.h"
+#include "fmacros.h"
 
 #include <string.h>
 #include <stddef.h>
@@ -121,7 +121,7 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
  * If there are multiple dicts, updates the bucket count for the given dictionary
  * in a DB, bucket count incremented with the new ht size during the rehashing phase.
  * If there's one dict, bucket count can be retrieved directly from single dict bucket. */
-static void _dictRehashingStarted(dict *d) {
+static void kvstoreDictRehashingStarted(dict *d) {
     kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
     listAddNodeTail(metadata->kvs->state.rehashing, d);
     metadata->rehashing_node = listLast(metadata->kvs->state.rehashing);
@@ -137,7 +137,7 @@ static void _dictRehashingStarted(dict *d) {
  *
  * Updates the bucket count for the given dictionary in a DB. It removes
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-static void _dictRehashingCompleted(dict *d) {
+static void kvstoreDictRehashingCompleted(dict *d) {
     kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
     if (metadata->rehashing_node) {
         listDelNode(metadata->kvs->state.rehashing, metadata->rehashing_node);
@@ -152,7 +152,7 @@ static void _dictRehashingCompleted(dict *d) {
 }
 
 /* Returns the size of the DB dict metadata in bytes. */
-static size_t _dictMetadataSize(dict *d) {
+static size_t kvstoreDictMetadataSize(dict *d) {
     UNUSED(d);
     return sizeof(kvstoreDictMetadata);
 }
@@ -177,9 +177,9 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits) {
     assert(!type->dictMetadataBytes);
     assert(!type->rehashingStarted);
     assert(!type->rehashingCompleted);
-    kvs->dtype.dictMetadataBytes = _dictMetadataSize;
-    kvs->dtype.rehashingStarted = _dictRehashingStarted;
-    kvs->dtype.rehashingCompleted = _dictRehashingCompleted;
+    kvs->dtype.dictMetadataBytes = kvstoreDictMetadataSize;
+    kvs->dtype.rehashingStarted = kvstoreDictRehashingStarted;
+    kvs->dtype.rehashingCompleted = kvstoreDictRehashingCompleted;
 
     kvs->num_dicts_bits = num_dicts_bits;
     kvs->num_dicts = 1 << kvs->num_dicts_bits;
@@ -502,10 +502,6 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
         de = dictNext(&kvs_it->di);
     }
     return de;
-}
-
-dict *kvstoreGetDictFromIterator(kvstoreIterator *kvs_it) {
-    return kvstoreGetDict(kvs_it->kvs, kvs_it->didx);
 }
 
 /* Cursor-scan the kvstore and attempt to shrink (if needed, handled by dictShrinkToFit) */

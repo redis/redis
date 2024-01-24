@@ -63,7 +63,6 @@ void kvstoreIteratorRelease(kvstoreIterator *kvs_it);
 dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it);
 int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it);
 dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
-dict *kvstoreGetDictFromIterator(kvstoreIterator *kvs_it);
 
 /* Rehashing */
 void kvstoreTryShrinkHashTables(kvstore *kvs, int limit);
