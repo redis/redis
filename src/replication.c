@@ -2717,12 +2717,15 @@ void replDataBufInit(void) {
 }
 
 /* Track replication data streaming progress, and serve clients from time to time */
-void replStreamProgressCallback(size_t offset, int readlen) {
+void replStreamProgressCallback(size_t offset, int readlen, time_t *last_progress_callback) {
+    time_t now = mstime();
     if (server.loading_process_events_interval_bytes &&
-        (offset + readlen)/server.loading_process_events_interval_bytes > offset/server.loading_process_events_interval_bytes)
+        (offset + readlen)/server.loading_process_events_interval_bytes > offset/server.loading_process_events_interval_bytes &&
+        now - *last_progress_callback > server.loading_process_events_interval_ms)
     {
         replicationSendNewlineToMaster();
         processEventsWhileBlocked();
+        last_progress_callback = &now;
     }
 }
 
@@ -2812,6 +2815,7 @@ void streamReplDataBufToDb(client *c) {
     blockingOperationStarts();
     size_t offset = 0;
     listNode *cur = NULL;
+    time_t last_progress_callback = mstime();
     while ((cur = listFirst(server.pending_repl_data.blocks))) {
         /* Read and process repl data block */
         replDataBufBlock *o = listNodeValue(cur);
@@ -2819,7 +2823,7 @@ void streamReplDataBufToDb(client *c) {
         c->read_reploff += o->used;
         processInputBuffer(c);
         server.pending_repl_data.len -= o->used;
-        replStreamProgressCallback(offset, o->used);
+        replStreamProgressCallback(offset, o->used, &last_progress_callback);
         offset += o->used;
         listDelNode(server.pending_repl_data.blocks, cur);
     } 
