@@ -2719,8 +2719,11 @@ void readQueryFromClient(connection *conn) {
 
     if (!(c->flags & CLIENT_MASTER) &&
         /* The commands cached in the MULTI/EXEC queue have not been executed yet,
-         * so they are also considered a part of the query buffer in a broader sense. */
-        (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len)) {
+         * so they are also considered a part of the query buffer in a broader sense.
+         *
+         * For unauthenticated clients, the query buffer cannot exceed 1MB at most. */
+        (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len ||
+         (c->mstate.argv_len_sums + sdslen(c->querybuf) > 1024*1024*1024 && authRequired(c)))) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
