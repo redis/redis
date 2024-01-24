@@ -51,7 +51,6 @@ void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
 void syncWithMaster(connection *conn);
 void replicationSteadyStateInit(void);
-int processEndOffsetResponse(char* response);
 void completeTaskRDBChannelSync(connection *conn);
 int isReplicaMainChannel(client *c);
 int isReplicaRdbChannel(client *c);
@@ -2591,28 +2590,6 @@ int sendCurentOffsetToReplica(client* replica) {
     return C_OK;
 }
 
-int processEndOffsetResponse(char* response) {
-    long long reploffset;
-    char master_replid[CONFIG_RUN_ID_SIZE+1];
-    int dbid;
-    char endoff_format[30];
-    /* For scanning master response, create a format string.  Unless we change CONFIG_RUN_ID_SIZE
-     * size, the format string will be "$ENDOFF:%lld %40s %d". */
-    snprintf(endoff_format, sizeof(endoff_format), "$ENDOFF:%%lld %%%ds %%d", CONFIG_RUN_ID_SIZE);
-    if (sscanf(response, endoff_format, &reploffset, master_replid, &dbid) != 3) {
-        return C_ERR;
-    }
-    server.master_initial_offset = reploffset;
-
-    /* Initiate repl_provisional_master to act as this replica temp master until RDB is loaded */
-    server.repl_provisional_master.conn = server.repl_transfer_s;
-    memcpy(server.repl_provisional_master.replid, master_replid, CONFIG_RUN_ID_SIZE);
-    server.repl_provisional_master.reploff = reploffset;
-    server.repl_provisional_master.read_reploff = reploffset;
-    server.repl_provisional_master.dbid = dbid;
-    return C_OK;
-}
-
 /* This connection handler is used to initialize the RDB connection (repl-rdb-channel sync). 
  * Once a replica with repl-rdb-channel enabled, denied from PSYNC with its primary, 
  * fullSyncWithMaster begins its role. The connection handler prepare server.repl_rdb_transfer_s
@@ -2677,7 +2654,7 @@ void fullSyncWithMaster(connection* conn) {
         server.repl_state = REPL_RDB_CONN_RECEIVE_ENDOFF;
         return;
     }
-    /* Receive ENDOFF reply */
+    /* Receive master rdb-channel end offset response */
     if (server.repl_state == REPL_RDB_CONN_RECEIVE_ENDOFF) {
         char buf[PROTO_IOBUF_LEN];
         connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
@@ -2685,12 +2662,30 @@ void fullSyncWithMaster(connection* conn) {
             /* Retry again later */
             return;
         }
-        if (processEndOffsetResponse(buf) == C_ERR) {
+        long long reploffset;
+        char master_replid[CONFIG_RUN_ID_SIZE+1];
+        int dbid;
+        char endoff_format[30];
+        /* For parsing master response, create a format string.  Unless we change CONFIG_RUN_ID_SIZE
+         * size, the format string will be "$ENDOFF:%lld %40s %d". */
+        snprintf(endoff_format, sizeof(endoff_format), "$ENDOFF:%%lld %%%ds %%d", CONFIG_RUN_ID_SIZE);
+        if (sscanf(buf, endoff_format, &reploffset, master_replid, &dbid) != 3) {
             goto error;
         }
+        server.master_initial_offset = reploffset;
+        /* Initiate repl_provisional_master to act as this replica temp master until RDB is loaded */
+        server.repl_provisional_master.conn = server.repl_transfer_s;
+        memcpy(server.repl_provisional_master.replid, master_replid, CONFIG_RUN_ID_SIZE);
+        server.repl_provisional_master.reploff = reploffset;
+        server.repl_provisional_master.read_reploff = reploffset;
+        server.repl_provisional_master.dbid = dbid;
+        /* Now that we have the end-offset, we can ask for psync from that offset. Prepare the main 
+         * connection accordingly.*/
         if (reInitReplicaMainConnection(server.repl_transfer_s) == C_ERR) {
             goto error;
-        }      
+        }
+        /* As the next block we will receive using this connection is the rdb, we will need to prepare
+         * the connection accordingly */
         if (prepareRdbConnectionForRdbLoad(server.repl_rdb_transfer_s) == C_ERR) {
             goto error;
         }
