@@ -430,10 +430,11 @@ void dictRehashingStarted(dict *d, dbKeyType keyType) {
     listAddNodeTail(server.rehashing, d);
     metadata->rehashing_node = listLast(server.rehashing);
 
-    if (!server.cluster_enabled) return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */
+    server.db_bucket_overhead_ht1 += to;
+    if (!server.cluster_enabled) return;
+    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */  
 }
 
 /* Remove dictionary from the rehashing list.
@@ -447,9 +448,12 @@ void dictRehashingCompleted(dict *d, dbKeyType keyType) {
         metadata->rehashing_node = NULL;
     }
 
-    if (!server.cluster_enabled) return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
+    server.db_bucket_overhead_ht1 -= to;
+    server.db_bucket_overhead_ht0 -= from;
+    server.db_bucket_overhead_ht0 += to;
+    if (!server.cluster_enabled) return;                                                                                 
     server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
@@ -2742,6 +2746,8 @@ void initServer(void) {
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     server.rehashing = listCreate();
+    server.db_bucket_overhead_ht0 = 0;
+    server.db_bucket_overhead_ht1 = 0;
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
@@ -5681,13 +5687,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         bytesToHuman(used_memory_rss_hmem,sizeof(used_memory_rss_hmem),server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,sizeof(maxmemory_hmem),server.maxmemory);
 
-        size_t databases_overhead_main = 0;
-        size_t databases_overhead_expires = 0;
-        for (size_t i = 0; i < mh->num_dbs; i++) {
-            databases_overhead_main += mh->db[i].overhead_ht_main;
-            databases_overhead_expires += mh->db[i].overhead_ht_expires;
-        }
-
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Memory\r\n" FMTARGS(
             "used_memory:%zu\r\n", zmalloc_used,
@@ -5742,8 +5741,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
-            "mem_databases_overhead_main:%zu\r\n", databases_overhead_main,
-            "mem_databases_overhead_expires:%zu\r\n", databases_overhead_expires,
+            "mem_db_bucket_overhead_ht0:%zu\r\n", server.db_bucket_overhead_ht0 * sizeof(dictEntry*),
+            "mem_db_bucket_overhead_ht1:%zu\r\n", server.db_bucket_overhead_ht1 * sizeof(dictEntry*),
             "databases_rehashing_dict_count:%lu\r\n", listLength(server.rehashing),
             "active_defrag_running:%d\r\n", server.active_defrag_running,
             "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),

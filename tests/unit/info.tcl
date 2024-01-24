@@ -401,24 +401,31 @@ start_server {tags {"info" "external:skip"}} {
                 fail "pubsub clients did not clear"
             }
         }
+    }
+}
 
-        test {memory: database overhead and rehashing dict count} {
-            r flushall
-            set info_mem [r info memory]
-            assert_equal [getInfoProperty $info_mem mem_databases_overhead_main] {0}
-            assert_equal [getInfoProperty $info_mem mem_databases_overhead_expires] {0}
-            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
-            r set a b ex 10
-            set info_mem [r info memory]
-            assert {[getInfoProperty $info_mem mem_databases_overhead_main] > {0}}
-            assert {[getInfoProperty $info_mem mem_databases_overhead_expires] > {0}}
-            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
-            r select 3
-            for {set i 0} {$i < 40} {incr i} {
-                r set key$i 123
-            }
-            set info_mem [r info memory]
-            assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {1}
-        }
+start_server {tags {"info"}} {
+    test {memory: database overhead and rehashing dict count} {
+        r flushall
+        set info_mem [r info memory]
+        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht0] {0}
+        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht1] {0}
+        assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
+        r set a b
+        set info_mem [r info memory]
+        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht0] {32}
+        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht1] {0}
+        assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
+        # set 4 more keys to trigger rehashing, and get the info within a transaction to make
+        # sure the rehashing is not completed
+        r multi 
+        r set b c
+        r set c d
+        r set d e
+        r set e f
+        r info memory
+        set info_mem [lindex [r exec] 4]
+        assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {1}
+        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht1] {64}       
     }
 }
