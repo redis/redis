@@ -2577,7 +2577,7 @@ int prepareRdbConnectionForRdbLoad(connection *conn) {
 }
 
 /* Send to replica End Offset response with structure
- * $ENDOFF:<rdb-conn> <primary-repl-id> <current-db-id> */
+ * $ENDOFF:<rdb-conn> <master-repl-id> <current-db-id> */
 int sendCurentOffsetToReplica(client* replica) {
     char buf[128];
     int buflen;
@@ -2693,7 +2693,7 @@ void fullSyncWithMaster(connection* conn) {
     }
 
     no_response_error: /* Handle receiveSynchronousResponse() error when primary has no reply */
-        serverLog(LL_WARNING, "Primary did not respond to command during SYNC handshake");
+        serverLog(LL_WARNING, "Master did not respond to command during SYNC handshake");
         /* Fall through to regular error handling */
 
     error:
@@ -2701,7 +2701,7 @@ void fullSyncWithMaster(connection* conn) {
         return;
 
     write_error: /* Handle sendCommand() errors. */
-        serverLog(LL_WARNING, "Sending command to primary in rdb channel replication handshake: %s", err);
+        serverLog(LL_WARNING, "Sending command to master in rdb channel replication handshake: %s", err);
         sdsfree(err);
         goto error;
 }
