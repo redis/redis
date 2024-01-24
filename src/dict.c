@@ -461,7 +461,7 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Performs rehashing on a single bucket. */
-static int dictBucketRehash(dict *d, uint64_t idx) {
+int dictBucketRehash(dict *d, uint64_t idx) {
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
@@ -479,9 +479,8 @@ static int dictBucketRehash(dict *d, uint64_t idx) {
     return 1;
 }
 
-static int _dictBucketRehashStep(dict *d, uint64_t idx) {
-    if (d->pauserehash == 0) return dictBucketRehash(d, idx);
-    return 0;
+static void _dictBucketRehashStep(dict *d, uint64_t idx) {
+    if (d->pauserehash == 0) dictBucketRehash(d, idx);
 }
 
 /* Add an element to the target hash table */
@@ -620,12 +619,24 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     /* dict is empty */
     if (dictSize(d) == 0) return NULL;
 
-    if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
+    idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+
+    if (dictIsRehashing(d)) {
+        if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
+            /* If we have a valid hash entry at `idx` in ht0, we perform
+             * rehash on the bucket at `idx` (being more CPU cache friendly) */
+            _dictBucketRehashStep(d, idx);
+        } else {
+            /* If the hash entry is not in ht0, we rehash the buckets based
+             * on the rehashidx (not CPU cache friendly). */
+            _dictRehashStep(d);
+        }
+    }
 
     for (table = 0; table <= 1; table++) {
-        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         if (table == 0 && (long)idx < d->rehashidx) continue;
+        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         he = d->ht_table[table][idx];
         prevHe = NULL;
         while(he) {
@@ -1566,8 +1577,8 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
     /* Expand the hash table if needed */
     _dictExpandIfNeeded(d);
     for (table = 0; table <= 1; table++) {
-        idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         if (table == 0 && (long)idx < d->rehashidx) continue; 
+        idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         /* Search if this slot does not already contain the given key */
         he = d->ht_table[table][idx];
         while(he) {
