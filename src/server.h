@@ -1725,7 +1725,6 @@ struct redisServer {
     redisAtomic long long stat_total_writes_processed; /* Total number of write events processed */
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
-    long long stat_client_multibuf_limit_disconnections;/* Total number of clients reached multi buffer limit */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -1763,8 +1762,7 @@ struct redisServer {
     int active_defrag_cycle_min;       /* minimal effort for defrag in CPU percentage */
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
     unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
-    size_t client_max_querybuf_len;    /* Limit for client query buffer length */
-    size_t client_multi_buffer_limit;  /* Limit for client multi buffer size */
+    size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See SUPERVISED_* */

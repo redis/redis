@@ -2717,7 +2717,10 @@ void readQueryFromClient(connection *conn) {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
 
-    if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
+    if (!(c->flags & CLIENT_MASTER) &&
+        /* The commands cached in the MULTI/EXEC queue have not been executed yet,
+         * so they are also considered a part of the query buffer in a broader sense. */
+        (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len)) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
