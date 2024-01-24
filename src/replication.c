@@ -51,6 +51,7 @@ void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
 void syncWithMaster(connection *conn);
 void replicationSteadyStateInit(void);
+void setupMainConnForPsync(connection *conn);
 void completeTaskRDBChannelSync(connection *conn);
 int isReplicaMainChannel(client *c);
 int isReplicaRdbChannel(client *c);
@@ -2557,11 +2558,11 @@ void abortRdbConnectionSync(void) {
 
 int reInitReplicaMainConnection(connection *conn) {
     serverAssert(conn == server.repl_transfer_s);
-    /* Init the main connection for psync */
+        /* Init the main connection for psync */
     conn->state = CONN_STATE_CONNECTED;
     server.repl_state = REPL_RDB_CONN_SEND_PSYNC;
-    serverAssert(connSetReadHandler(server.repl_provisional_master.conn, syncWithMaster) != C_ERR);
-    syncWithMaster(conn);
+    serverAssert(connSetReadHandler(server.repl_provisional_master.conn, setupMainConnForPsync) != C_ERR);
+    setupMainConnForPsync(conn);
     return C_OK;
 }
 
@@ -2597,7 +2598,7 @@ int sendCurentOffsetToReplica(client* replica) {
 void fullSyncWithMaster(connection* conn) {
     char *err = NULL;
     serverAssert(conn == server.repl_rdb_transfer_s);
-
+    
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
     if (server.repl_state == REPL_STATE_NONE) {
@@ -2952,6 +2953,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
         
         if (isOngoingRdbChannelSync()) {
+            /* While in rdb-channel-sync, we should use our prepared repl id and offset. */
             psync_replid = server.repl_provisional_master.replid;
             snprintf(psync_offset, sizeof(psync_offset), "%lld", server.repl_provisional_master.reploff+1);
             serverLog(LL_NOTICE, "Trying a partial resynchronization using main channel (request %s:%s).", psync_replid, psync_offset);
@@ -3004,10 +3006,6 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     if (!strncmp(reply,"+FULLRESYNC",11)) {
         char *replid = NULL, *offset = NULL;
 
-        if (isOngoingRdbChannelSync()) {
-            /* RDB connection sync failure */
-            abortRdbConnectionSync();
-        }
         /* FULL RESYNC, parse the reply in order to extract the replid
          * and the replication offset. */
         replid = strchr(reply,' ');
@@ -3037,9 +3035,12 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     }
 
     if (!strncmp(reply,"+CONTINUE",9)) {
+        if (isOngoingRdbChannelSync()) {
+            /* During rdb-sync sesseion, master struct is already initilized. */
+            return PSYNC_CONTINUE;
+        }
         /* Partial resync was accepted. */
-        serverLog(LL_NOTICE, isOngoingRdbChannelSync()? 
-            "Successful partial resynchronization with master, RDB load in background.":
+        serverLog(LL_NOTICE,
             "Successful partial resynchronization with master.");
 
         /* Check the new replication ID advertised by the master. If it
@@ -3054,15 +3055,8 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             char new[CONFIG_RUN_ID_SIZE+1];
             memcpy(new,start,CONFIG_RUN_ID_SIZE);
             new[CONFIG_RUN_ID_SIZE] = '\0';
-            if (isOngoingRdbChannelSync()) {
-                /* In case we are using rdb connection sync, the master is already initialized by now 
-                 * In this case we will just verify his id. Notice that in this case cached master is not 
-                 * relevant because it wasn't used */
-                serverAssert(strcmp(new, server.repl_provisional_master.replid) == 0);
-                server.repl_provisional_master.read_reploff = server.repl_provisional_master.reploff;
-                /* Disconnect all the sub-slaves: they need to be notified. */
-                disconnectSlaves();
-            } else if (strcmp(new, server.cached_master->replid)) {
+            
+            if (strcmp(new,server.cached_master->replid)) {
                 /* Master ID changed. */
                 serverLog(LL_NOTICE,"Master replication ID changed to %s",new);
 
@@ -3075,7 +3069,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                  * new one. */
                 memcpy(server.replid,new,sizeof(server.replid));
                 memcpy(server.cached_master->replid,new,sizeof(server.replid));
-
+            
                 /* Disconnect all the sub-slaves: they need to be notified. */
                 disconnectSlaves();
             }
@@ -3083,12 +3077,8 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
         /* Setup the replication to continue. */
         sdsfree(reply);
-        if (isOngoingRdbChannelSync()) {
-            completeTaskRDBChannelSync(conn);
-        } else {
-            replicationResurrectCachedMaster(conn);
-        }
-
+        replicationResurrectCachedMaster(conn);
+        
         /* If this instance was restarted and we read the metadata to
          * PSYNC from the persistence file, our replication backlog could
          * be still not initialized. Create it. */
@@ -3132,6 +3122,33 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     }
     sdsfree(reply);
     return PSYNC_NOT_SUPPORTED;
+}
+
+void setupMainConnForPsync(connection *conn) {
+    int psync_result;
+    if (server.repl_state == REPL_RDB_CONN_SEND_PSYNC) {
+        if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
+            serverLog(LL_WARNING, "Aborting RDB connection sync. Write error.");
+            abortRdbConnectionSync();
+        }
+        server.repl_state = REPL_RDB_CONN_RECEIVE_PSYNC_REPLY;
+        return;
+    }
+    psync_result = slaveTryPartialResynchronization(conn,1);
+    if (psync_result == PSYNC_WAIT_REPLY) return; /* Try again later... */
+
+    if (psync_result == PSYNC_CONTINUE) {
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization, RDB load in background.");
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
+        }
+        completeTaskRDBChannelSync(conn);
+        return;
+    }
+
+    /* The rdb-conn-sync session must be aborted for any psync_result other than PSYNC_CONTINUE or PSYNC_WAIT_REPLY. */
+    serverLog(LL_WARNING, "Aborting RDB connection sync. Main connection psync result %d", psync_result);
+    abortRdbConnectionSync();
 }
 
 /* This handler fires when the non blocking connect was able to
@@ -3351,22 +3368,10 @@ void syncWithMaster(connection *conn) {
         }
         server.repl_state = REPL_STATE_RECEIVE_PSYNC_REPLY;
         return;
-    } else if (server.repl_state == REPL_RDB_CONN_SEND_PSYNC) {
-        if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
-            err = sdsnew("Unable to PSYNC using main connection");
-            abortFailover("Write error to failover target");
-            goto rdb_conn_error;
-        }
-        server.repl_state = REPL_RDB_CONN_RECEIVE_PSYNC_REPLY;
-        return;
     }
 
-    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY or REPL_RDB_CONN_RECEIVE_PSYNC_REPLY. */
-    if (server.rdb_channel_enabled && server.repl_state == REPL_STATE_CONNECTED) {
-        /* If we use rdb channel to load the RDB, there is a race condition in which we already 
-         * done loading the RDB and thus the replica might already be connected */ 
-        serverLog(LL_NOTICE, "RDB Channel Sync: Trying psync after replica done loading the snapshot");
-    } else if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY && server.repl_state != REPL_RDB_CONN_RECEIVE_PSYNC_REPLY) {
+    /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY. */
+    if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
                              "state should be RECEIVE_PSYNC but is %d",
                              server.repl_state);
@@ -3398,9 +3403,7 @@ void syncWithMaster(connection *conn) {
      * uninstalling the read handler from the file descriptor. */
 
     if (psync_result == PSYNC_CONTINUE) {
-        serverLog(LL_NOTICE, isOngoingRdbChannelSync() ? 
-            "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization, RDB load in background." :
-            "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
         }
