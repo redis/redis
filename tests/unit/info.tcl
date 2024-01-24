@@ -404,7 +404,7 @@ start_server {tags {"info" "external:skip"}} {
     }
 }
 
-start_server {tags {"info"}} {
+start_server {tags {"info" "external:skip"}} {
     test {memory: database overhead and rehashing dict count} {
         r flushall
         set info_mem [r info memory]
