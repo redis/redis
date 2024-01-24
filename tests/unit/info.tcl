@@ -408,13 +408,13 @@ start_server {tags {"info" "external:skip"}} {
     test {memory: database overhead and rehashing dict count} {
         r flushall
         set info_mem [r info memory]
-        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht0] {0}
-        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht1] {0}
+        assert_equal [getInfoProperty $info_mem mem_db_hashtable_overhead_total] {0}
+        assert_equal [getInfoProperty $info_mem mem_db_hashtable_overhead_rehashing] {0}
         assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
         r set a b
         set info_mem [r info memory]
-        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht0] {32}
-        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht1] {0}
+        assert_equal [getInfoProperty $info_mem mem_db_hashtable_overhead_total] {32}
+        assert_equal [getInfoProperty $info_mem mem_db_hashtable_overhead_rehashing] {0}
         assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
         # set 4 more keys to trigger rehashing, and get the info within a transaction to make
         # sure the rehashing is not completed
@@ -426,6 +426,6 @@ start_server {tags {"info" "external:skip"}} {
         r info memory
         set info_mem [lindex [r exec] 4]
         assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {1}
-        assert_equal [getInfoProperty $info_mem mem_db_bucket_overhead_ht1] {64}       
+        assert_equal [getInfoProperty $info_mem mem_db_hashtable_overhead_rehashing] {32}       
     }
 }
