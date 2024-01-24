@@ -62,7 +62,7 @@ static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) {
     int idx = didx + 1;
     unsigned long long sum = 0;
     while (idx > 0) {
-        sum += kvs->state.dict_size_index[idx];
+        sum += kvs->dict_size_index[idx];
         idx -= (idx & -idx);
     }
     return sum;
@@ -89,12 +89,12 @@ static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *curs
  * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
  * Time complexity is O(log(kvs->num_dicts)). */
 static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
-    kvs->state.key_count += delta;
+    kvs->key_count += delta;
 
     dict *d = kvstoreGetDict(kvs, didx);
     size_t dsize = dictSize(d);
     int non_empty_dicts_delta = dsize == 1? 1 : dsize == 0? -1 : 0;
-    kvs->state.non_empty_dicts += non_empty_dicts_delta;
+    kvs->non_empty_dicts += non_empty_dicts_delta;
 
     /* BIT does not need to be calculated when there's only one dict. */
     if (kvs->num_dicts == 1)
@@ -104,9 +104,9 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     int idx = didx + 1; /* Unlike dict indices, BIT is 1-based, so we need to add 1. */
     while (idx <= kvs->num_dicts) {
         if (delta < 0) {
-            assert(kvs->state.dict_size_index[idx] >= (unsigned long long)labs(delta));
+            assert(kvs->dict_size_index[idx] >= (unsigned long long)labs(delta));
         }
-        kvs->state.dict_size_index[idx] += delta;
+        kvs->dict_size_index[idx] += delta;
         idx += (idx & -idx);
     }
 }
@@ -123,14 +123,14 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
  * If there's one dict, bucket count can be retrieved directly from single dict bucket. */
 static void kvstoreDictRehashingStarted(dict *d) {
     kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
-    listAddNodeTail(metadata->kvs->state.rehashing, d);
-    metadata->rehashing_node = listLast(metadata->kvs->state.rehashing);
+    listAddNodeTail(metadata->kvs->rehashing, d);
+    metadata->rehashing_node = listLast(metadata->kvs->rehashing);
 
     if (metadata->kvs->num_dicts == 1)
         return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    metadata->kvs->state.bucket_count += to; /* Started rehashing (Add the new ht size) */
+    metadata->kvs->bucket_count += to; /* Started rehashing (Add the new ht size) */
 }
 
 /* Remove dictionary from the rehashing list.
@@ -140,7 +140,7 @@ static void kvstoreDictRehashingStarted(dict *d) {
 static void kvstoreDictRehashingCompleted(dict *d) {
     kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
     if (metadata->rehashing_node) {
-        listDelNode(metadata->kvs->state.rehashing, metadata->rehashing_node);
+        listDelNode(metadata->kvs->rehashing, metadata->rehashing_node);
         metadata->rehashing_node = NULL;
     }
 
@@ -148,7 +148,7 @@ static void kvstoreDictRehashingCompleted(dict *d) {
         return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    metadata->kvs->state.bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+    metadata->kvs->bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Returns the size of the DB dict metadata in bytes. */
@@ -190,12 +190,12 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits) {
         metadata->kvs = kvs;
     }
 
-    kvs->state.rehashing = listCreate();
-    kvs->state.key_count = 0;
-    kvs->state.non_empty_dicts = 0;
-    kvs->state.resize_cursor = -1;
-    kvs->state.dict_size_index = kvs->num_dicts > 1? zcalloc(sizeof(unsigned long long) * (kvs->num_dicts + 1)) : NULL;
-    kvs->state.bucket_count = 0;
+    kvs->rehashing = listCreate();
+    kvs->key_count = 0;
+    kvs->non_empty_dicts = 0;
+    kvs->resize_cursor = -1;
+    kvs->dict_size_index = kvs->num_dicts > 1? zcalloc(sizeof(unsigned long long) * (kvs->num_dicts + 1)) : NULL;
+    kvs->bucket_count = 0;
 
     return kvs;
 }
@@ -209,14 +209,14 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         dictEmpty(d, callback);
     }
 
-    listEmpty(kvs->state.rehashing);
+    listEmpty(kvs->rehashing);
 
-    kvs->state.key_count = 0;
-    kvs->state.non_empty_dicts = 0;
-    kvs->state.resize_cursor = -1;
-    kvs->state.bucket_count = -1;
-    if (kvs->state.dict_size_index)
-        memset(kvs->state.dict_size_index, 0, sizeof(unsigned long long) * (kvs->num_dicts + 1));
+    kvs->key_count = 0;
+    kvs->non_empty_dicts = 0;
+    kvs->resize_cursor = -1;
+    kvs->bucket_count = -1;
+    if (kvs->dict_size_index)
+        memset(kvs->dict_size_index, 0, sizeof(unsigned long long) * (kvs->num_dicts + 1));
 }
 
 void kvstoreRelease(kvstore *kvs) {
@@ -229,16 +229,16 @@ void kvstoreRelease(kvstore *kvs) {
     }
     zfree(kvs->dicts);
 
-    listRelease(kvs->state.rehashing);
-    if (kvs->state.dict_size_index)
-        zfree(kvs->state.dict_size_index);
+    listRelease(kvs->rehashing);
+    if (kvs->dict_size_index)
+        zfree(kvs->dict_size_index);
 
     zfree(kvs);
 }
 
 unsigned long long int kvstoreSize(kvstore *kvs) {
     if (kvs->num_dicts != 1) {
-        return kvs->state.key_count;
+        return kvs->key_count;
     } else {
         return dictSize(kvs->dicts[0]);
     }
@@ -248,7 +248,7 @@ unsigned long long int kvstoreSize(kvstore *kvs) {
  * across dictionaries in a database. */
 unsigned long kvstoreBuckets(kvstore *kvs) {
     if (kvs->num_dicts != 1) {
-        return kvs->state.bucket_count;
+        return kvs->bucket_count;
     } else {
         return dictBuckets(kvs->dicts[0]);
     }
@@ -263,9 +263,9 @@ size_t kvstoreMemUsage(kvstore *kvs) {
            kvs->num_dicts * (sizeof(dict) + dictMetadataSize(kvstoreGetDict(kvs, 0)));
 
     /* Values are dict* shared with kvs->dicts */
-    mem += listLength(kvs->state.rehashing) * sizeof(listNode);
+    mem += listLength(kvs->rehashing) * sizeof(listNode);
 
-    if (kvs->state.dict_size_index)
+    if (kvs->dict_size_index)
         mem += sizeof(unsigned long long) * (kvs->num_dicts + 1);
 
     return mem;
@@ -427,8 +427,8 @@ int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
         int current = result + i;
         /* When the target index is greater than 'current' node value the we will update
          * the target and search in the 'current' node tree. */
-        if (target > kvs->state.dict_size_index[current]) {
-            target -= kvs->state.dict_size_index[current];
+        if (target > kvs->dict_size_index[current]) {
+            target -= kvs->dict_size_index[current];
             result = current;
         }
     }
@@ -449,7 +449,7 @@ int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx) {
 }
 
 int kvstoreNonEmptyDicts(kvstore *kvs) {
-    return kvs->state.non_empty_dicts;
+    return kvs->non_empty_dicts;
 }
 
 /* Returns kvstore iterator that can be used to iterate through sub-dictionaries.
@@ -509,14 +509,14 @@ void kvstoreTryShrinkHashTables(kvstore *kvs, int limit) {
     if (kvstoreSize(kvs) == 0)
         return;
 
-    if (kvs->state.resize_cursor == -1)
-        kvs->state.resize_cursor = kvstoreFindDictIndexByKeyIndex(kvs, 1);
+    if (kvs->resize_cursor == -1)
+        kvs->resize_cursor = kvstoreFindDictIndexByKeyIndex(kvs, 1);
 
-    for (int i = 0; i < limit && kvs->state.resize_cursor != -1; i++) {
-        int didx = kvs->state.resize_cursor;
+    for (int i = 0; i < limit && kvs->resize_cursor != -1; i++) {
+        int didx = kvs->resize_cursor;
         dict *d = kvstoreGetDict(kvs, didx);
         dictShrinkToFit(d);
-        kvs->state.resize_cursor = kvstoreGetNextNonEmptyDictIndex(kvs, didx);
+        kvs->resize_cursor = kvstoreGetNextNonEmptyDictIndex(kvs, didx);
     }
 }
 
@@ -528,7 +528,7 @@ void kvstoreTryShrinkHashTables(kvstore *kvs, int limit) {
  * The function returns the amount of microsecs spent if some rehashing was
  * performed, otherwise 0 is returned. */
 uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
-    if (listLength(kvs->state.rehashing) == 0)
+    if (listLength(kvs->rehashing) == 0)
         return 0;
 
     /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
@@ -537,7 +537,7 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
     monotime timer;
     uint64_t elapsed_us = UINT64_MAX;
     elapsedStart(&timer);
-    while ((node = listFirst(kvs->state.rehashing))) {
+    while ((node = listFirst(kvs->rehashing))) {
         elapsed_us = elapsedUs(timer);
         if (elapsed_us >= threshold_us) {
             break;  /* Reached the time limit. */
