@@ -2726,7 +2726,7 @@ void readQueryFromClient(connection *conn) {
          *
          * For unauthenticated clients, the query buffer cannot exceed 1MB at most. */
         (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len ||
-         (c->mstate.argv_len_sums + sdslen(c->querybuf) > 1024*1024*1024 && authRequired(c)))) {
+         (c->mstate.argv_len_sums + sdslen(c->querybuf) > 1024*1024 && authRequired(c)))) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
