@@ -8,6 +8,7 @@
         "container": "CLIENT",
         "function": "clientCommand",
         "command_flags": [
+            "FAST",
             "NOSCRIPT",
             "LOADING",
             "STALE",

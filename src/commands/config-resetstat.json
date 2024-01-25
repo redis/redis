@@ -8,6 +8,7 @@
         "container": "CONFIG",
         "function": "configResetStatCommand",
         "command_flags": [
+            "FAST",
             "ADMIN",
             "NOSCRIPT",
             "LOADING",

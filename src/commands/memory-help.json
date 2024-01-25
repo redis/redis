@@ -8,6 +8,7 @@
         "container": "MEMORY",
         "function": "memoryCommand",
         "command_flags": [
+            "FAST",
             "LOADING",
             "STALE"
         ],

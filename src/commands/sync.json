@@ -1,6 +1,7 @@
 {
     "SYNC": {
         "summary": "An internal command used in replication.",
+        "complexity": "N/A",
         "group": "server",
         "since": "1.0.0",
         "arity": 1,

@@ -7,6 +7,7 @@
         "arity": -2,
         "function": "geoposCommand",
         "command_flags": [
+            "FAST",
             "READONLY"
         ],
         "acl_categories": [

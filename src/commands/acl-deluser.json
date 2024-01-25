@@ -8,6 +8,7 @@
         "container": "ACL",
         "function": "aclCommand",
         "command_flags": [
+            "FAST",
             "ADMIN",
             "NOSCRIPT",
             "LOADING",

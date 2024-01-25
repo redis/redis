@@ -1,6 +1,7 @@
 {
     "XREAD": {
         "summary": "Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",
+        "complexity": "O(N) with N being the number of elements being returned.",
         "group": "stream",
         "since": "5.0.0",
         "arity": -4,

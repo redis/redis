@@ -24,6 +24,7 @@
             "SYSCMD"
         ],
         "command_flags": [
+            "FAST",
             "WRITE",
             "DENYOOM",
             "ASKING"
