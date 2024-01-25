@@ -1574,8 +1574,8 @@ struct redisServer {
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
     list *rehashing;            /* List of dictionaries in DBs that are currently rehashing. */
-    size_t db_hashtable_overhead_total;      /* The overhead of all hashtables in db. */
-    size_t db_hashtable_overhead_rehashing;  /* The overhead of rehashing. */
+    size_t overhead_hashtable_lut;      /* The overhead of all hashtables in db. */
+    size_t overhead_hashtable_rehashing;  /* The overhead of rehashing. */
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;

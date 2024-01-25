@@ -1555,7 +1555,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,27+mh->num_dbs);
+        addReplyMapLen(c,29+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1599,6 +1599,12 @@ NULL
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
         }
+
+        addReplyBulkCString(c,"overhead.hashtable.lut");
+        addReplyLongLong(c, server.overhead_hashtable_lut * sizeof(dictEntry *));
+
+        addReplyBulkCString(c,"overhead.hashtable.rehashing");
+        addReplyLongLong(c, server.overhead_hashtable_rehashing * sizeof(dictEntry *));
 
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);

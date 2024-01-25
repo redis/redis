@@ -432,8 +432,8 @@ void dictRehashingStarted(dict *d, dbKeyType keyType) {
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    server.db_hashtable_overhead_total += to;
-    server.db_hashtable_overhead_rehashing += from;
+    server.overhead_hashtable_lut += to;
+    server.overhead_hashtable_rehashing += from;
     if (!server.cluster_enabled) return;
     server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */  
 }
@@ -451,8 +451,8 @@ void dictRehashingCompleted(dict *d, dbKeyType keyType) {
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    server.db_hashtable_overhead_total -= from;
-    server.db_hashtable_overhead_rehashing -= from;
+    server.overhead_hashtable_lut -= from;
+    server.overhead_hashtable_rehashing -= from;
     if (!server.cluster_enabled) return;                                                                                 
     server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
@@ -2746,8 +2746,8 @@ void initServer(void) {
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
     server.rehashing = listCreate();
-    server.db_hashtable_overhead_total = 0;
-    server.db_hashtable_overhead_rehashing = 0;
+    server.overhead_hashtable_lut = 0;
+    server.overhead_hashtable_rehashing = 0;
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType);
     server.pubsub_patterns = dictCreate(&keylistDictType);
@@ -5741,8 +5741,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
-            "mem_db_hashtable_overhead_total:%zu\r\n", server.db_hashtable_overhead_total * sizeof(dictEntry*),
-            "mem_db_hashtable_overhead_rehashing:%zu\r\n", server.db_hashtable_overhead_rehashing * sizeof(dictEntry*),
+            "mem_overhead_hashtable_lut:%zu\r\n", server.overhead_hashtable_lut * sizeof(dictEntry*),
+            "mem_overhead_hashtable_rehashing:%zu\r\n", server.overhead_hashtable_rehashing * sizeof(dictEntry*),
             "databases_rehashing_dict_count:%lu\r\n", listLength(server.rehashing),
             "active_defrag_running:%d\r\n", server.active_defrag_running,
             "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),
