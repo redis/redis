@@ -427,6 +427,7 @@ static void setClusterKeyHashTag(client c) {
      * updateClusterSlotsConfiguration won't actually do anything, since
      * the updated_slots_count array will be already NULL. */
     if (is_updating_slots) updateClusterSlotsConfiguration();
+    node->current_slot_index = rand() % node->slots_count;
     int slot = node->slots[node->current_slot_index];
     const char *tag = crc16_slot_table[slot];
     int taglen = strlen(tag);
