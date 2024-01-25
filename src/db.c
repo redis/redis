@@ -763,6 +763,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
 redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
+        tempDb[i].id = i;
         tempDb[i].dict_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
         tempDb[i].dict = dictCreateMultiple(&dbDictType, tempDb[i].dict_count);
         tempDb[i].expires = dictCreateMultiple(&dbExpiresDictType, tempDb[i].dict_count);
