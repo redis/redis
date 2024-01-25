@@ -92,7 +92,7 @@ static void dictSetNext(dictEntry *de, dictEntry *next);
 /* -------------------------- hash functions -------------------------------- */
 
 static uint8_t dict_hash_function_seed[16];
-   
+
 void dictSetHashFunctionSeed(uint8_t *seed) {
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
 }
@@ -1421,7 +1421,7 @@ static int dictTypeResizeAllowed(dict *d, size_t size) {
 }
 
 int dictExpandIfNeeded(dict *d) {
-/* Incremental rehashing already in progress. Return. */
+    /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
 
     /* If the hash table is empty expand it to the initial size. */
