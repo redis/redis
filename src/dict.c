@@ -332,8 +332,8 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
             h = dictHashKey(d, key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
         } else {
             /* We're shrinking the table. The tables sizes are powers of
-                * two, so we simply mask the bucket index in the larger table
-                * to get the bucket index in the smaller table. */
+              * two, so we simply mask the bucket index in the larger table
+              * to get the bucket index in the smaller table. */
             h = idx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
         }
         if (d->type->no_value) {
