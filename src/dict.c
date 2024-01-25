@@ -88,12 +88,12 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntry **dictGetNextRef(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
-static int dictTypeResizeAllowed(dict *d);
+static int dictTypeResizeAllowed(dict *d, size_t size);
 
 /* -------------------------- hash functions -------------------------------- */
 
 static uint8_t dict_hash_function_seed[16];
-
+   
 void dictSetHashFunctionSeed(uint8_t *seed) {
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
 }
@@ -234,7 +234,7 @@ int dictShrinkToFit(dict *d)
 int dictExpandToFit(dict *d) {
     if (dict_can_resize != DICT_RESIZE_ENABLE || dictIsRehashing(d))
         return DICT_ERR;
-    if (!dictTypeResizeAllowed(d))
+    if (!dictTypeResizeAllowed(d, d->ht_used[0] + 1))
         return DICT_ERR;
     return dictExpand(d, d->ht_used[0] + 1);
 }
