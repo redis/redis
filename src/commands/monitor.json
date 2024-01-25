@@ -19,6 +19,13 @@
         ],
         "arguments": [
             {
+                "token": "ID",
+                "name": "client-id",
+                "type": "integer",
+                "optional": true,
+                "since": "8.0"
+            },
+            {
                 "token": "USER",
                 "name": "username",
                 "type": "string",

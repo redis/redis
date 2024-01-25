@@ -6171,7 +6171,7 @@ void infoCommand(client *c) {
 // TODO signature like int commandCheckExistence(client *c, sds *err) ? why *err and not err as sds is a char*
 // check code that deals with https://github.com/RediSearch/RediSearch/blob/master/commands.json
 // and client kill code
-sds saveMonitorFiltersFromArguments(client *c) {
+sds createMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return NULL; /* MONITOR does not have filters/arguments */
 
     sds incorrect_args = sdsempty();
@@ -6204,7 +6204,8 @@ sds saveMonitorFiltersFromArguments(client *c) {
     }
 }
 
-/* MONITOR [USER username] [ADDR ip:port] [LADDR ip:port] [EXCLUDE_COMMANDS] [COMMANDS count command [command ...]] */
+/* MONITOR [ID client-id] [USER username] [ADDR ip:port] [LADDR ip:port] [CMD_FILTER <INCLUDE | EXCLUDE>] [CMD command]
+ [[ID client-id] [USER username] [ADDR ip:port] [LADDR ip:port] [CMD command] ...]*/
 void monitorCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
@@ -6217,7 +6218,7 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
-    sds error_msg = saveMonitorFiltersFromArguments(c);
+    sds error_msg = createMonitorFiltersFromArguments(c);
     if (error_msg) {
         addReplyErrorFormat(c, "%s", error_msg);
         sdsfree(error_msg);
