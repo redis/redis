@@ -1420,7 +1420,7 @@ static int dictTypeResizeAllowed(dict *d, size_t size) {
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
-int adictExpandIfNeeded(dict *d) {
+int dictExpandIfNeeded(dict *d) {
 /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
 
