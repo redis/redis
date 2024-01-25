@@ -695,7 +695,8 @@ dictType clientDictType = {
 
 /* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
  * and triggers a resize if the percentage of used buckets in the HT reaches (100 / HASHTABLE_MIN_FILL)
- * we resize the hash table to save memory.
+ * we shrink the hash table to save memory, or expand the hash when the percentage of used buckets reached
+ * 100.
  *
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
@@ -705,8 +706,9 @@ void tryResizeHashTables(int dbid) {
         for (int i = 0; i < dicts_per_call; i++) {
             int slot = db->sub_dict[subdict].resize_cursor;
             dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            dictShrinkIfNeeded(d);
-            dictExpandIfNeeded(d);
+            if (dictShrinkIfNeeded(d) == DICT_ERR) {
+                dictExpandIfNeeded(d);
+            }
             db->sub_dict[subdict].resize_cursor = (slot + 1) % db->dict_count;
         }
     }

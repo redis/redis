@@ -1420,14 +1420,14 @@ static int dictTypeResizeAllowed(dict *d, size_t size) {
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
-void dictExpandIfNeeded(dict *d) {
+int adictExpandIfNeeded(dict *d) {
 /* Incremental rehashing already in progress. Return. */
-    if (dictIsRehashing(d)) return;
+    if (dictIsRehashing(d)) return DICT_OK;
 
     /* If the hash table is empty expand it to the initial size. */
     if (DICTHT_SIZE(d->ht_size_exp[0]) == 0) {
         dictExpand(d, DICT_HT_INITIAL_SIZE);
-        return;
+        return DICT_OK;
     }
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
@@ -1439,10 +1439,11 @@ void dictExpandIfNeeded(dict *d) {
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (!dictTypeResizeAllowed(d, d->ht_used[0] + 1))
-            return;
-        dictExpand(d, d->ht_used[0] + 1);
+        if (dictTypeResizeAllowed(d, d->ht_used[0] + 1))
+            dictExpand(d, d->ht_used[0] + 1);
+        return DICT_OK;
     }
+    return DICT_ERR;
 }
 
 /* Expand the hash table if needed */
@@ -1453,12 +1454,12 @@ static void _dictExpandIfNeeded(dict *d) {
     dictExpandIfNeeded(d);
 }
 
-void dictShrinkIfNeeded(dict *d) {
+int dictShrinkIfNeeded(dict *d) {
     /* Incremental rehashing already in progress. Return. */
-    if (dictIsRehashing(d)) return;
+    if (dictIsRehashing(d)) return DICT_OK;
     
     /* If the size of hash table is DICT_HT_INITIAL_SIZE, don't shrink it. */
-    if (DICTHT_SIZE(d->ht_size_exp[0]) <= DICT_HT_INITIAL_SIZE) return;
+    if (DICTHT_SIZE(d->ht_size_exp[0]) <= DICT_HT_INITIAL_SIZE) return DICT_OK;
 
     /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
@@ -1468,10 +1469,11 @@ void dictShrinkIfNeeded(dict *d) {
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (!dictTypeResizeAllowed(d, d->ht_used[0]))
-            return;
-        dictShrink(d, d->ht_used[0]);
+        if (dictTypeResizeAllowed(d, d->ht_used[0]))
+            dictShrink(d, d->ht_used[0]);
+        return DICT_OK;
     }
+    return DICT_ERR;
 }
 
 static void _dictShrinkIfNeeded(dict *d) 
