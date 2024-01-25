@@ -971,8 +971,8 @@ typedef struct replBufBlock {
 
 /* When adding fields, please check the swap db related logic. */
 typedef struct dbDictState {
-    int non_empty_slots;                   /* The number of non-empty slots. */
     int resize_cursor;                     /* Cron job uses this cursor to gradually resize all dictionaries. */
+    int non_empty_slots;                   /* The number of non-empty slots. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
     unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries (only used for cluster-enabled). */
     unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
@@ -3112,8 +3112,6 @@ void serverLogRaw(int level, const char *msg);
 void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
-int htNeedsShrink(dict *dict);
-int htNeedsExpand(dict *dict);
 void populateCommandTable(void);
 void resetCommandTableStats(dict* commands);
 void resetErrorTableStats(void);

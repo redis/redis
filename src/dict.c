@@ -88,7 +88,6 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntry **dictGetNextRef(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
-static int dictTypeResizeAllowed(dict *d, size_t size);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -215,28 +214,6 @@ int _dictInit(dict *d, dictType *type)
     d->pauserehash = 0;
     d->pauseAutoResize = 0;
     return DICT_OK;
-}
-
-/* Resize the table to the minimal size that contains all the elements,
- * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
-int dictShrinkToFit(dict *d)
-{
-    unsigned long minimal;
-
-    if (dict_can_resize != DICT_RESIZE_ENABLE || dictIsRehashing(d)) return DICT_ERR;
-    minimal = d->ht_used[0];
-    if (minimal < DICT_HT_INITIAL_SIZE)
-        minimal = DICT_HT_INITIAL_SIZE;
-    return dictShrink(d, minimal);
-}
-
-/* Expand the table to a proper size to contain the elements. */
-int dictExpandToFit(dict *d) {
-    if (dict_can_resize != DICT_RESIZE_ENABLE || dictIsRehashing(d))
-        return DICT_ERR;
-    if (!dictTypeResizeAllowed(d, d->ht_used[0] + 1))
-        return DICT_ERR;
-    return dictExpand(d, d->ht_used[0] + 1);
 }
 
 /* Resize or create the hash table,
@@ -1443,13 +1420,8 @@ static int dictTypeResizeAllowed(dict *d, size_t size) {
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
-/* Expand the hash table if needed */
-static void _dictExpandIfNeeded(dict *d)
-{
-    /* Automatic resizing is disallowed. Return */
-    if (d->pauseAutoResize > 0) return;
-
-    /* Incremental rehashing already in progress. Return. */
+void dictExpandIfNeeded(dict *d) {
+/* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return;
 
     /* If the hash table is empty expand it to the initial size. */
@@ -1473,16 +1445,20 @@ static void _dictExpandIfNeeded(dict *d)
     }
 }
 
-static void _dictShrinkIfNeeded(dict *d) 
-{
+/* Expand the hash table if needed */
+static void _dictExpandIfNeeded(dict *d) {
     /* Automatic resizing is disallowed. Return */
     if (d->pauseAutoResize > 0) return;
 
+    dictExpandIfNeeded(d);
+}
+
+void dictShrinkIfNeeded(dict *d) {
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return;
     
     /* If the size of hash table is DICT_HT_INITIAL_SIZE, don't shrink it. */
-    if (DICTHT_SIZE(d->ht_size_exp[0]) == DICT_HT_INITIAL_SIZE) return;
+    if (DICTHT_SIZE(d->ht_size_exp[0]) <= DICT_HT_INITIAL_SIZE) return;
 
     /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
@@ -1496,6 +1472,14 @@ static void _dictShrinkIfNeeded(dict *d)
             return;
         dictShrink(d, d->ht_used[0]);
     }
+}
+
+static void _dictShrinkIfNeeded(dict *d) 
+{
+    /* Automatic resizing is disallowed. Return */
+    if (d->pauseAutoResize > 0) return;
+
+    dictShrinkIfNeeded(d);
 }
 
 /* Our hash table capability is a power of two */

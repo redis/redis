@@ -693,26 +693,6 @@ dictType clientDictType = {
     .no_value = 1               /* no values in this dict */
 };
 
-int htNeedsShrink(dict *dict) {
-    long long size, used;
-
-    size = dictBuckets(dict);
-    used = dictSize(dict);
-
-    return size > DICT_HT_INITIAL_SIZE && (used*100/size < HASHTABLE_MIN_FILL);
-}
-
-int htNeedsExpand(dict *dict) {
-    long long size, used;
-
-    size = dictBuckets(dict);
-    used = dictSize(dict);
-    return used >= size;
-
-    return (size > DICT_HT_INITIAL_SIZE &&
-            (used * HASHTABLE_MIN_FILL <= size));
-}
-
 /* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
  * and triggers a resize if the percentage of used buckets in the HT reaches (100 / HASHTABLE_MIN_FILL)
  * we resize the hash table to save memory.
@@ -720,15 +700,13 @@ int htNeedsExpand(dict *dict) {
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
+    int dicts_per_call = min(CRON_DICTS_PER_DB, db->dict_count);
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        for (int i = 0; i < CRON_DICTS_PER_DB && i < db->dict_count; i++) {
+        for (int i = 0; i < dicts_per_call; i++) {
             int slot = db->sub_dict[subdict].resize_cursor;
             dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            if (htNeedsShrink(d)) {
-                dictShrinkToFit(d);
-            } else if (htNeedsExpand(d)) {
-                dictExpandToFit(d);
-            }
+            dictShrinkIfNeeded(d);
+            dictExpandIfNeeded(d);
             db->sub_dict[subdict].resize_cursor = (slot + 1) % db->dict_count;
         }
     }
