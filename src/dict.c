@@ -461,7 +461,7 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Performs rehashing on a single bucket. */
-int _dictBucketRehashStep(dict *d, uint64_t idx) {
+int _dictBucketRehash(dict *d, uint64_t idx) {
     if (d->pauserehash != 0) return 0;
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
@@ -479,10 +479,6 @@ int _dictBucketRehashStep(dict *d, uint64_t idx) {
     dictCheckRehashingCompleted(d);
     return 1;
 }
-
-// static void _dictBucketRehashStep(dict *d, uint64_t idx) {
-//     if (d->pauserehash == 0) dictBucketRehash(d, idx);
-// }
 
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
@@ -627,7 +623,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
             /* If we have a valid hash entry at `idx` in ht0, we perform
              * rehash on the bucket at `idx` (being more CPU cache friendly) */
-            _dictBucketRehashStep(d, idx);
+            _dictBucketRehash(d, idx);
         } else {
             /* If the hash entry is not in ht0, we rehash the buckets based
              * on the rehashidx (not CPU cache friendly). */
@@ -752,7 +748,7 @@ dictEntry *dictFind(dict *d, const void *key)
         if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
             /* If we have a valid hash entry at `idx` in ht0, we perform
              * rehash on the bucket at `idx` (being more CPU cache friendly) */
-            _dictBucketRehashStep(d, idx);
+            _dictBucketRehash(d, idx);
         } else {
             /* If the hash entry is not in ht0, we rehash the buckets based
              * on the rehashidx (not CPU cache friendly). */
@@ -1567,7 +1563,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
         if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
             /* If we have a valid hash entry at `idx` in ht0, we perform
              * rehash on the bucket at `idx` (being more CPU cache friendly) */
-            _dictBucketRehashStep(d, idx);
+            _dictBucketRehash(d, idx);
         } else {
             /* If the hash entry is not in ht0, we rehash the buckets based
              * on the rehashidx (not CPU cache friendly). */
