@@ -461,7 +461,8 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Performs rehashing on a single bucket. */
-int dictBucketRehash(dict *d, uint64_t idx) {
+int _dictBucketRehashStep(dict *d, uint64_t idx) {
+    if (d->pauserehash != 0) return 0;
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
     if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
@@ -479,9 +480,9 @@ int dictBucketRehash(dict *d, uint64_t idx) {
     return 1;
 }
 
-static void _dictBucketRehashStep(dict *d, uint64_t idx) {
-    if (d->pauserehash == 0) dictBucketRehash(d, idx);
-}
+// static void _dictBucketRehashStep(dict *d, uint64_t idx) {
+//     if (d->pauserehash == 0) dictBucketRehash(d, idx);
+// }
 
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
