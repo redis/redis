@@ -626,9 +626,14 @@ size_t zmalloc_get_rss(void) {
 
 #if defined(USE_JEMALLOC)
 
-int zmalloc_get_allocator_info(size_t *allocated,
-                               size_t *active,
-                               size_t *resident) {
+#include <assert.h>
+
+#define STRINGIFY_(x) #x
+#define STRINGIFY(x) STRINGIFY_(x)
+
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+                               size_t *retained, size_t *muzzy, size_t *allocated_large)
+{
     uint64_t epoch = 1;
     size_t sz;
     *allocated = *resident = *active = 0;
@@ -645,6 +650,28 @@ int zmalloc_get_allocator_info(size_t *allocated,
     /* Unlike zmalloc_used_memory, this matches the stats.resident by taking
      * into account all allocations done by this process (not only zmalloc). */
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
+
+    /* Retained memory is not part of RSS or mappings. It's just throught `madvised(..., MADV_DONTNEED)`
+     * back to the operating system and doesn't have a strong association with physical memory.
+     * It may be used again in later allocations. */
+    if (retained) {
+        *retained = 0;
+        je_mallctl("stats.retained", retained, &sz, NULL, 0);
+    }
+
+    /* Unlike retained, It's throught `madvised(..., MADV_FREE)` back to the operating system ASAP. */
+    if (muzzy) {
+        size_t pmuzzy, page;
+        assert(!je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pmuzzy", &pmuzzy, &sz, NULL, 0));
+        assert(!je_mallctl("arenas.page", &page, &sz, NULL, 0));
+        *muzzy = pmuzzy * page;
+    }
+
+    /* Like allocated, but it only includes the allocated memory from the large bins. */
+    if (allocated_large) {
+        *allocated_large = 0;
+        je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".large.allocated", allocated_large, &sz, NULL, 0);
+    }
     return 1;
 }
 
@@ -670,10 +697,13 @@ int jemalloc_purge(void) {
 
 #else
 
-int zmalloc_get_allocator_info(size_t *allocated,
-                               size_t *active,
-                               size_t *resident) {
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+                               size_t *retained, size_t *muzzy, size_t *allocated_large)
+{
     *allocated = *resident = *active = 0;
+    if (retained) *retained = 0;
+    if (muzzy) *muzzy = 0;
+    if (allocated_large) *allocated_large = 0;
     return 1;
 }
 

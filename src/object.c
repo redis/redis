@@ -1555,7 +1555,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,27+mh->num_dbs);
+        addReplyMapLen(c,30+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1621,11 +1621,20 @@ NULL
         addReplyBulkCString(c,"allocator.allocated");
         addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated);
 
+        addReplyBulkCString(c,"allocator.allocated_large");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated_large);
+
         addReplyBulkCString(c,"allocator.active");
         addReplyLongLong(c,server.cron_malloc_stats.allocator_active);
 
         addReplyBulkCString(c,"allocator.resident");
         addReplyLongLong(c,server.cron_malloc_stats.allocator_resident);
+
+        addReplyBulkCString(c,"allocator.retained");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_retained);
+
+        addReplyBulkCString(c,"allocator.muzzy");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_muzzy);
 
         addReplyBulkCString(c,"allocator-fragmentation.ratio");
         addReplyDouble(c,mh->allocator_frag);

@@ -770,8 +770,15 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * or not, a false detection can cause the defragmenter to waste a lot of CPU
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
-    size_t resident, active, allocated;
-    zmalloc_get_allocator_info(&allocated, &active, &resident);
+    size_t resident, active, allocated, allocated_large;
+    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &allocated_large);
+
+    /* After #12315, large bins no longer have external fragmentation, so we can exclude
+     * the memory occupied by large bins when determining the memory fragmentation threshold. */
+    allocated -= allocated_large;
+    active -= allocated_large;
+    resident -= allocated_large;
+
     float frag_pct = ((float)active / allocated)*100 - 100;
     size_t frag_bytes = active - allocated;
     float rss_pct = ((float)resident / allocated)*100 - 100;

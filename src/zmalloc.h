@@ -122,7 +122,8 @@ __attribute__((malloc)) char *zstrdup(const char *s);
 size_t zmalloc_used_memory(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
 size_t zmalloc_get_rss(void);
-int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident);
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+                               size_t *retained, size_t *muzzy, size_t *allocated_large);
 void set_jemalloc_bg_thread(int enable);
 int jemalloc_purge(void);
 size_t zmalloc_get_private_dirty(long pid);
