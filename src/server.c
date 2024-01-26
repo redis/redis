@@ -164,7 +164,7 @@ void serverLogRaw(int level, const char *msg) {
                 } else if (pid != server.pid) {
                     role = "RDB/AOF";
                 } else {
-                    role = (server.masterhost ? "secondary" : "master");
+                    role = (server.masterhost ? "replica" : "master");
                 }
                 fprintf(fp, "pid=%d role=%s timestamp=\"%s\" level=%s message=\"%s\"\n",
                         (int)getpid(),role,buf,verbose_level[level],msg);

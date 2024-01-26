@@ -609,8 +609,10 @@ typedef enum {
 #define PAUSE_ACTION_REPLICA          (1<<4) /* pause replica traffic */
 
 /* Sets log format */
-#define LOG_FORMAT_DEFAULT 0
-#define LOG_FORMAT_LOGFMT 1
+typedef enum {
+    LOG_FORMAT_DEFAULT = 0,
+    LOG_FORMAT_LOGFMT
+} log_format_type;
 
 /* Sets log timestamp format */
 /* Also update LOG_TIMESTAMP_FORMATS */
