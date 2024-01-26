@@ -308,6 +308,12 @@ start_server {tags {"zset"}} {
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
+        test "ZINCRBY against invalid incr value - $encoding" {
+            r del zincr
+            r zadd zincr 1 "one"
+            assert_error "*value is not a valid*" {r zincrby zincr v "one"}
+        }
+
         test "ZADD - Variadic version base case - $encoding" {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]

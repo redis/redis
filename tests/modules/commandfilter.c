@@ -1,6 +1,7 @@
 #include "redismodule.h"
 
 #include <string.h>
+#include <strings.h>
 
 static RedisModuleString *log_key_name;
 
@@ -92,7 +93,7 @@ int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-int CommandFilter_UnfilteredClientdId(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+int CommandFilter_UnfilteredClientId(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (argc < 2)
         return RedisModule_WrongArity(ctx);
@@ -192,7 +193,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"commandfilter",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    if (argc != 2) {
+    if (argc != 2 && argc != 3) {
         RedisModule_Log(ctx, "warning", "Log key name not specified");
         return REDISMODULE_ERR;
     }
@@ -219,7 +220,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, unfiltered_clientid_name,
-                CommandFilter_UnfilteredClientdId, "admin", 1,1,1) == REDISMODULE_ERR)
+                CommandFilter_UnfilteredClientId, "admin", 1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, 
@@ -228,6 +229,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if ((filter1 = RedisModule_RegisterCommandFilter(ctx, CommandFilter_BlmoveSwap, 0)) == NULL)
         return REDISMODULE_ERR;
+
+    if (argc == 3) {
+        const char *ptr = RedisModule_StringPtrLen(argv[2], NULL);
+        if (!strcasecmp(ptr, "noload")) {
+            /* This is a hint that we return ERR at the last moment of OnLoad. */
+            RedisModule_FreeString(ctx, log_key_name);
+            if (retained) RedisModule_FreeString(NULL, retained);
+            return REDISMODULE_ERR;
+        }
+    }
 
     return REDISMODULE_OK;
 }

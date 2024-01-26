@@ -71,8 +71,12 @@ run_solo {defrag} {
                 # Wait for the active defrag to start working (decision once a
                 # second).
                 wait_for_condition 50 100 {
-                    [s active_defrag_running] ne 0
+                    [s total_active_defrag_time] ne 0
                 } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
                     fail "defrag not started."
                 }
 
@@ -217,8 +221,12 @@ run_solo {defrag} {
             
                 # wait for the active defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
-                    [s active_defrag_running] ne 0
+                    [s total_active_defrag_time] ne 0
                 } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
                     fail "defrag not started."
                 }
 
@@ -335,8 +343,12 @@ run_solo {defrag} {
             if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
-                    [s active_defrag_running] ne 0
+                    [s total_active_defrag_time] ne 0
                 } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
                     fail "defrag not started."
                 }
 
@@ -383,6 +395,7 @@ run_solo {defrag} {
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
 
+        if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag big list: $type" {
             r flushdb
             r config resetstat
@@ -431,8 +444,12 @@ run_solo {defrag} {
             if {[r config get activedefrag] eq "activedefrag yes"} {
                 # wait for the active defrag to start working (decision once a second)
                 wait_for_condition 50 100 {
-                    [s active_defrag_running] ne 0
+                    [s total_active_defrag_time] ne 0
                 } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
                     fail "defrag not started."
                 }
 
@@ -551,8 +568,12 @@ run_solo {defrag} {
                 if {[r config get activedefrag] eq "activedefrag yes"} {
                     # wait for the active defrag to start working (decision once a second)
                     wait_for_condition 50 100 {
-                        [s active_defrag_running] ne 0
+                        [s total_active_defrag_time] ne 0
                     } else {
+                        after 120 ;# serverCron only updates the info once in 100ms
+                        puts [r info memory]
+                        puts [r info stats]
+                        puts [r memory malloc-stats]
                         fail "defrag not started."
                     }
 
@@ -586,6 +607,7 @@ run_solo {defrag} {
                 assert {$digest eq $newdigest}
                 r save ;# saving an rdb iterates over all the data / pointers
             }
+        } ;# standalone
         }
     }
     }

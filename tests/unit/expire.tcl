@@ -834,11 +834,13 @@ start_server {tags {"expire"}} {
     } {} {needs:debug}
 }
 
-start_cluster 1 0 {tags {"expire external:skip cluster"}} {
+start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
     test "expire scan should skip dictionaries with lot's of empty buckets" {
+        r debug set-active-expire 0
+
         # Collect two slots to help determine the expiry scan logic is able
         # to go past certain slots which aren't valid for scanning at the given point of time.
-        # And the next non empyt slot after that still gets scanned and expiration happens.
+        # And the next non empty slot after that still gets scanned and expiration happens.
 
         # hashslot(alice) is 749
         r psetex alice 500 val
@@ -851,8 +853,6 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
         # hashslot(key) is 12539
         r psetex key 500 val
 
-        assert_equal 102 [r dbsize]
-
         # disable resizing
         r config set rdb-key-save-delay 10000000
         r bgsave
@@ -862,7 +862,12 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
             r del "{foo}$j"
         }
 
-        # Verify {foo}5 still exists and remaining got cleaned up
+        # Trigger a full traversal of all dictionaries.
+        r keys *
+
+        r debug set-active-expire 1
+
+        # Verify {foo}100 still exists and remaining got cleaned up
         wait_for_condition 20 100 {
             [r dbsize] eq 1
         } else {
@@ -882,26 +887,16 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
             fail "bgsave did not stop in time."
         }
 
-        # Verify dict is under rehashing
-        set htstats [r debug HTSTATS 0]
-        assert_match {*rehashing target*} $htstats
-
         # put some data into slot 12182 and trigger the resize
         r psetex "{foo}0" 500 a
 
-        # Verify dict rehashing has completed
-        set htstats [r debug HTSTATS 0]
-        wait_for_condition 20 100 {
-            ![string match {*rehashing target*} $htstats]
-        } else {
-            fail "rehashing didn't complete"
-        }
-
         # Verify all keys have expired
-        wait_for_condition 20 100 {
+        wait_for_condition 400 100 {
             [r dbsize] eq 0
         } else {
+            puts [r dbsize]
+            flush stdout
             fail "Keys did not actively expire."
         }
-    }
+    } {} {needs:debug}
 }

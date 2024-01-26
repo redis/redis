@@ -30,6 +30,8 @@
 
 #include "fmacros.h"
 #include "cli_common.h"
+#include "version.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -47,6 +49,9 @@
 #endif
 
 #define UNUSED(V) ((void) V)
+
+char *redisGitSHA1(void);
+char *redisGitDirty(void);
 
 /* Wrapper around redisSecureConnection to avoid hiredis_ssl dependencies if
  * not building with TLS support.
@@ -405,4 +410,17 @@ sds escapeJsonString(sds s, const char *p, size_t len) {
         p++;
     }
     return sdscatlen(s,"\"",1);
+}
+
+sds cliVersion(void) {
+    sds version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
+
+    /* Add git commit and working tree status when available. */
+    if (strtoll(redisGitSHA1(),NULL,16)) {
+        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
+        if (strtoll(redisGitDirty(),NULL,10))
+            version = sdscatprintf(version, "-dirty");
+        version = sdscat(version, ")");
+    }
+    return version;
 }

@@ -7816,7 +7816,7 @@ struct COMMAND_ARG SINTERCARD_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* SINTERSTORE key specs */
 keySpec SINTERSTORE_Keyspecs[2] = {
-{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
 };
 #endif
 
@@ -10686,8 +10686,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("ttl","Returns the expiration time in seconds of a key.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,TTL_History,1,TTL_Tips,1,ttlCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,TTL_Keyspecs,1,NULL,1),.args=TTL_Args},
 {MAKE_CMD("type","Determines the type of value stored at a key.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,TYPE_History,0,TYPE_Tips,0,typeCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,TYPE_Keyspecs,1,NULL,1),.args=TYPE_Args},
 {MAKE_CMD("unlink","Asynchronously deletes one or more keys.","O(1) for each key removed regardless of its size. Then the command does O(N) work in a different thread in order to reclaim memory, where N is the number of allocations the deleted objects where composed of.","4.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,UNLINK_History,0,UNLINK_Tips,2,unlinkCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,UNLINK_Keyspecs,1,NULL,1),.args=UNLINK_Args},
-{MAKE_CMD("wait","Blocks until the asynchronous replication of all preceding write commands sent by the connection is completed.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAIT_History,0,WAIT_Tips,2,waitCommand,3,0,ACL_CATEGORY_CONNECTION,WAIT_Keyspecs,0,NULL,2),.args=WAIT_Args},
-{MAKE_CMD("waitaof","Blocks until all of the preceding write commands sent by the connection are written to the append-only file of the master and/or replicas.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAITAOF_History,0,WAITAOF_Tips,2,waitaofCommand,4,CMD_NOSCRIPT,ACL_CATEGORY_CONNECTION,WAITAOF_Keyspecs,0,NULL,3),.args=WAITAOF_Args},
+{MAKE_CMD("wait","Blocks until the asynchronous replication of all preceding write commands sent by the connection is completed.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAIT_History,0,WAIT_Tips,2,waitCommand,3,CMD_BLOCKING,ACL_CATEGORY_CONNECTION,WAIT_Keyspecs,0,NULL,2),.args=WAIT_Args},
+{MAKE_CMD("waitaof","Blocks until all of the preceding write commands sent by the connection are written to the append-only file of the master and/or replicas.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,WAITAOF_History,0,WAITAOF_Tips,2,waitaofCommand,4,CMD_BLOCKING,ACL_CATEGORY_CONNECTION,WAITAOF_Keyspecs,0,NULL,3),.args=WAITAOF_Args},
 /* geo */
 {MAKE_CMD("geoadd","Adds one or more members to a geospatial index. The key is created if it doesn't exist.","O(log(N)) for each item added, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOADD_History,1,GEOADD_Tips,0,geoaddCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEOADD_Keyspecs,1,NULL,4),.args=GEOADD_Args},
 {MAKE_CMD("geodist","Returns the distance between two members of a geospatial index.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEODIST_History,0,GEODIST_Tips,0,geodistCommand,-4,CMD_READONLY,ACL_CATEGORY_GEO,GEODIST_Keyspecs,1,NULL,4),.args=GEODIST_Args},

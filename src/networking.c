@@ -414,8 +414,9 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * to a channel which we are subscribed to, then we wanna postpone that message to be added
      * after the command's reply (specifically important during multi-exec). the exception is
      * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
-     * The check for executing_client also avoids affecting push messages that are part of eviction. */
-    if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&
+     * The check for executing_client also avoids affecting push messages that are part of eviction.
+     * Check CLIENT_PUSHING first to avoid race conditions, as it's absent in module's fake client. */
+    if ((c->flags & CLIENT_PUSHING) && c == server.current_client &&
         server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
     {
         _addReplyProtoToList(c,server.pending_push_messages,s,len);
@@ -1117,14 +1118,18 @@ void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext) {
     }
 }
 
-/* Add an array of C strings as status replies with a heading.
- * This function is typically invoked by from commands that support
- * subcommands in response to the 'help' subcommand. The help array
- * is terminated by NULL sentinel. */
-void addReplyHelp(client *c, const char **help) {
+/* This function is similar to the addReplyHelp function but adds the
+ * ability to pass in two arrays of strings. Some commands have
+ * some additional subcommands based on the specific feature implementation
+ * Redis is compiled with (currently just clustering). This function allows
+ * to pass is the common subcommands in `help` and any implementation
+ * specific subcommands in `extended_help`.
+ */
+void addExtendedReplyHelp(client *c, const char **help, const char **extended_help) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     void *blenp = addReplyDeferredLen(c);
     int blen = 0;
+    int idx = 0;
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
@@ -1132,6 +1137,10 @@ void addReplyHelp(client *c, const char **help) {
     sdsfree(cmd);
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
+    if (extended_help) {
+        while (extended_help[idx]) addReplyStatus(c,extended_help[idx++]);
+    }
+    blen += idx;
 
     addReplyStatus(c,"HELP");
     addReplyStatus(c,"    Print this help.");
@@ -1139,6 +1148,14 @@ void addReplyHelp(client *c, const char **help) {
     blen += 1;  /* Account for the header. */
     blen += 2;  /* Account for the footer. */
     setDeferredArrayLen(c,blenp,blen);
+}
+
+/* Add an array of C strings as status replies with a heading.
+ * This function is typically invoked by commands that support
+ * subcommands in response to the 'help' subcommand. The help array
+ * is terminated by NULL sentinel. */
+void addReplyHelp(client *c, const char **help) {
+    addExtendedReplyHelp(c, help, NULL);
 }
 
 /* Add a suggestive error reply.
@@ -1434,7 +1451,7 @@ void unlinkClient(client *c) {
     listNode *ln;
 
     /* If this is marked as current client unset it. */
-    if (server.current_client == c) server.current_client = NULL;
+    if (c->conn && server.current_client == c) server.current_client = NULL;
 
     /* Certain operations must be done only if the client has an active connection.
      * If the client was already unlinked or if it's a "fake client" the
@@ -1478,7 +1495,7 @@ void unlinkClient(client *c) {
     }
 
     /* Remove from the list of pending reads if needed. */
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    serverAssert(!c->conn || io_threads_op == IO_THREADS_OP_IDLE);
     if (c->pending_read_list_node != NULL) {
         listDelNode(server.clients_pending_read,c->pending_read_list_node);
         c->pending_read_list_node = NULL;
@@ -1530,6 +1547,7 @@ void clearClientConnectionState(client *c) {
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
+    unmarkClientAsPubSub(c);
 
     if (c->name) {
         decrRefCount(c->name);
@@ -1540,7 +1558,7 @@ void clearClientConnectionState(client *c) {
      * represent the client library behind the connection. */
     
     /* Selectively clear state flags not covered above */
-    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|CLIENT_REPLY_OFF|
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_REPLY_OFF|
                   CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
 }
 
@@ -1615,6 +1633,7 @@ void freeClient(client *c) {
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
+    unmarkClientAsPubSub(c);
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
@@ -1630,6 +1649,12 @@ void freeClient(client *c) {
 #ifdef LOG_REQ_RES
     reqresReset(c, 1);
 #endif
+
+    /* Remove the contribution that this client gave to our
+     * incrementally computed memory usage. */
+    if (c->conn)
+        server.stat_clients_type_memory[c->last_memory_type] -=
+            c->last_memory_usage;
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -1679,10 +1704,6 @@ void freeClient(client *c) {
      * we lost the connection with the master. */
     if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
 
-    /* Remove the contribution that this client gave to our
-     * incrementally computed memory usage. */
-    server.stat_clients_type_memory[c->last_memory_type] -=
-        c->last_memory_usage;
     /* Remove client from memory usage buckets */
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
@@ -1794,8 +1815,9 @@ int freeClientsInAsyncFreeQueue(void) {
  * are not registered clients. */
 client *lookupClientByID(uint64_t id) {
     id = htonu64(id);
-    client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
-    return (c == raxNotFound) ? NULL : c;
+    void *c = NULL;
+    raxFind(server.clients_index,(unsigned char*)&id,sizeof(id),&c);
+    return c;
 }
 
 /* This function should be called from _writeToClient when the reply list is not empty,
@@ -2468,7 +2490,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        updateClientMemUsageAndBucket(c);
+        if (c->conn) updateClientMemUsageAndBucket(c);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -2698,7 +2720,13 @@ void readQueryFromClient(connection *conn) {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
 
-    if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
+    if (!(c->flags & CLIENT_MASTER) &&
+        /* The commands cached in the MULTI/EXEC queue have not been executed yet,
+         * so they are also considered a part of the query buffer in a broader sense.
+         *
+         * For unauthenticated clients, the query buffer cannot exceed 1MB at most. */
+        (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len ||
+         (c->mstate.argv_len_sums + sdslen(c->querybuf) > 1024*1024 && authRequired(c)))) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
@@ -2706,7 +2734,7 @@ void readQueryFromClient(connection *conn) {
         sdsfree(ci);
         sdsfree(bytes);
         freeClientAsync(c);
-        server.stat_client_qbuf_limit_disconnections++;
+        atomicIncr(server.stat_client_qbuf_limit_disconnections, 1);
         goto done;
     }
 

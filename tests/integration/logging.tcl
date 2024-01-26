@@ -1,30 +1,39 @@
 tags {"external:skip"} {
 
 set system_name [string tolower [exec uname -s]]
-set backtrace_supported 0
-set threads_mngr_supported 0
-
-# We only support darwin or Linux with glibc
-if {$system_name eq {darwin}} {
-    set backtrace_supported 1
-} elseif {$system_name eq {linux}} {
+set backtrace_supported [system_backtrace_supported]
+set threads_mngr_supported 0 ;# Do we support printing stack trace from all threads, not just the one that got the signal?
+if {$system_name eq {linux}} {
     set threads_mngr_supported 1
-    # Avoid the test on libmusl, which does not support backtrace
-    # and on static binaries (ldd exit code 1) where we can't detect libmusl
-    catch {
-        set ldd [exec ldd src/redis-server]
-        if {![string match {*libc.*musl*} $ldd]} {
-            set backtrace_supported 1
-        }
-    }
 }
 
+# look for the DEBUG command in the backtrace, used when we triggered
+# a stack trace print while we know redis is running that command.
 proc check_log_backtrace_for_debug {log_pattern} {
+    # search for the final line in the stacktraces generation to make sure it was completed.
+    set pattern "* STACK TRACE DONE *"
+    set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
+
     set res [wait_for_log_messages 0 \"$log_pattern\" 0 100 100]
     if {$::verbose} { puts $res}
 
     # If the stacktrace is printed more than once, it means redis crashed during crash report generation
-    assert_equal [count_log_message 0 "STACK TRACE"] 1
+    assert_equal [count_log_message 0 "STACK TRACE -"] 1
+
+    upvar threads_mngr_supported threads_mngr_supported
+
+    # the following checks are only done if we support printing stack trace from all threads
+    if {$threads_mngr_supported} {
+        assert_equal [count_log_message 0 "setupStacktracePipe failed"] 0
+        assert_equal [count_log_message 0 "failed to open /proc/"] 0
+        assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
+        # the following are skipped since valgrind is slow and a timeout can happen
+        if {!$::valgrind} {
+            assert_equal [count_log_message 0 "wait_threads(): waiting threads timed out"] 0
+            # make sure redis prints stack trace for all threads. we know 3 threads are idle in bio.c
+            assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
+        }
+    }
 
     set pattern "*debugCommand*"
     set res [wait_for_log_messages 0 \"$pattern\" 0 100 100]
@@ -44,13 +53,7 @@ if {$backtrace_supported} {
         test "Server is able to generate a stack trace on selected systems" {
             r config set watchdog-period 200
             r debug sleep 1
-            if {$threads_mngr_supported} {
-                assert_equal [count_log_message 0 "failed to open /proc/"] 0
-                assert_equal [count_log_message 0 "failed to find SigBlk or/and SigIgn"] 0
-                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output was interrupted by signal"] 0
-                assert_equal [count_log_message 0 "threads_mngr: waiting for threads' output timed out"] 0
-                assert_equal [count_log_message 0 "bioProcessBackgroundJobs"] 3
-            }
+            
             check_log_backtrace_for_debug "*WATCHDOG TIMER EXPIRED*"
             # make sure redis is still alive
             assert_equal "PONG" [r ping]
