@@ -651,7 +651,7 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
      * into account all allocations done by this process (not only zmalloc). */
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
 
-    /* Retained memory is not part of RSS or mappings. It's just throught `madvised(..., MADV_DONTNEED)`
+    /* Retained memory is not part of RSS or mappings. It's just through `madvised(..., MADV_DONTNEED)`
      * back to the operating system and doesn't have a strong association with physical memory.
      * It may be used again in later allocations. */
     if (retained) {
@@ -659,7 +659,7 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
         je_mallctl("stats.retained", retained, &sz, NULL, 0);
     }
 
-    /* Unlike retained, It's throught `madvised(..., MADV_FREE)` back to the operating system ASAP. */
+    /* Unlike retained, It's through `madvised(..., MADV_FREE)` back to the operating system ASAP. */
     if (muzzy) {
         size_t pmuzzy, page;
         assert(!je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pmuzzy", &pmuzzy, &sz, NULL, 0));
