@@ -6204,8 +6204,17 @@ sds createMonitorFiltersFromArguments(client *c) {
     }
 }
 
-/* MONITOR [ID client-id] [USER username] [ADDR ip:port] [LADDR ip:port] [CMD_FILTER <INCLUDE | EXCLUDE>] [CMD command]
- [[ID client-id] [USER username] [ADDR ip:port] [LADDR ip:port] [CMD command] ...]*/
+/* 
+MONITOR  
+[ID client-id] 
+[USER username] 
+[ADDR ip:port] 
+[LADDR ip:port] 
+[TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] 
+[CMD_FILTER <INCLUDE | EXCLUDE>] 
+[CMD command]
+[[ID client-id] [USER username] [ADDR ip:port] [LADDR ip:port] [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] [CMD command] ...]
+*/
 void monitorCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
