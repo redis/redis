@@ -645,6 +645,15 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     return o;
 }
 
+static void clearHashtableOverhead(dict *d) {
+    if (dictIsRehashing(d)) {
+        server.overhead_hashtable_lut -= DICTHT_SIZE(d->ht_size_exp[1]);
+        server.overhead_hashtable_rehashing -= DICTHT_SIZE(d->ht_size_exp[0]);
+    } else {
+        server.overhead_hashtable_lut -= DICTHT_SIZE(d->ht_size_exp[0]);
+    }
+}
+
 /* Remove all keys from the database(s) structure. The dbarray argument
  * may not be the server main DBs (could be a temporary DB).
  *
@@ -685,6 +694,10 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
                     metadata->rehashing_node = NULL;
                 }
             }
+        }
+        for (int k = 0; k < dbarray[j].dict_count; k++) {
+            clearHashtableOverhead(dbarray[j].dict[k]);
+            clearHashtableOverhead(dbarray[j].expires[k]);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
