@@ -646,11 +646,9 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
 }
 
 static void clearHashtableOverhead(dict *d) {
+    server.overhead_hashtable_lut -= dictBuckets(d);
     if (dictIsRehashing(d)) {
-        server.overhead_hashtable_lut -= dictBuckets(d);
         server.overhead_hashtable_rehashing -= DICTHT_SIZE(d->ht_size_exp[0]);
-    } else {
-        server.overhead_hashtable_lut -= DICTHT_SIZE(d->ht_size_exp[0]);
     }
 }
 
