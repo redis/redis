@@ -545,9 +545,21 @@ void *RM_Calloc(size_t nmemb, size_t size) {
     return zcalloc_usable(nmemb*size,NULL);
 }
 
+/* Similar to RM_Calloc, but returns NULL in case of allocation failure, instead
+ * of panicking. */
+void *RM_TryCalloc(size_t nmemb, size_t size) {
+    return ztrycalloc_usable(nmemb*size,NULL);
+}
+
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
 void* RM_Realloc(void *ptr, size_t bytes) {
     return zrealloc_usable(ptr,bytes,NULL);
+}
+
+/* Similar to RM_Realloc, but returns NULL in case of allocation failure,
+ * instead of panicking. */
+void *RM_TryRealloc(void *ptr, size_t bytes) {
+    return ztryrealloc_usable(ptr,bytes,NULL);
 }
 
 /* Use like free() for memory obtained by RedisModule_Alloc() and
@@ -13590,7 +13602,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Alloc);
     REGISTER_API(TryAlloc);
     REGISTER_API(Calloc);
+    REGISTER_API(TryCalloc);
     REGISTER_API(Realloc);
+    REGISTER_API(TryRealloc);
     REGISTER_API(Free);
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
