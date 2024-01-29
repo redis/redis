@@ -1420,6 +1420,9 @@ static int dictTypeResizeAllowed(dict *d, size_t size) {
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
+/* Returning DICT_OK indicates a successful expand or the dictionary is undergoing rehashing, 
+ * and there is nothing else we need to do about this dictionary currently. While DICT_ERR indicates
+ * that expand has not been triggered (may be try shrinking?)*/
 int dictExpandIfNeeded(dict *d) {
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
@@ -1454,6 +1457,9 @@ static void _dictExpandIfNeeded(dict *d) {
     dictExpandIfNeeded(d);
 }
 
+/* Returning DICT_OK indicates a successful shrinking or the dictionary is undergoing rehashing, 
+ * and there is nothing else we need to do about this dictionary currently. While DICT_ERR indicates
+ * that shrinking has not been triggered (may be try expanding?)*/
 int dictShrinkIfNeeded(dict *d) {
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
