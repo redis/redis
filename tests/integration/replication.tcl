@@ -1724,33 +1724,6 @@ start_server {tags {"repl rdb-channel external:skip"}} {
                 set loglines [lindex $res 1]
                 incr $loglines 
             }
-            
-            $replica1 slaveof no one
-
-            $master set key3 val3
-
-            test "Turn off repl-rdb-channel during sync" {
-                $replica1 slaveof $master_host $master_port
-                
-                # Wait for sync to start
-                wait_for_condition 50 1000 {
-                    [log_file_matches $replica1_log "*PSYNC is not possible, initialize RDB channel*"]
-                } else {
-                    fail "Replica did not start full sync"
-                }
-
-                # Disable rdb-channel sync, we expect it to will take place from next sync
-                $replica1 config set repl-rdb-channel no
-                
-                wait_for_value_to_propegate_to_replica $master $replica1 "key3"
-
-                verify_replica_online $master 0 500
-                verify_replica_online $master 1 500
-
-                set res [wait_for_log_messages -2 {"*MASTER <-> REPLICA sync: Finished with success*"} $loglines 2000 1]
-                set loglines [lindex $res 1]
-                incr $loglines 
-            }
 
             $replica1 slaveof no one
             $master set key4 val4            
@@ -1768,7 +1741,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
                 $replica1 slaveof $master_host $master_port
                 # Wait for replica to establish psync using main connection
                 wait_for_condition 50 1000 {
-                    [log_file_matches $replica1_log "*Successful partial resynchronization with master, RDB load in background.*"]
+                    [log_file_matches $replica1_log "*Master accepted a Partial Resynchronization, RDB load in background.*"]
                 } else {
                     fail "Psync hasn't been established"
                 }

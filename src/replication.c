@@ -895,7 +895,7 @@ int startBgsaveForReplication(int mincapa, int req) {
      * otherwise slave will miss repl-stream-db. */
     if (rsiptr) {
         if (socket_target)
-            retval = rdbSaveToSlavesSockets(req,rsiptr);
+            retval = rdbDisklessSaveToSlaves(req,rsiptr);
         else {
             /* Keep the page cache since it'll get used soon */
             retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
@@ -934,7 +934,7 @@ int startBgsaveForReplication(int mincapa, int req) {
         return retval;
     }
 
-    /* If the target is socket, rdbSaveToSlavesSockets() already setup
+    /* If the target is socket, rdbDisklessSaveToSlaves() already setup
      * the slaves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
         listRewind(server.slaves,&li);
@@ -1314,8 +1314,10 @@ void replconfCommand(client *c) {
             } 
             if (start_with_offset == 1) {
                 c->flags |= CLIENT_REPL_RDB_CHANNEL;
+                c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
             } else {
                 c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
+                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr, "no-fullsync")) {
             /* REPLCONF no-fullsync is used to identify the client wants
@@ -2239,6 +2241,7 @@ void readSyncBulkPayload(connection *conn) {
         if (loadingFailed) {
             stopLoading(0);
             cancelReplicationHandshake(1);
+            if (isRdbConnection(conn)) abortRdbConnectionSync();
             rioFreeConn(&rdb, NULL);
 
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -2853,6 +2856,7 @@ void completeTaskRDBChannelSync(connection *conn) {
         }
         if (server.repl_state == REPL_RDB_CONN_RECEIVE_PSYNC_REPLY && server.repl_rdb_transfer_s == NULL) {
             /* RDB is loaded */
+            serverLog(LL_DEBUG, "RDB channel sync - psync established after rdb load");
             goto sync_success;
         }
         serverPanic("Unrecognized replication state %d using main connection", server.repl_state);
@@ -2874,7 +2878,7 @@ void completeTaskRDBChannelSync(connection *conn) {
     sync_success:
     replicationResurrectProvisionalMaster();
     /* Wait for the accumulated buffer to be processed before reading any more replication updates */
-    streamReplDataBufToDb(server.master);
+    if (server.pending_repl_data.blocks) streamReplDataBufToDb(server.master);
     freePendingReplDataBuf();
     serverLog(LL_NOTICE, "Successfully streamed replication data into memory");
     /* We can resume reading from the master connection once the local replication buffer has been loaded. */
@@ -3138,7 +3142,8 @@ void setupMainConnForPsync(connection *conn) {
     if (psync_result == PSYNC_WAIT_REPLY) return; /* Try again later... */
 
     if (psync_result == PSYNC_CONTINUE) {
-        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization, RDB load in background.");
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization%s",
+            server.repl_rdb_transfer_s != NULL ? ", RDB load in background.":".");
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
         }

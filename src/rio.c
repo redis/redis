@@ -55,6 +55,7 @@
 #include "crc64.h"
 #include "config.h"
 #include "server.h"
+ #include "connhelpers.h"
 
 /* ------------------------- Buffer I/O implementation ----------------------- */
 
@@ -517,4 +518,139 @@ size_t rioWriteBulkDouble(rio *r, double d) {
     dlen = fpconv_dtoa(d, dbuf);
     dbuf[dlen] = '\0';
     return rioWriteBulkString(r,dbuf,dlen);
+}
+
+/* Returns 1 or 0 for success/failure.
+ * The function returns success as long as we are able to correctly write
+ * to at least one file descriptor.
+ *
+ * When buf is NULL and len is 0, the function performs a flush operation
+ * if there is some pending buffer, so this function is also used in order
+ * to implement rioConnsetFlush(). */
+static size_t rioConnsetWrite(rio *r, const void *buf, size_t len) {
+    ssize_t retval;
+    int j;
+    unsigned char *p = (unsigned char*) buf;
+    int doflush = (buf == NULL && len == 0);
+
+    /* To start we always append to our buffer. If it gets larger than
+     * a given size, we actually write to the sockets. */
+    if (len) {
+        r->io.connset.buf = sdscatlen(r->io.connset.buf,buf,len);
+        len = 0; /* Prevent entering the while below if we don't flush. */
+        if (sdslen(r->io.connset.buf) > PROTO_IOBUF_LEN) doflush = 1;
+    }
+
+    if (doflush) {
+        p = (unsigned char*) r->io.connset.buf;
+        len = sdslen(r->io.connset.buf);
+    }
+
+    /* Write in little chunchs so that when there are big writes we
+     * parallelize while the kernel is sending data in background to
+     * the TCP socket. */
+    while(len) {
+        size_t count = len < 1024 ? len : 1024;
+        int broken = 0;
+        for (j = 0; j < r->io.connset.numconns; j++) {
+            if (r->io.connset.state[j] != 0) {
+                /* Skip FDs alraedy in error. */
+                broken++;
+                continue;
+            }
+
+            /* Make sure to write 'count' bytes to the socket regardless
+             * of short writes. */
+            size_t nwritten = 0;
+            while(nwritten != count) {
+                retval = connWrite(r->io.connset.conns[j],p+nwritten,count-nwritten);
+                if (retval <= 0) {
+                    /* With blocking sockets, which is the sole user of this
+                     * rio target, EWOULDBLOCK is returned only because of
+                     * the SO_SNDTIMEO socket option, so we translate the error
+                     * into one more recognizable by the user. */
+                    if (retval == -1 && errno == EWOULDBLOCK) errno = ETIMEDOUT;
+                    break;
+                }
+                nwritten += retval;
+            }
+
+            if (nwritten != count) {
+                /* Mark this FD as broken. */
+                r->io.connset.state[j] = errno;
+                if (r->io.connset.state[j] == 0) r->io.connset.state[j] = EIO;
+            }
+        }
+        if (broken == r->io.connset.numconns) return 0; /* All the FDs in error. */
+        p += count;
+        len -= count;
+        r->io.connset.pos += count;
+    }
+
+    if (doflush) sdsclear(r->io.connset.buf);
+    return 1;
+}
+
+/* Returns 1 or 0 for success/failure. */
+static size_t rioConnsetRead(rio *r, void *buf, size_t len) {
+    UNUSED(r);
+    UNUSED(buf);
+    UNUSED(len);
+    return 0; /* Error, this target does not support reading. */
+}
+
+/* Returns read/write position in file. */
+static off_t rioConnsetTell(rio *r) {
+    return r->io.connset.pos;
+}
+
+/* Flushes any buffer to target device if applicable. Returns 1 on success
+ * and 0 on failures. */
+static int rioConnsetFlush(rio *r) {
+    /* Our flush is implemented by the write method, that recognizes a
+     * buffer set to NULL with a count of zero as a flush request. */
+    return rioConnsetWrite(r,NULL,0);
+}
+
+static const rio rioConnsetIO = {
+    rioConnsetRead,
+    rioConnsetWrite,
+    rioConnsetTell,
+    rioConnsetFlush,
+    NULL,           /* update_checksum */
+    0,              /* current checksum */
+    0,              /* flags */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
+    { { NULL, 0 } } /* union for io-specific vars */
+};
+
+
+void rioInitWithConnset(rio *r, connection **conns, int numconns) {
+    *r = rioConnsetIO;
+    r->io.connset.conns = zmalloc(sizeof(connection*) * numconns);
+    r->io.connset.state = zmalloc(sizeof(int) * numconns);
+
+    for (int i = 0;  i < numconns;  i++) {
+        connIncrRefs(conns[i]);
+        r->io.connset.conns[i] = conns[i];
+        r->io.connset.state[i] = 0;
+    }
+
+    r->io.connset.numconns = numconns;
+    r->io.connset.pos = 0;
+    r->io.connset.buf = sdsempty();
+}
+
+/* release the rio stream. */
+void rioFreeConnset(rio *r) {
+    for (int i = 0;  i < r->io.connset.numconns;  i++) {
+        connection *conn = r->io.connset.conns[i];
+        connDecrRefs(conn);
+        callHandler(conn, NULL);    // trigger close/free if necessary
+    }
+
+    zfree(r->io.connset.conns);
+    zfree(r->io.connset.state);
+    sdsfree(r->io.connset.buf);
 }

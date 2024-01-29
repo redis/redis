@@ -3499,40 +3499,81 @@ void killRDBChild(void) {
      * - rdbRemoveTempFile */
 }
 
-/* Spawn an RDB child that writes the RDB to the sockets of the slaves
- * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
-int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
+
+/* Before to fork, create a pipe that is used to transfer the rdb bytes to
+ * the parent, we can't let it write directly to the sockets, since in case
+ * of TLS we must let the parent handle a continuous TLS state when the
+ * child terminates and parent takes over. */   
+int setupBidirectionalCommunication(int pipefds[], int *rdb_pipe_write, int *safe_to_exit_pipe) { 
+    if (anetPipe(pipefds, O_NONBLOCK, 0) == -1) return C_ERR;
+    server.rdb_pipe_read = pipefds[0]; /* read end */
+    (*rdb_pipe_write) = pipefds[1]; /* write end */
+
+    /* create another pipe that is used by the parent to signal to the child
+     * that it can exit. */
+    if (anetPipe(pipefds, 0, 0) == -1) {
+        close(*rdb_pipe_write);
+        close(server.rdb_pipe_read);
+        return C_ERR;
+    }
+    (*safe_to_exit_pipe) = pipefds[0]; /* read end */
+    server.rdb_child_exit_pipe = pipefds[1]; /* write end */
+    return C_OK;
+}
+
+/* This is a wraper to rdbSaveRioWithEOFMark. Before handling the rdb transfer, 
+ * we need to setup the child process info. The rdb in this point might be replicas 
+ * sockets or the child process pipe. */
+int performRDBSnapshotToSlaves(int req, rio rdb, rdbSaveInfo *rsi) {
+    /* Close the reading part, so that if the parent crashes, the child will
+     * get a write error and exit. */
+    close(server.rdb_pipe_read);
+    redisSetProcTitle("redis-rdb-to-slaves");
+    redisSetCpuAffinity(server.bgsave_cpulist);
+    if (rdbSaveRioWithEOFMark(req,&rdb,NULL,rsi) != C_OK) {
+        serverLog(LL_WARNING, "Failed to save RDB with end of file mark.");
+        return C_ERR;
+    }
+    if (rioFlush(&rdb) == 0) {
+        serverLog(LL_WARNING, "Failed to flush RDB.");
+        return C_ERR;
+    }
+    sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
+    return C_OK;
+}
+
+void cleanupOnBackgroundSaveError(int *rdb_pipe_write) {
+    listNode *ln;
+    listIter li;
+
+    serverLog(LL_WARNING, "Can't save in background: fork: %s", strerror(errno));
+    /* Undo the state change. The caller will perform cleanup on
+     * all the slaves in BGSAVE_START state, but an early call to
+     * replicationSetupSlaveForFullResync() turned it into BGSAVE_END */
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+            slave->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
+        }
+    }
+    close(*rdb_pipe_write);
+    close(server.rdb_pipe_read);
+}
+
+/* Spawn an RDB to child sockets using pipeline from child process. Using this 
+ * method the owner of the replicas connection is the main process. */
+int rdbSaveToSlavesSocketsWithPipeline(int req, rdbSaveInfo *rsi) {
     listNode *ln;
     listIter li;
     pid_t childpid;
     int pipefds[2], rdb_pipe_write, safe_to_exit_pipe;
 
-    if (hasActiveChildProcess()) return C_ERR;
-
     /* Even if the previous fork child exited, don't start a new one until we
      * drained the pipe. */
     if (server.rdb_pipe_conns) return C_ERR;
-
-    /* Before to fork, create a pipe that is used to transfer the rdb bytes to
-     * the parent, we can't let it write directly to the sockets, since in case
-     * of TLS we must let the parent handle a continuous TLS state when the
-     * child terminates and parent takes over. */
-    if (anetPipe(pipefds, O_NONBLOCK, 0) == -1) return C_ERR;
-    server.rdb_pipe_read = pipefds[0]; /* read end */
-    rdb_pipe_write = pipefds[1]; /* write end */
-
-    /* create another pipe that is used by the parent to signal to the child
-     * that it can exit. */
-    if (anetPipe(pipefds, 0, 0) == -1) {
-        close(rdb_pipe_write);
-        close(server.rdb_pipe_read);
-        return C_ERR;
-    }
-    safe_to_exit_pipe = pipefds[0]; /* read end */
-    server.rdb_child_exit_pipe = pipefds[1]; /* write end */
-
-    /* Collect the connections of the replicas we want to transfer
-     * the RDB to, which are i WAIT_BGSAVE_START state. */
+    if (setupBidirectionalCommunication(pipefds, &rdb_pipe_write, &safe_to_exit_pipe) == C_ERR) return C_ERR;
+    /* Filter replica connections pending full sync (ie. in WAIT_BGSAVE_START state). */
     server.rdb_pipe_conns = zmalloc(sizeof(connection *)*listLength(server.slaves));
     server.rdb_pipe_numconns = 0;
     server.rdb_pipe_numconns_writing = 0;
@@ -3545,9 +3586,6 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                 continue;
             server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
-            if (isReplicaRdbChannel(slave)) {
-                sendCurentOffsetToReplica(slave);
-            }
         }
     }
 
@@ -3557,22 +3595,8 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         int retval, dummy;
         rio rdb;
 
-        rioInitWithFd(&rdb,rdb_pipe_write);
-
-        /* Close the reading part, so that if the parent crashes, the child will
-         * get a write error and exit. */
-        close(server.rdb_pipe_read);
-
-        redisSetProcTitle("redis-rdb-to-slaves");
-        redisSetCpuAffinity(server.bgsave_cpulist);
-
-        retval = rdbSaveRioWithEOFMark(req,&rdb,NULL,rsi);
-        if (retval == C_OK && rioFlush(&rdb) == 0)
-            retval = C_ERR;
-
-        if (retval == C_OK) {
-            sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
-        }
+        rioInitWithFd(&rdb,rdb_pipe_write);        
+        retval = performRDBSnapshotToSlaves(req, rdb, rsi);
 
         rioFreeFd(&rdb);
         /* wake up the reader, tell it we're done. */
@@ -3586,28 +3610,13 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     } else {
         /* Parent */
         if (childpid == -1) {
-            serverLog(LL_WARNING,"Can't save in background: fork: %s",
-                strerror(errno));
-
-            /* Undo the state change. The caller will perform cleanup on
-             * all the slaves in BGSAVE_START state, but an early call to
-             * replicationSetupSlaveForFullResync() turned it into BGSAVE_END */
-            listRewind(server.slaves,&li);
-            while((ln = listNext(&li))) {
-                client *slave = ln->value;
-                if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
-                    slave->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
-                }
-            }
-            close(rdb_pipe_write);
-            close(server.rdb_pipe_read);
+            cleanupOnBackgroundSaveError(&rdb_pipe_write);
             zfree(server.rdb_pipe_conns);
             server.rdb_pipe_conns = NULL;
             server.rdb_pipe_numconns = 0;
             server.rdb_pipe_numconns_writing = 0;
         } else {
-            serverLog(LL_NOTICE,"Background RDB transfer started by pid %ld",
-                (long) childpid);
+            serverLog(LL_NOTICE, "Background RDB transfer started by pid %ld to pipeline", (long) childpid);
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */
@@ -3619,6 +3628,76 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         return (childpid == -1) ? C_ERR : C_OK;
     }
     return C_OK; /* Unreached. */
+}
+
+/* Send RDB directly via sockets, bypassing the main thread. */
+int rdbSaveToSlavesSocketsDirect(int req, rdbSaveInfo *rsi) {
+    listNode *ln;
+    listIter li;
+    pid_t childpid;
+    int pipefds[2], rdb_pipe_write, safe_to_exit_pipe;
+
+    if (setupBidirectionalCommunication(pipefds, &rdb_pipe_write, &safe_to_exit_pipe) == C_ERR) return C_ERR;
+    /* Filter replica connections pending full sync (ie. in WAIT_BGSAVE_START state). */
+    connection *conns[listLength(server.slaves)];
+    int connsnum = 0;
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+            /* Check slave has the exact requirements */
+            if (slave->slave_req != req)
+                continue;
+            conns[connsnum++] = slave->conn;
+            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
+            connSendTimeout(slave->conn, server.repl_timeout * 1000);
+            /* This replica uses diskless rdb channel sync, hence we need
+             * to inform it with the save end offset.*/
+            sendCurentOffsetToReplica(slave);
+        }
+    }
+
+    /* Create the child process. */
+    if ((childpid = redisFork(CHILD_TYPE_RDB)) == 0) {
+        /* Child */
+        int retval, dummy;
+        rio rdb;
+        
+        rioInitWithConnset(&rdb, conns, connsnum);
+        retval = performRDBSnapshotToSlaves(req, rdb, rsi);
+
+        rioFreeConnset(&rdb);
+        /* wake up the reader, tell it we're done. */
+        close(rdb_pipe_write);
+        close(server.rdb_child_exit_pipe); /* close write end so that we can detect the close on the parent. */
+        UNUSED(dummy);
+        exitFromChild((retval == C_OK) ? 0 : 1);
+    } else {
+        /* Parent */
+        if (childpid == -1) {
+            cleanupOnBackgroundSaveError(&rdb_pipe_write);
+            closeChildInfoPipe();
+        } else {
+            serverLog(LL_NOTICE,"Background RDB transfer started by pid %ld to replica sockets",
+                (long) childpid);
+            server.rdb_save_time_start = time(NULL);
+            server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
+            close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */           
+        }
+        close(safe_to_exit_pipe);
+        return (childpid == -1) ? C_ERR : C_OK;
+    }
+    return C_OK; /* Unreached. */
+}
+
+/* Spawn an RDB child that writes the RDB to the sockets of the slaves
+ * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
+int rdbDisklessSaveToSlaves(int req, rdbSaveInfo *rsi) {
+    if (hasActiveChildProcess()) return C_ERR;
+
+    if (req & SLAVE_REQ_RDB_CHANNEL)
+        return rdbSaveToSlavesSocketsDirect(req, rsi);
+    return rdbSaveToSlavesSocketsWithPipeline(req, rsi);
 }
 
 void saveCommand(client *c) {
