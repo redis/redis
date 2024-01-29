@@ -692,7 +692,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
             dbarray[j].sub_dict[subdict].non_empty_slots = 0;
             dbarray[j].sub_dict[subdict].key_count = 0;
-            dbarray[j].sub_dict[subdict].resize_cursor = -1;
+            dbarray[j].sub_dict[subdict].resize_cursor = 0;
             if (server.cluster_enabled) {
                 dbarray[j].sub_dict[subdict].bucket_count = 0;
                 unsigned long long *slot_size_index = dbarray[j].sub_dict[subdict].slot_size_index;
