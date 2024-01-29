@@ -3657,11 +3657,19 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* Setting the CLIENT_REPROCESSING_COMMAND flag so that during the actual
+     * processing of the command proc, the client is aware that it is being
+     * re-processed. */
+    if (reprocessing_command) c->flags |= CLIENT_REPROCESSING_COMMAND;
+
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
+
+    /* Clear the CLIENT_REPROCESSING_COMMAND flag after the proc is executed. */
+    if (reprocessing_command) c->flags &= ~CLIENT_REPROCESSING_COMMAND;
 
     exitExecutionUnit();
 
@@ -4287,13 +4295,8 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         int flags = CMD_CALL_FULL;
-        if (client_reprocessing_command) {
-            flags |= CMD_CALL_REPROCESSING;
-            c->flags |= CLIENT_REPROCESSING_COMMAND;
-        }
+        if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
         call(c,flags);
-        if (client_reprocessing_command)
-            c->flags &= ~CLIENT_REPROCESSING_COMMAND;
         if (listLength(server.ready_keys) && !isInsideYieldingLongCommand())
             handleClientsBlockedOnKeys();
     }
