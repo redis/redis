@@ -115,6 +115,7 @@ struct hdr_histogram;
 #define CONFIG_MAX_HZ            500
 #define MAX_CLIENTS_PER_CLOCK_TICK 200          /* HZ is adapted based on that. */
 #define CRON_DBS_PER_CALL 16
+#define CRON_DICTS_PER_DB 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
 #define PROTO_SHARED_SELECT_CMDS 10
 #define OBJ_SHARED_INTEGERS 10000
@@ -970,7 +971,7 @@ typedef struct replBufBlock {
 
 /* When adding fields, please check the swap db related logic. */
 typedef struct dbDictState {
-    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used for cluster-enabled). */
+    int resize_cursor;                     /* Cron job uses this cursor to gradually resize all dictionaries. */
     int non_empty_slots;                   /* The number of non-empty slots. */
     unsigned long long key_count;          /* Total number of keys in this DB. */
     unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries (only used for cluster-enabled). */
@@ -3111,7 +3112,6 @@ void serverLogRaw(int level, const char *msg);
 void serverLogRawFromHandler(int level, const char *msg);
 void usage(void);
 void updateDictResizePolicy(void);
-int htNeedsShrink(dict *dict);
 void populateCommandTable(void);
 void resetCommandTableStats(dict* commands);
 void resetErrorTableStats(void);

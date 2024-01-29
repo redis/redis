@@ -373,12 +373,14 @@ start_server {tags {"other external:skip"}} {
         assert_no_match "*table size: 8192*" [r debug HTSTATS 9]
         exec kill -9 [get_child_pid 0]
         waitForBgsave r
-        after 200 ;# waiting for serverCron
 
         # Hash table should rehash since there is no child process,
         # size is power of two and over 4098, so it is 8192
-        r set k3 v3
-        assert_match "*table size: 8192*" [r debug HTSTATS 9]
+        wait_for_condition 50 100 {
+            [string match "*table size: 8192*" [r debug HTSTATS 9]]
+        } else {
+            fail "hash table did not rehash after child process killed"
+        }
     } {} {needs:debug needs:local-process}
 }
 
@@ -486,4 +488,39 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         after 200;# waiting for serverCron
         assert_match "*table size: 16*" [r debug HTSTATS 0]
     } {} {needs:debug}
+}
+
+proc get_overhead_hashtable_main {} {
+    set main 0
+    set stats [r memory stats]
+    set list_stats [split $stats " "]
+    for {set j 0} {$j < [llength $list_stats]} {incr j} {
+        if {[string equal -nocase "\{overhead.hashtable.main" [lindex $list_stats $j]]} {
+            set main [lindex $list_stats [expr $j+1]]
+            break
+        }
+    }
+    return $main
+}
+
+start_server {tags {"other external:skip"}} {
+    test "Redis can resize empty dict" {
+        # Write and then delete 128 keys, creating an empty dict
+        r flushall
+        for {set j 1} {$j <= 128} {incr j} {
+            r set $j{b} a
+        }
+        for {set j 1} {$j <= 128} {incr j} {
+            r del $j{b}
+        }
+        # Set a key to enable overhead display of db 0
+        r set a b
+        # The dict containing 128 keys must have expanded,
+        # its hash table itself takes a lot more than 200 bytes
+        wait_for_condition 100 50 {
+            [get_overhead_hashtable_main] < 200
+        } else {
+            fail "dict did not resize in time"
+        }   
+    }
 }

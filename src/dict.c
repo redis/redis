@@ -216,19 +216,6 @@ int _dictInit(dict *d, dictType *type)
     return DICT_OK;
 }
 
-/* Resize the table to the minimal size that contains all the elements,
- * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
-int dictShrinkToFit(dict *d)
-{
-    unsigned long minimal;
-
-    if (dict_can_resize != DICT_RESIZE_ENABLE || dictIsRehashing(d)) return DICT_ERR;
-    minimal = d->ht_used[0];
-    if (minimal < DICT_HT_INITIAL_SIZE)
-        minimal = DICT_HT_INITIAL_SIZE;
-    return dictShrink(d, minimal);
-}
-
 /* Resize or create the hash table,
  * when malloc_failed is non-NULL, it'll avoid panic if malloc fails (in which case it'll be set to 1).
  * Returns DICT_OK if resize was performed, and DICT_ERR if skipped. */
@@ -1484,19 +1471,17 @@ static int dictTypeResizeAllowed(dict *d, size_t size) {
                     (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
 }
 
-/* Expand the hash table if needed */
-static void _dictExpandIfNeeded(dict *d)
-{
-    /* Automatic resizing is disallowed. Return */
-    if (d->pauseAutoResize > 0) return;
-
+/* Returning DICT_OK indicates a successful expand or the dictionary is undergoing rehashing, 
+ * and there is nothing else we need to do about this dictionary currently. While DICT_ERR indicates
+ * that expand has not been triggered (may be try shrinking?)*/
+int dictExpandIfNeeded(dict *d) {
     /* Incremental rehashing already in progress. Return. */
-    if (dictIsRehashing(d)) return;
+    if (dictIsRehashing(d)) return DICT_OK;
 
     /* If the hash table is empty expand it to the initial size. */
     if (DICTHT_SIZE(d->ht_size_exp[0]) == 0) {
         dictExpand(d, DICT_HT_INITIAL_SIZE);
-        return;
+        return DICT_OK;
     }
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
@@ -1508,22 +1493,30 @@ static void _dictExpandIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (!dictTypeResizeAllowed(d, d->ht_used[0] + 1))
-            return;
-        dictExpand(d, d->ht_used[0] + 1);
+        if (dictTypeResizeAllowed(d, d->ht_used[0] + 1))
+            dictExpand(d, d->ht_used[0] + 1);
+        return DICT_OK;
     }
+    return DICT_ERR;
 }
 
-static void _dictShrinkIfNeeded(dict *d) 
-{
+/* Expand the hash table if needed */
+static void _dictExpandIfNeeded(dict *d) {
     /* Automatic resizing is disallowed. Return */
     if (d->pauseAutoResize > 0) return;
 
+    dictExpandIfNeeded(d);
+}
+
+/* Returning DICT_OK indicates a successful shrinking or the dictionary is undergoing rehashing, 
+ * and there is nothing else we need to do about this dictionary currently. While DICT_ERR indicates
+ * that shrinking has not been triggered (may be try expanding?)*/
+int dictShrinkIfNeeded(dict *d) {
     /* Incremental rehashing already in progress. Return. */
-    if (dictIsRehashing(d)) return;
+    if (dictIsRehashing(d)) return DICT_OK;
     
     /* If the size of hash table is DICT_HT_INITIAL_SIZE, don't shrink it. */
-    if (DICTHT_SIZE(d->ht_size_exp[0]) == DICT_HT_INITIAL_SIZE) return;
+    if (DICTHT_SIZE(d->ht_size_exp[0]) <= DICT_HT_INITIAL_SIZE) return DICT_OK;
 
     /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
@@ -1533,10 +1526,19 @@ static void _dictShrinkIfNeeded(dict *d)
         (dict_can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
     {
-        if (!dictTypeResizeAllowed(d, d->ht_used[0]))
-            return;
-        dictShrink(d, d->ht_used[0]);
+        if (dictTypeResizeAllowed(d, d->ht_used[0]))
+            dictShrink(d, d->ht_used[0]);
+        return DICT_OK;
     }
+    return DICT_ERR;
+}
+
+static void _dictShrinkIfNeeded(dict *d) 
+{
+    /* Automatic resizing is disallowed. Return */
+    if (d->pauseAutoResize > 0) return;
+
+    dictShrinkIfNeeded(d);
 }
 
 /* Our hash table capability is a power of two */
