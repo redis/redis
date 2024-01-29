@@ -399,6 +399,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                                     auth had been authenticated from the Module. */
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
+#define CLIENT_REPROCESSING_COMMAND (1ULL<<50) /* The client is re-processing the command. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */

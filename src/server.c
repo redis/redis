@@ -3720,7 +3720,7 @@ void call(client *c, int flags) {
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
-     * Other exceptions is a client which is unblocked and retring to process the command
+     * Other exceptions is a client which is unblocked and retrying to process the command
      * or we are currently in the process of loading AOF. */
     if (update_command_stats && !reprocessing_command &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
@@ -4287,8 +4287,13 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         int flags = CMD_CALL_FULL;
-        if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
+        if (client_reprocessing_command) {
+            flags |= CMD_CALL_REPROCESSING;
+            c->flags |= CLIENT_REPROCESSING_COMMAND;
+        }
         call(c,flags);
+        if (client_reprocessing_command)
+            c->flags &= ~CLIENT_REPROCESSING_COMMAND;
         if (listLength(server.ready_keys) && !isInsideYieldingLongCommand())
             handleClientsBlockedOnKeys();
     }
