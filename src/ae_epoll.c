@@ -110,8 +110,15 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
+    #ifdef HAVE_EPOLL_PWAIT2
+    struct timespec ts = {0, 0};
+    if (tvp != NULL) TIMEVAL_TO_TIMESPEC(tvp, &ts);
+    retval = epoll_pwait2(state->epfd, state->events, eventLoop->setsize, tvp ? &ts : NULL, NULL);
+    #else
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + (tvp->tv_usec + 999)/1000) : -1);
+    #endif
+
     if (retval > 0) {
         int j;
 

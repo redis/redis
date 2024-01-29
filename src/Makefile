@@ -55,6 +55,14 @@ else
 	STD+=-std=c99
 endif
 
+# Check for epoll_pwait2 support.
+EPOLL_PWAIT2_SUPPORT := $(shell echo '$(NUMBER_SIGN_CHAR)include <sys/epoll.h>\n$(NUMBER_SIGN_CHAR)include <time.h>\n \
+	int main() { struct timespec ts; epoll_pwait2(0, NULL, 0, &ts, NULL); return 0; }' | \
+	$(CC) $(CFLAGS) -x c - -o /dev/null $(LDFLAGS) 2>/dev/null && echo 1 || echo 0)
+ifeq ($(EPOLL_PWAIT2_SUPPORT),1)
+	REDIS_CFLAGS+= -DHAVE_EPOLL_PWAIT2
+endif
+
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
