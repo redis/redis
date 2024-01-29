@@ -6006,7 +6006,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             } else {
                 info = sdscatprintf(info,
                     "master_link_up_since_seconds:%jd\r\n",
-                    server.repl_up_since ? // defensive code, should never be 0 when connected
+                    server.repl_up_since ? /* defensive code, should never be 0 when connected */
                     (intmax_t)(server.unixtime-server.repl_up_since) : -1);
             }
             info = sdscatprintf(info, FMTARGS(
