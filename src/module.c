@@ -7732,6 +7732,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         if (keys) {
             blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
+            c->bstate.timeout = timeout;
             blockClient(c,BLOCKED_MODULE);
         }
     }
