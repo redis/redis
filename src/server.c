@@ -6189,7 +6189,6 @@ void freeMonitorFiltersForClient(client *c) {
     }
 }
 
-// need to know 3 states: cmd found and used, error, no cmd found
 #define FILTER_ERR -1
 #define FILTER_NOT_FOUND 0
 #define FILTER_CONSUMED 1
@@ -6199,7 +6198,13 @@ int createMonitorFilterForCMD(client *c, int argi, bool moreargs){
         // printf("DEBUG cmd and moreargs\n");
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[argi+1]->ptr);
         if (cmd) {
-            if (!c->monitor_filters->commands) c->monitor_filters->commands = listCreate();
+            if (c->monitor_filters->commands == NULL) {
+                c->monitor_filters->commands = listCreate();
+                if (c->monitor_filters->commands == NULL) {
+                    fprintf(stderr, "allocation failed in createMonitorFilterForCMD.\n");
+                    exit(1);
+                }
+            }
             if (listSearchKey(c->monitor_filters->commands, cmd) == NULL) { /* no duplicate */
                 listAddNodeTail(c->monitor_filters->commands, cmd);
             }
@@ -6212,6 +6217,31 @@ int createMonitorFilterForCMD(client *c, int argi, bool moreargs){
         return FILTER_NOT_FOUND;
     }
 }
+
+int createMonitorFilterForClientID(client *c, int argi, bool moreargs){
+    if (!strcasecmp(c->argv[argi]->ptr,"id") && moreargs) {
+        // uint64_t id = 0;
+        long id = 0;
+        if (getRangeLongFromObjectOrReply(c, c->argv[argi+1], 1, LONG_MAX, &id,
+                                            "client-id should be greater than 0") != C_OK)
+            return FILTER_ERR;
+
+        if (c->monitor_filters->id == NULL) {
+            c->monitor_filters->id = listCreate();
+            c->monitor_filters->id->free = zfree;
+        }
+
+        int *v = zmalloc(sizeof(int));        
+        *v = id;
+        listAddNodeTail(c->monitor_filters->id, v);
+        return FILTER_CONSUMED;
+    } else {
+        return FILTER_NOT_FOUND;
+    }
+}
+
+//     c->monitor_filters->username->free = sdsfree;
+// }
 
 /* Build the MONITOR filters from the MONITOR arguments
  * returns NULL (if no issues) or the error message to return to the client */
@@ -6228,11 +6258,6 @@ int createMonitorFiltersFromArguments(client *c) {
     int result;
 
     initMonitorFilterForClient(c);
-    // if ((c->monitor_filters = listCreate()) == NULL) {
-    //     fprintf(stderr, "monitor_filters list creation failed.\n");
-    //     exit(1);
-    // }
-    // list->free = sdsfree;
 
     int argi = 1; /* Next argument */
 
@@ -6240,12 +6265,19 @@ int createMonitorFiltersFromArguments(client *c) {
         bool moreargs = c->argc > argi+1;
         
         result = createMonitorFilterForCMD(c, argi, moreargs);
+        // YLB TODO macro for the 5 lines of code due to the repeat?
+        if (result == FILTER_ERR) break;
+        if (result == FILTER_CONSUMED) {
+            argi += 2; // TODO move to the function with passing &argi?
+            continue;
+        } 
+        // if FILTER_NOT_FOUND try with another 
+        result = createMonitorFilterForClientID(c, argi, moreargs);
         if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) {
             argi += 2;
             continue;
         } 
-        // if FILTER_NOT_FOUND try with another 
 
         /* no valid argument was found / consumed */
         result = FILTER_ERR;
@@ -6282,9 +6314,7 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
-    if (createMonitorFiltersFromArguments(c) == C_ERR) {
-        return;
-    }
+    if (createMonitorFiltersFromArguments(c) == C_ERR) return;
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);
