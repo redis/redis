@@ -1232,6 +1232,34 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r select 9
     } {OK} {singledb:skip needs:debug}
 
+    test {BLPOP unblock but the key is expired and then block again - reprocessing command} {
+        r flushall
+        r debug set-active-expire 0
+        set rd [redis_deferring_client]
+
+        set start [clock milliseconds]
+        $rd blpop mylist 1
+        wait_for_blocked_clients_count 1
+
+        # The exec will try to awake the blocked client, but the key is expired,
+        # so the client will be blocked again during the command reprocessing.
+        r multi
+        r rpush mylist a
+        r pexpire mylist 100
+        r debug sleep 0.2
+        r exec
+
+        assert_equal {} [$rd read]
+        set end [clock milliseconds]
+
+        # In the past, this time would have been 1000+200, in order to avoid
+        # timing issues, we increase the range a bit.
+        assert_range [expr $end-$start] 1000 1100
+
+        r debug set-active-expire 1
+        $rd close
+    } {0} {needs:debug}
+
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {
         set rd [redis_deferring_client]
