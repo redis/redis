@@ -828,7 +828,9 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
 void genericHgetallCommand(client *c, int flags) {
     robj *o;
     hashTypeIterator *hi;
-    int length, count = 0;
+    int length, count = 0, all_keys;
+    sds pattern;
+    void *defer_reply = NULL;
 
     robj *emptyResp = (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) ?
         shared.emptymap[c->resp] : shared.emptyarray;
@@ -837,18 +839,34 @@ void genericHgetallCommand(client *c, int flags) {
 
     /* We return a map if the user requested keys and values, like in the
      * HGETALL case. Otherwise to use a flat array makes more sense. */
-    length = hashTypeLength(o);
-    if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) {
-        addReplyMapLen(c, length);
+    pattern = c->argc > 2 ? c->argv[2]->ptr : NULL;
+    all_keys = (!pattern) || (pattern[0] == '*' && sdslen(pattern) == 0);
+    if (all_keys) {
+        length = hashTypeLength(o);
+        if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) {
+            addReplyMapLen(c, length);
+        } else {
+            addReplyArrayLen(c, length);
+        }
     } else {
-        addReplyArrayLen(c, length);
+        defer_reply = addReplyDeferredLen(c);
     }
 
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != C_ERR) {
         if (flags & OBJ_HASH_KEY) {
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
-            count++;
+            if (all_keys) {
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+                count++;
+            } else {
+                sds key = hashTypeCurrentObjectNewSds(hi, OBJ_HASH_KEY);
+                if (stringmatchlen(pattern, sdslen(pattern), key, sdslen(key), 0)) {
+                    addReplyBulkSds(c, key);
+                    count++;
+                } else {
+                    sdsfree(key);
+                }
+            }
         }
         if (flags & OBJ_HASH_VALUE) {
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
@@ -856,14 +874,23 @@ void genericHgetallCommand(client *c, int flags) {
         }
     }
 
+    if (defer_reply) {
+        setDeferredArrayLen(c, defer_reply, count);
+    }
     hashTypeReleaseIterator(hi);
 
     /* Make sure we returned the right number of elements. */
-    if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) count /= 2;
-    serverAssert(count == length);
+    if (all_keys) {
+        if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) count /= 2;
+        serverAssert(count == length);
+    }
 }
 
 void hkeysCommand(client *c) {
+    if (c->argc > 3) {
+        addReplyErrorArity(c);
+        return;
+    }
     genericHgetallCommand(c,OBJ_HASH_KEY);
 }
 

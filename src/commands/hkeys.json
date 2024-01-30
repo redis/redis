@@ -1,10 +1,10 @@
 {
     "HKEYS": {
-        "summary": "Returns all fields in a hash.",
+        "summary": "Returns all fields in a hash, or all fields matching the pattern if pattern is given.",
         "complexity": "O(N) where N is the size of the hash.",
         "group": "hash",
         "since": "2.0.0",
-        "arity": 2,
+        "arity": -2,
         "function": "hkeysCommand",
         "command_flags": [
             "READONLY"
@@ -48,6 +48,11 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0
+            },
+            {
+                "name": "pattern",
+                "type": "pattern",
+                "optional": true
             }
         ]
     }

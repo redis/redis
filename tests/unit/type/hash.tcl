@@ -410,6 +410,21 @@ start_server {tags {"hash"}} {
         lsort [r hkeys bighash]
     } [lsort [array names bighash *]]
 
+    test {HKEYS with pattern} {
+        for {set i 0} {$i < 3} {incr i 1} {
+            r hset pattern_test a$i 123
+        }
+        for {set i 0} {$i < 3} {incr i 1} {
+            r hset pattern_test b$i 123
+        }
+        for {set i 0} {$i < 3} {incr i 1} {
+            r hset pattern_test c$i 123
+        }
+        assert_equal {a0 a1 a2} [r hkeys pattern_test a*]
+        assert_equal {b0 b1 b2} [r hkeys pattern_test b*]
+        assert_equal {a0 b0 c0} [r hkeys pattern_test *0]
+    }
+
     test {HVALS - small hash} {
         set vals {}
         foreach {k v} [array get smallhash] {

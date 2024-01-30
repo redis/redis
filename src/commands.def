@@ -3423,6 +3423,7 @@ keySpec HKEYS_Keyspecs[1] = {
 /* HKEYS argument table */
 struct COMMAND_ARG HKEYS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** HLEN ********************/
@@ -10706,7 +10707,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hgetall","Returns all fields and values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETALL_History,0,HGETALL_Tips,1,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HGETALL_Keyspecs,1,NULL,1),.args=HGETALL_Args},
 {MAKE_CMD("hincrby","Increments the integer value of a field in a hash by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBY_History,0,HINCRBY_Tips,0,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBY_Keyspecs,1,NULL,3),.args=HINCRBY_Args},
 {MAKE_CMD("hincrbyfloat","Increments the floating point value of a field by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBYFLOAT_History,0,HINCRBYFLOAT_Tips,0,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBYFLOAT_Keyspecs,1,NULL,3),.args=HINCRBYFLOAT_Args},
-{MAKE_CMD("hkeys","Returns all fields in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HKEYS_History,0,HKEYS_Tips,1,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HKEYS_Keyspecs,1,NULL,1),.args=HKEYS_Args},
+{MAKE_CMD("hkeys","Returns all fields in a hash, or all fields matching the pattern if pattern is given.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HKEYS_History,0,HKEYS_Tips,1,hkeysCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,HKEYS_Keyspecs,1,NULL,2),.args=HKEYS_Args},
 {MAKE_CMD("hlen","Returns the number of fields in a hash.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HLEN_History,0,HLEN_Tips,0,hlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HLEN_Keyspecs,1,NULL,1),.args=HLEN_Args},
 {MAKE_CMD("hmget","Returns the values of all fields in a hash.","O(N) where N is the number of fields being requested.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HMGET_History,0,HMGET_Tips,0,hmgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HMGET_Keyspecs,1,NULL,2),.args=HMGET_Args},
 {MAKE_CMD("hmset","Sets the values of multiple fields.","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0","hash",COMMAND_GROUP_HASH,HMSET_History,0,HMSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HMSET_Keyspecs,1,NULL,2),.args=HMSET_Args},
