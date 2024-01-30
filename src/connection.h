@@ -40,7 +40,6 @@
 
 #define CONN_INFO_LEN   32
 #define CONN_ADDR_STR_LEN 128 /* Similar to INET6_ADDRSTRLEN, hoping to handle other protocols. */
-#define MAX_ACCEPTS_PER_CALL 1000
 
 struct aeEventLoop;
 typedef struct connection connection;
@@ -445,5 +444,10 @@ sds getListensInfoString(sds info);
 int RedisRegisterConnectionTypeSocket(void);
 int RedisRegisterConnectionTypeUnix(void);
 int RedisRegisterConnectionTypeTLS(void);
+
+/* Return 1 if connection is using TLS protocol, 0 if otherwise. */
+static inline int connIsTLS(connection *conn) {
+    return conn && conn->type == connectionTypeTls();
+}
 
 #endif  /* __REDIS_CONNECTION_H */

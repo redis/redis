@@ -51,4 +51,9 @@ void freeCliConnInfo(cliConnInfo connInfo);
 
 sds escapeJsonString(sds s, const char *p, size_t len);
 
+sds cliVersion(void);
+
+redisContext *redisConnectWrapper(const char *ip, int port, const struct timeval tv);
+redisContext *redisConnectUnixWrapper(const char *path, const struct timeval tv);
+
 #endif /* __CLICOMMON_H */

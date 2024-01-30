@@ -239,7 +239,7 @@ void replyToBlockedClientTimedOut(client *c) {
         addReplyLongLong(c,server.fsynced_reploff >= c->bstate.reploffset);
         addReplyLongLong(c,replicationCountAOFAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_MODULE) {
-        moduleBlockedClientTimedOut(c);
+        moduleBlockedClientTimedOut(c, 0);
     } else {
         serverPanic("Unknown btype in replyToBlockedClientTimedOut().");
     }
@@ -325,6 +325,9 @@ void handleClientsBlockedOnKeys(void) {
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
 
+    /* If a command being unblocked causes another command to get unblocked,
+     * like a BLMOVE would do, then the new unblocked command will get processed
+     * right away rather than wait for later. */
     while(listLength(server.ready_keys) != 0) {
         list *l;
 
@@ -367,7 +370,12 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
     list *l;
     int j;
 
-    c->bstate.timeout = timeout;
+    if (!(c->flags & CLIENT_REPROCESSING_COMMAND)) {
+        /* If the client is re-processing the command, we do not set the timeout
+         * because we need to retain the client's original timeout. */
+        c->bstate.timeout = timeout;
+    }
+
     for (j = 0; j < numkeys; j++) {
         /* If the key already exists in the dictionary ignore it. */
         if (!(client_blocked_entry = dictAddRaw(c->bstate.keys,keys[j],NULL))) {
@@ -388,7 +396,6 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         }
         listAddNodeTail(l,c);
         dictSetVal(c->bstate.keys,client_blocked_entry,listLast(l));
-
 
         /* We need to add the key to blocking_keys_unblock_on_nokey, if the client
          * wants to be awakened if key is deleted (like XREADGROUP) */
@@ -564,7 +571,10 @@ static void handleClientsBlockedOnKey(readyList *rl) {
         listIter li;
         listRewind(clients,&li);
 
-        while((ln = listNext(&li))) {
+        /* Avoid processing more than the initial count so that we're not stuck
+         * in an endless loop in case the reprocessing of the command blocks again. */
+        long count = listLength(clients);
+        while ((ln = listNext(&li)) && count--) {
             client *receiver = listNodeValue(ln);
             robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
@@ -727,4 +737,31 @@ void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *blok
         *blocking_keys = bkeys;
     if (bloking_keys_on_nokey)
         *bloking_keys_on_nokey = bkeys_on_nokey;
+}
+
+void blockedBeforeSleep(void) {
+    /* Handle precise timeouts of blocked clients. */
+    handleBlockedClientsTimeout();
+
+    /* Unblock all the clients blocked for synchronous replication
+     * in WAIT or WAITAOF. */
+    if (listLength(server.clients_waiting_acks))
+        processClientsWaitingReplicas();
+
+    /* Try to process blocked clients every once in while.
+     *
+     * Example: A module calls RM_SignalKeyAsReady from within a timer callback
+     * (So we don't visit processCommand() at all).
+     *
+     * This may unblock clients, so must be done before processUnblockedClients */
+    handleClientsBlockedOnKeys();
+
+    /* Check if there are clients unblocked by modules that implement
+     * blocking commands. */
+    if (moduleCount())
+        moduleHandleBlockedClients();
+
+    /* Try to process pending commands for clients that were just unblocked. */
+    if (listLength(server.unblocked_clients))
+        processUnblockedClients();
 }

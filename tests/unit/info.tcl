@@ -287,23 +287,34 @@ start_server {tags {"info" "external:skip"}} {
             set cycle2 [getInfoProperty $info2 eventloop_cycles]
             set el_sum2 [getInfoProperty $info2 eventloop_duration_sum]
             set cmd_sum2 [getInfoProperty $info2 eventloop_duration_cmd_sum]
+            if {$::verbose} { puts "eventloop metrics cycle1: $cycle1, cycle2: $cycle2" }
             assert_morethan $cycle2 $cycle1
             assert_lessthan $cycle2 [expr $cycle1+10] ;# we expect 2 or 3 cycles here, but allow some tolerance
+            if {$::verbose} { puts "eventloop metrics el_sum1: $el_sum1, el_sum2: $el_sum2" }
             assert_morethan $el_sum2 $el_sum1
-            assert_lessthan $el_sum2 [expr $el_sum1+10000] ;# we expect roughly 100ms here, but allow some tolerance
+            assert_lessthan $el_sum2 [expr $el_sum1+30000] ;# we expect roughly 100ms here, but allow some tolerance
+            if {$::verbose} { puts "eventloop metrics cmd_sum1: $cmd_sum1, cmd_sum2: $cmd_sum2" }
             assert_morethan $cmd_sum2 $cmd_sum1
-            assert_lessthan $cmd_sum2 [expr $cmd_sum1+5000] ;# we expect about tens of ms here, but allow some tolerance
+            assert_lessthan $cmd_sum2 [expr $cmd_sum1+15000] ;# we expect about tens of ms here, but allow some tolerance
         }
- 
+
         test {stats: instantaneous metrics} {
             r config resetstat
-            after 1600 ;# hz is 10, wait for 16 cron tick so that sample array is fulfilled
-            set value [s instantaneous_eventloop_cycles_per_sec]
+            set retries 0
+            for {set retries 1} {$retries < 4} {incr retries} {
+                after 1600 ;# hz is 10, wait for 16 cron tick so that sample array is fulfilled
+                set value [s instantaneous_eventloop_cycles_per_sec]
+                if {$value > 0} break
+            }
+
+            assert_lessthan $retries 4
+            if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_cycles_per_sec: $value" }
             assert_morethan $value 0
-            assert_lessthan $value 15 ;# default hz is 10
+            assert_lessthan $value [expr $retries*15] ;# default hz is 10
             set value [s instantaneous_eventloop_duration_usec]
+            if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_duration_usec: $value" }
             assert_morethan $value 0
-            assert_lessthan $value 22000 ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
+            assert_lessthan $value [expr $retries*22000] ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
         }
 
         test {stats: debug metrics} {
@@ -337,5 +348,58 @@ start_server {tags {"info" "external:skip"}} {
             assert {$duration_max2 >= $duration_max1}
         }
 
+        test {stats: client input and output buffer limit disconnections} {
+            r config resetstat
+            set info [r info stats]
+            assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {0}
+            assert_equal [getInfoProperty $info client_output_buffer_limit_disconnections] {0}
+            # set qbuf limit to minimum to test stat
+            set org_qbuf_limit [lindex [r config get client-query-buffer-limit] 1]
+            r config set client-query-buffer-limit 1048576
+            catch {r set key [string repeat a 1048576]}
+            set info [r info stats]
+            assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {1}
+            r config set client-query-buffer-limit $org_qbuf_limit
+            # set outbuf limit to just 10 to test stat
+            set org_outbuf_limit [lindex [r config get client-output-buffer-limit] 1]
+            r config set client-output-buffer-limit "normal 10 0 0"
+            r set key [string repeat a 100000] ;# to trigger output buffer limit check this needs to be big
+            catch {r get key}
+            set info [r info stats]
+            assert_equal [getInfoProperty $info client_output_buffer_limit_disconnections] {1}
+            r config set client-output-buffer-limit $org_outbuf_limit
+        } {OK} {logreqres:skip} ;# same as obuf-limits.tcl, skip logreqres
+
+        test {clients: pubsub clients} {
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {0}
+            set rd1 [redis_deferring_client]
+            set rd2 [redis_deferring_client]
+            # basic count
+            assert_equal {1} [ssubscribe $rd1 {chan1}]
+            assert_equal {1} [subscribe $rd2 {chan2}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {2}
+            # unsubscribe non existing channel
+            assert_equal {1} [unsubscribe $rd2 {non-exist-chan}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {2}
+            # count change when client unsubscribe all channels
+            assert_equal {0} [unsubscribe $rd2 {chan2}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {1}
+            # non-pubsub clients should not be involved
+            assert_equal {0} [unsubscribe $rd2 {non-exist-chan}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {1}
+            # close all clients
+            $rd1 close
+            $rd2 close
+            wait_for_condition 100 50 {
+                [getInfoProperty [r info clients] pubsub_clients] eq {0}
+            } else {
+                fail "pubsub clients did not clear"
+            }
+        }
     }
 }

@@ -94,13 +94,17 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster/announced-endpoints
     unit/cluster/misc
     unit/cluster/cli
     unit/cluster/scripting
     unit/cluster/hostnames
+    unit/cluster/human-announced-nodename
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
     unit/cluster/links
+    unit/cluster/cluster-response-tls
+    unit/cluster/failure-marking
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -193,6 +197,12 @@ proc srv {args} {
     }
     set srv [lindex $::servers end+$level]
     dict get $srv $property
+}
+
+# Take an index to get a srv.
+proc get_srv {level} {
+    set srv [lindex $::servers end+$level]
+    return $srv
 }
 
 # Provide easy access to the client for the inner server. It's possible to

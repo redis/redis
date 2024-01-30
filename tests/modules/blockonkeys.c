@@ -136,6 +136,67 @@ int fsl_push(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+typedef struct {
+    RedisModuleString *keyname;
+    long long ele;
+} timer_data_t;
+
+static void timer_callback(RedisModuleCtx *ctx, void *data)
+{
+    timer_data_t *td = data;
+
+    fsl_t *fsl;
+    if (!get_fsl(ctx, td->keyname, REDISMODULE_WRITE, 1, &fsl, 1))
+        return;
+
+    if (fsl->length == LIST_SIZE)
+        return; /* list is full */
+
+    if (fsl->length != 0 && fsl->list[fsl->length-1] >= td->ele)
+        return; /* new element has to be greater than the head element */
+
+    fsl->list[fsl->length++] = td->ele;
+    RedisModule_SignalKeyAsReady(ctx, td->keyname);
+
+    RedisModule_Replicate(ctx, "FSL.PUSH", "sl", td->keyname, td->ele);
+
+    RedisModule_FreeString(ctx, td->keyname);
+    RedisModule_Free(td);
+}
+
+/* FSL.PUSHTIMER <key> <int> <period-in-ms> - Push the number 9000 to the fixed-size list (to the right).
+ * It must be greater than the element in the head of the list. */
+int fsl_pushtimer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 4)
+        return RedisModule_WrongArity(ctx);
+
+    long long ele;
+    if (RedisModule_StringToLongLong(argv[2],&ele) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx,"ERR invalid integer");
+
+    long long period;
+    if (RedisModule_StringToLongLong(argv[3],&period) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx,"ERR invalid period");
+
+    fsl_t *fsl;
+    if (!get_fsl(ctx, argv[1], REDISMODULE_WRITE, 1, &fsl, 1))
+        return REDISMODULE_OK;
+
+    if (fsl->length == LIST_SIZE)
+        return RedisModule_ReplyWithError(ctx,"ERR list is full");
+
+    timer_data_t *td = RedisModule_Alloc(sizeof(*td));
+    td->keyname = argv[1];
+    RedisModule_RetainString(ctx, td->keyname);
+    td->ele = ele;
+
+    RedisModuleTimerID id = RedisModule_CreateTimer(ctx, period, timer_callback, td);
+    RedisModule_ReplyWithLongLong(ctx, id);
+
+    return REDISMODULE_OK;
+}
+
 int bpop_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -544,6 +605,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.push",fsl_push,"write",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"fsl.pushtimer",fsl_pushtimer,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"fsl.bpop",fsl_bpop,"write",1,1,1) == REDISMODULE_ERR)
