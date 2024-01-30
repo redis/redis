@@ -2024,7 +2024,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             break;
         }
         dictResumeAutoResize(zs->dict);
-        dictShrinkToFit(zs->dict);
+        dictShrinkIfNeeded(zs->dict);
         if (dictSize(zs->dict) == 0) {
             dbDelete(c->db,key);
             keyremoved = 1;
@@ -2554,7 +2554,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     }
 
     /* Resize dict if needed after removing multiple elements */
-    dictShrinkToFit(dstzset->dict);
+    dictShrinkIfNeeded(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
      * we have to iterate through all elements to find the max one after. */
