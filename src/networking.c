@@ -3044,7 +3044,7 @@ void clientCommand(client *c) {
 "      Skip killing current connection (default: yes).",
 "    * ID <client-id>",
 "      Kill connections by client id.",
-"    * AGE <max-age>",
+"    * MAXAGE <maxage>",
 "      Kill connections older than the specified age.",
 "LIST [options ...]",
 "    Return information about client connections. Options:",
@@ -3179,14 +3179,14 @@ NULL
                                                       "client-id should be greater than 0") != C_OK)
                         return;
                     id = tmp;
-                } else if (!strcasecmp(c->argv[i]->ptr,"age") && moreargs) {
+                } else if (!strcasecmp(c->argv[i]->ptr,"maxage") && moreargs) {
                     long long tmp;
 
                     if (getLongLongFromObjectOrReply(c, c->argv[i+1], &tmp,
-                                                     "client-age is not an integer or out of range") != C_OK)
+                                                     "maxage is not an integer or out of range") != C_OK)
                         return;
                     if (tmp <= 0) {
-                        addReplyError(c, "client-age should be greater than 0");
+                        addReplyError(c, "maxage should be greater than 0");
                         return;
                     }
 

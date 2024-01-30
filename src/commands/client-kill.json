@@ -30,7 +30,7 @@
             ],
             [
                 "8.0.0",
-                "`AGE` option."
+                "`MAXAGE` option."
             ]
         ],
         "command_flags": [
@@ -142,8 +142,8 @@
                                 ]
                             },
                             {
-                                "token": "AGE",
-                                "name": "client-age",
+                                "token": "MAXAGE",
+                                "name": "maxage",
                                 "type": "integer",
                                 "optional": true,
                                 "since": "8.0.0"

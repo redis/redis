@@ -33,12 +33,12 @@ start_server {tags {"introspection"}} {
 
         assert_error "ERR syntax error*" {r client kill skipme yes_or_no}
 
-        assert_error "ERR *not an integer or out of range*" {r client kill age str}
-        assert_error "ERR *not an integer or out of range*" {r client kill age 9999999999999999999}
-        assert_error "ERR *greater than 0*" {r client kill age -1}
+        assert_error "ERR *not an integer or out of range*" {r client kill maxage str}
+        assert_error "ERR *not an integer or out of range*" {r client kill maxage 9999999999999999999}
+        assert_error "ERR *greater than 0*" {r client kill maxage -1}
     }
 
-    test {CLIENT KILL AGE will kill old clients} {
+    test {CLIENT KILL maxAGE will kill old clients} {
         set rd1 [redis_deferring_client]
         r debug sleep 2
         set rd2 [redis_deferring_client]
@@ -50,7 +50,7 @@ start_server {tags {"introspection"}} {
         $rd2 read
 
         # Should kill rd1 but not rd2
-        set res [r client kill user dummy age 1]
+        set res [r client kill user dummy maxage 1]
         assert {$res == 1}
 
         # rd2 should still be connected
