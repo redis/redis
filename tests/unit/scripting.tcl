@@ -639,7 +639,7 @@ start_server {tags {"scripting"}} {
         assert_morethan_equal $escaped 1 ;# 1 second
     }
 
-    test "Prohibited dangerous lua methods in sandbox" {
+    test "Prohibit dangerous lua methods in sandbox" {
         assert_equal "" [run_script {
             local allowed_methods = {"clock"}
             -- Find a value from a tuple and return the position.
