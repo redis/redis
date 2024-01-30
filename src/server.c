@@ -5745,7 +5745,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "maxmemory:%lld\r\n", server.maxmemory,
             "maxmemory_human:%s\r\n", maxmemory_hmem,
             "maxmemory_policy:%s\r\n", evict_policy,
-            "allocator_frag_ratio:%.2f\r\n", mh->allocator_frag,
+            "allocator_frag_ratio:%.3f\r\n", mh->allocator_frag,
             "allocator_frag_bytes:%zu\r\n", mh->allocator_frag_bytes,
             "allocator_rss_ratio:%.2f\r\n", mh->allocator_rss,
             "allocator_rss_bytes:%zd\r\n", mh->allocator_rss_bytes,
