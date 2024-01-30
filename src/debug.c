@@ -494,6 +494,8 @@ void debugCommand(client *c) {
 "    Enable or disable the reply buffer resize cron job",
 "CLUSTERLINK KILL <to|from|all> <node-id>",
 "    Kills the link based on the direction to/from (both) with the provided node." ,
+"SLEEP-AFTER-FORK <seconds>",
+"    Stop the server's main process for <seconds> after forking.",
 NULL
         };
         addReplyHelp(c, help);
@@ -1030,6 +1032,10 @@ NULL
         } else {
             addReplyErrorFormat(c, "Unknown direction %s", (char*) c->argv[3]->ptr);
         }
+        addReply(c,shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"SLEEP-AFTER-FORK") &&
+        c->argc == 3) {
+        server.debug_sleep_after_fork = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);

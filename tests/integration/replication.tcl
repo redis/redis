@@ -1790,3 +1790,37 @@ start_server {tags {"repl rdb-channel external:skip"}} {
         }
     }
 }
+
+start_server {tags {"repl rdb-channel external:skip"}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+    set replica_log [srv 0 stdout]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set loglines [count_log_lines -1]
+        # Create small enough db to be loaded before replica establish psync connection
+        $master set key1 val1
+
+        $master config set repl-diskless-sync yes
+        $master debug sleep-after-fork 5;# Stop master after fork
+
+        $replica config set repl-rdb-channel yes
+        $replica config set loglevel debug
+
+        test "Test rdb-channel psync established after rdb load" {
+            $replica slaveof $master_host $master_port
+
+            wait_for_value_to_propegate_to_replica $master $replica "key1"
+
+            verify_replica_online $master 0 500
+            set res [wait_for_log_messages -1 {"*MASTER <-> REPLICA sync: Finished with success*"} $loglines 2000 1]
+            # Confirm the occurrence of a race condition.
+            set res [wait_for_log_messages -1 {"*RDB channel sync - psync established after rdb load*"} $loglines 2000 1]
+            set loglines [lindex $res 1]
+            incr $loglines                
+        }
+    }
+}

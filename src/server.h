@@ -1887,6 +1887,8 @@ struct redisServer {
                                          * delay (start sooner if they all connect). */
     int rdb_channel_enabled;        /* Config used to determine if the replica should 
                                      * use rdb channel for full syncs. */
+    int debug_sleep_after_fork;     /* Debug param that force the main connection to 
+                                     * sleep for N seconds after fork() in repl. */
     size_t repl_buffer_mem;         /* The memory of replication buffer. */
     list *repl_buffer_blocks;       /* Replication buffers blocks list
                                      * (serving replica clients and repl backlog) */

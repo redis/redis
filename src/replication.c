@@ -900,6 +900,7 @@ int startBgsaveForReplication(int mincapa, int req) {
             /* Keep the page cache since it'll get used soon */
             retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
         }
+        if (server.debug_sleep_after_fork) sleep(server.debug_sleep_after_fork);
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
