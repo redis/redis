@@ -429,6 +429,7 @@ start_server {tags {"other external:skip"}} {
 }
 
 start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
+    r config set dynamic-hz no hz 500
     test "Redis can trigger resizing" {
         r flushall
         # hashslot(foo) is 12182
@@ -456,14 +457,20 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
             fail "bgsave did not stop in time."
         }
 
-        after 200;# waiting for serverCron
-        assert_match "*table size: 8*" [r debug HTSTATS 0]
+        # waiting for serverCron to resize the tables
+        wait_for_condition 1000 10 {
+            [string match {*table size: 8*} [r debug HTSTATS 0]]
+        } else {
+            puts [r debug HTSTATS 0]
+            fail "hash tables weren't resize."
+        }
     } {} {needs:debug}
 
     test "Redis can rewind and trigger smaller slot resizing" {
         # hashslot(foo) is 12182
         # hashslot(alice) is 749, smaller than hashslot(foo),
         # attempt to trigger a resize on it, see details in #12802.
+        r config set hz 500
         for {set j 1} {$j <= 128} {incr j} {
             r set "{alice}$j" a
         }
@@ -485,8 +492,13 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
             fail "bgsave did not stop in time."
         }
 
-        after 200;# waiting for serverCron
-        assert_match "*table size: 16*" [r debug HTSTATS 0]
+        # waiting for serverCron to resize the tables
+        wait_for_condition 1000 10 {
+            [string match {*table size: 16*} [r debug HTSTATS 0]]
+        } else {
+            puts [r debug HTSTATS 0]
+            fail "hash tables weren't resize."
+        }
     } {} {needs:debug}
 }
 
