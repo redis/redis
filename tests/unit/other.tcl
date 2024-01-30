@@ -470,7 +470,6 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         # hashslot(foo) is 12182
         # hashslot(alice) is 749, smaller than hashslot(foo),
         # attempt to trigger a resize on it, see details in #12802.
-        r config set hz 500
         for {set j 1} {$j <= 128} {incr j} {
             r set "{alice}$j" a
         }
