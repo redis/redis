@@ -193,7 +193,7 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits) {
     kvs->rehashing = listCreate();
     kvs->key_count = 0;
     kvs->non_empty_dicts = 0;
-    kvs->resize_cursor = -1;
+    kvs->resize_cursor = 0;
     kvs->dict_size_index = kvs->num_dicts > 1? zcalloc(sizeof(unsigned long long) * (kvs->num_dicts + 1)) : NULL;
     kvs->bucket_count = 0;
 
@@ -213,8 +213,8 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
 
     kvs->key_count = 0;
     kvs->non_empty_dicts = 0;
-    kvs->resize_cursor = -1;
-    kvs->bucket_count = -1;
+    kvs->resize_cursor = 0;
+    kvs->bucket_count = 0;
     if (kvs->dict_size_index)
         memset(kvs->dict_size_index, 0, sizeof(unsigned long long) * (kvs->num_dicts + 1));
 }
@@ -504,19 +504,18 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
     return de;
 }
 
-/* Cursor-scan the kvstore and attempt to shrink (if needed, handled by dictShrinkToFit) */
-void kvstoreTryShrinkHashTables(kvstore *kvs, int limit) {
-    if (kvstoreSize(kvs) == 0)
-        return;
+/* Cursor-scan the kvstore and attempt to resize */
+void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
+    if (limit > kvs->num_dicts)
+        limit = kvs->num_dicts;
 
-    if (kvs->resize_cursor == -1)
-        kvs->resize_cursor = kvstoreFindDictIndexByKeyIndex(kvs, 1);
-
-    for (int i = 0; i < limit && kvs->resize_cursor != -1; i++) {
+    for (int i = 0; i < limit; i++) {
         int didx = kvs->resize_cursor;
         dict *d = kvstoreGetDict(kvs, didx);
-        dictShrinkToFit(d);
-        kvs->resize_cursor = kvstoreGetNextNonEmptyDictIndex(kvs, didx);
+        if (dictShrinkIfNeeded(d) == DICT_ERR) {
+            dictExpandIfNeeded(d);
+        }
+        kvs->resize_cursor = (didx + 1) % kvs->num_dicts;
     }
 }
 

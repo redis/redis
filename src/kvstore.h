@@ -10,7 +10,7 @@ typedef struct {
     long long num_dicts;
     long long num_dicts_bits;
     list *rehashing;                       /* List of dictionaries in this kvstore that are currently rehashing. */
-    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries. */
+    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used if num_dicts > 1). */
     int non_empty_dicts;                   /* The number of non-empty dicts. */
     unsigned long long key_count;          /* Total number of keys in this kvstore. */
     unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
@@ -61,7 +61,7 @@ int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it);
 dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
 
 /* Rehashing */
-void kvstoreTryShrinkHashTables(kvstore *kvs, int limit);
+void kvstoreTryResizeDicts(kvstore *kvs, int limit);
 uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_ms);
 
 /* Specific dict access by dict-index */
