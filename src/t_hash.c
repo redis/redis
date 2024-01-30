@@ -841,8 +841,8 @@ void genericHgetallCommand(client *c, int flags) {
      * HGETALL case. Otherwise to use a flat array makes more sense. */
     pattern = c->argc > 2 ? c->argv[2]->ptr : NULL;
     all_keys = (!pattern) || (pattern[0] == '*' && sdslen(pattern) == 0);
+    length = hashTypeLength(o);
     if (all_keys) {
-        length = hashTypeLength(o);
         if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) {
             addReplyMapLen(c, length);
         } else {
