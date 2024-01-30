@@ -609,10 +609,16 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
-        // YLB TODO filter to finish with new arguments
-        // if (monitor->monitor_filters && 
-        //     listSearchKey(monitor->monitor_filters, c->cmd) == NULL) 
-        //     continue;
+
+        /* monitor filters */
+        if (monitor->monitor_filters){
+            if (monitor->monitor_filters->commands &&
+                listSearchKey(monitor->monitor_filters->commands, c->cmd) == NULL) {
+                continue;
+            }
+        }
+        /* we passed all the filters and can send the command to the monitoring client */
+
         addReply(monitor,cmdobj);
         updateClientMemUsageAndBucket(monitor);
     }

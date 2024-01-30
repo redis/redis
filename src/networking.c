@@ -1706,7 +1706,7 @@ void freeClient(client *c) {
         listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
     }
 
-    if (c->monitor_filters) listRelease(c->monitor_filters);
+    freeMonitorFiltersForClient(c);
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */

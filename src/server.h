@@ -1174,11 +1174,13 @@ typedef struct {
 #endif
 
 typedef struct monitorFilters {
-    sds username;
-    sds addr;
-    sds laddr;
+    list *id;       /* sds */
+    list *username; /* sds */
+    list *addr;     /* sds */
+    list *laddr;    /* sds */
+    list *type;     /* sds */
+    list *commands; /* struct redisCommand* */
     bool exclude_commands;
-    list *commands;
 } monitorFilters;
 
 typedef struct client {
@@ -1301,11 +1303,13 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
-    monitorFilters *monitor_filters;
+    monitorFilters *monitor_filters; /* filters on MONITOR command */
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
 } client;
+
+void freeMonitorFiltersForClient(client *c);
 
 /* ACL information */
 typedef struct aclInfo {

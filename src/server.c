@@ -6166,42 +6166,97 @@ void infoCommand(client *c) {
     return;
 }
 
+// YLB TODO do we create all the list and check the size instead of NULL? cleaner code but more memory used.
+void initMonitorFilterForClient(client *c) {
+    c->monitor_filters = zmalloc(sizeof (struct monitorFilters));
+    // c->monitor_filters = {.id = NULL, .username = NULL, .addr = NULL, .laddr = NULL, .type = NULL, .commands = NULL, .exclude_commands = false};
+    memset(c->monitor_filters, 0, sizeof(monitorFilters)); // Needed?
+    c->monitor_filters->exclude_commands = false; // Needed?
+}
+
+void freeMonitorFiltersForClient(client *c) {
+    printf("freeMonitorFiltersFromClient\n");
+    if (c->monitor_filters) {
+        // YLB TODO check list->free = sdsfree;
+        if (c->monitor_filters->id)         listRelease(c->monitor_filters->id);
+        if (c->monitor_filters->username)   listRelease(c->monitor_filters->username);
+        if (c->monitor_filters->addr)       listRelease(c->monitor_filters->addr);
+        if (c->monitor_filters->laddr)      listRelease(c->monitor_filters->laddr);
+        if (c->monitor_filters->type)       listRelease(c->monitor_filters->type);
+        if (c->monitor_filters->commands)   listRelease(c->monitor_filters->commands);
+        zfree(c->monitor_filters);
+        c->monitor_filters = NULL;
+    }
+}
+
+// need to know 3 states: cmd found and used, error, no cmd found
+#define FILTER_ERR -1
+#define FILTER_NOT_FOUND 0
+#define FILTER_CONSUMED 1
+
+int createMonitorFilterForCMD(client *c, int argi, bool moreargs){
+    if (!strcasecmp(c->argv[argi]->ptr,"cmd") && moreargs) {
+        // printf("DEBUG cmd and moreargs\n");
+        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[argi+1]->ptr);
+        if (cmd) {
+            if (!c->monitor_filters->commands) c->monitor_filters->commands = listCreate();
+            if (listSearchKey(c->monitor_filters->commands, cmd) == NULL) { /* no duplicate */
+                listAddNodeTail(c->monitor_filters->commands, cmd);
+            }
+            return FILTER_CONSUMED;
+        } else {
+            addReplyErrorFormat(c, " '%s' is not a Redis command", (char *)c->argv[argi]->ptr);
+            return FILTER_ERR;
+        }
+    } else {
+        return FILTER_NOT_FOUND;
+    }
+}
+
 /* Build the MONITOR filters from the MONITOR arguments
- * returns NULL (if not issues) or a list of incorrect arguments (that are not Redis commands) */
+ * returns NULL (if no issues) or the error message to return to the client */
 // TODO signature like int commandCheckExistence(client *c, sds *err) ? why *err and not err as sds is a char*
 // check code that deals with https://github.com/RediSearch/RediSearch/blob/master/commands.json
 // and client kill code
-sds createMonitorFiltersFromArguments(client *c) {
-    if (c->argc == 1) return NULL; /* MONITOR does not have filters/arguments */
+// YLB TODO add if QUIT is used?
+ /* Returns:
+ *  C_OK if no filters or all filters are ok
+ *  C_ERR if we found an issue parsing the filters */
+int createMonitorFiltersFromArguments(client *c) {
+    if (c->argc == 1) return C_OK; /* MONITOR does not have filters/arguments */
 
-    sds incorrect_args = sdsempty();
+    int result;
 
-    /* even if we do not have a valid argument, monitor_filters will be cleaned in freeClient() */
-    if ((c->monitor_filters = listCreate()) == NULL) {
-        fprintf(stderr, "monitor_filters list creation failed.\n");
-        exit(1);
+    initMonitorFilterForClient(c);
+    // if ((c->monitor_filters = listCreate()) == NULL) {
+    //     fprintf(stderr, "monitor_filters list creation failed.\n");
+    //     exit(1);
+    // }
+    // list->free = sdsfree;
+
+    int argi = 1; /* Next argument */
+
+    while(argi < c->argc) {
+        bool moreargs = c->argc > argi+1;
+        
+        result = createMonitorFilterForCMD(c, argi, moreargs);
+        if (result == FILTER_ERR) break;
+        if (result == FILTER_CONSUMED) {
+            argi += 2;
+            continue;
+        } 
+        // if FILTER_NOT_FOUND try with another 
+
+        /* no valid argument was found / consumed */
+        result = FILTER_ERR;
+        break;
     }
 
-
-    /* validate arguments are commands */
-    for (int i = 1; i < c->argc; i++) {
-        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[i]->ptr);
-        if (cmd) {
-            if (listSearchKey(c->monitor_filters, cmd) == NULL) { /* no duplicate */
-                listAddNodeTail(c->monitor_filters, cmd);
-            }
-        } else {
-            // YLB TODO add if QUIT is used?
-            incorrect_args = sdscatfmt(incorrect_args, " '%s'", (char *)c->argv[i]->ptr);
-        }
+    if (result == FILTER_ERR) {
+        freeMonitorFiltersForClient(c);
+        return C_ERR;
     }
-
-    if (sdslen(incorrect_args) == 0) {
-        sdsfree(incorrect_args);
-        return NULL;
-    } else {
-        return incorrect_args;
-    }
+    return C_OK;
 }
 
 /* 
@@ -6211,7 +6266,7 @@ MONITOR
 [ADDR ip:port] 
 [LADDR ip:port] 
 [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] 
-[CMD_FILTER <INCLUDE | EXCLUDE>] 
+[CMD_FILTER <INCLUDE | EXCLUDE>] // INCLUDE is not needed should be [EXCLUDE_CMD]
 [CMD command]
 [[ID client-id] [USER username] [ADDR ip:port] [LADDR ip:port] [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] [CMD command] ...]
 */
@@ -6227,10 +6282,7 @@ void monitorCommand(client *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
-    sds error_msg = createMonitorFiltersFromArguments(c);
-    if (error_msg) {
-        addReplyErrorFormat(c, "%s", error_msg);
-        sdsfree(error_msg);
+    if (createMonitorFiltersFromArguments(c) == C_ERR) {
         return;
     }
 

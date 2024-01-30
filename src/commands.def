@@ -7258,19 +7258,25 @@ commandHistory MONITOR_History[] = {
 #define MONITOR_Keyspecs NULL
 #endif
 
-/* MONITOR commands argument table */
-struct COMMAND_ARG MONITOR_commands_Subargs[] = {
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("command",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+/* MONITOR filter cmdfilter argument table */
+struct COMMAND_ARG MONITOR_filter_cmdfilter_Subargs[] = {
+{MAKE_ARG("include",ARG_TYPE_PURE_TOKEN,-1,"INCLUDE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("exclude",ARG_TYPE_PURE_TOKEN,-1,"EXCLUDE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* MONITOR filter argument table */
+struct COMMAND_ARG MONITOR_filter_Subargs[] = {
+{MAKE_ARG("client-id",ARG_TYPE_INTEGER,-1,"ID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
+{MAKE_ARG("cmdfilter",ARG_TYPE_ONEOF,-1,"CMD_FILTER",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=MONITOR_filter_cmdfilter_Subargs},
+{MAKE_ARG("command",ARG_TYPE_STRING,-1,"CMD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /* MONITOR argument table */
 struct COMMAND_ARG MONITOR_Args[] = {
-{MAKE_ARG("username",ARG_TYPE_STRING,-1,"USER",NULL,"8.0",CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,"8.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
-{MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"8.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
-{MAKE_ARG("excludecommands",ARG_TYPE_PURE_TOKEN,-1,"EXCLUDE_COMMANDS",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("commands",ARG_TYPE_BLOCK,-1,"COMMANDS",NULL,"8.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=MONITOR_commands_Subargs},
+{MAKE_ARG("filter",ARG_TYPE_ONEOF,-1,NULL,NULL,"8.0",CMD_ARG_MULTIPLE,6,NULL),.subargs=MONITOR_filter_Subargs},
 };
 
 /********** PSYNC ********************/
@@ -10800,7 +10806,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lolwut","Displays computer art and the Redis version",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,LOLWUT_History,0,LOLWUT_Tips,0,lolwutCommand,-1,CMD_READONLY|CMD_FAST,0,LOLWUT_Keyspecs,0,NULL,1),.args=LOLWUT_Args},
 {MAKE_CMD("memory","A container for memory diagnostics commands.","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MEMORY_History,0,MEMORY_Tips,0,NULL,-2,0,0,MEMORY_Keyspecs,0,NULL,0),.subcommands=MEMORY_Subcommands},
 {MAKE_CMD("module","A container for module commands.","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MODULE_History,0,MODULE_Tips,0,NULL,-2,0,0,MODULE_Keyspecs,0,NULL,0),.subcommands=MODULE_Subcommands},
-{MAKE_CMD("monitor","Listens for all requests received by the server in real-time.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MONITOR_History,1,MONITOR_Tips,0,monitorCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,MONITOR_Keyspecs,0,NULL,5),.args=MONITOR_Args},
+{MAKE_CMD("monitor","Listens for all requests received by the server in real-time.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MONITOR_History,1,MONITOR_Tips,0,monitorCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,MONITOR_Keyspecs,0,NULL,1),.args=MONITOR_Args},
 {MAKE_CMD("psync","An internal command used in replication.",NULL,"2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,PSYNC_History,0,PSYNC_Tips,0,syncCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,PSYNC_Keyspecs,0,NULL,2),.args=PSYNC_Args},
 {MAKE_CMD("replconf","An internal command for configuring the replication stream.","O(1)","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLCONF_History,0,REPLCONF_Tips,0,replconfCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_ALLOW_BUSY,0,REPLCONF_Keyspecs,0,NULL,0)},
 {MAKE_CMD("replicaof","Configures a server as replica of another, or promotes it to a master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLICAOF_History,0,REPLICAOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,REPLICAOF_Keyspecs,0,NULL,1),.args=REPLICAOF_Args},

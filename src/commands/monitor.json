@@ -19,56 +19,60 @@
         ],
         "arguments": [
             {
-                "token": "ID",
-                "name": "client-id",
-                "type": "integer",
-                "optional": true,
-                "since": "8.0"
-            },
-            {
-                "token": "USER",
-                "name": "username",
-                "type": "string",
-                "optional": true,
-                "since": "8.0"
-            },
-            {
-                "token": "ADDR",
-                "name": "addr",
-                "display": "ip:port",
-                "type": "string",
-                "optional": true,
-                "since": "8.0"
-            },
-            {
-                "token": "LADDR",
-                "name": "laddr",
-                "display": "ip:port",
-                "type": "string",
-                "optional": true,
-                "since": "8.0"
-            },
-            {
-                "token": "EXCLUDE_COMMANDS",
-                "name": "excludecommands",
-                "type": "pure-token",
-                "optional": true
-            },
-            {
-                "token":"COMMANDS",
-                "name": "commands",
-                "type": "block",
-                "optional": true,
+                "name": "filter",
+                "type": "oneof",
+                "multiple": true,
                 "since": "8.0",
                 "arguments": [
                     {
-                        "name": "count",
-                        "type": "integer"
+                        "token": "ID",
+                        "name": "client-id",
+                        "type": "integer",
+                        "optional": true
                     },
                     {
+                        "token": "USER",
+                        "name": "username",
+                        "type": "string",
+                        "optional": true
+                    },
+                    {
+                        "token": "ADDR",
+                        "name": "addr",
+                        "display": "ip:port",
+                        "type": "string",
+                        "optional": true
+                    },
+                    {
+                        "token": "LADDR",
+                        "name": "laddr",
+                        "display": "ip:port",
+                        "type": "string",
+                        "optional": true
+                    },
+                    {
+                        "token": "CMD_FILTER",
+                        "name": "cmdfilter",
+                        "type": "oneof",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "include",
+                                "type": "pure-token",
+                                "token": "include"
+                            },
+                            {
+                                "name": "exclude",
+                                "type": "pure-token",
+                                "token": "exclude"
+                            }
+                        ]
+                    },
+                    {
+                        "token":"CMD",
                         "name": "command",
                         "type": "string",
-                        "multiple": true
+                        "optional": true
                     }
                 ]
             }
