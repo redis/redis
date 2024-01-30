@@ -1942,6 +1942,34 @@ start_server {tags {"zset"}} {
         }
     }
 
+        test {BZPOPMIN unblock but the key is expired and then block again - reprocessing command} {
+            r flushall
+            r debug set-active-expire 0
+            set rd [redis_deferring_client]
+
+            set start [clock milliseconds]
+            $rd bzpopmin zset{t} 1
+            wait_for_blocked_clients_count 1
+
+            # The exec will try to awake the blocked client, but the key is expired,
+            # so the client will be blocked again during the command reprocessing.
+            r multi
+            r zadd zset{t} 1 one
+            r pexpire zset{t} 100
+            r debug sleep 0.2
+            r exec
+
+            assert_equal {} [$rd read]
+            set end [clock milliseconds]
+
+            # In the past, this time would have been 1000+200, in order to avoid
+            # timing issues, we increase the range a bit.
+            assert_range [expr $end-$start] 1000 1100
+
+            r debug set-active-expire 1
+            $rd close
+        } {0} {needs:debug}
+
         test "BZPOPMIN with same key multiple times should work" {
             set rd [redis_deferring_client]
             r del z1{t} z2{t}

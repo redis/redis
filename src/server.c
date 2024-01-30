@@ -3512,11 +3512,19 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* Setting the CLIENT_REPROCESSING_COMMAND flag so that during the actual
+     * processing of the command proc, the client is aware that it is being
+     * re-processed. */
+    if (reprocessing_command) c->flags |= CLIENT_REPROCESSING_COMMAND;
+
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
+
+    /* Clear the CLIENT_REPROCESSING_COMMAND flag after the proc is executed. */
+    if (reprocessing_command) c->flags &= ~CLIENT_REPROCESSING_COMMAND;
 
     exitExecutionUnit();
 
@@ -3575,7 +3583,7 @@ void call(client *c, int flags) {
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
-     * Other exceptions is a client which is unblocked and retring to process the command
+     * Other exceptions is a client which is unblocked and retrying to process the command
      * or we are currently in the process of loading AOF. */
     if (update_command_stats && !reprocessing_command &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
