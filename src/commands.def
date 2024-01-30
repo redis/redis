@@ -3567,6 +3567,7 @@ struct COMMAND_ARG HSCAN_Args[] = {
 {MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("novalues",ARG_TYPE_PURE_TOKEN,-1,"NOVALUES",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** HSET ********************/
@@ -10713,7 +10714,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hmget","Returns the values of all fields in a hash.","O(N) where N is the number of fields being requested.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HMGET_History,0,HMGET_Tips,0,hmgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HMGET_Keyspecs,1,NULL,2),.args=HMGET_Args},
 {MAKE_CMD("hmset","Sets the values of multiple fields.","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0","hash",COMMAND_GROUP_HASH,HMSET_History,0,HMSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HMSET_Keyspecs,1,NULL,2),.args=HMSET_Args},
 {MAKE_CMD("hrandfield","Returns one or more random fields from a hash.","O(N) where N is the number of fields returned","6.2.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HRANDFIELD_History,0,HRANDFIELD_Tips,1,hrandfieldCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,HRANDFIELD_Keyspecs,1,NULL,2),.args=HRANDFIELD_Args},
-{MAKE_CMD("hscan","Iterates over fields and values of a hash.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSCAN_History,0,HSCAN_Tips,1,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,HSCAN_Keyspecs,1,NULL,4),.args=HSCAN_Args},
+{MAKE_CMD("hscan","Iterates over fields and values of a hash.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSCAN_History,0,HSCAN_Tips,1,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,HSCAN_Keyspecs,1,NULL,5),.args=HSCAN_Args},
 {MAKE_CMD("hset","Creates or modifies the value of a field in a hash.","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSET_History,1,HSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSET_Keyspecs,1,NULL,2),.args=HSET_Args},
 {MAKE_CMD("hsetnx","Sets the value of a field in a hash only when the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSETNX_History,0,HSETNX_Tips,0,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSETNX_Keyspecs,1,NULL,3),.args=HSETNX_Args},
 {MAKE_CMD("hstrlen","Returns the length of the value of a field.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSTRLEN_History,0,HSTRLEN_Tips,0,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HSTRLEN_Keyspecs,1,NULL,2),.args=HSTRLEN_Args},
