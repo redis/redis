@@ -4,32 +4,8 @@
 #include "dict.h"
 #include "adlist.h"
 
-typedef struct {
-    dictType dtype;
-    dict **dicts;
-    long long num_dicts;
-    long long num_dicts_bits;
-    list *rehashing;                       /* List of dictionaries in this kvstore that are currently rehashing. */
-    int resize_cursor;                     /* Cron job uses this cursor to gradually resize dictionaries (only used if num_dicts > 1). */
-    int non_empty_dicts;                   /* The number of non-empty dicts. */
-    unsigned long long key_count;          /* Total number of keys in this kvstore. */
-    unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
-    unsigned long long *dict_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
-} kvstore;
-
-/* Dict metadata for database, used for record the position in rehashing list. */
-typedef struct {
-    kvstore *kvs;
-    listNode *rehashing_node;   /* list node in rehashing list */
-} kvstoreDictMetadata;
-
-/* Structure for kvstore iterator that allows iterating across multiple dicts. */
-typedef struct {
-    kvstore *kvs;
-    long long didx;
-    long long next_didx;
-    dictIterator di;
-} kvstoreIterator;
+typedef struct _kvstore kvstore;
+typedef struct _kvstoreIterator kvstoreIterator;
 
 typedef int (kvstoreScanShouldSkipDict)(dict *d);
 typedef int (kvstoreExpandShouldSkipDictIndex)(int didx);
@@ -47,11 +23,11 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
 int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb);
 int kvstoreGetFairRandomDictIndex(kvstore *kvs);
 void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full);
-dict *kvstoreGetDict(kvstore *kvs, int didx);
 
 int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target);
 int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx);
-int kvstoreNonEmptyDicts(kvstore *kvs);
+int kvstoreNumNonEmptyDicts(kvstore *kvs);
+int kvstoreNumDicts(kvstore *kvs);
 
 /* kvstore iterator specific functions */
 kvstoreIterator *kvstoreIteratorInit(kvstore *kvs);
@@ -65,6 +41,17 @@ void kvstoreTryResizeDicts(kvstore *kvs, int limit);
 uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_ms);
 
 /* Specific dict access by dict-index */
+unsigned long kvstoreDictSize(kvstore *kvs, int didx);
+dictIterator *kvstoreDictGetIterator(kvstore *kvs, int didx);
+dictIterator *kvstoreDictGetSafeIterator(kvstore *kvs, int didx);
+dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx);
+dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx);
+dictEntry *kvstoreDictFindEntryByPtrAndHash(kvstore *kvs, int didx, const void *oldptr, uint64_t hash);
+unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, unsigned int count);
+int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size);
+unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
+uint64_t kvstoreDictGetHash(kvstore *kvs, int didx, const void *key);
+void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key);
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing);
 void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key);

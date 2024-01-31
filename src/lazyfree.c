@@ -2,6 +2,7 @@
 #include "bio.h"
 #include "atomicvar.h"
 #include "functions.h"
+#include "cluster.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -174,9 +175,10 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
+    int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
     kvstore *oldda1 = db->keys, *oldda2 = db->expires;
-    db->keys = kvstoreCreate(&dbDictType, db->keys->num_dicts_bits);
-    db->expires = kvstoreCreate(&dbExpiresDictType, db->expires->num_dicts_bits);
+    db->keys = kvstoreCreate(&dbDictType, slotCountBits);
+    db->expires = kvstoreCreate(&dbExpiresDictType, slotCountBits);
     atomicIncr(lazyfree_objects, kvstoreSize(oldda1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldda1, oldda2);
 }

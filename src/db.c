@@ -349,8 +349,7 @@ robj *dbRandomKey(redisDb *db) {
         sds key;
         robj *keyobj;
         int randomSlot = kvstoreGetFairRandomDictIndex(db->keys);
-        dict *d = kvstoreGetDict(db->keys, randomSlot);
-        de = dictGetFairRandomKey(d);
+        de = kvstoreDictGetFairRandomKey(db->keys, randomSlot);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
@@ -804,7 +803,7 @@ void keysCommand(client *c) {
     dictIterator *di = NULL;
     kvstoreIterator *kvs_it = NULL;
     if (pslot != -1) {
-        di = dictGetSafeIterator(kvstoreGetDict(c->db->keys, pslot));
+        di = kvstoreDictGetSafeIterator(c->db->keys, pslot);
     } else {
         kvs_it = kvstoreIteratorInit(c->db->keys);
     }

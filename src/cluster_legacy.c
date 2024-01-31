@@ -5743,8 +5743,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
     dictIterator *iter = NULL;
     dictEntry *de = NULL;
-    dict *d = kvstoreGetDict(server.db->keys, hashslot);
-    iter = dictGetSafeIterator(d);
+    iter = kvstoreDictGetSafeIterator(server.db->keys, hashslot);
     while((de = dictNext(iter)) != NULL) {
         enterExecutionUnit(1, 0);
         sds sdskey = dictGetKey(de);
@@ -5769,8 +5768,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
 /* Get the count of the channels for a given slot. */
 unsigned int countChannelsInSlot(unsigned int hashslot) {
-    dict *d = kvstoreGetDict(server.pubsubshard_channels, hashslot);
-    return dictSize(d);
+    return kvstoreDictSize(server.pubsubshard_channels, hashslot);
 }
 
 int clusterNodeIsMyself(clusterNode *n) {

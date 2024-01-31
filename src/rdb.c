@@ -1335,11 +1335,9 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             written += res;
             if ((res = rdbSaveLen(rdb, curr_slot)) < 0) goto werr;
             written += res;
-            dict *d = kvstoreGetDict(db->keys, curr_slot);
-            if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->keys, curr_slot))) < 0) goto werr;
             written += res;
-            d = kvstoreGetDict(db->expires, curr_slot);
-            if ((res = rdbSaveLen(rdb, dictSize(d))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr;
             written += res;
             last_slot = curr_slot;
         }
@@ -3131,10 +3129,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue; /* Ignore gracefully. */
             }
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
-            dict *d = kvstoreGetDict(db->keys, slot_id);
-            dictExpand(d, slot_size);
-            d = kvstoreGetDict(db->expires, slot_id);
-            dictExpand(d, expires_slot_size);
+            kvstoreDictExpand(db->keys, slot_id, slot_size);
+            kvstoreDictExpand(db->expires, slot_id, slot_size);
             should_expand_db = 0;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {

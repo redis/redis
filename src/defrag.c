@@ -681,26 +681,24 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     sds newsds;
     redisDb *db = ctx->db;
     int slot = ctx->slot;
-    dict *d = kvstoreGetDict(db->keys, slot);
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
-        dictSetKey(d, de, newsds);
+        kvstoreDictSetKey(db->keys, slot, de, newsds);
         if (kvstoreSize(db->expires)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(d, newsds);
-            dict *dv = kvstoreGetDict(db->expires, slot);
-            dictEntry *expire_de = dictFindEntryByPtrAndHash(dv, keysds, hash);
-            if (expire_de) dictSetKey(dv, expire_de, newsds);
+            uint64_t hash = kvstoreDictGetHash(db->keys, slot, newsds);
+            dictEntry *expire_de = kvstoreDictFindEntryByPtrAndHash(db->expires, slot, keysds, hash);
+            if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
     }
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(d, de, newob);
+        kvstoreDictSetKey(db->keys, slot, de, newob);
         ob = newob;
     }
 
@@ -1030,7 +1028,6 @@ void activeDefragCycle(void) {
             ctx.slot = slot;
         }
         do {
-            dict *d = kvstoreGetDict(db->keys, slot);
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
             if (defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1040,13 +1037,14 @@ void activeDefragCycle(void) {
             if (!defrag_later_item_in_progress) {
                 /* Scan the keyspace dict unless we're scanning the expire dict. */
                 if (!expires_cursor)
-                    cursor = dictScanDefrag(d, cursor, defragScanCallback,
-                                            &defragfns, &ctx);
+                    cursor = kvstoreDictScanDefrag(db->keys, slot, cursor,
+                                                   defragScanCallback,
+                                                   &defragfns, &ctx);
                 /* When done scanning the keyspace dict, we scan the expire dict. */
                 if (!cursor)
-                    expires_cursor = dictScanDefrag(kvstoreGetDict(db->expires, slot), expires_cursor,
-                                                    scanCallbackCountScanned,
-                                                    &defragfns, NULL);
+                    expires_cursor = kvstoreDictScanDefrag(db->expires, slot, expires_cursor,
+                                                           scanCallbackCountScanned,
+                                                           &defragfns, NULL);
             }
             if (!(cursor || expires_cursor)) {
                 /* Move to the next slot only if regular and large item scanning has been completed. */

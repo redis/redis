@@ -326,7 +326,7 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
 
 /* Unsubscribe all shard channels in a slot. */
 void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
-    dictIterator *di = dictGetSafeIterator(kvstoreGetDict(server.pubsubshard_channels, slot));
+    dictIterator *di = kvstoreDictGetSafeIterator(server.pubsubshard_channels, slot);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *channel = dictGetKey(de);
@@ -652,7 +652,7 @@ NULL
 
         addReplyArrayLen(c,(c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
-            dict *d = dictFetchValue(kvstoreGetDict(server.pubsub_channels, 0),c->argv[j]);
+            dict *d = kvstoreDictFetchValue(server.pubsub_channels, 0, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c, d ? dictSize(d) : 0);
@@ -672,8 +672,7 @@ NULL
         addReplyArrayLen(c, (c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
             unsigned int slot = calculateKeySlot(c->argv[j]->ptr);
-            dict *d = kvstoreGetDict(server.pubsubshard_channels, slot);
-            dict *clients = dictFetchValue(d, c->argv[j]);
+            dict *clients = kvstoreDictFetchValue(server.pubsubshard_channels, slot, c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
             addReplyLongLong(c, clients ? dictSize(clients) : 0);
@@ -686,11 +685,11 @@ NULL
 void channelList(client *c, sds pat, kvstore *pubsub_channels) {
     long mblen = 0;
     void *replylen;
-    unsigned int slot_cnt = pubsub_channels->num_dicts;
+    unsigned int slot_cnt = kvstoreNumDicts(pubsub_channels);
 
     replylen = addReplyDeferredLen(c);
     for (unsigned int i = 0; i < slot_cnt; i++) {
-        dictIterator *di = dictGetIterator(kvstoreGetDict(pubsub_channels, i));
+        dictIterator *di = kvstoreDictGetIterator(pubsub_channels, i);
         dictEntry *de;
         while((de = dictNext(di)) != NULL) {
             robj *cobj = dictGetKey(de);

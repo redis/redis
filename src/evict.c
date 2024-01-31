@@ -143,11 +143,12 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
-    count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
+    int slot = kvstoreGetFairRandomDictIndex(samplekvs);
+    count = kvstoreDictGetSomeKeys(samplekvs,slot,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
@@ -161,7 +162,8 @@ int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, st
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (sampledict != keydict) de = dictFind(keydict, key);
+            if (samplekvs != db->keys)
+                de = kvstoreDictFind(db->keys, slot, key);
             o = dictGetVal(de);
         }
 
@@ -236,7 +238,7 @@ int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, st
             pool[k].key = pool[k].cached;
         }
         pool[k].idle = idle;
-        pool[k].dbid = dbid;
+        pool[k].dbid = db->id;
         pool[k].slot = slot;
     }
 
@@ -578,7 +580,6 @@ int performEvictions(void) {
         sds bestkey = NULL;
         int bestdbid;
         redisDb *db;
-        dict *sampledict;
         dictEntry *de;
 
         if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
@@ -604,12 +605,10 @@ int performEvictions(void) {
                     if (current_db_keys == 0) continue;
 
                     total_keys += current_db_keys;
-                    int l = kvstoreNonEmptyDicts(kvs);
+                    int l = kvstoreNumNonEmptyDicts(kvs);
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
-                        int slot = kvstoreGetFairRandomDictIndex(kvs);
-                        sampledict = kvstoreGetDict(kvs, slot);
-                        sampled_keys += evictionPoolPopulate(i, slot, sampledict, kvstoreGetDict(db->keys, slot), pool);
+                        sampled_keys += evictionPoolPopulate(db, kvs, pool);
                         /* We have sampled enough keys in the current db, exit the loop. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
@@ -670,10 +669,8 @@ int performEvictions(void) {
                     kvs = db->expires;
                 }
                 int slot = kvstoreGetFairRandomDictIndex(kvs);
-                sampledict = kvstoreGetDict(kvs, slot);
-
-                if (dictSize(sampledict) != 0) {
-                    de = dictGetRandomKey(sampledict);
+                if (kvstoreDictSize(kvs, slot) != 0) {
+                    de = kvstoreDictGetRandomKey(kvs, slot);
                     bestkey = dictGetKey(de);
                     bestdbid = j;
                     break;
