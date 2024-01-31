@@ -46,6 +46,12 @@ int connTypeRegister(ConnectionType *ct) {
             return C_ERR;
         }
     }
+    
+    /* Check if we exhausted connTypes without finding an empty slot */
+    if (type == CONN_TYPE_MAX) {
+        serverLog(LL_WARNING, "Could not find a slot to register connection type %s", typename);
+        return C_ERR;
+    }
 
     serverLog(LL_VERBOSE, "Connection type %s registered", typename);
     connTypes[type] = ct;
