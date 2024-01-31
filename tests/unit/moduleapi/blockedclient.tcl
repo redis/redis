@@ -279,7 +279,7 @@ foreach call_type {nested normal} {
 
     test {Unblock by timer} {
         # When the client is unlock, we will get the OK reply.
-        assert_match "OK" [r unblock_by_timer 100]
+        assert_match "OK" [r unblock_by_timer 100 0]
     }
 
     test {block time is shorter than timer period} {
