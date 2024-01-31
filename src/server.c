@@ -6174,10 +6174,10 @@ void initMonitorFilterForClient(client *c) {
     c->monitor_filters->exclude_commands = false; // Needed?
 }
 
+// YLB TODO check if listpack will be better?
 void freeMonitorFiltersForClient(client *c) {
     printf("freeMonitorFiltersFromClient\n");
     if (c->monitor_filters) {
-        // YLB TODO check list->free = sdsfree;
         if (c->monitor_filters->id)         listRelease(c->monitor_filters->id);
         if (c->monitor_filters->username)   listRelease(c->monitor_filters->username);
         if (c->monitor_filters->addr)       listRelease(c->monitor_filters->addr);
@@ -6198,13 +6198,7 @@ int createMonitorFilterForCMD(client *c, int argi, bool moreargs){
         // printf("DEBUG cmd and moreargs\n");
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[argi+1]->ptr);
         if (cmd) {
-            if (c->monitor_filters->commands == NULL) {
-                c->monitor_filters->commands = listCreate();
-                if (c->monitor_filters->commands == NULL) {
-                    fprintf(stderr, "allocation failed in createMonitorFilterForCMD.\n");
-                    exit(1);
-                }
-            }
+            if (c->monitor_filters->commands == NULL) c->monitor_filters->commands = listCreate();
             if (listSearchKey(c->monitor_filters->commands, cmd) == NULL) { /* no duplicate */
                 listAddNodeTail(c->monitor_filters->commands, cmd);
             }
@@ -6226,12 +6220,15 @@ int createMonitorFilterForClientID(client *c, int argi, bool moreargs){
                                             "client-id should be greater than 0") != C_OK)
             return FILTER_ERR;
 
+// YLB TODO if sizeof(void*) == sizeof(long) we do not need to allocate https://stackoverflow.com/questions/63569700/is-sizeoflong-sizeofvoid
+// listAddNodeTail(c->monitor_filters->id, (void*)id); and no ...id->free = zfree;
+
         if (c->monitor_filters->id == NULL) {
             c->monitor_filters->id = listCreate();
             c->monitor_filters->id->free = zfree;
         }
 
-        int *v = zmalloc(sizeof(int));        
+        int *v = zmalloc(sizeof(long)); 
         *v = id;
         listAddNodeTail(c->monitor_filters->id, v);
         return FILTER_CONSUMED;
@@ -6241,7 +6238,6 @@ int createMonitorFilterForClientID(client *c, int argi, bool moreargs){
 }
 
 //     c->monitor_filters->username->free = sdsfree;
-// }
 
 /* Build the MONITOR filters from the MONITOR arguments
  * returns NULL (if no issues) or the error message to return to the client */
@@ -6281,6 +6277,7 @@ int createMonitorFiltersFromArguments(client *c) {
 
         /* no valid argument was found / consumed */
         result = FILTER_ERR;
+        addReplyErrorFormat(c, " Issue with or after argument '%s'", (char *)c->argv[argi]->ptr);
         break;
     }
 
@@ -6292,15 +6289,15 @@ int createMonitorFiltersFromArguments(client *c) {
 }
 
 /* 
-MONITOR  
-[ID client-id] 
-[USER username] 
-[ADDR ip:port] 
-[LADDR ip:port] 
-[TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] 
-[CMD_FILTER <INCLUDE | EXCLUDE>] // INCLUDE is not needed should be [EXCLUDE_CMD]
+MONITOR 
+[ID client-id] | 
+[USER username] | 
+[ADDR ip:port] | 
+[LADDR ip:port] | 
+[TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] |
+[CMD_FILTER <INCLUDE | EXCLUDE>] |
 [CMD command]
-[[ID client-id] [USER username] [ADDR ip:port] [LADDR ip:port] [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] [CMD command] ...]
+[[ID client-id] | [USER username] | [ADDR ip:port] | [LADDR ip:port] | [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | [CMD_FILTER <INCLUDE | EXCLUDE>] | [CMD command] ...]
 */
 void monitorCommand(client *c) {
     if (c->flags & CLIENT_DENY_BLOCKING) {
