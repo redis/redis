@@ -70,11 +70,7 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
     tmp->tm_hour = seconds / secs_hour;
     tmp->tm_min = (seconds % secs_hour) / secs_min;
     tmp->tm_sec = (seconds % secs_hour) % secs_min;
-    # ifdef	__USE_MISC
     tmp->tm_gmtoff = tz;
-    # else
-    tmp->__tm_gmtoff = tz;
-    # endif
 
     /* 1/1/1970 was a Thursday, that is, day 4 from the POV of the tm structure
      * where sunday = 0, so to calculate the day of the week we have to add 4
