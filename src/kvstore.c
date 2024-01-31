@@ -504,7 +504,8 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
     return de;
 }
 
-/* Cursor-scan the kvstore and attempt to resize */
+/* This method traverses through kvstore dictionaries and triggers a resize .
+ * It first tries to shrink if needed, and if it isn't, it tries to expand. */
 void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
     if (limit > kvs->num_dicts)
         limit = kvs->num_dicts;

@@ -1078,14 +1078,6 @@ void databasesCron(void) {
         /* Don't test more DBs than we have. */
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
-        /* In cluster-enabled setup, this method traverses through all main/expires
-         * dictionaries (CLUSTER_SLOTS) and triggers a resize if the percentage of
-         * used buckets in the HT reaches (100 / HASHTABLE_MIN_FILL).
-         * We shrink the hash table to save memory, or expand the hash when the
-         * percentage of used buckets reached 100.
-         *
-         * In non cluster-enabled setup, it resize main/expires dictionary based on
-         * the same condition described above. */
         for (j = 0; j < dbs_per_call; j++) {
             redisDb *db = &server.db[resize_db % server.dbnum];
             kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB);
