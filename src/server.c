@@ -146,7 +146,9 @@ void serverLogRaw(int level, const char *msg) {
                 snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
                 char tzbuf[6];
                 strftime(tzbuf, sizeof(tzbuf), "%z", &tm);
-                strncat(buf, tzbuf, sizeof(buf) - strlen(buf) - 1);
+                char tz_formatted[7];
+                snprintf(tz_formatted, sizeof(tz_formatted), "%c%c%c:%c%c", tzbuf[0], tzbuf[1], tzbuf[2], tzbuf[3], tzbuf[4]);
+                strncat(buf, tz_formatted, sizeof(buf) - strlen(buf) - 1);
                 break;
 
             case LOG_TIMESTAMP_UNIX:
