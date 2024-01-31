@@ -415,17 +415,33 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
 start_server {tags {"maxmemory external:skip"}} {
-    test {Don't rehash if used memory exceeds maxmemory after rehash} {
+    test {Don't resize if used memory exceeds maxmemory after resize} {
         r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
 
         # Next rehash size is 8192, that will eat 64k memory
-        populate 4096 "" 1
+        populate 4095 "" 1
+
+        # Before adding a key to meet the 1:1 radio, disable resize to
+        # prevent the dict from being resized in cron.
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        r set k0 v0
 
         set used [s used_memory]
         set limit [expr {$used + 10*1024}]
         r config set maxmemory $limit
+
+        # Enable resizing
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
+        wait_for_condition 1000 10 {
+            [s rdb_bgsave_in_progress] eq 0
+        } else {
+            fail "bgsave did not stop in time."
+        }
+
         r set k1 v1
         # Next writing command will trigger evicting some keys if last
         # command trigger DB dict rehash
