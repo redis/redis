@@ -2532,6 +2532,7 @@ const char *moduleTypeModuleName(moduleType *mt);
 const char *moduleNameFromCommand(struct redisCommand *cmd);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
 void moduleCallCommandUnblockedHandler(client *c);
+int moduleClientUnblocked(client *c);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c, int from_module);
