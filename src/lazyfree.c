@@ -176,11 +176,11 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
     int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
-    kvstore *oldda1 = db->keys, *oldda2 = db->expires;
+    kvstore *oldkeys = db->keys, *oldexpires = db->expires;
     db->keys = kvstoreCreate(&dbDictType, slotCountBits);
     db->expires = kvstoreCreate(&dbExpiresDictType, slotCountBits);
-    atomicIncr(lazyfree_objects, kvstoreSize(oldda1));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldda1, oldda2);
+    atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldkeys, oldexpires);
 }
 
 /* Free the key tracking table.
