@@ -278,7 +278,17 @@ foreach call_type {nested normal} {
     }
 
     test {Unblock by timer} {
-        assert_match "OK" [r unblock_by_timer 100]
+        # When the client is unlock, we will get the OK reply.
+        assert_match "OK" [r unblock_by_timer 100 0]
+    }
+
+    test {block time is shorter than timer period} {
+        # This command does not have the reply.
+        set rd [redis_deferring_client]
+        $rd unblock_by_timer 100 10
+        # Wait for the client to unlock.
+        after 120
+        $rd close
     }
     
     test "Unload the module - blockedclient" {
