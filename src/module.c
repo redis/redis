@@ -7698,6 +7698,13 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * https://redis.io/topics/modules-blocking-ops.
  * -------------------------------------------------------------------------- */
 
+/* Returns 1 if the client already in the moduleUnblocked list, 0 otherwise. */
+int isModuleClientUnblocked(client *c) {
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+
+    return bc->unblocked == 1;
+}
+
 /* This is called from blocked.c in order to unblock a client: may be called
  * for multiple reasons while the client is in the middle of being blocked
  * because the client is terminated, but is also called for cleanup when a
