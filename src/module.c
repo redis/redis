@@ -8438,7 +8438,12 @@ void moduleBlockedClientTimedOut(client *c, int from_module) {
     if (!from_module)
         prev_error_replies = server.stat_total_error_replies;
 
-    bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
+    if (bc->timeout_callback) {
+        /* In theory, the user should always pass the timeout handler as an
+         * argument, but better to be safe than sorry. */
+        bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
+    }
+
     moduleFreeContext(&ctx);
 
     if (!from_module)
