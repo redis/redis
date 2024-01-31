@@ -6169,9 +6169,7 @@ void infoCommand(client *c) {
 // YLB TODO do we create all the list and check the size instead of NULL? cleaner code but more memory used.
 void initMonitorFilterForClient(client *c) {
     c->monitor_filters = zmalloc(sizeof (struct monitorFilters));
-    // c->monitor_filters = {.id = NULL, .username = NULL, .addr = NULL, .laddr = NULL, .type = NULL, .commands = NULL, .exclude_commands = false};
-    memset(c->monitor_filters, 0, sizeof(monitorFilters)); // Needed?
-    c->monitor_filters->exclude_commands = false; // Needed?
+    memset(c->monitor_filters, 0, sizeof(monitorFilters)); /* .exclude_commands = false; */
 }
 
 // YLB TODO check if listpack will be better?
@@ -6189,22 +6187,23 @@ void freeMonitorFiltersForClient(client *c) {
     }
 }
 
-#define FILTER_ERR -1
+#define FILTER_ERR -1 /* like C_ERR */
 #define FILTER_NOT_FOUND 0
 #define FILTER_CONSUMED 1
 
-int createMonitorFilterForCMD(client *c, int argi, bool moreargs){
-    if (!strcasecmp(c->argv[argi]->ptr,"cmd") && moreargs) {
+int createMonitorFilterForCMD(client *c, int *argi, bool moreargs){
+    if (!strcasecmp(c->argv[*argi]->ptr,"cmd") && moreargs) {
         // printf("DEBUG cmd and moreargs\n");
-        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[argi+1]->ptr);
+        struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[*argi+1]->ptr);
         if (cmd) {
             if (c->monitor_filters->commands == NULL) c->monitor_filters->commands = listCreate();
             if (listSearchKey(c->monitor_filters->commands, cmd) == NULL) { /* no duplicate */
                 listAddNodeTail(c->monitor_filters->commands, cmd);
             }
+            *argi += 2;
             return FILTER_CONSUMED;
         } else {
-            addReplyErrorFormat(c, " '%s' is not a Redis command", (char *)c->argv[argi]->ptr);
+            addReplyErrorFormat(c, " '%s' is not a Redis command", (char *)c->argv[*argi]->ptr);
             return FILTER_ERR;
         }
     } else {
@@ -6212,11 +6211,11 @@ int createMonitorFilterForCMD(client *c, int argi, bool moreargs){
     }
 }
 
-int createMonitorFilterForClientID(client *c, int argi, bool moreargs){
-    if (!strcasecmp(c->argv[argi]->ptr,"id") && moreargs) {
+int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
+    if (!strcasecmp(c->argv[*argi]->ptr,"id") && moreargs) {
         // uint64_t id = 0;
         long id = 0;
-        if (getRangeLongFromObjectOrReply(c, c->argv[argi+1], 1, LONG_MAX, &id,
+        if (getRangeLongFromObjectOrReply(c, c->argv[*argi+1], 1, LONG_MAX, &id,
                                             "client-id should be greater than 0") != C_OK)
             return FILTER_ERR;
 
@@ -6231,6 +6230,7 @@ int createMonitorFilterForClientID(client *c, int argi, bool moreargs){
         int *v = zmalloc(sizeof(long)); 
         *v = id;
         listAddNodeTail(c->monitor_filters->id, v);
+        *argi += 2;
         return FILTER_CONSUMED;
     } else {
         return FILTER_NOT_FOUND;
@@ -6240,7 +6240,7 @@ int createMonitorFilterForClientID(client *c, int argi, bool moreargs){
 //     c->monitor_filters->username->free = sdsfree;
 
 /* Build the MONITOR filters from the MONITOR arguments
- * returns NULL (if no issues) or the error message to return to the client */
+ * returns C_OK (if no filters or no issues) or  C_ERR if parsing failed */
 // TODO signature like int commandCheckExistence(client *c, sds *err) ? why *err and not err as sds is a char*
 // check code that deals with https://github.com/RediSearch/RediSearch/blob/master/commands.json
 // and client kill code
@@ -6252,28 +6252,21 @@ int createMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return C_OK; /* MONITOR does not have filters/arguments */
 
     int result;
-
     initMonitorFilterForClient(c);
-
     int argi = 1; /* Next argument */
 
     while(argi < c->argc) {
         bool moreargs = c->argc > argi+1;
         
-        result = createMonitorFilterForCMD(c, argi, moreargs);
+        result = createMonitorFilterForCMD(c, &argi, moreargs);
         // YLB TODO macro for the 5 lines of code due to the repeat?
         if (result == FILTER_ERR) break;
-        if (result == FILTER_CONSUMED) {
-            argi += 2; // TODO move to the function with passing &argi?
-            continue;
-        } 
+        if (result == FILTER_CONSUMED) continue;
+
         // if FILTER_NOT_FOUND try with another 
-        result = createMonitorFilterForClientID(c, argi, moreargs);
+        result = createMonitorFilterForClientID(c, &argi, moreargs);
         if (result == FILTER_ERR) break;
-        if (result == FILTER_CONSUMED) {
-            argi += 2;
-            continue;
-        } 
+        if (result == FILTER_CONSUMED) continue;
 
         /* no valid argument was found / consumed */
         result = FILTER_ERR;
