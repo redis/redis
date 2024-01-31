@@ -707,10 +707,8 @@ static void moduleUnblockClientOnKey(client *c, robj *key) {
  * we want to remove the pending flag to indicate we already responded to the
  * command with timeout reply. */
 void unblockClientOnTimeout(client *c) {
-    if (c->bstate.btype == BLOCKED_MODULE) {
-        /* The client has been unlocked (in the moduleUnblocked list), return ASAP. */
-        if (moduleClientUnblocked(c)) return;
-    }
+    /* The client has been unlocked (in the moduleUnblocked list), return ASAP. */
+    if (c->bstate.btype == BLOCKED_MODULE && isModuleClientUnblocked(c)) return;
 
     replyToBlockedClientTimedOut(c);
     if (c->flags & CLIENT_PENDING_COMMAND)

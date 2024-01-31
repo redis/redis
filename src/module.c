@@ -7699,7 +7699,7 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * -------------------------------------------------------------------------- */
 
 /* Returns 1 if the client already in the moduleUnblocked list, 0 otherwise. */
-int moduleClientUnblocked(client *c) {
+int isModuleClientUnblocked(client *c) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     return bc->unblocked == 1;
