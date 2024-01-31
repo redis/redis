@@ -820,7 +820,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
     /* We can't use the connection buffers since they are used to accumulate
      * new commands at this stage. But we are sure the socket send buffer is
      * empty so this write will never fail actually. */
-        if (c->slave_capa & SLAVE_CAPA_PSYNC2) {
+    if (c->slave_capa & SLAVE_CAPA_PSYNC2) {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE %s\r\n", server.replid);
     } else {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE\r\n");
@@ -1228,7 +1228,7 @@ void replconfCommand(client *c) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
             else if (!strcasecmp(c->argv[j+1]->ptr,"psync2"))
                 c->slave_capa |= SLAVE_CAPA_PSYNC2;
-        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
+        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {        
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
              * internal only command that normal clients should never use. */
@@ -2395,7 +2395,7 @@ void readSyncBulkPayload(connection *conn) {
      * masters after a failover. */
     if (server.repl_backlog == NULL) createReplicationBacklog();
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
-    
+
     if (server.supervised_mode == SUPERVISED_SYSTEMD) {
         redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections in read-write mode.\n");
     }
@@ -2562,7 +2562,7 @@ void abortRdbConnectionSync(void) {
 
 int reInitReplicaMainConnection(connection *conn) {
     serverAssert(conn == server.repl_transfer_s);
-        /* Init the main connection for psync */
+    /* Init the main connection for psync */
     conn->state = CONN_STATE_CONNECTED;
     server.repl_state = REPL_RDB_CONN_SEND_PSYNC;
     serverAssert(connSetReadHandler(server.repl_provisional_master.conn, setupMainConnForPsync) != C_ERR);
@@ -2602,7 +2602,7 @@ int sendCurentOffsetToReplica(client* replica) {
 void fullSyncWithMaster(connection* conn) {
     char *err = NULL;
     serverAssert(conn == server.repl_rdb_transfer_s);
-    
+
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
     if (server.repl_state == REPL_STATE_NONE) {
@@ -2798,7 +2798,6 @@ void bufferReplData(connection *conn) {
             /* Update buffer's peak */
             if (server.pending_repl_data.peak < server.pending_repl_data.len)
                 server.pending_repl_data.peak = server.pending_repl_data.len;
-
 
             read = min(readlen, tail->size);
             readlen -= read;
@@ -3060,7 +3059,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
             char new[CONFIG_RUN_ID_SIZE+1];
             memcpy(new,start,CONFIG_RUN_ID_SIZE);
             new[CONFIG_RUN_ID_SIZE] = '\0';
-            
+
             if (strcmp(new,server.cached_master->replid)) {
                 /* Master ID changed. */
                 serverLog(LL_NOTICE,"Master replication ID changed to %s",new);
@@ -3074,7 +3073,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
                  * new one. */
                 memcpy(server.replid,new,sizeof(server.replid));
                 memcpy(server.cached_master->replid,new,sizeof(server.replid));
-            
+
                 /* Disconnect all the sub-slaves: they need to be notified. */
                 disconnectSlaves();
             }
@@ -3083,7 +3082,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         /* Setup the replication to continue. */
         sdsfree(reply);
         replicationResurrectCachedMaster(conn);
-        
+
         /* If this instance was restarted and we read the metadata to
          * PSYNC from the persistence file, our replication backlog could
          * be still not initialized. Create it. */
@@ -4040,14 +4039,12 @@ void replicationSteadyStateInit(void) {
     }
 }
 
-
 void replicationResurrectProvisionalMaster(void) {
     /* Create a master client, but do not initialize the read handler yet, as this replica still has a local buffer to drain. */
     replicationCreateMasterClientWithHandler(server.repl_transfer_s, server.repl_provisional_master.dbid, NULL);
     memcpy(server.master->replid, server.repl_provisional_master.replid, CONFIG_RUN_ID_SIZE);
     server.master->reploff = server.repl_provisional_master.reploff;
     server.master->read_reploff = server.repl_provisional_master.read_reploff;
-    
     establishMasterConnection();
 }
 
