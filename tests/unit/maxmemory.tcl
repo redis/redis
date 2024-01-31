@@ -415,7 +415,7 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
 start_server {tags {"maxmemory external:skip"}} {
-    test {Don't resize if used memory exceeds maxmemory after resize} {
+    test {Don't rehash if used memory exceeds maxmemory after rehash} {
         r config set latency-tracking no
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
@@ -442,6 +442,8 @@ start_server {tags {"maxmemory external:skip"}} {
             fail "bgsave did not stop in time."
         }
 
+        # The dict has reached 4096, it can be resized in tryResizeHashTables in cron,
+        # or we add a key to let it check whether it can be resized.
         r set k1 v1
         # Next writing command will trigger evicting some keys if last
         # command trigger DB dict rehash
