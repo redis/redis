@@ -423,25 +423,12 @@ start_server {tags {"maxmemory external:skip"}} {
         # Next rehash size is 8192, that will eat 64k memory
         populate 4095 "" 1
 
-        # Before adding a key to meet the 1:1 radio, disable resize to
-        # prevent the dict from being resized in cron.
-        r config set rdb-key-save-delay 10000000
-        r bgsave
-        r set k0 v0
-
         set used [s used_memory]
         set limit [expr {$used + 10*1024}]
         r config set maxmemory $limit
 
-        # Enable resizing
-        r config set rdb-key-save-delay 0
-        catch {exec kill -9 [get_child_pid 0]}
-        wait_for_condition 1000 10 {
-            [s rdb_bgsave_in_progress] eq 0
-        } else {
-            fail "bgsave did not stop in time."
-        }
-
+        # Adding a key to meet the 1:1 radio.
+        r set k0 v0
         # The dict has reached 4096, it can be resized in tryResizeHashTables in cron,
         # or we add a key to let it check whether it can be resized.
         r set k1 v1
