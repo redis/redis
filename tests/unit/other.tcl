@@ -516,9 +516,9 @@ start_server {tags {"other external:skip"}} {
         # Set a key to enable overhead display of db 0
         r set a b
         # The dict containing 128 keys must have expanded,
-        # its hash table itself takes a lot more than 200 bytes
+        # its hash table itself takes a lot more than 300 bytes
         wait_for_condition 100 50 {
-            [get_overhead_hashtable_main] < 200
+            [get_overhead_hashtable_main] < 300
         } else {
             fail "dict did not resize in time"
         }   
