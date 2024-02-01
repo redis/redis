@@ -2940,8 +2940,6 @@ void startSaving(int rdbflags) {
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_AOF_START;
     else if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_AOF_START;
-    else if (rdbflags & RDBFLAGS_REPLICATION)
-        subevent = REDISMODULE_SUBEVENT_PERSISTENCE_REPL_START;
     else if (getpid()!=server.pid)
         subevent = REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START;
     else
