@@ -177,8 +177,8 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
 void emptyDbAsync(redisDb *db) {
     int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
-    db->keys = kvstoreCreate(&dbDictType, slotCountBits);
-    db->expires = kvstoreCreate(&dbExpiresDictType, slotCountBits);
+    db->keys = kvstoreCreate(&dbDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    db->expires = kvstoreCreate(&dbExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldkeys, oldexpires);
 }

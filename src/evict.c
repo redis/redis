@@ -669,8 +669,8 @@ int performEvictions(void) {
                     kvs = db->expires;
                 }
                 int slot = kvstoreGetFairRandomDictIndex(kvs);
-                if (kvstoreDictSize(kvs, slot) != 0) {
-                    de = kvstoreDictGetRandomKey(kvs, slot);
+                de = kvstoreDictGetRandomKey(kvs, slot);
+                if (de) {
                     bestkey = dictGetKey(de);
                     bestdbid = j;
                     break;

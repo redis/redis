@@ -5734,11 +5734,12 @@ void removeChannelsInSlot(unsigned int slot) {
     pubsubShardUnsubscribeAllChannelsInSlot(slot);
 }
 
-
-
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
+    if (!kvstoreDictSize(server.db->keys, hashslot))
+        return 0;
+
     unsigned int j = 0;
 
     dictIterator *iter = NULL;

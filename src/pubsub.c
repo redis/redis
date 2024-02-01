@@ -326,6 +326,9 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
 
 /* Unsubscribe all shard channels in a slot. */
 void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
+    if (!kvstoreDictSize(server.pubsubshard_channels, slot))
+        return;
+
     dictIterator *di = kvstoreDictGetSafeIterator(server.pubsubshard_channels, slot);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
@@ -689,6 +692,8 @@ void channelList(client *c, sds pat, kvstore *pubsub_channels) {
 
     replylen = addReplyDeferredLen(c);
     for (unsigned int i = 0; i < slot_cnt; i++) {
+        if (!kvstoreDictSize(pubsub_channels, i))
+            continue;
         dictIterator *di = kvstoreDictGetIterator(pubsub_channels, i);
         dictEntry *de;
         while((de = dictNext(di)) != NULL) {

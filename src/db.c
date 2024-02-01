@@ -560,8 +560,8 @@ redisDb *initTempDb(void) {
     for (int i=0; i<server.dbnum; i++) {
         tempDb[i].id = i;
         int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
-        tempDb[i].keys = kvstoreCreate(&dbDictType, slotCountBits);
-        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slotCountBits);
+        tempDb[i].keys = kvstoreCreate(&dbDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     }
 
     return tempDb;
@@ -803,6 +803,11 @@ void keysCommand(client *c) {
     dictIterator *di = NULL;
     kvstoreIterator *kvs_it = NULL;
     if (pslot != -1) {
+        if (!kvstoreDictSize(c->db->keys, pslot)) {
+            /* Requested slot is empty */
+            setDeferredArrayLen(c,replylen,0);
+            return;
+        }
         di = kvstoreDictGetSafeIterator(c->db->keys, pslot);
     } else {
         kvs_it = kvstoreIteratorInit(c->db->keys);
