@@ -1174,11 +1174,11 @@ typedef struct {
 #endif
 
 typedef struct monitorFilters {
-    list *id;       /* sds */
-    list *username; /* sds */
-    list *addr;     /* sds */
-    list *laddr;    /* sds */
-    list *type;     /* sds */
+    list *ids;       /* sds */
+    list *users; /* sds */
+    list *addrs;     /* sds */
+    list *laddrs;    /* sds */
+    list *types;     /* sds */
     list *commands; /* struct redisCommand* */
     bool exclude_commands;
 } monitorFilters;

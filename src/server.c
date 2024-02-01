@@ -6176,11 +6176,11 @@ void initMonitorFilterForClient(client *c) {
 void freeMonitorFiltersForClient(client *c) {
     printf("freeMonitorFiltersFromClient\n");
     if (c->monitor_filters) {
-        if (c->monitor_filters->id)         listRelease(c->monitor_filters->id);
-        if (c->monitor_filters->username)   listRelease(c->monitor_filters->username);
-        if (c->monitor_filters->addr)       listRelease(c->monitor_filters->addr);
-        if (c->monitor_filters->laddr)      listRelease(c->monitor_filters->laddr);
-        if (c->monitor_filters->type)       listRelease(c->monitor_filters->type);
+        if (c->monitor_filters->ids)        listRelease(c->monitor_filters->ids);
+        if (c->monitor_filters->users)      listRelease(c->monitor_filters->users);
+        if (c->monitor_filters->addrs)      listRelease(c->monitor_filters->addrs);
+        if (c->monitor_filters->laddrs)     listRelease(c->monitor_filters->laddrs);
+        if (c->monitor_filters->types)      listRelease(c->monitor_filters->types);
         if (c->monitor_filters->commands)   listRelease(c->monitor_filters->commands);
         zfree(c->monitor_filters);
         c->monitor_filters = NULL;
@@ -6193,7 +6193,7 @@ void freeMonitorFiltersForClient(client *c) {
 
 int createMonitorFilterForCMD(client *c, int *argi, bool moreargs){
     if (!strcasecmp(c->argv[*argi]->ptr,"cmd") && moreargs) {
-        // printf("DEBUG cmd and moreargs\n");
+        // printf("DEBUG cmd and moreargs: %d %s\n",*argi+1, (char*)c->argv[*argi+1]->ptr);
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[*argi+1]->ptr);
         if (cmd) {
             if (c->monitor_filters->commands == NULL) c->monitor_filters->commands = listCreate();
@@ -6203,7 +6203,7 @@ int createMonitorFilterForCMD(client *c, int *argi, bool moreargs){
             *argi += 2;
             return FILTER_CONSUMED;
         } else {
-            addReplyErrorFormat(c, " '%s' is not a Redis command", (char *)c->argv[*argi]->ptr);
+            addReplyErrorFormat(c, " '%s' is not a Redis command", (char *)c->argv[*argi+1]->ptr);
             return FILTER_ERR;
         }
     } else {
@@ -6222,14 +6222,52 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
 // YLB TODO if sizeof(void*) == sizeof(long) we do not need to allocate https://stackoverflow.com/questions/63569700/is-sizeoflong-sizeofvoid
 // listAddNodeTail(c->monitor_filters->id, (void*)id); and no ...id->free = zfree;
 
-        if (c->monitor_filters->id == NULL) {
-            c->monitor_filters->id = listCreate();
-            c->monitor_filters->id->free = zfree;
+        if (c->monitor_filters->ids == NULL) {
+            c->monitor_filters->ids = listCreate();
+            c->monitor_filters->ids->free = zfree;
         }
 
         int *v = zmalloc(sizeof(long)); 
         *v = id;
-        listAddNodeTail(c->monitor_filters->id, v);
+        listAddNodeTail(c->monitor_filters->ids, v);
+        *argi += 2;
+        return FILTER_CONSUMED;
+    } else {
+        return FILTER_NOT_FOUND;
+    }
+}
+
+int createMonitorFilterForUser(client *c, int *argi, bool moreargs){
+    user *user = NULL;
+
+    if (!strcasecmp(c->argv[*argi]->ptr,"user") && moreargs) {
+        user = ACLGetUserByName(c->argv[*argi+1]->ptr, sdslen(c->argv[*argi+1]->ptr));
+        if (user == NULL) {
+            addReplyErrorFormat(c,"No such user '%s'", (char*) c->argv[*argi+1]->ptr);
+            return FILTER_ERR;
+        } else {
+            if (c->monitor_filters->users == NULL) c->monitor_filters->users = listCreate();
+            if (listSearchKey(c->monitor_filters->users, user) == NULL) { /* no duplicate */
+                listAddNodeTail(c->monitor_filters->users, user); // TODO can a user be removed in the middle of Monitor?
+            }
+            *argi += 2;
+            return FILTER_CONSUMED;
+        }
+    } else {
+        return FILTER_NOT_FOUND;
+    }
+}
+
+int createMonitorFilterFor(char* argument, list *l, client *c, int *argi, bool moreargs){
+    if (!strcasecmp(c->argv[*argi]->ptr,argument) && moreargs) {
+
+        if (l == NULL) {
+            l = listCreate();
+            l->free = sdsfree;
+        }
+
+        sds s = sdsnew(c->argv[*argi]->ptr);
+        listAddNodeTail(l, s);
         *argi += 2;
         return FILTER_CONSUMED;
     } else {
@@ -6248,6 +6286,7 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
  /* Returns:
  *  C_OK if no filters or all filters are ok
  *  C_ERR if we found an issue parsing the filters */
+#define testMonitorFilterResult(result) if (result == FILTER_ERR) break; if (result == FILTER_CONSUMED) continue;
 int createMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return C_OK; /* MONITOR does not have filters/arguments */
 
@@ -6259,13 +6298,18 @@ int createMonitorFiltersFromArguments(client *c) {
         bool moreargs = c->argc > argi+1;
         
         result = createMonitorFilterForCMD(c, &argi, moreargs);
-        // YLB TODO macro for the 5 lines of code due to the repeat?
-        if (result == FILTER_ERR) break;
-        if (result == FILTER_CONSUMED) continue;
-
-        // if FILTER_NOT_FOUND check another argument
+        testMonitorFilterResult(result); // this Macro does not make the code readeable...
         result = createMonitorFilterForClientID(c, &argi, moreargs);
-        if (result == FILTER_ERR) break;
+        if (result == FILTER_ERR) break; 
+        if (result == FILTER_CONSUMED) continue;
+        result = createMonitorFilterForUser(c, &argi, moreargs);
+        if (result == FILTER_ERR) break; 
+        if (result == FILTER_CONSUMED) continue;
+        result = createMonitorFilterFor("addr", c->monitor_filters->addrs, c, &argi, moreargs);
+        if (result == FILTER_ERR) break; 
+        if (result == FILTER_CONSUMED) continue;
+        result = createMonitorFilterFor("laddr", c->monitor_filters->laddrs, c, &argi, moreargs);
+        if (result == FILTER_ERR) break; 
         if (result == FILTER_CONSUMED) continue;
 
         /* no valid argument was found / consumed */
