@@ -302,9 +302,28 @@ void activeExpireCycle(int type) {
             if (data.ttl_samples - origin_ttl_samples > 0) update_avg_ttl_times++;
 
             /* We can't block forever here even if there are many keys to
-             * expire. So after a given amount of milliseconds return to the
+             * expire. So after a given amount of microseconds return to the
              * caller waiting for the other active expire cycle. */
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
+                /* Update the average TTL stats for this database, 
+                 * because this may reach the time limit. */
+                if (data.ttl_samples) {
+                    long long avg_ttl = data.ttl_sum / data.ttl_samples;
+
+                    /* Do a simple running average with a few samples.
+                    * We just use the current estimate with a weight of 2%
+                    * and the previous estimate with a weight of 98%. */
+                    if (db->avg_ttl == 0) {
+                        db->avg_ttl = avg_ttl;
+                    } else {
+                        for (int i = 0; i < update_avg_ttl_times; i++) {
+                            db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
+                        }
+                    }
+                    update_avg_ttl_times = 0;
+                    data.ttl_sum = 0;
+                    data.ttl_samples = 0;
+                } 
                 elapsed = ustime()-start;
                 if (elapsed > timelimit) {
                     timelimit_exit = 1;
@@ -318,8 +337,9 @@ void activeExpireCycle(int type) {
         } while (data.sampled == 0 ||
                  (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
     
-        /* Update the average TTL stats for this database. */
-        if (data.ttl_samples) {
+        /* Update the average TTL stats for this database. 
+         * If we have reached the time limit, we should return ASAP.*/
+        if (!timelimit_exit && data.ttl_samples) {
             long long avg_ttl = data.ttl_sum / data.ttl_samples;
 
             /* Do a simple running average with a few samples.
