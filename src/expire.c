@@ -241,7 +241,7 @@ void activeExpireCycle(int type) {
         redisDb *db = server.db+(current_db % server.dbnum);
         data.db = db;
 
-        int update_avg_ttl_times = 0;
+        int update_avg_ttl_times = 0, repeat = 0;
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
@@ -301,10 +301,11 @@ void activeExpireCycle(int type) {
             /* If find keys with ttl not yet expired, we need to update the average TTL stats once. */
             if (data.ttl_samples - origin_ttl_samples > 0) update_avg_ttl_times++;
 
+            repeat = data.sampled == 0 || (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale;
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of microseconds return to the
              * caller waiting for the other active expire cycle. */
-            if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
+            if ((iteration & 0xf) == 0 || !repeat) { /* check once every 16 iterations or about to exit. */
                 /* Update the average TTL stats for this database, 
                  * because this may reach the time limit. */
                 if (data.ttl_samples) {
@@ -334,25 +335,7 @@ void activeExpireCycle(int type) {
             /* We don't repeat the cycle for the current database if there are
              * an acceptable amount of stale keys (logically expired but yet
              * not reclaimed). */
-        } while (data.sampled == 0 ||
-                 (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
-    
-        /* Update the average TTL stats for this database. 
-         * If we have reached the time limit, we should return ASAP.*/
-        if (!timelimit_exit && data.ttl_samples) {
-            long long avg_ttl = data.ttl_sum / data.ttl_samples;
-
-            /* Do a simple running average with a few samples.
-             * We just use the current estimate with a weight of 2%
-             * and the previous estimate with a weight of 98%. */
-            if (db->avg_ttl == 0) {
-                db->avg_ttl = avg_ttl;
-            } else {
-                for (int i = 0; i < update_avg_ttl_times; i++) {
-                    db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
-                }
-            }
-        }    
+        } while (repeat);
     }
 
     elapsed = ustime()-start;
