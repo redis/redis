@@ -698,7 +698,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        kvstoreDictSetKey(db->keys, slot, de, newob);
+        kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
     }
 
