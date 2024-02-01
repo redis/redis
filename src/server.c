@@ -6251,8 +6251,8 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
 int createMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return C_OK; /* MONITOR does not have filters/arguments */
 
-    int result;
     initMonitorFilterForClient(c);
+    int result;
     int argi = 1; /* Next argument */
 
     while(argi < c->argc) {
@@ -6263,7 +6263,7 @@ int createMonitorFiltersFromArguments(client *c) {
         if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
 
-        // if FILTER_NOT_FOUND try with another 
+        // if FILTER_NOT_FOUND check another argument
         result = createMonitorFilterForClientID(c, &argi, moreargs);
         if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
