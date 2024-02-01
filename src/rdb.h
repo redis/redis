@@ -131,7 +131,7 @@
 #define RDB_LOAD_SDS    (1<<2)
 
 /* flags on the purpose of rdb save or load */
-#define RDBFLAGS_NONE 0                 /* No special RDB loading. */
+#define RDBFLAGS_NONE 0                 /* No special RDB loading or saving. */
 #define RDBFLAGS_AOF_PREAMBLE (1<<0)    /* Load/save the RDB as AOF preamble. */
 #define RDBFLAGS_REPLICATION (1<<1)     /* Load/save for SYNC. */
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/
