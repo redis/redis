@@ -241,6 +241,8 @@ void activeExpireCycle(int type) {
         redisDb *db = server.db+(current_db % server.dbnum);
         data.db = db;
 
+        int update_avg_ttl_times = 0;
+
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
@@ -284,6 +286,8 @@ void activeExpireCycle(int type) {
             long max_buckets = num*20;
             long checked_buckets = 0;
 
+            int origin_ttl_samples = data.ttl_samples;
+
             while (data.sampled < num && checked_buckets < max_buckets) {
                 db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
                 if (db->expires_cursor == 0) {
@@ -293,6 +297,9 @@ void activeExpireCycle(int type) {
             }
             total_expired += data.expired;
             total_sampled += data.sampled;
+
+            /* If find keys with ttl not yet expired, we need to update the average TTL stats once. */
+            if (data.ttl_samples - origin_ttl_samples > 0) update_avg_ttl_times++;
 
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of milliseconds return to the
@@ -321,7 +328,9 @@ void activeExpireCycle(int type) {
             if (db->avg_ttl == 0) {
                 db->avg_ttl = avg_ttl;
             } else {
-                db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
+                for (int i = 0; i < update_avg_ttl_times; i++) {
+                    db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
+                }
             }
         }    
     }
