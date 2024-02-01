@@ -312,8 +312,8 @@ void activeExpireCycle(int type) {
                     long long avg_ttl = data.ttl_sum / data.ttl_samples;
 
                     /* Do a simple running average with a few samples.
-                    * We just use the current estimate with a weight of 2%
-                    * and the previous estimate with a weight of 98%. */
+                     * We just use the current estimate with a weight of 2%
+                     * and the previous estimate with a weight of 98%. */
                     if (db->avg_ttl == 0) {
                         db->avg_ttl = avg_ttl;
                     } else {
