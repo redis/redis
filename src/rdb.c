@@ -1424,7 +1424,8 @@ werr:
     return C_ERR;
 }
 
-/* This is just a wrapper to rdbSaveRio() that additionally adds a prefix
+/* This helper function is only used for diskless replication. 
+ * This is just a wrapper to rdbSaveRio() that additionally adds a prefix
  * and a suffix to the generated RDB dump. The prefix is:
  *
  * $EOF:<40 bytes unguessable hex string>\r\n
@@ -1441,7 +1442,7 @@ int rdbSaveRioWithEOFMark(int req, rio *rdb, int *error, rdbSaveInfo *rsi) {
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
-    if (rdbSaveRio(req,rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
+    if (rdbSaveRio(req,rdb,error,RDBFLAGS_REPLICATION,rsi) == C_ERR) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     stopSaving(1);
     return C_OK;
@@ -1528,7 +1529,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
 
-    startSaving(RDBFLAGS_NONE);
+    startSaving(rdbflags);
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
 
     if (rdbSaveInternal(req,tmpfile,rsi,rdbflags) != C_OK) {
