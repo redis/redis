@@ -631,8 +631,41 @@ size_t zmalloc_get_rss(void) {
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
 
+size_t zmalloc_get_frag_smallbins(void) {
+    unsigned nbins;
+    size_t sz, frag = 0;
+    char buf[100];
+
+    sz = sizeof(unsigned);
+    assert(!je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0));
+    for (unsigned j = 0; j < nbins; j++) {
+        size_t curregs, curslabs, reg_size;
+        uint32_t nregs;
+
+        snprintf(buf,sizeof(buf),"arenas.bin.%d.size", j);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &reg_size, &sz, NULL, 0));
+
+        snprintf(buf,sizeof(buf),"stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curregs", j);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &curregs, &sz, NULL, 0));
+
+        snprintf(buf,sizeof(buf),"arenas.bin.%d.nregs", j);
+        sz = sizeof(uint32_t);
+        assert(!je_mallctl(buf, &nregs, &sz, NULL, 0));
+
+        snprintf(buf,sizeof(buf),"stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curslabs", j);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
+
+        frag += ((nregs * curslabs) - curregs) * reg_size;
+    }
+
+    return frag;
+}
+
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
-                               size_t *retained, size_t *muzzy, size_t *allocated_large)
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
     uint64_t epoch = 1;
     size_t sz;
@@ -668,10 +701,8 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
     }
 
     /* Like allocated, but it only includes the allocated memory from the large bins. */
-    if (allocated_large) {
-        *allocated_large = 0;
-        je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".large.allocated", allocated_large, &sz, NULL, 0);
-    }
+    if (frag_smallbins_bytes)
+        *frag_smallbins_bytes = zmalloc_get_frag_smallbins();
     return 1;
 }
 
@@ -698,7 +729,7 @@ int jemalloc_purge(void) {
 #else
 
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
-                               size_t *retained, size_t *muzzy, size_t *allocated_large)
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
     *allocated = *resident = *active = 0;
     if (retained) *retained = 0;

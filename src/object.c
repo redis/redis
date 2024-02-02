@@ -1185,8 +1185,12 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         server.cron_malloc_stats.process_rss - server.cron_malloc_stats.zmalloc_used;
     mh->allocator_frag =
         (float)server.cron_malloc_stats.allocator_active / server.cron_malloc_stats.allocator_allocated;
+    mh->allocator_frag_smallbins =
+        ((float)server.cron_malloc_stats.allocator_frag_smallbins_bytes / server.cron_malloc_stats.allocator_active) + 1;
     mh->allocator_frag_bytes =
         server.cron_malloc_stats.allocator_active - server.cron_malloc_stats.allocator_allocated;
+    mh->allocator_frag_smallbins_bytes =
+        server.cron_malloc_stats.allocator_frag_smallbins_bytes;
     mh->allocator_rss =
         (float)server.cron_malloc_stats.allocator_resident / server.cron_malloc_stats.allocator_active;
     mh->allocator_rss_bytes =
@@ -1555,7 +1559,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,30+mh->num_dbs);
+        addReplyMapLen(c,31+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1621,9 +1625,6 @@ NULL
         addReplyBulkCString(c,"allocator.allocated");
         addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated);
 
-        addReplyBulkCString(c,"allocator.allocated_large");
-        addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated_large);
-
         addReplyBulkCString(c,"allocator.active");
         addReplyLongLong(c,server.cron_malloc_stats.allocator_active);
 
@@ -1639,8 +1640,14 @@ NULL
         addReplyBulkCString(c,"allocator-fragmentation.ratio");
         addReplyDouble(c,mh->allocator_frag);
 
+        addReplyBulkCString(c,"allocator-fragmentation-smallbins.ratio");
+        addReplyDouble(c,mh->allocator_frag);
+
         addReplyBulkCString(c,"allocator-fragmentation.bytes");
         addReplyLongLong(c,mh->allocator_frag_bytes);
+
+        addReplyBulkCString(c,"allocator-fragmentation-smallbins.bytes");
+        addReplyLongLong(c,mh->allocator_frag_smallbins_bytes);
 
         addReplyBulkCString(c,"allocator-rss.ratio");
         addReplyDouble(c,mh->allocator_rss);

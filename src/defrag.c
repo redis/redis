@@ -770,24 +770,17 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * or not, a false detection can cause the defragmenter to waste a lot of CPU
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
-    size_t resident, active, allocated, allocated_large;
-    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &allocated_large);
+    size_t resident, active, allocated, frag_smallbins_bytes;
+    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
 
-    /* After #12315, large bins no longer have external fragmentation, so we can exclude
-     * the memory occupied by large bins when determining the memory fragmentation threshold. */
-    allocated -= allocated_large;
-    active -= allocated_large;
-    resident -= allocated_large;
-
-    float frag_pct = ((float)active / allocated)*100 - 100;
-    size_t frag_bytes = active - allocated;
+    float frag_pct = (float)frag_smallbins_bytes / active;
     float rss_pct = ((float)resident / allocated)*100 - 100;
     size_t rss_bytes = resident - allocated;
     if(out_frag_bytes)
-        *out_frag_bytes = frag_bytes;
+        *out_frag_bytes = frag_smallbins_bytes;
     serverLog(LL_DEBUG,
-        "allocated=%zu, active=%zu, resident=%zu, frag=%.0f%% (%.0f%% rss), frag_bytes=%zu (%zu rss)",
-        allocated, active, resident, frag_pct, rss_pct, frag_bytes, rss_bytes);
+        "allocated=%zu, active=%zu, resident=%zu, frag=%.1f%% (%.1f%% rss), frag_smallbins_bytes=%zu (%zu rss)",
+        allocated, active, resident, frag_pct, rss_pct, frag_smallbins_bytes, rss_bytes);
     return frag_pct;
 }
 
