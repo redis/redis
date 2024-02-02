@@ -734,7 +734,7 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
     *allocated = *resident = *active = 0;
     if (retained) *retained = 0;
     if (muzzy) *muzzy = 0;
-    if (allocated_large) *allocated_large = 0;
+    if (frag_smallbins_bytes) *frag_smallbins_bytes = 0;
     return 1;
 }
 
