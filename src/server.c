@@ -6260,12 +6260,10 @@ int createMonitorFilterForUser(client *c, int *argi, bool moreargs){
 
 int createMonitorFilterFor(char* argument, list *l, client *c, int *argi, bool moreargs){
     if (!strcasecmp(c->argv[*argi]->ptr,argument) && moreargs) {
-
         if (l == NULL) {
             l = listCreate();
             l->free = sdsfree;
         }
-
         sds s = sdsnew(c->argv[*argi]->ptr);
         listAddNodeTail(l, s);
         *argi += 2;
@@ -6275,7 +6273,48 @@ int createMonitorFilterFor(char* argument, list *l, client *c, int *argi, bool m
     }
 }
 
-//     c->monitor_filters->username->free = sdsfree;
+int createMonitorFilterForType(client *c, int *argi, bool moreargs){
+    int type = -1;
+    if (!strcasecmp(c->argv[*argi]->ptr,"type") && moreargs) {
+        type = getClientTypeByName(c->argv[*argi+1]->ptr);
+        if (type == -1) {
+            addReplyErrorFormat(c,"Unknown client type '%s'", (char*) c->argv[*argi+1]->ptr);
+            return FILTER_ERR;
+        } else {
+            if (c->monitor_filters->types == NULL) {
+                c->monitor_filters->types = listCreate();
+                c->monitor_filters->types->free = zfree;
+            }
+            // YLB TODO use intset?
+            int *v = zmalloc(sizeof(int));
+            *v = type;
+            listAddNodeTail(c->monitor_filters->types, v);
+            *argi += 2;
+            return FILTER_CONSUMED;
+        }
+    } else {
+        return FILTER_NOT_FOUND;
+    }
+}
+
+int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
+    if (!strcasecmp(c->argv[*argi]->ptr,"cmd_filter") && moreargs) {
+        if (!strcasecmp(c->argv[*argi+1]->ptr,"include")) {
+            c->monitor_filters->exclude_commands = 0;
+            *argi += 2;
+            return FILTER_CONSUMED;
+        } else if (!strcasecmp(c->argv[*argi+1]->ptr,"exclude")) {
+            c->monitor_filters->exclude_commands = 1;
+            *argi += 2;
+            return FILTER_CONSUMED;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return FILTER_ERR;
+        }
+    } else {
+        return FILTER_NOT_FOUND;
+    }
+}
 
 /* Build the MONITOR filters from the MONITOR arguments
  * returns C_OK (if no filters or no issues) or  C_ERR if parsing failed */
@@ -6309,6 +6348,12 @@ int createMonitorFiltersFromArguments(client *c) {
         if (result == FILTER_ERR) break; 
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterFor("laddr", c->monitor_filters->laddrs, c, &argi, moreargs);
+        if (result == FILTER_ERR) break; 
+        if (result == FILTER_CONSUMED) continue;
+        result = createMonitorFilterForType(c, &argi, moreargs);
+        if (result == FILTER_ERR) break; 
+        if (result == FILTER_CONSUMED) continue;
+        result = createMonitorFilterForExcludeCMD(c, &argi, moreargs);
         if (result == FILTER_ERR) break; 
         if (result == FILTER_CONSUMED) continue;
 

@@ -1174,11 +1174,11 @@ typedef struct {
 #endif
 
 typedef struct monitorFilters {
-    list *ids;       /* sds */
-    list *users; /* sds */
-    list *addrs;     /* sds */
-    list *laddrs;    /* sds */
-    list *types;     /* sds */
+    list *ids;      
+    list *users; 
+    list *addrs;    
+    list *laddrs;   
+    list *types;  // YLB TODO use intset?
     list *commands; /* struct redisCommand* */
     bool exclude_commands;
 } monitorFilters;

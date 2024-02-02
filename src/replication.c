@@ -573,6 +573,8 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
     }
 }
 
+char *getClientSockname(client *c);
+
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
     /* Fast path to return if the monitors list is empty or the server is in loading. */
     if (monitors == NULL || listLength(monitors) == 0 || server.loading) return;
@@ -612,9 +614,34 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 
         /* monitor filters */
         if (monitor->monitor_filters){
-            if (monitor->monitor_filters->commands &&
-                listSearchKey(monitor->monitor_filters->commands, c->cmd) == NULL) {
-                continue;
+            if (monitor->monitor_filters->commands) {
+                if (monitor->monitor_filters->exclude_commands) {
+                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) == NULL)
+                        continue;
+                } else {
+                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) != NULL)
+                        continue;
+                }
+            }
+            if (monitor->monitor_filters->ids) {
+                if (c->id != 0 && listSearchKey(monitor->monitor_filters->ids, c->id) == NULL) // YLB TODO COMPARE POINTER WE WANT COMPARE VALUES
+                    continue;
+            }
+            if (monitor->monitor_filters->users) {
+                if (c->user && listSearchKey(monitor->monitor_filters->users, c->user) == NULL)
+                    continue;
+            }
+            if (monitor->monitor_filters->types) {
+                if (listSearchKey(monitor->monitor_filters->types, getClientType(c)) == NULL) // YLB TODO COMPARE POINTER WE WANT COMPARE VALUES
+                    continue;
+            }
+            if (monitor->monitor_filters->addrs) {
+                if (listSearchKey(monitor->monitor_filters->addrs, getClientPeerId(c)) == NULL) // YLB TODO COMPARE POINTER WE WANT COMPARE VALUES
+                    continue;
+            }
+            if (monitor->monitor_filters->laddrs) {
+                if (listSearchKey(monitor->monitor_filters->laddrs, getClientSockname(c)) == NULL) // YLB TODO COMPARE POINTER WE WANT COMPARE VALUES
+                    continue;
             }
         }
         /* we passed all the filters and can send the command to the monitoring client */
