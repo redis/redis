@@ -6,7 +6,7 @@ jobs:
     name: Ubuntu
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     container: centos:7
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     container: rockylinux:8
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -115,7 +115,7 @@ jobs:
     runs-on: macos-12
     name:  FreeBSD
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Build in FreeBSD
         uses: vmactions/freebsd-vm@v0
@@ -129,7 +129,7 @@ jobs:
     name: macOS
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -148,7 +148,7 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
