@@ -40,6 +40,10 @@
  * if no access is performed on them.
  *----------------------------------------------------------------------------*/
 
+/* Contants from pow(0.98, 1) to pow(0.98, 16). 
+ * Help calculating the db->avg_ttl. */
+static double avg_ttl_factor[16] = {0.98, 0.9604, 0.941192, 0.922368, 0.903921, 0.885842, 0.868126, 0.850763, 0.833748, 0.817073, 0.800731, 0.784717, 0.769022, 0.753642, 0.738569, 0.723798};
+
 /* Helper function for the activeExpireCycle() function.
  * This function will try to expire the key that is stored in the hash table
  * entry 'de' of the 'expires' hash table of a Redis database.
@@ -305,7 +309,7 @@ void activeExpireCycle(int type) {
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of microseconds return to the
              * caller waiting for the other active expire cycle. */
-            if ((iteration & 0xf) == 0 || !repeat) { /* check once every 16 iterations or about to exit. */
+            if ((iteration & 0xf) == 0 || !repeat) { /* Update the average TTL stats every 16 iterations or about to exit. */
                 /* Update the average TTL stats for this database, 
                  * because this may reach the time limit. */
                 if (data.ttl_samples) {
@@ -317,19 +321,31 @@ void activeExpireCycle(int type) {
                     if (db->avg_ttl == 0) {
                         db->avg_ttl = avg_ttl;
                     } else {
-                        for (int i = 0; i < update_avg_ttl_times; i++) {
-                            db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
-                        }
+                        /* Thr origin code is as follow.
+                         * for (int i = 0; i < update_avg_ttl_times; i++) {
+                         *   db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
+                         * } 
+                         * We can convert the loop into a sum of a geometric progression.
+                         * db->avg_ttl = db->avg_ttl * pow(0.98, update_avg_ttl_times) + 
+                         *                  avg_ttl / 50 * (pow(0.98, update_avg_ttl_times - 1) + ... + 1) 
+                         *             = db->avg_ttl * pow(0.98, update_avg_ttl_times) + 
+                         *                  avg_ttl * (1 - pow(0.98, update_avg_ttl_times))
+                         *             = avg_ttl +  (db->avg_ttl - avg_ttl) * pow(0.98, update_avg_ttl_times) 
+                         * Notice that update_avg_ttl_times is between 1 and 16, we use a constant table 
+                         * to accelerate the calculation of pow(0.98, update_avg_ttl_times).*/
+                        db->avg_ttl = avg_ttl + (db->avg_ttl - avg_ttl) * avg_ttl_factor[update_avg_ttl_times - 1] ;
                     }
                     update_avg_ttl_times = 0;
                     data.ttl_sum = 0;
                     data.ttl_samples = 0;
-                } 
-                elapsed = ustime()-start;
-                if (elapsed > timelimit) {
-                    timelimit_exit = 1;
-                    server.stat_expired_time_cap_reached_count++;
-                    break;
+                }
+                if ((iteration & 0xf) == 0) { /* check time limit every 16 iterations. */
+                    elapsed = ustime()-start;
+                    if (elapsed > timelimit) {
+                        timelimit_exit = 1;
+                        server.stat_expired_time_cap_reached_count++;
+                        break;
+                    }
                 }
             }
             /* We don't repeat the cycle for the current database if there are
