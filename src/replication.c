@@ -617,10 +617,10 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
         if (monitor->monitor_filters){
             if (monitor->monitor_filters->commands) {
                 if (monitor->monitor_filters->exclude_commands) {
-                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) != NULL) /* command found in filter */
+                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) != NULL) /* found */
                         continue;
                 } else {
-                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) == NULL) /* command not found in filter */
+                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) == NULL) /* not found */
                         continue;
                 }
             }

@@ -172,7 +172,7 @@ start_server {tags {"introspection"}} {
 
     test {MONITOR with filters do not log executed commands} {
         set rd [redis_deferring_client]
-        $rd monitor get
+        $rd monitor cmd get
         assert_match {*OK*} [$rd read]
         r set foo bar
         r get foo
