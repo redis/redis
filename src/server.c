@@ -6315,7 +6315,7 @@ int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
 /* Build the MONITOR filters from the MONITOR arguments
  * Returns:
  *  C_OK if no filters or all filters are ok
- *  C_ERR if we found an issue parsing the filters */
+ *  C_ERR if we found an issue parsing the arguments */
 int createMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return C_OK; /* MONITOR does not have filters/arguments */
 
