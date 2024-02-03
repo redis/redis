@@ -1176,9 +1176,9 @@ typedef struct {
 
 typedef struct monitorFilters {
     intset *ids;
-    list *users; /* user* */
-    list *addrs; /* sds */
-    list *laddrs; /* sds */
+    list *users;    /* user* */
+    list *addrs;    /* sds */
+    list *laddrs;   /* sds */
     intset *types;
     list *commands; /* struct redisCommand* */
     bool exclude_commands;

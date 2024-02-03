@@ -6166,7 +6166,6 @@ void infoCommand(client *c) {
     return;
 }
 
-// YLB TODO do we create all the list and check the size instead of NULL? cleaner code but more memory used.
 void initMonitorFilterForClient(client *c) {
     c->monitor_filters = zmalloc(sizeof (struct monitorFilters));
     memset(c->monitor_filters, 0, sizeof(monitorFilters)); /* .exclude_commands = false; */
@@ -6192,7 +6191,6 @@ void freeMonitorFiltersForClient(client *c) {
 
 int createMonitorFilterForCMD(client *c, int *argi, bool moreargs){
     if (!strcasecmp(c->argv[*argi]->ptr,"cmd") && moreargs) {
-        // printf("DEBUG cmd and moreargs: %d %s\n",*argi+1, (char*)c->argv[*argi+1]->ptr);
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[*argi+1]->ptr);
         if (cmd) {
             if (c->monitor_filters->commands == NULL) c->monitor_filters->commands = listCreate();
@@ -6212,7 +6210,7 @@ int createMonitorFilterForCMD(client *c, int *argi, bool moreargs){
 
 int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
     if (!strcasecmp(c->argv[*argi]->ptr,"id") && moreargs) {
-        // uint64_t id = 0;
+        /* uint64_t id = 0; */
         long id = 0;
         if (getRangeLongFromObjectOrReply(c, c->argv[*argi+1], 1, LONG_MAX, &id,
                                             "client-id should be greater than 0") != C_OK)
@@ -6238,7 +6236,8 @@ int createMonitorFilterForUser(client *c, int *argi, bool moreargs){
         } else {
             if (c->monitor_filters->users == NULL) c->monitor_filters->users = listCreate();
             if (listSearchKey(c->monitor_filters->users, user) == NULL) { /* no duplicate */
-                listAddNodeTail(c->monitor_filters->users, user); // TODO can a user saved in the list be removed in the middle of or before Monitor?
+                listAddNodeTail(c->monitor_filters->users, user); 
+                // YLB TODO? can a user saved in the list be removed in the middle of or before Monitor?
             }
             *argi += 2;
             return FILTER_CONSUMED;
@@ -6294,6 +6293,7 @@ int createMonitorFilterForType(client *c, int *argi, bool moreargs){
 }
 
 int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
+    // YLB TODO warn if QUIT is used?
     if (!strcasecmp(c->argv[*argi]->ptr,"cmd_filter") && moreargs) {
         if (!strcasecmp(c->argv[*argi+1]->ptr,"include")) {
             c->monitor_filters->exclude_commands = 0;
@@ -6313,15 +6313,9 @@ int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
 }
 
 /* Build the MONITOR filters from the MONITOR arguments
- * returns C_OK (if no filters or no issues) or  C_ERR if parsing failed */
-// TODO signature like int commandCheckExistence(client *c, sds *err) ? why *err and not err as sds is a char*
-// check code that deals with https://github.com/RediSearch/RediSearch/blob/master/commands.json
-// and client kill code
-// YLB TODO add if QUIT is used?
- /* Returns:
+ * Returns:
  *  C_OK if no filters or all filters are ok
  *  C_ERR if we found an issue parsing the filters */
-#define testMonitorFilterResult(result) if (result == FILTER_ERR) break; if (result == FILTER_CONSUMED) continue;
 int createMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return C_OK; /* MONITOR does not have filters/arguments */
 
@@ -6333,7 +6327,8 @@ int createMonitorFiltersFromArguments(client *c) {
         bool moreargs = c->argc > argi+1;
         
         result = createMonitorFilterForCMD(c, &argi, moreargs);
-        testMonitorFilterResult(result); // this Macro does not make the code readeable...
+        if (result == FILTER_ERR) break; 
+        if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterForClientID(c, &argi, moreargs);
         if (result == FILTER_ERR) break; 
         if (result == FILTER_CONSUMED) continue;
@@ -6366,18 +6361,20 @@ int createMonitorFiltersFromArguments(client *c) {
     return C_OK;
 }
 
-/* 
-MONITOR 
-[ID client-id] | 
-[USER username] | 
-[ADDR ip:port] | 
-[LADDR ip:port] | 
-[TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] |
-[CMD_FILTER <INCLUDE | EXCLUDE>] |
-[CMD command]
-[[ID client-id] | [USER username] | [ADDR ip:port] | [LADDR ip:port] | [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | [CMD_FILTER <INCLUDE | EXCLUDE>] | [CMD command] ...]
-*/
+
 void monitorCommand(client *c) {
+    /* 
+    MONITOR 
+    [ID client-id] | 
+    [USER username] | 
+    [ADDR ip:port] | 
+    [LADDR ip:port] | 
+    [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] |
+    [CMD_FILTER <INCLUDE | EXCLUDE>] |
+    [CMD command]
+    [[ID client-id] | [USER username] | [ADDR ip:port] | [LADDR ip:port] | 
+        [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | [CMD_FILTER <INCLUDE | EXCLUDE>] | [CMD command] ...]
+    */
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on
