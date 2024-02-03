@@ -6251,7 +6251,7 @@ int matchsds(void *ptr, void *key) {
     return (sdscmp((sds)ptr, (sds) key) == 0);
 }
 
-void listsdsfree(void* ptr) {
+void freelistsds(void* ptr) {
     sdsfree((sds)ptr);
 }
 
@@ -6259,7 +6259,7 @@ int createMonitorFilterFor(char* argument, list **l, client *c, int *argi, bool 
     if (!strcasecmp(c->argv[*argi]->ptr,argument) && moreargs) {
         if (*l == NULL) {
             *l = listCreate();
-            (*l)->free = listsdsfree;
+            (*l)->free = freelistsds;
             (*l)->match = matchsds;
         }
         sds s = sdsnew((char*)c->argv[*argi+1]->ptr);
