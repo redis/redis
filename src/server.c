@@ -6225,6 +6225,8 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
         if (c->monitor_filters->ids == NULL) {
             c->monitor_filters->ids = listCreate();
             c->monitor_filters->ids->free = zfree;
+            // c->monitor_filters->ids->match = ; // TODO YLB
+
         }
 
         int *v = zmalloc(sizeof(long)); 
@@ -6248,7 +6250,7 @@ int createMonitorFilterForUser(client *c, int *argi, bool moreargs){
         } else {
             if (c->monitor_filters->users == NULL) c->monitor_filters->users = listCreate();
             if (listSearchKey(c->monitor_filters->users, user) == NULL) { /* no duplicate */
-                listAddNodeTail(c->monitor_filters->users, user); // TODO can a user be removed in the middle of Monitor?
+                listAddNodeTail(c->monitor_filters->users, user); // TODO can a user saved in the list be removed in the middle of or before Monitor?
             }
             *argi += 2;
             return FILTER_CONSUMED;
@@ -6263,6 +6265,7 @@ int createMonitorFilterFor(char* argument, list *l, client *c, int *argi, bool m
         if (l == NULL) {
             l = listCreate();
             l->free = sdsfree;
+            // l->match = ; // TODO YLB
         }
         sds s = sdsnew(c->argv[*argi]->ptr);
         listAddNodeTail(l, s);
