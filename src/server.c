@@ -6174,13 +6174,12 @@ void initMonitorFilterForClient(client *c) {
 
 // YLB TODO check if listpack will be better?
 void freeMonitorFiltersForClient(client *c) {
-    printf("freeMonitorFiltersFromClient\n");
     if (c->monitor_filters) {
-        if (c->monitor_filters->ids)        listRelease(c->monitor_filters->ids);
+        if (c->monitor_filters->ids)        zfree(c->monitor_filters->ids);
         if (c->monitor_filters->users)      listRelease(c->monitor_filters->users);
         if (c->monitor_filters->addrs)      listRelease(c->monitor_filters->addrs);
         if (c->monitor_filters->laddrs)     listRelease(c->monitor_filters->laddrs);
-        if (c->monitor_filters->types)      listRelease(c->monitor_filters->types);
+        if (c->monitor_filters->types)      zfree(c->monitor_filters->types);
         if (c->monitor_filters->commands)   listRelease(c->monitor_filters->commands);
         zfree(c->monitor_filters);
         c->monitor_filters = NULL;
@@ -6219,19 +6218,8 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
                                             "client-id should be greater than 0") != C_OK)
             return FILTER_ERR;
 
-// YLB TODO if sizeof(void*) == sizeof(long) we do not need to allocate https://stackoverflow.com/questions/63569700/is-sizeoflong-sizeofvoid
-// listAddNodeTail(c->monitor_filters->id, (void*)id); and no ...id->free = zfree;
-
-        if (c->monitor_filters->ids == NULL) {
-            c->monitor_filters->ids = listCreate();
-            c->monitor_filters->ids->free = zfree;
-            // c->monitor_filters->ids->match = ; // TODO YLB
-
-        }
-
-        int *v = zmalloc(sizeof(long)); 
-        *v = id;
-        listAddNodeTail(c->monitor_filters->ids, v);
+        if (c->monitor_filters->ids == NULL) c->monitor_filters->ids = intsetNew();
+        intsetAdd(c->monitor_filters->ids, id, NULL);
         *argi += 2;
         return FILTER_CONSUMED;
     } else {
@@ -6260,15 +6248,23 @@ int createMonitorFilterForUser(client *c, int *argi, bool moreargs){
     }
 }
 
-int createMonitorFilterFor(char* argument, list *l, client *c, int *argi, bool moreargs){
+int matchsds(void *ptr, void *key) {
+    return (sdscmp((sds)ptr, (sds) key) == 0);
+}
+
+void listsdsfree(void* ptr) {
+    sdsfree((sds)ptr);
+}
+
+int createMonitorFilterFor(char* argument, list **l, client *c, int *argi, bool moreargs){
     if (!strcasecmp(c->argv[*argi]->ptr,argument) && moreargs) {
-        if (l == NULL) {
-            l = listCreate();
-            l->free = sdsfree;
-            // l->match = ; // TODO YLB
+        if (*l == NULL) {
+            *l = listCreate();
+            (*l)->free = listsdsfree;
+            (*l)->match = matchsds;
         }
-        sds s = sdsnew(c->argv[*argi]->ptr);
-        listAddNodeTail(l, s);
+        sds s = sdsnew((char*)c->argv[*argi+1]->ptr);
+        listAddNodeTail(*l, (void*)s);
         *argi += 2;
         return FILTER_CONSUMED;
     } else {
@@ -6278,6 +6274,7 @@ int createMonitorFilterFor(char* argument, list *l, client *c, int *argi, bool m
 
 int createMonitorFilterForType(client *c, int *argi, bool moreargs){
     int type = -1;
+
     if (!strcasecmp(c->argv[*argi]->ptr,"type") && moreargs) {
         type = getClientTypeByName(c->argv[*argi+1]->ptr);
         if (type == -1) {
@@ -6285,13 +6282,9 @@ int createMonitorFilterForType(client *c, int *argi, bool moreargs){
             return FILTER_ERR;
         } else {
             if (c->monitor_filters->types == NULL) {
-                c->monitor_filters->types = listCreate();
-                c->monitor_filters->types->free = zfree;
+                c->monitor_filters->types = intsetNew();
             }
-            // YLB TODO use intset?
-            int *v = zmalloc(sizeof(int));
-            *v = type;
-            listAddNodeTail(c->monitor_filters->types, v);
+            intsetAdd(c->monitor_filters->types, type, NULL);
             *argi += 2;
             return FILTER_CONSUMED;
         }
@@ -6347,10 +6340,10 @@ int createMonitorFiltersFromArguments(client *c) {
         result = createMonitorFilterForUser(c, &argi, moreargs);
         if (result == FILTER_ERR) break; 
         if (result == FILTER_CONSUMED) continue;
-        result = createMonitorFilterFor("addr", c->monitor_filters->addrs, c, &argi, moreargs);
+        result = createMonitorFilterFor("addr", &(c->monitor_filters->addrs), c, &argi, moreargs);
         if (result == FILTER_ERR) break; 
         if (result == FILTER_CONSUMED) continue;
-        result = createMonitorFilterFor("laddr", c->monitor_filters->laddrs, c, &argi, moreargs);
+        result = createMonitorFilterFor("laddr", &(c->monitor_filters->laddrs), c, &argi, moreargs);
         if (result == FILTER_ERR) break; 
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterForType(c, &argi, moreargs);

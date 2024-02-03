@@ -34,6 +34,7 @@
 #include "bio.h"
 #include "functions.h"
 #include "connection.h"
+#include "intset.h"
 
 #include <memory.h>
 #include <sys/time.h>
@@ -616,21 +617,21 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
         if (monitor->monitor_filters){
             if (monitor->monitor_filters->commands) {
                 if (monitor->monitor_filters->exclude_commands) {
-                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) == NULL)
+                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) != NULL) /* command found in filter */
                         continue;
                 } else {
-                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) != NULL)
+                    if (listSearchKey(monitor->monitor_filters->commands, c->cmd) == NULL) /* command not found in filter */
                         continue;
                 }
             }
             if (monitor->monitor_filters->ids && c->id != 0 && 
-                listSearchKey(monitor->monitor_filters->ids, c->id) == NULL)
+                !intsetFind(monitor->monitor_filters->ids, c->id))
                     continue;
             if (monitor->monitor_filters->users && c->user && 
                 listSearchKey(monitor->monitor_filters->users, c->user) == NULL)
                     continue;
             if (monitor->monitor_filters->types && 
-                listSearchKey(monitor->monitor_filters->types, getClientType(c)) == NULL)
+                !intsetFind(monitor->monitor_filters->types, getClientType(c)))
                     continue;
             if (monitor->monitor_filters->addrs && 
                 listSearchKey(monitor->monitor_filters->addrs, getClientPeerId(c)) == NULL)

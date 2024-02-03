@@ -36,6 +36,7 @@
 #include "rio.h"
 #include "atomicvar.h"
 #include "commands.h"
+#include "intset.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1174,11 +1175,11 @@ typedef struct {
 #endif
 
 typedef struct monitorFilters {
-    list *ids;      
-    list *users; 
-    list *addrs;    
-    list *laddrs;   
-    list *types;  // YLB TODO use intset?
+    intset *ids;
+    list *users; /* user* */
+    list *addrs; /* sds */
+    list *laddrs; /* sds */
+    intset *types;
     list *commands; /* struct redisCommand* */
     bool exclude_commands;
 } monitorFilters;
