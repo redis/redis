@@ -773,7 +773,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     size_t resident, active, allocated, frag_smallbins_bytes;
     zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
 
-    float frag_pct = (float)frag_smallbins_bytes / active;
+    float frag_pct = (float)frag_smallbins_bytes / active * 100;
     float rss_pct = ((float)resident / allocated)*100 - 100;
     size_t rss_bytes = resident - allocated;
     if(out_frag_bytes)
