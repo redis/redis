@@ -772,7 +772,7 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
     size_t resident, active, allocated, frag_smallbins_bytes;
     zmalloc_get_allocator_info(&allocated, &active, &resident, &frag_smallbins_bytes);
-    serverAssert(frag_smallbins_bytes == (active - allocated)); // Just for vertify, removed future
+    serverAssert(frag_smallbins_bytes == (active - allocated)); // Just for verify, removed future
 
     /* Calculate the fragmentation ratio as the proportion of wasted memory in small
      * bins relative to the total allocated memory (including large bins). This approach
