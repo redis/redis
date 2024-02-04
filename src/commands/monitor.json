@@ -8,7 +8,7 @@
         "history": [
             [
                 "8.0",
-                "Added filtering for Command, Address, Local Address, and Username."
+                "Added filtering for Command, Client ID, Address, Local Address, Client Type, and User name."
             ]
         ],
         "command_flags": [
