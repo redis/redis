@@ -6325,32 +6325,33 @@ int createMonitorFiltersFromArguments(client *c) {
 
     while(argi < c->argc) {
         bool moreargs = c->argc > argi+1;
-        
+
         result = createMonitorFilterForCMD(c, &argi, moreargs);
-        if (result == FILTER_ERR) break; 
+        if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterForClientID(c, &argi, moreargs);
-        if (result == FILTER_ERR) break; 
+        if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterForUser(c, &argi, moreargs);
-        if (result == FILTER_ERR) break; 
+        if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterFor("addr", &(c->monitor_filters->addrs), c, &argi, moreargs);
-        if (result == FILTER_ERR) break; 
+        if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterFor("laddr", &(c->monitor_filters->laddrs), c, &argi, moreargs);
-        if (result == FILTER_ERR) break; 
+        if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterForType(c, &argi, moreargs);
-        if (result == FILTER_ERR) break; 
+        if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
         result = createMonitorFilterForExcludeCMD(c, &argi, moreargs);
-        if (result == FILTER_ERR) break; 
+        if (result == FILTER_ERR) break;
         if (result == FILTER_CONSUMED) continue;
 
-        /* no valid argument was found / consumed */
+        /* no valid argument was found */
         result = FILTER_ERR;
-        addReplyErrorFormat(c, " Issue with or after argument '%s'", (char *)c->argv[argi]->ptr);
+        addReplyErrorObject(c,shared.syntaxerr);
+        // addReplyErrorFormat(c, " Issue with or after argument '%s'", (char *)c->argv[argi]->ptr);
         break;
     }
 
@@ -6362,19 +6363,20 @@ int createMonitorFiltersFromArguments(client *c) {
 }
 
 
+/* 
+MONITOR 
+[ID client-id] | 
+[USER username] | 
+[ADDR ip:port] | 
+[LADDR ip:port] | 
+[TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | 
+[CMD_FILTER <INCLUDE | EXCLUDE>] | 
+[CMD command] 
+[[ID client-id] | [USER username] | [ADDR ip:port] | [LADDR ip:port] | 
+    [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | [CMD_FILTER <INCLUDE | EXCLUDE>] | [CMD command] ...]
+*/
 void monitorCommand(client *c) {
-    /* 
-    MONITOR 
-    [ID client-id] | 
-    [USER username] | 
-    [ADDR ip:port] | 
-    [LADDR ip:port] | 
-    [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] |
-    [CMD_FILTER <INCLUDE | EXCLUDE>] |
-    [CMD command]
-    [[ID client-id] | [USER username] | [ADDR ip:port] | [LADDR ip:port] | 
-        [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | [CMD_FILTER <INCLUDE | EXCLUDE>] | [CMD command] ...]
-    */
+
     if (c->flags & CLIENT_DENY_BLOCKING) {
         /**
          * A client that has CLIENT_DENY_BLOCKING flag on

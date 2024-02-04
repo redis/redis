@@ -7244,7 +7244,7 @@ struct COMMAND_STRUCT MODULE_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MONITOR history */
 commandHistory MONITOR_History[] = {
-{"8.0","Added filtering for Command, Address, Local Address, and Username."},
+{"8.0","Added filtering for Command, Client ID, Address, Local Address, Client Type, and User name."},
 };
 #endif
 
