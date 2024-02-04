@@ -135,6 +135,8 @@ void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
     const char* verbose_level[] = {"debug", "info", "notice", "warning"};
+    const char* roles[] = {"sentinel", "RDB/AOF", "replica", "master"};
+    const char* role_chars = "XCSM";
     FILE *fp;
     char buf[64];
     int rawmode = (level & LL_RAW);
@@ -176,33 +178,24 @@ void serverLogRaw(int level, const char *msg) {
             default:
                 break;
         }
-
+        int role_index;
+        if (server.sentinel_mode) {
+            role_index = 0; /* Sentinel. */
+        } else if (pid != server.pid) {
+            role_index = 1; /* RDB / AOF writing child. */
+        } else {
+            role_index = (server.masterhost ? 2 : 3); /* Slave or Master. */
+        }
         switch (server.log_format) {
             case LOG_FORMAT_LOGFMT: {
-                char *role;
-                if (server.sentinel_mode) {
-                    role = "sentinel";
-                } else if (pid != server.pid) {
-                    role = "RDB/AOF";
-                } else {
-                    role = (server.masterhost ? "replica" : "master");
-                }
                 fprintf(fp, "pid=%d role=%s timestamp=\"%s\" level=%s message=\"%s\"\n",
-                        (int)getpid(),role,buf,verbose_level[level],msg);
+                        (int)getpid(),roles[role_index],buf,verbose_level[level],msg);
                 break;
             }
 
             default: {
-                int role_char;
-                if (server.sentinel_mode) {
-                    role_char = 'X'; /* Sentinel. */
-                } else if (pid != server.pid) {
-                    role_char = 'C'; /* RDB / AOF writing child. */
-                } else {
-                    role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
-                }
                 fprintf(fp,"%d:%c %s %c %s\n",
-                        (int)getpid(),role_char, buf,c[level],msg);
+                        (int)getpid(),role_chars[role_index], buf,c[level],msg);
                 break;
             }
         }
