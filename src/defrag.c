@@ -771,9 +771,14 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
     size_t resident, active, allocated, frag_smallbins_bytes;
-    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
+    zmalloc_get_allocator_info(&allocated, &active, &resident, &frag_smallbins_bytes);
+    serverAssert(frag_smallbins_bytes == (active - allocated)); // Just for vertify, removed future
 
-    float frag_pct = (float)frag_smallbins_bytes / active * 100;
+    /* Calculate the fragmentation ratio as the proportion of wasted memory in small
+     * bins relative to the total allocated memory (including large bins). This approach
+     * is because when we mostly use large bins, even though the fragmentation doesn't
+     * consume a lot of memory, it will show a high percentage. */
+    float frag_pct = (float)frag_smallbins_bytes / allocated * 100;
     float rss_pct = ((float)resident / allocated)*100 - 100;
     size_t rss_bytes = resident - allocated;
     if(out_frag_bytes)

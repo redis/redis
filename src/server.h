@@ -1434,9 +1434,7 @@ struct redisMemOverhead {
     float total_frag;
     ssize_t total_frag_bytes;
     float allocator_frag;
-    float allocator_frag_smallbins;
     ssize_t allocator_frag_bytes;
-    ssize_t allocator_frag_smallbins_bytes;
     float allocator_rss;
     ssize_t allocator_rss_bytes;
     float rss_extra;
@@ -1484,8 +1482,6 @@ struct malloc_stats {
     size_t allocator_allocated;
     size_t allocator_active;
     size_t allocator_resident;
-    size_t allocator_retained;
-    size_t allocator_muzzy;
     size_t allocator_frag_smallbins_bytes;
 };
 
