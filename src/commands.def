@@ -2890,6 +2890,7 @@ struct COMMAND_ARG GEORADIUS_Args[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEORADIUSBYMEMBER history */
 commandHistory GEORADIUSBYMEMBER_History[] = {
+{"6.2.0","Added the `ANY` option for `COUNT`."},
 {"7.0.0","Added support for uppercase unit names."},
 };
 #endif
@@ -2950,7 +2951,10 @@ struct COMMAND_ARG GEORADIUSBYMEMBER_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* GEORADIUSBYMEMBER_RO history */
-#define GEORADIUSBYMEMBER_RO_History NULL
+commandHistory GEORADIUSBYMEMBER_RO_History[] = {
+{"6.2.0","Added the `ANY` option for `COUNT`."},
+{"7.0.0","Added support for uppercase unit names."},
+};
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -4419,9 +4423,7 @@ struct COMMAND_ARG RPUSHX_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* PSUBSCRIBE history */
-commandHistory PSUBSCRIBE_History[] = {
-{"6.2.0","`RESET` can be called to exit subscribed state."},
-};
+#define PSUBSCRIBE_History NULL
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -4687,9 +4689,7 @@ struct COMMAND_ARG SSUBSCRIBE_Args[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* SUBSCRIBE history */
-commandHistory SUBSCRIBE_History[] = {
-{"6.2.0","`RESET` can be called to exit subscribed state."},
-};
+#define SUBSCRIBE_History NULL
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -7225,11 +7225,7 @@ struct COMMAND_STRUCT MODULE_Subcommands[] = {
 
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* MONITOR history */
-commandHistory MONITOR_History[] = {
-{"6.0.0","`AUTH` excluded from the command's output."},
-{"6.2.0","`RESET` can be called to exit monitor mode."},
-{"6.2.4","`AUTH`, `HELLO`, `EVAL`, `EVAL_RO`, `EVALSHA` and `EVALSHA_RO` included in the command's output."},
-};
+#define MONITOR_History NULL
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
@@ -10649,8 +10645,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("geohash","Returns members from a geospatial index as geohash strings.","O(log(N)) for each member requested, where N is the number of elements in the sorted set.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOHASH_History,0,GEOHASH_Tips,0,geohashCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOHASH_Keyspecs,1,NULL,2),.args=GEOHASH_Args},
 {MAKE_CMD("geopos","Returns the longitude and latitude of members from a geospatial index.","O(N) where N is the number of members requested.","3.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOPOS_History,0,GEOPOS_Tips,0,geoposCommand,-2,CMD_READONLY,ACL_CATEGORY_GEO,GEOPOS_Keyspecs,1,NULL,2),.args=GEOPOS_Args},
 {MAKE_CMD("georadius","Queries a geospatial index for members within a distance from a coordinate, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_History,2,GEORADIUS_Tips,0,georadiusCommand,-6,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUS_Keyspecs,3,georadiusGetKeys,11),.args=GEORADIUS_Args},
-{MAKE_CMD("georadiusbymember","Queries a geospatial index for members within a distance from a member, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,1,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,10),.args=GEORADIUSBYMEMBER_Args},
-{MAKE_CMD("georadiusbymember_ro","Returns members from a geospatial index that are within a distance from a member.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_History,0,GEORADIUSBYMEMBER_RO_Tips,0,georadiusbymemberroCommand,-5,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_RO_Keyspecs,1,NULL,9),.args=GEORADIUSBYMEMBER_RO_Args},
+{MAKE_CMD("georadiusbymember","Queries a geospatial index for members within a distance from a member, optionally stores the result.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.0",CMD_DOC_DEPRECATED,"`GEOSEARCH` and `GEOSEARCHSTORE` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_History,2,GEORADIUSBYMEMBER_Tips,0,georadiusbymemberCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_Keyspecs,3,georadiusGetKeys,10),.args=GEORADIUSBYMEMBER_Args},
+{MAKE_CMD("georadiusbymember_ro","Returns members from a geospatial index that are within a distance from a member.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUSBYMEMBER_RO_History,2,GEORADIUSBYMEMBER_RO_Tips,0,georadiusbymemberroCommand,-5,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUSBYMEMBER_RO_Keyspecs,1,NULL,9),.args=GEORADIUSBYMEMBER_RO_Args},
 {MAKE_CMD("georadius_ro","Returns members from a geospatial index that are within a distance from a coordinate.","O(N+log(M)) where N is the number of elements inside the bounding box of the circular area delimited by center and radius and M is the number of items inside the index.","3.2.10",CMD_DOC_DEPRECATED,"`GEOSEARCH` with the `BYRADIUS` argument","6.2.0","geo",COMMAND_GROUP_GEO,GEORADIUS_RO_History,2,GEORADIUS_RO_Tips,0,georadiusroCommand,-6,CMD_READONLY,ACL_CATEGORY_GEO,GEORADIUS_RO_Keyspecs,1,NULL,10),.args=GEORADIUS_RO_Args},
 {MAKE_CMD("geosearch","Queries a geospatial index for members inside an area of a box or a circle.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCH_History,1,GEOSEARCH_Tips,0,geosearchCommand,-7,CMD_READONLY,ACL_CATEGORY_GEO,GEOSEARCH_Keyspecs,1,NULL,8),.args=GEOSEARCH_Args},
 {MAKE_CMD("geosearchstore","Queries a geospatial index for members inside an area of a box or a circle, optionally stores the result.","O(N+log(M)) where N is the number of elements in the grid-aligned bounding box area around the shape provided as the filter and M is the number of items inside the shape","6.2.0",CMD_DOC_NONE,NULL,NULL,"geo",COMMAND_GROUP_GEO,GEOSEARCHSTORE_History,1,GEOSEARCHSTORE_Tips,0,geosearchstoreCommand,-8,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_GEO,GEOSEARCHSTORE_Keyspecs,2,NULL,7),.args=GEOSEARCHSTORE_Args},
@@ -10701,13 +10697,13 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("rpush","Appends one or more elements to a list. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSH_History,1,RPUSH_Tips,0,rpushCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSH_Keyspecs,1,NULL,2),.args=RPUSH_Args},
 {MAKE_CMD("rpushx","Appends an element to a list only when the list exists.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,RPUSHX_History,1,RPUSHX_Tips,0,rpushxCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_LIST,RPUSHX_Keyspecs,1,NULL,2),.args=RPUSHX_Args},
 /* pubsub */
-{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,1,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
+{MAKE_CMD("psubscribe","Listens for messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PSUBSCRIBE_History,0,PSUBSCRIBE_Tips,0,psubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PSUBSCRIBE_Keyspecs,0,NULL,1),.args=PSUBSCRIBE_Args},
 {MAKE_CMD("publish","Posts a message to a channel.","O(N+M) where N is the number of clients subscribed to the receiving channel and M is the total number of subscribed patterns (by any client).","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBLISH_History,0,PUBLISH_Tips,0,publishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE|CMD_SENTINEL,0,PUBLISH_Keyspecs,0,NULL,2),.args=PUBLISH_Args},
 {MAKE_CMD("pubsub","A container for Pub/Sub commands.","Depends on subcommand.","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_History,0,PUBSUB_Tips,0,NULL,-2,0,0,PUBSUB_Keyspecs,0,NULL,0),.subcommands=PUBSUB_Subcommands},
 {MAKE_CMD("punsubscribe","Stops listening to messages published to channels that match one or more patterns.","O(N) where N is the number of patterns to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUNSUBSCRIBE_History,0,PUNSUBSCRIBE_Tips,0,punsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,PUNSUBSCRIBE_Keyspecs,0,NULL,1),.args=PUNSUBSCRIBE_Args},
 {MAKE_CMD("spublish","Post a message to a shard channel","O(N) where N is the number of clients subscribed to the receiving shard channel.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SPUBLISH_History,0,SPUBLISH_Tips,0,spublishCommand,3,CMD_PUBSUB|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_MAY_REPLICATE,0,SPUBLISH_Keyspecs,1,NULL,2),.args=SPUBLISH_Args},
 {MAKE_CMD("ssubscribe","Listens for messages published to shard channels.","O(N) where N is the number of shard channels to subscribe to.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SSUBSCRIBE_History,0,SSUBSCRIBE_Tips,0,ssubscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SSUBSCRIBE_Keyspecs,1,NULL,1),.args=SSUBSCRIBE_Args},
-{MAKE_CMD("subscribe","Listens for messages published to channels.","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,1,SUBSCRIBE_Tips,0,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,SUBSCRIBE_Keyspecs,0,NULL,1),.args=SUBSCRIBE_Args},
+{MAKE_CMD("subscribe","Listens for messages published to channels.","O(N) where N is the number of channels to subscribe to.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUBSCRIBE_History,0,SUBSCRIBE_Tips,0,subscribeCommand,-2,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,SUBSCRIBE_Keyspecs,0,NULL,1),.args=SUBSCRIBE_Args},
 {MAKE_CMD("sunsubscribe","Stops listening to messages posted to shard channels.","O(N) where N is the number of shard channels to unsubscribe.","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,SUNSUBSCRIBE_History,0,SUNSUBSCRIBE_Tips,0,sunsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,SUNSUBSCRIBE_Keyspecs,1,NULL,1),.args=SUNSUBSCRIBE_Args},
 {MAKE_CMD("unsubscribe","Stops listening to messages posted to channels.","O(N) where N is the number of channels to unsubscribe.","2.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,UNSUBSCRIBE_History,0,UNSUBSCRIBE_Tips,0,unsubscribeCommand,-1,CMD_PUBSUB|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SENTINEL,0,UNSUBSCRIBE_Keyspecs,0,NULL,1),.args=UNSUBSCRIBE_Args},
 /* scripting */
@@ -10738,7 +10734,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("lolwut","Displays computer art and the Redis version",NULL,"5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,LOLWUT_History,0,LOLWUT_Tips,0,lolwutCommand,-1,CMD_READONLY|CMD_FAST,0,LOLWUT_Keyspecs,0,NULL,1),.args=LOLWUT_Args},
 {MAKE_CMD("memory","A container for memory diagnostics commands.","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MEMORY_History,0,MEMORY_Tips,0,NULL,-2,0,0,MEMORY_Keyspecs,0,NULL,0),.subcommands=MEMORY_Subcommands},
 {MAKE_CMD("module","A container for module commands.","Depends on subcommand.","4.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MODULE_History,0,MODULE_Tips,0,NULL,-2,0,0,MODULE_Keyspecs,0,NULL,0),.subcommands=MODULE_Subcommands},
-{MAKE_CMD("monitor","Listens for all requests received by the server in real-time.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MONITOR_History,3,MONITOR_Tips,0,monitorCommand,1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,MONITOR_Keyspecs,0,NULL,0)},
+{MAKE_CMD("monitor","Listens for all requests received by the server in real-time.",NULL,"1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,MONITOR_History,0,MONITOR_Tips,0,monitorCommand,1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE,0,MONITOR_Keyspecs,0,NULL,0)},
 {MAKE_CMD("psync","An internal command used in replication.",NULL,"2.8.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,PSYNC_History,0,PSYNC_Tips,0,syncCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NO_MULTI|CMD_NOSCRIPT,0,PSYNC_Keyspecs,0,NULL,2),.args=PSYNC_Args},
 {MAKE_CMD("replconf","An internal command for configuring the replication stream.","O(1)","3.0.0",CMD_DOC_SYSCMD,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLCONF_History,0,REPLCONF_Tips,0,replconfCommand,-1,CMD_ADMIN|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_ALLOW_BUSY,0,REPLCONF_Keyspecs,0,NULL,0)},
 {MAKE_CMD("replicaof","Configures a server as replica of another, or promotes it to a master.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,REPLICAOF_History,0,REPLICAOF_Tips,0,replicaofCommand,3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT|CMD_STALE,0,REPLICAOF_Keyspecs,0,NULL,2),.args=REPLICAOF_Args},
