@@ -693,34 +693,23 @@ dictType clientDictType = {
     .no_value = 1               /* no values in this dict */
 };
 
-int htNeedsShrink(dict *dict) {
-    long long size, used;
-
-    size = dictBuckets(dict);
-    used = dictSize(dict);
-    return (size > DICT_HT_INITIAL_SIZE &&
-            (used * HASHTABLE_MIN_FILL <= size));
-}
-
 /* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
  * and triggers a resize if the percentage of used buckets in the HT reaches (100 / HASHTABLE_MIN_FILL)
- * we resize the hash table to save memory.
+ * we shrink the hash table to save memory, or expand the hash when the percentage of used buckets reached
+ * 100.
  *
  * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
 void tryResizeHashTables(int dbid) {
     redisDb *db = &server.db[dbid];
+    int dicts_per_call = min(CRON_DICTS_PER_DB, db->dict_count);
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        if (dbSize(db, subdict) == 0) continue;
-
-        if (db->sub_dict[subdict].resize_cursor == -1)
-            db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
-
-        for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
+        for (int i = 0; i < dicts_per_call; i++) {
             int slot = db->sub_dict[subdict].resize_cursor;
             dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            if (htNeedsShrink(d))
-                dictShrinkToFit(d);
-            db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
+            if (dictShrinkIfNeeded(d) == DICT_ERR) {
+                dictExpandIfNeeded(d);
+            }
+            db->sub_dict[subdict].resize_cursor = (slot + 1) % db->dict_count;
         }
     }
 }
@@ -2685,7 +2674,7 @@ void initDbState(redisDb *db){
     for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
         db->sub_dict[subdict].non_empty_slots = 0;
         db->sub_dict[subdict].key_count = 0;
-        db->sub_dict[subdict].resize_cursor = -1;
+        db->sub_dict[subdict].resize_cursor = 0;
         db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
         db->sub_dict[subdict].bucket_count = 0;
     }
@@ -3657,11 +3646,19 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* Setting the CLIENT_REPROCESSING_COMMAND flag so that during the actual
+     * processing of the command proc, the client is aware that it is being
+     * re-processed. */
+    if (reprocessing_command) c->flags |= CLIENT_REPROCESSING_COMMAND;
+
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
+
+    /* Clear the CLIENT_REPROCESSING_COMMAND flag after the proc is executed. */
+    if (reprocessing_command) c->flags &= ~CLIENT_REPROCESSING_COMMAND;
 
     exitExecutionUnit();
 
@@ -3720,7 +3717,7 @@ void call(client *c, int flags) {
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
-     * Other exceptions is a client which is unblocked and retring to process the command
+     * Other exceptions is a client which is unblocked and retrying to process the command
      * or we are currently in the process of loading AOF. */
     if (update_command_stats && !reprocessing_command &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
