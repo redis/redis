@@ -357,15 +357,23 @@ static int connSocketBlockingConnect(connection *conn, const char *addr, int por
         conn->last_errno = errno;
         return C_ERR;
     }
+    conn->fd = fd;
 
-    if ((aeWait(fd, AE_WRITABLE, timeout) & AE_WRITABLE) == 0) {
+    if ((aeWait(conn->fd, AE_WRITABLE, timeout) & AE_WRITABLE) == 0) {
         conn->state = CONN_STATE_ERROR;
         conn->last_errno = ETIMEDOUT;
+        return C_ERR;
     }
-
-    conn->fd = fd;
-    conn->state = CONN_STATE_CONNECTED;
-    return C_OK;
+    
+    int conn_error = anetGetError(conn->fd);
+    if (conn_error) {
+        conn->state = CONN_STATE_ERROR;
+        conn->last_errno = conn_error;
+        return C_ERR;
+    } else {
+        conn->state = CONN_STATE_CONNECTED;
+        return C_OK;
+    }
 }
 
 /* Connection-based versions of syncio.c functions.
