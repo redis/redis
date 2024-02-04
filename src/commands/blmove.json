@@ -7,7 +7,6 @@
         "arity": 6,
         "function": "blmoveCommand",
         "command_flags": [
-            "FAST",
             "WRITE",
             "DENYOOM",
             "BLOCKING"

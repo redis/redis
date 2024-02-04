@@ -18,7 +18,6 @@
             "DEPRECATED"
         ],
         "command_flags": [
-            "FAST",
             "WRITE",
             "DENYOOM",
             "BLOCKING"
