@@ -111,14 +111,22 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 /* Formats the timezone offset into a string.
  * 
  * Assumes:
+ * - size of `buf` is 7 or larger
  * - `timezone` is valid, within the range of [-50400, +43200].
  * - `daylight_active` indicates whether dst is active (1) or not (0). */
 
-void format_timezone(char buf[7], int timezone, int daylight_active) {
+void format_timezone(char *buf, int timezone, int daylight_active) {
+    // Adjust the timezone for daylight saving, if active
     int total_offset = (-1)*timezone + 3600*daylight_active;
-    int hours = total_offset / 3600;
+    int hours = abs(total_offset / 3600);
     int minutes = abs(total_offset % 3600) / 60;
-    snprintf(buf, 7, "%+03d:%02d", hours, minutes);
+    buf[0] = total_offset >= 0 ? '+' : '-';
+    buf[1] = '0' + hours / 10;
+    buf[2] = '0' + hours % 10;
+    buf[3] = ':';
+    buf[4] = '0' + minutes / 10;
+    buf[5] = '0' + minutes % 10;
+    buf[6] = '\0';
 }
 
 /* Low level logging. To use only for very big messages, otherwise
