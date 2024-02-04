@@ -108,6 +108,19 @@ const char *replstateToString(int replstate);
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
+/* Formats the timezone offset into a string.
+ * 
+ * Assumes:
+ * - `timezone` is valid, within the range of [-50400, +43200].
+ * - `daylight_active` indicates whether dst is active (1) or not (0). */
+
+void format_timezone(char buf[7], int timezone, int daylight_active) {
+    int total_offset = (-1)*timezone + 3600*daylight_active;
+    int hours = total_offset / 3600;
+    int minutes = abs(total_offset % 3600) / 60;
+    snprintf(buf, 7, "%+03d:%02d", hours, minutes);
+}
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -143,12 +156,10 @@ void serverLogRaw(int level, const char *msg) {
 
             case LOG_TIMESTAMP_ISO8601:
                 off = strftime(buf,sizeof(buf),"%Y-%m-%dT%H:%M:%S.",&tm);
-                snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
-                char tzbuf[6];
-                strftime(tzbuf, sizeof(tzbuf), "%z", &tm);
-                char tz_formatted[7];
-                snprintf(tz_formatted, sizeof(tz_formatted), "%c%c%c:%c%c", tzbuf[0], tzbuf[1], tzbuf[2], tzbuf[3], tzbuf[4]);
-                strncat(buf, tz_formatted, sizeof(buf) - strlen(buf) - 1);
+                char tzbuf[7];
+                format_timezone(tzbuf, server.timezone, server.daylight_active);
+                snprintf(buf + off, sizeof(buf) - off, "%03d%s",
+                         (int)tv.tv_usec/1000, tzbuf);
                 break;
 
             case LOG_TIMESTAMP_UNIX:
