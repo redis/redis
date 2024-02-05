@@ -2035,6 +2035,7 @@ void initServerConfig(void) {
                                       updated later after loading the config.
                                       This value may be used before the server
                                       is initialized. */
+    server.io_threads_num = server.config_io_threads_num;
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
@@ -2591,6 +2592,7 @@ void initServer(void) {
     server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
     server.fsynced_reploff = server.aof_enabled ? 0 : -1;
     server.hz = server.config_hz;
+    server.io_threads_num = server.config_io_threads_num;
     server.pid = getpid();
     server.in_fork_child = CHILD_TYPE_NONE;
     server.main_thread_id = pthread_self();

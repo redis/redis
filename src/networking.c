@@ -4356,6 +4356,34 @@ int stopThreadedIOIfNeeded(void) {
     }
 }
 
+/* This function increases the number of threads to server.io_threads_num.
+ * It returns C_OK when the update is successful, otherwise it returns
+ * C_ERR when trying to decrease the number of threads. */
+int updateThreadedIO(void) {
+    /* Return when trying to decrease the number of threads */
+    if (server.io_threads_num > server.config_io_threads_num) return C_ERR;
+
+    /* Create the list of clients for the main thread if not created already */
+    if (!io_threads_list[0]) io_threads_list[0] = listCreate();
+
+    /* Create new threads */
+    for (int i = server.io_threads_num; i < server.config_io_threads_num; i++) {
+        io_threads_list[i] = listCreate();
+        pthread_t tid;
+        pthread_mutex_init(&io_threads_mutex[i], NULL);
+        setIOPendingCount(i, 0);
+        if (!server.io_threads_active)
+            pthread_mutex_lock(&io_threads_mutex[i]);
+        if (pthread_create(&tid, NULL, IOThreadMain, (void*)(long)i) != 0) {
+            serverLog(LL_WARNING, "Fatal: Can't initialize IO thread.");
+            exit(1);
+        }
+        io_threads[i] = tid;
+    }
+    server.io_threads_num = server.config_io_threads_num;
+    return C_OK;
+}
+
 /* This function achieves thread safety using a fan-out -> fan-in paradigm:
  * Fan out: The main thread fans out work to the io-threads which block until
  * setIOPendingCount() is called with a value larger than 0 by the main thread.
