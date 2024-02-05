@@ -1040,7 +1040,7 @@ void syncCommand(client *c) {
         } else if (isReplicaMainChannel(c)) {
             char buf[128];
             int buflen;
-            serverLog(LL_NOTICE,"Replica %s is marked as no-fullsync, and psync isn't possible. Full sync will continue with dedicated RDB connection.", replicationGetSlaveName(c));
+            serverLog(LL_NOTICE,"Replica %s is marked as main-conn, and psync isn't possible. Full sync will continue with dedicated RDB connection.", replicationGetSlaveName(c));
             buflen = snprintf(buf,sizeof(buf),"-FULLSYNCNEEDED\r\n");
             if (connWrite(c->conn,buf,buflen) != buflen) {
                 freeClientAsync(c);
@@ -1321,11 +1321,12 @@ void replconfCommand(client *c) {
                 c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
                 c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
             }
-        } else if (!strcasecmp(c->argv[j]->ptr, "no-fullsync")) {
-            /* REPLCONF no-fullsync is used to identify the client wants
-             * to partial sync if possible. If not, do not auto 
-             * trigger full sync. We use it during rdb channel sync
-             * to mark the main connection. */
+        } else if (!strcasecmp(c->argv[j]->ptr, "main-conn") && server.rdb_channel_enabled) {
+            /* REPLCONF main-conn is used to identify the replica main connection durig 
+             * rdb-connection sync. It also means that if psync is impossible, master 
+             * should not auto trigger full sync.
+             * If rdb-channel is disable on this master, treat this command as unrecognized 
+             * replconf option. */
             long no_fullsync = 0;
             if (getRangeLongFromObjectOrReply(c, c->argv[j +1],
                     0, 1, &no_fullsync, NULL) != C_OK) {
@@ -3092,7 +3093,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
     }
 
     if (!strncmp(reply, "-FULLSYNCNEEDED", 15)) {
-        /* In case the main connection with master is at no-fullsync mode, the master 
+        /* In case the main connection with master is at main-conn mode, the master 
          * will respond with -FULLSYNCNEEDED to imply that psync is not possible */
         serverLog(LL_NOTICE, "PSYNC is not possible, initialize RDB channel.");
         sdsfree(reply);
@@ -3243,9 +3244,11 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
-        /* Mark main connection for psync only, in case we use rdb-channel for sync*/
+        /* When using rdb-channel for sync, mark the main connection only for psync.
+         * The master's capabilities will also be verified here, since if the master
+         * does not support rdb-channel sync, it will not understand this command. */
         if (server.rdb_channel_enabled) {
-           err = sendCommand(conn,"REPLCONF", "no-fullsync", "1", NULL);
+           err = sendCommand(conn,"REPLCONF", "main-conn", "1", NULL);
         }
 
         /* Inform the master of our (slave) capabilities.
@@ -3320,9 +3323,16 @@ void syncWithMaster(connection *conn) {
     if (server.repl_state == REPL_STATE_RECEIVE_NO_FULLSYNC_REPLY) {
         err = receiveSynchronousResponse(conn);
         if (err == NULL) goto rdb_conn_error;
-        if (err[0] == '-') {
-            serverLog(LL_WARNING, "Master does not understand REPLCONF no-fullsync aborting rdb-channel sync %s", err);
+        else if (err[0] == '-') {
+            /* Activate rdb-channel fallback mechanism. The master did not understand 
+             * REPLCONF main-conn. This means the master does not support RDB channel 
+             * synchronization. The replica will continue the sync session with one 
+             * channel (normally). */
+            serverLog(LL_WARNING, "Master does not understand REPLCONF main-conn aborting rdb-channel sync %s", err);
             server.master_supports_rdb_channel = 0;
+        } else if (memcmp(err, "+OK", 3) == 0) {
+            /* Master support rdb-connection sync. Continue with rdb-channel approach. */
+            server.master_supports_rdb_channel = 1;
         }
         sdsfree(err);
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
@@ -3434,7 +3444,7 @@ void syncWithMaster(connection *conn) {
         server.repl_transfer_fd = dfd;
     }
 
-    if (server.rdb_channel_enabled && server.master_supports_rdb_channel) {
+    if (server.master_supports_rdb_channel > 0) {
         /* Create a full sync connection */
         server.repl_rdb_transfer_s = connCreate(connTypeOfReplication());
         if (connConnect(server.repl_rdb_transfer_s, server.masterhost, server.masterport,
@@ -3631,7 +3641,7 @@ void replicationSetMaster(char *ip, int port) {
     server.repl_state = REPL_STATE_CONNECT;
     /* Allow trying rdb-channel sync with the new master. If new master doesn't 
      * support rdb-channel sync, we will set to 0 afterwards. */
-    server.master_supports_rdb_channel = 1;
+    server.master_supports_rdb_channel = -1;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
     connectWithMaster();

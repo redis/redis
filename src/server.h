@@ -1820,7 +1820,8 @@ struct redisServer {
     int rdb_bgsave_scheduled;       /* BGSAVE when possible if true. */
     int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* C_OK or C_ERR */
-    int master_supports_rdb_channel;/* Track whether the master is able to sync using rdb channel */
+    int master_supports_rdb_channel;/* Track whether the master is able to sync using rdb channel.
+                                     * -1 = unknown, 0 = no, 1 = yes. */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_read;              /* RDB pipe used to transfer the rdb data */
                                     /* to the parent process in diskless repl. */

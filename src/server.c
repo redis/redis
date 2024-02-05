@@ -2661,7 +2661,7 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
     server.lastbgsave_status = C_OK;
-    server.master_supports_rdb_channel = 1;
+    server.master_supports_rdb_channel = -1;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;

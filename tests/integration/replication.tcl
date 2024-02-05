@@ -1474,6 +1474,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
         # operation, so that the replica remains in the handshake state.
         $master config set repl-diskless-sync yes
         $master config set repl-diskless-sync-delay 1000
+        $master config set repl-rdb-channel yes
 
         # Start the replication process...
         $replica config set repl-rdb-channel yes
@@ -1526,6 +1527,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
         set master_port [srv 0 port]
 
         $master config set rdb-key-save-delay 200
+        $master config set repl-rdb-channel yes
         $replica config set repl-rdb-channel yes
         $replica config set repl-diskless-sync no
 
@@ -1675,6 +1677,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
 
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 5; # allow both replicas to ask for sync
+            $master config set repl-rdb-channel yes
 
             $replica1 config set repl-rdb-channel yes
             $replica2 config set repl-rdb-channel yes
@@ -1775,9 +1778,9 @@ start_server {tags {"repl rdb-channel external:skip"}} {
 
                 # Wait for sync to fail
                 wait_for_condition 100 50 {
-                    [log_file_matches $replica1_log "*-ERR Rdb channel sync is not allowed when repl-diskless-sync disabled*"]
+                    [log_file_matches $replica1_log "*Master does not understand REPLCONF main-conn*"]
                 } else {
-                    fail "Sync should fail"
+                    fail "rdb-connection sync rollback should have been triggered."
                 }
 
                 # Wait for mitigation and resync
@@ -1806,6 +1809,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
 
         $master config set repl-diskless-sync yes
         $master debug sleep-after-fork 5;# Stop master after fork
+        $master config set repl-rdb-channel yes
 
         $replica config set repl-rdb-channel yes
         $replica config set loglevel debug
