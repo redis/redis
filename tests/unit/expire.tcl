@@ -898,5 +898,8 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
             flush stdout
             fail "Keys did not actively expire."
         }
+
+        # Make sure we don't have any timeouts.
+        assert_equal 0 [s 0 expired_time_cap_reached_count]
     } {} {needs:debug}
 }
