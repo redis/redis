@@ -5742,7 +5742,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "allocator_active:%zu\r\n", server.cron_malloc_stats.allocator_active,
             "allocator_resident:%zu\r\n", server.cron_malloc_stats.allocator_resident,
             "allocator_muzzy:%zu\r\n", server.cron_malloc_stats.allocator_muzzy,
-            "allocator_frag_smallbins_bytes:%zu\r\n", server.cron_malloc_stats.allocator_frag_smallbins_bytes,
             "total_system_memory:%lu\r\n", (unsigned long)total_system_mem,
             "total_system_memory_human:%s\r\n", total_system_hmem,
             "used_memory_lua:%lld\r\n", memory_lua, /* deprecated, renamed to used_memory_vm_eval */
