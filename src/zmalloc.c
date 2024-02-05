@@ -666,8 +666,8 @@ size_t zmalloc_get_frag_smallbins(void) {
     return frag;
 }
 
-int zmalloc_get_allocator_info(size_t *allocated, size_t *active,
-                               size_t *resident, size_t *frag_smallbins_bytes)
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
     uint64_t epoch = 1;
     size_t sz;
@@ -685,6 +685,23 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active,
     /* Unlike zmalloc_used_memory, this matches the stats.resident by taking
      * into account all allocations done by this process (not only zmalloc). */
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
+
+    /* Retained memory is memory released by `madvised(..., MADV_DONTNEED)`, which is not part
+     * of RSS or mapped memory, and doesn't have a strong association with physical memory in the OS.
+     * It is still part of the VM-Size, and may be used again in later allocations. */
+    if (retained) {
+        *retained = 0;
+        je_mallctl("stats.retained", retained, &sz, NULL, 0);
+    }
+
+    /* Unlike retained, Muzzy representats memory released with `madvised(..., MADV_FREE)`.
+     * These pages will show as RSS for the process, until the OS decides to re-use them. */
+    if (muzzy) {
+        size_t pmuzzy, page;
+        assert(!je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pmuzzy", &pmuzzy, &sz, NULL, 0));
+        assert(!je_mallctl("arenas.page", &page, &sz, NULL, 0));
+        *muzzy = pmuzzy * page;
+    }
 
     /* Total size of consumed meomry in unused regs in small bins (AKA external fragmentation). */
     *frag_smallbins_bytes = zmalloc_get_frag_smallbins();
@@ -713,10 +730,12 @@ int jemalloc_purge(void) {
 
 #else
 
-int zmalloc_get_allocator_info(size_t *allocated, size_t *active,
-                               size_t *resident, size_t *frag_smallbins_bytes)
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
     *allocated = *resident = *active = *frag_smallbins_bytes = 0;
+    if (retained) *retained = 0;
+    if (muzzy) *muzzy = 0;
     return 1;
 }
 
