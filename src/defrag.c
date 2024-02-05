@@ -775,9 +775,9 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     serverAssert(frag_smallbins_bytes == (active - allocated)); // Just for verify, removed future
 
     /* Calculate the fragmentation ratio as the proportion of wasted memory in small
-     * bins relative to the total allocated memory (including large bins). This approach
-     * is because when we mostly use large bins, even though the fragmentation doesn't
-     * consume a lot of memory, it will show a high percentage. */
+     * bins (which are defraggable) relative to the total allocated memory (including large bins).
+     * This is because otherwise, if most of the memory usage is large bins, we may show high percentage,
+     * despite the fact it's not a lot of memory for the user. */
     float frag_pct = (float)frag_smallbins_bytes / allocated * 100;
     float rss_pct = ((float)resident / allocated)*100 - 100;
     size_t rss_bytes = resident - allocated;
