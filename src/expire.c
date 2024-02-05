@@ -245,6 +245,7 @@ void activeExpireCycle(int type) {
         redisDb *db = server.db+(current_db % server.dbnum);
         data.db = db;
 
+        int db_done = 0; /* The scan of the current DB is done? */
         int update_avg_ttl_times = 0, repeat = 0;
 
         /* Increment the DB now so we are sure if we run out of time
@@ -295,6 +296,7 @@ void activeExpireCycle(int type) {
             while (data.sampled < num && checked_buckets < max_buckets) {
                 db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
                 if (db->expires_cursor == 0) {
+                    db_done = 1;
                     break;
                 }
                 checked_buckets++;
@@ -305,7 +307,11 @@ void activeExpireCycle(int type) {
             /* If find keys with ttl not yet expired, we need to update the average TTL stats once. */
             if (data.ttl_samples - origin_ttl_samples > 0) update_avg_ttl_times++;
 
-            repeat = data.sampled == 0 || (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale;
+            /* We don't repeat the cycle for the current database if the db is done
+             * for scanning or an acceptable number of stale keys (logically expired
+             * but yet not reclaimed). */
+            repeat = db_done ? 0 : (data.sampled == 0 || (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
+
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of microseconds return to the
              * caller waiting for the other active expire cycle. */
@@ -321,7 +327,7 @@ void activeExpireCycle(int type) {
                     if (db->avg_ttl == 0) {
                         db->avg_ttl = avg_ttl;
                     } else {
-                        /* Thr origin code is as follow.
+                        /* The origin code is as follow.
                          * for (int i = 0; i < update_avg_ttl_times; i++) {
                          *   db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
                          * } 
@@ -348,9 +354,6 @@ void activeExpireCycle(int type) {
                     }
                 }
             }
-            /* We don't repeat the cycle for the current database if there are
-             * an acceptable amount of stale keys (logically expired but yet
-             * not reclaimed). */
         } while (repeat);
     }
 
