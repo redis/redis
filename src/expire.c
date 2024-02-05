@@ -253,7 +253,8 @@ void activeExpireCycle(int type) {
          * distribute the time evenly across DBs. */
         current_db++;
 
-        if (dbSize(db, DB_EXPIRES)) dbs_performed++;
+        if (kvstoreSize(db->expires))
+            dbs_performed++;
 
         /* Continue to expire if at the end of the cycle there are still
          * a big percentage of keys to expire, compared to the number of keys
@@ -264,7 +265,7 @@ void activeExpireCycle(int type) {
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
-            if ((num = dbSize(db, DB_EXPIRES)) == 0) {
+            if ((num = kvstoreSize(db->expires)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
@@ -294,7 +295,7 @@ void activeExpireCycle(int type) {
             int origin_ttl_samples = data.ttl_samples;
 
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
+                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
                 if (db->expires_cursor == 0) {
                     db_done = 1;
                     break;
@@ -429,7 +430,7 @@ void expireSlaveKeys(void) {
         while(dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
-                dictEntry *expire = dictFind(db->expires[getKeySlot(keyname)],keyname);
+                dictEntry *expire = dbFindExpires(db, keyname);
                 int expired = 0;
 
                 if (expire &&

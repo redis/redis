@@ -1903,12 +1903,6 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }
 
-int totalSubscriptions(void) {
-    return dictSize(server.pubsub_patterns) +
-           dictSize(server.pubsub_channels) +
-           server.shard_channel_count;
-}
-
 /* If 'new' can access all channels 'original' could then return NULL;
    Otherwise return a list of channels that the new user can access */
 list *getUpcomingChannelList(user *new, user *original) {
@@ -2017,7 +2011,7 @@ int ACLShouldKillPubsubClient(client *c, list *upcoming) {
  * permissions specified via the upcoming argument, and kill them if so. */
 void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     /* Do nothing if there are no subscribers. */
-    if (totalSubscriptions() == 0)
+    if (pubsubTotalSubscriptions() == 0)
         return;
 
     list *channels = getUpcomingChannelList(new, original);
@@ -2450,7 +2444,7 @@ sds ACLLoadFromFile(const char *filename) {
 
         /* If there are some subscribers, we need to check if we need to drop some clients. */
         rax *user_channels = NULL;
-        if (totalSubscriptions() > 0) {
+        if (pubsubTotalSubscriptions() > 0) {
             user_channels = raxNew();
         }
 
