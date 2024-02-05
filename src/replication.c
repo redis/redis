@@ -56,6 +56,7 @@ void completeTaskRDBChannelSync(connection *conn);
 int isReplicaMainChannel(client *c);
 int isReplicaRdbChannel(client *c);
 int isOngoingRdbChannelSync(void);
+void replicationAbortSyncTransfer(void);
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -2242,7 +2243,6 @@ void readSyncBulkPayload(connection *conn) {
         if (loadingFailed) {
             stopLoading(0);
             cancelReplicationHandshake(1);
-            if (isRdbConnection(conn)) abortRdbConnectionSync();
             rioFreeConn(&rdb, NULL);
 
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
@@ -2538,24 +2538,10 @@ void clearProvisionalMaster(void) {
 
 void abortRdbConnectionSync(void) {
     serverLog(LL_WARNING, "Aborting RDB connection sync");
-    if (server.repl_transfer_s) {
-        connClose(server.repl_transfer_s);
-        server.repl_transfer_s = NULL;
-        clearProvisionalMaster();
-    }
     if (server.repl_rdb_transfer_s) {
         connClose(server.repl_rdb_transfer_s);
         server.repl_rdb_transfer_s = NULL;
     }
-    if (server.repl_transfer_fd != -1) {
-        close(server.repl_transfer_fd);
-        bg_unlink(server.repl_transfer_tmpfile);
-        zfree(server.repl_transfer_tmpfile);
-        server.repl_transfer_tmpfile = NULL;
-        server.repl_transfer_fd = -1;
-    }
-    server.repl_transfer_tmpfile = NULL;
-    server.repl_transfer_fd = -1;
     freePendingReplDataBuf();
     return;
 }
@@ -2746,11 +2732,9 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
     }
     if (nread == 0) {
         if (server.verbosity <= LL_VERBOSE) {
-            sds info = catClientInfoString(sdsempty(), connGetPrivateData(conn));
-            serverLog(LL_VERBOSE, "Client closed connection %s", info);
-            sdsfree(info);
+            serverLog(LL_VERBOSE, "Provisional master closed connection");
         }
-        abortRdbConnectionSync();
+        replicationAbortSyncTransfer();
         return C_ERR;
     }
     o->used += nread;
@@ -3365,7 +3349,7 @@ void syncWithMaster(connection *conn) {
      * to start a full resynchronization so that we get the master replid
      * and the global offset, to try a partial resync at the next
      * reconnection attempt. */
-        if (server.repl_state == REPL_STATE_SEND_PSYNC) {
+    if (server.repl_state == REPL_STATE_SEND_PSYNC) {
         if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
             err = sdsnew("Write error sending the PSYNC command.");
             abortFailover("Write error to failover target");
@@ -3547,8 +3531,7 @@ void undoConnectWithMaster(void) {
         server.repl_transfer_s = NULL;
     }
     if (server.repl_rdb_transfer_s) {
-        connClose(server.repl_rdb_transfer_s);
-        server.repl_rdb_transfer_s = NULL;
+        abortRdbConnectionSync();
     }
 }
 
