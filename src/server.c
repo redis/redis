@@ -6314,17 +6314,18 @@ int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
 
 /* Build the MONITOR filters from the MONITOR arguments
  * Returns:
- *  C_OK if no filters or all filters are ok
+ *  C_OK if no filter or all filters are ok
  *  C_ERR if we found an issue parsing the arguments */
 int createMonitorFiltersFromArguments(client *c) {
     if (c->argc == 1) return C_OK; /* MONITOR does not have filters/arguments */
 
     initMonitorFilterForClient(c);
-    int result;
     int argi = 1; /* Next argument */
+    bool moreargs;
+    int result;
 
     while(argi < c->argc) {
-        bool moreargs = c->argc > argi+1;
+        moreargs = c->argc > argi+1;
 
         result = createMonitorFilterForCMD(c, &argi, moreargs);
         if (result == FILTER_ERR) break;
