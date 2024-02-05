@@ -2854,7 +2854,7 @@ void abortFailover(const char *err);
 const char *getFailoverStateString(void);
 int isReplicaRdbChannel(client *c);
 void abortRdbConnectionSync(void);
-int sendCurentOffsetToReplica(client* replica);
+int sendCurrentOffsetToReplica(client* replica);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

@@ -3653,7 +3653,7 @@ int rdbSaveToSlavesSocketsDirect(int req, rdbSaveInfo *rsi) {
             connSendTimeout(slave->conn, server.repl_timeout * 1000);
             /* This replica uses diskless rdb channel sync, hence we need
              * to inform it with the save end offset.*/
-            sendCurentOffsetToReplica(slave);
+            sendCurrentOffsetToReplica(slave);
         }
     }
 

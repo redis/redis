@@ -2569,7 +2569,7 @@ int prepareRdbConnectionForRdbLoad(connection *conn) {
 
 /* Send to replica End Offset response with structure
  * $ENDOFF:<rdb-conn> <master-repl-id> <current-db-id> */
-int sendCurentOffsetToReplica(client* replica) {
+int sendCurrentOffsetToReplica(client* replica) {
     char buf[128];
     int buflen;
     buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d\r\n", server.master_repl_offset, server.replid, server.db->id);
