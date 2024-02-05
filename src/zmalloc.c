@@ -644,22 +644,27 @@ size_t zmalloc_get_frag_smallbins(void) {
         size_t curregs, curslabs, reg_size;
         uint32_t nregs;
 
-        snprintf(buf,sizeof(buf),"arenas.bin.%d.size", j);
+        /* The size of the current bin */
+        snprintf(buf, sizeof(buf), "arenas.bin.%d.size", j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &reg_size, &sz, NULL, 0));
 
-        snprintf(buf,sizeof(buf),"stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curregs", j);
+        /* Number of used regions in the bin */
+        snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curregs", j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &curregs, &sz, NULL, 0));
 
-        snprintf(buf,sizeof(buf),"arenas.bin.%d.nregs", j);
+        /* Number of regions per slab */
+        snprintf(buf, sizeof(buf), "arenas.bin.%d.nregs", j);
         sz = sizeof(uint32_t);
         assert(!je_mallctl(buf, &nregs, &sz, NULL, 0));
 
-        snprintf(buf,sizeof(buf),"stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curslabs", j);
+        /* Number of current slabs in the bin */
+        snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curslabs", j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
 
+        /* Calculate the fragmentation bytes for the current bin and add it to the total. */
         frag += ((nregs * curslabs) - curregs) * reg_size;
     }
 
