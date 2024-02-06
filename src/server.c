@@ -5971,6 +5971,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "master_sync_in_progress:%d\r\n"
                 "slave_read_repl_offset:%lld\r\n"
                 "slave_repl_offset:%lld\r\n"
+                "slave_priority:%d\r\n"
+                "slave_read_only:%d\r\n"
+                "replica_announced:%d\r\n"
+                "replicas_repl_buffer_size:%zu\r\n"
+                "replicas_repl_buffer_peak:%zu\r\n"
                 ,server.masterhost,
                 server.masterport,
                 (server.repl_state == REPL_STATE_CONNECTED) ?
@@ -5979,8 +5984,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 ((int)(server.unixtime-server.master->lastinteraction)) : -1,
                 server.repl_state == REPL_STATE_TRANSFER,
                 slave_read_repl_offset,
-                slave_repl_offset
-            );
+                slave_repl_offset,
+                server.slave_priority,
+                server.repl_slave_ro,
+                server.replica_announced,
+                server.pending_repl_data.len,
+                server.pending_repl_data.peak);
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
@@ -6007,19 +6016,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
             }
-            info = sdscatprintf(info,
-                "slave_priority:%d\r\n"
-                "slave_read_only:%d\r\n"
-                "replica_announced:%d\r\n",
-                server.slave_priority,
-                server.repl_slave_ro,
-                server.replica_announced);
-
-            info = sdscatprintf(info,
-                "replicas_repl_buffer_size:%zu\r\n"
-                "replicas_repl_buffer_peak:%zu\r\n",
-                server.pending_repl_data.len,
-                server.pending_repl_data.peak);
         }
 
         info = sdscatprintf(info,

@@ -494,7 +494,7 @@ void debugCommand(client *c) {
 "    Enable or disable the reply buffer resize cron job",
 "CLUSTERLINK KILL <to|from|all> <node-id>",
 "    Kills the link based on the direction to/from (both) with the provided node." ,
-"SLEEP-AFTER-FORK <seconds>",
+"SLEEP-AFTER-FORK <micro seconds>",
 "    Stop the server's main process for <seconds> after forking.",
 NULL
         };

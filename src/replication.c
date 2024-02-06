@@ -901,7 +901,7 @@ int startBgsaveForReplication(int mincapa, int req) {
             /* Keep the page cache since it'll get used soon */
             retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
         }
-        if (server.debug_sleep_after_fork) sleep(server.debug_sleep_after_fork);
+        if (server.debug_sleep_after_fork) usleep(server.debug_sleep_after_fork);
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
@@ -1038,11 +1038,8 @@ void syncCommand(client *c) {
             server.stat_sync_partial_ok++;
             return; /* No full resync needed, return. */
         } else if (isReplicaMainChannel(c)) {
-            char buf[128];
-            int buflen;
             serverLog(LL_NOTICE,"Replica %s is marked as main-conn, and psync isn't possible. Full sync will continue with dedicated RDB connection.", replicationGetSlaveName(c));
-            buflen = snprintf(buf,sizeof(buf),"-FULLSYNCNEEDED\r\n");
-            if (connWrite(c->conn,buf,buflen) != buflen) {
+            if (connWrite(c->conn,"-FULLSYNCNEEDED\r\n",17) != 17) {
                 freeClientAsync(c);
             }
             return;
@@ -2712,12 +2709,12 @@ void replDataBufInit(void) {
 void replStreamProgressCallback(size_t offset, int readlen, time_t *last_progress_callback) {
     time_t now = mstime();
     if (server.loading_process_events_interval_bytes &&
-        (offset + readlen)/server.loading_process_events_interval_bytes > offset/server.loading_process_events_interval_bytes &&
+        (offset + readlen) / server.loading_process_events_interval_bytes > offset / server.loading_process_events_interval_bytes &&
         now - *last_progress_callback > server.loading_process_events_interval_ms)
     {
         replicationSendNewlineToMaster();
         processEventsWhileBlocked();
-        last_progress_callback = &now;
+        *last_progress_callback = now;
     }
 }
 
@@ -2771,7 +2768,8 @@ void bufferReplData(connection *conn) {
                 break;
             }
             /* Create a new node, make sure it is allocated to at least PROTO_REPLY_CHUNK_BYTES. 
-             * Use the same upper boundary as the shared replication buffer, as they share the same purpose */
+             * Use the same upper boundary as the shared replication buffer (feedReplicationBuffer), 
+             * as they share the same purpose */
             size_t usable_size;
             size_t limit = max((size_t)server.repl_backlog_size / 16, (size_t)PROTO_REPLY_CHUNK_BYTES);
             size_t size = min(max(readlen, (size_t)PROTO_REPLY_CHUNK_BYTES), limit);

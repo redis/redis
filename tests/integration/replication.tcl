@@ -1808,7 +1808,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
         $master set key1 val1
 
         $master config set repl-diskless-sync yes
-        $master debug sleep-after-fork 5;# Stop master after fork
+        $master debug sleep-after-fork [expr {5 * [expr {10 ** 6}]}];# Stop master after fork for 5 seconds
         $master config set repl-rdb-channel yes
 
         $replica config set repl-rdb-channel yes
