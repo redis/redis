@@ -5104,7 +5104,7 @@ int verifyClusterConfigWithData(void) {
 
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
-        if (dbSize(&server.db[j], DB_MAIN)) return C_ERR;
+        if (kvstoreSize(server.db[j].keys)) return C_ERR;
     }
 
     /* Check that all the slots we see populated memory have a corresponding
@@ -5140,7 +5140,7 @@ int verifyClusterConfigWithData(void) {
 
 /* Remove all the shard channel related information not owned by the current shard. */
 static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
-    if (!server.shard_channel_count) return;
+    if (!kvstoreSize(server.pubsubshard_channels)) return;
     clusterNode *currmaster = clusterNodeIsMaster(myself) ? myself : myself->slaveof;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] != currmaster) {
@@ -5734,16 +5734,17 @@ void removeChannelsInSlot(unsigned int slot) {
     pubsubShardUnsubscribeAllChannelsInSlot(slot);
 }
 
-
-
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
+    if (!kvstoreDictSize(server.db->keys, hashslot))
+        return 0;
+
     unsigned int j = 0;
 
     dictIterator *iter = NULL;
     dictEntry *de = NULL;
-    iter = dictGetSafeIterator(server.db->dict[hashslot]);
+    iter = kvstoreDictGetSafeIterator(server.db->keys, hashslot);
     while((de = dictNext(iter)) != NULL) {
         enterExecutionUnit(1, 0);
         sds sdskey = dictGetKey(de);
@@ -5768,8 +5769,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
 /* Get the count of the channels for a given slot. */
 unsigned int countChannelsInSlot(unsigned int hashslot) {
-    dict *d = server.pubsubshard_channels[hashslot];
-    return d ? dictSize(d) : 0;
+    return kvstoreDictSize(server.pubsubshard_channels, hashslot);
 }
 
 int clusterNodeIsMyself(clusterNode *n) {
@@ -5939,7 +5939,7 @@ int clusterCommandSpecial(client *c) {
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
-        if (dbSize(&server.db[0], DB_MAIN) != 0) {
+        if (kvstoreSize(server.db[0].keys) != 0) {
             addReplyError(c,"DB must be empty to perform CLUSTER FLUSHSLOTS.");
             return 1;
         }
@@ -6205,7 +6205,7 @@ int clusterCommandSpecial(client *c) {
          * slots nor keys to accept to replicate some other node.
          * Slaves can switch to another master without issues. */
         if (clusterNodeIsMaster(myself) &&
-            (myself->numslots != 0 || dbSize(&server.db[0], DB_MAIN) != 0)) {
+            (myself->numslots != 0 || kvstoreSize(server.db[0].keys) != 0)) {
             addReplyError(c,
                 "To set a master the node must be empty and "
                 "without assigned slots.");
@@ -6339,7 +6339,7 @@ int clusterCommandSpecial(client *c) {
 
         /* Slaves can be reset while containing data, but not master nodes
          * that must be empty. */
-        if (clusterNodeIsMaster(myself) && dbSize(c->db, DB_MAIN) != 0) {
+        if (clusterNodeIsMaster(myself) && kvstoreSize(c->db->keys) != 0) {
             addReplyError(c,"CLUSTER RESET can't be called with "
                             "master nodes containing keys");
             return 1;
