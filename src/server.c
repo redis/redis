@@ -1556,7 +1556,7 @@ void whileBlockedCron(void) {
      * make sure it was done. */
     serverAssert(server.blocked_last_cron);
 
-    /* In case we where called too soon, leave right away. This way one time
+    /* In case we were called too soon, leave right away. This way one time
      * jobs after the loop below don't need an if. and we don't bother to start
      * latency monitor if this function is called too often. */
     if (server.blocked_last_cron >= server.mstime)
@@ -2066,6 +2066,7 @@ void initServerConfig(void) {
     server.aof_last_incr_size = 0;
     server.aof_last_incr_fsync_offset = 0;
     server.active_defrag_running = 0;
+    server.active_defrag_configuration_changed = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
     memset(server.blocked_clients_by_type,0,
