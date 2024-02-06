@@ -238,6 +238,7 @@ start_server [list overrides [list save ""] ] {
 
     # checking LSET in case ziplist needs to be split
     test {Test LSET with packed is split in the middle} {
+        set original_config [config_get_set list-max-listpack-size 4]
         r flushdb
         r debug quicklist-packed-threshold 5b
         r RPUSH lst "aa"
@@ -245,6 +246,7 @@ start_server [list overrides [list save ""] ] {
         r RPUSH lst "cc"
         r RPUSH lst "dd"
         r RPUSH lst "ee"
+        assert_encoding quicklist lst
         r lset lst 2 [string repeat e 10]
         assert_equal [r lpop lst] "aa"
         assert_equal [r lpop lst] "bb"
@@ -252,6 +254,7 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst] "dd"
         assert_equal [r lpop lst] "ee"
         r debug quicklist-packed-threshold 0
+        r config set list-max-listpack-size $original_config
     } {OK} {needs:debug}
 
 
@@ -398,6 +401,16 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
        assert_equal [r rpop lst] "bb"
        assert_equal [read_big_bulk {r rpop lst}] $str_length
    } {} {large-memory}
+
+    test {Test LSET on plain nodes with large elements under packed_threshold over 4GB} {
+        r flushdb
+        r rpush lst a b c d e
+        for {set i 0} {$i < 5} {incr i} {
+            r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
+            write_big_bulk 1000000000
+        }
+        r ping
+    } {PONG} {large-memory}
 
    test {Test LMOVE on plain nodes over 4GB} {
        r flushdb
