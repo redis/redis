@@ -578,9 +578,7 @@ void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
     for (int i = 0; i < limit; i++) {
         int didx = kvs->resize_cursor;
         dict *d = kvstoreGetDict(kvs, didx);
-        if (!d)
-            continue;
-        if (dictShrinkIfNeeded(d) == DICT_ERR) {
+        if (d && dictShrinkIfNeeded(d) == DICT_ERR) {
             dictExpandIfNeeded(d);
         }
         kvs->resize_cursor = (didx + 1) % kvs->num_dicts;
