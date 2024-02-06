@@ -967,11 +967,13 @@ void activeDefragCycle(void) {
 
     /* Once a second, check if the fragmentation justfies starting a scan
      * or making it more aggressive. */
-    if (!server.active_defrag_configuration_changed) {
-        run_with_period(1000) {
-            computeDefragCycles();
-        }
-    } else {
+    run_with_period(1000) {
+        computeDefragCycles();
+    }
+
+    /* Normally it is checked once a second, but when there is a configuration
+     * change, we want to check it as soon as possible. */
+    if (server.active_defrag_configuration_changed) {
         computeDefragCycles();
         server.active_defrag_configuration_changed = 0;
     }
