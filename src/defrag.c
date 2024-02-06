@@ -898,7 +898,8 @@ void computeDefragCycles(void) {
             return;
     }
 
-    /* Calculate the adaptive aggressiveness of the defrag */
+    /* Calculate the adaptive aggressiveness of the defrag based on the current
+     * fragmentation and configurations. */
     int cpu_pct = INTERPOLATE(frag_pct,
             server.active_defrag_threshold_lower,
             server.active_defrag_threshold_upper,
@@ -907,10 +908,15 @@ void computeDefragCycles(void) {
     cpu_pct = LIMIT(cpu_pct,
             server.active_defrag_cycle_min,
             server.active_defrag_cycle_max);
-     /* We allow increasing the aggressiveness during a scan, but don't
-      * reduce it. */
-    if (cpu_pct > server.active_defrag_running) {
+
+    /* Normally we allow increasing the aggressiveness during a scan, but don't
+     * reduce it, since we should not lower the aggressiveness when fragmentation
+     * drops. But when a configuration is made, we should reconsider it. */
+    if (cpu_pct > server.active_defrag_running ||
+        server.active_defrag_configuration_changed)
+    {
         server.active_defrag_running = cpu_pct;
+        server.active_defrag_configuration_changed = 0;
         serverLog(LL_VERBOSE,
             "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
             frag_pct, frag_bytes, cpu_pct);
@@ -940,6 +946,7 @@ void activeDefragCycle(void) {
         if (server.active_defrag_running) {
             /* if active defrag was disabled mid-run, start from fresh next time. */
             server.active_defrag_running = 0;
+            server.active_defrag_configuration_changed = 0;
             if (db)
                 listEmpty(db->defrag_later);
             defrag_later_current_key = NULL;
@@ -963,6 +970,14 @@ void activeDefragCycle(void) {
     run_with_period(1000) {
         computeDefragCycles();
     }
+
+    /* Normally it is checked once a second, but when there is a configuration
+     * change, we want to check it as soon as possible. */
+    if (server.active_defrag_configuration_changed) {
+        computeDefragCycles();
+        server.active_defrag_configuration_changed = 0;
+    }
+
     if (!server.active_defrag_running)
         return;
 
