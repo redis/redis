@@ -684,21 +684,21 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
-        dictSetKey(db->dict[slot], de, newsds);
-        if (dbSize(db, DB_EXPIRES)) {
+        kvstoreDictSetKey(db->keys, slot, de, newsds);
+        if (kvstoreSize(db->expires)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(db->dict[slot], newsds);
-            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires[slot], keysds, hash);
-            if (expire_de) dictSetKey(db->expires[slot], expire_de, newsds);
+            uint64_t hash = kvstoreGetHash(db->keys, newsds);
+            dictEntry *expire_de = kvstoreDictFindEntryByPtrAndHash(db->expires, slot, keysds, hash);
+            if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
     }
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[slot], de, newob);
+        kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
     }
 
@@ -856,7 +856,7 @@ int defragLaterStep(redisDb *db, int slot, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(db->dict[slot], defrag_later_current_key);
+        dictEntry *de = kvstoreDictFind(db->keys, slot, defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
@@ -1022,13 +1022,12 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
             expires_cursor = 0;
-            slot = findSlotByKeyIndex(db, 1, DB_MAIN);
+            slot = kvstoreFindDictIndexByKeyIndex(db->keys, 1);
             defrag_later_item_in_progress = 0;
             ctx.db = db;
             ctx.slot = slot;
         }
         do {
-            dict *d = db->dict[slot];
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
             if (defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1038,13 +1037,14 @@ void activeDefragCycle(void) {
             if (!defrag_later_item_in_progress) {
                 /* Scan the keyspace dict unless we're scanning the expire dict. */
                 if (!expires_cursor)
-                    cursor = dictScanDefrag(d, cursor, defragScanCallback,
-                                            &defragfns, &ctx);
+                    cursor = kvstoreDictScanDefrag(db->keys, slot, cursor,
+                                                   defragScanCallback,
+                                                   &defragfns, &ctx);
                 /* When done scanning the keyspace dict, we scan the expire dict. */
                 if (!cursor)
-                    expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
-                                                    scanCallbackCountScanned,
-                                                    &defragfns, NULL);
+                    expires_cursor = kvstoreDictScanDefrag(db->expires, slot, expires_cursor,
+                                                           scanCallbackCountScanned,
+                                                           &defragfns, NULL);
             }
             if (!(cursor || expires_cursor)) {
                 /* Move to the next slot only if regular and large item scanning has been completed. */
@@ -1052,7 +1052,7 @@ void activeDefragCycle(void) {
                     defrag_later_item_in_progress = 1;
                     continue;
                 }
-                slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
+                slot = kvstoreGetNextNonEmptyDictIndex(db->keys, slot);
                 defrag_later_item_in_progress = 0;
                 ctx.slot = slot;
             }

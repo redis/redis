@@ -817,7 +817,7 @@ static int shouldReturnTlsInfo(void) {
 }
 
 unsigned int countKeysInSlot(unsigned int slot) {
-    return dictSize(server.db->dict[slot]);
+    return kvstoreDictSize(server.db->keys, slot);
 }
 
 void clusterCommandHelp(client *c) {
@@ -919,7 +919,7 @@ void clusterCommand(client *c) {
         addReplyArrayLen(c,numkeys);
         dictIterator *iter = NULL;
         dictEntry *de = NULL;
-        iter = dictGetIterator(server.db->dict[slot]);
+        iter = kvstoreDictGetIterator(server.db->keys, slot);
         for (unsigned int i = 0; i < numkeys; i++) {
             de = dictNext(iter);
             serverAssert(de != NULL);
