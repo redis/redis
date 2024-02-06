@@ -34,8 +34,6 @@
  */
 
 #include "server.h"
-#include "cluster.h"
-#include <time.h>
 #include <stddef.h>
 
 #ifdef HAVE_DEFRAG
@@ -148,7 +146,7 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
- * struct itself was moved. Returns a stat of how many pointers were moved. */
+ * struct itself was moved. */
 void dictDefragTables(dict* d) {
     dictEntry **newtable;
     /* handle the first hash table */
@@ -672,8 +670,7 @@ void defragModule(redisDb *db, dictEntry *kde) {
 }
 
 /* for each key we scan in the main dict, this function will attempt to defrag
- * all the various pointers it has. Returns a stat of how many pointers were
- * moved. */
+ * all the various pointers it has. */
 void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
