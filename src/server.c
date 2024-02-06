@@ -2053,6 +2053,7 @@ void initServerConfig(void) {
     server.cached_master = NULL;
     server.master_initial_offset = -1;
     server.repl_state = REPL_STATE_NONE;
+    server.repl_rdb_conn_state = REPL_RDB_CONN_STATE_NONE;
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
     server.repl_transfer_s = NULL;

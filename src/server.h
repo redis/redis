@@ -453,16 +453,16 @@ typedef enum {
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
     /* --- End of handshake states --- */
     REPL_STATE_TRANSFER,        /* Receiving .rdb from master */
-    /* --- RDB channel related states --- */
+    REPL_STATE_CONNECTED,       /* Connected to master */
+} repl_state;
+
+typedef enum {
+    REPL_RDB_CONN_STATE_NONE = 0,            /* No active replication */
     REPL_RDB_CONN_SEND_CAPA,    /* Send replica cob-channel capabilities */
     REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY,   /* Wait for REPLCONF reply */
     REPL_RDB_CONN_RECEIVE_ENDOFF,           /* Wait for $ENDOFF reply */
-    REPL_RDB_CONN_SEND_PSYNC,          /* Same as REPL_STATE_SEND_PSYNC but during RDB load */
-    REPL_RDB_CONN_RECEIVE_PSYNC_REPLY, /* Same as REPL_STATE_RECEIVE_PSYNC_REPLY but during RDB load */
-    REPL_RDB_CONN_TWO_CONNECTIONS_ACTIVE, /* Replica's main connection is partial syncing while it's RDB connection loading the RDB */
-    /* --- Replication steady state ---*/
-    REPL_STATE_CONNECTED,       /* Connected to master */
-} repl_state;
+    REPL_RDB_CONN_RDB_LOADED,
+} repl_rdb_conn_state;
 
 /* The state of an in progress coordinated failover */
 typedef enum {
@@ -1910,6 +1910,7 @@ struct redisServer {
     client *cached_master; /* Cached master to be reused for PSYNC. */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */
+    int repl_rdb_conn_state; /* State of the replica's rdb channel during rdb-channel sync */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
