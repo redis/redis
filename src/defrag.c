@@ -685,11 +685,11 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     newsds = activeDefragSds(keysds);
     if (newsds) {
         kvstoreDictSetKey(db->keys, slot, de, newsds);
-        if (kvstoreSize(db->expires)) {
+        if (kvstoreDictSize(db->expires, slot)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = kvstoreGetHash(db->keys, newsds);
+            uint64_t hash = kvstoreGetHash(db->expires, newsds);
             dictEntry *expire_de = kvstoreDictFindEntryByPtrAndHash(db->expires, slot, keysds, hash);
             if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
