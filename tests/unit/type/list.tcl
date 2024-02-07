@@ -391,6 +391,16 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
             r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
             write_big_bulk 1000000000
         }
+        assert_equal "PONG" [r ping]
+
+        r flushdb
+        r rpush lst [string repeat "x" 4096]
+        r lpush lst a b c d e f g
+        r lpush lst [string repeat "y" 4096]
+        for {set i 7} {$i >= 3} {incr i -1} {
+            r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
+            write_big_bulk 1000000000
+        }
         r ping
     } {PONG} {large-memory}
 
