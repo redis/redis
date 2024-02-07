@@ -659,8 +659,10 @@ void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_di)
 /* Get the next element of the dict through kvstoreDictIterator and dictNext. */
 dictEntry *kvstoreDictIteratorNext(kvstoreDictIterator *kvs_di)
 {
-    dictEntry *de = kvs_di->di.d ? dictNext(&kvs_di->di) : NULL;
-    return de;
+    dict *d = kvstoreGetDict(kvs_di->kvs, kvs_di->didx);
+    if (!d) return NULL;
+
+    return dictNext(&kvs_di->di);
 }
 
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx)
