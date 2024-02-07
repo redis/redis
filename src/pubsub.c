@@ -329,9 +329,9 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     if (!kvstoreDictSize(server.pubsubshard_channels, slot))
         return;
 
-    dictIterator *di = kvstoreDictGetSafeIterator(server.pubsubshard_channels, slot);
+    kvstoreDictIterator *kvs_di = kvstoreGetDictSafeIterator(server.pubsubshard_channels, slot);
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    while ((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
         /* For each client subscribed to the channel, unsubscribe it. */
@@ -354,7 +354,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
          * We break out without calling dictNext. */
         if (!kvstoreDictExists(server.pubsubshard_channels, slot)) break;
     }
-    kvstoreDictReleaseIterator(server.pubsubshard_channels, slot, di);
+    kvstoreReleaseDictIterator(kvs_di);
 }
 
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
@@ -697,9 +697,9 @@ void channelList(client *c, sds pat, kvstore *pubsub_channels) {
     for (unsigned int i = 0; i < slot_cnt; i++) {
         if (!kvstoreDictSize(pubsub_channels, i))
             continue;
-        dictIterator *di = kvstoreDictGetIterator(pubsub_channels, i);
+        kvstoreDictIterator *kvs_di = kvstoreGetDictIterator(pubsub_channels, i);
         dictEntry *de;
-        while((de = dictNext(di)) != NULL) {
+        while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
             robj *cobj = dictGetKey(de);
             sds channel = cobj->ptr;
 
@@ -710,7 +710,7 @@ void channelList(client *c, sds pat, kvstore *pubsub_channels) {
                 mblen++;
             }
         }
-        dictReleaseIterator(di);
+        kvstoreReleaseDictIterator(kvs_di);
     }
     setDeferredArrayLen(c,replylen,mblen);
 }

@@ -5742,10 +5742,10 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
     unsigned int j = 0;
 
-    dictIterator *iter = NULL;
+    kvstoreDictIterator *kvs_di = NULL;
     dictEntry *de = NULL;
-    iter = kvstoreDictGetSafeIterator(server.db->keys, hashslot);
-    while((de = dictNext(iter)) != NULL) {
+    kvs_di = kvstoreGetDictSafeIterator(server.db->keys, hashslot);
+    while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
         enterExecutionUnit(1, 0);
         sds sdskey = dictGetKey(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
@@ -5762,7 +5762,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
-    kvstoreDictReleaseIterator(server.db->keys, hashslot, iter);
+    kvstoreReleaseDictIterator(kvs_di);
 
     return j;
 }

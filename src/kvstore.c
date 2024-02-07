@@ -71,6 +71,13 @@ struct _kvstoreIterator {
     dictIterator di;
 };
 
+/* Structure for kvstore dict iterator that allows iterating the corresponding dict. */
+struct _kvstoreDictIterator {
+    kvstore *kvs;
+    long long didx;
+    dictIterator di;
+};
+
 /* Dict metadata for database, used for record the position in rehashing list. */
 typedef struct {
     listNode *rehashing_node;   /* list node in rehashing list */
@@ -537,7 +544,7 @@ kvstoreIterator *kvstoreIteratorInit(kvstore *kvs) {
     return kvs_it;
 }
 
-/* Free the dbit returned by kvstoreIteratorInit. */
+/* Free the kvs_it returned by kvstoreIteratorInit. */
 void kvstoreIteratorRelease(kvstoreIterator *kvs_it) {
     dictIterator *iter = &kvs_it->di;
     dictResetIterator(iter);
@@ -629,24 +636,38 @@ unsigned long kvstoreDictSize(kvstore *kvs, int didx)
     return dictSize(d);
 }
 
-dictIterator *kvstoreDictGetIterator(kvstore *kvs, int didx)
+kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx)
 {
-    dict *d = kvstoreGetDict(kvs, didx);
-    return dictGetIterator(d);
+    kvstoreDictIterator *kvs_di = zmalloc(sizeof(*kvs_di));
+    kvs_di->kvs = kvs;
+    kvs_di->didx = didx;
+    dictInitIterator(&kvs_di->di, kvstoreGetDict(kvs, didx));
+    return kvs_di;
 }
 
-dictIterator *kvstoreDictGetSafeIterator(kvstore *kvs, int didx)
+kvstoreDictIterator *kvstoreGetDictSafeIterator(kvstore *kvs, int didx)
 {
-    dict *d = kvstoreGetDict(kvs, didx);
-    return dictGetSafeIterator(d);
+    kvstoreDictIterator *kvs_di = zmalloc(sizeof(*kvs_di));
+    kvs_di->kvs = kvs;
+    kvs_di->didx = didx;
+    dictInitSafeIterator(&kvs_di->di, kvstoreGetDict(kvs, didx));
+    return kvs_di;
 }
 
-/* Reset the iterator and free the iterator. */
-void kvstoreDictReleaseIterator(kvstore *kvs, int didx, dictIterator *iter)
+/* Free the kvs_di returned by kvstoreGetDictIterator and kvstoreGetDictSafeIterator. */
+void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_di)
 {
     /* The dict may be deleted during the iteration process, so here need to check for NULL. */
-    if (kvstoreDictExists(kvs, didx)) dictResetIterator(iter);
-    dictFreeIterator(iter);
+    if (kvstoreDictExists(kvs_di->kvs, kvs_di->didx)) dictResetIterator(&kvs_di->di);
+
+    zfree(kvs_di);
+}
+
+/* Get the next element of the dict through kvstoreDictIterator and dictNext. */
+dictEntry *kvstoreDictIteratorNext(kvstoreDictIterator *kvs_di)
+{
+    dictEntry *de = kvs_di->di.d ? dictNext(&kvs_di->di) : NULL;
+    return de;
 }
 
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx)
