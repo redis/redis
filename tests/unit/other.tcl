@@ -381,7 +381,7 @@ start_server {tags {"other external:skip"}} {
         } else {
             fail "hash table did not rehash after child process killed"
         }
-    } {} {needs:debug}
+    } {} {needs:debug needs:local-process}
 }
 
 proc read_proc_title {pid} {
