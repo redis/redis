@@ -32,7 +32,34 @@ start_server {tags {"introspection"}} {
         assert_error "ERR No such user*" {r client kill user wrong_user}
 
         assert_error "ERR syntax error*" {r client kill skipme yes_or_no}
+
+        assert_error "ERR *not an integer or out of range*" {r client kill maxage str}
+        assert_error "ERR *not an integer or out of range*" {r client kill maxage 9999999999999999999}
+        assert_error "ERR *greater than 0*" {r client kill maxage -1}
     }
+
+    test {CLIENT KILL maxAGE will kill old clients} {
+        set rd1 [redis_deferring_client]
+        r debug sleep 2
+        set rd2 [redis_deferring_client]
+
+        r acl setuser dummy on nopass +ping
+        $rd1 auth dummy ""
+        $rd1 read
+        $rd2 auth dummy ""
+        $rd2 read
+
+        # Should kill rd1 but not rd2
+        set res [r client kill user dummy maxage 1]
+        assert {$res == 1}
+
+        # rd2 should still be connected
+        $rd2 ping
+        assert_equal "PONG" [$rd2 read]
+
+        $rd1 close
+        $rd2 close
+    } {0} {"needs:debug"}
 
     test {CLIENT KILL SKIPME YES/NO will kill all clients} {
         # Kill all clients except `me`
@@ -407,6 +434,10 @@ start_server {tags {"introspection"}} {
             replicaof
             slaveof
             requirepass
+            server-cpulist
+            bio-cpulist
+            aof-rewrite-cpulist
+            bgsave-cpulist
             server_cpulist
             bio_cpulist
             aof_rewrite_cpulist

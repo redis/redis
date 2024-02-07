@@ -179,6 +179,7 @@ start_server [list overrides [list save ""] ] {
 
     # checking LSET in case ziplist needs to be split
     test {Test LSET with packed is split in the middle} {
+        set original_config [config_get_set list-max-listpack-size 4]
         r flushdb
         r debug quicklist-packed-threshold 5b
         r RPUSH lst "aa"
@@ -186,6 +187,7 @@ start_server [list overrides [list save ""] ] {
         r RPUSH lst "cc"
         r RPUSH lst "dd"
         r RPUSH lst "ee"
+        assert_encoding quicklist lst
         r lset lst 2 [string repeat e 10]
         assert_equal [r lpop lst] "aa"
         assert_equal [r lpop lst] "bb"
@@ -193,6 +195,7 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst] "dd"
         assert_equal [r lpop lst] "ee"
         r debug quicklist-packed-threshold 0
+        r config set list-max-listpack-size $original_config
     } {OK} {needs:debug}
 
 
@@ -1154,6 +1157,34 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         r debug set-active-expire 1
         r select 9
     } {OK} {singledb:skip needs:debug}
+
+    test {BLPOP unblock but the key is expired and then block again - reprocessing command} {
+        r flushall
+        r debug set-active-expire 0
+        set rd [redis_deferring_client]
+
+        set start [clock milliseconds]
+        $rd blpop mylist 1
+        wait_for_blocked_clients_count 1
+
+        # The exec will try to awake the blocked client, but the key is expired,
+        # so the client will be blocked again during the command reprocessing.
+        r multi
+        r rpush mylist a
+        r pexpire mylist 100
+        r debug sleep 0.2
+        r exec
+
+        assert_equal {} [$rd read]
+        set end [clock milliseconds]
+
+        # In the past, this time would have been 1000+200, in order to avoid
+        # timing issues, we increase the range a bit.
+        assert_range [expr $end-$start] 1000 1100
+
+        r debug set-active-expire 1
+        $rd close
+    } {0} {needs:debug}
 
 foreach {pop} {BLPOP BLMPOP_LEFT} {
     test "$pop when new key is moved into place" {

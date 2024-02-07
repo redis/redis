@@ -475,7 +475,7 @@ start_server {
         $rd close 
     }
 
-    test {Blocking XREADGROUP for stream key that has clients blocked on list - avoid endless loop} {
+    test {Blocking XREADGROUP for stream key that has clients blocked on stream - avoid endless loop} {
         r DEL mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
 
@@ -496,6 +496,34 @@ start_server {
         $rd3 close
 
         assert_equal [r ping] {PONG}
+    }
+
+    test {Blocking XREADGROUP for stream key that has clients blocked on stream - reprocessing command} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $rd1 xreadgroup GROUP mygroup myuser BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+
+        set start [clock milliseconds]
+        $rd2 xreadgroup GROUP mygroup myuser BLOCK 1000 STREAMS mystream >
+        wait_for_blocked_clients_count 2
+
+        # After a while call xadd and let rd2 re-process the command.
+        after 200
+        r xadd mystream * field value
+        assert_equal {} [$rd2 read]
+        set end [clock milliseconds]
+
+        # In the past, this time would have been 1000+200, in order to avoid
+        # timing issues, we increase the range a bit.
+        assert_range [expr $end-$start] 1000 1100
+
+        $rd1 close
+        $rd2 close
     }
 
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {

@@ -34,8 +34,6 @@
  */
 
 #include "server.h"
-#include "cluster.h"
-#include <time.h>
 #include <stddef.h>
 
 #ifdef HAVE_DEFRAG
@@ -148,7 +146,7 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
- * struct itself was moved. Returns a stat of how many pointers were moved. */
+ * struct itself was moved. */
 void dictDefragTables(dict* d) {
     dictEntry **newtable;
     /* handle the first hash table */
@@ -672,8 +670,7 @@ void defragModule(redisDb *db, dictEntry *kde) {
 }
 
 /* for each key we scan in the main dict, this function will attempt to defrag
- * all the various pointers it has. Returns a stat of how many pointers were
- * moved. */
+ * all the various pointers it has. */
 void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
@@ -684,21 +681,21 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
-        dictSetKey(db->dict[slot], de, newsds);
-        if (dbSize(db, DB_EXPIRES)) {
+        kvstoreDictSetKey(db->keys, slot, de, newsds);
+        if (kvstoreDictSize(db->expires, slot)) {
             /* We can't search in db->expires for that key after we've released
              * the pointer it holds, since it won't be able to do the string
              * compare, but we can find the entry using key hash and pointer. */
-            uint64_t hash = dictGetHash(db->dict[slot], newsds);
-            dictEntry *expire_de = dictFindEntryByPtrAndHash(db->expires[slot], keysds, hash);
-            if (expire_de) dictSetKey(db->expires[slot], expire_de, newsds);
+            uint64_t hash = kvstoreGetHash(db->expires, newsds);
+            dictEntry *expire_de = kvstoreDictFindEntryByPtrAndHash(db->expires, slot, keysds, hash);
+            if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
     }
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     if ((newob = activeDefragStringOb(ob))) {
-        dictSetVal(db->dict[slot], de, newob);
+        kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
     }
 
@@ -856,7 +853,7 @@ int defragLaterStep(redisDb *db, int slot, long long endtime) {
         }
 
         /* each time we enter this function we need to fetch the key from the dict again (if it still exists) */
-        dictEntry *de = dictFind(db->dict[slot], defrag_later_current_key);
+        dictEntry *de = kvstoreDictFind(db->keys, slot, defrag_later_current_key);
         key_defragged = server.stat_active_defrag_hits;
         do {
             int quit = 0;
@@ -901,7 +898,8 @@ void computeDefragCycles(void) {
             return;
     }
 
-    /* Calculate the adaptive aggressiveness of the defrag */
+    /* Calculate the adaptive aggressiveness of the defrag based on the current
+     * fragmentation and configurations. */
     int cpu_pct = INTERPOLATE(frag_pct,
             server.active_defrag_threshold_lower,
             server.active_defrag_threshold_upper,
@@ -910,10 +908,15 @@ void computeDefragCycles(void) {
     cpu_pct = LIMIT(cpu_pct,
             server.active_defrag_cycle_min,
             server.active_defrag_cycle_max);
-     /* We allow increasing the aggressiveness during a scan, but don't
-      * reduce it. */
-    if (cpu_pct > server.active_defrag_running) {
+
+    /* Normally we allow increasing the aggressiveness during a scan, but don't
+     * reduce it, since we should not lower the aggressiveness when fragmentation
+     * drops. But when a configuration is made, we should reconsider it. */
+    if (cpu_pct > server.active_defrag_running ||
+        server.active_defrag_configuration_changed)
+    {
         server.active_defrag_running = cpu_pct;
+        server.active_defrag_configuration_changed = 0;
         serverLog(LL_VERBOSE,
             "Starting active defrag, frag=%.0f%%, frag_bytes=%zu, cpu=%d%%",
             frag_pct, frag_bytes, cpu_pct);
@@ -943,6 +946,7 @@ void activeDefragCycle(void) {
         if (server.active_defrag_running) {
             /* if active defrag was disabled mid-run, start from fresh next time. */
             server.active_defrag_running = 0;
+            server.active_defrag_configuration_changed = 0;
             if (db)
                 listEmpty(db->defrag_later);
             defrag_later_current_key = NULL;
@@ -966,6 +970,14 @@ void activeDefragCycle(void) {
     run_with_period(1000) {
         computeDefragCycles();
     }
+
+    /* Normally it is checked once a second, but when there is a configuration
+     * change, we want to check it as soon as possible. */
+    if (server.active_defrag_configuration_changed) {
+        computeDefragCycles();
+        server.active_defrag_configuration_changed = 0;
+    }
+
     if (!server.active_defrag_running)
         return;
 
@@ -1022,13 +1034,12 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             cursor = 0;
             expires_cursor = 0;
-            slot = findSlotByKeyIndex(db, 1, DB_MAIN);
+            slot = kvstoreFindDictIndexByKeyIndex(db->keys, 1);
             defrag_later_item_in_progress = 0;
             ctx.db = db;
             ctx.slot = slot;
         }
         do {
-            dict *d = db->dict[slot];
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
             if (defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1038,13 +1049,14 @@ void activeDefragCycle(void) {
             if (!defrag_later_item_in_progress) {
                 /* Scan the keyspace dict unless we're scanning the expire dict. */
                 if (!expires_cursor)
-                    cursor = dictScanDefrag(d, cursor, defragScanCallback,
-                                            &defragfns, &ctx);
+                    cursor = kvstoreDictScanDefrag(db->keys, slot, cursor,
+                                                   defragScanCallback,
+                                                   &defragfns, &ctx);
                 /* When done scanning the keyspace dict, we scan the expire dict. */
                 if (!cursor)
-                    expires_cursor = dictScanDefrag(db->expires[slot], expires_cursor,
-                                                    scanCallbackCountScanned,
-                                                    &defragfns, NULL);
+                    expires_cursor = kvstoreDictScanDefrag(db->expires, slot, expires_cursor,
+                                                           scanCallbackCountScanned,
+                                                           &defragfns, NULL);
             }
             if (!(cursor || expires_cursor)) {
                 /* Move to the next slot only if regular and large item scanning has been completed. */
@@ -1052,7 +1064,8 @@ void activeDefragCycle(void) {
                     defrag_later_item_in_progress = 1;
                     continue;
                 }
-                slot = dbGetNextNonEmptySlot(db, slot, DB_MAIN);
+                slot = kvstoreGetNextNonEmptyDictIndex(db->keys, slot);
+                defrag_later_item_in_progress = 0;
                 ctx.slot = slot;
             }
     

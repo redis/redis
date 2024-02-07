@@ -272,6 +272,10 @@ proc test_scan {type} {
 
             set keys2 [lsort -unique $keys2]
             assert_equal $count [llength $keys2]
+
+            # Test NOVALUES 
+            set res [r hscan hash 0 count 1000 novalues]
+            assert_equal [lsort $keys2] [lsort [lindex $res 1]]
         }
     }
 
@@ -368,6 +372,13 @@ proc test_scan {type} {
         lsort -unique [lindex $res 1]
     } {1 10 foo foobar}
 
+    test "{$type} HSCAN with NOVALUES" {
+        r del mykey
+        r hmset mykey foo 1 fab 2 fiz 3 foobar 10 1 a 2 b 3 c 4 d
+        set res [r hscan mykey 0 NOVALUES]
+        lsort -unique [lindex $res 1]
+    } {1 2 3 4 fab fiz foo foobar}
+
     test "{$type} ZSCAN with PATTERN" {
         r del mykey
         r zadd mykey 1 foo 2 fab 3 fiz 10 foobar
@@ -429,6 +440,30 @@ proc test_scan {type} {
                 }
             }
         }
+    }
+
+    test "{$type} SCAN MATCH pattern implies cluster slot" {
+        # Tests the code path for an optimization for patterns like "{foo}-*"
+        # which implies that all matching keys belong to one slot.
+        r flushdb
+        for {set j 0} {$j < 100} {incr j} {
+            r set "{foo}-$j" "foo"; # slot 12182
+            r set "{bar}-$j" "bar"; # slot 5061
+            r set "{boo}-$j" "boo"; # slot 13142
+        }
+
+        set cursor 0
+        set keys {}
+        while 1 {
+            set res [r scan $cursor match "{foo}-*"]
+            set cursor [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cursor == 0} break
+        }
+
+        set keys [lsort -unique $keys]
+        assert_equal 100 [llength $keys]
     }
 }
 
