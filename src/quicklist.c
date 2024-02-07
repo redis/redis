@@ -101,7 +101,7 @@ quicklistBookmark *_quicklistBookmarkFindByNode(quicklist *ql, quicklistNode *no
 void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 
 quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset, int after);
-void _quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
+quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
 
 /* Simple way to give quicklistEntry structs default values with one call. */
 #define initEntry(e)                                                           \
@@ -807,9 +807,9 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
             unsigned char *p = lpSeek(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
             entry->node->dont_compress = 0; /* Re-enable compression */
-            _quicklistMergeNodes(quicklist, entry->node);
-            quicklistCompress(quicklist, entry->node);
-            quicklistCompress(quicklist, entry->node->next);
+            quicklistNode *merged_node = _quicklistMergeNodes(quicklist, entry->node);
+            quicklistCompress(quicklist, merged_node);
+            quicklistCompress(quicklist, merged_node->next);
         }
     }
 
@@ -886,7 +886,7 @@ REDIS_STATIC quicklistNode *_quicklistListpackMerge(quicklist *quicklist,
  *   - (center->prev, center)
  *   - (center, center->next)
  */
-REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
+REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist,
                                        quicklistNode *center) {
     int fill = quicklist->fill;
     quicklistNode *prev, *prev_prev, *next, *next_next, *target;
@@ -929,6 +929,7 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
     if (_quicklistNodeAllowMerge(target, target->next, fill)) {
         _quicklistListpackMerge(quicklist, target, target->next);
     }
+    return target;
 }
 
 /* Split 'node' into two parts, parameterized by 'offset' and 'after'.
