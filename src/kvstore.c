@@ -220,13 +220,6 @@ static size_t kvstoreDictMetadataSize(dict *d) {
 /*** API **************************/
 /**********************************/
 
-/* Returns 1 if the corresponding dictionary exists, otherwise returns 0. */
-int kvstoreDictExists(kvstore *kvs, int didx)
-{
-    dict *d = kvstoreGetDict(kvs, didx);
-    return (d != NULL) ? 1 : 0;
-}
-
 /* Create an array of dictionaries
  * num_dicts_bits is the log2 of the amount of dictionaries needed (e.g. 0 for 1 dict,
  * 3 for 8 dicts, etc.) */
@@ -658,7 +651,7 @@ kvstoreDictIterator *kvstoreGetDictSafeIterator(kvstore *kvs, int didx)
 void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_di)
 {
     /* The dict may be deleted during the iteration process, so here need to check for NULL. */
-    if (kvstoreDictExists(kvs_di->kvs, kvs_di->didx)) dictResetIterator(&kvs_di->di);
+    if (kvstoreGetDict(kvs_di->kvs, kvs_di->didx)) dictResetIterator(&kvs_di->di);
 
     zfree(kvs_di);
 }

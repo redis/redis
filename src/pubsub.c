@@ -352,7 +352,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         kvstoreDictDelete(server.pubsubshard_channels, slot, channel);
         /* After the dict becomes empty, the dict will be deleted.
          * We break out without calling dictNext. */
-        if (!kvstoreDictExists(server.pubsubshard_channels, slot)) break;
+        if (!kvstoreDictSize(server.pubsubshard_channels, slot)) break;
     }
     kvstoreReleaseDictIterator(kvs_di);
 }
