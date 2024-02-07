@@ -360,7 +360,7 @@ start_server {tags {"other external:skip"}} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
 
-        populate 4096 "" 1
+        populate 4095 "" 1
         r bgsave
         wait_for_condition 10 100 {
             [s rdb_bgsave_in_progress] eq 1
@@ -375,7 +375,7 @@ start_server {tags {"other external:skip"}} {
         waitForBgsave r
 
         # Hash table should rehash since there is no child process,
-        # size is power of two and over 4098, so it is 8192
+        # size is power of two and over 4096, so it is 8192
         wait_for_condition 50 100 {
             [string match "*table size: 8192*" [r debug HTSTATS 9]]
         } else {
