@@ -917,16 +917,16 @@ void clusterCommand(client *c) {
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        dictIterator *iter = NULL;
+        kvstoreDictIterator *kvs_di = NULL;
         dictEntry *de = NULL;
-        iter = kvstoreDictGetIterator(server.db->keys, slot);
+        kvs_di = kvstoreGetDictIterator(server.db->keys, slot);
         for (unsigned int i = 0; i < numkeys; i++) {
-            de = dictNext(iter);
+            de = kvstoreDictIteratorNext(kvs_di);
             serverAssert(de != NULL);
             sds sdskey = dictGetKey(de);
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
         }
-        dictReleaseIterator(iter);
+        kvstoreReleaseDictIterator(kvs_di);
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
