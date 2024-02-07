@@ -461,6 +461,7 @@ typedef enum {
     REPL_RDB_CONN_SEND_CAPA,    /* Send replica cob-channel capabilities */
     REPL_RDB_CONN_RECEIVE_REPLCONF_REPLY,   /* Wait for REPLCONF reply */
     REPL_RDB_CONN_RECEIVE_ENDOFF,           /* Wait for $ENDOFF reply */
+    REPL_RDB_CONN_RDB_LOAD,                 /* Loading rdb using rdb channel */
     REPL_RDB_CONN_RDB_LOADED,
 } repl_rdb_conn_state;
 

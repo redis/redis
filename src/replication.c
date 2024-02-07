@@ -52,7 +52,8 @@ int cancelReplicationHandshake(int reconnect);
 void syncWithMaster(connection *conn);
 void replicationSteadyStateInit(void);
 void setupMainConnForPsync(connection *conn);
-void completeTaskRDBChannelSync(connection *conn);
+void completeTaskRDBChannelSyncMainConn(connection *conn);
+void completeTaskRDBChannelSyncRdbConn(connection *conn);
 int isReplicaMainChannel(client *c);
 int isReplicaRdbChannel(client *c);
 void replicationAbortSyncTransfer(void);
@@ -2348,7 +2349,7 @@ void readSyncBulkPayload(connection *conn) {
     if (isRdbConnection(conn)) {
         /* In case of full-sync using rdb channel, the master client was already created for psync purposes
          * Instead of creating a new client we will use the one created for partial sync */
-        completeTaskRDBChannelSync(conn);
+        completeTaskRDBChannelSyncRdbConn(conn);
     } else {
         replicationCreateMasterClient(server.repl_transfer_s, rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
@@ -2661,6 +2662,7 @@ void fullSyncWithMaster(connection* conn) {
         if (prepareRdbConnectionForRdbLoad(server.repl_rdb_transfer_s) == C_ERR) {
             goto error;
         }
+        server.repl_rdb_conn_state = REPL_RDB_CONN_RDB_LOAD;
         return;
     }
 
@@ -2800,50 +2802,7 @@ void streamReplDataBufToDb(client *c) {
     blockingOperationEnds();
 }
 
-/* There are two scenarios in which this method can be called during rdb-channel-sync:
- * 1. Main connection successfully established psync with master.
- * 2. Rdb connection done loading rdb. 
- *
- * The 'conn' argument is either server.repl_transfer_s or server.repl_rdb_transfer_s.
- * Each time this method is invoked, we check whether the other connection has completed
- * its part and act accordingly. */
-void completeTaskRDBChannelSync(connection *conn) {
-    if (conn == server.repl_transfer_s) {
-        /* Main connection */
-        if (server.repl_state == REPL_STATE_RECEIVE_PSYNC_REPLY && server.repl_rdb_conn_state < REPL_RDB_CONN_RDB_LOADED) {
-            /* RDB is still loading */
-            server.repl_state = REPL_STATE_TRANSFER;
-            if (connSetReadHandler(server.repl_provisional_master.conn, bufferReplData)) {
-                serverLog(LL_WARNING,"Error while setting readable handler: %s", strerror(errno));
-                abortRdbConnectionSync();
-            }
-            replDataBufInit();
-            return;
-        }
-        if (server.repl_state == REPL_STATE_RECEIVE_PSYNC_REPLY && server.repl_rdb_conn_state == REPL_RDB_CONN_RDB_LOADED) {
-            /* RDB is loaded */
-            serverLog(LL_DEBUG, "RDB channel sync - psync established after rdb load");
-            goto sync_success;
-        }
-        serverPanic("Unrecognized replication state %d using main connection", server.repl_state);
-    } 
-    if (conn == server.repl_rdb_transfer_s) {
-        /* RDB connection */
-        if (server.repl_state < REPL_STATE_TRANSFER) {
-            /* Main psync connection hasn't been established yet */
-            server.repl_rdb_conn_state = REPL_RDB_CONN_RDB_LOADED;
-            return;
-        }
-        if (server.repl_state == REPL_STATE_TRANSFER) {
-            server.repl_rdb_conn_state = REPL_RDB_CONN_STATE_NONE;
-            connSetReadHandler(server.repl_transfer_s, NULL);
-            goto sync_success;
-        }
-        serverPanic("Unrecognized replication state %d using rdb connection", server.repl_state);
-    }
-    serverPanic("Unknown connection %d", conn->fd);
-    
-    sync_success:
+void rdbChannelSyncSuccess(void) {
     replicationResurrectProvisionalMaster();
     /* Wait for the accumulated buffer to be processed before reading any more replication updates */
     if (server.pending_repl_data.blocks) streamReplDataBufToDb(server.master);
@@ -2852,6 +2811,48 @@ void completeTaskRDBChannelSync(connection *conn) {
     /* We can resume reading from the master connection once the local replication buffer has been loaded. */
     replicationSteadyStateInit();
     replicationSendAck(); /* Send ACK to notify primary that replica is synced */
+}
+
+/* Main connection successfully established psync with master. The 'conn' argument must be the
+ * main connection. Check whether the rdb connection has completed its part and act accordingly. */
+void completeTaskRDBChannelSyncMainConn(connection *conn) {
+    serverAssert(conn == server.repl_transfer_s && server.repl_state == REPL_STATE_RECEIVE_PSYNC_REPLY);
+    if (server.repl_rdb_conn_state < REPL_RDB_CONN_RDB_LOADED) {
+        /* RDB is still loading */
+        if (connSetReadHandler(server.repl_provisional_master.conn, bufferReplData)) {
+            serverLog(LL_WARNING,"Error while setting readable handler: %s", strerror(errno));
+            abortRdbConnectionSync();
+        }
+        replDataBufInit();
+        server.repl_state = REPL_STATE_TRANSFER;
+        return;
+    }
+    if (server.repl_rdb_conn_state == REPL_RDB_CONN_RDB_LOADED) {
+        /* RDB is loaded */
+        serverLog(LL_DEBUG, "RDB channel sync - psync established after rdb load");
+        rdbChannelSyncSuccess();
+        return;
+    }
+    serverPanic("Unrecognized rdb channel replication state %d", server.repl_rdb_conn_state);
+}
+
+/* Rdb connection done loading rdb. The 'conn' argument must be the rdb connection. Check whether the
+ * main connection has completed its part and act accordingly. */
+void completeTaskRDBChannelSyncRdbConn(connection *conn) {
+    serverAssert(conn == server.repl_rdb_transfer_s && server.repl_rdb_conn_state == REPL_RDB_CONN_RDB_LOAD);
+    /* RDB connection */
+    if (server.repl_state < REPL_STATE_TRANSFER) {
+        /* Main psync connection hasn't been established yet */
+        server.repl_rdb_conn_state = REPL_RDB_CONN_RDB_LOADED;
+        return;
+    }
+    if (server.repl_state == REPL_STATE_TRANSFER) {
+        connSetReadHandler(server.repl_transfer_s, NULL);
+        rdbChannelSyncSuccess();
+        server.repl_rdb_conn_state = REPL_RDB_CONN_STATE_NONE;
+        return;
+    }
+    serverPanic("Unrecognized replication state %d using rdb connection", server.repl_state);
 }
 
 /* Try a partial resynchronization with the master if we are about to reconnect.
@@ -3115,7 +3116,7 @@ void setupMainConnForPsync(connection *conn) {
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
         }
-        completeTaskRDBChannelSync(conn);
+        completeTaskRDBChannelSyncMainConn(conn);
         return;
     }
 
