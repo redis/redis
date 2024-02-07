@@ -659,6 +659,7 @@ void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_di)
 /* Get the next element of the dict through kvstoreDictIterator and dictNext. */
 dictEntry *kvstoreDictIteratorNext(kvstoreDictIterator *kvs_di)
 {
+    /* The dict may be deleted during the iteration process, so here need to check for NULL. */
     dict *d = kvstoreGetDict(kvs_di->kvs, kvs_di->didx);
     if (!d) return NULL;
 
