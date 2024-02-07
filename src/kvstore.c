@@ -80,6 +80,7 @@ typedef struct {
 /*** Helpers **********************/
 /**********************************/
 
+/* Get the dictionary pointer based on dict-index. */
 static dict *kvstoreGetDict(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
@@ -211,6 +212,13 @@ static size_t kvstoreDictMetadataSize(dict *d) {
 /**********************************/
 /*** API **************************/
 /**********************************/
+
+/* Returns 1 if the corresponding dictionary exists, otherwise returns 0. */
+int kvstoreDictExists(kvstore *kvs, int didx)
+{
+    dict *d = kvstoreGetDict(kvs, didx);
+    return (d != NULL) ? 1 : 0;
+}
 
 /* Create an array of dictionaries
  * num_dicts_bits is the log2 of the amount of dictionaries needed (e.g. 0 for 1 dict,
@@ -529,7 +537,7 @@ kvstoreIterator *kvstoreIteratorInit(kvstore *kvs) {
     return kvs_it;
 }
 
-/* Free the dbit returned by dbIteratorInit. */
+/* Free the dbit returned by kvstoreIteratorInit. */
 void kvstoreIteratorRelease(kvstoreIterator *kvs_it) {
     dictIterator *iter = &kvs_it->di;
     dictResetIterator(iter);
@@ -631,6 +639,14 @@ dictIterator *kvstoreDictGetSafeIterator(kvstore *kvs, int didx)
 {
     dict *d = kvstoreGetDict(kvs, didx);
     return dictGetSafeIterator(d);
+}
+
+/* Reset the iterator and free the iterator. */
+void kvstoreDictReleaseIterator(kvstore *kvs, int didx, dictIterator *iter)
+{
+    /* The dict may be deleted during the iteration process, so here need to check for NULL. */
+    if (kvstoreDictExists(kvs, didx)) dictResetIterator(iter);
+    dictFreeIterator(iter);
 }
 
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx)

@@ -12,6 +12,7 @@ typedef int (kvstoreExpandShouldSkipDictIndex)(int didx);
 
 #define KVSTORE_ALLOCATE_DICTS_ON_DEMAND (1<<0)
 #define KVSTORE_FREE_EMPTY_DICTS (1<<1)
+int kvstoreDictExists(kvstore *kvs, int didx);
 kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags);
 void kvstoreEmpty(kvstore *kvs, void(callback)(dict*));
 void kvstoreRelease(kvstore *kvs);
@@ -47,6 +48,7 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_ms);
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);
 dictIterator *kvstoreDictGetIterator(kvstore *kvs, int didx);
 dictIterator *kvstoreDictGetSafeIterator(kvstore *kvs, int didx);
+void kvstoreDictReleaseIterator(kvstore *kvs, int didx, dictIterator *iter);
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx);
 dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx);
 dictEntry *kvstoreDictFindEntryByPtrAndHash(kvstore *kvs, int didx, const void *oldptr, uint64_t hash);

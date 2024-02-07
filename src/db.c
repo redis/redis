@@ -827,7 +827,7 @@ void keysCommand(client *c) {
             break;
     }
     if (di)
-        dictReleaseIterator(di);
+        kvstoreDictReleaseIterator(c->db->keys, pslot, di);
     if (kvs_it)
         kvstoreIteratorRelease(kvs_it);
     setDeferredArrayLen(c,replylen,numkeys);

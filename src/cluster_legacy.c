@@ -5762,7 +5762,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
-    dictReleaseIterator(iter);
+    kvstoreDictReleaseIterator(server.db->keys, hashslot, iter);
 
     return j;
 }
