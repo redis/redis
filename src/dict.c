@@ -1036,17 +1036,10 @@ dictEntry *dictNext(dictIterator *iter)
     return NULL;
 }
 
-/* Free the iterator. */
-void dictFreeIterator(dictIterator *iter)
-{
-    zfree(iter);
-}
-
-/* Reset the iterator and free the iterator. */
 void dictReleaseIterator(dictIterator *iter)
 {
     dictResetIterator(iter);
-    dictFreeIterator(iter);
+    zfree(iter);
 }
 
 /* Return a random entry from the hash table. Useful to
