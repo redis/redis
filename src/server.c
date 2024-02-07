@@ -5910,6 +5910,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 client *slave = listNodeValue(ln);
                 char ip[NET_IP_STR_LEN], *slaveip = slave->slave_addr;
                 int port;
+                long long offset_lag = 0;
                 long lag = 0;
 
                 if (!slaveip) {
@@ -5919,14 +5920,15 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 }
                 const char *state = replstateToString(slave->replstate);
                 if (state[0] == '\0') continue;
+                offset_lag = server.master_repl_offset - slave->repl_ack_off;
                 if (slave->replstate == SLAVE_STATE_ONLINE)
                     lag = time(NULL) - slave->repl_ack_time;
 
                 info = sdscatprintf(info,
                     "slave%d:ip=%s,port=%d,state=%s,"
-                    "offset=%lld,lag=%ld\r\n",
+                    "offset=%lld,offset_lag=%lld,lag=%ld\r\n",
                     slaveid,slaveip,slave->slave_listening_port,state,
-                    slave->repl_ack_off, lag);
+                    slave->repl_ack_off,offset_lag,lag);
                 slaveid++;
             }
         }
