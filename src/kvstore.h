@@ -6,6 +6,7 @@
 
 typedef struct _kvstore kvstore;
 typedef struct _kvstoreIterator kvstoreIterator;
+typedef struct _kvstoreDictIterator kvstoreDictIterator;
 
 typedef int (kvstoreScanShouldSkipDict)(dict *d);
 typedef int (kvstoreExpandShouldSkipDictIndex)(int didx);
@@ -45,8 +46,10 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_ms);
 
 /* Specific dict access by dict-index */
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);
-dictIterator *kvstoreDictGetIterator(kvstore *kvs, int didx);
-dictIterator *kvstoreDictGetSafeIterator(kvstore *kvs, int didx);
+kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx);
+kvstoreDictIterator *kvstoreGetDictSafeIterator(kvstore *kvs, int didx);
+void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_id);
+dictEntry *kvstoreDictIteratorNext(kvstoreDictIterator *kvs_di);
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx);
 dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx);
 dictEntry *kvstoreDictFindEntryByPtrAndHash(kvstore *kvs, int didx, const void *oldptr, uint64_t hash);
