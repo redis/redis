@@ -854,8 +854,7 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
         r psetex key 500 val
 
         # disable resizing
-        r config set rdb-key-save-delay 10000000
-        r bgsave
+        r debug dict-resizing 0
 
         # delete data to have lot's (99%) of empty buckets (slot 12182 should be skipped)
         for {set j 1} {$j <= 99} {incr j} {
@@ -872,20 +871,16 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
             [r dbsize] eq 1
         } else {
             if {[r dbsize] eq 0} {
+                puts [r debug htstats 0]
                 fail "scan didn't handle slot skipping logic."
             } else {
+                puts [r debug htstats 0]
                 fail "scan didn't process all valid slots."
             }
         }
 
         # Enable resizing
-        r config set rdb-key-save-delay 0
-        catch {exec kill -9 [get_child_pid 0]}
-        wait_for_condition 1000 10 {
-            [s rdb_bgsave_in_progress] eq 0
-        } else {
-            fail "bgsave did not stop in time."
-        }
+        r debug dict-resizing 1
 
         # put some data into slot 12182 and trigger the resize
         r psetex "{foo}0" 500 a
