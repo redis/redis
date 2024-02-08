@@ -232,10 +232,11 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
-robj *createQuicklistObject(void) {
+robj *createQuicklistObject(int fill, int depth) {
     quicklist *l = quicklistCreate();
     robj *o = createObject(OBJ_LIST,l);
     o->encoding = OBJ_ENCODING_QUICKLIST;
+    quicklistSetOptions(o->ptr, fill, depth);
     return o;
 }
 

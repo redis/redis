@@ -356,6 +356,18 @@ foreach command {SORT SORT_RO} {
             }
         }
     }
+
+    test {SORT STORE quicklist with the right options} {
+        set origin_config [config_get_set list-max-listpack-size -1]
+        r del lst lst_dst
+        r config set list-max-listpack-size -1
+        r config set list-compress-depth 12
+        r lpush lst {*}[split [string repeat "1" 6000] ""]
+        r sort lst store lst_dst
+        assert_encoding quicklist lst_dst
+        assert_match "*ql_listpack_max:-1 ql_compressed:1*" [r debug object lst_dst]
+        config_set list-max-listpack-size $origin_config
+    } {} {needs:debug}
 }
 
 start_cluster 1 0 {tags {"external:skip cluster sort"}} {
