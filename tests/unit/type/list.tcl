@@ -391,8 +391,10 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
             r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
             write_big_bulk 1000000000
         }
-        assert_equal "PONG" [r ping]
+        r ping
+    } {PONG} {large-memory}
 
+    test {Test LSET splits a quicklist node, and then merge} {
         # Test when a quicklist node can't be inserted and is split, the split
         # node merges with the node before it and the `before` node is kept.
         r flushdb
@@ -410,8 +412,10 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
             write_big_bulk 1000000000
         }
         assert_equal "g" [r lindex lst 1]
-        assert_equal "PONG" [r ping]
+        r ping
+    } {PONG} {large-memory}
 
+    test {Test LSET splits a LZF compressed quicklist node, and then merge} {
         # Test when a LZF compressed quicklist node can't be inserted and is split,
         # the split node merges with the node before it and the split node is kept.
         r flushdb
@@ -436,7 +440,7 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
         r ping
     } {PONG} {large-memory}
 
-   test {Test LMOVE on plain nodes over 4GB} {
+    test {Test LMOVE on plain nodes over 4GB} {
        r flushdb
        r RPUSH lst2{t} "aa"
        r RPUSH lst2{t} "bb"
