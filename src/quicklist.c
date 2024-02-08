@@ -105,7 +105,7 @@ quicklistBookmark *_quicklistBookmarkFindByNode(quicklist *ql, quicklistNode *no
 void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 
 quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset, int after);
-void _quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
+quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
 
 /* Simple way to give quicklistEntry structs default values with one call. */
 #define initEntry(e)                                                           \
@@ -381,6 +381,15 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     quicklistCompressNode(reverse);
 }
 
+/* This macro is used to compress a node.
+ *
+ * If the 'recompress' flag of the node is true, we compress it directly without
+ * checking whether it is within the range of compress depth.
+ * However, it's important to ensure that the 'recompress' flag of head and tail
+ * is always false, as we always assume that head and tail are not compressed.
+ * 
+ * If the 'recompress' flag of the node is false, we check whether the node is
+ * within the range of compress depth before compressing it. */
 #define quicklistCompress(_ql, _node)                                          \
     do {                                                                       \
         if ((_node)->recompress)                                               \
@@ -794,9 +803,14 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
             unsigned char *p = lpSeek(entry->node->entry, -1);
             quicklistDelIndex(quicklist, entry->node, &p);
             entry->node->dont_compress = 0; /* Re-enable compression */
-            _quicklistMergeNodes(quicklist, entry->node);
-            quicklistCompress(quicklist, entry->node);
-            quicklistCompress(quicklist, entry->node->next);
+            new_node = _quicklistMergeNodes(quicklist, new_node);
+            /* We can't know if the current node and its sibling nodes are correctly compressed,
+             * and we don't know if they are within the range of compress depth, so we need to
+             * use quicklistCompress() for compression, which checks if node is within compress
+             * depth before compressing. */
+            quicklistCompress(quicklist, new_node);
+            quicklistCompress(quicklist, new_node->prev);
+            if (new_node->next) quicklistCompress(quicklist, new_node->next);
         }
     }
 
@@ -854,6 +868,8 @@ REDIS_STATIC quicklistNode *_quicklistListpackMerge(quicklist *quicklist,
         }
         keep->count = lpLength(keep->entry);
         quicklistNodeUpdateSz(keep);
+        keep->recompress = 0; /* Prevent 'keep' from being recompressed if
+                               * it becomes head or tail after merging. */
 
         nokeep->count = 0;
         __quicklistDelNode(quicklist, nokeep);
@@ -872,9 +888,10 @@ REDIS_STATIC quicklistNode *_quicklistListpackMerge(quicklist *quicklist,
  *   - (center->next, center->next->next)
  *   - (center->prev, center)
  *   - (center, center->next)
+ * 
+ * Returns the new 'center' after merging.
  */
-REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
-                                       quicklistNode *center) {
+REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center) {
     int fill = quicklist->fill;
     quicklistNode *prev, *prev_prev, *next, *next_next, *target;
     prev = prev_prev = next = next_next = target = NULL;
@@ -914,8 +931,9 @@ REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
 
     /* Use result of center merge (or original) to merge with next node. */
     if (_quicklistNodeAllowMerge(target, target->next, fill)) {
-        _quicklistListpackMerge(quicklist, target, target->next);
+        target = _quicklistListpackMerge(quicklist, target, target->next);
     }
+    return target;
 }
 
 /* Split 'node' into two parts, parameterized by 'offset' and 'after'.
