@@ -155,9 +155,9 @@ typedef struct quicklistEntry {
 /* Prototypes */
 quicklist *quicklistCreate(void);
 quicklist *quicklistNew(int fill, int compress);
-void quicklistSetCompressDepth(quicklist *quicklist, int depth);
+void quicklistSetCompressDepth(quicklist *quicklist, int compress);
 void quicklistSetFill(quicklist *quicklist, int fill);
-void quicklistSetOptions(quicklist *quicklist, int fill, int depth);
+void quicklistSetOptions(quicklist *quicklist, int fill, int compress);
 void quicklistRelease(quicklist *quicklist);
 int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz);
 int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
