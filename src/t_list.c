@@ -1152,8 +1152,8 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         if (checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
-        lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
         listElementsRemoved(c,touchedkey,wherefrom,sobj,1,1,NULL);
+        lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
 
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
