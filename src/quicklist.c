@@ -161,9 +161,9 @@ void quicklistSetFill(quicklist *quicklist, int fill) {
     quicklist->fill = fill;
 }
 
-void quicklistSetOptions(quicklist *quicklist, int fill, int depth) {
+void quicklistSetOptions(quicklist *quicklist, int fill, int compress) {
     quicklistSetFill(quicklist, fill);
-    quicklistSetCompressDepth(quicklist, depth);
+    quicklistSetCompressDepth(quicklist, compress);
 }
 
 /* Create a new quicklist with some default parameters. */
