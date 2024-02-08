@@ -1109,9 +1109,9 @@ void flushAppendOnlyFile(int force) {
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
                  * postponing the flush and return. */
-                server.aof_flush_postponed_start = server.unixtime;
+                server.aof_flush_postponed_start = server.mstime;
                 return;
-            } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
+            } else if (server.mstime - server.aof_flush_postponed_start < 2000) {
                 /* We were already waiting for fsync to finish, but for less
                  * than two seconds this is still ok. Postpone again. */
                 return;
