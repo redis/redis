@@ -325,6 +325,7 @@ foreach mdl {no yes} rdbchannel {no yes} {
                             set load_handle4 [start_write_load $master_host $master_port 4]
                             after 5000 ;# wait for some data to accumulate so that we have RDB part for the fork
 
+                            $master config set repl-rdb-channel $rdbchannel
                             # Send SLAVEOF commands to slaves
                             [lindex $slaves 0] config set repl-rdb-channel $rdbchannel
                             [lindex $slaves 1] config set repl-rdb-channel $rdbchannel
@@ -453,6 +454,7 @@ foreach testType {Successful Aborted} rdbchannel {yes no} {
             $master config set repl-diskless-sync yes
             $master config set repl-diskless-sync-delay 0
             $master config set save ""
+            $master config set repl-rdb-channel $rdbchannel
             $replica config set repl-diskless-load swapdb
             $replica config set save ""
             $replica config set repl-rdb-channel $rdbchannel
