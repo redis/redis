@@ -438,7 +438,8 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         }
         assert_match "*table size: 128*" [r debug HTSTATS 0]
 
-        # disable resizing
+        # disable resizing, the reason for not using slow bgsave is because
+        # it will hit the dict_force_resize_ratio.
         r debug dict-resizing 0
 
         # delete data to have lot's (96%) of empty buckets
@@ -467,7 +468,8 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
             r set "{alice}$j" a
         }
 
-        # disable resizing
+        # disable resizing, the reason for not using slow bgsave is because
+        # it will hit the dict_force_resize_ratio.
         r debug dict-resizing 0
 
         for {set j 1} {$j <= 123} {incr j} {

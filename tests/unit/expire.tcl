@@ -853,7 +853,8 @@ start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
         # hashslot(key) is 12539
         r psetex key 500 val
 
-        # disable resizing
+        # disable resizing, the reason for not using slow bgsave is because
+        # it will hit the dict_force_resize_ratio.
         r debug dict-resizing 0
 
         # delete data to have lot's (99%) of empty buckets (slot 12182 should be skipped)
