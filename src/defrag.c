@@ -466,6 +466,9 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
         }
         dictReleaseIterator(di);
     }
+    /* handle the dict struct */
+    if ((newdict = activeDefragAlloc(zs->dict)))
+        zs->dict = newdict;
     /* defrag the dict tables */
     zs->dict = dictDefragTables(zs->dict);
 }
@@ -479,6 +482,9 @@ void defragHash(redisDb *db, dictEntry *kde) {
         defragLater(db, kde);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
+    /* handle the dict struct */
+    if ((newd = activeDefragAlloc(ob->ptr)))
+        ob->ptr = newd;
     /* defrag the dict tables */
     ob->ptr = dictDefragTables(ob->ptr);
 }
@@ -492,6 +498,9 @@ void defragSet(redisDb *db, dictEntry *kde) {
         defragLater(db, kde);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
+    /* handle the dict struct */
+    if ((newd = activeDefragAlloc(ob->ptr)))
+        ob->ptr = newd;
     /* defrag the dict tables */
     ob->ptr = dictDefragTables(ob->ptr);
 }
