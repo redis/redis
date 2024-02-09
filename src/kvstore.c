@@ -788,11 +788,11 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
  *
  * The 'defragfns' callbacks are called with a reference to a pointer
  * that callback can reallocate. */
-void kvstoreScanDefrag(kvstore *kvs, kvstoreDefragFunctions *defragfns) {
+void kvstoreScanDefrag(kvstore *kvs, kvstoreDefragFunction *defragfn) {
     for (int didx = 0; didx < kvs->num_dicts; didx++) {
         dict **d = kvstoreGetDictRef(kvs, didx);
         if (!*d)
             continue;
-        defragfns(d);
+        defragfn(d);
     }
 }
