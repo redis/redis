@@ -304,8 +304,7 @@ void sortCommandGeneric(client *c, int readonly) {
     if (sortval)
         incrRefCount(sortval);
     else
-        sortval = createQuicklistObject();
-
+        sortval = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
 
     /* When sorting a set with no sort specified, we must sort the output
      * so the result is consistent across scripting and replication.
@@ -557,7 +556,7 @@ void sortCommandGeneric(client *c, int readonly) {
     } else {
         /* We can't predict the size and encoding of the stored list, we
          * assume it's a large list and then convert it at the end if needed. */
-        robj *sobj = createQuicklistObject();
+        robj *sobj = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
 
         /* STORE option specified, set the sorting result as a List object */
         for (j = start; j <= end; j++) {

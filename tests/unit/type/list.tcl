@@ -220,6 +220,7 @@ start_server [list overrides [list save ""] ] {
 
     # checking LSET in case ziplist needs to be split
     test {Test LSET with packed is split in the middle} {
+        set original_config [config_get_set list-max-listpack-size 4]
         r flushdb
         r debug quicklist-packed-threshold 5b
         r RPUSH lst "aa"
@@ -227,6 +228,7 @@ start_server [list overrides [list save ""] ] {
         r RPUSH lst "cc"
         r RPUSH lst "dd"
         r RPUSH lst "ee"
+        assert_encoding quicklist lst
         r lset lst 2 [string repeat e 10]
         assert_equal [r lpop lst] "aa"
         assert_equal [r lpop lst] "bb"
@@ -234,6 +236,7 @@ start_server [list overrides [list save ""] ] {
         assert_equal [r lpop lst] "dd"
         assert_equal [r lpop lst] "ee"
         r debug quicklist-packed-threshold 0
+        r config set list-max-listpack-size $original_config
     } {OK} {needs:debug}
 
 
@@ -381,7 +384,63 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
        assert_equal [read_big_bulk {r rpop lst}] $str_length
    } {} {large-memory}
 
-   test {Test LMOVE on plain nodes over 4GB} {
+    test {Test LSET on plain nodes with large elements under packed_threshold over 4GB} {
+        r flushdb
+        r rpush lst a b c d e
+        for {set i 0} {$i < 5} {incr i} {
+            r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
+            write_big_bulk 1000000000
+        }
+        r ping
+    } {PONG} {large-memory}
+
+    test {Test LSET splits a quicklist node, and then merge} {
+        # Test when a quicklist node can't be inserted and is split, the split
+        # node merges with the node before it and the `before` node is kept.
+        r flushdb
+        r rpush lst [string repeat "x" 4096]
+        r lpush lst a b c d e f g
+        r lpush lst [string repeat "y" 4096]
+        # now: [y...]    [g f e d c b a x...]
+        #      (node0)        (node1)
+        # Keep inserting elements into node1 until node1 is split into two
+        # nodes([g] [...]), eventually node0 will merge with the [g] node.
+        # Since node0 is larger, after the merge node0 will be kept and
+        # the [g] node will be deleted.
+        for {set i 7} {$i >= 3} {incr i -1} {
+            r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
+            write_big_bulk 1000000000
+        }
+        assert_equal "g" [r lindex lst 1]
+        r ping
+    } {PONG} {large-memory}
+
+    test {Test LSET splits a LZF compressed quicklist node, and then merge} {
+        # Test when a LZF compressed quicklist node can't be inserted and is split,
+        # the split node merges with the node before it and the split node is kept.
+        r flushdb
+        r config set list-compress-depth 1
+        r lpush lst [string repeat "x" 2000]
+        r rpush lst [string repeat "y" 7000]
+        r rpush lst a b c d e f g
+        r rpush lst [string repeat "z" 8000]
+        r lset lst 0 h
+        # now: [h]     [y... a b c d e f g] [z...]
+        #      node0        node1(LZF)
+        # Keep inserting elements into node1 until node1 is split into two
+        # nodes([y...] [...]), eventually node0 will merge with the [y...] node.
+        # Since [y...] node is larger, after the merge node0 will be deleted and
+        # the [y...] node will be kept.
+        for {set i 7} {$i >= 3} {incr i -1} {
+            r write "*4\r\n\$4\r\nlset\r\n\$3\r\nlst\r\n\$1\r\n$i\r\n"
+            write_big_bulk 1000000000
+        }
+        assert_equal "h" [r lindex lst 0]
+        r config set list-compress-depth 0
+        r ping
+    } {PONG} {large-memory}
+
+    test {Test LMOVE on plain nodes over 4GB} {
        r flushdb
        r RPUSH lst2{t} "aa"
        r RPUSH lst2{t} "bb"

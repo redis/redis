@@ -800,7 +800,7 @@ void keysCommand(client *c) {
     if (server.cluster_enabled && !allkeys) {
         pslot = patternHashSlot(pattern, plen);
     }
-    dictIterator *di = NULL;
+    kvstoreDictIterator *kvs_di = NULL;
     kvstoreIterator *kvs_it = NULL;
     if (pslot != -1) {
         if (!kvstoreDictSize(c->db->keys, pslot)) {
@@ -808,12 +808,12 @@ void keysCommand(client *c) {
             setDeferredArrayLen(c,replylen,0);
             return;
         }
-        di = kvstoreDictGetSafeIterator(c->db->keys, pslot);
+        kvs_di = kvstoreGetDictSafeIterator(c->db->keys, pslot);
     } else {
         kvs_it = kvstoreIteratorInit(c->db->keys);
     }
     robj keyobj;
-    while ((de = di ? dictNext(di) : kvstoreIteratorNext(kvs_it)) != NULL) {
+    while ((de = kvs_di ? kvstoreDictIteratorNext(kvs_di) : kvstoreIteratorNext(kvs_it)) != NULL) {
         sds key = dictGetKey(de);
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -826,8 +826,8 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    if (di)
-        dictReleaseIterator(di);
+    if (kvs_di)
+        kvstoreReleaseDictIterator(kvs_di);
     if (kvs_it)
         kvstoreIteratorRelease(kvs_it);
     setDeferredArrayLen(c,replylen,numkeys);
