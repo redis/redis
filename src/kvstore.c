@@ -783,6 +783,13 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
     return ret;
 }
 
+/* Reallocates the memory used by the dicts' structure by using the provided
+ * allocation function, but does not include actual data (keys and values)
+ * within the dicts.
+ * This feature was added for the active defrag feature.
+ *
+ * The 'defragfns' callbacks are called with a reference to a pointer
+ * that callback can reallocate. */
 void kvstoreScanDefrag(kvstore *kvs, kvstoreDefragFunctions *defragfns) {
     for (int didx = 0; didx < kvs->num_dicts; didx++) {
         dict **d = kvstoreGetDictRef(kvs, didx);
