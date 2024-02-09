@@ -778,3 +778,12 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
     }
     return ret;
 }
+
+void kvstoreScanDefrag(kvstore *kvs, kvstoreDefragFunctions *defragfns) {
+    for (int didx = 0; didx < kvs->num_dicts; didx++) {
+        dict *d = kvstoreGetDict(kvs, didx);
+        if (!d)
+            continue;
+        defragfns(d);
+    }
+}

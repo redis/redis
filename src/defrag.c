@@ -760,6 +760,14 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
+static void defragKvstoreDefragScanCallBack(dict *d) {
+    dictDefragTables(d);
+}
+
+void activeDefragKvstore(kvstore *kvs) {
+    kvstoreScanDefrag(kvs, defragKvstoreDefragScanCallBack);
+}
+
 /* Utility function to get the fragmentation ratio from jemalloc.
  * It is critical to do that by comparing only heap maps that belong to
  * jemalloc, and skip ones the jemalloc keeps as spare. Since we use this
@@ -790,6 +798,8 @@ void defragOtherGlobals(void) {
      * that remain static for a long time */
     activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     moduleDefragGlobals();
+    activeDefragKvstore(server.pubsub_channels);
+    activeDefragKvstore(server.pubsubshard_channels);
 }
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
@@ -1032,6 +1042,8 @@ void activeDefragCycle(void) {
             }
 
             db = &server.db[current_db];
+            activeDefragKvstore(db->keys);
+            activeDefragKvstore(db->expires);
             cursor = 0;
             expires_cursor = 0;
             slot = kvstoreFindDictIndexByKeyIndex(db->keys, 1);
