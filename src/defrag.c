@@ -147,11 +147,10 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
  * struct itself was moved. */
-dict *dictDefragTables(dict* d) {
+void dictDefragTables(dict* d) {
     dictEntry **newtable;
-
     /* handle the first hash table */
-    if (!d->ht_table[0]) return d; /* created by unused */
+    if (!d->ht_table[0]) return; /* created by unused */
     newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
         d->ht_table[0] = newtable;
@@ -161,7 +160,6 @@ dict *dictDefragTables(dict* d) {
         if (newtable)
             d->ht_table[1] = newtable;
     }
-    return d;
 }
 
 /* Internal function used by zslDefrag */
@@ -466,7 +464,7 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
     if ((newdict = activeDefragAlloc(zs->dict)))
         zs->dict = newdict;
     /* defrag the dict tables */
-    zs->dict = dictDefragTables(zs->dict);
+    dictDefragTables(zs->dict);
 }
 
 void defragHash(redisDb *db, dictEntry *kde) {
@@ -482,7 +480,7 @@ void defragHash(redisDb *db, dictEntry *kde) {
     if ((newd = activeDefragAlloc(ob->ptr)))
         ob->ptr = newd;
     /* defrag the dict tables */
-    ob->ptr = dictDefragTables(ob->ptr);
+    dictDefragTables(ob->ptr);
 }
 
 void defragSet(redisDb *db, dictEntry *kde) {
@@ -498,7 +496,7 @@ void defragSet(redisDb *db, dictEntry *kde) {
     if ((newd = activeDefragAlloc(ob->ptr)))
         ob->ptr = newd;
     /* defrag the dict tables */
-    ob->ptr = dictDefragTables(ob->ptr);
+    dictDefragTables(ob->ptr);
 }
 
 /* Defrag callback for radix tree iterator, called for each node,
