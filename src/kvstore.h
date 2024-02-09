@@ -64,7 +64,7 @@ void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val);
 dictEntry *kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, dictEntry ***plink, int *table_index);
 void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntry *he, dictEntry **plink, int table_index);
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
-typedef void (kvstoreDefragFunctions)(dict *d);
+typedef void (kvstoreDefragFunctions)(dict **d);
 void kvstoreScanDefrag(kvstore *kvs, kvstoreDefragFunctions *defragfns);
 
 #endif /* DICTARRAY_H_ */

@@ -92,6 +92,10 @@ static dict *kvstoreGetDict(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
+static dict **kvstoreGetDictRef(kvstore *kvs, int didx) {
+    return &kvs->dicts[didx];
+}
+
 /* Returns total (cumulative) number of keys up until given dict-index (inclusive).
  * Time complexity is O(log(kvs->num_dicts)). */
 static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) {
@@ -781,8 +785,8 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
 
 void kvstoreScanDefrag(kvstore *kvs, kvstoreDefragFunctions *defragfns) {
     for (int didx = 0; didx < kvs->num_dicts; didx++) {
-        dict *d = kvstoreGetDict(kvs, didx);
-        if (!d)
+        dict **d = kvstoreGetDictRef(kvs, didx);
+        if (!*d)
             continue;
         defragfns(d);
     }

@@ -147,10 +147,15 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
  * struct itself was moved. */
-void dictDefragTables(dict* d) {
+dict *dictDefragTables(dict* d) {
     dictEntry **newtable;
+    dict *newd;
+
+    /* try to defrag dict struct */
+    if ((newd = activeDefragAlloc(d))) d = newd;
+
     /* handle the first hash table */
-    if (!d->ht_table[0]) return; /* created by unused */
+    if (!d->ht_table[0]) return d; /* created by unused */
     newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
         d->ht_table[0] = newtable;
@@ -160,6 +165,7 @@ void dictDefragTables(dict* d) {
         if (newtable)
             d->ht_table[1] = newtable;
     }
+    return d;
 }
 
 /* Internal function used by zslDefrag */
@@ -464,7 +470,7 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
     if ((newdict = activeDefragAlloc(zs->dict)))
         zs->dict = newdict;
     /* defrag the dict tables */
-    dictDefragTables(zs->dict);
+    zs->dict = dictDefragTables(zs->dict);
 }
 
 void defragHash(redisDb *db, dictEntry *kde) {
@@ -480,7 +486,7 @@ void defragHash(redisDb *db, dictEntry *kde) {
     if ((newd = activeDefragAlloc(ob->ptr)))
         ob->ptr = newd;
     /* defrag the dict tables */
-    dictDefragTables(ob->ptr);
+    ob->ptr = dictDefragTables(ob->ptr);
 }
 
 void defragSet(redisDb *db, dictEntry *kde) {
@@ -496,7 +502,7 @@ void defragSet(redisDb *db, dictEntry *kde) {
     if ((newd = activeDefragAlloc(ob->ptr)))
         ob->ptr = newd;
     /* defrag the dict tables */
-    dictDefragTables(ob->ptr);
+    ob->ptr = dictDefragTables(ob->ptr);
 }
 
 /* Defrag callback for radix tree iterator, called for each node,
@@ -761,8 +767,8 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
-static void defragKvstoreDefragScanCallBack(dict *d) {
-    dictDefragTables(d);
+static void defragKvstoreDefragScanCallBack(dict **d) {
+    *d = dictDefragTables(*d);
 }
 
 void activeDefragKvstore(kvstore *kvs) {
