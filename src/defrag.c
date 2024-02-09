@@ -150,6 +150,7 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 void dictDefragTables(dict* d) {
     dictEntry **newtable;
     /* handle the first hash table */
+    if (!d->ht_table[0]) return; /* created by unused */
     newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
         d->ht_table[0] = newtable;
