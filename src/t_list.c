@@ -1146,13 +1146,16 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
          * versions of Redis delete keys of empty lists. */
         addReplyNull(c);
     } else {
+        int deleted = 0;
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
         robj *touchedkey = c->argv[1];
 
         if (checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
-        listElementsRemoved(c,touchedkey,wherefrom,sobj,1,1,NULL);
+        listElementsRemoved(c,touchedkey,wherefrom,sobj,1,1,&deleted);
+        /* In self-referential case, dobj may be deleted, neet to reset to NULL. */
+        if (sobj == dobj && deleted) dobj = NULL;
         lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
 
         /* listTypePop returns an object with its refcount incremented */
