@@ -178,15 +178,12 @@ run_solo {defrag} {
         r config set key-load-delay 0
 
         test "Active defrag eval scripts: $type" {
-            set 32bit [is_32bit]
             r flushdb
             r script flush sync
             r config resetstat
             r config set hz 100
             r config set activedefrag no
-            # Under 32-bit, the allocation of more small memory blocks results
-            # in higher external fragmentation, hence increase the threshold.
-            r config set active-defrag-threshold-lower [expr {$32bit ? 6 : 5}]
+            r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
@@ -260,7 +257,7 @@ run_solo {defrag} {
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
                 }
-                assert_lessthan_equal [s allocator_frag_ratio] [expr {$32bit ? 1.06 : 1.05}]
+                assert_lessthan_equal [s allocator_frag_ratio] 1.05
             }
             # Flush all script to make sure we don't crash after defragging them
             r script flush sync

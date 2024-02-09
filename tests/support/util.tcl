@@ -1142,14 +1142,3 @@ proc system_backtrace_supported {} {
     }
     return 0
 }
-
-# Check if running under 32-bit
-proc is_32bit {} {
-    set origin [lindex [r config get proto-max-bulk-len] 1]
-    catch {
-        r config set proto-max-bulk-len 10000000000 ;#10gb
-    }
-    set 32bit [expr {[lindex [r config get proto-max-bulk-len] 1] != 10000000000}]
-    r config set proto-max-bulk-len $origin
-    return $32bit
-}
