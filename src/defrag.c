@@ -149,10 +149,6 @@ luaScript *activeDefragLuaScript(luaScript *script) {
  * struct itself was moved. */
 dict *dictDefragTables(dict* d) {
     dictEntry **newtable;
-    dict *newd;
-
-    /* try to defrag dict struct */
-    if ((newd = activeDefragAlloc(d))) d = newd;
 
     /* handle the first hash table */
     if (!d->ht_table[0]) return d; /* created by unused */
@@ -768,7 +764,11 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
 }
 
 static void defragKvstoreDefragScanCallBack(dict **d) {
-    *d = dictDefragTables(*d);
+    dict *newd;
+    /* handle the dict struct */
+    if ((newd = activeDefragAlloc(*d)))
+        *d = newd;
+    dictDefragTables(*d);
 }
 
 void activeDefragKvstore(kvstore *kvs) {
