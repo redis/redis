@@ -1154,7 +1154,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         value = listTypePop(sobj,wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
         listElementsRemoved(c,touchedkey,wherefrom,sobj,1,1,&deleted);
-        /* In self-referential case, dobj may be deleted, neet to reset to NULL. */
+        /* In self-referential case, dobj may be deleted, need to reset to NULL. */
         if (sobj == dobj && deleted) dobj = NULL;
         lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
 
