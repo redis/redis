@@ -789,7 +789,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     if(out_frag_bytes)
         *out_frag_bytes = frag_bytes;
     serverLog(LL_DEBUG,
-        "allocated=%zu, active=%zu, resident=%zu, frag=%.1f%% (%.1f%% rss), frag_bytes=%zu (%zu rss)",
+        "allocated=%zu, active=%zu, resident=%zu, frag=%.2f%% (%.2f%% rss), frag_bytes=%zu (%zu rss)",
         allocated, active, resident, frag_pct, rss_pct, frag_bytes, rss_bytes);
     return frag_pct;
 }
@@ -803,8 +803,6 @@ void defragOtherGlobals(void) {
      * that remain static for a long time */
     activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     moduleDefragGlobals();
-    activeDefragKvstore(server.pubsub_channels);
-    activeDefragKvstore(server.pubsubshard_channels);
 }
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
