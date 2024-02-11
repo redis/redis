@@ -2550,7 +2550,7 @@ int prepareRdbConnectionForRdbLoad(connection *conn) {
 }
 
 /* Send to replica End Offset response with structure
- * $ENDOFF:<rdb-conn> <master-repl-id> <current-db-id> */
+ * $ENDOFF:<repl-offset> <master-repl-id> <current-db-id> */
 int sendCurrentOffsetToReplica(client* replica) {
     char buf[128];
     int buflen;
@@ -2638,10 +2638,8 @@ void fullSyncWithMaster(connection* conn) {
         long long reploffset;
         char master_replid[CONFIG_RUN_ID_SIZE+1];
         int dbid;
-        char endoff_format[30];
-        /* For parsing master response, create a format string.  Unless we change CONFIG_RUN_ID_SIZE
-         * size, the format string will be "$ENDOFF:%lld %40s %d". */
-        snprintf(endoff_format, sizeof(endoff_format), "$ENDOFF:%%lld %%%ds %%d", CONFIG_RUN_ID_SIZE);
+        /* Parse end offset response */
+        char *endoff_format = "$ENDOFF:%lld %40s %d";
         if (sscanf(buf, endoff_format, &reploffset, master_replid, &dbid) != 3) {
             goto error;
         }
