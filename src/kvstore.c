@@ -92,6 +92,10 @@ static dict *kvstoreGetDict(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
+static dict **kvstoreGetDictRef(kvstore *kvs, int didx) {
+    return &kvs->dicts[didx];
+}
+
 /* Returns total (cumulative) number of keys up until given dict-index (inclusive).
  * Time complexity is O(log(kvs->num_dicts)). */
 static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) {
@@ -712,6 +716,21 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
     if (!d)
         return 0;
     return dictScanDefrag(d, v, fn, defragfns, privdata);
+}
+
+/* Unlike kvstoreDictScanDefrag(), this method doesn't defrag the data(keys and values)
+ * within dict, it only reallocates the memory used by the dict structure itself using 
+ * the provided allocation function. This feature was added for the active defrag feature.
+ *
+ * The 'defragfn' callback is called with a reference to the dict
+ * that callback can reallocate. */
+void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) {
+    for (int didx = 0; didx < kvs->num_dicts; didx++) {
+        dict **d = kvstoreGetDictRef(kvs, didx);
+        if (!*d)
+            continue;
+        defragfn(d);
+    }
 }
 
 uint64_t kvstoreGetHash(kvstore *kvs, const void *key)
