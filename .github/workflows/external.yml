@@ -23,6 +23,7 @@ jobs:
       run: |
           ./runtest \
             --host 127.0.0.1 --port 6379 \
+            --verbose \
             --tags -slow
     - name: Archive redis log
       if: ${{ failure() }}
@@ -49,6 +50,7 @@ jobs:
       run: |
           ./runtest \
             --host 127.0.0.1 --port 6379 \
+            --verbose \
             --cluster-mode \
             --tags -slow
     - name: Archive redis log
@@ -73,6 +75,7 @@ jobs:
         run: |
           ./runtest \
             --host 127.0.0.1 --port 6379 \
+            --verbose \
             --tags "-slow -needs:debug"
       - name: Archive redis log
         if: ${{ failure() }}
