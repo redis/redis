@@ -6247,11 +6247,11 @@ int createMonitorFilterForUser(client *c, int *argi, bool moreargs){
     }
 }
 
-int matchsds(void *ptr, void *key) {
+int sdsmatch(void *ptr, void *key) {
     return (sdscmp((sds)ptr, (sds) key) == 0);
 }
 
-void freelistsds(void* ptr) {
+void sdsfreelist(void* ptr) {
     sdsfree((sds)ptr);
 }
 
@@ -6259,8 +6259,8 @@ int createMonitorFilterFor(char* argument, list **l, client *c, int *argi, bool 
     if (!strcasecmp(c->argv[*argi]->ptr,argument) && moreargs) {
         if (*l == NULL) {
             *l = listCreate();
-            (*l)->free = freelistsds;
-            (*l)->match = matchsds;
+            (*l)->free = sdsfreelist;
+            (*l)->match = sdsmatch;
         }
         sds s = sdsnew((char*)c->argv[*argi+1]->ptr);
         listAddNodeTail(*l, (void*)s);
@@ -6373,8 +6373,9 @@ MONITOR
 [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | 
 [CMD_FILTER <INCLUDE | EXCLUDE>] | 
 [CMD command] 
-[[ID client-id] | [USER username] | [ADDR ip:port] | [LADDR ip:port] | 
-    [TYPE <NORMAL | MASTER | SLAVE | REPLICA | PUBSUB>] | [CMD_FILTER <INCLUDE | EXCLUDE>] | [CMD command] ...]
+[[ID client-id] | [USER username] | [ADDR ip:port] | 
+    [LADDR ip:port] | [TYPE <NORMAL | MASTER | SLAVE | 
+    REPLICA | PUBSUB>] | [CMD_FILTER <INCLUDE | EXCLUDE>] | [CMD command] ...]
 */
 void monitorCommand(client *c) {
 
