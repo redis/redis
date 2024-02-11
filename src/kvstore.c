@@ -718,11 +718,11 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
     return dictScanDefrag(d, v, fn, defragfns, privdata);
 }
 
-/* Unlike kvstoreDictScanDefrag(), this method doesn't defragment the data(keys and value)
+/* Unlike kvstoreDictScanDefrag(), this method doesn't defrag the data(keys and values)
  * within dict, it only reallocates the memory used by the dict structure itself using 
  * the provided allocation function. This feature was added for the active defrag feature.
  *
- * The 'defragfn' callback are called with a reference to the dict
+ * The 'defragfn' callback is called with a reference to the dict
  * that callback can reallocate. */
 void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) {
     for (int didx = 0; didx < kvs->num_dicts; didx++) {
