@@ -770,7 +770,7 @@ static void defragKvstoreDefragScanCallBack(dict **d) {
 }
 
 void activeDefragKvstore(kvstore *kvs) {
-    kvstoreScanDefrag(kvs, defragKvstoreDefragScanCallBack);
+    kvstoreDictLUTDefrag(kvs, defragKvstoreDefragScanCallBack);
 }
 
 /* Utility function to get the fragmentation ratio from jemalloc.

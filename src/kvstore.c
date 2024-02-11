@@ -718,6 +718,21 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
     return dictScanDefrag(d, v, fn, defragfns, privdata);
 }
 
+/* Unlike kvstoreDictScanDefrag(), this method doesn't defragment the data(keys and value)
+ * within dict, it only reallocates the memory used by the dict structure itself using 
+ * the provided allocation function. This feature was added for the active defrag feature.
+ *
+ * The 'defragfn' callback are called with a reference to the dict
+ * that callback can reallocate. */
+void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) {
+    for (int didx = 0; didx < kvs->num_dicts; didx++) {
+        dict **d = kvstoreGetDictRef(kvs, didx);
+        if (!*d)
+            continue;
+        defragfn(d);
+    }
+}
+
 uint64_t kvstoreGetHash(kvstore *kvs, const void *key)
 {
     return kvs->dtype.hashFunction(key);
@@ -781,18 +796,4 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
         freeDictIfNeeded(kvs, didx);
     }
     return ret;
-}
-
-/* Reallocates the memory used by the dict list in kvstore using the provided
- * allocation function. This feature was added for the active defrag feature.
- *
- * The 'defragfns' callbacks are called with a reference to a pointer
- * that callback can reallocate. */
-void kvstoreScanDefrag(kvstore *kvs, kvstoreDefragFunction *defragfn) {
-    for (int didx = 0; didx < kvs->num_dicts; didx++) {
-        dict **d = kvstoreGetDictRef(kvs, didx);
-        if (!*d)
-            continue;
-        defragfn(d);
-    }
 }
