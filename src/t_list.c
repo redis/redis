@@ -1194,7 +1194,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto, int countIndex) 
             long rangelen = (count > llen) ? llen : count;
             addReplyArrayLen(c,rangelen);
 
-            unsigned int j;
+            long int j;
             if (!dobj) {
                 dobj = createListListpackObject();
                 dbAdd(c->db,c->argv[2],dobj);
