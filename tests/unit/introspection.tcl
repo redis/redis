@@ -39,6 +39,10 @@ start_server {tags {"introspection"}} {
     }
 
     test {CLIENT KILL maxAGE will kill old clients} {
+        # This test is very likely to do a false positive if the execute time
+        # takes longer than the max age, so give it a few more chances.
+        for {set i 0} {$i < 10} {incr i} {
+
         set rd1 [redis_deferring_client]
         r debug sleep 2
         set rd2 [redis_deferring_client]
@@ -51,7 +55,18 @@ start_server {tags {"introspection"}} {
 
         # Should kill rd1 but not rd2
         set res [r client kill user dummy maxage 1]
-        assert {$res == 1}
+        if {$res == 1} {
+            break
+        } else {
+            # Clean up and try again next time
+            $rd1 close
+            $rd2 close
+        }
+
+        } ;# for
+
+        if {$::verbose} { puts "CLIENT KILL maxAGE will kill old clients test attempts: $i" }
+        assert_equal $res 1
 
         # rd2 should still be connected
         $rd2 ping
