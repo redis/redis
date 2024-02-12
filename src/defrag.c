@@ -150,6 +150,7 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 void dictDefragTables(dict* d) {
     dictEntry **newtable;
     /* handle the first hash table */
+    if (!d->ht_table[0]) return; /* created but unused */
     newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
         d->ht_table[0] = newtable;
@@ -760,6 +761,18 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
+static void defragKvstoreDefragScanCallBack(dict **d) {
+    dict *newd;
+    /* handle the dict struct */
+    if ((newd = activeDefragAlloc(*d)))
+        *d = newd;
+    dictDefragTables(*d);
+}
+
+void activeDefragKvstore(kvstore *kvs) {
+    kvstoreDictLUTDefrag(kvs, defragKvstoreDefragScanCallBack);
+}
+
 /* Utility function to get the fragmentation ratio from jemalloc.
  * It is critical to do that by comparing only heap maps that belong to
  * jemalloc, and skip ones the jemalloc keeps as spare. Since we use this
@@ -776,7 +789,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     if(out_frag_bytes)
         *out_frag_bytes = frag_bytes;
     serverLog(LL_DEBUG,
-        "allocated=%zu, active=%zu, resident=%zu, frag=%.0f%% (%.0f%% rss), frag_bytes=%zu (%zu rss)",
+        "allocated=%zu, active=%zu, resident=%zu, frag=%.2f%% (%.2f%% rss), frag_bytes=%zu (%zu rss)",
         allocated, active, resident, frag_pct, rss_pct, frag_bytes, rss_bytes);
     return frag_pct;
 }
@@ -1032,6 +1045,8 @@ void activeDefragCycle(void) {
             }
 
             db = &server.db[current_db];
+            activeDefragKvstore(db->keys);
+            activeDefragKvstore(db->expires);
             cursor = 0;
             expires_cursor = 0;
             slot = kvstoreFindDictIndexByKeyIndex(db->keys, 1);
