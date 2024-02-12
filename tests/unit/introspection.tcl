@@ -40,28 +40,30 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT KILL maxAGE will kill old clients} {
         # This test is very likely to do a false positive if the execute time
-        # takes longer than the max age, so give it a few more chances.
-        for {set i 0} {$i < 10} {incr i} {
+        # takes longer than the max age, so give it a few more chances. Go with
+        # 3 retries of increasing sleep_time, i.e. start with 2s, then go 4s, 8s.
+        set sleep_time 2
+        for {set i 0} {$i < 3} {incr i} {
+            set rd1 [redis_deferring_client]
+            r debug sleep $sleep_time
+            set rd2 [redis_deferring_client]
+            r acl setuser dummy on nopass +ping
+            $rd1 auth dummy ""
+            $rd1 read
+            $rd2 auth dummy ""
+            $rd2 read
 
-        set rd1 [redis_deferring_client]
-        r debug sleep 2
-        set rd2 [redis_deferring_client]
-
-        r acl setuser dummy on nopass +ping
-        $rd1 auth dummy ""
-        $rd1 read
-        $rd2 auth dummy ""
-        $rd2 read
-
-        # Should kill rd1 but not rd2
-        set res [r client kill user dummy maxage 1]
-        if {$res == 1} {
-            break
-        } else {
-            # Clean up and try again next time
-            $rd1 close
-            $rd2 close
-        }
+            # Should kill rd1 but not rd2
+            set max_age [expr $sleep_time / 2]
+            set res [r client kill user dummy maxage $max_age]
+            if {$res == 1} {
+                break
+            } else {
+                # Clean up and try again next time
+                set sleep_time [expr $sleep_time * 2]
+                $rd1 close
+                $rd2 close
+            }
 
         } ;# for
 
