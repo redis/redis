@@ -3609,7 +3609,7 @@ void clusterSendPing(clusterLink *link, int type) {
          * already, so we just gossip about other nodes.
          * Also, don't include the receiver. Receiver will not update its state
          * based on gossips about itself. */
-        if (this == myself || (link->node && this == link->node)) continue;
+        if (this == myself || this == link->node) continue;
 
         /* PFAIL nodes will be added later. */
         if (this->flags & CLUSTER_NODE_PFAIL) continue;
