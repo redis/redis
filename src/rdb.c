@@ -3262,7 +3262,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
             dbExpand(db, db_size, 0);
-            dbExpandExpires(db, db_size, 0);
+            dbExpandExpires(db, expires_size, 0);
             should_expand_db = 0;
         }
 
