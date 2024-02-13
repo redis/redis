@@ -6936,8 +6936,10 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     int masters_count = CLUSTER_MANAGER_MASTERS_COUNT(node_len, replicas);
     if (masters_count < 3) {
         int ignore_force = 0;
+        clusterManagerLogInfo("Requested to create a cluster with %d masters and "
+                              "%d replicas per master.\n", masters_count, replicas);
         if (!confirmWithYes("Redis Cluster requires at least 3 master nodes for "
-                            "automatic failover, are you sure?", ignore_force))
+                            "automatic failover. Are you sure?", ignore_force))
             return 0;
     }
     clusterManagerLogInfo(">>> Performing hash slots allocation "
