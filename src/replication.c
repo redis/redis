@@ -72,11 +72,7 @@ static ConnectionType *connTypeOfReplication(void) {
     return connectionTypeTcp();
 }
 
-/* Return the pointer to a string representing the slave ip:listening_port
- * pair. Mostly useful for logging, since we want to log a slave using its
- * IP address and its listening port which is more clear for the user, for
- * example: "Closing connection with replica 10.1.2.3:6380". */
-char *replicationGetSlaveName(client *c) {
+char *replicationGetSlaveNameGeneric(client *c, int with_type) {
     static char buf[NET_HOST_PORT_STR_LEN];
     char ip[NET_IP_STR_LEN];
 
@@ -94,13 +90,23 @@ char *replicationGetSlaveName(client *c) {
         snprintf(buf,sizeof(buf),"client id #%llu",
             (unsigned long long) c->id);
     }
-    /* RDB channel SYNC */
-    if (isReplicaMainChannel(c)) {
-        redis_strlcat(buf, ":<main-conn>", sizeof(buf));
-    } else if (isReplicaRdbChannel(c)) {
-        redis_strlcat(buf, ":<rdb-conn>", sizeof(buf));
+    if (with_type) {
+        /* RDB channel SYNC */
+        if (isReplicaMainChannel(c)) {
+            redis_strlcat(buf, ":<main-conn>", sizeof(buf));
+        } else if (isReplicaRdbChannel(c)) {
+            redis_strlcat(buf, ":<rdb-conn>", sizeof(buf));
+        }
     }
     return buf;
+}
+
+/* Return the pointer to a string representing the slave ip:listening_port
+ * pair. Mostly useful for logging, since we want to log a slave using its
+ * IP address and its listening port which is more clear for the user, for
+ * example: "Closing connection with replica 10.1.2.3:6380". */
+char *replicationGetSlaveName(client *c) {
+    return replicationGetSlaveNameGeneric(c, 1);
 }
 
 /* Plain unlink() can block for quite some time in order to actually apply
@@ -210,6 +216,56 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
         o->repl_offset += base_repl_offset;
         createReplicationBacklogIndex(ln);
     }
+}
+
+/* Peer given slave to the latest backlog block. This method is called right
+ * before forking during rdb-channel sync session. It works by increasing the 
+ * ref count on the backlog node which will later be used by the replica main 
+ * conneciton to establish PSYNC successfully. */
+void peerPendingSlaveToBacklogBlock(client* slave) {
+    replBufBlock *tail = NULL;
+    sds slave_name = sdsnew(replicationGetSlaveNameGeneric(slave, 0));
+    if (server.repl_backlog == NULL) {
+        createReplicationBacklog();
+    } else {
+        listNode *ln = listLast(server.repl_buffer_blocks);
+        tail = ln ? listNodeValue(ln) : NULL;
+        if (tail) {
+            tail->refcount++;
+        }
+    }
+    serverLog(LL_DEBUG, "Peer slave %s %s ", slave_name, tail? "with repl-backlog tail": "repl-backlog is empty");
+    /* Note: if the backlog is empty, {ip : NULL} is inserted. */
+    dictAdd(server.pending_slaves, slave_name, tail);
+}
+
+/* Peer pending replicas with new replication backlog head */
+void peerPendingSlavesToBacklogBlockRetrospect(void) {
+    serverAssert(dictSize(server.pending_slaves) > 0);
+    dictIterator *di;
+    dictEntry *de;
+    listNode *ln = listFirst(server.repl_buffer_blocks);
+    replBufBlock *head = ln ? listNodeValue(ln) : NULL;
+    /* Update pending slaves to wait on new buffer block */
+    di = dictGetSafeIterator(server.pending_slaves);
+    while((de = dictNext(di)) != NULL) {
+        dictSetVal(server.pending_slaves, de, head);
+        head->refcount++;
+        serverLog(LL_DEBUG, "Retrospect peer slave %s", (sds)dictGetKey(de));
+    }
+}
+
+void unpeerPendingSlaveFromBacklogBlock(client* slave) {
+    sds slave_name = sdsnew(replicationGetSlaveNameGeneric(slave, 0));
+    /* Get replDataBlock pointed by this replica */
+    dictEntry* de = dictFind(server.pending_slaves, slave_name);
+    replBufBlock* o = dictGetVal(de);
+    if (o != NULL) {
+        serverAssert(o->refcount > 0);
+        o->refcount--;
+    }
+    serverLog(LL_DEBUG, "Unpeer pending slave %s, repl buffer block %s", slave_name, o? "ref count decreased": "doesn't exist");
+    dictDelete(server.pending_slaves, slave_name);
 }
 
 void resetReplicationBuffer(void) {
@@ -354,6 +410,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         int add_new_block = 0; /* Create new block if current block is total used. */
         listNode *ln = listLast(server.repl_buffer_blocks);
         replBufBlock *tail = ln ? listNodeValue(ln) : NULL;
+        int empty_backlog = (tail == NULL);
 
         /* Append to tail string when possible. */
         if (tail && tail->size > tail->used) {
@@ -433,6 +490,10 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
         if (add_new_block) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
+        }
+        if (empty_backlog && dictSize(server.pending_slaves) > 0) {
+            /* Increase refcount for pending replicas. */
+            peerPendingSlavesToBacklogBlockRetrospect();
         }
         /* Try to trim replication backlog since replication backlog may exceed
          * our setting when we add replication stream. Note that it is important to
@@ -810,8 +871,9 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
-    if (isReplicaMainChannel(c)) {
+    if (isReplicaMainChannel(c) && dictFind(server.pending_slaves, replicationGetSlaveNameGeneric(c,0))) {
         c->replstate = SLAVE_STATE_BG_RDB_LOAD;
+        unpeerPendingSlaveFromBacklogBlock(c);
     } else {
         c->replstate = SLAVE_STATE_ONLINE;
     }
@@ -4493,7 +4555,7 @@ void replicationCron(void) {
     if (listLength(server.repl_buffer_blocks) > 0) {
         replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
         serverAssert(o->refcount > 0 &&
-            o->refcount <= (int)listLength(server.slaves)+1);
+            o->refcount <= (int)listLength(server.slaves) + 1 + (int)dictSize(server.pending_slaves));
     }
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */

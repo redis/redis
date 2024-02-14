@@ -3557,6 +3557,8 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                 /* This replica uses diskless rdb channel sync, hence we need
                  * to inform it with the save end offset.*/
                 sendCurrentOffsetToReplica(slave);
+                /* Make sure repl traffic is appended to the replication backlog */                
+                peerPendingSlaveToBacklogBlock(slave);
             } else {
                 server.rdb_pipe_numconns++;
             }

@@ -1624,6 +1624,7 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
+    dict *pending_slaves;       /* Dict[Slave IP] = replDataBlock with the required data */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
 
@@ -2858,6 +2859,7 @@ const char *getFailoverStateString(void);
 int isReplicaRdbChannel(client *c);
 void abortRdbConnectionSync(void);
 int sendCurrentOffsetToReplica(client* replica);
+void peerPendingSlaveToBacklogBlock(client* slave);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

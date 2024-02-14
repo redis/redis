@@ -2552,6 +2552,7 @@ void initServer(void) {
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
+    server.pending_slaves = dictCreate(&stringSetDictType);
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();
@@ -6056,9 +6057,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
                 info = sdscatprintf(info,
                     "slave%d:ip=%s,port=%d,state=%s,"
-                    "offset=%lld,lag=%ld\r\n",
+                    "offset=%lld,lag=%ld,type=%s\r\n",
                     slaveid,slaveip,slave->slave_listening_port,state,
-                    slave->repl_ack_off, lag);
+                    slave->repl_ack_off, lag, 
+                    slave->flags & CLIENT_REPL_RDB_CHANNEL ? "rdb-conn":"main-conn");
                 slaveid++;
             }
         }
