@@ -2121,10 +2121,11 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 
         /* Update our state accordingly to the gossip sections */
         node = clusterLookupNode(g->nodename, CLUSTER_NAMELEN);
-        if (node) {
+        /* Ignore gossips about self. */
+        if (node && node != myself) {
             /* We already know this node.
                Handle failure reports, only when the sender is a master. */
-            if (sender && clusterNodeIsMaster(sender) && node != myself) {
+            if (sender && clusterNodeIsMaster(sender)) {
                 if (flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) {
                     if (clusterNodeAddFailureReport(node,sender)) {
                         serverLog(LL_VERBOSE,
@@ -2183,7 +2184,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
             }
-        } else {
+        } else if (!node) {
             /* If it's not in NOADDR state and we don't have it, we
              * add it to our trusted dict with exact nodeid and flag.
              * Note that we cannot simply start a handshake against
@@ -3605,8 +3606,10 @@ void clusterSendPing(clusterLink *link, int type) {
         clusterNode *this = dictGetVal(de);
 
         /* Don't include this node: the whole packet header is about us
-         * already, so we just gossip about other nodes. */
-        if (this == myself) continue;
+         * already, so we just gossip about other nodes.
+         * Also, don't include the receiver. Receiver will not update its state
+         * based on gossips about itself. */
+        if (this == myself || this == link->node) continue;
 
         /* PFAIL nodes will be added later. */
         if (this->flags & CLUSTER_NODE_PFAIL) continue;
