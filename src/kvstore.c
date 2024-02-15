@@ -155,11 +155,14 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     }
 }
 
-static void createDictIfNeeded(kvstore *kvs, int didx) {
-    if (kvstoreGetDict(kvs, didx))
-        return;
+/* Create the dict if it does not exist and return it. */
+static dict *createDictIfNeeded(kvstore *kvs, int didx) {
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (d) return d;
+
     kvs->dicts[didx] = dictCreate(&kvs->dtype);
     kvs->allocated_dicts++;
+    return kvs->dicts[didx];
 }
 
 static void freeDictIfNeeded(kvstore *kvs, int didx) {
@@ -754,11 +757,7 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
 }
 
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
-    dict *d = kvstoreGetDict(kvs, didx);
-    if (!d) {
-        createDictIfNeeded(kvs, didx);
-        d = kvstoreGetDict(kvs, didx);
-    }
+    dict *d = createDictIfNeeded(kvs, didx);
     dictEntry *ret = dictAddRaw(d, key, existing);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);
