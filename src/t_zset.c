@@ -2666,8 +2666,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     /* Try to allocate the src table, and abort on insufficient memory. */
     src = ztrycalloc(sizeof(zsetopsrc) * setnum);
     if (src == NULL) {
-        addReplyErrorFormat(c, "Insufficient memory, failed allocating transient memory for '%s' command",
-                            c->cmd->fullname);
+        addReplyError(c, "Insufficient memory, failed allocating transient memory, too many args.");
         return;
     }
 
