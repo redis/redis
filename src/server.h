@@ -483,7 +483,7 @@ typedef enum {
 #define SLAVE_STATE_ONLINE 9 /* RDB file transmitted, sending just updates. */
 #define SLAVE_STATE_RDB_TRANSMITTED 10 /* RDB file transmitted - This state is used only for
                                         * a replica that only wants RDB without replication buffer  */
-#define SLAVE_STATE_ACTIVE_RDB_CHAN 11 /* Main connection of a replica which uses rdb-channel-sync. */
+#define SLAVE_STATE_BG_RDB_LOAD 11 /* Main connection of a replica which uses rdb-channel-sync. */
 
 
 /* Slave capabilities. */

@@ -811,7 +811,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
     if (isReplicaMainChannel(c)) {
-        c->replstate = SLAVE_STATE_ACTIVE_RDB_CHAN;
+        c->replstate = SLAVE_STATE_BG_RDB_LOAD;
     } else {
         c->replstate = SLAVE_STATE_ONLINE;
     }
@@ -1256,7 +1256,7 @@ void replconfCommand(client *c) {
                 checkChildrenDone();
             if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 replicaStartCommandStream(c);
-            if (c->replstate == SLAVE_STATE_ACTIVE_RDB_CHAN) {
+            if (c->replstate == SLAVE_STATE_BG_RDB_LOAD) {
                 c->flags &= ~CLIENT_REPL_MAIN_CHANNEL;
                 replicaPutOnline(c);
             }

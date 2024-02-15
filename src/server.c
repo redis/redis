@@ -5255,7 +5255,7 @@ const char *replstateToString(int replstate) {
     case SLAVE_STATE_WAIT_BGSAVE_START:
     case SLAVE_STATE_WAIT_BGSAVE_END:
         return "wait_bgsave";
-    case SLAVE_STATE_ACTIVE_RDB_CHAN:
+    case SLAVE_STATE_BG_RDB_LOAD:
         return "bg_transfer";
     case SLAVE_STATE_SEND_BULK:
         return "send_bulk";

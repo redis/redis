@@ -242,7 +242,7 @@ void installClientWriteHandler(client *c) {
 
 /* Determining whether a replica requires online data updates based on its state */
 int isReplDataRequired(client *c) {
-    return c->replstate == SLAVE_STATE_ONLINE || c->replstate == SLAVE_STATE_ACTIVE_RDB_CHAN;
+    return c->replstate == SLAVE_STATE_ONLINE || c->replstate == SLAVE_STATE_BG_RDB_LOAD;
 }
 
 /* This function puts the client in the queue of clients that should write
