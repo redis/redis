@@ -6190,6 +6190,7 @@ void freeMonitorFiltersForClient(client *c) {
 #define FILTER_CONSUMED 1
 
 int createMonitorFilterForCMD(client *c, int *argi, bool moreargs){
+// YLB TODO warn if QUIT is used?
     if (!strcasecmp(c->argv[*argi]->ptr,"cmd") && moreargs) {
         struct redisCommand *cmd = dictFetchValue(server.commands, c->argv[*argi+1]->ptr);
         if (cmd) {
@@ -6201,6 +6202,26 @@ int createMonitorFilterForCMD(client *c, int *argi, bool moreargs){
             return FILTER_CONSUMED;
         } else {
             addReplyErrorFormat(c, " '%s' is not a Redis command", (char *)c->argv[*argi+1]->ptr);
+            return FILTER_ERR;
+        }
+    } else {
+        return FILTER_NOT_FOUND;
+    }
+}
+
+int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
+    // YLB "monitor cmd_filter ..." alone does not make sense without a "CMD ..."
+    if (!strcasecmp(c->argv[*argi]->ptr,"cmd_filter") && moreargs) {
+        if (!strcasecmp(c->argv[*argi+1]->ptr,"include")) {
+            c->monitor_filters->exclude_commands = 0;
+            *argi += 2;
+            return FILTER_CONSUMED;
+        } else if (!strcasecmp(c->argv[*argi+1]->ptr,"exclude")) {
+            c->monitor_filters->exclude_commands = 1;
+            *argi += 2;
+            return FILTER_CONSUMED;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
             return FILTER_ERR;
         }
     } else {
@@ -6286,26 +6307,6 @@ int createMonitorFilterForType(client *c, int *argi, bool moreargs){
             intsetAdd(c->monitor_filters->types, type, NULL);
             *argi += 2;
             return FILTER_CONSUMED;
-        }
-    } else {
-        return FILTER_NOT_FOUND;
-    }
-}
-
-int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
-    // YLB TODO warn if QUIT is used?
-    if (!strcasecmp(c->argv[*argi]->ptr,"cmd_filter") && moreargs) {
-        if (!strcasecmp(c->argv[*argi+1]->ptr,"include")) {
-            c->monitor_filters->exclude_commands = 0;
-            *argi += 2;
-            return FILTER_CONSUMED;
-        } else if (!strcasecmp(c->argv[*argi+1]->ptr,"exclude")) {
-            c->monitor_filters->exclude_commands = 1;
-            *argi += 2;
-            return FILTER_CONSUMED;
-        } else {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return FILTER_ERR;
         }
     } else {
         return FILTER_NOT_FOUND;
