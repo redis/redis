@@ -2009,8 +2009,8 @@ start_server {tags {"zset"}} {
             assert_equal {} [$rd read]
             set end [clock milliseconds]
 
-            # In the past, this time would have been 1000+200, in order to avoid
-            # timing issues, we increase the range a bit.
+            # Before the fix in #13004, this time would have been 1200+ (i.e. more than 1200ms),
+            # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
             assert_range [expr $end-$start] 1000 1150
 
             r debug set-active-expire 1
