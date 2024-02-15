@@ -170,6 +170,18 @@ start_server {tags {"introspection"}} {
         set _ $res
     } {*"set" "foo"*"get" "foo"*}
 
+    test {MONITOR with illegal arguments} {
+        assert_error "ERR syntax error*" {r monitor id 11 wrong_arg}
+
+        assert_error "ERR *greater than 0*" {r monitor id string}
+        assert_error "ERR *greater than 0*" {r monitor id -1}
+        assert_error "ERR *greater than 0*" {r monitor id 0}
+
+        assert_error "ERR Unknown client type*" {r monitor type wrong_type}
+
+        assert_error "ERR No such user*" {r monitor user wrong_user}
+    }
+
     test {MONITOR with filters do not log executed commands} {
         set rd [redis_deferring_client]
         $rd monitor cmd get
