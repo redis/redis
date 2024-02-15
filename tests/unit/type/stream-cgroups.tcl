@@ -520,7 +520,7 @@ start_server {
 
         # In the past, this time would have been 1000+200, in order to avoid
         # timing issues, we increase the range a bit.
-        assert_range [expr $end-$start] 1000 1100
+        assert_range [expr $end-$start] 1000 1150
 
         $rd1 close
         $rd2 close
