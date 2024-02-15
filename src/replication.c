@@ -2586,6 +2586,10 @@ void abortRdbConnectionSync(void) {
         connClose(server.repl_rdb_transfer_s);
         server.repl_rdb_transfer_s = NULL;
     }
+    server.repl_rdb_conn_state = REPL_RDB_CONN_STATE_NONE;
+    server.repl_provisional_master.read_reploff = 0;
+    server.repl_provisional_master.reploff = 0;
+    server.repl_provisional_master.conn = NULL;
     freePendingReplDataBuf();
     return;
 }
@@ -2731,7 +2735,7 @@ void fullSyncWithMaster(connection* conn) {
         /* Fall through to regular error handling */
 
     error:
-        abortRdbConnectionSync();
+        cancelReplicationHandshake(1);
         return;
 
     write_error: /* Handle sendCommand() errors. */
@@ -2769,7 +2773,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
     if (nread == -1) {
         if (connGetState(conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE, "Error reading from primary: %s",connGetLastError(conn));
-            abortRdbConnectionSync();
+            cancelReplicationHandshake(1);
         }
         return C_ERR;
     }
@@ -2777,7 +2781,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
         if (server.verbosity <= LL_VERBOSE) {
             serverLog(LL_VERBOSE, "Provisional master closed connection");
         }
-        replicationAbortSyncTransfer();
+        cancelReplicationHandshake(1);
         return C_ERR;
     }
     o->used += nread;
@@ -2881,7 +2885,7 @@ void completeTaskRDBChannelSyncMainConn(connection *conn) {
         /* RDB is still loading */
         if (connSetReadHandler(server.repl_provisional_master.conn, bufferReplData)) {
             serverLog(LL_WARNING,"Error while setting readable handler: %s", strerror(errno));
-            abortRdbConnectionSync();
+            cancelReplicationHandshake(1);
         }
         replDataBufInit();
         server.repl_state = REPL_STATE_TRANSFER;
@@ -3162,7 +3166,7 @@ void setupMainConnForPsync(connection *conn) {
     if (server.repl_state == REPL_STATE_SEND_PSYNC) {
         if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
             serverLog(LL_WARNING, "Aborting RDB connection sync. Write error.");
-            abortRdbConnectionSync();
+            cancelReplicationHandshake(1);
         }
         server.repl_state = REPL_STATE_RECEIVE_PSYNC_REPLY;
         return;
@@ -3182,7 +3186,7 @@ void setupMainConnForPsync(connection *conn) {
 
     /* The rdb-conn-sync session must be aborted for any psync_result other than PSYNC_CONTINUE or PSYNC_WAIT_REPLY. */
     serverLog(LL_WARNING, "Aborting RDB connection sync. Main connection psync result %d", psync_result);
-    abortRdbConnectionSync();
+    cancelReplicationHandshake(1);
 }
 
 /* This handler fires when the non blocking connect was able to
@@ -3545,7 +3549,7 @@ error:
     return;
 
 rdb_conn_error:
-    abortRdbConnectionSync();
+    cancelReplicationHandshake(1);
     goto error;
 
 write_error: /* Handle sendCommand() errors. */
@@ -3581,9 +3585,6 @@ void undoConnectWithMaster(void) {
         connClose(server.repl_transfer_s);
         server.repl_transfer_s = NULL;
     }
-    if (server.repl_rdb_transfer_s) {
-        abortRdbConnectionSync();
-    }
 }
 
 /* Abort the async download of the bulk dataset while SYNC-ing with master.
@@ -3610,6 +3611,8 @@ void replicationAbortSyncTransfer(void) {
  *
  * Otherwise zero is returned and no operation is performed at all. */
 int cancelReplicationHandshake(int reconnect) {
+    if (server.repl_rdb_conn_state != REPL_RDB_CONN_STATE_NONE)
+        abortRdbConnectionSync();
     if (server.repl_state == REPL_STATE_TRANSFER) {
         replicationAbortSyncTransfer();
         server.repl_state = REPL_STATE_CONNECT;
