@@ -169,42 +169,6 @@ start_server {tags {"introspection"}} {
         $rd close
         set _ $res
     } {*"set" "foo"*"get" "foo"*}
-
-    test {MONITOR with illegal arguments} {
-        assert_error "ERR syntax error*" {r monitor id 11 wrong_arg}
-
-        assert_error "ERR *greater than 0*" {r monitor id string}
-        assert_error "ERR *greater than 0*" {r monitor id -1}
-        assert_error "ERR *greater than 0*" {r monitor id 0}
-
-        assert_error "ERR Unknown client type*" {r monitor type wrong_type}
-
-        assert_error "ERR No such user*" {r monitor user wrong_user}
-
-        assert_error "ERR syntax error*" {r monitor cmd_filter wrong_arg}
-
-        assert_error "ERR * is not a Redis command*" {r monitor cmd not_a_redis_command}
-    }
-
-    test {MONITOR with CMD filter do not log some executed commands} {
-        set rd [redis_deferring_client]
-        $rd monitor cmd get
-        assert_match {*OK*} [$rd read]
-        r set foo bar
-        r get foo
-        assert_match {*"get" "foo"*}  [$rd read]
-        $rd close
-    }
-    
-    test {MONITOR with CMD_FILTER do not log some executed commands} {
-        set rd [redis_deferring_client]
-        $rd monitor cmd_filter exclude cmd set
-        assert_match {*OK*} [$rd read]
-        r set foo bar
-        r get foo
-        assert_match {*"get" "foo"*}  [$rd read]
-        $rd close
-    }
     
     test {MONITOR can log commands issued by the scripting engine} {
         set rd [redis_deferring_client]
@@ -324,6 +288,42 @@ start_server {tags {"introspection"}} {
         
         $rd close
         $bc close
+    }
+
+    test {MONITOR with illegal arguments} {
+        assert_error "ERR syntax error*" {r monitor id 11 wrong_arg}
+
+        assert_error "ERR *greater than 0*" {r monitor id string}
+        assert_error "ERR *greater than 0*" {r monitor id -1}
+        assert_error "ERR *greater than 0*" {r monitor id 0}
+
+        assert_error "ERR Unknown client type*" {r monitor type wrong_type}
+
+        assert_error "ERR No such user*" {r monitor user wrong_user}
+
+        assert_error "ERR syntax error*" {r monitor cmd_filter wrong_arg}
+
+        assert_error "ERR * is not a Redis command*" {r monitor cmd not_a_redis_command}
+    }
+
+    test {MONITOR with CMD filter do not log some executed commands} {
+        set rd [redis_deferring_client]
+        $rd monitor cmd get
+        assert_match {*OK*} [$rd read]
+        r set foo bar
+        r get foo
+        assert_match {*"get" "foo"*}  [$rd read]
+        $rd close
+    }
+    
+    test {MONITOR with CMD_FILTER do not log some executed commands} {
+        set rd [redis_deferring_client]
+        $rd monitor cmd_filter exclude cmd set
+        assert_match {*OK*} [$rd read]
+        r set foo bar
+        r get foo
+        assert_match {*"get" "foo"*}  [$rd read]
+        $rd close
     }
 
     test {CLIENT GETNAME should return NIL if name is not assigned} {
