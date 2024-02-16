@@ -186,7 +186,7 @@ start_server {tags {"introspection"}} {
         assert_error "ERR * is not a Redis command*" {r monitor cmd not_a_redis_command}
     }
 
-    test {MONITOR with CMD filter do not log executed commands} {
+    test {MONITOR with CMD filter do not log some executed commands} {
         set rd [redis_deferring_client]
         $rd monitor cmd get
         assert_match {*OK*} [$rd read]
@@ -196,13 +196,13 @@ start_server {tags {"introspection"}} {
         $rd close
     }
     
-    test {MONITOR with CMD_FILTER do not log executed commands} {
+    test {MONITOR with CMD_FILTER do not log some executed commands} {
         set rd [redis_deferring_client]
-        $rd monitor cmd_filter exclude cmd get
+        $rd monitor cmd_filter exclude cmd set
         assert_match {*OK*} [$rd read]
         r set foo bar
         r get foo
-        assert_match {*"set" "foo"*"bar"*}  [$rd read]
+        assert_match {*"get" "foo"*}  [$rd read]
         $rd close
     }
     
