@@ -3908,7 +3908,9 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
-
+        if (getClientType(c) == CLIENT_TYPE_SLAVE && (c->flags & CLIENT_REPL_RDB_CHANNEL)) {
+            dictDelete(server.pending_slaves, replicationGetSlaveNameGeneric(c, 0));
+        }
         if (async) {
             freeClientAsync(c);
             serverLog(LL_WARNING,

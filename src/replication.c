@@ -218,52 +218,62 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
     }
 }
 
-/* Peer given slave to the latest backlog block. This method is called right
- * before forking during rdb-channel sync session. It works by increasing the 
- * ref count on the backlog node which will later be used by the replica main 
- * conneciton to establish PSYNC successfully. */
+/* Peer given slave ip to slave struct and attach slave to the latest backlog block. 
+ * This method is called right before forking during rdb-channel sync session. It 
+ * works by increasing the ref count on the backlog node which will later be used by
+ * the replica main conneciton to establish PSYNC successfully. */
 void peerPendingSlaveToBacklogBlock(client* slave) {
+    listNode *ln;
     replBufBlock *tail = NULL;
     sds slave_name = sdsnew(replicationGetSlaveNameGeneric(slave, 0));
     if (server.repl_backlog == NULL) {
         createReplicationBacklog();
     } else {
-        listNode *ln = listLast(server.repl_buffer_blocks);
+        ln = listLast(server.repl_buffer_blocks);
         tail = ln ? listNodeValue(ln) : NULL;
         if (tail) {
             tail->refcount++;
         }
     }
     serverLog(LL_DEBUG, "Peer slave %s %s ", slave_name, tail? "with repl-backlog tail": "repl-backlog is empty");
-    /* Note: if the backlog is empty, {ip : NULL} is inserted. */
-    dictAdd(server.pending_slaves, slave_name, tail);
+    /* Note: if the backlog is empty, ref_repl_buf_node will be NULL. */
+    slave->ref_repl_buf_node = ln;
+    dictAdd(server.pending_slaves, slave_name, slave);
 }
 
-/* Peer pending replicas with new replication backlog head */
+/* Attach pending replicas with new replication backlog head. */
 void peerPendingSlavesToBacklogBlockRetrospect(void) {
-    serverAssert(dictSize(server.pending_slaves) > 0);
     dictIterator *di;
     dictEntry *de;
     listNode *ln = listFirst(server.repl_buffer_blocks);
     replBufBlock *head = ln ? listNodeValue(ln) : NULL;
+    if (head == NULL) return;
     /* Update pending slaves to wait on new buffer block */
     di = dictGetSafeIterator(server.pending_slaves);
     while((de = dictNext(di)) != NULL) {
-        dictSetVal(server.pending_slaves, de, head);
+        client* slave = dictGetVal(de);
+        slave->ref_repl_buf_node = ln;
         head->refcount++;
         serverLog(LL_DEBUG, "Retrospect peer slave %s", (sds)dictGetKey(de));
     }
 }
 
 void unpeerPendingSlaveFromBacklogBlock(client* slave) {
-    sds slave_name = sdsnew(replicationGetSlaveNameGeneric(slave, 0));
+    dictEntry *de;
+    listNode *ln;
+    replBufBlock *o;
+    client *peer_slave;
+    sds slave_name = replicationGetSlaveNameGeneric(slave, 0);
     /* Get replDataBlock pointed by this replica */
-    dictEntry* de = dictFind(server.pending_slaves, slave_name);
-    replBufBlock* o = dictGetVal(de);
+    de = dictFind(server.pending_slaves, slave_name);
+    peer_slave = dictGetVal(de);
+    ln = peer_slave->ref_repl_buf_node;
+    o = ln ? listNodeValue(ln) : NULL;
     if (o != NULL) {
         serverAssert(o->refcount > 0);
         o->refcount--;
     }
+    peer_slave->ref_repl_buf_node = NULL;
     serverLog(LL_DEBUG, "Unpeer pending slave %s, repl buffer block %s", slave_name, o? "ref count decreased": "doesn't exist");
     dictDelete(server.pending_slaves, slave_name);
 }
@@ -3164,7 +3174,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 void setupMainConnForPsync(connection *conn) {
     int psync_result;
     if (server.repl_state == REPL_STATE_SEND_PSYNC) {
-        if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
+                if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
             serverLog(LL_WARNING, "Aborting RDB connection sync. Write error.");
             cancelReplicationHandshake(1);
         }

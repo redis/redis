@@ -2838,6 +2838,7 @@ int replicationCountAOFAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
+char *replicationGetSlaveNameGeneric(client *c, int with_type);
 long long getPsyncInitialOffset(void);
 int replicationSetupSlaveForFullResync(client *slave, long long offset);
 void changeReplicationId(void);
