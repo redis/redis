@@ -283,8 +283,7 @@
                                             "properties": {
                                                 "active-time": {
                                                     "type": "integer",
-                                                    "description": "Last time this consumer was active (successful reading/claiming).",
-                                                    "minimum": 0
+                                                    "description": "Last time this consumer was active (successful reading/claiming)."
                                                 },
                                                 "name": {
                                                     "description": "consumer name",
