@@ -65,6 +65,7 @@ list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
+int clusterMoveNodeSlots(clusterNode *from_node, clusterNode *to_node);
 int clusterDelNodeSlots(clusterNode *node);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
 void clusterSetMaster(clusterNode *n);
@@ -2990,7 +2991,26 @@ int clusterProcessPacket(clusterLink *link) {
 
                 if (clusterNodeIsMaster(sender)) {
                     /* Master turned into a slave! Reconfigure the node. */
-                    clusterDelNodeSlots(sender);
+                    if (master && !memcmp(master->shard_id, sender->shard_id, CLUSTER_NAMELEN)) {
+                        /* 'sender' was a primary and was in the same shard as `master`, its new primary */
+                        if (sender->configEpoch > senderConfigEpoch) {
+                            serverLog(LL_WARNING,
+                                    "Ignore stale gossipe message from %.40s (%s) in shard %.40s;"
+                                    " gossip config epoch: %llu, current config epoch: %llu", 
+                                    sender->name,
+                                    sender->human_nodename,
+                                    sender->shard_id,
+                                    (unsigned long long)senderConfigEpoch,
+                                    (unsigned long long)sender->configEpoch);
+                        } else {
+                            /* A failover occurred in the shard where `sender` belongs to and `sender` is no longer
+                             * a primary. Update slot assignment to `master`, which is the new primary in the shard */
+                            clusterMoveNodeSlots(sender, master);
+                        }
+                    } else {
+                        /* `sender` was moved to another shard and has become a replica, remove its slot assignment */
+                        clusterDelNodeSlots(sender);
+                    }
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
                                        CLUSTER_NODE_MIGRATE_TO);
                     sender->flags |= CLUSTER_NODE_SLAVE;
@@ -4936,6 +4956,21 @@ int clusterDelSlot(int slot) {
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
     return C_OK;
+}
+
+/* Delete all the slots associated with the specified node.
+ * The number of deleted slots is returned. */
+int clusterMoveNodeSlots(clusterNode *from_node, clusterNode *to_node) {
+    int processed = 0;
+
+    for (int j = 0; j < CLUSTER_SLOTS; j++) {
+        if (clusterNodeCoversSlot(from_node, j)) {
+            clusterDelSlot(j);
+            clusterAddSlot(to_node, j);
+            processed++;
+        }
+    }
+    return processed;
 }
 
 /* Delete all the slots associated with the specified node.
