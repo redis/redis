@@ -4958,8 +4958,9 @@ int clusterDelSlot(int slot) {
     return C_OK;
 }
 
-/* Delete all the slots associated with the specified node.
- * The number of deleted slots is returned. */
+/* Transfer slots from `from_node` to `to_node`.
+ * Iterates over all cluster slots, transferring each slot covered by `from_node` to `to_node`.
+ * Counts and returns the number of slots transferred.  */
 int clusterMoveNodeSlots(clusterNode *from_node, clusterNode *to_node) {
     int processed = 0;
 
