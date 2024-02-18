@@ -7,7 +7,7 @@
         "arity": 4,
         "function": "waitaofCommand",
         "command_flags": [
-            "NOSCRIPT"
+            "BLOCKING"
         ],
         "acl_categories": [
             "CONNECTION"
