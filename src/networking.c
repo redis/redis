@@ -2858,6 +2858,7 @@ sds catClientInfoString(sds s, client *client) {
         " psub=%i", (int) dictSize(client->pubsub_patterns),
         " ssub=%i", (int) dictSize(client->pubsubshard_channels),
         " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
+        " watch=%i", (int) listLength(client->watched_keys),
         " qbuf=%U", (unsigned long long) sdslen(client->querybuf),
         " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf),
         " argv-mem=%U", (unsigned long long) client->argv_len_sum,
