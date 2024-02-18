@@ -401,5 +401,66 @@ start_server {tags {"info" "external:skip"}} {
                 fail "pubsub clients did not clear"
             }
         }
+
+        test {clients: watching clients} {
+            set r2 [redis_client]
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+            # count after watch key
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # the same client watch the same key has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # different client watch different key
+            r watch key2
+            assert_equal [s watching_clients] 2
+            assert_equal [s total_watched_keys] 2
+            assert_match {*watch=1*} [$r2 client info]
+            assert_match {*watch=1*} [r client info]
+            # count after unwatch
+            r unwatch
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            $r2 unwatch
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+
+            # count after watch/multi/exec
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 exec
+            assert_equal [s watching_clients] 0
+            # count after watch/multi/discard
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 discard
+            assert_equal [s watching_clients] 0
+            # discard without multi has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            catch {$r2 discard} e
+            assert_equal [s watching_clients] 1
+            # unwatch without watch has no effect
+            r unwatch
+            assert_equal [s watching_clients] 1
+            # after disconnect
+            $r2 close
+            assert_equal [s watching_clients] 0
+        }
     }
 }

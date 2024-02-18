@@ -2056,7 +2056,7 @@ void initServerConfig(void) {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
-    server.aof_last_fsync = time(NULL);
+    server.aof_last_fsync = time(NULL) * 1000;
     server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
     server.aof_rewrite_time_last = -1;
@@ -2675,6 +2675,7 @@ void initServer(void) {
     server.pubsub_patterns = dictCreate(&objToDictDictType);
     server.pubsubshard_channels = kvstoreCreate(&objToDictDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
     server.pubsub_clients = 0;
+    server.watching_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -5475,6 +5476,25 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
     return section_dict;
 }
 
+/* sets blocking_keys to the total number of keys which has at least one client blocked on them.
+ * sets blocking_keys_on_nokey to the total number of keys which has at least one client
+ * blocked on them to be written or deleted.
+ * sets watched_keys to the total number of keys which has at least on client watching on them. */
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blocking_keys_on_nokey, unsigned long *watched_keys) {
+    unsigned long bkeys=0, bkeys_on_nokey=0, wkeys=0;
+    for (int j = 0; j < server.dbnum; j++) {
+        bkeys += dictSize(server.db[j].blocking_keys);
+        bkeys_on_nokey += dictSize(server.db[j].blocking_keys_unblock_on_nokey);
+        wkeys += dictSize(server.db[j].watched_keys);
+    }
+    if (blocking_keys)
+        *blocking_keys = bkeys;
+    if (blocking_keys_on_nokey)
+        *blocking_keys_on_nokey = bkeys_on_nokey;
+    if (watched_keys)
+        *watched_keys = wkeys;
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -5554,9 +5574,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     /* Clients */
     if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
-        unsigned long blocking_keys, blocking_keys_on_nokey;
+        unsigned long blocking_keys, blocking_keys_on_nokey, watched_keys;
         getExpansiveClientsInfo(&maxin,&maxout);
-        totalNumberOfBlockingKeys(&blocking_keys, &blocking_keys_on_nokey);
+        totalNumberOfStatefulKeys(&blocking_keys, &blocking_keys_on_nokey, &watched_keys);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Clients\r\n" FMTARGS(
             "connected_clients:%lu\r\n", listLength(server.clients) - listLength(server.slaves),
@@ -5567,7 +5587,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "blocked_clients:%d\r\n", server.blocked_clients,
             "tracking_clients:%d\r\n", server.tracking_clients,
             "pubsub_clients:%d\r\n", server.pubsub_clients,
+            "watching_clients:%d\r\n", server.watching_clients,
             "clients_in_timeout_table:%llu\r\n", (unsigned long long) raxSize(server.clients_timeout_table),
+            "total_watched_keys:%lu\r\n", watched_keys,
             "total_blocking_keys:%lu\r\n", blocking_keys,
             "total_blocking_keys_on_nokey:%lu\r\n", blocking_keys_on_nokey));
     }

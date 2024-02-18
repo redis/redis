@@ -303,6 +303,8 @@ void watchForKey(client *c, robj *key) {
     listNode *ln;
     watchedKey *wk;
 
+    if (listLength(c->watched_keys) == 0) server.watching_clients++;
+
     /* Check if we are already watching for this key */
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
@@ -353,6 +355,7 @@ void unwatchAllKeys(client *c) {
         decrRefCount(wk->key);
         zfree(wk);
     }
+    server.watching_clients--;
 }
 
 /* Iterates over the watched_keys list and looks for an expired key. Keys which
