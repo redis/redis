@@ -2163,14 +2163,12 @@ int quicklistTest(int argc, char *argv[], int flags) {
 
             quicklistEntry entry;
             quicklistIter *iter = quicklistGetIterator(ql, AL_START_TAIL);
-            int j = 0;
 
             while(quicklistNext(iter, &entry) != 0) {
                 if (QL_NODE_IS_PLAIN(entry.node))
                     assert(!memcmp(entry.value, "plain", 5));
                 else
                     assert(!memcmp(entry.value, "packed", 6));
-                j++;
             }
             ql_release_iterator(iter);
             quicklistRelease(ql);
