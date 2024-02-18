@@ -6231,7 +6231,7 @@ int createMonitorFilterForExcludeCMD(client *c, int *argi, bool moreargs){
 
 int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
     if (!strcasecmp(c->argv[*argi]->ptr,"id") && moreargs) {
-        uint64_t llid = 0;
+        // uint64_t id = 0;
         long id = 0;
         uint8_t success;
         if (getRangeLongFromObjectOrReply(c, c->argv[*argi+1], 1, LONG_MAX, &id,
@@ -6239,14 +6239,18 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
             return FILTER_ERR;
 
         if (c->monitor_filters->ids == NULL) c->monitor_filters->ids = intsetNew();
-        llid = id;
-        intsetAdd(c->monitor_filters->ids, llid, &success);
+        intsetAdd(c->monitor_filters->ids, id, &success);
         if (success) {
             printf("inset add ID success\n");
         } else {
             printf("inset add ID FAILED\n");
         }
         *argi += 2;
+
+// DEBUG
+if (intsetFind(c->monitor_filters->ids, id)){
+    printf("inset found ID just added\n");
+}
 
 if (c->monitor_filters && c->monitor_filters->ids){
     printf("# inset ID: %u\n", intsetLen(c->monitor_filters->ids));
