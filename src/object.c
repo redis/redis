@@ -328,8 +328,10 @@ void freeSetObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:
-    case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
+        break;
+    case OBJ_ENCODING_LISTPACK:
+        lpFree(o->ptr);
         break;
     default:
         serverPanic("Unknown set encoding type");
@@ -346,7 +348,7 @@ void freeZsetObject(robj *o) {
         zfree(zs);
         break;
     case OBJ_ENCODING_LISTPACK:
-        zfree(o->ptr);
+        lpFree(o->ptr);
         break;
     default:
         serverPanic("Unknown sorted set encoding");
