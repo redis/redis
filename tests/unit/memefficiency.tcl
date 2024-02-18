@@ -298,6 +298,14 @@ run_solo {defrag} {
                 $rd read ; # Discard replies
             }
 
+            set rd1 [redis_deferring_client]
+            if {$type eq "standalone"} {
+                $rd1 subscribe chan
+            } else {
+                $rd1 ssubscribe chan
+            }
+            $rd1 read
+
             # create some small items (effective in cluster-enabled)
             r set "{bighash}smallitem" val
             r set "{biglist}smallitem" val
@@ -397,6 +405,17 @@ run_solo {defrag} {
                 if {!$::no_latency} {
                     assert {$max_latency <= 30}
                 }
+
+                if {$type eq "standalone"} {
+                    r publish chan "hello"
+                    assert_equal {message chan hello} [$rd1 read]
+                    $rd1 unsubscribe chan
+                } else {
+                    r spublish chan "hello"
+                    assert_equal {smessage chan hello} [$rd1 read]
+                    $rd1 sunsubscribe chan
+                }
+                $rd1 close
             }
             # verify the data isn't corrupted or changed
             set newdigest [debug_digest]

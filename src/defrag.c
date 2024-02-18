@@ -147,8 +147,13 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
  * struct itself was moved. */
-void dictDefragTables(dict* d) {
+void dictDefragTables(dict **dictRef) {
+    dict *d = *dictRef;
     dictEntry **newtable;
+    /* handle the dict struct */
+    dict *newd = activeDefragAlloc(d);
+    if (newd)
+        *dictRef = d = newd;
     /* handle the first hash table */
     if (!d->ht_table[0]) return; /* created but unused */
     newtable = activeDefragAlloc(d->ht_table[0]);
@@ -441,7 +446,6 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
     zset *zs = (zset*)ob->ptr;
     zset *newzs;
     zskiplist *newzsl;
-    dict *newdict;
     dictEntry *de;
     struct zskiplistNode *newheader;
     serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
@@ -460,43 +464,34 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
         }
         dictReleaseIterator(di);
     }
-    /* handle the dict struct */
-    if ((newdict = activeDefragAlloc(zs->dict)))
-        zs->dict = newdict;
     /* defrag the dict tables */
-    dictDefragTables(zs->dict);
+    dictDefragTables(&zs->dict);
 }
 
 void defragHash(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
-    dict *d, *newd;
+    dict *d;
     serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT);
     d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
-    /* handle the dict struct */
-    if ((newd = activeDefragAlloc(ob->ptr)))
-        ob->ptr = newd;
     /* defrag the dict tables */
-    dictDefragTables(ob->ptr);
+    dictDefragTables((dict**)&ob->ptr);
 }
 
 void defragSet(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
-    dict *d, *newd;
+    dict *d;
     serverAssert(ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT);
     d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
-    /* handle the dict struct */
-    if ((newd = activeDefragAlloc(ob->ptr)))
-        ob->ptr = newd;
     /* defrag the dict tables */
-    dictDefragTables(ob->ptr);
+    dictDefragTables((dict**)&ob->ptr);
 }
 
 /* Defrag callback for radix tree iterator, called for each node,
@@ -761,16 +756,20 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
-static void defragKvstoreDefragScanCallBack(dict **d) {
-    dict *newd;
-    /* handle the dict struct */
-    if ((newd = activeDefragAlloc(*d)))
-        *d = newd;
-    dictDefragTables(*d);
-}
+static void defragPubsubCallback(dict **d) {
+    /* defrag the dict tables */
+    dictDefragTables(d);
 
-void activeDefragKvstore(kvstore *kvs) {
-    kvstoreDictLUTDefrag(kvs, defragKvstoreDefragScanCallBack);
+    /* Defragment the pubsub clients dictionary which is the 'value' part of the dictionary.
+     * We don't defrag the keys because they are also referenced by c->pubsub(shard)_channels. */
+    dictEntry *de;
+    dictIterator *di = dictGetIterator(*d);
+    while((de = dictNext(di)) != NULL) {
+        dict *clients = dictGetVal(de);
+        dictDefragTables(&clients);
+        dictSetVal(*d, de, clients);
+    }
+    dictReleaseIterator(di);
 }
 
 /* Utility function to get the fragmentation ratio from jemalloc.
@@ -803,6 +802,8 @@ void defragOtherGlobals(void) {
      * that remain static for a long time */
     activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     moduleDefragGlobals();
+    kvstoreDictLUTDefrag(server.pubsub_channels, defragPubsubCallback);
+    kvstoreDictLUTDefrag(server.pubsubshard_channels, defragPubsubCallback);
 }
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
@@ -1045,8 +1046,8 @@ void activeDefragCycle(void) {
             }
 
             db = &server.db[current_db];
-            activeDefragKvstore(db->keys);
-            activeDefragKvstore(db->expires);
+            kvstoreDictLUTDefrag(db->keys, dictDefragTables);
+            kvstoreDictLUTDefrag(db->expires, dictDefragTables);
             cursor = 0;
             expires_cursor = 0;
             slot = kvstoreFindDictIndexByKeyIndex(db->keys, 1);
