@@ -76,13 +76,14 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<10)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
+#define SRI_ELECT_ABORT (1<<13)     /* MARK ELECTED ABORT*/
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
 #define SENTINEL_ASK_PERIOD 1000
 #define SENTINEL_PUBLISH_PERIOD 2000
-#define SENTINEL_DEFAULT_DOWN_AFTER 30000
+#define SENTINEL_DEFAULT_DOWN_AFTER 20000
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
 #define SENTINEL_TILT_TRIGGER 2000
 #define SENTINEL_TILT_PERIOD (SENTINEL_PING_PERIOD*30)
@@ -4376,18 +4377,12 @@ void sentinelSimFailureCrash(void) {
  * If a vote is not available returns NULL, otherwise return the Sentinel
  * runid and populate the leader_epoch with the epoch of the vote. */
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch) {
-    if (req_epoch > sentinel.current_epoch) {
-        sentinel.current_epoch = req_epoch;
-        sentinelFlushConfig();
-        sentinelEvent(LL_WARNING,"+new-epoch",master,"%llu",
-            (unsigned long long) sentinel.current_epoch);
-    }
 
-    if (master->leader_epoch < req_epoch && sentinel.current_epoch <= req_epoch)
+    if (master->leader_epoch < req_epoch)
     {
         sdsfree(master->leader);
         master->leader = sdsnew(req_runid);
-        master->leader_epoch = sentinel.current_epoch;
+        master->leader_epoch = req_epoch;
         sentinelFlushConfig();
         sentinelEvent(LL_WARNING,"+vote-for-leader",master,"%s %llu",
             master->leader, (unsigned long long) master->leader_epoch);
@@ -4439,6 +4434,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     char *myvote;
     char *winner = NULL;
     uint64_t leader_epoch;
+    uint64_t counter_epoch;
     uint64_t max_votes = 0;
 
     serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
@@ -4446,12 +4442,19 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
 
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
+    serverLog(LL_DEBUG,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
+        master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
+
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
+    counter_epoch = (epoch > master->leader_epoch ? epoch : master->leader_epoch);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
-        if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
+        if (ri->leader != NULL && ri->leader_epoch == counter_epoch)
             sentinelLeaderIncr(counters,ri->leader);
+
+        serverLog(LL_DEBUG, "helper: ri: %s | leader: %s, leader_epoch: %llu",
+            ri->name, ri->leader, (unsigned long long) ri->leader_epoch);
     }
     dictReleaseIterator(di);
 
@@ -4485,6 +4488,8 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
             winner = myvote;
         }
     }
+
+    serverLog(LL_DEBUG, "helper: counter | winner: %s, max_votes got: %llu", myvote, (unsigned long long) max_votes);
 
     voters_quorum = voters/2+1;
     if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
@@ -4606,9 +4611,7 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
     if (master->flags & SRI_FAILOVER_IN_PROGRESS) return 0;
 
     /* Last failover attempt started too little time ago? */
-    if (mstime() - master->failover_start_time <
-        master->failover_timeout*2)
-    {
+    if ((mstime() - master->failover_start_time < master->failover_timeout*2) && !(master->flags & SRI_ELECT_ABORT)) {
         if (master->failover_delay_logged != master->failover_start_time) {
             time_t clock = (master->failover_start_time +
                             master->failover_timeout*2) / 1000;
@@ -4755,10 +4758,12 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
         if (mstime() - ri->failover_start_time > election_timeout) {
             sentinelEvent(LL_WARNING,"-failover-abort-not-elected",ri,"%@");
             sentinelAbortFailover(ri);
+            ri->flags |= SRI_ELECT_ABORT;
         }
         return;
     }
     sentinelEvent(LL_WARNING,"+elected-leader",ri,"%@");
+    ri->flags &= ~SRI_ELECT_ABORT;
     if (sentinel.simfailure_flags & SENTINEL_SIMFAILURE_CRASH_AFTER_ELECTION)
         sentinelSimFailureCrash();
     ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
