@@ -624,19 +624,19 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
                         continue;
                 }
             }
-            if (monitor->monitor_filters->ids && c->id != 0 && 
+            if (monitor->monitor_filters->ids && c->id != 0 &&
                 !intsetFind(monitor->monitor_filters->ids, c->id))
                     continue;
-            if (monitor->monitor_filters->users && c->user && 
+            if (monitor->monitor_filters->users && c->user &&
                 listSearchKey(monitor->monitor_filters->users, c->user) == NULL)
                     continue;
-            if (monitor->monitor_filters->types && 
+            if (monitor->monitor_filters->types &&
                 !intsetFind(monitor->monitor_filters->types, getClientType(c)))
                     continue;
-            if (monitor->monitor_filters->addrs && 
+            if (monitor->monitor_filters->addrs &&
                 listSearchKey(monitor->monitor_filters->addrs, getClientPeerId(c)) == NULL)
                     continue;
-            if (monitor->monitor_filters->laddrs && 
+            if (monitor->monitor_filters->laddrs &&
                 listSearchKey(monitor->monitor_filters->laddrs, getClientSockname(c)) == NULL)
                     continue;
         }
