@@ -92,6 +92,10 @@ static dict *kvstoreGetDict(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
+static dict **kvstoreGetDictRef(kvstore *kvs, int didx) {
+    return &kvs->dicts[didx];
+}
+
 /* Returns total (cumulative) number of keys up until given dict-index (inclusive).
  * Time complexity is O(log(kvs->num_dicts)). */
 static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) {
@@ -151,11 +155,14 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     }
 }
 
-static void createDictIfNeeded(kvstore *kvs, int didx) {
-    if (kvstoreGetDict(kvs, didx))
-        return;
+/* Create the dict if it does not exist and return it. */
+static dict *createDictIfNeeded(kvstore *kvs, int didx) {
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (d) return d;
+
     kvs->dicts[didx] = dictCreate(&kvs->dtype);
     kvs->allocated_dicts++;
+    return kvs->dicts[didx];
 }
 
 static void freeDictIfNeeded(kvstore *kvs, int didx) {
@@ -232,7 +239,7 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
     memcpy(&kvs->dtype, type, sizeof(kvs->dtype));
     kvs->flags = flags;
 
-    /* kvstore must be the one to set this callbacks, so we make sure the
+    /* kvstore must be the one to set these callbacks, so we make sure the
      * caller didn't do it */
     assert(!type->userdata);
     assert(!type->dictMetadataBytes);
@@ -398,7 +405,7 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
  * Based on the parameter `try_expand`, appropriate dict expand API is invoked.
  * if try_expand is set to 1, `dictTryExpand` is used else `dictExpand`.
  * The return code is either `DICT_OK`/`DICT_ERR` for both the API(s).
- * `DICT_OK` response is for successful expansion. However ,`DICT_ERR` response signifies failure in allocation in
+ * `DICT_OK` response is for successful expansion. However, `DICT_ERR` response signifies failure in allocation in
  * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
  */
 int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb) {
@@ -577,7 +584,7 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
     return de;
 }
 
-/* This method traverses through kvstore dictionaries and triggers a resize .
+/* This method traverses through kvstore dictionaries and triggers a resize.
  * It first tries to shrink if needed, and if it isn't, it tries to expand. */
 void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
     if (limit > kvs->num_dicts)
@@ -595,7 +602,7 @@ void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
 
 /* Our hash table implementation performs rehashing incrementally while
  * we write/read from the hash table. Still if the server is idle, the hash
- * table will use two tables for a long time. So we try to use 1 millisecond
+ * table will use two tables for a long time. So we try to use threshold_us
  * of CPU time at every call of this function to perform some rehashing.
  *
  * The function returns the amount of microsecs spent if some rehashing was
@@ -604,7 +611,7 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
     if (listLength(kvs->rehashing) == 0)
         return 0;
 
-    /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
+    /* Our goal is to rehash as many dictionaries as we can before reaching threshold_us,
      * after each dictionary completes rehashing, it removes itself from the list. */
     listNode *node;
     monotime timer;
@@ -714,6 +721,21 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
     return dictScanDefrag(d, v, fn, defragfns, privdata);
 }
 
+/* Unlike kvstoreDictScanDefrag(), this method doesn't defrag the data(keys and values)
+ * within dict, it only reallocates the memory used by the dict structure itself using 
+ * the provided allocation function. This feature was added for the active defrag feature.
+ *
+ * The 'defragfn' callback is called with a reference to the dict
+ * that callback can reallocate. */
+void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) {
+    for (int didx = 0; didx < kvs->num_dicts; didx++) {
+        dict **d = kvstoreGetDictRef(kvs, didx);
+        if (!*d)
+            continue;
+        defragfn(d);
+    }
+}
+
 uint64_t kvstoreGetHash(kvstore *kvs, const void *key)
 {
     return kvs->dtype.hashFunction(key);
@@ -735,8 +757,7 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
 }
 
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
-    createDictIfNeeded(kvs, didx);
-    dict *d = kvstoreGetDict(kvs, didx);
+    dict *d = createDictIfNeeded(kvs, didx);
     dictEntry *ret = dictAddRaw(d, key, existing);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);

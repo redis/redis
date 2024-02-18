@@ -42,7 +42,7 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
 
 /* Rehashing */
 void kvstoreTryResizeDicts(kvstore *kvs, int limit);
-uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_ms);
+uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us);
 
 /* Specific dict access by dict-index */
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);
@@ -56,6 +56,8 @@ dictEntry *kvstoreDictFindEntryByPtrAndHash(kvstore *kvs, int didx, const void *
 unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, unsigned int count);
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size);
 unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
+typedef void (kvstoreDictLUTDefragFunction)(dict **d);
+void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn);
 void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key);
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing);

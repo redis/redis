@@ -157,9 +157,9 @@ void quicklistSetFill(quicklist *quicklist, int fill) {
     quicklist->fill = fill;
 }
 
-void quicklistSetOptions(quicklist *quicklist, int fill, int depth) {
+void quicklistSetOptions(quicklist *quicklist, int fill, int compress) {
     quicklistSetFill(quicklist, fill);
-    quicklistSetCompressDepth(quicklist, depth);
+    quicklistSetCompressDepth(quicklist, compress);
 }
 
 /* Create a new quicklist with some default parameters. */
@@ -377,6 +377,15 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
     quicklistCompressNode(reverse);
 }
 
+/* This macro is used to compress a node.
+ *
+ * If the 'recompress' flag of the node is true, we compress it directly without
+ * checking whether it is within the range of compress depth.
+ * However, it's important to ensure that the 'recompress' flag of head and tail
+ * is always false, as we always assume that head and tail are not compressed.
+ * 
+ * If the 'recompress' flag of the node is false, we check whether the node is
+ * within the range of compress depth before compressing it. */
 #define quicklistCompress(_ql, _node)                                          \
     do {                                                                       \
         if ((_node)->recompress)                                               \
@@ -808,6 +817,10 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
             quicklistDelIndex(quicklist, entry->node, &p);
             entry->node->dont_compress = 0; /* Re-enable compression */
             new_node = _quicklistMergeNodes(quicklist, new_node);
+            /* We can't know if the current node and its sibling nodes are correctly compressed,
+             * and we don't know if they are within the range of compress depth, so we need to
+             * use quicklistCompress() for compression, which checks if node is within compress
+             * depth before compressing. */
             quicklistCompress(quicklist, new_node);
             quicklistCompress(quicklist, new_node->prev);
             if (new_node->next) quicklistCompress(quicklist, new_node->next);

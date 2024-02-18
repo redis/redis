@@ -438,9 +438,9 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         }
         assert_match "*table size: 128*" [r debug HTSTATS 0]
 
-        # disable resizing
-        r config set rdb-key-save-delay 10000000
-        r bgsave
+        # disable resizing, the reason for not using slow bgsave is because
+        # it will hit the dict_force_resize_ratio.
+        r debug dict-resizing 0
 
         # delete data to have lot's (96%) of empty buckets
         for {set j 1} {$j <= 123} {incr j} {
@@ -449,13 +449,7 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         assert_match "*table size: 128*" [r debug HTSTATS 0]
 
         # enable resizing
-        r config set rdb-key-save-delay 0
-        catch {exec kill -9 [get_child_pid 0]}
-        wait_for_condition 1000 10 {
-            [s rdb_bgsave_in_progress] eq 0
-        } else {
-            fail "bgsave did not stop in time."
-        }
+        r debug dict-resizing 1
 
         # waiting for serverCron to resize the tables
         wait_for_condition 1000 10 {
@@ -474,22 +468,16 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
             r set "{alice}$j" a
         }
 
-        # disable resizing
-        r config set rdb-key-save-delay 10000000
-        r bgsave
+        # disable resizing, the reason for not using slow bgsave is because
+        # it will hit the dict_force_resize_ratio.
+        r debug dict-resizing 0
 
         for {set j 1} {$j <= 123} {incr j} {
             r del "{alice}$j"
         }
 
         # enable resizing
-        r config set rdb-key-save-delay 0
-        catch {exec kill -9 [get_child_pid 0]}
-        wait_for_condition 1000 10 {
-            [s rdb_bgsave_in_progress] eq 0
-        } else {
-            fail "bgsave did not stop in time."
-        }
+        r debug dict-resizing 1
 
         # waiting for serverCron to resize the tables
         wait_for_condition 1000 10 {
