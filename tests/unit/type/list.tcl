@@ -56,6 +56,13 @@ start_server [list overrides [list save ""] ] {
 
 # check functionality of plain nodes using low packed-threshold
 start_server [list overrides [list save ""] ] {
+foreach type {listpack quicklist} {
+    if {$type eq "listpack"} {
+        r config set list-max-listpack-size -2
+    } else {
+        r config set list-max-listpack-size 1
+    }
+
     # basic command check for plain nodes - "LPUSH & LPOP"
     test {Test LPUSH and LPOP on plain nodes} {
         r flushdb
@@ -63,6 +70,7 @@ start_server [list overrides [list save ""] ] {
         r lpush lst 9
         r lpush lst xxxxxxxxxx
         r lpush lst xxxxxxxxxx
+        assert_encoding $type lst
         set s0 [s used_memory]
         assert {$s0 > 10}
         assert {[r llen lst] == 3}
@@ -87,6 +95,7 @@ start_server [list overrides [list save ""] ] {
         r lpush lst xxxxxxxxxxx
         r lpush lst 9
         r lpush lst xxxxxxxxxxx
+        assert_encoding $type lst
         r linsert lst before "9" "8"
         assert {[r lindex lst 1] eq "8"}
         r linsert lst BEFORE "9" "7"
@@ -102,6 +111,7 @@ start_server [list overrides [list save ""] ] {
         r lpush lst1 9
         r lpush lst1 xxxxxxxxxxx
         r lpush lst1 9
+        assert_encoding $type lst1
         r LTRIM lst1 1 -1
         assert_equal [r llen lst1] 2
         r debug quicklist-packed-threshold 0
@@ -113,6 +123,7 @@ start_server [list overrides [list save ""] ] {
         r debug quicklist-packed-threshold 1b
         r lpush lst one
         r lpush lst xxxxxxxxxxx
+        assert_encoding $type lst
         set s0 [s used_memory]
         assert {$s0 > 10}
         r lpush lst 9
@@ -128,6 +139,7 @@ start_server [list overrides [list save ""] ] {
         r RPUSH lst "aa"
         r RPUSH lst "bb"
         r RPUSH lst "cc"
+        assert_encoding $type lst
         r LSET lst 0 "xxxxxxxxxxx"
         assert_equal [r LPOS lst "xxxxxxxxxxx"] 0
         r debug quicklist-packed-threshold 0
@@ -139,6 +151,7 @@ start_server [list overrides [list save ""] ] {
         r debug quicklist-packed-threshold 1b
         r RPUSH lst2{t} "aa"
         r RPUSH lst2{t} "bb"
+        assert_encoding $type lst2{t}
         r LSET lst2{t} 0 xxxxxxxxxxx
         r RPUSH lst2{t} "cc"
         r RPUSH lst2{t} "dd"
@@ -159,6 +172,7 @@ start_server [list overrides [list save ""] ] {
         r debug quicklist-packed-threshold 5b
         r RPUSH lst "aa"
         r RPUSH lst "bb"
+        assert_encoding $type lst
         r lset lst 0 [string repeat d 50001]
         set s1 [r lpop lst]
         assert_equal $s1 [string repeat d 50001]
@@ -240,6 +254,7 @@ start_server [list overrides [list save ""] ] {
         # Insert two elements and keep them in the same node
         r RPUSH lst $small_ele
         r RPUSH lst $small_ele
+        assert_encoding $type lst
 
         # When setting the position of -1 to a large element, we first insert
         # a large element at the end and then delete its previous element.
@@ -256,12 +271,14 @@ start_server [list overrides [list save ""] ] {
 
         r LPUSH lst "aa"
         r LPUSH lst "bb"
+        assert_encoding $type lst
         r LSET lst -2 [string repeat x 10]
         r RPOP lst
         assert_equal [string repeat x 10] [r LRANGE lst 0 -1]
 
         r debug quicklist-packed-threshold 0
     } {OK} {needs:debug}
+}
 }
 
 run_solo {list-large-memory} {
