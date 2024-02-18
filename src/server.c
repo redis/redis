@@ -6250,14 +6250,16 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
 // DEBUG
 if (intsetFind(c->monitor_filters->ids, id)){
     printf("inset found ID just added\n");
+} else {
+    printf("inset ID just added NOT FOUND\n");
 }
 
 if (c->monitor_filters && c->monitor_filters->ids){
     printf("# inset ID: %u\n", intsetLen(c->monitor_filters->ids));
     for (uint32_t v=0; v < intsetLen(c->monitor_filters->ids); v++) {
-        int64_t *value;
-        if (intsetGet(c->monitor_filters->ids, v, value)){
-            printf(" > %lld \n", *value);
+        int64_t value = 0;
+        if (intsetGet(c->monitor_filters->ids, v, &value)){
+            printf(" > %lld \n", value);
         }
     }
 }
