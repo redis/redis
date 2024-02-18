@@ -1247,7 +1247,7 @@ static int matchNoTokenArg(char **nextword, int numwords, cliCommandArg *arg) {
     case ARG_TYPE_INTEGER:
     case ARG_TYPE_UNIX_TIME: {
         long long value;
-        if (sscanf(*nextword, "%lld", &value)) {
+        if (sscanf(*nextword, "%lld", &value) == 1) {
             arg->matched += 1;
             arg->matched_name = 1;
             arg->matched_all = 1;
@@ -1261,7 +1261,7 @@ static int matchNoTokenArg(char **nextword, int numwords, cliCommandArg *arg) {
 
     case ARG_TYPE_DOUBLE: {
         double value;
-        if (sscanf(*nextword, "%lf", &value)) {
+        if (sscanf(*nextword, "%lf", &value) == 1) {
             arg->matched += 1;
             arg->matched_name = 1;
             arg->matched_all = 1;
