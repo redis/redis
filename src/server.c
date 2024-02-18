@@ -6233,13 +6233,19 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
     if (!strcasecmp(c->argv[*argi]->ptr,"id") && moreargs) {
         uint64_t llid = 0;
         long id = 0;
+        uint8_t success;
         if (getRangeLongFromObjectOrReply(c, c->argv[*argi+1], 1, LONG_MAX, &id,
                                             "client-id should be greater than 0") != C_OK)
             return FILTER_ERR;
 
         if (c->monitor_filters->ids == NULL) c->monitor_filters->ids = intsetNew();
         llid = id;
-        intsetAdd(c->monitor_filters->ids, llid, NULL);
+        intsetAdd(c->monitor_filters->ids, llid, &success);
+        if (success) {
+            printf("inset add ID success\n");
+        } else {
+            printf("inset add ID FAILED\n");
+        }
         *argi += 2;
 
 if (c->monitor_filters && c->monitor_filters->ids){
