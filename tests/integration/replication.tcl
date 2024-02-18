@@ -1830,3 +1830,111 @@ start_server {tags {"repl rdb-channel external:skip"}} {
         }
     }
 }
+
+start_server {tags {"repl rdb-channel external:skip"}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+    set replica_log [srv 0 stdout]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set backlog_size [expr {10 ** 6}]
+        set loglines [count_log_lines -1]
+
+        $master config set repl-diskless-sync yes
+        $master config set repl-rdb-channel yes
+        $master config set repl-backlog-size $backlog_size
+        $master config set loglevel debug
+        $master config set repl-timeout 10
+        $master config set rdb-key-save-delay 200
+        populate 10000 master 10000
+        
+        set load_handle0 [start_write_load $master_host $master_port 20]
+
+        $replica config set repl-rdb-channel yes
+        $replica config set loglevel debug
+        $replica config set repl-timeout 10
+        # Stop replica after master fork for 5 seconds
+        $replica debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
+
+        test "Test rdb-channel connection peering - replica able to establish psync" {
+            $replica slaveof $master_host $master_port
+            # Verify repl backlog can grow
+            wait_for_condition 5000 10 {
+                [s 0 mem_total_replication_buffers] > [expr {2 * $backlog_size}]
+            } else {
+                fail "Master should allow backlog to grow beyond its limits during rdb-channel sync handshake"
+            }
+
+            verify_replica_online $master 0 500
+            set res [wait_for_log_messages -1 {"*MASTER <-> REPLICA sync: Finished with success*"} $loglines 2000 1]      
+        }
+
+        stop_write_load $load_handle0
+    }
+}
+
+start_server {tags {"repl rdb-channel external:skip"}} {
+    set replica1 [srv 0 client]
+    set replica1_host [srv 0 host]
+    set replica1_port [srv 0 port]
+    set replica1_log [srv 0 stdout]
+    start_server {} {
+        set replica2 [srv 0 client]
+        set replica2_host [srv 0 host]
+        set replica2_port [srv 0 port]
+        set replica2_log [srv 0 stdout]
+        start_server {} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            set backlog_size [expr {10 ** 6}]
+            set loglines [count_log_lines -1]
+
+            $master config set repl-diskless-sync yes
+            $master config set repl-rdb-channel yes
+            $master config set repl-backlog-size $backlog_size
+            $master config set loglevel debug
+            $master config set repl-timeout 10
+            $master config set rdb-key-save-delay 200
+            populate 10000 master 10000
+            
+            set load_handle0 [start_write_load $master_host $master_port 20]
+
+            $replica1 config set repl-rdb-channel yes
+            $replica2 config set repl-rdb-channel yes
+            $replica1 config set loglevel debug
+            $replica2 config set loglevel debug
+            $replica1 config set repl-timeout 10
+            $replica2 config set repl-timeout 10
+
+            # Stop replica after master fork for 5 seconds
+            $replica1 debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
+            $replica2 debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
+
+            test "Test rdb-channel connection peering - start with empty backlog (retrospect)" {
+                $replica1 slaveof $master_host $master_port
+                set res [wait_for_log_messages 0 {"*Peer slave * repl-backlog is empty*"} $loglines 2000 1]
+                set res [wait_for_log_messages 0 {"*Retrospect peer slave*"} $loglines 2000 1]
+                set loglines [lindex $res 1]
+                incr $loglines 
+                verify_replica_online $master 0 500
+                wait_for_log_messages -2 {"*MASTER <-> REPLICA sync: Finished with success*"} 0 2000 1
+                $replica1 slaveof no one
+            }
+
+            test "Test rdb-channel connection peering - start with backlog" {
+                $replica2 slaveof $master_host $master_port
+                set res [wait_for_log_messages 0 {"*Peer slave * with repl-backlog tail*"} $loglines 2000 1]
+                set loglines [lindex $res 1]
+                incr $loglines 
+                verify_replica_online $master 0 500     
+                wait_for_log_messages -1 {"*MASTER <-> REPLICA sync: Finished with success*"} 0 2000 1
+            }
+
+            stop_write_load $load_handle0
+        }
+    }
+}

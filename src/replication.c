@@ -3174,7 +3174,8 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 void setupMainConnForPsync(connection *conn) {
     int psync_result;
     if (server.repl_state == REPL_STATE_SEND_PSYNC) {
-                if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
+        if (server.debug_sleep_after_fork) usleep(server.debug_sleep_after_fork);
+        if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
             serverLog(LL_WARNING, "Aborting RDB connection sync. Write error.");
             cancelReplicationHandshake(1);
         }
