@@ -9107,6 +9107,12 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
 }
 
+/* Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
+ * This function works even if cluster mode is not enabled. */
+unsigned int RM_ClusterKeySlot(RedisModuleString *key) {
+    return keyHashSlot(key->ptr, sdslen(key->ptr));
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules Timers API
  *
@@ -13844,6 +13850,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
+    REGISTER_API(ClusterKeySlot);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
     REGISTER_API(DictSize);

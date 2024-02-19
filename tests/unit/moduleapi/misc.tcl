@@ -497,6 +497,10 @@ start_server {overrides {save {900 1}} tags {"modules"}} {
     test "malloc API" {
         assert_equal {OK} [r test.malloc_api 0]
     }
+
+    test "Cluster keyslot" {
+        assert_equal 12182 [r test.keyslot foo]
+    }
 }
 
 start_server {tags {"modules"}} {
