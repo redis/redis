@@ -218,12 +218,18 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
     }
 }
 
-/* Peer given slave ip to slave struct and attach slave to the latest backlog block. 
- * This method is called right before forking during rdb-channel sync session. It 
- * works by increasing the ref count on the backlog node which will later be used by
- * the replica main conneciton to establish PSYNC successfully. */
+/*
+ * Connection peering during rdb-channel synchronization:
+ * On rdb-channel sync, connection peering is used to keep replication data in 
+ * the backlog until the replica requests PSYNC. Peering happens in two forms, 
+ * if there's an existing backlog at the fork time, the replica is attached to 
+ * the tail, if there is no backlog, the replica will be attached when the 
+ * backlog is created. Replica listening ip and port is used as a unique key 
+ * for the peering. On COB overrun, peering is deleted and the RDB connection 
+ * is dropped.
+ */
 void peerPendingSlaveToBacklogBlock(client* slave) {
-    listNode *ln;
+    listNode *ln = NULL;
     replBufBlock *tail = NULL;
     sds slave_name = sdsnew(replicationGetSlaveNameGeneric(slave, 0));
     if (server.repl_backlog == NULL) {
@@ -236,8 +242,7 @@ void peerPendingSlaveToBacklogBlock(client* slave) {
         }
     }
     serverLog(LL_DEBUG, "Peer slave %s %s ", slave_name, tail? "with repl-backlog tail": "repl-backlog is empty");
-    /* Note: if the backlog is empty, ref_repl_buf_node will be NULL. */
-    slave->ref_repl_buf_node = ln;
+    slave->ref_repl_buf_node = tail? ln: NULL;
     dictAdd(server.pending_slaves, slave_name, slave);
 }
 
