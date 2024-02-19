@@ -1093,10 +1093,10 @@ void databasesCron(void) {
             uint64_t elapsed_us = 0;
             for (j = 0; j < dbs_per_call; j++) {
                 redisDb *db = &server.db[rehash_db % server.dbnum];
-                elapsed_us += kvstoreIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US);
+                elapsed_us += kvstoreIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
-                elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US);
+                elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 rehash_db++;
