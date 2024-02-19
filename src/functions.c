@@ -118,10 +118,7 @@ dictType librariesDictType = {
 /* Dictionary of engines */
 static dict *engines = NULL;
 
-/* Libraries Ctx.
- * Contains the dictionary that map a library name to library object,
- * Contains the dictionary that map a function name to function object,
- * and the cache memory used by all the functions */
+/* Libraries Ctx. */
 static functionsLibCtx *curr_functions_lib_ctx = NULL;
 
 static size_t functionMallocSize(functionInfo *fi) {
@@ -499,7 +496,6 @@ static void functionListReplyFlags(client *c, functionInfo *fi) {
  * Return general information about all the libraries:
  * * Library name
  * * The engine used to run the Library
- * * Library description
  * * Functions list
  * * Library code (if WITHCODE is given)
  *
@@ -681,7 +677,6 @@ void fcallroCommand(client *c) {
  * is saved separately with the following information:
  * * Library name
  * * Engine name
- * * Library description
  * * Library code
  * RDB_OPCODE_FUNCTION2 is saved before each library to present
  * that the payload is a library.
@@ -840,7 +835,6 @@ void functionHelpCommand(client *c) {
 "    Return general information on all the libraries:",
 "    * Library name",
 "    * The engine used to run the Library",
-"    * Library description",
 "    * Functions list",
 "    * Library code (if WITHCODE is given)",
 "    It also possible to get only function that matches a pattern using LIBRARYNAME argument.",
@@ -894,9 +888,7 @@ static int functionsVerifyName(sds name) {
 
 int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) {
     sds name = NULL;
-    sds desc = NULL;
     sds engine = NULL;
-    sds code = NULL;
     if (strncmp(payload, "#!", 2) != 0) {
         *err = sdsnew("Missing library metadata");
         return C_ERR;
@@ -948,9 +940,7 @@ int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) 
 
 error:
     if (name) sdsfree(name);
-    if (desc) sdsfree(desc);
     if (engine) sdsfree(engine);
-    if (code) sdsfree(code);
     sdsfreesplitres(parts, numparts);
     return C_ERR;
 }
@@ -1084,15 +1074,15 @@ void functionLoadCommand(client *c) {
 unsigned long functionsMemory(void) {
     dictIterator *iter = dictGetIterator(engines);
     dictEntry *entry = NULL;
-    size_t engines_nemory = 0;
+    size_t engines_memory = 0;
     while ((entry = dictNext(iter))) {
         engineInfo *ei = dictGetVal(entry);
         engine *engine = ei->engine;
-        engines_nemory += engine->get_used_memory(engine->engine_ctx);
+        engines_memory += engine->get_used_memory(engine->engine_ctx);
     }
     dictReleaseIterator(iter);
 
-    return engines_nemory;
+    return engines_memory;
 }
 
 /* Return memory overhead of all the engines combine */
@@ -1119,7 +1109,7 @@ dict* functionsLibGet(void) {
     return curr_functions_lib_ctx->libraries;
 }
 
-size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx) {
+size_t functionsLibCtxFunctionsLen(functionsLibCtx *functions_ctx) {
     return dictSize(functions_ctx->functions);
 }
 

@@ -76,7 +76,6 @@ int bugReportStart(void);
 void printCrashReport(void);
 void bugReportEnd(int killViaSignal, int sig);
 void logStackTrace(void *eip, int uplevel, int current_thread);
-void dbGetStats(char *buf, size_t bufsize, redisDb *db, int full, dbKeyType keyType);
 void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret);
 
 /* ================================= Debugging ============================== */
@@ -290,15 +289,16 @@ void computeDatasetDigest(unsigned char *final) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        if (dbSize(db, DB_MAIN) == 0) continue;
-        dbIterator *dbit = dbIteratorInit(db, DB_MAIN);
+        if (kvstoreSize(db->keys) == 0)
+            continue;
+        kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
 
         /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
         mixDigest(final,&aux,sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while((de = dbIteratorNext(dbit)) != NULL) {
+        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
             sds key;
             robj *keyobj, *o;
 
@@ -315,7 +315,7 @@ void computeDatasetDigest(unsigned char *final) {
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
-        dbReleaseIterator(dbit);
+        kvstoreIteratorRelease(kvs_it);
     }
 }
 
@@ -496,6 +496,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"DICT-RESIZING <0|1>",
+"    Enable or disable the main dict and expire dict resizing.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -606,7 +608,7 @@ NULL
         robj *val;
         char *strenc;
 
-        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -658,7 +660,7 @@ NULL
         robj *val;
         sds key;
 
-        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
@@ -719,7 +721,7 @@ NULL
             return;
         }
 
-        if (dbExpand(c->db, keys, DB_MAIN, 1) == C_ERR) {
+        if (dbExpand(c->db, keys, 1) == C_ERR) {
             addReplyError(c, "OOM in dictTryExpand");
             return;
         }
@@ -767,7 +769,7 @@ NULL
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
             dictEntry *de;
-            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr, DB_MAIN)) == NULL) ? NULL : dictGetVal(de);
+            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -911,11 +913,11 @@ NULL
             full = 1;
 
         stats = sdscatprintf(stats,"[Dictionary HT]\n");
-        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DB_MAIN);
+        kvstoreGetStats(server.db[dbid].keys, buf, sizeof(buf), full);
         stats = sdscat(stats,buf);
 
         stats = sdscatprintf(stats,"[Expires HT]\n");
-        dbGetStats(buf, sizeof(buf), &server.db[dbid], full, DB_EXPIRES);
+        kvstoreGetStats(server.db[dbid].expires, buf, sizeof(buf), full);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
@@ -1020,6 +1022,9 @@ NULL
             addReplySubcommandSyntaxError(c);
             return;
         }
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr, "dict-resizing") && c->argc == 3) {
+        server.dict_resizing = atoi(c->argv[2]->ptr);
         addReply(c, shared.ok);
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
@@ -2051,7 +2056,7 @@ void logCurrentClient(client *cc, const char *title) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dbFind(cc->db, key->ptr, DB_MAIN);
+        de = dbFind(cc->db, key->ptr);
         if (de) {
             val = dictGetVal(de);
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
@@ -2076,7 +2081,7 @@ int memtest_test_linux_anonymous_maps(void) {
     int regions = 0, j;
 
     int fd = openDirectLogFiledes();
-    if (!fd) return 0;
+    if (fd == -1) return 0;
 
     fp = fopen("/proc/self/maps","r");
     if (!fp) {

@@ -916,7 +916,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.21.1
+      uses: cross-platform-actions/action@v0.22.0
       with:
         operating_system: freebsd
         environment_variables: MAKE

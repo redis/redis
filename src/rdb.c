@@ -1301,12 +1301,12 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     dictEntry *de;
     ssize_t written = 0;
     ssize_t res;
-    dbIterator *dbit = NULL;
+    kvstoreIterator *kvs_it = NULL;
     static long long info_updated_time = 0;
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
     redisDb *db = server.db + dbid;
-    unsigned long long int db_size = dbSize(db, DB_MAIN);
+    unsigned long long int db_size = kvstoreSize(db->keys);
     if (db_size == 0) return 0;
 
     /* Write the SELECT DB opcode */
@@ -1316,7 +1316,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     written += res;
 
     /* Write the RESIZE DB opcode. */
-    unsigned long long expires_size = dbSize(db, DB_EXPIRES);
+    unsigned long long expires_size = kvstoreSize(db->expires);
     if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
     written += res;
     if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
@@ -1324,20 +1324,20 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    dbit = dbIteratorInit(db, DB_MAIN);
+    kvs_it = kvstoreIteratorInit(db->keys);
     int last_slot = -1;
     /* Iterate this DB writing every entry */
-    while ((de = dbIteratorNext(dbit)) != NULL) {
-        int curr_slot = dbIteratorGetCurrentSlot(dbit);
+    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
         /* Save slot info. */
         if (server.cluster_enabled && curr_slot != last_slot) {
             if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;
             written += res;
             if ((res = rdbSaveLen(rdb, curr_slot)) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, dictSize(db->dict[curr_slot]))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->keys, curr_slot))) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, dictSize(db->expires[curr_slot]))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr;
             written += res;
             last_slot = curr_slot;
         }
@@ -1368,11 +1368,11 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             }
         }
     }
-    dbReleaseIterator(dbit);
+    kvstoreIteratorRelease(kvs_it);
     return written;
 
 werr:
-    if (dbit) dbReleaseIterator(dbit);
+    if (kvs_it) kvstoreIteratorRelease(kvs_it);
     return -1;
 }
 
@@ -1424,7 +1424,8 @@ werr:
     return C_ERR;
 }
 
-/* This is just a wrapper to rdbSaveRio() that additionally adds a prefix
+/* This helper function is only used for diskless replication. 
+ * This is just a wrapper to rdbSaveRio() that additionally adds a prefix
  * and a suffix to the generated RDB dump. The prefix is:
  *
  * $EOF:<40 bytes unguessable hex string>\r\n
@@ -1441,7 +1442,7 @@ int rdbSaveRioWithEOFMark(int req, rio *rdb, int *error, rdbSaveInfo *rsi) {
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
-    if (rdbSaveRio(req,rdb,error,RDBFLAGS_NONE,rsi) == C_ERR) goto werr;
+    if (rdbSaveRio(req,rdb,error,RDBFLAGS_REPLICATION,rsi) == C_ERR) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     stopSaving(1);
     return C_OK;
@@ -1528,7 +1529,7 @@ int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
 
-    startSaving(RDBFLAGS_NONE);
+    startSaving(rdbflags);
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
 
     if (rdbSaveInternal(req,tmpfile,rsi,rdbflags) != C_OK) {
@@ -1861,9 +1862,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
 
-        o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
-                            server.list_compress_depth);
+        o = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
 
         /* Load every single element of the list */
         while(len--) {
@@ -2173,9 +2172,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
 
-        o = createQuicklistObject();
-        quicklistSetOptions(o->ptr, server.list_max_listpack_size,
-                            server.list_compress_depth);
+        o = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
         uint64_t container = QUICKLIST_NODE_CONTAINER_PACKED;
         while (len--) {
             unsigned char *lp;
@@ -3026,7 +3023,6 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     return retval;
 }
 
-
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
@@ -3130,8 +3126,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 continue; /* Ignore gracefully. */
             }
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
-            dictExpand(db->dict[slot_id], slot_size);
-            dictExpand(db->expires[slot_id], expires_slot_size);
+            kvstoreDictExpand(db->keys, slot_id, slot_size);
+            kvstoreDictExpand(db->expires, slot_id, expires_slot_size);
             should_expand_db = 0;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
@@ -3265,8 +3261,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
-            dbExpand(db, db_size, DB_MAIN, 0);
-            dbExpand(db, expires_size, DB_EXPIRES, 0);
+            dbExpand(db, db_size, 0);
+            dbExpandExpires(db, expires_size, 0);
             should_expand_db = 0;
         }
 
@@ -3636,6 +3632,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             }
             close(rdb_pipe_write);
             close(server.rdb_pipe_read);
+            close(server.rdb_child_exit_pipe);
             zfree(server.rdb_pipe_conns);
             server.rdb_pipe_conns = NULL;
             server.rdb_pipe_numconns = 0;

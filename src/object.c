@@ -232,8 +232,8 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
-robj *createQuicklistObject(void) {
-    quicklist *l = quicklistCreate();
+robj *createQuicklistObject(int fill, int compress) {
+    quicklist *l = quicklistNew(fill, compress);
     robj *o = createObject(OBJ_LIST,l);
     o->encoding = OBJ_ENCODING_QUICKLIST;
     return o;
@@ -1246,18 +1246,19 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        unsigned long long keyscount = dbSize(db, DB_MAIN);
+        unsigned long long keyscount = kvstoreSize(db->keys);
         if (keyscount == 0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = dbMemUsage(db, DB_MAIN);
+        mem = kvstoreMemUsage(db->keys) +
+              keyscount * sizeof(robj);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        mem = dbMemUsage(db, DB_EXPIRES);
+        mem = kvstoreMemUsage(db->expires);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
@@ -1274,7 +1275,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     if (zmalloc_used > mh->startup_allocated)
         net_usage = zmalloc_used - mh->startup_allocated;
     mh->dataset_perc = (float)mh->dataset*100/net_usage;
-    mh->bytes_per_key = mh->total_keys ? (net_usage / mh->total_keys) : 0;
+    mh->bytes_per_key = mh->total_keys ? (mh->dataset / mh->total_keys) : 0;
 
     return mh;
 }
@@ -1544,7 +1545,7 @@ NULL
                 return;
             }
         }
-        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyNull(c);
             return;
         }
@@ -1555,7 +1556,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,29+mh->num_dbs);
+        addReplyMapLen(c,28+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1602,9 +1603,6 @@ NULL
 
         addReplyBulkCString(c,"overhead.hashtable.lut");
         addReplyLongLong(c, server.overhead_hashtable_lut * sizeof(dictEntry *));
-
-        addReplyBulkCString(c,"overhead.hashtable.rehashing");
-        addReplyLongLong(c, server.overhead_hashtable_rehashing * sizeof(dictEntry *));
 
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);

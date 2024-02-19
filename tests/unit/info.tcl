@@ -401,23 +401,100 @@ start_server {tags {"info" "external:skip"}} {
                 fail "pubsub clients did not clear"
             }
         }
+
+        test {clients: watching clients} {
+            set r2 [redis_client]
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+            # count after watch key
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # the same client watch the same key has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # different client watch different key
+            r watch key2
+            assert_equal [s watching_clients] 2
+            assert_equal [s total_watched_keys] 2
+            assert_match {*watch=1*} [$r2 client info]
+            assert_match {*watch=1*} [r client info]
+            # count after unwatch
+            r unwatch
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            $r2 unwatch
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+
+            # count after watch/multi/exec
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 exec
+            assert_equal [s watching_clients] 0
+            # count after watch/multi/discard
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 discard
+            assert_equal [s watching_clients] 0
+            # discard without multi has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            catch {$r2 discard} e
+            assert_equal [s watching_clients] 1
+            # unwatch without watch has no effect
+            r unwatch
+            assert_equal [s watching_clients] 1
+            # after disconnect
+            $r2 close
+            assert_equal [s watching_clients] 0
+        }
     }
 }
 
+proc getMemoryStatsProperty {stats property} {
+    set res 0
+    set list_stats [split $stats " "]
+    for {set j 0} {$j < [llength $list_stats]} {incr j} {
+        if {[string match -nocase $property [lindex $list_stats $j]]} {
+            set res [lindex $list_stats [expr $j+1]]
+            break
+        }
+    }
+    return $res
+}
+
 start_server {tags {"info" "external:skip"}} {
-    test {memory: database overhead and rehashing dict count} {
+    test {memory: database and pubsub overhead and rehashing dict count} {
         r flushall
         set info_mem [r info memory]
-        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_lut] {0}
+        set mem_stats [r memory stats]
+        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {0}
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
-        assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
+        # get the info within a transaction to make sure the rehashing is not completed
+        r multi 
         r set a b
-        set info_mem [r info memory]
-        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_lut] {32}
+        r info memory
+        r memory stats
+        set transaction_res [r exec]
+        set info_mem [lindex $transaction_res 1]
+        set mem_stats [lindex $transaction_res 2]
+        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {32}
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
-        assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {0}
-        # set 4 more keys to trigger rehashing, and get the info within a transaction to make
-        # sure the rehashing is not completed
+        # set 4 more keys to trigger rehashing
         r multi 
         r set b c
         r set c d
@@ -425,7 +502,6 @@ start_server {tags {"info" "external:skip"}} {
         r set e f
         r info memory
         set info_mem [lindex [r exec] 4]
-        assert_equal [getInfoProperty $info_mem databases_rehashing_dict_count] {1}
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {32}       
     }
 }

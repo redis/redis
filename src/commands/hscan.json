@@ -56,6 +56,12 @@
                 "name": "count",
                 "type": "integer",
                 "optional": true
+            },
+            {
+                "token": "NOVALUES",
+                "name": "novalues",
+                "type": "pure-token",
+                "optional": true
             }
         ],
         "reply_schema": {
@@ -69,7 +75,7 @@
                     "type": "string"
                 },
                 {
-                    "description": "list of key/value pairs from the hash where each even element is the key, and each odd element is the value",
+                    "description": "list of key/value pairs from the hash where each even element is the key, and each odd element is the value, or when novalues option is on, a list of keys from the hash",
                     "type": "array",
                     "items": {
                         "type": "string"
