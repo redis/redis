@@ -10,6 +10,6 @@ reason one shouldn't rely on the raw files.
 
 The structure of each JSON is somewhat documented in https://redis.io/commands/command-docs/ and https://redis.io/commands/command/
 
-Worth mentioning that the section `reply_schema` is a standard JSON Schema (see https://json-schema.org/) that describes the reply of each command.
-It is meant to be used to auto-generate code in client libraries.
+The `reply_schema` section is a standard JSON Schema (see https://json-schema.org/) that describes the reply of each command.
+It is designed to someday be used to auto-generate code in client libraries, but is not yet mature and is not exposed externally.
 
