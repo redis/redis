@@ -3006,19 +3006,34 @@ int clusterProcessPacket(clusterLink *link) {
                             /* A failover occurred in the shard where `sender` belongs to and `sender` is no longer
                              * a primary. Update slot assignment to `master`, which is the new primary in the shard */
                             int slots = clusterMoveNodeSlots(sender, master);
-                            serverLog(LL_NOTICE, "A failover occurred in shard %.40s; node %.40s (%s) lost %d slot(s) to node %.40s (%s)",
-                                    sender->shard_id, sender->name, sender->human_nodename, slots, master->name, master->human_nodename);
+                            serverLog(LL_NOTICE, "A failover occurred in shard %.40s; node %.40s (%s)"
+                                    " lost %d slot(s) to node %.40s (%s)",
+                                    sender->shard_id,
+                                    sender->name,
+                                    sender->human_nodename,
+                                    slots,
+                                    master->name,
+                                    master->human_nodename);
                         }
                     } else {
                         int slots = clusterDelNodeSlots(sender);
                         if (master != NULL) {
                             /* `sender` was moved to another shard and has become a replica, remove its slot assignment */
-                            serverLog(LL_NOTICE, "Node %.40s (%s) moved from shard %.40s to shard %.40s and became a slave; removed all %d slot(s) it used to own",
-                                    sender->name, sender->human_nodename, sender->shard_id, master->shard_id, slots);
+                            serverLog(LL_NOTICE, "Node %.40s (%s) moved from shard %.40s to shard %.40s"
+                                    " and became a slave; removed all %d slot(s) it used to own",
+                                    sender->name,
+                                    sender->human_nodename,
+                                    sender->shard_id,
+                                    master->shard_id,
+                                    slots);
                         } else {
                             /* We have no knowledge of `master` */
-                            serverLog(LL_NOTICE, "Node %.40s (%s) is not longer a master in shard %.40s; removed all %d slot(s) it used to own",
-                                    sender->name, sender->human_nodename, sender->shard_id, slots);
+                            serverLog(LL_NOTICE, "Node %.40s (%s) is not longer a master in shard %.40s;"
+                                    " removed all %d slot(s) it used to own",
+                                    sender->name,
+                                    sender->human_nodename,
+                                    sender->shard_id,
+                                    slots);
                         }
                     }
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
