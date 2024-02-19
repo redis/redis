@@ -1,7 +1,7 @@
-This directory contains JSON files, one for each of Redis` commands
+This directory contains JSON files, one for each of Redis commands.
 
 Each JSON contains all the information about the command itself, but these JSON files are not to be used directly!
-Any third party who needs access to command information must get it from COMMAND INFO and COMMAND DOCS.
+Any third party who needs access to command information must get it from `COMMAND INFO` and `COMMAND DOCS`.
 The output can be extracted in a JSON format by using `redis-cli --json`, in the same manner as in `utils/generate-commands-json.py`.
 
 The JSON files are used to generate commands.def (and https://github.com/redis/redis-doc/blob/master/commands.json) in Redis, and
