@@ -43,6 +43,9 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
 /* Rehashing */
 void kvstoreTryResizeDicts(kvstore *kvs, int limit);
 uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us);
+size_t kvstoreOverheadHashtableLut(kvstore *kvs);
+size_t kvstoreOverheadHashtableRehashing(kvstore *kvs);
+unsigned long kvstoreDictRehashingCount(kvstore *kvs);
 
 /* Specific dict access by dict-index */
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);

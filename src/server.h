@@ -1422,6 +1422,8 @@ struct redisMemOverhead {
     float rss_extra;
     size_t rss_extra_bytes;
     size_t num_dbs;
+    size_t db_overhead_hashtable_lut;
+    unsigned long db_dict_rehashing_count;
     struct {
         size_t dbid;
         size_t overhead_ht_main;
@@ -1554,8 +1556,6 @@ struct redisServer {
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
-    size_t overhead_hashtable_lut;      /* The overhead of all hashtables in db. */
-    size_t overhead_hashtable_rehashing;  /* The overhead of rehashing. */
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;

@@ -482,26 +482,29 @@ start_server {tags {"info" "external:skip"}} {
         r flushall
         set info_mem [r info memory]
         set mem_stats [r memory stats]
+        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
         assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {0}
-        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
-        # get the info within a transaction to make sure the rehashing is not completed
-        r multi 
+        assert_equal [getMemoryStatsProperty $mem_stats db.dict.rehashing.count] {0}
+        # Initial dict expand is not rehashing
         r set a b
-        r info memory
-        r memory stats
-        set transaction_res [r exec]
-        set info_mem [lindex $transaction_res 1]
-        set mem_stats [lindex $transaction_res 2]
-        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {32}
+        set info_mem [r info memory]
+        set mem_stats [r memory stats]
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
+        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {32}
+        assert_equal [getMemoryStatsProperty $mem_stats db.dict.rehashing.count] {0}
         # set 4 more keys to trigger rehashing
+        # get the info within a transaction to make sure the rehashing is not completed
         r multi 
         r set b c
         r set c d
         r set d e
         r set e f
         r info memory
-        set info_mem [lindex [r exec] 4]
-        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {32}       
+        r memory stats
+        set res [r exec]
+        set info_mem [lindex $res 4]
+        set mem_stats [lindex $res 5]
+        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {32}
+        assert_equal [getMemoryStatsProperty $mem_stats db.dict.rehashing.count] {1}
     }
 }
