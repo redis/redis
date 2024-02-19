@@ -615,16 +615,16 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
      * after each dictionary completes rehashing, it removes itself from the list. */
     listNode *node;
     monotime timer;
-    uint64_t elapsed_us = UINT64_MAX;
+    uint64_t elapsed_us = 0;
     elapsedStart(&timer);
     while ((node = listFirst(kvs->rehashing))) {
+        dictRehashMicroseconds(listNodeValue(node), threshold_us - elapsed_us);
+
         elapsed_us = elapsedUs(timer);
         if (elapsed_us >= threshold_us) {
             break;  /* Reached the time limit. */
         }
-        dictRehashMicroseconds(listNodeValue(node), threshold_us - elapsed_us);
     }
-    assert(elapsed_us != UINT64_MAX);
     return elapsed_us;
 }
 
