@@ -6239,7 +6239,7 @@ int createMonitorFilterForClientID(client *c, int *argi, bool moreargs){
             return FILTER_ERR;
 
         if (c->monitor_filters->ids == NULL) c->monitor_filters->ids = intsetNew();
-        intsetAdd(c->monitor_filters->ids, id, &success);
+        c->monitor_filters->ids = intsetAdd(c->monitor_filters->ids, id, &success);
         if (success) {
             printf("inset add ID success\n");
         } else {
@@ -6328,7 +6328,7 @@ int createMonitorFilterForType(client *c, int *argi, bool moreargs){
             if (c->monitor_filters->types == NULL) {
                 c->monitor_filters->types = intsetNew();
             }
-            intsetAdd(c->monitor_filters->types, type, NULL);
+            c->monitor_filters->types = intsetAdd(c->monitor_filters->types, type, NULL);
             *argi += 2;
             return FILTER_CONSUMED;
         }
