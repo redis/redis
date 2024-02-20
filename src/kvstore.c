@@ -45,7 +45,6 @@
 #include "kvstore.h"
 #include "redisassert.h"
 #include "monotonic.h"
-#include "server.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -638,11 +637,11 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
 }
 
 size_t kvstoreOverheadHashtableLut(kvstore *kvs) {
-    return kvs->overhead_hashtable_lut;
+    return kvs->overhead_hashtable_lut * sizeof(dictEntry *);
 }
 
 size_t kvstoreOverheadHashtableRehashing(kvstore *kvs) {
-    return kvs->overhead_hashtable_rehashing;
+    return kvs->overhead_hashtable_rehashing * sizeof(dictEntry *);
 }
 
 unsigned long kvstoreDictRehashingCount(kvstore *kvs) {
