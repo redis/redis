@@ -794,7 +794,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
         *out_frag_bytes = frag_smallbins_bytes;
     serverLog(LL_DEBUG,
         "allocated=%zu, active=%zu, resident=%zu, frag=%.2f%% (%.2f%% rss), frag_bytes=%zu (%zu rss)",
-        allocated, active, resident, frag_pct, rss_pct, frag_bytes, rss_bytes);
+        allocated, active, resident, frag_pct, rss_pct, frag_smallbins_bytes, rss_bytes);
     return frag_pct;
 }
 
