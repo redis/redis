@@ -30,6 +30,13 @@ start_cluster 1 0 {tags {external:skip cluster}} {
             redis.call('set', 'foo', 'bar'); redis.call('set', 'bar', 'foo')
         } 0
 
+        # Retrieve data from different slot to verify data has been stored in the correct dictionary in cluster-enabled setup
+        # during cross-slot operation from the above lua script.
+        assert_equal "bar" [r 0 get foo]
+        assert_equal "foo" [r 0 get bar]
+        r 0 del foo
+        r 0 del bar
+
         # Functions with allow-cross-slot-keys flag are allowed
         r 0 function load REPLACE {#!lua name=crossslot
             local function test_cross_slot(keys, args)
@@ -40,6 +47,11 @@ start_cluster 1 0 {tags {external:skip cluster}} {
 
             redis.register_function{function_name='test_cross_slot', callback=test_cross_slot, flags={ 'allow-cross-slot-keys' }}}
         r FCALL test_cross_slot 0
+
+        # Retrieve data from different slot to verify data has been stored in the correct dictionary in cluster-enabled setup
+        # during cross-slot operation from the above lua function.
+        assert_equal "bar" [r 0 get foo]
+        assert_equal "foo" [r 0 get bar]
     }
     
     test {Cross slot commands are also blocked if they disagree with pre-declared keys} {
@@ -48,6 +60,15 @@ start_cluster 1 0 {tags {external:skip cluster}} {
                 redis.call('set', 'foo', 'bar')
                 return 'OK'
             } 1 bar}
+    }
+
+    test {Cross slot commands are allowed by default if they disagree with pre-declared keys} {
+        r 0 flushall
+        r 0 eval "redis.call('set', 'foo', 'bar')" 1 bar
+
+        # Make sure the script writes to the right slot
+        assert_equal 1 [r 0 cluster COUNTKEYSINSLOT 12182] ;# foo slot
+        assert_equal 0 [r 0 cluster COUNTKEYSINSLOT 5061] ;# bar slot
     }
 
     test "Function no-cluster flag" {

@@ -59,10 +59,12 @@ static rax *commandId = NULL; /* Command name to id mapping */
 
 static unsigned long nextid = 0; /* Next command id that has not been assigned */
 
+#define ACL_MAX_CATEGORIES 64 /* Maximum number of command categories  */
+
 struct ACLCategoryItem {
-    const char *name;
+    char *name;
     uint64_t flag;
-} ACLCommandCategories[] = { /* See redis.conf for details on each category. */
+} ACLDefaultCommandCategories[] = { /* See redis.conf for details on each category. */
     {"keyspace", ACL_CATEGORY_KEYSPACE},
     {"read", ACL_CATEGORY_READ},
     {"write", ACL_CATEGORY_WRITE},
@@ -86,6 +88,54 @@ struct ACLCategoryItem {
     {"scripting", ACL_CATEGORY_SCRIPTING},
     {NULL,0} /* Terminator. */
 };
+
+static struct ACLCategoryItem *ACLCommandCategories = NULL;
+static size_t nextCommandCategory = 0; /* Index of the next command category to be added */
+
+/* Implements the ability to add to the list of ACL categories at runtime. Since each ACL category
+ * also requires a bit in the acl_categories flag, there is a limit to the number that can be added.
+ * The new ACL categories occupy the remaining bits of acl_categories flag, other than the bits
+ * occupied by the default ACL command categories.
+ * 
+ * The optional `flag` argument allows the assignment of the `acl_categories` flag bit to the ACL category.
+ * When adding a new category, except for the default ACL command categories, this arguments should be `0`
+ * to allow the function to assign the next available `acl_categories` flag bit to the new ACL category.
+ *
+ * returns 1 -> Added, 0 -> Failed (out of space)
+ *
+ * This function is present here to gain access to the ACLCommandCategories array and add a new ACL category.
+ */
+int ACLAddCommandCategory(const char *name, uint64_t flag) {
+    if (nextCommandCategory >= ACL_MAX_CATEGORIES) return 0;
+    ACLCommandCategories[nextCommandCategory].name = zstrdup(name);
+    ACLCommandCategories[nextCommandCategory].flag = flag != 0 ? flag : (1ULL<<nextCommandCategory);
+    nextCommandCategory++;
+    return 1;
+}
+
+/* Initializes ACLCommandCategories with default ACL categories and allocates space for 
+ * new ACL categories.
+ */
+void ACLInitCommandCategories(void) {
+    ACLCommandCategories = zcalloc(sizeof(struct ACLCategoryItem) * (ACL_MAX_CATEGORIES + 1));
+    for (int j = 0; ACLDefaultCommandCategories[j].flag; j++) {
+        serverAssert(ACLAddCommandCategory(ACLDefaultCommandCategories[j].name, ACLDefaultCommandCategories[j].flag));
+    }
+}
+
+/* This function removes the specified number of categories from the trailing end of
+ * the `ACLCommandCategories` array.
+ * The purpose of this is to remove the categories added by modules that fail
+ * during the onload function.
+ */
+void ACLCleanupCategoriesOnFailure(size_t num_acl_categories_added) {
+    for (size_t j = nextCommandCategory - num_acl_categories_added; j < nextCommandCategory; j++) {
+        zfree(ACLCommandCategories[j].name);
+        ACLCommandCategories[j].name = NULL;
+        ACLCommandCategories[j].flag = 0;
+    }
+    nextCommandCategory -= num_acl_categories_added;
+}
 
 struct ACLUserFlag {
     const char *name;
@@ -259,7 +309,7 @@ void *ACLListDupSds(void *item) {
 /* Structure used for handling key patterns with different key
  * based permissions. */
 typedef struct {
-    int flags; /* The CMD_KEYS_* flags for this key pattern */
+    int flags; /* The ACL key permission types for this key pattern */
     sds pattern; /* The pattern to match keys against */
 } keyPattern;
 
@@ -387,7 +437,7 @@ aclSelector *ACLUserGetRootSelector(user *u) {
  *
  * If the user with such name already exists NULL is returned. */
 user *ACLCreateUser(const char *name, size_t namelen) {
-    if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
+    if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
     u->flags = USER_FLAG_DISABLED;
@@ -489,12 +539,6 @@ void ACLCopyUser(user *dst, user *src) {
     }
 }
 
-/* Free all the users registered in the radix tree 'users' and free the
- * radix tree itself. */
-void ACLFreeUsersSet(rax *users) {
-    raxFreeWithCallback(users,(void(*)(void*))ACLFreeUserAndKillClients);
-}
-
 /* Given a command ID, this function set by reference 'word' and 'bit'
  * so that user->allowed_commands[word] will address the right word
  * where the corresponding bit for the provided ID is stored, and
@@ -563,7 +607,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
          * as well if the command is removed. */
         char *rule_end = strchr(existing_rule, ' ');
         if (!rule_end) {
-            /* This is the last rule, so it it to the end of the string. */
+            /* This is the last rule, so move it to the end of the string. */
             rule_end = existing_rule + strlen(existing_rule);
 
             /* This approach can leave a trailing space if the last rule is removed,
@@ -580,6 +624,8 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
                 /* Copy the remaining rules starting at the next rule to replace the rule to be
                  * deleted, including the terminating NULL character. */
                 memmove(copy_position, copy_end, strlen(copy_end) + 1);
+                existing_rule = copy_position;
+                continue;
             }
         }
         existing_rule = copy_end;
@@ -911,7 +957,7 @@ void ACLResetFirstArgs(aclSelector *selector) {
     selector->allowed_firstargs = NULL;
 }
 
-/* Add a first-arh to the list of subcommands for the user 'u' and
+/* Add a first-arg to the list of subcommands for the user 'u' and
  * the command id specified. */
 void ACLAddAllowedFirstArg(aclSelector *selector, unsigned long id, const char *sub) {
     /* If this is the first first-arg to be configured for
@@ -1396,6 +1442,7 @@ user *ACLCreateDefaultUser(void) {
 void ACLInit(void) {
     Users = raxNew();
     UsersToLoad = listCreate();
+    ACLInitCommandCategories();
     listSetMatchMethod(UsersToLoad, ACLListMatchLoadedUser);
     ACLLog = listCreate();
     DefaultUser = ACLCreateDefaultUser();
@@ -1405,7 +1452,7 @@ void ACLInit(void) {
  * otherwise C_ERR is returned and errno is set to:
  *
  *  EINVAL: if the username-password do not match.
- *  ENONENT: if the specified user does not exist at all.
+ *  ENOENT: if the specified user does not exist at all.
  */
 int ACLCheckUserCredentials(robj *username, robj *password) {
     user *u = ACLGetUserByName(username->ptr,sdslen(username->ptr));
@@ -1500,8 +1547,8 @@ unsigned long ACLGetCommandID(sds cmdname) {
     sds lowername = sdsdup(cmdname);
     sdstolower(lowername);
     if (commandId == NULL) commandId = raxNew();
-    void *id = raxFind(commandId,(unsigned char*)lowername,sdslen(lowername));
-    if (id != raxNotFound) {
+    void *id;
+    if (raxFind(commandId,(unsigned char*)lowername,sdslen(lowername),&id)) {
         sdsfree(lowername);
         return (unsigned long)id;
     }
@@ -1532,8 +1579,8 @@ void ACLClearCommandID(void) {
 
 /* Return an username by its name, or NULL if the user does not exist. */
 user *ACLGetUserByName(const char *name, size_t namelen) {
-    void *myuser = raxFind(Users,(unsigned char*)name,namelen);
-    if (myuser == raxNotFound) return NULL;
+    void *myuser = NULL;
+    raxFind(Users,(unsigned char*)name,namelen,&myuser);
     return myuser;
 }
 
@@ -1856,23 +1903,26 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }
 
-/* Check if the user's existing pub/sub clients violate the ACL pub/sub
- * permissions specified via the upcoming argument, and kill them if so. */
-void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+int totalSubscriptions(void) {
+    return dictSize(server.pubsub_patterns) +
+           dictSize(server.pubsub_channels) +
+           server.shard_channel_count;
+}
+
+/* If 'new' can access all channels 'original' could then return NULL;
+   Otherwise return a list of channels that the new user can access */
+list *getUpcomingChannelList(user *new, user *original) {
     listIter li, lpi;
     listNode *ln, *lpn;
-    robj *o;
-    int kill = 0;
-    
-    /* First optimization is we check if any selector has all channel
-     * permissions. */
+
+    /* Optimization: we check if any selector has all channel permissions. */
     listRewind(new->selectors,&li);
     while((ln = listNext(&li))) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
-        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return;
+        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return NULL;
     }
 
-    /* Second optimization is to check if the new list of channels
+    /* Next, check if the new list of channels
      * is a strict superset of the original. This is done by
      * created an "upcoming" list of all channels that are in
      * the new user and checking each of the existing channels
@@ -1910,58 +1960,87 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     if (match) {
         /* All channels were matched, no need to kill clients. */
         listRelease(upcoming);
-        return;
+        return NULL;
     }
-    
+
+    return upcoming;
+}
+
+/* Check if the client should be killed because it is subscribed to channels that were
+ * permitted in the past, are not in the `upcoming` channel list. */
+int ACLShouldKillPubsubClient(client *c, list *upcoming) {
+    robj *o;
+    int kill = 0;
+
+    if (getClientType(c) == CLIENT_TYPE_PUBSUB) {
+        /* Check for pattern violations. */
+        dictIterator *di = dictGetIterator(c->pubsub_patterns);
+        dictEntry *de;
+        while (!kill && ((de = dictNext(di)) != NULL)) {
+            o = dictGetKey(de);
+            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
+            kill = (res == ACL_DENIED_CHANNEL);
+        }
+        dictReleaseIterator(di);
+
+        /* Check for channel violations. */
+        if (!kill) {
+            /* Check for global channels violation. */
+            di = dictGetIterator(c->pubsub_channels);
+
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
+                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+                kill = (res == ACL_DENIED_CHANNEL);
+            }
+            dictReleaseIterator(di);
+        }
+        if (!kill) {
+            /* Check for shard channels violation. */
+            di = dictGetIterator(c->pubsubshard_channels);
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
+                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+                kill = (res == ACL_DENIED_CHANNEL);
+            }
+            dictReleaseIterator(di);
+        }
+
+        if (kill) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Check if the user's existing pub/sub clients violate the ACL pub/sub
+ * permissions specified via the upcoming argument, and kill them if so. */
+void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+    /* Do nothing if there are no subscribers. */
+    if (totalSubscriptions() == 0)
+        return;
+
+    list *channels = getUpcomingChannelList(new, original);
+    /* If the new user's pubsub permissions are a strict superset of the original, return early. */
+    if (!channels)
+        return;
+
+    listIter li;
+    listNode *ln;
+
     /* Permissions have changed, so we need to iterate through all
      * the clients and disconnect those that are no longer valid.
      * Scan all connected clients to find the user's pub/subs. */
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        kill = 0;
-
-        if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
-            /* Check for pattern violations. */
-            dictIterator *di = dictGetIterator(c->pubsub_patterns);
-            dictEntry *de;
-            while (!kill && ((de = dictNext(di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictReleaseIterator(di);
-
-            /* Check for channel violations. */
-            if (!kill) {
-                /* Check for global channels violation. */
-                di = dictGetIterator(c->pubsub_channels);
-                while (!kill && ((de = dictNext(di)) != NULL)) {
-                    o = dictGetKey(de);
-                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                    kill = (res == ACL_DENIED_CHANNEL);
-                }
-                dictReleaseIterator(di);
-            }
-
-            if (!kill) {
-                /* Check for shard channels violation. */
-                di = dictGetIterator(c->pubsubshard_channels);
-                while (!kill && ((de = dictNext(di)) != NULL)) {
-                    o = dictGetKey(de);
-                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                    kill = (res == ACL_DENIED_CHANNEL);
-                }
-                dictReleaseIterator(di);
-            }
-
-            /* Kill it. */
-            if (kill) {
-                freeClient(c);
-            }
-        }
+        if (c->user != original)
+            continue;
+        if (ACLShouldKillPubsubClient(c, channels))
+            freeClient(c);
     }
-    listRelease(upcoming);
+
+    listRelease(channels);
 }
 
 /* =============================================================================
@@ -1990,7 +2069,8 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
     for (int j = 0; j < argc; j++) {
         char *op = argv[j];
 
-        if (op[0] == '(' && op[sdslen(op) - 1] != ')') {
+        if (open_bracket_start == -1 &&
+            (op[0] == '(' && op[sdslen(op) - 1] != ')')) {
             selector = sdsdup(argv[j]);
             open_bracket_start = j;
             continue;
@@ -2367,11 +2447,43 @@ sds ACLLoadFromFile(const char *filename) {
         ACLFreeUser(new_default);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
-        ACLFreeUsersSet(old_users);
+
+        /* If there are some subscribers, we need to check if we need to drop some clients. */
+        rax *user_channels = NULL;
+        if (totalSubscriptions() > 0) {
+            user_channels = raxNew();
+        }
+
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.clients,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            user *original = c->user;
+            list *channels = NULL;
+            user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
+            if (new && user_channels) {
+                if (!raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name), (void**)&channels)) {
+                    channels = getUpcomingChannelList(new, original);
+                    raxInsert(user_channels, (unsigned char*)(new->name), sdslen(new->name), channels, NULL);
+                }
+            }
+            /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
+            if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
+                freeClient(c);
+                continue;
+            }
+            c->user = new;
+        }
+
+        if (user_channels)
+            raxFreeWithCallback(user_channels, (void(*)(void*))listRelease);
+        raxFreeWithCallback(old_users,(void(*)(void*))ACLFreeUser);
         sdsfree(errors);
         return NULL;
     } else {
-        ACLFreeUsersSet(Users);
+        raxFreeWithCallback(Users,(void(*)(void*))ACLFreeUser);
         Users = old_users;
         errors = sdscat(errors,"WARNING: ACL errors detected, no change to the previously active ACL rules was performed");
         return errors;
@@ -2549,6 +2661,15 @@ void ACLUpdateInfoMetrics(int reason){
     }
 }
 
+static void trimACLLogEntriesToMaxLen(void) {
+    while(listLength(ACLLog) > server.acllog_max_len) {
+        listNode *ln = listLast(ACLLog);
+        ACLLogEntry *le = listNodeValue(ln);
+        ACLFreeLogEntry(le);
+        listDelNode(ACLLog,ln);
+    }
+}
+
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
  * to find similar entries in the current log in order to bump the counter of
@@ -2567,6 +2688,11 @@ void ACLUpdateInfoMetrics(int reason){
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Update ACL info metrics */
     ACLUpdateInfoMetrics(reason);
+    
+    if (server.acllog_max_len == 0) {
+        trimACLLogEntriesToMaxLen();
+        return;
+    }
     
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
@@ -2630,12 +2756,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
          * to its maximum size. */
         ACLLogEntryCount++; /* Incrementing the entry_id count to make each record in the log unique. */
         listAddNodeHead(ACLLog, le);
-        while(listLength(ACLLog) > server.acllog_max_len) {
-            listNode *ln = listLast(ACLLog);
-            ACLLogEntry *le = listNodeValue(ln);
-            ACLFreeLogEntry(le);
-            listDelNode(ACLLog,ln);
-        }
+        trimACLLogEntriesToMaxLen();
     }
 }
 
@@ -2759,8 +2880,7 @@ void aclCommand(client *c) {
         sds username = c->argv[2]->ptr;
         /* Check username validity. */
         if (ACLStringHasSpaces(username,sdslen(username))) {
-            addReplyErrorFormat(c,
-                "Usernames can't contain spaces or null characters");
+            addReplyError(c, "Usernames can't contain spaces or null characters");
             return;
         }
 
@@ -2778,6 +2898,10 @@ void aclCommand(client *c) {
         }
         return;
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
+        /* Initially redact all the arguments to not leak any information
+         * about the users. */
+        for (int j = 2; j < c->argc; j++) redactClientCommandArgument(c, j);
+
         int deleted = 0;
         for (int j = 2; j < c->argc; j++) {
             sds username = c->argv[j]->ptr;
@@ -2800,6 +2924,9 @@ void aclCommand(client *c) {
         }
         addReplyLongLong(c,deleted);
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
+        /* Redact the username to not leak any information about the user. */
+        redactClientCommandArgument(c, 2);
+
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
             addReplyNull(c);

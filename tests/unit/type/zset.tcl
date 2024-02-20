@@ -308,6 +308,12 @@ start_server {tags {"zset"}} {
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
+        test "ZINCRBY against invalid incr value - $encoding" {
+            r del zincr
+            r zadd zincr 1 "one"
+            assert_error "*value is not a valid*" {r zincrby zincr v "one"}
+        }
+
         test "ZADD - Variadic version base case - $encoding" {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
@@ -369,28 +375,6 @@ start_server {tags {"zset"}} {
             r zadd ztmp 10 a 20 b 30 c
             r zrem ztmp a b c d e f g
         } {3}
-
-        test "ZRANGE* with wrong offset or limit should throw error" {
-            r del src{t} dst{t}
-
-            foreach offset {-1 -100 str NaN} {
-                assert_error "ERR*offset*" {r ZRANGE src{t} 0 -1 byscore limit $offset 1}
-                assert_error "ERR*offset*" {r ZRANGESTORE dst{t} src{t} 0 -1 byscore limit $offset 4}
-                assert_error "ERR*offset*" {r ZRANGEBYLEX src{t} (az (b limit $offset 5}
-                assert_error "ERR*offset*" {r ZRANGEBYSCORE src{t} 0 -1 limit $offset 2}
-                assert_error "ERR*offset*" {r ZREVRANGEBYLEX src{t} (az (b limit $offset 6}
-                assert_error "ERR*offset*" {r ZREVRANGEBYSCORE src{t} -1 0 limit $offset 3}
-            }
-
-            foreach limit {str NaN} {
-                assert_error "ERR value*" {r ZRANGE src{t} 0 -1 byscore limit 0 $limit}
-                assert_error "ERR value*" {r ZRANGESTORE dst{t} src{t} 0 -1 byscore limit 0 $limit}
-                assert_error "ERR value*" {r ZRANGEBYLEX src{t} (az (b limit 0 $limit}
-                assert_error "ERR value*" {r ZRANGEBYSCORE src{t} 0 -1 limit 0 $limit}
-                assert_error "ERR value*" {r ZREVRANGEBYLEX src{t} (az (b limit 0 $limit}
-                assert_error "ERR value*" {r ZREVRANGEBYSCORE src{t} -1 0 limit 0 $limit}
-            }
-        }
 
         test "ZRANGE basics - $encoding" {
             r del ztmp
@@ -528,6 +512,13 @@ start_server {tags {"zset"}} {
             create_zset zset {-inf a 1 b 2 c 3 d 4 e 5 f +inf g}
         }
 
+        proc create_long_zset {key length} {
+            r del $key
+            for {set i 0} {$i < $length} {incr i 1} {
+                r zadd $key $i i$i
+            }
+        }
+
         test "ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZCOUNT basics - $encoding" {
             create_default_zset
 
@@ -596,6 +587,16 @@ start_server {tags {"zset"}} {
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 3]
             assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 10]
             assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT 20 10]
+            # zrangebyscore uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            create_long_zset zset 30
+            assert_equal {i12 i13 i14} [r zrangebyscore zset 0 20 LIMIT 12 3]
+            assert_equal {i14 i15}     [r zrangebyscore zset 0 20 LIMIT 14 2]
+            assert_equal {i19 i20 i21} [r zrangebyscore zset 0 30 LIMIT 19 3]
+            assert_equal {i29}     [r zrangebyscore zset 10 30 LIMIT 19 2]
+            assert_equal {i17 i16 i15} [r zrevrangebyscore zset 30 10 LIMIT 12 3]
+            assert_equal {i6 i5}       [r zrevrangebyscore zset 20 0 LIMIT 14 2]
+            assert_equal {i2 i1 i0}    [r zrevrangebyscore zset 20 0 LIMIT 18 5]
+            assert_equal {i0}          [r zrevrangebyscore zset 20 0 LIMIT 20 5]
         }
 
         test "ZRANGEBYSCORE with LIMIT and WITHSCORES - $encoding" {
@@ -615,6 +616,14 @@ start_server {tags {"zset"}} {
             create_zset zset {0 alpha 0 bar 0 cool 0 down
                               0 elephant 0 foo 0 great 0 hill
                               0 omega}
+        }
+
+        proc create_long_lex_zset {} {
+            create_zset zset {0 alpha 0 bar 0 cool 0 down
+                              0 elephant 0 foo 0 great 0 hill
+                              0 island 0 jacket 0 key 0 lip 
+                              0 max 0 null 0 omega 0 point
+                              0 query 0 result 0 sea 0 tree}
         }
 
         test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZLEXCOUNT basics - $encoding" {
@@ -662,7 +671,7 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zlexcount zset (maxstring +]
         }
 
-        test "ZRANGEBYSLEX with LIMIT - $encoding" {
+        test "ZRANGEBYLEX with LIMIT - $encoding" {
             create_default_lex_zset
             assert_equal {alpha bar} [r zrangebylex zset - \[cool LIMIT 0 2]
             assert_equal {bar cool} [r zrangebylex zset - \[cool LIMIT 1 2]
@@ -673,6 +682,22 @@ start_server {tags {"zset"}} {
             assert_equal {bar cool down} [r zrangebylex zset \[bar \[down LIMIT 0 100]
             assert_equal {omega hill great foo elephant} [r zrevrangebylex zset + \[d LIMIT 0 5]
             assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
+            assert_equal {great foo elephant} [r zrevrangebylex zset + \[d LIMIT 2 3]
+            # zrangebylex uses different logic when offset > ZSKIPLIST_MAX_SEARCH
+            create_long_lex_zset
+            assert_equal {max null} [r zrangebylex zset - \[tree LIMIT 12 2]
+            assert_equal {point query} [r zrangebylex zset - \[tree LIMIT 15 2]
+            assert_equal {} [r zrangebylex zset \[max \[tree LIMIT 10 0]
+            assert_equal {} [r zrangebylex zset \[max \[tree LIMIT 12 0]
+            assert_equal {max} [r zrangebylex zset \[max \[null LIMIT 0 1]
+            assert_equal {null} [r zrangebylex zset \[max \[null LIMIT 1 1]
+            assert_equal {max null omega point} [r zrangebylex zset \[max \[point LIMIT 0 100]
+            assert_equal {tree sea result query point} [r zrevrangebylex zset + \[o LIMIT 0 5]
+            assert_equal {tree sea result query} [r zrevrangebylex zset + \[o LIMIT 0 4]
+            assert_equal {omega null max lip} [r zrevrangebylex zset + \[l LIMIT 5 4]
+            assert_equal {elephant down} [r zrevrangebylex zset + \[a LIMIT 15 2]
+            assert_equal {bar alpha} [r zrevrangebylex zset + - LIMIT 18 6]
+            assert_equal {hill great foo} [r zrevrangebylex zset + \[c LIMIT 12 3]
         }
 
         test "ZRANGEBYLEX with invalid lex range specifiers - $encoding" {
@@ -1963,6 +1988,34 @@ start_server {tags {"zset"}} {
             $rd close
         }
     }
+
+        test {BZPOPMIN unblock but the key is expired and then block again - reprocessing command} {
+            r flushall
+            r debug set-active-expire 0
+            set rd [redis_deferring_client]
+
+            set start [clock milliseconds]
+            $rd bzpopmin zset{t} 1
+            wait_for_blocked_clients_count 1
+
+            # The exec will try to awake the blocked client, but the key is expired,
+            # so the client will be blocked again during the command reprocessing.
+            r multi
+            r zadd zset{t} 1 one
+            r pexpire zset{t} 100
+            r debug sleep 0.2
+            r exec
+
+            assert_equal {} [$rd read]
+            set end [clock milliseconds]
+
+            # In the past, this time would have been 1000+200, in order to avoid
+            # timing issues, we increase the range a bit.
+            assert_range [expr $end-$start] 1000 1100
+
+            r debug set-active-expire 1
+            $rd close
+        } {0} {needs:debug}
 
         test "BZPOPMIN with same key multiple times should work" {
             set rd [redis_deferring_client]

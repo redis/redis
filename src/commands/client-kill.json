@@ -27,6 +27,10 @@
             [
                 "6.2.0",
                 "`LADDR` option."
+            ],
+            [
+                "8.0.0",
+                "`MAXAGE` option."
             ]
         ],
         "command_flags": [
@@ -136,6 +140,13 @@
                                         "token": "NO"
                                     }
                                 ]
+                            },
+                            {
+                                "token": "MAXAGE",
+                                "name": "maxage",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "8.0.0"
                             }
                         ]
                     }

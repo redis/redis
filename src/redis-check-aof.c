@@ -29,6 +29,7 @@
  */
 
 #include "server.h"
+
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <regex.h>
@@ -238,6 +239,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
 
     off_t size = sb.st_size;
     if (size == 0) {
+        fclose(fp);
         return AOF_CHECK_EMPTY;
     }
 
@@ -514,6 +516,13 @@ int redis_check_aof_main(int argc, char **argv) {
     if (argc < 2) {
         goto invalid_args;
     } else if (argc == 2) {
+        if (!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version")) {
+            sds version = getVersion();
+            printf("redis-check-aof %s\n", version);
+            sdsfree(version);
+            exit(0);
+        }
+
         filepath = argv[1];
     } else if (argc == 3) {
         if (!strcmp(argv[1], "--fix")) {

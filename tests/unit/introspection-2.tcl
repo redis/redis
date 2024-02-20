@@ -153,6 +153,21 @@ start_server {tags {"introspection"}} {
         assert_equal {key1 key2} [r command getkeys lcs key1 key2]
     }
 
+    test {COMMAND GETKEYS MORE THAN 256 KEYS} {
+        set all_keys [list]
+        set numkeys 260
+        for {set i 1} {$i <= $numkeys} {incr i} {
+            lappend all_keys "key$i"
+        }
+        set all_keys_with_target [linsert $all_keys 0 target]
+        # we are using ZUNIONSTORE command since in order to reproduce allocation of a new buffer in getKeysPrepareResult
+        # when numkeys in result > 0
+        # we need a command that the final number of keys is not known in the first call to getKeysPrepareResult
+        # before the fix in that case data of old buffer was not copied to the new result buffer
+        # causing all previous keys (numkeys) data to be uninitialize
+        assert_equal $all_keys_with_target [r command getkeys ZUNIONSTORE target $numkeys {*}$all_keys]
+    }
+
     test "COMMAND LIST syntax error" {
         assert_error "ERR syntax error*" {r command list bad_arg}
         assert_error "ERR syntax error*" {r command list filterby bad_arg}

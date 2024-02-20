@@ -211,6 +211,7 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
     SSL_CTX *ctx = NULL;
 
     ctx = SSL_CTX_new(SSLv23_method());
+    if (!ctx) goto error;
 
     SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
 
@@ -765,7 +766,8 @@ static void tlsEventHandler(struct aeEventLoop *el, int fd, void *clientData, in
 }
 
 static void tlsAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    int cport, cfd;
+    int max = server.max_new_tls_conns_per_cycle;
     char cip[NET_IP_STR_LEN];
     UNUSED(el);
     UNUSED(mask);
