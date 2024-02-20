@@ -4932,6 +4932,7 @@ int clusterDelSlot(int slot) {
     if (n == myself) {
         kvstoreFreeDictIfEmpty(server.db->keys, slot);
         kvstoreFreeDictIfEmpty(server.db->expires, slot);
+        kvstoreFreeDictIfEmpty(server.pubsubshard_channels, slot);
     }
     /* Cleanup the channels in master/replica as part of slot deletion. */
     removeChannelsInSlot(slot);
