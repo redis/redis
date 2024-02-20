@@ -4443,9 +4443,9 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
 
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
-    //todo debug
-    serverLog(LL_WARNING,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
-        master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
+//    //todo debug
+//    serverLog(LL_WARNING,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
+//        master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
@@ -4455,9 +4455,9 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
         if (ri->leader != NULL && ri->leader_epoch == counter_epoch)
             sentinelLeaderIncr(counters,ri->leader);
 
-        //todo debug
-        serverLog(LL_WARNING, "helper: ri: %s | leader: %s, leader_epoch: %llu",
-            ri->name, ri->leader, (unsigned long long) ri->leader_epoch);
+//        //todo debug
+//        serverLog(LL_WARNING, "helper: ri: %s | leader: %s, leader_epoch: %llu",
+//            ri->name, ri->leader, (unsigned long long) ri->leader_epoch);
     }
     dictReleaseIterator(di);
 
@@ -4472,11 +4472,11 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
             max_votes = votes;
             winner = dictGetKey(de);
         }
-        //todo del
-        serverLog(LL_WARNING,"helper: counter | sentinel: %s, votes got: %llu", dictGetKey(de), (unsigned long long) votes);
+//        //todo del
+//        serverLog(LL_WARNING,"helper: counter | sentinel: %s, votes got: %llu", dictGetKey(de), (unsigned long long) votes);
     }
-    //todo del
-    serverLog(LL_WARNING,"helper: winner for now | winner: %s", winner);
+//    //todo del
+//    serverLog(LL_WARNING,"helper: winner for now | winner: %s", winner);
     dictReleaseIterator(di);
 
     /* Count this Sentinel vote:
@@ -4487,8 +4487,8 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     else
         myvote = sentinelVoteLeader(master,epoch,sentinel.myid,&leader_epoch);
 
-    //todo del
-    serverLog(LL_WARNING,"helper: myvote | myvote: %s, leader_epoch: %llu", myvote, (unsigned long long)leader_epoch);
+//    //todo del
+//    serverLog(LL_WARNING,"helper: myvote | myvote: %s, leader_epoch: %llu", myvote, (unsigned long long)leader_epoch);
 
     if (myvote && leader_epoch == epoch) {
         uint64_t votes = sentinelLeaderIncr(counters,myvote);
@@ -4499,8 +4499,8 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
         }
     }
 
-    //todo debug
-    serverLog(LL_WARNING, "helper: counter | winner: %s, max_votes got: %llu", myvote, (unsigned long long) max_votes);
+//    //todo debug
+//    serverLog(LL_WARNING, "helper: counter | winner: %s, max_votes got: %llu", myvote, (unsigned long long) max_votes);
 
     voters_quorum = voters/2+1;
     if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
@@ -5103,10 +5103,9 @@ void sentinelCheckTiltCondition(void) {
     mstime_t now = mstime();
     mstime_t delta = now - sentinel.previous_time;
 
-    //todo del
-    serverLog(LL_WARNING, "now : %lld, delta: %lld ", (long long)now, (long long)delta);
-
     if (delta < 0 || delta > SENTINEL_TILT_TRIGGER) {
+        //todo del
+        serverLog(LL_WARNING, "now : %lld, delta: %lld ", (long long)now, (long long)delta);
         sentinel.tilt = 1;
         sentinel.tilt_start_time = mstime();
         sentinelEvent(LL_WARNING,"+tilt",NULL,"#tilt mode entered");
