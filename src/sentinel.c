@@ -86,7 +86,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_DEFAULT_DOWN_AFTER 20000
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
 #define SENTINEL_TILT_TRIGGER 2000
-#define SENTINEL_TILT_PERIOD (SENTINEL_PING_PERIOD*30)
+#define SENTINEL_TILT_PERIOD (SENTINEL_PING_PERIOD*5)
 #define SENTINEL_DEFAULT_SLAVE_PRIORITY 100
 #define SENTINEL_SLAVE_RECONF_TIMEOUT 10000
 #define SENTINEL_DEFAULT_PARALLEL_SYNCS 1
@@ -5102,6 +5102,9 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
 void sentinelCheckTiltCondition(void) {
     mstime_t now = mstime();
     mstime_t delta = now - sentinel.previous_time;
+
+    //todo del
+    serverLog(LL_WARNING, "now : %lld, delta: %lld ", (long long)now, (long long)delta);
 
     if (delta < 0 || delta > SENTINEL_TILT_TRIGGER) {
         sentinel.tilt = 1;
