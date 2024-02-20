@@ -729,7 +729,7 @@ void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) 
         dict **d = kvstoreGetDictRef(kvs, didx);
         if (!*d)
             continue;
-        defragfn(d);
+        *d = defragfn(*d);
     }
 }
 

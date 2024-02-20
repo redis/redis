@@ -147,15 +147,14 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
  * struct itself was moved. */
-void dictDefragTables(dict **dictRef) {
-    dict *d = *dictRef;
+dict *dictDefragTables(dict *d) {
     dictEntry **newtable;
     /* handle the dict struct */
     dict *newd = activeDefragAlloc(d);
     if (newd)
-        *dictRef = d = newd;
+        d = newd;
     /* handle the first hash table */
-    if (!d->ht_table[0]) return; /* created but unused */
+    if (!d->ht_table[0]) return d; /* created but unused */
     newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
         d->ht_table[0] = newtable;
@@ -165,6 +164,7 @@ void dictDefragTables(dict **dictRef) {
         if (newtable)
             d->ht_table[1] = newtable;
     }
+    return d;
 }
 
 /* Internal function used by zslDefrag */
@@ -240,6 +240,9 @@ void activeDefragZsetEntry(zset *zs, dictEntry *de) {
     }
 }
 
+#define DEFRAG_SDS_DICT_KEY_IS_SDS 1
+#define DEFRAG_SDS_DICT_KEY_IS_STROB 2
+
 #define DEFRAG_SDS_DICT_NO_VAL 0
 #define DEFRAG_SDS_DICT_VAL_IS_SDS 1
 #define DEFRAG_SDS_DICT_VAL_IS_STROB 2
@@ -252,11 +255,13 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
 }
 
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
-void activeDefragSdsDict(dict* d, int val_type) {
+void activeDefragSdsDict(dict* d, int key_type, int val_type) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragKey = (key_type == DEFRAG_SDS_DICT_KEY_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
+                      key_type == DEFRAG_SDS_DICT_KEY_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
+                      NULL),
         .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
                       val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
                       val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
@@ -465,7 +470,7 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
         dictReleaseIterator(di);
     }
     /* defrag the dict tables */
-    dictDefragTables(&zs->dict);
+    zs->dict = dictDefragTables(zs->dict);
 }
 
 void defragHash(redisDb *db, dictEntry *kde) {
@@ -476,9 +481,9 @@ void defragHash(redisDb *db, dictEntry *kde) {
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
-        activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
+        activeDefragSdsDict(d, DEFRAG_SDS_DICT_KEY_IS_SDS, DEFRAG_SDS_DICT_VAL_IS_SDS);
     /* defrag the dict tables */
-    dictDefragTables((dict**)&ob->ptr);
+    ob->ptr = dictDefragTables(ob->ptr);
 }
 
 void defragSet(redisDb *db, dictEntry *kde) {
@@ -489,9 +494,9 @@ void defragSet(redisDb *db, dictEntry *kde) {
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
-        activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
+        activeDefragSdsDict(d, DEFRAG_SDS_DICT_KEY_IS_SDS, DEFRAG_SDS_DICT_NO_VAL);
     /* defrag the dict tables */
-    dictDefragTables((dict**)&ob->ptr);
+    ob->ptr = dictDefragTables(ob->ptr);
 }
 
 /* Defrag callback for radix tree iterator, called for each node,
@@ -756,22 +761,6 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
-static void defragPubsubCallback(dict **d) {
-    /* defrag the dict tables */
-    dictDefragTables(d);
-
-    /* Defragment the pubsub clients dictionary which is the 'value' part of the dictionary.
-     * We don't defrag the keys because they are also referenced by c->pubsub(shard)_channels. */
-    dictEntry *de;
-    dictIterator *di = dictGetIterator(*d);
-    while((de = dictNext(di)) != NULL) {
-        dict *clients = dictGetVal(de);
-        dictDefragTables(&clients);
-        dictSetVal(*d, de, clients);
-    }
-    dictReleaseIterator(di);
-}
-
 /* Utility function to get the fragmentation ratio from jemalloc.
  * It is critical to do that by comparing only heap maps that belong to
  * jemalloc, and skip ones the jemalloc keeps as spare. Since we use this
@@ -793,6 +782,57 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     return frag_pct;
 }
 
+/* This function defrags the keys and values of pubsub kvstore.
+ * The function also updates the provided `slot` and `cursor` values
+ * to reflect its progress through the kvstore. */
+void defragPubsubStep(kvstore *pubsub_kvs, int *slot, unsigned long *cursor) {
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = (dictDefragAllocFunction *)activeDefragStringOb,
+        .defragVal = (dictDefragAllocFunction *)dictDefragTables
+    };
+
+    if (*slot == -1) *slot = kvstoreFindDictIndexByKeyIndex(pubsub_kvs, 1);
+    *cursor = kvstoreDictScanDefrag(pubsub_kvs, *slot, *cursor,
+                                    scanCallbackCountScanned,
+                                    &defragfns, NULL);
+    /* Move to next slot when reach the end. */
+    if (*cursor == 0)
+        *slot = kvstoreGetNextNonEmptyDictIndex(pubsub_kvs, *slot);
+}
+
+/* This function defrags the pubsub_channels, pubsub_patterns, and
+ * pubsubshard_channels dictionaries of each client in the client list.
+ * The function uses a cursor to keep track of its progress through the list,
+ * if the cursor reaches the end of the list, it is reset to 0. */
+void defragClientsStep(list *clients, unsigned long *cursor) {
+    if (*cursor < listLength(clients)) {
+        listNode *ln = listIndex(clients, *cursor);
+        client *c = listNodeValue(ln);
+        activeDefragSdsDict(c->pubsub_channels, DEFRAG_SDS_DICT_KEY_IS_STROB, DEFRAG_SDS_DICT_NO_VAL);
+        activeDefragSdsDict(c->pubsub_patterns, DEFRAG_SDS_DICT_KEY_IS_STROB, DEFRAG_SDS_DICT_NO_VAL);
+        activeDefragSdsDict(c->pubsubshard_channels, DEFRAG_SDS_DICT_KEY_IS_STROB, DEFRAG_SDS_DICT_NO_VAL);
+        (*cursor)++;
+    } else {
+        *cursor = 0;
+    }
+}
+
+void defragOtherGlobalsStep(void) {
+    /* Track defragmentation progress in the pubsub kvstore. */
+    static int defrag_pubsub_slot = -1;
+    static unsigned long defrag_pubsub_cursor = 0;
+    /* Track defragmentation progress in the pubsubshard kvstore. */
+    static int defrag_pubsubshard_slot = -1;
+    static unsigned long defrag_pubsubshard_cursor = 0;
+    /* Track defragmentation progress in the client list. */
+    static unsigned long defrag_client_cursor = 0;
+
+    defragPubsubStep(server.pubsub_channels, &defrag_pubsub_slot, &defrag_pubsub_cursor);
+    defragPubsubStep(server.pubsubshard_channels, &defrag_pubsubshard_slot, &defrag_pubsubshard_cursor);
+    defragClientsStep(server.clients, &defrag_client_cursor);
+}
+
 /* We may need to defrag other globals, one small allocation can hold a full allocator run.
  * so although small, it is still important to defrag these */
 void defragOtherGlobals(void) {
@@ -800,10 +840,10 @@ void defragOtherGlobals(void) {
     /* there are many more pointers to defrag (e.g. client argv, output / aof buffers, etc.
      * but we assume most of these are short lived, we only need to defrag allocations
      * that remain static for a long time */
-    activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
+    activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_KEY_IS_SDS, DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     moduleDefragGlobals();
-    kvstoreDictLUTDefrag(server.pubsub_channels, defragPubsubCallback);
-    kvstoreDictLUTDefrag(server.pubsubshard_channels, defragPubsubCallback);
+    kvstoreDictLUTDefrag(server.pubsub_channels, dictDefragTables);
+    kvstoreDictLUTDefrag(server.pubsubshard_channels, dictDefragTables);
 }
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
@@ -1095,6 +1135,9 @@ void activeDefragCycle(void) {
                 server.stat_active_defrag_hits - prev_defragged > 512 ||
                 server.stat_active_defrag_scanned - prev_scanned > 64)
             {
+                /* Gradually defrag other items not part of the db / keys */
+                defragOtherGlobalsStep();
+
                 if (!cursor || ustime() > endtime) {
                     quit = 1;
                     break;

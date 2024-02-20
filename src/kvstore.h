@@ -56,7 +56,7 @@ dictEntry *kvstoreDictFindEntryByPtrAndHash(kvstore *kvs, int didx, const void *
 unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, unsigned int count);
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size);
 unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
-typedef void (kvstoreDictLUTDefragFunction)(dict **d);
+typedef dict *(kvstoreDictLUTDefragFunction)(dict *d);
 void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn);
 void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key);

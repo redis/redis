@@ -271,14 +271,16 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
             slot = getKeySlot(channel->ptr);
         }
 
-        de = kvstoreDictAddRaw(*type.serverPubSubChannels, slot, channel, &existing);
+        robj *channel_copy = dupStringObject(channel); /* Copy the channel name to avoid references
+                                                        * that could prevent memory defragmentation. */
+        de = kvstoreDictAddRaw(*type.serverPubSubChannels, slot, channel_copy, &existing);
 
         if (existing) {
             clients = dictGetVal(existing);
+            decrRefCount(channel_copy);
         } else {
             clients = dictCreate(&clientDictType);
             kvstoreDictSetVal(*type.serverPubSubChannels, slot, de, clients);
-            incrRefCount(channel);
         }
 
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
