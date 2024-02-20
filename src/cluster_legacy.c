@@ -4928,6 +4928,11 @@ int clusterDelSlot(int slot) {
 
     if (!n) return C_ERR;
 
+    /* Cleanup the empty dicts if myself is the owner. */
+    if (n == myself) {
+        kvstoreFreeDictIfEmpty(server.db->keys, slot);
+        kvstoreFreeDictIfEmpty(server.db->expires, slot);
+    }
     /* Cleanup the channels in master/replica as part of slot deletion. */
     removeChannelsInSlot(slot);
     /* Clear the slot bit. */

@@ -165,14 +165,22 @@ static dict *createDictIfNeeded(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
-static void freeDictIfNeeded(kvstore *kvs, int didx) {
-    if (!(kvs->flags & KVSTORE_FREE_EMPTY_DICTS) ||
-        !kvstoreGetDict(kvs, didx) ||
+/* Free the dict if the dict is empty. */
+void kvstoreFreeDictIfEmpty(kvstore *kvs, int didx) {
+    if (!kvstoreGetDict(kvs, didx) ||
         kvstoreDictSize(kvs, didx) != 0)
         return;
+
     dictRelease(kvs->dicts[didx]);
     kvs->dicts[didx] = NULL;
     kvs->allocated_dicts--;
+}
+
+/* If KVSTORE_FREE_EMPTY_DICTS is set and the dict is empty, free the dict. */
+static void freeDictIfNeeded(kvstore *kvs, int didx) {
+    if (!(kvs->flags & KVSTORE_FREE_EMPTY_DICTS)) return;
+
+    kvstoreFreeDictIfEmpty(kvs, didx);
 }
 
 /**********************************/
