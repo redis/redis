@@ -51,6 +51,7 @@ typedef struct dictEntry dictEntry; /* opaque */
 typedef struct dict dict;
 
 typedef struct dictType {
+    /* Callbacks */
     uint64_t (*hashFunction)(const void *key);
     void *(*keyDup)(dict *d, const void *key);
     void *(*valDup)(dict *d, const void *obj);
@@ -66,6 +67,10 @@ typedef struct dictType {
     /* Allow a dict to carry extra caller-defined metadata. The
      * extra memory is initialized to 0 when a dict is allocated. */
     size_t (*dictMetadataBytes)(dict *d);
+
+    /* Data */
+    void *userdata;
+
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -177,7 +182,6 @@ typedef enum {
 
 /* API */
 dict *dictCreate(dictType *type);
-dict **dictCreateMultiple(dictType *type, int count);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 int dictShrink(dict *d, unsigned long size);
@@ -195,7 +199,8 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);
-int dictShrinkToFit(dict *d);
+int dictShrinkIfNeeded(dict *d);
+int dictExpandIfNeeded(dict *d);
 void dictSetKey(dict *d, dictEntry* de, void *key);
 void dictSetVal(dict *d, dictEntry *de, void *val);
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);

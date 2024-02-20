@@ -545,9 +545,21 @@ void *RM_Calloc(size_t nmemb, size_t size) {
     return zcalloc_usable(nmemb*size,NULL);
 }
 
+/* Similar to RM_Calloc, but returns NULL in case of allocation failure, instead
+ * of panicking. */
+void *RM_TryCalloc(size_t nmemb, size_t size) {
+    return ztrycalloc_usable(nmemb*size,NULL);
+}
+
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
 void* RM_Realloc(void *ptr, size_t bytes) {
     return zrealloc_usable(ptr,bytes,NULL);
+}
+
+/* Similar to RM_Realloc, but returns NULL in case of allocation failure,
+ * instead of panicking. */
+void *RM_TryRealloc(void *ptr, size_t bytes) {
+    return ztryrealloc_usable(ptr,bytes,NULL);
 }
 
 /* Use like free() for memory obtained by RedisModule_Alloc() and
@@ -4283,7 +4295,7 @@ void RM_ResetDataset(int restart_aof, int async) {
 
 /* Returns the number of keys in the current db. */
 unsigned long long RM_DbSize(RedisModuleCtx *ctx) {
-    return dbSize(ctx->client->db, DB_MAIN);
+    return dbSize(ctx->client->db);
 }
 
 /* Returns a name of a random key, or NULL if current db is empty. */
@@ -7686,6 +7698,13 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * https://redis.io/topics/modules-blocking-ops.
  * -------------------------------------------------------------------------- */
 
+/* Returns 1 if the client already in the moduleUnblocked list, 0 otherwise. */
+int isModuleClientUnblocked(client *c) {
+    RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+
+    return bc->unblocked == 1;
+}
+
 /* This is called from blocked.c in order to unblock a client: may be called
  * for multiple reasons while the client is in the middle of being blocked
  * because the client is terminated, but is also called for cleanup when a
@@ -7790,15 +7809,15 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->background_timer = 0;
     bc->background_duration = 0;
 
-    c->bstate.timeout = 0;
+    mstime_t timeout = 0;
     if (timeout_ms) {
         mstime_t now = mstime();
-        if  (timeout_ms > LLONG_MAX - now) {
+        if (timeout_ms > LLONG_MAX - now) {
             c->bstate.module_blocked_handle = NULL;
             addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
             return bc;
         }
-        c->bstate.timeout = timeout_ms + now;
+        timeout = timeout_ms + now;
     }
 
     if (islua || ismulti) {
@@ -7814,8 +7833,9 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
         addReplyError(c, "Clients undergoing module based authentication can only be blocked on auth");
     } else {
         if (keys) {
-            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,c->bstate.timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
+            blockForKeys(c,BLOCKED_MODULE,keys,numkeys,timeout,flags&REDISMODULE_BLOCK_UNBLOCK_DELETED);
         } else {
+            c->bstate.timeout = timeout;
             blockClient(c,BLOCKED_MODULE);
         }
     }
@@ -8425,7 +8445,12 @@ void moduleBlockedClientTimedOut(client *c, int from_module) {
     if (!from_module)
         prev_error_replies = server.stat_total_error_replies;
 
-    bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
+    if (bc->timeout_callback) {
+        /* In theory, the user should always pass the timeout handler as an
+         * argument, but better to be safe than sorry. */
+        bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
+    }
+
     moduleFreeContext(&ctx);
 
     if (!from_module)
@@ -11033,7 +11058,7 @@ int RM_Scan(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanC
     }
     int ret = 1;
     ScanCBData data = { ctx, privdata, fn };
-    cursor->cursor = dbScan(ctx->client->db, DB_MAIN, cursor->cursor, -1, moduleScanCallback, NULL, &data);
+    cursor->cursor = dbScan(ctx->client->db, cursor->cursor, moduleScanCallback, &data);
     if (cursor->cursor == 0) {
         cursor->done = 1;
         ret = 0;
@@ -13590,7 +13615,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Alloc);
     REGISTER_API(TryAlloc);
     REGISTER_API(Calloc);
+    REGISTER_API(TryCalloc);
     REGISTER_API(Realloc);
+    REGISTER_API(TryRealloc);
     REGISTER_API(Free);
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
