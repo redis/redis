@@ -458,9 +458,10 @@ start_server {tags {"info" "external:skip"}} {
             # unwatch without watch has no effect
             r unwatch
             assert_equal [s watching_clients] 1
-            # after disconnect
+            # after disconnect, since close may arrive later, or the client may
+            # be freed asynchronously, we use a wait_for_condition
             $r2 close
-            assert_equal [s watching_clients] 0
+            wait_for_watched_clients_count 0
         }
     }
 }
