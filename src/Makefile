@@ -19,14 +19,13 @@ CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
 OPTIMIZATION?=-O3
 ifeq ($(OPTIMIZATION),-O3)
 	ifeq (clang,$(CLANG))
-		REDIS_CFLAGS+=-flto
+		OPTIMIZATION+=-flto
 	else
-		REDIS_CFLAGS+=-flto=auto
+		OPTIMIZATION+=-flto=auto
 	endif
-	REDIS_LDFLAGS+=-O3 -flto
 endif
 ifneq ($(OPTIMIZATION),-O0)
-	REDIS_CFLAGS+=-fno-omit-frame-pointer
+	OPTIMIZATION+=-fno-omit-frame-pointer
 endif
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
 NODEPS:=clean distclean
@@ -120,7 +119,7 @@ endif
 -include .make-settings
 
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
-FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
+FINAL_LDFLAGS=$(LDFLAGS) $(OPT) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
