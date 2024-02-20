@@ -283,7 +283,8 @@
                                             "properties": {
                                                 "active-time": {
                                                     "type": "integer",
-                                                    "description": "Last time this consumer was active (successful reading/claiming)."
+                                                    "description": "Last time this consumer was active (successful reading/claiming).",
+                                                    "minimum": 0
                                                 },
                                                 "name": {
                                                     "description": "consumer name",
@@ -291,7 +292,8 @@
                                                 },
                                                 "seen-time": {
                                                     "description": "timestamp of the last interaction attempt of the consumer",
-                                                    "type": "integer"
+                                                    "type": "integer",
+                                                    "minimum": 0
                                                 },
                                                 "pel-count": {
                                                     "description": "number of unacknowledged entries that belong to the consumer",
