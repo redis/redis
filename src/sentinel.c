@@ -4380,14 +4380,16 @@ void sentinelSimFailureCrash(void) {
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch) {
     //todo del
     mstime_t start_time = mstime(); // 获取开始时间
+    mstime_t beforeFlush;
+    mstime_t afterFlush;
     if (master->leader_epoch < req_epoch)
     {
         sdsfree(master->leader);
         master->leader = sdsnew(req_runid);
         master->leader_epoch = req_epoch;
-        mstime_t beforeFlush = mstime(); // 获取开始flush时间
+        beforeFlush = mstime(); // 获取开始flush时间
         sentinelFlushConfig();
-        mstime_t afterFlush = mstime(); // 获取结束flush时间
+        afterFlush = mstime(); // 获取结束flush时间
         sentinelEvent(LL_WARNING,"+vote-for-leader",master,"%s %llu",
             master->leader, (unsigned long long) master->leader_epoch);
         /* If we did not voted for ourselves, set the master failover start
