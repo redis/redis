@@ -30,7 +30,7 @@ set ::redis_cluster::plain_commands {
     zincrby zrem zremrangebyscore zremrangebyrank zremrangebylex zrange
     zrangebyscore zrevrangebyscore zrangebylex zrevrangebylex zcount
     zlexcount zrevrange zcard zscore zmscore zrank zrevrank zscan hset hsetnx
-    hget hmset hmget hincrby hincrbyfloat hdel hlen hkeys hvals
+    hsetxx hget hmset hmget hincrby hincrbyfloat hdel hlen hkeys hvals
     hgetall hexists hscan incrby decrby incrbyfloat getset move
     expire expireat pexpire pexpireat type ttl pttl persist restore
     dump bitcount bitpos pfadd pfcount cluster ssubscribe spublish

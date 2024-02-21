@@ -3634,6 +3634,32 @@ struct COMMAND_ARG HSETNX_Args[] = {
 {MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** HSETXX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HSETXX history */
+#define HSETXX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HSETXX tips */
+#define HSETXX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HSETXX key specs */
+keySpec HSETXX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HSETXX argument table */
+struct COMMAND_ARG HSETXX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** HSTRLEN ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10722,6 +10748,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hscan","Iterates over fields and values of a hash.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSCAN_History,0,HSCAN_Tips,1,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,HSCAN_Keyspecs,1,NULL,5),.args=HSCAN_Args},
 {MAKE_CMD("hset","Creates or modifies the value of a field in a hash.","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSET_History,1,HSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSET_Keyspecs,1,NULL,2),.args=HSET_Args},
 {MAKE_CMD("hsetnx","Sets the value of a field in a hash only when the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSETNX_History,0,HSETNX_Tips,0,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSETNX_Keyspecs,1,NULL,3),.args=HSETNX_Args},
+{MAKE_CMD("hsetxx","Sets the value of a field in a hash only when the field exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSETXX_History,0,HSETXX_Tips,0,hsetxxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSETXX_Keyspecs,1,NULL,3),.args=HSETXX_Args},
 {MAKE_CMD("hstrlen","Returns the length of the value of a field.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSTRLEN_History,0,HSTRLEN_Tips,0,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HSTRLEN_Keyspecs,1,NULL,2),.args=HSTRLEN_Args},
 {MAKE_CMD("hvals","Returns all values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HVALS_History,0,HVALS_Tips,1,hvalsCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HVALS_Keyspecs,1,NULL,1),.args=HVALS_Args},
 /* hyperloglog */
