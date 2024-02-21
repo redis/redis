@@ -3597,10 +3597,8 @@ int connectWithMaster(void) {
  * Never call this function directly, use cancelReplicationHandshake() instead.
  */
 void undoConnectWithMaster(void) {
-    if (server.repl_transfer_s) {
-        connClose(server.repl_transfer_s);
-        server.repl_transfer_s = NULL;
-    }
+    connClose(server.repl_transfer_s);
+    server.repl_transfer_s = NULL;
 }
 
 /* Abort the async download of the bulk dataset while SYNC-ing with master.
