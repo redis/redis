@@ -1394,7 +1394,7 @@ void replconfCommand(client *c) {
                 c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr, "main-conn") && server.rdb_channel_enabled) {
-            /* REPLCONF main-conn is used to identify the replica main connection durig 
+            /* REPLCONF main-conn is used to identify the replica main connection during 
              * rdb-connection sync. It also means that if psync is impossible, master 
              * should not auto trigger full sync.
              * If rdb-channel is disable on this master, treat this command as unrecognized 
@@ -3072,7 +3072,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
 
     if (!strncmp(reply,"+CONTINUE",9)) {
         if (server.repl_rdb_conn_state != REPL_RDB_CONN_STATE_NONE) {
-            /* During rdb-sync sesseion, master struct is already initilized. */
+            /* During rdb-sync sesseion, master struct is already initialized. */
             return PSYNC_CONTINUE;
         }
         /* Partial resync was accepted. */
