@@ -456,6 +456,8 @@ typedef enum {
     REPL_STATE_CONNECTED,       /* Connected to master */
 } repl_state;
 
+/* Slave rdb-channel replication state. Used in server.repl_rdb_conn_state for 
+ * slaves to remember what to do next. */
 typedef enum {
     REPL_RDB_CONN_STATE_NONE = 0,            /* No active replication */
     REPL_RDB_CONN_SEND_CAPA,    /* Send replica cob-channel capabilities */
@@ -2857,7 +2859,6 @@ void clearFailoverState(void);
 void updateFailoverStatus(void);
 void abortFailover(const char *err);
 const char *getFailoverStateString(void);
-int isReplicaRdbChannel(client *c);
 void abortRdbConnectionSync(void);
 int sendCurrentOffsetToReplica(client* replica);
 void peerPendingSlaveToBacklogBlock(client* slave);
