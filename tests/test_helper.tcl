@@ -94,6 +94,7 @@ set ::all_tests {
     unit/client-eviction
     unit/violations
     unit/replybufsize
+    unit/cluster/announced-endpoints
     unit/cluster/misc
     unit/cluster/cli
     unit/cluster/scripting
@@ -103,6 +104,7 @@ set ::all_tests {
     unit/cluster/slot-ownership
     unit/cluster/links
     unit/cluster/cluster-response-tls
+    unit/cluster/failure-marking
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -282,7 +284,7 @@ proc redis_client {args} {
         set args [lrange $args 1 end]
     }
 
-    # create client that defers reading reply
+    # create client that won't defers reading reply
     set client [redis [srv $level "host"] [srv $level "port"] 0 $::tls]
 
     # select the right db and read the response (OK), or at least ping

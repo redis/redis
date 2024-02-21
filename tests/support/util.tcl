@@ -925,6 +925,14 @@ proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
     }
 }
 
+proc wait_for_watched_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
+    wait_for_condition $maxtries $delay  {
+        [s $idx watching_clients] == $count
+    } else {
+        fail "Timeout waiting for watched clients"
+    }
+}
+
 proc read_from_aof {fp} {
     # Input fp is a blocking binary file descriptor of an opened AOF file.
     if {[gets $fp count] == -1} return ""
@@ -1123,3 +1131,22 @@ proc format_command {args} {
     set _ $cmd
 }
 
+# Returns whether or not the system supports stack traces
+proc system_backtrace_supported {} {
+    set system_name [string tolower [exec uname -s]]
+    if {$system_name eq {darwin}} {
+        return 1
+    } elseif {$system_name ne {linux}} {
+        return 0
+    }
+
+    # libmusl does not support backtrace. Also return 0 on
+    # static binaries (ldd exit code 1) where we can't detect libmusl
+    catch {
+        set ldd [exec ldd src/redis-server]
+        if {![string match {*libc.*musl*} $ldd]} {
+            return 1
+        }
+    }
+    return 0
+}

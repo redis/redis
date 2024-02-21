@@ -369,5 +369,99 @@ start_server {tags {"info" "external:skip"}} {
             assert_equal [getInfoProperty $info client_output_buffer_limit_disconnections] {1}
             r config set client-output-buffer-limit $org_outbuf_limit
         } {OK} {logreqres:skip} ;# same as obuf-limits.tcl, skip logreqres
+
+        test {clients: pubsub clients} {
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {0}
+            set rd1 [redis_deferring_client]
+            set rd2 [redis_deferring_client]
+            # basic count
+            assert_equal {1} [ssubscribe $rd1 {chan1}]
+            assert_equal {1} [subscribe $rd2 {chan2}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {2}
+            # unsubscribe non existing channel
+            assert_equal {1} [unsubscribe $rd2 {non-exist-chan}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {2}
+            # count change when client unsubscribe all channels
+            assert_equal {0} [unsubscribe $rd2 {chan2}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {1}
+            # non-pubsub clients should not be involved
+            assert_equal {0} [unsubscribe $rd2 {non-exist-chan}]
+            set info [r info clients]
+            assert_equal [getInfoProperty $info pubsub_clients] {1}
+            # close all clients
+            $rd1 close
+            $rd2 close
+            wait_for_condition 100 50 {
+                [getInfoProperty [r info clients] pubsub_clients] eq {0}
+            } else {
+                fail "pubsub clients did not clear"
+            }
+        }
+
+        test {clients: watching clients} {
+            set r2 [redis_client]
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+            # count after watch key
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # the same client watch the same key has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # different client watch different key
+            r watch key2
+            assert_equal [s watching_clients] 2
+            assert_equal [s total_watched_keys] 2
+            assert_match {*watch=1*} [$r2 client info]
+            assert_match {*watch=1*} [r client info]
+            # count after unwatch
+            r unwatch
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            $r2 unwatch
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+
+            # count after watch/multi/exec
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 exec
+            assert_equal [s watching_clients] 0
+            # count after watch/multi/discard
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 discard
+            assert_equal [s watching_clients] 0
+            # discard without multi has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            catch {$r2 discard} e
+            assert_equal [s watching_clients] 1
+            # unwatch without watch has no effect
+            r unwatch
+            assert_equal [s watching_clients] 1
+            # after disconnect, since close may arrive later, or the client may
+            # be freed asynchronously, we use a wait_for_condition
+            $r2 close
+            wait_for_watched_clients_count 0
+        }
     }
 }

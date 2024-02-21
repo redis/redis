@@ -356,4 +356,52 @@ foreach command {SORT SORT_RO} {
             }
         }
     }
+
+    test {SORT STORE quicklist with the right options} {
+        set origin_config [config_get_set list-max-listpack-size -1]
+        r del lst{t} lst_dst{t}
+        r config set list-max-listpack-size -1
+        r config set list-compress-depth 12
+        r lpush lst{t} {*}[split [string repeat "1" 6000] ""]
+        r sort lst{t} store lst_dst{t}
+        assert_encoding quicklist lst_dst{t}
+        assert_match "*ql_listpack_max:-1 ql_compressed:1*" [r debug object lst_dst{t}]
+        config_set list-max-listpack-size $origin_config
+    } {} {needs:debug}
+}
+
+start_cluster 1 0 {tags {"external:skip cluster sort"}} {
+
+    r flushall
+    r lpush "{a}mylist" 1 2 3
+    r set "{a}by1" 20
+    r set "{a}by2" 30
+    r set "{a}by3" 0
+    r set "{a}get1" 200
+    r set "{a}get2" 100
+    r set "{a}get3" 30
+
+    test "sort by in cluster mode" {
+        catch {r sort "{a}mylist" by by*} e
+        assert_match {ERR BY option of SORT denied in Cluster mode when *} $e
+        r sort "{a}mylist" by "{a}by*"
+    } {3 1 2}
+
+    test "sort get in cluster mode" {
+        catch {r sort "{a}mylist" by "{a}by*" get get*} e
+        assert_match {ERR GET option of SORT denied in Cluster mode when *} $e
+        r sort "{a}mylist" by "{a}by*" get "{a}get*"
+    } {30 200 100}
+
+    test "sort_ro by in cluster mode" {
+        catch {r sort_ro "{a}mylist" by by*} e
+        assert_match {ERR BY option of SORT denied in Cluster mode when *} $e
+        r sort_ro "{a}mylist" by "{a}by*"
+    } {3 1 2}
+
+    test "sort_ro get in cluster mode" {
+        catch {r sort_ro "{a}mylist" by "{a}by*" get get*} e
+        assert_match {ERR GET option of SORT denied in Cluster mode when *} $e
+        r sort_ro "{a}mylist" by "{a}by*" get "{a}get*"
+    } {30 200 100}
 }

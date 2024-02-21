@@ -98,7 +98,9 @@ char *rdb_type_string[] = {
     "hash-listpack",
     "zset-listpack",
     "quicklist-v2",
+    "stream-v2",
     "set-listpack",
+    "stream-v3",
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -394,20 +396,6 @@ err:
     return 1;
 }
 
-static sds checkRdbVersion(void) {
-    sds version;
-    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
-
-    /* Add git commit and working tree status when available */
-    if (strtoll(redisGitSHA1(),NULL,16)) {
-        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtoll(redisGitDirty(),NULL,10))
-            version = sdscatprintf(version, "-dirty");
-        version = sdscat(version, ")");
-    }
-    return version;
-}
-
 /* RDB check main: called form server.c when Redis is executed with the
  * redis-check-rdb alias, on during RDB loading errors.
  *
@@ -427,7 +415,7 @@ int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
         fprintf(stderr, "Usage: %s <rdb-file-name>\n", argv[0]);
         exit(1);
     } else if (!strcmp(argv[1],"-v") || !strcmp(argv[1], "--version")) {
-        sds version = checkRdbVersion();
+        sds version = getVersion();
         printf("redis-check-rdb %s\n", version);
         sdsfree(version);
         exit(0);
