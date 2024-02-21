@@ -1265,6 +1265,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
         mh->db_overhead_hashtable_lut += kvstoreOverheadHashtableLut(db->keys);
         mh->db_overhead_hashtable_lut += kvstoreOverheadHashtableLut(db->expires);
+        mh->db_overhead_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->keys);
+        mh->db_overhead_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->expires);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->keys);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->expires);
     }
@@ -1560,7 +1562,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,29+mh->num_dbs);
+        addReplyMapLen(c,31+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1607,6 +1609,9 @@ NULL
 
         addReplyBulkCString(c,"overhead.hashtable.lut");
         addReplyLongLong(c, mh->db_overhead_hashtable_lut);
+
+        addReplyBulkCString(c,"overhead.hashtable.rehashing");
+        addReplyLongLong(c, mh->db_overhead_hashtable_rehashing);
 
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);
