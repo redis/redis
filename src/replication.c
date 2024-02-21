@@ -503,19 +503,19 @@ void feedReplicationBuffer(char *s, size_t len) {
              * into replication backlog. */
             serverAssert(add_new_block == 1 && start_pos == 0);
         }
-        if (add_new_block) {
-            createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
-        }
         if (empty_backlog && dictSize(server.pending_slaves) > 0) {
             /* Increase refcount for pending replicas. */
             peerPendingSlavesToBacklogBlockRetrospect();
         }
-        /* Try to trim replication backlog since replication backlog may exceed
-         * our setting when we add replication stream. Note that it is important to
-         * try to trim at least one node since in the common case this is where one
-         * new backlog node is added and one should be removed. See also comments
-         * in freeMemoryGetNotCountedMemory for details. */
-        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
+        if (add_new_block) {
+            createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
+            
+            /* It is important to trim after adding replication data to keep the backlog size close to
+             * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
+             * unnecessary trimming attempts when small amounts of data are added. See comments in
+             * freeMemoryGetNotCountedMemory() for details on replication backlog memory tracking. */
+            incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
+        }
     }
 }
 
@@ -1401,12 +1401,12 @@ void replconfCommand(client *c) {
              * should not auto trigger full sync.
              * If rdb-channel is disable on this master, treat this command as unrecognized 
              * replconf option. */
-            long no_fullsync = 0;
+            long main_conn = 0;
             if (getRangeLongFromObjectOrReply(c, c->argv[j +1],
-                    0, 1, &no_fullsync, NULL) != C_OK) {
+                    0, 1, &main_conn, NULL) != C_OK) {
                 return;
             } 
-            if (no_fullsync == 1) {
+            if (main_conn == 1) {
                 if (!server.repl_diskless_sync) {
                     /* When the primary uses disk for full sync, replicas can usually join during the time the 
                      * primary saves the database to disk. RDB-channel-sync, however, does not allow replicas 
@@ -3004,7 +3004,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         server.master_initial_offset = -1;
 
         
-        if (server.repl_rdb_conn_state != REPL_RDB_CONN_STATE_NONE) { // rdb-channel sync is in progress
+        if (server.repl_rdb_conn_state != REPL_RDB_CONN_STATE_NONE) {
             /* While in rdb-channel-sync, we should use our prepared repl id and offset. */
             psync_replid = server.repl_provisional_master.replid;
             snprintf(psync_offset, sizeof(psync_offset), "%lld", server.repl_provisional_master.reploff+1);
