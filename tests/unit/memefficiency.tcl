@@ -298,13 +298,13 @@ run_solo {defrag} {
                 $rd read ; # Discard replies
             }
 
+            # This is to cover the pubsub(shard) defragmentation code.
             set rd1 [redis_deferring_client]
-            if {$type eq "standalone"} {
-                $rd1 subscribe chan
-            } else {
-                $rd1 ssubscribe chan
-            }
+            $rd1 subscribe chan
             $rd1 read
+            set rd2 [redis_deferring_client]
+            $rd2 ssubscribe chan
+            $rd2 read
 
             # create some small items (effective in cluster-enabled)
             r set "{bighash}smallitem" val
@@ -406,16 +406,15 @@ run_solo {defrag} {
                     assert {$max_latency <= 30}
                 }
 
-                if {$type eq "standalone"} {
-                    r publish chan "hello"
-                    assert_equal {message chan hello} [$rd1 read]
-                    $rd1 unsubscribe chan
-                } else {
-                    r spublish chan "hello"
-                    assert_equal {smessage chan hello} [$rd1 read]
-                    $rd1 sunsubscribe chan
-                }
+                # Ensure that pubsub(shrad) defragmentation didn't break that data structure.
+                r publish chan "hello"
+                assert_equal {message chan hello} [$rd1 read]
+                $rd1 unsubscribe chan
                 $rd1 close
+                r spublish chan "hello"
+                assert_equal {smessage chan hello} [$rd2 read]
+                $rd2 sunsubscribe chan
+                $rd2 close
             }
             # verify the data isn't corrupted or changed
             set newdigest [debug_digest]
