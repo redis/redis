@@ -30,6 +30,7 @@
 
 #include "fmacros.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -54,8 +55,6 @@
 #endif
 #include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 #include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
-#include <stdbool.h>
-#include <stdarg.h>
 #include "dict.h"
 #include "adlist.h"
 #include "zmalloc.h"
@@ -409,13 +408,13 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
-bool isPositiveInteger(char* string) {
+int isPositiveInteger(char* string) {
     for (size_t i=0; i<strlen(string); i++) {
-        if (isdigit(string[i]) == 0){
-            return false;
+        if (isdigit(string[i]) == 0) {
+            return 0;
         }
     }
-    return true;
+    return 1;
 }
 
 /* Erase the lines before printing, and returns the number of lines printed */
@@ -2820,14 +2819,14 @@ static int parseOptions(int argc, char **argv) {
             config.keystats = 1;
             config.memkeys_samples = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cursor") && !lastarg) {
-            if (isPositiveInteger(argv[i+1])){
+            if (isPositiveInteger(argv[i+1])) {
                 config.cursor = strtoull(argv[++i],NULL,10);
             } else {
                 fprintf(stderr, "--cursor should be followed by a positive integer.\n");
                 exit(1);
             }
         } else if (!strcmp(argv[i],"--top") && !lastarg) {
-            if (isPositiveInteger(argv[i+1])){
+            if (isPositiveInteger(argv[i+1])) {
                 config.top_sizes_limit = strtoul(argv[++i],NULL,10);
             } else {
                 fprintf(stderr, "--top should be followed by a positive integer.\n");
@@ -3169,11 +3168,11 @@ version,tls_usage);
 "  --memkeys-samples <n> Sample Redis keys looking for keys consuming a lot of memory.\n"
 "                     And define number of key elements to sample\n"
 "  --keystats         Sample Redis keys looking for keys memory size and length (combine bigkeys and memkeys).\n"
-"  --keystats-samples <n> Sample Redis keys keys looking for keys memory size and length.\n"
-"                     And define number of key elements to sample (only for memory usage)\n"
+"  --keystats-samples <n> Sample Redis keys looking for keys memory size and length.\n"
+"                     And define number of key elements to sample (only for memory usage).\n"
 "  --cursor <n>       Start the scan at the cursor <n> (usually after a Ctrl-C).\n"
 "                     Optionally used with --keystats and --keystats-samples.\n"
-"  --top <n>          To display <n> top key sizes.\n"
+"  --top <n>          To display <n> top key sizes (default: 10).\n"
 "                     Optionally used with --keystats and --keystats-samples.\n"
 "  --hotkeys          Sample Redis keys looking for hot keys.\n"
 "                     only works when maxmemory-policy is *lfu.\n"
@@ -9279,7 +9278,7 @@ static void findBigKeys(int memkeys, int memkeys_samples) {
                 }
 
                 printf(
-                   "[%05.2f%%] Biggest %-6s found so far '%s' with %llu %s\n",
+                   "[%05.2f%%] Biggest %-6s found so far %s with %llu %s\n",
                    pct, type->name, type->biggest_key, sizes[i],
                    !memkeys? type->sizeunit: "bytes");
 
@@ -9316,7 +9315,7 @@ static void findBigKeys(int memkeys, int memkeys_samples) {
     while ((de = dictNext(di))) {
         typeinfo *type = dictGetVal(de);
         if(type->biggest_key) {
-            printf("Biggest %6s found '%s' has %llu %s\n", type->name, type->biggest_key,
+            printf("Biggest %6s found %s has %llu %s\n", type->name, type->biggest_key,
                type->biggest, !memkeys? type->sizeunit: "bytes");
         }
     }
@@ -10250,7 +10249,7 @@ static int updateTopSizes(char* key_name, size_t key_name_len, unsigned long lon
 
     if (node) {
         /* insert before the node */
-        if (listInsertNode(topkeys, node, new_node, false) == NULL) {
+        if (listInsertNode(topkeys, node, new_node, 0) == NULL) {
             return -1;
         }
     } else {
@@ -10276,7 +10275,7 @@ static void displayKeyStats(unsigned long long sampled,
                             dict *bigkeys_types_dict,
                             list *top_key_sizes,
                             unsigned long top_sizes_limit,
-                            bool move_cursor_up) {
+                            int move_cursor_up) {
     int line_count = 0;
 
     line_count += displayKeyStatsProgressbar(sampled, total_keys, total_size);
@@ -10314,7 +10313,7 @@ static void updateKeyType(redisReply *element, unsigned long long size, typeinfo
     }
 }
 
-static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_limit) {
+static void keyStats(int memkeys_samples, unsigned long long cursor, unsigned long top_sizes_limit) {
     unsigned long long sampled = 0, total_keys, total_size = 0, it = 0, scan_loops = 0;
     unsigned long long *memkeys_sizes = NULL, *bigkeys_sizes = NULL;
     redisReply *reply, *keys;
@@ -10340,8 +10339,8 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
     typeinfo_add(memkeys_types_dict, "zset", &type_zset);
     typeinfo_add(memkeys_types_dict, "stream", &type_stream);
 
-    /* We could use only one typeinfo dictionary if we add new fields to save       *
-    *  both memkey and bigkey info. Not sure it would make sense in findBigKeys()   */
+    /* We could use only one typeinfo dictionary if we add new fields to save
+     * both memkey and bigkey info. Not sure it would make sense in findBigKeys(). */
     dict *bigkeys_types_dict = dictCreate(&typeinfoDictType);
     typeinfo_add(bigkeys_types_dict, "string", &type_string);
     typeinfo_add(bigkeys_types_dict, "list", &type_list);
@@ -10364,8 +10363,8 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
     sizeDistInit(&key_length_dist, distribution);
 
     struct hdr_histogram* keysize_histogram;
-    /* Record max of 1TB for a key size should cover all keys  */
-    /* significant_figures == 4 (0.01% precision on key size)  */
+    /* Record max of 1TB for a key size should cover all keys.
+     * significant_figures == 4 (0.01% precision on key size)  */
     if (hdr_init(1, INT64_C(1ULL*1024*1024*1024*1024), 4, &keysize_histogram)) {
 	    fprintf(stderr, "Keystats hdr init error\n");
 	    exit(1);
@@ -10411,11 +10410,11 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
 
         /* Retrieve types and sizes for memkeys */
         getKeyTypes(memkeys_types_dict, keys, memkeys_types);
-        getKeySizes(keys, memkeys_types, memkeys_sizes, true, memkeys_samples);
+        getKeySizes(keys, memkeys_types, memkeys_sizes, 1, memkeys_samples);
 
         /* Retrieve types and sizes for bigkeys */
         getKeyTypes(bigkeys_types_dict, keys, bigkeys_types);
-        getKeySizes(keys, bigkeys_types, bigkeys_sizes, false, memkeys_samples);
+        getKeySizes(keys, bigkeys_types, bigkeys_sizes, 0, memkeys_samples);
 
         for(i=0;i<keys->elements;i++) {
             /* Skip keys that disappeared between SCAN and TYPE */
@@ -10435,7 +10434,7 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
             updateKeyType(keys->element[i], bigkeys_sizes[i], bigkeys_types[i]);
 
             /* Key Size distribution */
-            if (hdr_record_value(keysize_histogram, memkeys_sizes[i]) == false) {
+            if (hdr_record_value(keysize_histogram, memkeys_sizes[i]) == 0) {
                 fprintf(stderr, "Value %llu not added in the hdr histogram.\n", memkeys_sizes[i]);
             }
 
@@ -10446,7 +10445,7 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
         /* refresh keystats info on regular basis */
         if (scan_loops % 10 == 0 && config.output == OUTPUT_STANDARD) {
              displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict,
-                             top_sizes, top_sizes_limit, true);
+                             top_sizes, top_sizes_limit, 1);
         }
 
         /* Sleep if we've been directed to do so */
@@ -10458,10 +10457,10 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
     } while(force_cancel_loop == 0 && it != 0);
 
     displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
-                    top_sizes_limit, false);
+                    top_sizes_limit, 0);
 
-    /* Additional data at the end of the SCAN loop */
-    /* Using cleantPrintln in case we want to print during the SCAN loop */
+    /* Additional data at the end of the SCAN loop.
+     * Using cleanPrintfln in case we want to print during the SCAN loop. */
     cleanPrintfln("");
     displayKeyStatsSizeDist(keysize_histogram);
     cleanPrintfln("");
@@ -10469,7 +10468,7 @@ static void keyStats(int memkeys_samples, int cursor, unsigned long top_sizes_li
     cleanPrintfln("");
     displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
 
-    if (it != 0) { // or we could use force_cancel_loop == 1 or both?
+    if (it != 0) { /* or we could use force_cancel_loop == 1 or both? */
         printf("\n");
         printf("Scan interrupted:\n");
         printf("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.\n", it);
