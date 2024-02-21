@@ -1166,7 +1166,11 @@ void syncCommand(client *c) {
  * - rdb-filter-only <include-filters>
  * Define "include" filters for the RDB snapshot. Currently we only support
  * a single include filter: "functions". Passing an empty string "" will
- * result in an empty RDB. */
+ * result in an empty RDB. 
+ * 
+ * - pseudo-replica <0|1>
+ * Set this replica into 'pseudo-replica' mode to avoid eviction and expiration. 
+ * This command is used by sync tool. */
 void replconfCommand(client *c) {
     int j;
 
@@ -1275,6 +1279,26 @@ void replconfCommand(client *c) {
                 }
             }
             sdsfreesplitres(filters, filter_count);
+        } else if (!strcasecmp(c->argv[j]->ptr,"pseudo-replica")) {
+           /* REPLCONF PSEUDO-REPLICA is used to set this replica 
+            * into 'pseudo-replica' mode to avoid eviction and expiration.
+            * This is used for sync tools which eviction and expiration may 
+            * cause the data corruption. */
+            long pseudo_replica = 0;
+            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
+                    0,1,&pseudo_replica,NULL) != C_OK)
+                return;
+            if (!iAmMaster()) {
+                addReplyError(c, "Only master can be set pseudo-replica");
+            }
+            if (pseudo_replica == 1) {
+                c->flags |= CLIENT_PSEUDO_MASTER;
+                server.pseudo_replica_enabled = 1;
+            }
+            else {
+                c->flags &= ~CLIENT_PSEUDO_MASTER;
+                server.pseudo_replica_enabled = 0;
+            }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);

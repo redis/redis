@@ -355,7 +355,7 @@ robj *dbRandomKey(redisDb *db) {
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dbFindExpires(db, key)) {
-            if (allvolatile && server.masterhost && --maxtries == 0) {
+            if (allvolatile && (server.masterhost || server.pseudo_replica_enabled) && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
@@ -1832,6 +1832,11 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (server.masterhost != NULL) {
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return 0;
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
+    } else if (server.pseudo_replica_enabled) {
+        /* If we are in 'pseudo_replica' mode, we stop expiration.
+         * If the client is a pseudo matser, keys are never considered expired. */
+        if (server.current_client && (server.current_client->flags & CLIENT_PSEUDO_MASTER)) return 0;
+        return 1;
     }
 
     /* In some cases we're explicitly instructed to return an indication of a
