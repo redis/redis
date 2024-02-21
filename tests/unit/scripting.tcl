@@ -652,6 +652,16 @@ start_server {tags {"scripting"}} {
         } 0]
     }
 
+    test "Verify execution of prohibit dangerous Lua methods will fail" {
+        assert_error {ERR *attempt to call field 'execute'*} {run_script {os.execute()} 0}
+        assert_error {ERR *attempt to call field 'exit'*} {run_script {os.exit()} 0}
+        assert_error {ERR *attempt to call field 'getenv'*} {run_script {os.getenv()} 0}
+        assert_error {ERR *attempt to call field 'remove'*} {run_script {os.remove()} 0}
+        assert_error {ERR *attempt to call field 'rename'*} {run_script {os.rename()} 0}
+        assert_error {ERR *attempt to call field 'setlocale'*} {run_script {os.setlocale()} 0}
+        assert_error {ERR *attempt to call field 'tmpname'*} {run_script {os.tmpname()} 0}
+    }
+
     test {Globals protection reading an undeclared global variable} {
         catch {run_script {return a} 0} e
         set e
