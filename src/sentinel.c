@@ -2306,6 +2306,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
  *
  * On failure the function logs a warning on the Redis log. */
 void sentinelFlushConfig(void) {
+    mstime_t beforeFlush = mstime(); // 获取开始flush时间
     int fd = -1;
     int saved_hz = server.hz;
     int rewrite_status;
@@ -2318,6 +2319,8 @@ void sentinelFlushConfig(void) {
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
     if (fsync(fd) == -1) goto werr;
     if (close(fd) == EOF) goto werr;
+    mstime_t afterFlush = mstime(); // 获取结束flush时间
+    serverLog(LL_WARNING, "flush: %lld, endflush: %lld", (long long)beforeFlush, (long long)afterFlush);
     return;
 
 werr:
@@ -4385,10 +4388,7 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
         sdsfree(master->leader);
         master->leader = sdsnew(req_runid);
         master->leader_epoch = req_epoch;
-        mstime_t beforeFlush = mstime(); // 获取开始flush时间
         sentinelFlushConfig();
-        mstime_t afterFlush = mstime(); // 获取结束flush时间
-        serverLog(LL_WARNING, "flush: %lld, endflush: %lld", (long long)beforeFlush, (long long)afterFlush);
         sentinelEvent(LL_WARNING,"+vote-for-leader",master,"%s %llu",
             master->leader, (unsigned long long) master->leader_epoch);
         /* If we did not voted for ourselves, set the master failover start
