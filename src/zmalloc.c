@@ -626,9 +626,54 @@ size_t zmalloc_get_rss(void) {
 
 #if defined(USE_JEMALLOC)
 
-int zmalloc_get_allocator_info(size_t *allocated,
-                               size_t *active,
-                               size_t *resident) {
+#include <assert.h>
+
+#define STRINGIFY_(x) #x
+#define STRINGIFY(x) STRINGIFY_(x)
+
+/* Compute the total memory wasted in fragmentation of inside small arena bins.
+ * Done by summing the memory in unused regs in all slabs of all small bins. */
+size_t zmalloc_get_frag_smallbins(void) {
+    unsigned nbins;
+    size_t sz, frag = 0;
+    char buf[100];
+
+    sz = sizeof(unsigned);
+    assert(!je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0));
+    for (unsigned j = 0; j < nbins; j++) {
+        size_t curregs, curslabs, reg_size;
+        uint32_t nregs;
+
+        /* The size of the current bin */
+        snprintf(buf, sizeof(buf), "arenas.bin.%d.size", j);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &reg_size, &sz, NULL, 0));
+
+        /* Number of used regions in the bin */
+        snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curregs", j);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &curregs, &sz, NULL, 0));
+
+        /* Number of regions per slab */
+        snprintf(buf, sizeof(buf), "arenas.bin.%d.nregs", j);
+        sz = sizeof(uint32_t);
+        assert(!je_mallctl(buf, &nregs, &sz, NULL, 0));
+
+        /* Number of current slabs in the bin */
+        snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curslabs", j);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
+
+        /* Calculate the fragmentation bytes for the current bin and add it to the total. */
+        frag += ((nregs * curslabs) - curregs) * reg_size;
+    }
+
+    return frag;
+}
+
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
+{
     uint64_t epoch = 1;
     size_t sz;
     *allocated = *resident = *active = 0;
@@ -645,6 +690,26 @@ int zmalloc_get_allocator_info(size_t *allocated,
     /* Unlike zmalloc_used_memory, this matches the stats.resident by taking
      * into account all allocations done by this process (not only zmalloc). */
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
+
+    /* Retained memory is memory released by `madvised(..., MADV_DONTNEED)`, which is not part
+     * of RSS or mapped memory, and doesn't have a strong association with physical memory in the OS.
+     * It is still part of the VM-Size, and may be used again in later allocations. */
+    if (retained) {
+        *retained = 0;
+        je_mallctl("stats.retained", retained, &sz, NULL, 0);
+    }
+
+    /* Unlike retained, Muzzy representats memory released with `madvised(..., MADV_FREE)`.
+     * These pages will show as RSS for the process, until the OS decides to re-use them. */
+    if (muzzy) {
+        size_t pmuzzy, page;
+        assert(!je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pmuzzy", &pmuzzy, &sz, NULL, 0));
+        assert(!je_mallctl("arenas.page", &page, &sz, NULL, 0));
+        *muzzy = pmuzzy * page;
+    }
+
+    /* Total size of consumed meomry in unused regs in small bins (AKA external fragmentation). */
+    *frag_smallbins_bytes = zmalloc_get_frag_smallbins();
     return 1;
 }
 
@@ -670,10 +735,12 @@ int jemalloc_purge(void) {
 
 #else
 
-int zmalloc_get_allocator_info(size_t *allocated,
-                               size_t *active,
-                               size_t *resident) {
-    *allocated = *resident = *active = 0;
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
+{
+    *allocated = *resident = *active = *frag_smallbins_bytes = 0;
+    if (retained) *retained = 0;
+    if (muzzy) *muzzy = 0;
     return 1;
 }
 
