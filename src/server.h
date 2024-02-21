@@ -1464,6 +1464,8 @@ struct malloc_stats {
     size_t allocator_allocated;
     size_t allocator_active;
     size_t allocator_resident;
+    size_t allocator_muzzy;
+    size_t allocator_frag_smallbins_bytes;
 };
 
 /*-----------------------------------------------------------------------------
