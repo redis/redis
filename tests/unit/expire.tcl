@@ -885,7 +885,9 @@ start_server {tags {"expire"}} {
         after 10
 
         set client [redis [srv "host"] [srv "port"] 0 $::tls]
-        $client select 9
+        if {!$::singledb} {
+            $client select 9
+        }
         assert_equal [$client ttl foo1] {-2}
 
         assert_equal [r randomkey] {foo1}
