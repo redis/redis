@@ -5613,12 +5613,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long memory_lua = evalMemory();
         long long memory_functions = functionsMemory();
         struct redisMemOverhead *mh = getMemoryOverheadData();
-        size_t overhead_hashtable_rehashing = 0;
-
-        for (int i = 0; i < server.dbnum; i++) {
-            overhead_hashtable_rehashing += kvstoreOverheadHashtableRehashing(server.db[i].keys);
-            overhead_hashtable_rehashing += kvstoreOverheadHashtableRehashing(server.db[i].expires);
-        }
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -5691,7 +5685,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
-            "mem_overhead_hashtable_rehashing:%zu\r\n", overhead_hashtable_rehashing,
+            "mem_overhead_hashtable_rehashing:%zu\r\n", mh->db_overhead_hashtable_rehashing,
             "active_defrag_running:%d\r\n", server.active_defrag_running,
             "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),
             "lazyfreed_objects:%zu\r\n", lazyfreeGetFreedObjectsCount()));
