@@ -832,6 +832,73 @@ start_server {tags {"expire"}} {
         close_replication_stream $repl
         assert_equal [r debug set-active-expire 1] {OK}
     } {} {needs:debug}
+
+    test {Pseudo-replica mode should forbid active expiration} {
+        r flushall
+
+        assert_equal [r replconf pseudo-replica 1] {OK}
+
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        after 100
+
+        assert_equal [r dbsize] {2}
+
+        assert_equal [r replconf pseudo-replica 0] {OK}
+
+        # Verify all keys have expired
+        wait_for_condition 40 100 {
+            [r dbsize] eq 0
+        } else {
+            fail "Keys did not actively expire."
+        }
+    }
+
+    test {Pseudo-replica mode should forbid lazy expiration} {
+        r flushall
+        r debug set-active-expire 0 
+
+        assert_equal [r replconf pseudo-replica 1] {OK}
+
+        r set foo1 bar PX 1
+        after 10
+
+        r get foo1
+
+        assert_equal [r dbsize] {1}
+
+        assert_equal [r replconf pseudo-replica 0] {OK}
+
+        r get foo1
+
+        assert_equal [r dbsize] {0}
+
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {RANDOMKEY can return expired key in Pseudo-replica mode} {
+        r flushall
+
+        assert_equal [r replconf pseudo-replica 1] {OK}
+
+        r set foo1 bar PX 1
+        after 10
+
+        set client [redis [srv "host"] [srv "port"] 0 $::tls]
+        $client select 9
+        assert_equal [$client ttl foo1] {-2}
+
+        assert_equal [r randomkey] {foo1}
+
+        assert_equal [r replconf pseudo-replica 0] {OK}
+
+        # Verify all keys have expired
+        wait_for_condition 40 100 {
+            [r dbsize] eq 0
+        } else {
+            fail "Keys did not actively expire."
+        }
+    }
 }
 
 start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
