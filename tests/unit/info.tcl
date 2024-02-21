@@ -486,7 +486,7 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
         assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {0}
         assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.rehashing] {0}
-        assert_equal [getMemoryStatsProperty $mem_stats db.dict.rehashing.count] {0}
+        assert_equal [getMemoryStatsProperty $mem_stats dict.rehashing.count] {0}
         # Initial dict expand is not rehashing
         r set a b
         set info_mem [r info memory]
@@ -494,7 +494,7 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
         assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {32}
         assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.rehashing] {0}
-        assert_equal [getMemoryStatsProperty $mem_stats db.dict.rehashing.count] {0}
+        assert_equal [getMemoryStatsProperty $mem_stats dict.rehashing.count] {0}
         # set 4 more keys to trigger rehashing
         # get the info within a transaction to make sure the rehashing is not completed
         r multi 
@@ -510,6 +510,6 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {32}
         assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {96}
         assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.rehashing] {32}
-        assert_equal [getMemoryStatsProperty $mem_stats db.dict.rehashing.count] {1}
+        assert_equal [getMemoryStatsProperty $mem_stats dict.rehashing.count] {1}
     }
 }
