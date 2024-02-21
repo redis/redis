@@ -56,7 +56,7 @@
                 "overhead.total": {
                     "type": "integer"
                 },
-                "db.dict.rehashing.count": {
+                "dict.rehashing.count": {
                     "type": "integer"
                 },
                 "keys.count": {
