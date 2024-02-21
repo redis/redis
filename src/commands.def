@@ -9551,7 +9551,7 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XINFO CONSUMERS history */
 commandHistory XINFO_CONSUMERS_History[] = {
-{"7.2.0","Added the `inactive` field."},
+{"7.2.0","Added the `inactive` field, and changed the meaning of `idle`."},
 };
 #endif
 
