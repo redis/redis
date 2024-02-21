@@ -47,7 +47,16 @@
                 "functions.caches": {
                     "type": "integer"
                 },
+                "overhead.hashtable.lut": {
+                    "type": "integer"
+                },
+                "overhead.hashtable.rehashing": {
+                    "type": "integer"
+                },
                 "overhead.total": {
+                    "type": "integer"
+                },
+                "db.dict.rehashing.count": {
                     "type": "integer"
                 },
                 "keys.count": {
