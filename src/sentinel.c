@@ -5151,12 +5151,12 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
 
-    TEST("init sentinel test") {
+    TEST("test elect abort") {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
-        ri.failover_start_time = mstime() - SENTINEL_ELECTION_TIMEOUT - 1;
-        ri.failover_timeout = SENTINEL_ELECTION_TIMEOUT + 1;
+        ri->failover_start_time = mstime() - SENTINEL_ELECTION_TIMEOUT - 1;
+        ri->failover_timeout = SENTINEL_ELECTION_TIMEOUT + 1;
         sentinelFailoverWaitStart(&ri);
-        assert(ri.flags == SRI_ELECT_ABORT);
+        assert((ri->flags&SRI_ELECT_ABORT) == 1);
     }
 }
 #endif
