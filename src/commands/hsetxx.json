@@ -1,6 +1,6 @@
 {
     "HSETXX": {
-        "summary": "Sets the value of a field in a hash only when the field exist.",
+        "summary": "Update the value of a field in a hash only when the key and field exists.",
         "complexity": "O(1)",
         "group": "hash",
         "since": "2.0.0",
@@ -18,7 +18,7 @@
             {
                 "flags": [
                     "RW",
-                    "INSERT"
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {
