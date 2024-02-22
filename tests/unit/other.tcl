@@ -499,8 +499,6 @@ start_server {tags {"other external:skip"}} {
         for {set j 1} {$j <= 128} {incr j} {
             r del $j{b}
         }
-        # Set a key to enable overhead display of db 0
-        r set a b
         # The dict containing 128 keys must have expanded,
         # its hash table itself takes a lot more than 400 bytes
         wait_for_condition 100 50 {
