@@ -5156,10 +5156,9 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     initSentinel();
 
     robj *channel;
-    channel = zcalloc(sizeof(*o));
+    channel = zcalloc(sizeof(*channel));
 
     list *clients = listCreate();
-    server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     dictAdd(server.pubsub_channels,channel,clients);
 
     TEST("test elect abort") {
