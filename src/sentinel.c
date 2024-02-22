@@ -41,6 +41,7 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include "redisassert.h"
 
 extern char **environ;
 
