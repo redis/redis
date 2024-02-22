@@ -41,7 +41,6 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <fcntl.h>
-#include "redisassert.h"
 
 extern char **environ;
 
@@ -5156,8 +5155,9 @@ int sentinelTest(int argc, char *argv[], int accurate) {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
         ri->failover_start_time = mstime() - SENTINEL_ELECTION_TIMEOUT - 1;
         ri->failover_timeout = SENTINEL_ELECTION_TIMEOUT + 1;
-        sentinelFailoverWaitStart(&ri);
-        assert((ri->flags&SRI_ELECT_ABORT) == 1);
+        sentinelFailoverWaitStart(ri);
+        serverAssert((ri->flags&SRI_ELECT_ABORT) == 1);
+        releaseSentinelRedisInstance(ri);
     }
 }
 #endif
