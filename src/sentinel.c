@@ -5139,7 +5139,21 @@ void sentinelTimer(void) {
 #ifdef REDIS_TEST
 #define TEST(name) printf("test — %s\n", name);
 
+#include "dick.h"
+dictType keylistDictType = {
+    dictObjHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictObjKeyCompare,          /* key compare */
+    dictObjectDestructor,       /* key destructor */
+    dictListDestructor,         /* val destructor */
+    NULL                        /* allow to expand */
+};
 
+uint64_t dictObjHash(const void *key);
+int dictObjKeyCompare(void *privdata, const void *key1, const void *key2);
+void dictObjectDestructor(void *privdata, void *val);
+void dictListDestructor(void *privdata, void *val);
 
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
@@ -5159,7 +5173,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
 
     sds channel = sdsnew("channel");
     list *clients = listCreate();
-    server.pubsub_channels = dictCreate(&dictTypeHeapStrings, NULL);
+    server.pubsub_channels = dictCreate(&keylistDictType, NULL);
     dictAdd(server.pubsub_channels,channel,clients);
 
     TEST("test elect abort") {
