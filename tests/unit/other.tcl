@@ -489,19 +489,6 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
     } {} {needs:debug}
 }
 
-proc get_overhead_hashtable_main {} {
-    set main 0
-    set stats [r memory stats]
-    set list_stats [split $stats " "]
-    for {set j 0} {$j < [llength $list_stats]} {incr j} {
-        if {[string equal -nocase "\{overhead.hashtable.main" [lindex $list_stats $j]]} {
-            set main [lindex $list_stats [expr $j+1]]
-            break
-        }
-    }
-    return $main
-}
-
 start_server {tags {"other external:skip"}} {
     test "Redis can resize empty dict" {
         # Write and then delete 128 keys, creating an empty dict
@@ -517,7 +504,7 @@ start_server {tags {"other external:skip"}} {
         # The dict containing 128 keys must have expanded,
         # its hash table itself takes a lot more than 400 bytes
         wait_for_condition 100 50 {
-            [get_overhead_hashtable_main] < 400
+            [dict get [r memory stats] db.9 overhead.hashtable.main] < 400
         } else {
             fail "dict did not resize in time"
         }   
