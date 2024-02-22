@@ -5152,7 +5152,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     UNUSED(accurate);
 
     initServerConfig();
-    initServer()
+    initServer();
     initSentinelConfig();
     initSentinel();
 
