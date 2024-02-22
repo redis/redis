@@ -5158,7 +5158,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     robj *channel;
     // channel = zcalloc(sizeof(*o));
 
-    clients = listCreate();
+    list *clients = listCreate();
     dictAdd(server.pubsub_channels,channel,clients);
 
     TEST("test elect abort") {
