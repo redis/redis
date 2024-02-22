@@ -1830,8 +1830,8 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      * replicas.
      *
      * Still we try to return the right information to the caller,
-     * that is, KEY_VALID if we think the key should be still valid, 
-     * KEY_EXPIRED if we think the key is expired but dont want to delete it at this time.
+     * that is, KEY_VALID if we think the key should still be valid, 
+     * KEY_EXPIRED if we think the key is expired but don't want to delete it at this time.
      *
      * When replicating commands from the master, keys are never considered
      * expired. */
