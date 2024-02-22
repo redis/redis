@@ -5142,7 +5142,7 @@ void sentinelTimer(void) {
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
 sentinelRedisInstance *initSentinelRedisInstance4Test() {
-    sentinelRedisInstance *ri = createSentinelRedisInstance("localhost", SRI_MASTER, "localhost", 20000, 3, NULL);
+    sentinelRedisInstance *ri = createSentinelRedisInstance("localhost", SRI_MASTER, "192.168.0.1", 20000, 3, NULL);
     return ri;
 }
 
