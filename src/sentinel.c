@@ -5151,6 +5151,8 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
 
+    initSentinel();
+
     TEST("test elect abort") {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
         printf("failover_start_time = %lld\n", ri->failover_start_time); // 输出变量值
