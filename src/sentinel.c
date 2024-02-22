@@ -5138,17 +5138,7 @@ void sentinelTimer(void) {
 
 #ifdef REDIS_TEST
 #define TEST(name) printf("test — %s\n", name);
-
 #include "dict.h"
-dictType keylistDictType = {
-    dictObjHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictObjKeyCompare,          /* key compare */
-    dictObjectDestructor,       /* key destructor */
-    dictListDestructor,         /* val destructor */
-    NULL                        /* allow to expand */
-};
 
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
