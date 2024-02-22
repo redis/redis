@@ -556,7 +556,7 @@ int performEvictions(void) {
         goto update_metrics;
     }
 
-    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION || server.pseudo_replica_enabled) {
+    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION || server.pseudo_replica) {
         result = EVICT_FAIL;  /* We need to free memory, but policy forbids or we are in 'pseudo-replica' mode. */
         goto update_metrics;
     }

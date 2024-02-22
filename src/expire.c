@@ -532,7 +532,7 @@ int checkAlreadyExpired(long long when) {
      *
      * Instead we add the already expired key to the database with expire time
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    return (when <= commandTimeSnapshot() && !server.loading && !server.masterhost && !server.pseudo_replica_enabled);
+    return (when <= commandTimeSnapshot() && !server.loading && !server.masterhost && !server.pseudo_replica);
 }
 
 #define EXPIRE_NX (1<<0)

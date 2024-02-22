@@ -597,7 +597,8 @@ start_server {tags {"maxmemory" "external:skip"}} {
 start_server {tags {"maxmemory" "external:skip"}} {
     test {Pseudo-replica mode should forbid eviction} {
         r set key val
-        assert_equal [r replconf pseudo-replica 1] {OK}  
+        r config set pseudo-replica yes
+        assert_equal [r replconf pseudo-master 1] {OK}  
         r config set maxmemory-policy allkeys-lru
         r config set maxmemory 1      
 
@@ -605,6 +606,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_equal [r dbsize] {1}
         assert_error {OOM command not allowed*} {r set key1 val1}
 
-        assert_equal [r replconf pseudo-replica 0] {OK}  
+        assert_equal [r replconf pseudo-master 0] {OK}  
+        r config set pseudo-replica no
     }
 }

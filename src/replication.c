@@ -1168,9 +1168,9 @@ void syncCommand(client *c) {
  * a single include filter: "functions". Passing an empty string "" will
  * result in an empty RDB. 
  * 
- * - pseudo-replica <0|1>
- * Set this replica into 'pseudo-replica' mode to avoid eviction and expiration. 
- * This command is used by sync tool. */
+ * - pseudo-master <0|1>
+ * Set this connection behaving like a master if server.pseudo_replica is true. 
+ * Sync tools can set their connections into 'pseudo-master' state to visit expired keys. */
 void replconfCommand(client *c) {
     int j;
 
@@ -1279,25 +1279,19 @@ void replconfCommand(client *c) {
                 }
             }
             sdsfreesplitres(filters, filter_count);
-        } else if (!strcasecmp(c->argv[j]->ptr,"pseudo-replica")) {
+        } else if (!strcasecmp(c->argv[j]->ptr,"pseudo-master")) {
            /* REPLCONF PSEUDO-REPLICA is used to set this replica 
             * into 'pseudo-replica' mode to avoid eviction and expiration.
             * This is used for sync tools which eviction and expiration may 
             * cause the data corruption. */
-            long pseudo_replica = 0;
-            if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
-                    0,1,&pseudo_replica,NULL) != C_OK)
+            long pseudo_master = 0;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j+1],
+                    0, 1, &pseudo_master, NULL) != C_OK)
                 return;
-            if (!iAmMaster()) {
-                addReplyError(c, "Only master can be set pseudo-replica");
-            }
-            if (pseudo_replica == 1) {
+            if (pseudo_master == 1) {
                 c->flags |= CLIENT_PSEUDO_MASTER;
-                server.pseudo_replica_enabled = 1;
-            }
-            else {
+            } else {
                 c->flags &= ~CLIENT_PSEUDO_MASTER;
-                server.pseudo_replica_enabled = 0;
             }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",

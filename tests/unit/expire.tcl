@@ -836,7 +836,8 @@ start_server {tags {"expire"}} {
     test {Pseudo-replica mode should forbid active expiration} {
         r flushall
 
-        assert_equal [r replconf pseudo-replica 1] {OK}
+        r config set pseudo-replica yes
+        assert_equal [r replconf pseudo-master 1] {OK}
 
         r set foo1 bar PX 1
         r set foo2 bar PX 1
@@ -844,7 +845,8 @@ start_server {tags {"expire"}} {
 
         assert_equal [r dbsize] {2}
 
-        assert_equal [r replconf pseudo-replica 0] {OK}
+        assert_equal [r replconf pseudo-master 0] {OK}
+        r config set pseudo-replica no
 
         # Verify all keys have expired
         wait_for_condition 40 100 {
@@ -858,7 +860,8 @@ start_server {tags {"expire"}} {
         r flushall
         r debug set-active-expire 0 
 
-        assert_equal [r replconf pseudo-replica 1] {OK}
+        r config set pseudo-replica yes
+        assert_equal [r replconf pseudo-master 1] {OK}
 
         r set foo1 bar PX 1
         after 10
@@ -867,7 +870,8 @@ start_server {tags {"expire"}} {
 
         assert_equal [r dbsize] {1}
 
-        assert_equal [r replconf pseudo-replica 0] {OK}
+        assert_equal [r replconf pseudo-master 0] {OK}
+        r config set pseudo-replica no
 
         r get foo1
 
@@ -879,7 +883,8 @@ start_server {tags {"expire"}} {
     test {RANDOMKEY can return expired key in Pseudo-replica mode} {
         r flushall
 
-        assert_equal [r replconf pseudo-replica 1] {OK}
+        r config set pseudo-replica yes
+        assert_equal [r replconf pseudo-master 1] {OK}
 
         r set foo1 bar PX 1
         after 10
@@ -892,7 +897,8 @@ start_server {tags {"expire"}} {
 
         assert_equal [r randomkey] {foo1}
 
-        assert_equal [r replconf pseudo-replica 0] {OK}
+        assert_equal [r replconf pseudo-master 0] {OK}
+        r config set pseudo-replica no
 
         # Verify all keys have expired
         wait_for_condition 40 100 {
