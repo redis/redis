@@ -2,6 +2,7 @@
 #include "bio.h"
 #include "atomicvar.h"
 #include "functions.h"
+#include "cluster.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -19,19 +20,14 @@ void lazyfreeFreeObject(void *args[]) {
  * database which was substituted with a fresh one in the main thread
  * when the database was logically deleted. */
 void lazyfreeFreeDatabase(void *args[]) {
-    dict **ht1 = (dict **) args[0];
-    dict **ht2 = (dict **) args[1];
-    int *dictCount = (int *) args[2];
-    for (int i=0; i<*dictCount; i++) {
-        size_t numkeys = dictSize(ht1[i]);
-        dictRelease(ht1[i]);
-        dictRelease(ht2[i]);
-        atomicDecr(lazyfree_objects,numkeys);
-        atomicIncr(lazyfreed_objects,numkeys);
-    }
-    zfree(ht1);
-    zfree(ht2);
-    zfree(dictCount);
+    kvstore *da1 = args[0];
+    kvstore *da2 = args[1];
+
+    size_t numkeys = kvstoreSize(da1);
+    kvstoreRelease(da1);
+    kvstoreRelease(da2);
+    atomicDecr(lazyfree_objects,numkeys);
+    atomicIncr(lazyfreed_objects,numkeys);
 }
 
 /* Release the key tracking table. */
@@ -179,28 +175,12 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    dbDictMetadata *metadata;
-    for (int i = 0; i < db->dict_count; i++) {
-        metadata = (dbDictMetadata *)dictMetadata(db->dict[i]);
-        if (metadata->rehashing_node) {
-            listDelNode(server.rehashing, metadata->rehashing_node);
-            metadata->rehashing_node = NULL;
-        }
-
-        metadata = (dbDictMetadata *)dictMetadata(db->expires[i]);
-        if (metadata->rehashing_node) {
-            listDelNode(server.rehashing, metadata->rehashing_node);
-            metadata->rehashing_node = NULL;
-        }
-    }
-    dict **oldDict = db->dict;
-    dict **oldExpires = db->expires;
-    atomicIncr(lazyfree_objects,dbSize(db, DB_MAIN));
-    db->dict = dictCreateMultiple(&dbDictType, db->dict_count);
-    db->expires = dictCreateMultiple(&dbExpiresDictType, db->dict_count);
-    int *count = zmalloc(sizeof(int));
-    *count = db->dict_count;
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, oldDict, oldExpires, count);
+    int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
+    kvstore *oldkeys = db->keys, *oldexpires = db->expires;
+    db->keys = kvstoreCreate(&dbDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    db->expires = kvstoreCreate(&dbExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldkeys, oldexpires);
 }
 
 /* Free the key tracking table.

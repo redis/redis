@@ -2121,10 +2121,11 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 
         /* Update our state accordingly to the gossip sections */
         node = clusterLookupNode(g->nodename, CLUSTER_NAMELEN);
-        if (node) {
+        /* Ignore gossips about self. */
+        if (node && node != myself) {
             /* We already know this node.
                Handle failure reports, only when the sender is a master. */
-            if (sender && clusterNodeIsMaster(sender) && node != myself) {
+            if (sender && clusterNodeIsMaster(sender)) {
                 if (flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) {
                     if (clusterNodeAddFailureReport(node,sender)) {
                         serverLog(LL_VERBOSE,
@@ -2183,7 +2184,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
             }
-        } else {
+        } else if (!node) {
             /* If it's not in NOADDR state and we don't have it, we
              * add it to our trusted dict with exact nodeid and flag.
              * Note that we cannot simply start a handshake against
@@ -3605,8 +3606,10 @@ void clusterSendPing(clusterLink *link, int type) {
         clusterNode *this = dictGetVal(de);
 
         /* Don't include this node: the whole packet header is about us
-         * already, so we just gossip about other nodes. */
-        if (this == myself) continue;
+         * already, so we just gossip about other nodes.
+         * Also, don't include the receiver. Receiver will not update its state
+         * based on gossips about itself. */
+        if (this == myself || this == link->node) continue;
 
         /* PFAIL nodes will be added later. */
         if (this->flags & CLUSTER_NODE_PFAIL) continue;
@@ -5104,7 +5107,7 @@ int verifyClusterConfigWithData(void) {
 
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
-        if (dbSize(&server.db[j], DB_MAIN)) return C_ERR;
+        if (kvstoreSize(server.db[j].keys)) return C_ERR;
     }
 
     /* Check that all the slots we see populated memory have a corresponding
@@ -5140,7 +5143,7 @@ int verifyClusterConfigWithData(void) {
 
 /* Remove all the shard channel related information not owned by the current shard. */
 static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
-    if (!server.shard_channel_count) return;
+    if (!kvstoreSize(server.pubsubshard_channels)) return;
     clusterNode *currmaster = clusterNodeIsMaster(myself) ? myself : myself->slaveof;
     for (int j = 0; j < CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] != currmaster) {
@@ -5734,17 +5737,18 @@ void removeChannelsInSlot(unsigned int slot) {
     pubsubShardUnsubscribeAllChannelsInSlot(slot);
 }
 
-
-
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
+    if (!kvstoreDictSize(server.db->keys, hashslot))
+        return 0;
+
     unsigned int j = 0;
 
-    dictIterator *iter = NULL;
+    kvstoreDictIterator *kvs_di = NULL;
     dictEntry *de = NULL;
-    iter = dictGetSafeIterator(server.db->dict[hashslot]);
-    while((de = dictNext(iter)) != NULL) {
+    kvs_di = kvstoreGetDictSafeIterator(server.db->keys, hashslot);
+    while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
         enterExecutionUnit(1, 0);
         sds sdskey = dictGetKey(de);
         robj *key = createStringObject(sdskey, sdslen(sdskey));
@@ -5761,15 +5765,14 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
         j++;
         server.dirty++;
     }
-    dictReleaseIterator(iter);
+    kvstoreReleaseDictIterator(kvs_di);
 
     return j;
 }
 
 /* Get the count of the channels for a given slot. */
 unsigned int countChannelsInSlot(unsigned int hashslot) {
-    dict *d = server.pubsubshard_channels[hashslot];
-    return d ? dictSize(d) : 0;
+    return kvstoreDictSize(server.pubsubshard_channels, hashslot);
 }
 
 int clusterNodeIsMyself(clusterNode *n) {
@@ -5939,7 +5942,7 @@ int clusterCommandSpecial(client *c) {
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
-        if (dbSize(&server.db[0], DB_MAIN) != 0) {
+        if (kvstoreSize(server.db[0].keys) != 0) {
             addReplyError(c,"DB must be empty to perform CLUSTER FLUSHSLOTS.");
             return 1;
         }
@@ -6205,7 +6208,7 @@ int clusterCommandSpecial(client *c) {
          * slots nor keys to accept to replicate some other node.
          * Slaves can switch to another master without issues. */
         if (clusterNodeIsMaster(myself) &&
-            (myself->numslots != 0 || dbSize(&server.db[0], DB_MAIN) != 0)) {
+            (myself->numslots != 0 || kvstoreSize(server.db[0].keys) != 0)) {
             addReplyError(c,
                 "To set a master the node must be empty and "
                 "without assigned slots.");
@@ -6339,7 +6342,7 @@ int clusterCommandSpecial(client *c) {
 
         /* Slaves can be reset while containing data, but not master nodes
          * that must be empty. */
-        if (clusterNodeIsMaster(myself) && dbSize(c->db, DB_MAIN) != 0) {
+        if (clusterNodeIsMaster(myself) && kvstoreSize(c->db->keys) != 0) {
             addReplyError(c,"CLUSTER RESET can't be called with "
                             "master nodes containing keys");
             return 1;

@@ -67,6 +67,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
+#include "kvstore.h" /* Slot-based hash table */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
@@ -400,6 +401,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                                     auth had been authenticated from the Module. */
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
+#define CLIENT_REPROCESSING_COMMAND (1ULL<<50) /* The client is re-processing the command. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -969,31 +971,12 @@ typedef struct replBufBlock {
     char buf[];
 } replBufBlock;
 
-/* When adding fields, please check the swap db related logic. */
-typedef struct dbDictState {
-    int resize_cursor;                     /* Cron job uses this cursor to gradually resize all dictionaries. */
-    int non_empty_slots;                   /* The number of non-empty slots. */
-    unsigned long long key_count;          /* Total number of keys in this DB. */
-    unsigned long long bucket_count;       /* Total number of buckets in this DB across dictionaries (only used for cluster-enabled). */
-    unsigned long long *slot_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given slot. */
-} dbDictState;
-
-typedef enum dbKeyType {
-    DB_MAIN,
-    DB_EXPIRES
-} dbKeyType;
-
-/* Dict metadata for database, used for record the position in rehashing list. */
-typedef struct dbDictMetadata {
-    listNode *rehashing_node;   /* list node in rehashing list */
-} dbDictMetadata;
-
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
-    dict **dict;                /* The keyspace for this DB */
-    dict **expires;             /* Timeout of keys with a timeout set */
+    kvstore *keys;              /* The keyspace for this DB */
+    kvstore *expires;           /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
@@ -1004,8 +987,6 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
-    int dict_count;             /* Indicates total number of dictionaries owned by this DB, 1 dict per slot in cluster mode. */
-    dbDictState sub_dict[2];  /* Metadata for main and expires dictionaries */
 } redisDb;
 
 /* forward declaration for functions ctx */
@@ -1483,6 +1464,8 @@ struct malloc_stats {
     size_t allocator_allocated;
     size_t allocator_active;
     size_t allocator_resident;
+    size_t allocator_muzzy;
+    size_t allocator_frag_smallbins_bytes;
 };
 
 /*-----------------------------------------------------------------------------
@@ -1573,7 +1556,6 @@ struct redisServer {
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
-    list *rehashing;            /* List of dictionaries in DBs that are currently rehashing. */
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
@@ -1757,6 +1739,8 @@ struct redisServer {
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
     int jemalloc_bg_thread;         /* Enable jemalloc background thread */
+    int active_defrag_configuration_changed; /* defrag configuration has been changed and need to reconsider
+                                              * active_defrag_running in computeDefragCycles. */
     size_t active_defrag_ignore_bytes; /* minimum amount of fragmentation waste to start active defrag */
     int active_defrag_threshold_lower; /* minimum percentage of fragmentation to start active defrag */
     int active_defrag_threshold_upper; /* maximum percentage of fragmentation at which we use maximum effort */
@@ -1772,6 +1756,7 @@ struct redisServer {
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     int pause_cron;                 /* Don't run cron tasks (debug) */
+    int dict_resizing;              /* Whether to allow main dict and expired dict to be resized (debug) */
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
@@ -1796,8 +1781,8 @@ struct redisServer {
     sds aof_buf;      /* AOF buffer, written before entering the event loop */
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
-    time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
-    time_t aof_last_fsync;            /* UNIX time of last fsync() */
+    mstime_t aof_flush_postponed_start; /* mstime of postponed AOF flush */
+    mstime_t aof_last_fsync;            /* mstime of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
     time_t aof_cur_timestamp;       /* Current record timestamp in AOF */
@@ -1993,13 +1978,13 @@ struct redisServer {
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
     /* Pubsub */
-    dict *pubsub_channels;  /* Map channels to list of subscribed clients */
+    kvstore *pubsub_channels;  /* Map channels to list of subscribed clients */
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
-    dict **pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
-    unsigned long long shard_channel_count;
+    kvstore *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
     unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
+    unsigned int watching_clients; /* # of clients are wathcing keys */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -2444,20 +2429,6 @@ typedef struct {
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
-typedef struct dbIterator dbIterator;
-
-/* DB iterator specific functions */
-dbIterator *dbIteratorInit(redisDb *db, dbKeyType keyType);
-void dbReleaseIterator(dbIterator *dbit);
-dict *dbIteratorNextDict(dbIterator *dbit);
-dict *dbGetDictFromIterator(dbIterator *dbit);
-int dbIteratorGetCurrentSlot(dbIterator *dbit);
-dictEntry *dbIteratorNext(dbIterator *iter);
-
-/* SCAN specific commands for easy cursor manipulation, shared between main code and modules. */
-int getAndClearSlotIdFromCursor(unsigned long long *cursor);
-void addSlotIdToCursor(int slot, unsigned long long *cursor);
-
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
  * not both are required, store pointers in the iterator to avoid
@@ -2531,6 +2502,7 @@ const char *moduleTypeModuleName(moduleType *mt);
 const char *moduleNameFromCommand(struct redisCommand *cmd);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
 void moduleCallCommandUnblockedHandler(client *c);
+int isModuleClientUnblocked(client *c);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c, int from_module);
@@ -2803,7 +2775,7 @@ robj *createStringObjectFromLongLong(long long value);
 robj *createStringObjectFromLongLongForValue(long long value);
 robj *createStringObjectFromLongLongWithSds(long long value);
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
-robj *createQuicklistObject(void);
+robj *createQuicklistObject(int fill, int compress);
 robj *createListListpackObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
@@ -3141,21 +3113,16 @@ void dismissMemoryInChild(void);
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
-unsigned long long int dbSize(redisDb *db, dbKeyType keyType);
-int dbNonEmptySlots(redisDb *db, dbKeyType keyType);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
-unsigned long dbBuckets(redisDb *db, dbKeyType keyType);
-size_t dbMemUsage(redisDb *db, dbKeyType keyType);
-dictEntry *dbFind(redisDb *db, void *key, dbKeyType keyType);
-unsigned long long dbScan(redisDb *db, dbKeyType keyType, unsigned long long cursor,
-                          int onlyslot, dictScanFunction *fn,
-                          int (dictScanValidFunction)(dict *d), void *privdata);
-int dbExpand(const redisDb *db, uint64_t db_size, dbKeyType keyType, int try_expand);
-unsigned long long cumulativeKeyCountRead(redisDb *db, int idx, dbKeyType keyType);
-int getFairRandomSlot(redisDb *db, dbKeyType keyType);
-int dbGetNextNonEmptySlot(redisDb *db, int slot, dbKeyType keyType);
-int findSlotByKeyIndex(redisDb *db, unsigned long target, dbKeyType keyType);
+
+/* kvstore wrappers */
+int dbExpand(redisDb *db, uint64_t db_size, int try_expand);
+int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand);
+dictEntry *dbFind(redisDb *db, void *key);
+dictEntry *dbFindExpires(redisDb *db, void *key);
+unsigned long long dbSize(redisDb *db);
+unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata);
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);
@@ -3212,6 +3179,7 @@ int serverPubsubSubscriptionCount(void);
 int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
 void unmarkClientAsPubSub(client *c);
+int pubsubTotalSubscriptions(void);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
@@ -3455,7 +3423,7 @@ void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numloca
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
-void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey);
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey, unsigned long *watched_keys);
 void blockedBeforeSleep(void);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */

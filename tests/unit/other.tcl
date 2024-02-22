@@ -360,7 +360,7 @@ start_server {tags {"other external:skip"}} {
         r config set save ""
         r config set rdb-key-save-delay 1000000
 
-        populate 4096 "" 1
+        populate 4095 "" 1
         r bgsave
         wait_for_condition 10 100 {
             [s rdb_bgsave_in_progress] eq 1
@@ -375,7 +375,7 @@ start_server {tags {"other external:skip"}} {
         waitForBgsave r
 
         # Hash table should rehash since there is no child process,
-        # size is power of two and over 4098, so it is 8192
+        # size is power of two and over 4096, so it is 8192
         wait_for_condition 50 100 {
             [string match "*table size: 8192*" [r debug HTSTATS 9]]
         } else {
@@ -429,6 +429,7 @@ start_server {tags {"other external:skip"}} {
 }
 
 start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
+    r config set dynamic-hz no hz 500
     test "Redis can trigger resizing" {
         r flushall
         # hashslot(foo) is 12182
@@ -437,9 +438,9 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         }
         assert_match "*table size: 128*" [r debug HTSTATS 0]
 
-        # disable resizing
-        r config set rdb-key-save-delay 10000000
-        r bgsave
+        # disable resizing, the reason for not using slow bgsave is because
+        # it will hit the dict_force_resize_ratio.
+        r debug dict-resizing 0
 
         # delete data to have lot's (96%) of empty buckets
         for {set j 1} {$j <= 123} {incr j} {
@@ -448,16 +449,15 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
         assert_match "*table size: 128*" [r debug HTSTATS 0]
 
         # enable resizing
-        r config set rdb-key-save-delay 0
-        catch {exec kill -9 [get_child_pid 0]}
-        wait_for_condition 1000 10 {
-            [s rdb_bgsave_in_progress] eq 0
-        } else {
-            fail "bgsave did not stop in time."
-        }
+        r debug dict-resizing 1
 
-        after 200;# waiting for serverCron
-        assert_match "*table size: 8*" [r debug HTSTATS 0]
+        # waiting for serverCron to resize the tables
+        wait_for_condition 1000 10 {
+            [string match {*table size: 8*} [r debug HTSTATS 0]]
+        } else {
+            puts [r debug HTSTATS 0]
+            fail "hash tables weren't resize."
+        }
     } {} {needs:debug}
 
     test "Redis can rewind and trigger smaller slot resizing" {
@@ -468,25 +468,24 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
             r set "{alice}$j" a
         }
 
-        # disable resizing
-        r config set rdb-key-save-delay 10000000
-        r bgsave
+        # disable resizing, the reason for not using slow bgsave is because
+        # it will hit the dict_force_resize_ratio.
+        r debug dict-resizing 0
 
         for {set j 1} {$j <= 123} {incr j} {
             r del "{alice}$j"
         }
 
         # enable resizing
-        r config set rdb-key-save-delay 0
-        catch {exec kill -9 [get_child_pid 0]}
-        wait_for_condition 1000 10 {
-            [s rdb_bgsave_in_progress] eq 0
-        } else {
-            fail "bgsave did not stop in time."
-        }
+        r debug dict-resizing 1
 
-        after 200;# waiting for serverCron
-        assert_match "*table size: 16*" [r debug HTSTATS 0]
+        # waiting for serverCron to resize the tables
+        wait_for_condition 1000 10 {
+            [string match {*table size: 16*} [r debug HTSTATS 0]]
+        } else {
+            puts [r debug HTSTATS 0]
+            fail "hash tables weren't resize."
+        }
     } {} {needs:debug}
 }
 
@@ -516,9 +515,9 @@ start_server {tags {"other external:skip"}} {
         # Set a key to enable overhead display of db 0
         r set a b
         # The dict containing 128 keys must have expanded,
-        # its hash table itself takes a lot more than 200 bytes
+        # its hash table itself takes a lot more than 400 bytes
         wait_for_condition 100 50 {
-            [get_overhead_hashtable_main] < 200
+            [get_overhead_hashtable_main] < 400
         } else {
             fail "dict did not resize in time"
         }   

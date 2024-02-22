@@ -629,16 +629,23 @@ static void timer_callback(RedisModuleCtx *ctx, void *data)
     RedisModule_FreeThreadSafeContext(reply_ctx);
 }
 
+/* unblock_by_timer <period_ms> <timeout_ms>
+ * period_ms is the period of the timer.
+ * timeout_ms is the blocking timeout. */
 int unblock_by_timer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    if (argc != 2)
+    if (argc != 3)
         return RedisModule_WrongArity(ctx);
 
     long long period;
+    long long timeout;
     if (RedisModule_StringToLongLong(argv[1],&period) != REDISMODULE_OK)
         return RedisModule_ReplyWithError(ctx,"ERR invalid period");
+    if (RedisModule_StringToLongLong(argv[2],&timeout) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
+    }
 
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, timeout);
     RedisModule_CreateTimer(ctx, period, timer_callback, bc);
     return REDISMODULE_OK;
 }

@@ -2663,8 +2663,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         return;
     }
 
+    /* Try to allocate the src table, and abort on insufficient memory. */
+    src = ztrycalloc(sizeof(zsetopsrc) * setnum);
+    if (src == NULL) {
+        addReplyError(c, "Insufficient memory, failed allocating transient memory, too many args.");
+        return;
+    }
+
     /* read keys to be used for input */
-    src = zcalloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
         robj *obj = lookupKeyRead(c->db, c->argv[j]);
         if (obj != NULL) {

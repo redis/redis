@@ -188,7 +188,7 @@ foreach call_type {nested normal} {
 
         # make sure we get BUSY error, and that we didn't get here too early
         assert_error {*BUSY Slow module operation*} {r ping}
-        assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] $busy_time_limit
         # abort the blocking operation
         r set_slow_bg_operation 0
 
@@ -278,7 +278,23 @@ foreach call_type {nested normal} {
     }
 
     test {Unblock by timer} {
-        assert_match "OK" [r unblock_by_timer 100]
+        # When the client is unlock, we will get the OK reply.
+        assert_match "OK" [r unblock_by_timer 100 0]
+    }
+
+    test {block time is shorter than timer period} {
+        # This command does not have the reply.
+        set rd [redis_deferring_client]
+        $rd unblock_by_timer 100 10
+        # Wait for the client to unlock.
+        after 120
+        $rd close
+    }
+
+    test {block time is equal to timer period} {
+        # These time is equal, they will be unlocked in the same event loop,
+        # when the client is unlock, we will get the OK reply from timer.
+        assert_match "OK" [r unblock_by_timer 100 100]
     }
     
     test "Unload the module - blockedclient" {

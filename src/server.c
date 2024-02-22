@@ -429,68 +429,14 @@ uint64_t dictEncObjHash(const void *key) {
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
 int dictResizeAllowed(size_t moreMem, double usedRatio) {
+    /* for debug purposes: dict is not allowed to be resized. */
+    if (!server.dict_resizing) return 0;
+
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
     } else {
         return 1;
     }
-}
-
-/* Adds dictionary to the rehashing list, which allows us
- * to quickly find rehash targets during incremental rehashing.
- *
- * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
- * incremented with the new ht size during the rehashing phase. In non-cluster mode,
- * bucket count can be retrieved directly from single dict bucket. */
-void dictRehashingStarted(dict *d, dbKeyType keyType) {
-    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
-    listAddNodeTail(server.rehashing, d);
-    metadata->rehashing_node = listLast(server.rehashing);
-
-    if (!server.cluster_enabled) return;
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */
-}
-
-/* Remove dictionary from the rehashing list.
- *
- * Updates the bucket count for the given dictionary in a DB. It removes
- * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void dictRehashingCompleted(dict *d, dbKeyType keyType) {
-    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
-    if (metadata->rehashing_node) {
-        listDelNode(server.rehashing, metadata->rehashing_node);
-        metadata->rehashing_node = NULL;
-    }
-
-    if (!server.cluster_enabled) return;
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
-}
-
-void dbDictRehashingStarted(dict *d) {
-    dictRehashingStarted(d, DB_MAIN);
-}
-
-void dbDictRehashingCompleted(dict *d) {
-    dictRehashingCompleted(d, DB_MAIN);
-}
-
-void dbExpiresRehashingStarted(dict *d) {
-    dictRehashingStarted(d, DB_EXPIRES);
-}
-
-void dbExpiresRehashingCompleted(dict *d) {
-    dictRehashingCompleted(d, DB_EXPIRES);
-}
-
-/* Returns the size of the DB dict metadata in bytes. */
-size_t dbDictMetadataSize(dict *d) {
-    UNUSED(d);
-    /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
-    return sizeof(dbDictMetadata);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -524,6 +470,8 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
+    NULL,                      /* val destructor */
+    NULL,                      /* allow to expand */
     .no_value = 1,             /* no values in this dict */
     .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
@@ -536,7 +484,7 @@ dictType zsetDictType = {
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* Note: SDS string shared & freed by skiplist */
     NULL,                      /* val destructor */
-    NULL                       /* allow to expand */
+    NULL,                      /* allow to expand */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
@@ -548,9 +496,6 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictResizeAllowed,          /* allow to resize */
-    dbDictRehashingStarted,
-    dbDictRehashingCompleted,
-    dbDictMetadataSize,
 };
 
 /* Db->expires */
@@ -562,9 +507,6 @@ dictType dbExpiresDictType = {
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     dictResizeAllowed,          /* allow to resize */
-    dbExpiresRehashingStarted,
-    dbExpiresRehashingCompleted,
-    dbDictMetadataSize,
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -586,7 +528,7 @@ dictType hashDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictSdsDestructor,          /* val destructor */
-    NULL                        /* allow to expand */
+    NULL,                       /* allow to expand */
 };
 
 /* Dict type without destructor */
@@ -692,53 +634,6 @@ dictType clientDictType = {
     dictClientKeyCompare,       /* key compare */
     .no_value = 1               /* no values in this dict */
 };
-
-/* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
- * and triggers a resize if the percentage of used buckets in the HT reaches (100 / HASHTABLE_MIN_FILL)
- * we shrink the hash table to save memory, or expand the hash when the percentage of used buckets reached
- * 100.
- *
- * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
-void tryResizeHashTables(int dbid) {
-    redisDb *db = &server.db[dbid];
-    int dicts_per_call = min(CRON_DICTS_PER_DB, db->dict_count);
-    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        for (int i = 0; i < dicts_per_call; i++) {
-            int slot = db->sub_dict[subdict].resize_cursor;
-            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            if (dictShrinkIfNeeded(d) == DICT_ERR) {
-                dictExpandIfNeeded(d);
-            }
-            db->sub_dict[subdict].resize_cursor = (slot + 1) % db->dict_count;
-        }
-    }
-}
-
-/* Our hash table implementation performs rehashing incrementally while
- * we write/read from the hash table. Still if the server is idle, the hash
- * table will use two tables for a long time. So we try to use 1 millisecond
- * of CPU time at every call of this function to perform some rehashing.
- *
- * The function returns 1 if some rehashing was performed, otherwise 0
- * is returned. */
-int incrementallyRehash(void) {
-    if (listLength(server.rehashing) == 0) return 0;
-    serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.rehashing));
-
-    /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
-     * after each dictionary completes rehashing, it removes itself from the list. */
-    listNode *node;
-    monotime timer;
-    elapsedStart(&timer);
-    while ((node = listFirst(server.rehashing))) {
-        uint64_t elapsed_us = elapsedUs(timer);
-        if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US) {
-            break;  /* Reached the time limit. */
-        }
-        dictRehashMicroseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
-    }
-    return 1;
-}
 
 /* This function is called once a background process of some kind terminates,
  * as we want to avoid resizing the hash tables when there is a child in order
@@ -1179,21 +1074,33 @@ void databasesCron(void) {
          * DB we'll be able to start from the successive in the next
          * cron loop iteration. */
         static unsigned int resize_db = 0;
+        static unsigned int rehash_db = 0;
         int dbs_per_call = CRON_DBS_PER_CALL;
         int j;
 
         /* Don't test more DBs than we have. */
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
-        /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTables(resize_db % server.dbnum);
+            redisDb *db = &server.db[resize_db % server.dbnum];
+            kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB);
+            kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB);
             resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
-            incrementallyRehash();
+            uint64_t elapsed_us = 0;
+            for (j = 0; j < dbs_per_call; j++) {
+                redisDb *db = &server.db[rehash_db % server.dbnum];
+                elapsed_us += kvstoreIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                rehash_db++;
+            }
         }
     }
 }
@@ -1321,7 +1228,10 @@ void cronUpdateMemoryStats(void) {
          * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
         zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
                                    &server.cron_malloc_stats.allocator_active,
-                                   &server.cron_malloc_stats.allocator_resident);
+                                   &server.cron_malloc_stats.allocator_resident,
+                                   NULL,
+                                   &server.cron_malloc_stats.allocator_muzzy,
+                                   &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
         if (!server.cron_malloc_stats.allocator_resident) {
@@ -1449,9 +1359,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             for (j = 0; j < server.dbnum; j++) {
                 long long size, used, vkeys;
 
-                size = dbBuckets(&server.db[j], DB_MAIN);
-                used = dbSize(&server.db[j], DB_MAIN);
-                vkeys = dbSize(&server.db[j], DB_EXPIRES);
+                size = kvstoreBuckets(server.db[j].keys);
+                used = kvstoreSize(server.db[j].keys);
+                vkeys = kvstoreSize(server.db[j].expires);
                 if (used || vkeys) {
                     serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
@@ -1652,7 +1562,7 @@ void whileBlockedCron(void) {
      * make sure it was done. */
     serverAssert(server.blocked_last_cron);
 
-    /* In case we where called too soon, leave right away. This way one time
+    /* In case we were called too soon, leave right away. This way one time
      * jobs after the loop below don't need an if. and we don't bother to start
      * latency monitor if this function is called too often. */
     if (server.blocked_last_cron >= server.mstime)
@@ -2149,7 +2059,7 @@ void initServerConfig(void) {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
-    server.aof_last_fsync = time(NULL);
+    server.aof_last_fsync = time(NULL) * 1000;
     server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
     server.aof_rewrite_time_last = -1;
@@ -2162,6 +2072,7 @@ void initServerConfig(void) {
     server.aof_last_incr_size = 0;
     server.aof_last_incr_fsync_offset = 0;
     server.active_defrag_running = 0;
+    server.active_defrag_configuration_changed = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
     memset(server.blocked_clients_by_type,0,
@@ -2174,6 +2085,7 @@ void initServerConfig(void) {
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
+    server.dict_resizing = 1;
 
     server.latency_tracking_info_percentiles_len = 3;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
@@ -2669,17 +2581,6 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
-/* When adding fields, please check the initTempDb related logic. */
-void initDbState(redisDb *db){
-    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        db->sub_dict[subdict].non_empty_slots = 0;
-        db->sub_dict[subdict].key_count = 0;
-        db->sub_dict[subdict].resize_cursor = 0;
-        db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
-        db->sub_dict[subdict].bucket_count = 0;
-    }
-}
-
 void initServer(void) {
     int j;
 
@@ -2755,10 +2656,10 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    int slot_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
-    for (j = 0; j < server.dbnum; j++) {  
-        server.db[j].dict = dictCreateMultiple(&dbDictType, slot_count);
-        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slot_count);
+    int slot_count_bits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
+    for (j = 0; j < server.dbnum; j++) {
+        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2767,17 +2668,17 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
-        server.db[j].dict_count = slot_count;
-        initDbState(&server.db[j]);
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
-    server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&objToDictDictType);
+    /* Note that server.pubsub_channels was chosen to be a kvstore (with only one dict, which
+     * seems odd) just to make the code cleaner by making it be the same type as server.pubsubshard_channels
+     * (which has to be kvstore), see pubsubtype.serverPubSubChannels */
+    server.pubsub_channels = kvstoreCreate(&objToDictDictType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     server.pubsub_patterns = dictCreate(&objToDictDictType);
-    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
-    server.shard_channel_count = 0;
+    server.pubsubshard_channels = kvstoreCreate(&objToDictDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
     server.pubsub_clients = 0;
+    server.watching_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -3646,11 +3547,19 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* Setting the CLIENT_REPROCESSING_COMMAND flag so that during the actual
+     * processing of the command proc, the client is aware that it is being
+     * re-processed. */
+    if (reprocessing_command) c->flags |= CLIENT_REPROCESSING_COMMAND;
+
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
+
+    /* Clear the CLIENT_REPROCESSING_COMMAND flag after the proc is executed. */
+    if (reprocessing_command) c->flags &= ~CLIENT_REPROCESSING_COMMAND;
 
     exitExecutionUnit();
 
@@ -3709,7 +3618,7 @@ void call(client *c, int flags) {
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
-     * Other exceptions is a client which is unblocked and retring to process the command
+     * Other exceptions is a client which is unblocked and retrying to process the command
      * or we are currently in the process of loading AOF. */
     if (update_command_stats && !reprocessing_command &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
@@ -5570,6 +5479,25 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
     return section_dict;
 }
 
+/* sets blocking_keys to the total number of keys which has at least one client blocked on them.
+ * sets blocking_keys_on_nokey to the total number of keys which has at least one client
+ * blocked on them to be written or deleted.
+ * sets watched_keys to the total number of keys which has at least on client watching on them. */
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blocking_keys_on_nokey, unsigned long *watched_keys) {
+    unsigned long bkeys=0, bkeys_on_nokey=0, wkeys=0;
+    for (int j = 0; j < server.dbnum; j++) {
+        bkeys += dictSize(server.db[j].blocking_keys);
+        bkeys_on_nokey += dictSize(server.db[j].blocking_keys_unblock_on_nokey);
+        wkeys += dictSize(server.db[j].watched_keys);
+    }
+    if (blocking_keys)
+        *blocking_keys = bkeys;
+    if (blocking_keys_on_nokey)
+        *blocking_keys_on_nokey = bkeys_on_nokey;
+    if (watched_keys)
+        *watched_keys = wkeys;
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -5649,9 +5577,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     /* Clients */
     if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
-        unsigned long blocking_keys, blocking_keys_on_nokey;
+        unsigned long blocking_keys, blocking_keys_on_nokey, watched_keys;
         getExpansiveClientsInfo(&maxin,&maxout);
-        totalNumberOfBlockingKeys(&blocking_keys, &blocking_keys_on_nokey);
+        totalNumberOfStatefulKeys(&blocking_keys, &blocking_keys_on_nokey, &watched_keys);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Clients\r\n" FMTARGS(
             "connected_clients:%lu\r\n", listLength(server.clients) - listLength(server.slaves),
@@ -5662,7 +5590,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "blocked_clients:%d\r\n", server.blocked_clients,
             "tracking_clients:%d\r\n", server.tracking_clients,
             "pubsub_clients:%d\r\n", server.pubsub_clients,
+            "watching_clients:%d\r\n", server.watching_clients,
             "clients_in_timeout_table:%llu\r\n", (unsigned long long) raxSize(server.clients_timeout_table),
+            "total_watched_keys:%lu\r\n", watched_keys,
             "total_blocking_keys:%lu\r\n", blocking_keys,
             "total_blocking_keys_on_nokey:%lu\r\n", blocking_keys_on_nokey));
     }
@@ -5716,6 +5646,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "allocator_allocated:%zu\r\n", server.cron_malloc_stats.allocator_allocated,
             "allocator_active:%zu\r\n", server.cron_malloc_stats.allocator_active,
             "allocator_resident:%zu\r\n", server.cron_malloc_stats.allocator_resident,
+            "allocator_muzzy:%zu\r\n", server.cron_malloc_stats.allocator_muzzy,
             "total_system_memory:%lu\r\n", (unsigned long)total_system_mem,
             "total_system_memory_human:%s\r\n", total_system_hmem,
             "used_memory_lua:%lld\r\n", memory_lua, /* deprecated, renamed to used_memory_vm_eval */
@@ -5898,9 +5829,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
             "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
-            "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
+            "pubsub_channels:%llu\r\n", kvstoreSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%llu\r\n", server.shard_channel_count,
+            "pubsubshard_channels:%llu\r\n", kvstoreSize(server.pubsubshard_channels),
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
@@ -6127,8 +6058,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
 
-            keys = dbSize(&server.db[j], DB_MAIN);
-            vkeys = dbSize(&server.db[j], DB_EXPIRES);
+            keys = kvstoreSize(server.db[j].keys);
+            vkeys = kvstoreSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
                     "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
