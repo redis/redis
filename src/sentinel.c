@@ -5153,7 +5153,9 @@ int sentinelTest(int argc, char *argv[], int accurate) {
 
     TEST("test elect abort") {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
+        printf("failover_start_time = %lld\n", ri->failover_start_time); // 输出变量值
         ri->failover_start_time = mstime() - SENTINEL_ELECTION_TIMEOUT - 1;
+        printf("failover_start_time = %lld\n", ri->failover_start_time); // 输出变量值
         ri->failover_timeout = SENTINEL_ELECTION_TIMEOUT + 1;
         sentinelFailoverWaitStart(ri);
         serverAssert((ri->flags&SRI_ELECT_ABORT) == 1);
