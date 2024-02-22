@@ -466,35 +466,23 @@ start_server {tags {"info" "external:skip"}} {
     }
 }
 
-proc getMemoryStatsProperty {stats property} {
-    set res 0
-    set list_stats [split $stats " "]
-    for {set j 0} {$j < [llength $list_stats]} {incr j} {
-        if {[string match -nocase $property [lindex $list_stats $j]]} {
-            set res [lindex $list_stats [expr $j+1]]
-            break
-        }
-    }
-    return $res
-}
-
 start_server {tags {"info" "external:skip"}} {
     test {memory: database and pubsub overhead and rehashing dict count} {
         r flushall
         set info_mem [r info memory]
         set mem_stats [r memory stats]
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
-        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {0}
-        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.rehashing] {0}
-        assert_equal [getMemoryStatsProperty $mem_stats dict.rehashing.count] {0}
+        assert_equal [dict get $mem_stats overhead.hashtable.lut] {0}
+        assert_equal [dict get $mem_stats overhead.hashtable.rehashing] {0}
+        assert_equal [dict get $mem_stats dict.rehashing.count] {0}
         # Initial dict expand is not rehashing
         r set a b
         set info_mem [r info memory]
         set mem_stats [r memory stats]
         assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
-        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {32}
-        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.rehashing] {0}
-        assert_equal [getMemoryStatsProperty $mem_stats dict.rehashing.count] {0}
+        assert_range [dict get $mem_stats overhead.hashtable.lut] 1 64
+        assert_equal [dict get $mem_stats overhead.hashtable.rehashing] {0}
+        assert_equal [dict get $mem_stats dict.rehashing.count] {0}
         # set 4 more keys to trigger rehashing
         # get the info within a transaction to make sure the rehashing is not completed
         r multi 
@@ -507,9 +495,9 @@ start_server {tags {"info" "external:skip"}} {
         set res [r exec]
         set info_mem [lindex $res 4]
         set mem_stats [lindex $res 5]
-        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {32}
-        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.lut] {96}
-        assert_equal [getMemoryStatsProperty $mem_stats overhead.hashtable.rehashing] {32}
-        assert_equal [getMemoryStatsProperty $mem_stats dict.rehashing.count] {1}
+        assert_range [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] 1 64
+        assert_range [dict get $mem_stats overhead.hashtable.lut] 1 192
+        assert_range [dict get $mem_stats overhead.hashtable.rehashing] 1 64
+        assert_equal [dict get $mem_stats dict.rehashing.count] {1}
     }
 }

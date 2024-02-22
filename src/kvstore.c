@@ -195,11 +195,9 @@ static void kvstoreDictRehashingStarted(dict *d) {
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
+    kvs->bucket_count += to; /* Started rehashing (Add the new ht size) */
     kvs->overhead_hashtable_lut += to;
     kvs->overhead_hashtable_rehashing += from;
-    if (kvs->num_dicts == 1)
-        return;
-    kvs->bucket_count += to; /* Started rehashing (Add the new ht size) */
 }
 
 /* Remove dictionary from the rehashing list.
@@ -216,11 +214,9 @@ static void kvstoreDictRehashingCompleted(dict *d) {
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
+    kvs->bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
     kvs->overhead_hashtable_lut -= from;
     kvs->overhead_hashtable_rehashing -= from;
-    if (kvs->num_dicts == 1)
-        return;
-    kvs->bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
 }
 
 /* Returns the size of the DB dict metadata in bytes. */
