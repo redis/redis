@@ -5151,7 +5151,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
 
-    initSentinel();
+    sentinel.masters = dictCreate(&instancesDictType,NULL);
 
     TEST("test elect abort") {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
