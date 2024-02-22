@@ -1014,34 +1014,57 @@ void keysCommand(client *c) {
     long numkeys = 0;
     void *replylen = addReplyDeferredLen(c);
     allkeys = (pattern[0] == '*' && plen == 1);
-    if (server.cluster_enabled && !allkeys) {
-        pslot = patternHashSlot(pattern, plen);
-    }
-    dictIterator *di = NULL;
-    dbIterator *dbit = NULL;
-    if (pslot != -1) {
-        di = dictGetSafeIterator(c->db->dict[pslot]);
-    } else {
-        dbit = dbIteratorInit(c->db, DB_MAIN);
-    }
-    robj keyobj;
-    while ((de = di ? dictNext(di) : dbIteratorNext(dbit)) != NULL) {
-        sds key = dictGetKey(de);
 
-        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            initStaticStringObject(keyobj, key);
-            if (!keyIsExpired(c->db, &keyobj)) {
-                addReplyBulkCBuffer(c, key, sdslen(key));
-                numkeys++;
+    list *exactlyMatchedKeys = stringmatch_quickpath(pattern, plen);
+    unsigned long long exactlyMatchedKeysLen = listLength(exactlyMatchedKeys);
+    unsigned long long keysCount = dbSize(c->db, DB_MAIN);
+    if (exactlyMatchedKeysLen == 0 || exactlyMatchedKeysLen > keysCount) {
+        if (server.cluster_enabled && !allkeys) {
+            pslot = patternHashSlot(pattern, plen);
+        }
+        dictIterator *di = NULL;
+        dbIterator *dbit = NULL;
+        if (pslot != -1) {
+            di = dictGetSafeIterator(c->db->dict[pslot]);
+        } else {
+            dbit = dbIteratorInit(c->db, DB_MAIN);
+        }
+        robj keyobj;
+        while ((de = di ? dictNext(di) : dbIteratorNext(dbit)) != NULL) {
+            sds key = dictGetKey(de);
+            if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+                initStaticStringObject(keyobj, key);
+                if (!keyIsExpired(c->db, &keyobj)) {
+                    addReplyBulkCBuffer(c, key, sdslen(key));
+                    numkeys++;
+                }
+            }
+            if (c->flags & CLIENT_CLOSE_ASAP)
+                break;
+        }
+        if (di)
+            dictReleaseIterator(di);
+        if (dbit)
+            dbReleaseIterator(dbit);
+    } else {
+        listIter li;
+        listNode *ln;
+        listRewind(exactlyMatchedKeys, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            sds sdskey = listNodeValue(ln);
+            robj sdskeyrobj;
+            initStaticStringObject(sdskeyrobj, sdskey);
+            if(lookupKeyReadWithFlags(c->db, &sdskeyrobj, LOOKUP_NOTOUCH)) {
+                robj keyrobjReply;
+                initStaticStringObject(keyrobjReply, sdskey);
+                if (!keyIsExpired(c->db, &keyrobjReply)) {
+                    addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
+                    numkeys++;
+                }
             }
         }
-        if (c->flags & CLIENT_CLOSE_ASAP)
-            break;
+        listRelease(exactlyMatchedKeys);
     }
-    if (di)
-        dictReleaseIterator(di);
-    if (dbit)
-        dbReleaseIterator(dbit);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 

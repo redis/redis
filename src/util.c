@@ -50,6 +50,7 @@
 #include "util.h"
 #include "sha256.h"
 #include "config.h"
+#include "zmalloc.h"
 
 #define UNUSED(x) ((void)(x))
 
@@ -185,6 +186,180 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
     if (patternLen == 0 && stringLen == 0)
         return 1;
     return 0;
+}
+
+typedef struct wildcard_range {
+    int start;
+    int end;
+    sds rchar;
+    int rchar_cur;
+} wildcard_range;
+
+int list_match_sds(void *a, void *b) {
+    return sdscmp(a, b) == 0;
+}
+
+static inline wildcard_range *init_wildcard_range(void) {
+    wildcard_range *range = zmalloc(sizeof(wildcard_range));
+    range->start = 0;
+    range->end = 0;
+    range->rchar = sdsempty();
+    range->rchar_cur = 0;
+    return range;
+}
+
+static void free_wildcard_range(void *range) {
+    sdsfree(((wildcard_range *)range)->rchar);
+    zfree(range);
+}
+
+/* Before scan the whole db, we use exactly match to return the matched keys.
+ * Currently use exactly match for 'KEYS ab', 'KEYS ab[cd-f][gh]' pattern. */
+list *stringmatch_quickpath(const char *pattern, int patternLen) {
+    const char *originPattern = pattern;
+    int originPatternLen = patternLen;
+    list *keys = listCreate();
+    /* Use ListMatchSds to confirm no duplicate keys before added to list. */
+    listSetMatchMethod(keys, list_match_sds);
+    list *ranges = listCreate();
+    listSetFreeMethod(ranges, free_wildcard_range);
+    /* Check if string contains glob-style pattern wildcard characters. */
+    int skipQuickPath = 0;
+    while (patternLen && !skipQuickPath) {
+        switch (pattern[0]) {
+        case '*':
+            skipQuickPath = 1;
+            break;
+        case '?':
+            skipQuickPath = 1;
+            break;
+        case '[':
+            pattern++;
+            patternLen--;
+            if (pattern[0] == '^') {
+                skipQuickPath = 1;
+                break;
+            }
+            wildcard_range *wrange = init_wildcard_range();
+            wrange->start = originPatternLen - patternLen;
+            while(1) {
+                if (pattern[0] == '\\' && patternLen >= 2) {
+                    pattern++;
+                    patternLen--;
+                } else if (pattern[0] == ']') {
+                    wrange->end = originPatternLen - patternLen;
+                    break;
+                } else if (patternLen == 0) {
+                    pattern--;
+                    patternLen++;
+                    break;
+                } else if (patternLen >= 3 && pattern[1] == '-') {
+                    int start = pattern[0];
+                    int end = pattern[2];
+                    if (start > end) {
+                        int t = start;
+                        start = end;
+                        end = t;
+                    }
+                    for (int i = start; i <= end; i++) {
+                        wrange->rchar = sdscat(wrange->rchar, (char *)&i);
+                    }
+                    pattern += 2;
+                    patternLen -= 2;
+                } else {
+                    int p = pattern[0];
+                    wrange->rchar = sdscat(wrange->rchar, (char *)&p);
+                }
+                pattern++;
+                patternLen--;
+            }
+            /* Found a [] pattern, add to range. */
+            listAddNodeTail(ranges, wrange);
+            break;
+        case '\\':
+            if (patternLen >= 2) {
+                pattern++;
+                patternLen--;
+            }
+        default:
+            break;
+        }
+        pattern++;
+        patternLen--;
+    }
+    /* Return empty list to keep using full scan iterator method to
+     * filter matched keys. */
+    if(skipQuickPath) return keys;
+
+    int rangesLen = listLength(ranges);
+    if (rangesLen == 0) {
+        /* Doesn't contain glob-style pattern wildcard characters: *, ?, [], ^.
+         * Add the whole string as key to do GET operation. */
+        listAddNodeTail(keys, sdsnew(originPattern));
+    } else {
+        int product = 1;
+        int allGlobCharLen = 0;
+        listIter li;
+        listNode *ln;
+        listRewind(ranges, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            wildcard_range *range = listNodeValue(ln);
+            int start = range->start;
+            int end = range->end;
+            int len = end - start;
+            product *= sdslen(range->rchar);
+            allGlobCharLen += len;
+        }
+        int globCursor = 0;
+        /* This is the formula to calculate the target char length. */
+        int newlen = originPatternLen - rangesLen - allGlobCharLen;
+        char keybuf[newlen + 1];
+        for (int i = 0; i < product; i++) {
+            int patternIndex = 0;
+            int newCharIndex = 0;
+            while (patternIndex <= originPatternLen) {
+                int rangeFound = 0;
+                for (int j = 0; j < rangesLen; j++) {
+                    wildcard_range *range = listNodeValue(listIndex(ranges, j));
+                    int left = range->start - 1;
+                    int right = range->end;
+                    if (patternIndex >= left && patternIndex <= right) {
+                        rangeFound = 1;
+                        keybuf[newCharIndex] = *(range->rchar + range->rchar_cur);
+                        newCharIndex++;
+                        patternIndex = range->end + 1;
+                        break;
+                    }
+                }
+                if(!rangeFound) {
+                    keybuf[newCharIndex] = originPattern[patternIndex];
+                    newCharIndex++;
+                    patternIndex++;
+                }
+            }
+            keybuf[newlen] = '\0';
+            sds key = sdsnew(keybuf);
+            /* Use listSearchKey to deduplicate. */
+            if(!listSearchKey(keys, key)) listAddNodeTail(keys, key);
+
+            for (int k = 0; k <= globCursor; k++) {
+                wildcard_range *range = listNodeValue(listIndex(ranges, k));
+                if(range->rchar_cur >= (int)sdslen(range->rchar) - 1) {
+                    range->rchar_cur = 0; /* reset cursor to beginning. */
+                    if(listIndex(ranges, k + 1)) {
+                        if(globCursor == k)
+                            globCursor++; /* move cursor to next range. */
+                        continue;
+                    }
+                } else {
+                    range->rchar_cur++;
+                    break;
+                }
+            }
+        }
+    }
+    listRelease(ranges);
+    return keys;
 }
 
 int stringmatchlen(const char *pattern, int patternLen,
