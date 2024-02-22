@@ -5150,11 +5150,6 @@ dictType keylistDictType = {
     NULL                        /* allow to expand */
 };
 
-uint64_t dictObjHash(const void *key);
-int dictObjKeyCompare(void *privdata, const void *key1, const void *key2);
-void dictObjectDestructor(void *privdata, void *val);
-void dictListDestructor(void *privdata, void *val);
-
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
 sentinelRedisInstance *initSentinelRedisInstance4Test() {
