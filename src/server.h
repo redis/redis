@@ -2450,6 +2450,10 @@ void sentinelIsRunning(void);
 void sentinelCheckConfigFile(void);
 #ifdef REDIS_TEST
 int sentinelTest(int argc, char *argv[], int accurate);
+uint64_t dictObjHash(const void *key);
+int dictObjKeyCompare(void *privdata, const void *key1, const void *key2);
+void dictObjectDestructor(void *privdata, void *val);
+void dictListDestructor(void *privdata, void *val);
 #endif
 
 /* redis-check-rdb & aof */
