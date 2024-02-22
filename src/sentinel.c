@@ -5155,6 +5155,12 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     initSentinelConfig();
     initSentinel();
 
+    robj *channel;
+    // channel = zcalloc(sizeof(*o));
+
+    clients = listCreate();
+    dictAdd(server.pubsub_channels,channel,clients);
+
     TEST("test elect abort") {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
         printf("failover_start_time = %lld\n", ri->failover_start_time); // 输出变量值
