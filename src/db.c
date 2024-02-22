@@ -46,9 +46,11 @@
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
 
 /* Return values for expireIfNeeded */
-#define KEY_VALID 0
-#define KEY_EXPIRED 1
-#define KEY_DELETED 2
+enum {
+    KEY_VALID = 0,
+    KEY_EXPIRED,
+    KEY_DELETED
+};
 
 int expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
