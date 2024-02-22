@@ -4450,9 +4450,9 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
 
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
-    //todo debug
-    serverLog(LL_WARNING,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
-        master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
+    // //todo debug
+    // serverLog(LL_WARNING,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
+    //     master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
@@ -5151,7 +5151,8 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     UNUSED(argv);
     UNUSED(accurate);
 
-    sentinel.masters = dictCreate(&instancesDictType,NULL);
+    initSentinelConfig();
+    initSentinel();
 
     TEST("test elect abort") {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
