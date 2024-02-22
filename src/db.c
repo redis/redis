@@ -1835,7 +1835,9 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     } else if (server.pseudo_replica) {
         /* If we are in 'pseudo_replica' mode, we stop expiration.
          * If the client is a pseudo master, keys are never considered expired. */
-        if (server.current_client && (server.current_client->flags & CLIENT_PSEUDO_MASTER)) return 0;
+        if (server.current_client && (server.current_client->flags & CLIENT_PSEUDO_MASTER)) {
+            return 0;
+        }
         return 1;
     }
 
