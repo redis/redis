@@ -2448,6 +2448,9 @@ void queueSentinelConfig(sds *argv, int argc, int linenum, sds line);
 void loadSentinelConfigFromQueue(void);
 void sentinelIsRunning(void);
 void sentinelCheckConfigFile(void);
+#ifdef REDIS_TEST
+int sentinelTest(int argc, char *argv[], int accurate);
+#endif
 
 /* redis-check-rdb & aof */
 int redis_check_rdb(char *rdbfilename, FILE *fp);

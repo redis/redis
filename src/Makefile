@@ -402,6 +402,10 @@ test-modules: $(REDIS_SERVER_NAME)
 test-sentinel: $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME)
 	@(cd ..; ./runtest-sentinel)
 
+unit-test-sentinel:
+	$(MAKE) CFLAGS="-DREDIS_TEST" OPTIMIZATION="-O0"
+	@(./$(REDIS_SERVER_NAME) test sentinel)
+
 check: test
 
 lcov:

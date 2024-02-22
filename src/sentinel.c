@@ -5135,3 +5135,28 @@ void sentinelTimer(void) {
      * election because of split brain voting). */
     server.hz = CONFIG_DEFAULT_HZ + rand() % CONFIG_DEFAULT_HZ;
 }
+
+#ifdef REDIS_TEST
+#define TEST(name) printf("test — %s\n", name);
+
+void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
+
+sentinelRedisInstance *initSentinelRedisInstance4Test() {
+    sentinelRedisInstance *ri = createSentinelRedisInstance("localhost", SRI_MASTER, "localhost", 20000, 3, NULL);
+    return ri;
+}
+
+int sentinelTest(int argc, char *argv[], int accurate) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(accurate);
+
+    TEST("init sentinel test") {
+        sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
+        ri.failover_start_time = mstime() - SENTINEL_ELECTION_TIMEOUT - 1;
+        ri.failover_timeout = SENTINEL_ELECTION_TIMEOUT + 1;
+        sentinelFailoverWaitStart(&ri);
+        assert(ri.flags == SRI_ELECT_ABORT);
+    }
+}
+#endif
