@@ -5139,7 +5139,7 @@ void sentinelTimer(void) {
 #ifdef REDIS_TEST
 #define TEST(name) printf("test — %s\n", name);
 
-#include "dick.h"
+#include "dict.h"
 dictType keylistDictType = {
     dictObjHash,                /* hash function */
     NULL,                       /* key dup */
