@@ -340,6 +340,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
  * If there are no keys, NULL is returned.
  *
  * The function makes sure to return keys not already expired. */
+#define GETFAIR_NUM_ENTRIES 15
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
@@ -349,29 +350,53 @@ robj *dbRandomKey(redisDb *db) {
         sds key;
         robj *keyobj;
         int randomSlot = kvstoreGetFairRandomDictIndex(db->keys);
-        de = kvstoreDictGetFairRandomKey(db->keys, randomSlot);
-        if (de == NULL) return NULL;
-
-        key = dictGetKey(de);
-        keyobj = createStringObject(key,sdslen(key));
-        if (dbFindExpires(db, key)) {
-            if (allvolatile && server.masterhost && --maxtries == 0) {
-                /* If the DB is composed only of keys with an expire set,
-                 * it could happen that all the keys are already logically
-                 * expired in the slave, so the function cannot stop because
-                 * expireIfNeeded() is false, nor it can stop because
-                 * dictGetFairRandomKey() returns NULL (there are keys to return).
-                 * To prevent the infinite loop we do some tries, but if there
-                 * are the conditions for an infinite loop, eventually we
-                 * return a key name that may be already expired. */
-                return keyobj;
+        if (kvstoreDictSize(db->keys, randomSlot) == 0) return NULL;
+        dictEntry *entries[GETFAIR_NUM_ENTRIES];
+        unsigned int count = kvstoreDictGetSomeKeys(db->keys, randomSlot, entries, GETFAIR_NUM_ENTRIES);    
+        if (count == 0) {
+            entries[0] = kvstoreDictGetRandomKey(db->keys, randomSlot);
+            count = 1;
+        }
+        int candidate_count = count;
+        while (candidate_count > 0) {
+            int deleted = 0;
+            int index = rand() % candidate_count;
+            de = entries[index];
+            /* kvstoreDictGetSomeKeys may return duplicate entries, 
+             * so we need to skip the already processed entry. */
+            for (int i = candidate_count; i < (int)count; i++) {
+                if(de == entries[i]) {
+                    deleted = 1;
+                }
             }
-            if (expireIfNeeded(db,keyobj,0)) {
-                decrRefCount(keyobj);
+            if (!deleted) {
+                key = dictGetKey(de);
+                keyobj = createStringObject(key,sdslen(key));
+                if (dbFindExpires(db, key)) {
+                    if (allvolatile && server.masterhost && --maxtries == 0) {
+                        /* If the DB is composed only of keys with an expire set,
+                        * it could happen that all the keys are already logically
+                        * expired in the slave, so the function cannot stop because
+                        * expireIfNeeded() is false, nor it can stop because
+                        * dictGetFairRandomKey() returns NULL (there are keys to return).
+                        * To prevent the infinite loop we do some tries, but if there
+                        * are the conditions for an infinite loop, eventually we
+                        * return a key name that may be already expired. */
+                        return keyobj;
+                    }
+                    if (expireIfNeeded(db,keyobj,0)) {
+                        decrRefCount(keyobj);
+                        deleted = 1;
+                    }
+                }
+            }
+            if (deleted) {
+                entries[index] = entries[--candidate_count];
+                entries[candidate_count] = NULL;
                 continue; /* search for another key. This expired. */
             }
+            return keyobj;
         }
-        return keyobj;
     }
 }
 
