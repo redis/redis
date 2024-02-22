@@ -46,13 +46,13 @@
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
 
 /* Return values for expireIfNeeded */
-enum {
+typedef enum {
     KEY_VALID = 0,
     KEY_EXPIRED,
     KEY_DELETED
-};
+} keyStatus;
 
-int expireIfNeeded(redisDb *db, robj *key, int flags);
+keyStatus expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
 
@@ -111,7 +111,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
         if (flags & LOOKUP_NOEXPIRE)
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
-        if (expireIfNeeded(db, key, expire_flags)) {
+        if (expireIfNeeded(db, key, expire_flags) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -373,7 +373,7 @@ robj *dbRandomKey(redisDb *db) {
                  * return a key name that may be already expired. */
                 return keyobj;
             }
-            if (expireIfNeeded(db,keyobj,0)) {
+            if (expireIfNeeded(db,keyobj,0) != KEY_VALID) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
             }
@@ -1187,7 +1187,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
                 }
                 continue;
             }
-            if (expireIfNeeded(c->db, &kobj, 0)) {
+            if (expireIfNeeded(c->db, &kobj, 0) != KEY_VALID) {
                 listDelNode(keys, ln);
             }
         }
@@ -1820,7 +1820,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  * The return value of the function is KEY_VALID if the key is still valid.
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted, 
  * or returns KEY_DELETED if the key is expired and deleted. */
-int expireIfNeeded(redisDb *db, robj *key, int flags) {
+keyStatus expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (server.lazy_expire_disabled) return KEY_VALID;
     if (!keyIsExpired(db,key)) return KEY_VALID;
 
