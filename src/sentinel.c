@@ -5139,6 +5139,8 @@ void sentinelTimer(void) {
 #ifdef REDIS_TEST
 #define TEST(name) printf("test — %s\n", name);
 
+
+
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
 sentinelRedisInstance *initSentinelRedisInstance4Test() {
@@ -5152,14 +5154,12 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     UNUSED(accurate);
 
     initServerConfig();
-    initServer();
     initSentinelConfig();
     initSentinel();
 
-    robj *channel;
-    channel = zcalloc(sizeof(*channel));
-
+    sds channel = sdsnew("channel");
     list *clients = listCreate();
+    server.pubsub_channels = dictCreate(&dictTypeHeapStrings, NULL);
     dictAdd(server.pubsub_channels,channel,clients);
 
     TEST("test elect abort") {
