@@ -2312,15 +2312,22 @@ void sentinelFlushConfig(void) {
     int rewrite_status;
 
     server.hz = CONFIG_DEFAULT_HZ;
+
+    mstime_t beforeRewrite = mstime(); // 获取开始Rewrite时间
     rewrite_status = rewriteConfig(server.configfile, 0);
+    
     server.hz = saved_hz;
 
     if (rewrite_status == -1) goto werr;
+    mstime_t openT = mstime(); // 获取开始open时间
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
+    mstime_t fsyncT = mstime(); // 获取开始fsync时间
     if (fsync(fd) == -1) goto werr;
+    mstime_t closeT = mstime(); // 获取开始fsync时间
     if (close(fd) == EOF) goto werr;
     mstime_t afterFlush = mstime(); // 获取结束flush时间
-    serverLog(LL_WARNING, "flush: %lld, endflush: %lld", (long long)beforeFlush, (long long)afterFlush);
+    serverLog(LL_WARNING, "flush: %lld, beforeRewrite: %lld, openT: %lld, fsyncT: %lld, closeT:%lld, endflush: %lld",
+         (long long)beforeFlush, (long long)beforeRewrite, (long long)openT, (long long)fsyncT, (long long)closeT, (long long)afterFlush);
     return;
 
 werr:
@@ -5170,7 +5177,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
         printf("failover_start_time = %lld\n", ri->failover_start_time); // 输出变量值
         ri->failover_timeout = SENTINEL_ELECTION_TIMEOUT + 1;
         sentinelFailoverWaitStart(ri);
-        serverAssert((ri->flags&SRI_ELECT_ABORT) == 1);
+        serverAssert((ri->flags& SRI_ELECT_ABORT) == 1);
         releaseSentinelRedisInstance(ri);
     }
 }
