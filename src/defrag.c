@@ -92,6 +92,13 @@ sds activeDefragSds(sds sdsptr) {
     return NULL;
 }
 
+/* Defrag helper for robj and/or string objects with expected refcount.
+ *
+ * Like activeDefragStringOb, but it requires the caller to pass in the expected
+ * reference count. In some cases, the caller needs to update a robj whose
+ * reference count is not 1, in these cases, the caller must explicitly pass
+ * in the reference count, otherwise defragmentation will not be performed.
+ * Note that the caller is responsible for updating any other references to the robj. */
 robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
     robj *ret = NULL;
     if (ob->refcount!=expected_refcount)
