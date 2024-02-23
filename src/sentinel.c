@@ -5165,6 +5165,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
         sentinelRedisInstance *ri = initSentinelRedisInstance4Test();
         printf("failover_start_time = %lld\n", ri->failover_start_time); // 输出变量值
         ri->flags |= SRI_O_DOWN;
+        ri->flags |= SRI_FAILOVER_IN_PROGRESS;
         ri->failover_start_time = mstime() - SENTINEL_ELECTION_TIMEOUT - 1;
         printf("failover_start_time = %lld\n", ri->failover_start_time); // 输出变量值
         ri->failover_timeout = SENTINEL_ELECTION_TIMEOUT + 1;
