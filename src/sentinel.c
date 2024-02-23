@@ -5158,7 +5158,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
 
     sds channel = sdsnew("channel");
     list *clients = listCreate();
-    server.pubsub_channels = dictCreate(&keylistDictType, NULL);
+    initServer4Test();
     dictAdd(server.pubsub_channels,channel,clients);
 
     TEST("test elect abort") {

@@ -6282,6 +6282,12 @@ int main(int argc, char **argv) {
     }
 #endif
 
+#ifdef REDIS_TEST
+void initServer4Test(void) {
+    server.pubsub_channels = dictCreate(&keylistDictType,NULL);
+}
+#endif
+
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
