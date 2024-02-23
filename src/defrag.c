@@ -156,15 +156,19 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
  * receives a pointer to the dict* and implicitly updates it when the dict
- * struct itself was moved. */
+ * struct itself was moved.
+ * 
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
 dict *dictDefragTables(dict *d) {
+    dict *ret = NULL;
     dictEntry **newtable;
     /* handle the dict struct */
-    dict *newd = activeDefragAlloc(d);
-    if (newd)
-        d = newd;
+    if ((ret = activeDefragAlloc(d)))
+        d = ret;
     /* handle the first hash table */
-    if (!d->ht_table[0]) return d; /* created but unused */
+    if (!d->ht_table[0]) return ret; /* created but unused */
     newtable = activeDefragAlloc(d->ht_table[0]);
     if (newtable)
         d->ht_table[0] = newtable;
@@ -174,7 +178,7 @@ dict *dictDefragTables(dict *d) {
         if (newtable)
             d->ht_table[1] = newtable;
     }
-    return d;
+    return ret;
 }
 
 /* Internal function used by zslDefrag */
@@ -456,6 +460,7 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
     zset *zs = (zset*)ob->ptr;
     zset *newzs;
     zskiplist *newzsl;
+    dict *newdict;
     dictEntry *de;
     struct zskiplistNode *newheader;
     serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
@@ -474,34 +479,37 @@ void defragZsetSkiplist(redisDb *db, dictEntry *kde) {
         }
         dictReleaseIterator(di);
     }
-    /* defrag the dict tables */
-    zs->dict = dictDefragTables(zs->dict);
+    /* defrag the dict struct and tables */
+    if ((newdict = dictDefragTables(zs->dict)))
+        zs->dict = newdict;
 }
 
 void defragHash(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
-    dict *d;
+    dict *d, *newd;
     serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT);
     d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
-    /* defrag the dict tables */
-    ob->ptr = dictDefragTables(ob->ptr);
+    /* defrag the dict struct and tables */
+    if ((newd = dictDefragTables(ob->ptr)))
+        ob->ptr = newd;
 }
 
 void defragSet(redisDb *db, dictEntry *kde) {
     robj *ob = dictGetVal(kde);
-    dict *d;
+    dict *d, *newd;
     serverAssert(ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT);
     d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
-    /* defrag the dict tables */
-    ob->ptr = dictDefragTables(ob->ptr);
+    /* defrag the dict struct and tables */
+    if ((newd = dictDefragTables(ob->ptr)))
+        ob->ptr = newd;
 }
 
 /* Defrag callback for radix tree iterator, called for each node,
@@ -792,7 +800,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
     defragPubSubCtx *ctx = privdata;
     kvstore *pubsub_channels = ctx->pubsub_channels;
     robj *newchannel, *channel = dictGetKey(de);
-    dict *clients = dictGetVal(de);
+    dict *newclients, *clients = dictGetVal(de);
 
     /* Try to defrag the key name. */
     serverAssert(channel->refcount == (int)dictSize(clients) + 1);
@@ -815,9 +823,8 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
     }
 
     /* Try to defrag the dictionary of client that is stored as the value part. */
-    clients = dictDefragTables(clients);
-    if (clients)
-        kvstoreDictSetVal(pubsub_channels, ctx->slot, (dictEntry*)de, clients);
+    if ((newclients = dictDefragTables(clients)))
+        kvstoreDictSetVal(pubsub_channels, ctx->slot, (dictEntry*)de, newclients);
 
     server.stat_active_defrag_scanned++;
 }

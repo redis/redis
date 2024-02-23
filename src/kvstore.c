@@ -726,10 +726,11 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
  * that callback can reallocate. */
 void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) {
     for (int didx = 0; didx < kvs->num_dicts; didx++) {
-        dict **d = kvstoreGetDictRef(kvs, didx);
+        dict **d = kvstoreGetDictRef(kvs, didx), *newd;
         if (!*d)
             continue;
-        *d = defragfn(*d);
+        if ((newd = defragfn(*d)))
+            *d = newd;
     }
 }
 
