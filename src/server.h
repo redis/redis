@@ -53,7 +53,6 @@
 #include <sys/socket.h>
 #include <lua.h>
 #include <signal.h>
-#include <stdbool.h>
 
 #ifdef HAVE_LIBSYSTEMD
 #include <systemd/sd-daemon.h>
@@ -1181,7 +1180,7 @@ typedef struct monitorFilters {
     list *laddrs;   /* sds */
     intset *types;
     list *commands; /* struct redisCommand* */
-    bool exclude_commands;
+    int exclude_commands;
 } monitorFilters;
 
 typedef struct client {
