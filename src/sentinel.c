@@ -5156,7 +5156,7 @@ int sentinelTest(int argc, char *argv[], int accurate) {
     initSentinelConfig();
     initSentinel();
 
-    sds channel = sdsnew("channel");
+    robj* channel = createStringObject("test", sizeof("test"));
     list *clients = listCreate();
     initServer4Test();
     dictAdd(server.pubsub_channels,channel,clients);
