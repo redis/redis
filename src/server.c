@@ -6209,6 +6209,7 @@ int iAmMaster(void) {
 #ifdef REDIS_TEST
 void initServer4Test(void) {
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
+    server.pubsub_patterns = dictCreate(&keylistDictType,NULL);
 }
 #endif
 
