@@ -6207,6 +6207,12 @@ int iAmMaster(void) {
 }
 
 #ifdef REDIS_TEST
+void initServer4Test(void) {
+    server.pubsub_channels = dictCreate(&keylistDictType,NULL);
+}
+#endif
+
+#ifdef REDIS_TEST
 typedef int redisTestProc(int argc, char **argv, int accurate);
 struct redisTest {
     char *name;
@@ -6280,12 +6286,6 @@ int main(int argc, char **argv) {
 
         return 0;
     }
-#endif
-
-#ifdef REDIS_TEST
-void initServer4Test(void) {
-    server.pubsub_channels = dictCreate(&keylistDictType,NULL);
-}
 #endif
 
     /* We need to initialize our libraries, and the server configuration. */
