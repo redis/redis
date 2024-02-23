@@ -1246,20 +1246,26 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
+
+        size_t mem_usage_keys = kvstoreMemUsage(db->keys);
+        size_t mem_usage_expires = kvstoreMemUsage(db->expires);
+        if (mem_usage_keys == 0 && mem_usage_expires == 0) {
+            continue;
+        }
+
         unsigned long long keyscount = kvstoreSize(db->keys);
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = kvstoreMemUsage(db->keys) +
+        mem = mem_usage_keys +
               keyscount * sizeof(robj);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        mem = kvstoreMemUsage(db->expires);
-        mh->db[mh->num_dbs].overhead_ht_expires = mem;
-        mem_total+=mem;
+        mh->db[mh->num_dbs].overhead_ht_expires = mem_usage_expires;
+        mem_total+=mem_usage_expires;
 
         mh->num_dbs++;
 

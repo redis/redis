@@ -331,7 +331,7 @@ unsigned long kvstoreBuckets(kvstore *kvs) {
 }
 
 size_t kvstoreMemUsage(kvstore *kvs) {
-    size_t mem = sizeof(*kvs);
+    size_t mem = 0;
 
     unsigned long long keys_count = kvstoreSize(kvs);
     mem += keys_count * dictEntryMemUsage() +
