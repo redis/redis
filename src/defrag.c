@@ -1113,35 +1113,32 @@ void activeDefragCycle(void) {
             }
 
             if (!defrag_later_item_in_progress) {
-                switch (defrag_state) {
-                    case DEFRAG_KEYS: {
-                        cursor = kvstoreDictScanDefrag(db->keys, slot, cursor, defragScanCallback,
-                                                       &defragfns, &ctx);
-                        if (!cursor) defrag_state = DEFRAG_EXPIRES;
-                        __attribute__((fallthrough));
+                if (defrag_state == DEFRAG_KEYS) {
+                    cursor = kvstoreDictScanDefrag(db->keys, slot, cursor, defragScanCallback,
+                                                   &defragfns, &ctx);
+                    if (!cursor) defrag_state = DEFRAG_EXPIRES;
+                }
+
+                if (defrag_state == DEFRAG_EXPIRES) {
+                    expires_cursor = kvstoreDictScanDefrag(db->expires, slot, expires_cursor,
+                                                           scanCallbackCountScanned, &defragfns, NULL);
+                    if (!expires_cursor) defrag_state = DEFRAG_KEYS;
+                }
+
+                if (defrag_state == DEFRAG_PUBSUB) {
+                    if (slot == 0) {
+                        defragPubSubCtx ctx_pubsub = { server.pubsub_channels, getClientPubSubChannels, slot };
+                        pubsub_cursor = kvstoreDictScanDefrag(server.pubsub_channels, slot,
+                            pubsub_cursor, defragPubsubScanCallback, &defragfns, &ctx_pubsub);
                     }
-                    case DEFRAG_EXPIRES: {
-                        expires_cursor = kvstoreDictScanDefrag(db->expires, slot, expires_cursor,
-                                                               scanCallbackCountScanned, &defragfns, NULL);
-                        if (!expires_cursor) defrag_state = DEFRAG_KEYS;
-                        __attribute__((fallthrough));
-                    }
-                    case DEFRAG_PUBSUB: {
-                        if (slot == 0) {
-                            defragPubSubCtx ctx_pubsub = { server.pubsub_channels, getClientPubSubChannels, slot };
-                            pubsub_cursor = kvstoreDictScanDefrag(server.pubsub_channels, slot,
-                                pubsub_cursor, defragPubsubScanCallback, &defragfns, &ctx_pubsub);
-                        }
-                        if (!pubsub_cursor) defrag_state = DEFRAG_PUBSUBSHARD;
-                        __attribute__((fallthrough));
-                    }
-                    case DEFRAG_PUBSUBSHARD: {
-                        defragPubSubCtx ctx_pubsub_shard = { server.pubsubshard_channels, getClientPubSubShardChannels, slot };
-                        pubsubshard_cursor = kvstoreDictScanDefrag(server.pubsubshard_channels, slot,
-                            pubsubshard_cursor, defragPubsubScanCallback, &defragfns, &ctx_pubsub_shard);
-                        if (!pubsubshard_cursor) defrag_state = DEFRAG_KEYS;
-                        break;
-                    }
+                    if (!pubsub_cursor) defrag_state = DEFRAG_PUBSUBSHARD;
+                }
+
+                if (defrag_state == DEFRAG_PUBSUBSHARD) {
+                    defragPubSubCtx ctx_pubsub_shard = { server.pubsubshard_channels, getClientPubSubShardChannels, slot };
+                    pubsubshard_cursor = kvstoreDictScanDefrag(server.pubsubshard_channels, slot,
+                        pubsubshard_cursor, defragPubsubScanCallback, &defragfns, &ctx_pubsub_shard);
+                    if (!pubsubshard_cursor) defrag_state = DEFRAG_KEYS;
                 }
             }
 
