@@ -1645,7 +1645,8 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         serverLog(LL_WARNING, "Could not create tmp config file (%s)", strerror(errno));
         return retval;
     }
-
+    mstime_t beforeWhile = mstime(); // 获取结束flush时间
+    
     while (offset < sdslen(content)) {
          written_bytes = write(fd, content + offset, sdslen(content) - offset);
          if (written_bytes <= 0) {
@@ -1655,6 +1656,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
          }
          offset+=written_bytes;
     }
+    mstime_t fsyncT = mstime(); // 获取结束flush时间
 
     if (fsync(fd))
         serverLog(LL_WARNING, "Could not sync tmp config file to disk (%s)", strerror(errno));
@@ -1666,6 +1668,9 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         retval = 0;
         serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
     }
+    mstime_t end = mstime(); // 获取结束flush时间
+    serverLog(LL_WARNING, "inner-- beforeWhile: %lld, fsyncT: %lld, end: %lld",
+         (long long)beforeWhile, (long long)fsyncT, (long long)end);
 
 cleanup:
     close(fd);
