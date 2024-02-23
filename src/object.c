@@ -1616,7 +1616,7 @@ NULL
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);
 
-        addReplyBulkCString(c,"dict.rehashing.count");
+        addReplyBulkCString(c,"database.dict.rehashing.count");
         addReplyLongLong(c, mh->db_dict_rehashing_count);
 
         addReplyBulkCString(c,"keys.count");
