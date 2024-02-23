@@ -1693,6 +1693,8 @@ int rewriteConfig(char *path, int force_all) {
     sds newcontent;
     int retval;
 
+    mstime_t readT = mstime(); // 获取read
+
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
     if (force_all) state->force_all = 1;
@@ -1705,6 +1707,7 @@ int rewriteConfig(char *path, int force_all) {
         config->interface.rewrite(config->data, config->name, state);
     }
 
+    mstime_t stateT = mstime(); // 获取state
     rewriteConfigBindOption(state);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,CONFIG_DEFAULT_UNIX_SOCKET_PERM);
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
@@ -1717,17 +1720,23 @@ int rewriteConfig(char *path, int force_all) {
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigOOMScoreAdjValuesOption(state);
 
+    mstime_t reSentinelT = mstime(); // reSentinel
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
 
+    mstime_t removeOrphaneT = mstime(); // removeOrphaneT
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case
      * of multiple "save" options or duplicated options. */
     rewriteConfigRemoveOrphaned(state);
 
+    mstime_t getContentT = mstime(); // getContentT
     /* Step 4: generate a new configuration file from the modified state
      * and write it into the original file. */
     newcontent = rewriteConfigGetContentFromState(state);
+
+    serverLog(LL_WARNING, "rewrite-- readT: %lld, stateT: %lld, reSentinelT: %lld, removeOrphaneT: %lld, getContentT: %lld",
+         (long long)readT, (long long)stateT, (long long)reSentinelT, (long long)removeOrphaneT, (long long)getContentT);
     retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
 
     sdsfree(newcontent);
