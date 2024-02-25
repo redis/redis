@@ -4080,7 +4080,7 @@ void replicationSteadyStateInit(void) {
 }
 
 /* Replication: Replica side.
- * Turn the provisional master into the current maste.
+ * Turn the provisional master into the current master.
  * This function is called after rdb-channel sync is finished successfully. */
 void replicationResurrectProvisionalMaster(void) {
     /* Create a master client, but do not initialize the read handler yet, as this replica still has a local buffer to drain. */
