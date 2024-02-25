@@ -1161,9 +1161,21 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
     int count = 0;
 
+    long long start_time = (long long)mstime();
+    long long now = start_time;
+    long long fgets_time = 0ll;
+    long long sdssplitargs_time = 0ll;
+    long long sdstolower_time = 0ll;
+    long long rewrite_time = 0ll;
+    long long free_time = 0ll;
     /* Read the old file line by line, populate the state. */
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- beforewhile: %lld", (long long)mstime());
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- beforewhile: %lld", start_time);
+    now = (long long)mstime();
     while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
+        
+        fgets_time += (long long)mstime() - now;
+        now = (long long)mstime();
+
         int argc;
         sds *argv;
         sds line = sdstrim(sdsnew(buf),"\r\n\t ");
@@ -1180,6 +1192,10 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
+
+        sdssplitargs_time += (long long)mstime() - now;
+        now = (long long)mstime();
+
         if (argv == NULL) {
             /* Apparently the line is unparsable for some reason, for
              * instance it may have unbalanced quotes. Load it as a
@@ -1193,9 +1209,15 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         sdstolower(argv[0]); /* We only want lowercase config directives. */
 
+        sdstolower_time += (long long)mstime() - now;
+        now = (long long)mstime();
+
         /* Now we populate the state according to the content of this line.
          * Append the line and populate the option -> line numbers map. */
         rewriteConfigAppendLine(state,line);
+
+        rewrite_time += (long long)mstime() - now;
+        now = (long long)mstime();
 
         /* Translate options using the word "slave" to the corresponding name
          * "replica", before adding such option to the config name -> lines
@@ -1221,8 +1243,11 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         }
         sdsfreesplitres(argv,argc);
         count++;
+        free_time += (long long)mstime() - now;
+        now = (long long)mstime();
     }
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- count: %d", count);
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- count: %d, fgets_time: %lld, sdssplitargs_time: %lld, sdstolower_time: %lld, rewrite_time: %lld,  free_time: %lld",
+         count, fgets_time, sdssplitargs_time, sdstolower_time, rewrite_time, free_time);
     serverLog(LL_WARNING, "rewriteConfigReadOldFile-- fclose: %lld", (long long)mstime());
     fclose(fp);
     return state;
