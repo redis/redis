@@ -162,11 +162,11 @@ luaScript *activeDefragLuaScript(luaScript *script) {
 }
 
 /* Defrag helper for dict main allocations (dict struct, and hash tables).
- * receives a pointer to the dict* and implicitly updates it when the dict
+ * Receives a pointer to the dict* and return a new dict* when the dict
  * struct itself was moved.
  * 
- * returns NULL in case the allocation wasn't moved.
- * when it returns a non-null value, the old pointer was already released
+ * Returns NULL in case the allocation wasn't moved.
+ * When it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 dict *dictDefragTables(dict *d) {
     dict *ret = NULL;
