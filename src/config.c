@@ -1159,7 +1159,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->force_all = 0;
     if (fp == NULL) return state;
 
-    int conut = 0;
+    int count = 0;
 
     /* Read the old file line by line, populate the state. */
     serverLog(LL_WARNING, "rewriteConfigReadOldFile-- beforewhile: %lld", (long long)mstime());
