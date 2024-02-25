@@ -1159,6 +1159,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->force_all = 0;
     if (fp == NULL) return state;
 
+    int conut = 0;
+
     /* Read the old file line by line, populate the state. */
     serverLog(LL_WARNING, "rewriteConfigReadOldFile-- beforewhile: %lld", (long long)mstime());
     while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
@@ -1218,7 +1220,9 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
         }
         sdsfreesplitres(argv,argc);
+        count++;
     }
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- count: %d", count);
     serverLog(LL_WARNING, "rewriteConfigReadOldFile-- fclose: %lld", (long long)mstime());
     fclose(fp);
     return state;
