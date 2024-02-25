@@ -219,9 +219,10 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
 /* Replication: Master side - connection peering.
  * On rdb-channel sync, connection peering is used to keep replication data in 
  * the backlog until the replica requests PSYNC. Peering happens in two forms, 
- * if there's an existing backlog at the fork time, the replica is attached to 
- * the tail, if there is no backlog, the replica will be attached when the 
- * backlog is created. Replica listening ip and port is used as a unique key 
+ * if there's an existing buffer block at the fork time, the replica is attached
+ * to the tail, if there is no tail, the replica will be attached when a new
+ * buffer block is created (see the Retrospect function below).
+  * Replica listening IP and port is used as a unique key
  * for the peering. On COB overrun, peering is deleted and the RDB connection 
  * is dropped.
  */
