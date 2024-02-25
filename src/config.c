@@ -1141,11 +1141,15 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
  * If it is impossible to read the old file, NULL is returned.
  * If the old file does not exist at all, an empty state is returned. */
 struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
+    
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- fopen: %lld", (long long)mstime());
+
     FILE *fp = fopen(path,"r");
     if (fp == NULL && errno != ENOENT) return NULL;
 
     char buf[CONFIG_MAX_LINE+1];
     int linenum = -1;
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- zmalloc: %lld", (long long)mstime());
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
     state->option_to_line = dictCreate(&optionToLineDictType,NULL);
     state->rewritten = dictCreate(&optionSetDictType,NULL);
@@ -1156,6 +1160,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     if (fp == NULL) return state;
 
     /* Read the old file line by line, populate the state. */
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- beforewhile: %lld", (long long)mstime());
     while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
         int argc;
         sds *argv;
@@ -1214,6 +1219,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         }
         sdsfreesplitres(argv,argc);
     }
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- fclose: %lld", (long long)mstime());
     fclose(fp);
     return state;
 }
