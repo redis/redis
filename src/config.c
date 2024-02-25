@@ -1165,6 +1165,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     long long now = start_time;
     long long fgets_time = 0ll;
     long long sdssplitargs_time = 0ll;
+    long long handle_time = 0ll;
     long long sdstolower_time = 0ll;
     long long rewrite_time = 0ll;
     long long free_time = 0ll;
@@ -1189,6 +1190,9 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
             rewriteConfigAppendLine(state,line);
             continue;
         }
+
+        handle_time += (long long)mstime() - now;
+        now = (long long)mstime();
 
         /* Not a comment, split into arguments. */
         argv = sdssplitargs(line,&argc);
@@ -1246,8 +1250,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         free_time += (long long)mstime() - now;
         now = (long long)mstime();
     }
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- count: %d, fgets_time: %lld, sdssplitargs_time: %lld, sdstolower_time: %lld, rewrite_time: %lld,  free_time: %lld",
-         count, fgets_time, sdssplitargs_time, sdstolower_time, rewrite_time, free_time);
+    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- count: %d, fgets_time: %lld, handle_time: %lld, sdssplitargs_time: %lld, sdstolower_time: %lld, rewrite_time: %lld,  free_time: %lld",
+         count, fgets_time, handle_time, sdssplitargs_time, sdstolower_time, rewrite_time, free_time);
     serverLog(LL_WARNING, "rewriteConfigReadOldFile-- fclose: %lld", (long long)mstime());
     fclose(fp);
     return state;
