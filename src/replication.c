@@ -255,6 +255,7 @@ void peerPendingSlavesToBacklogBlockRetrospect(void) {
     di = dictGetSafeIterator(server.pending_slaves);
     while((de = dictNext(di)) != NULL) {
         client* slave = dictGetVal(de);
+        if (slave->ref_repl_buf_node) continue;
         slave->ref_repl_buf_node = ln;
         head->refcount++;
         serverLog(LL_DEBUG, "Retrospect peer slave %s", (sds)dictGetKey(de));
@@ -2864,7 +2865,7 @@ void streamReplDataBufToDb(client *c) {
 
 /* Replication: Replica side.
  * After done loading the snapshot using the rdb-connection prepare this replica for steady state by
- * initilizing the master client, amd stream local increamental buffer into memory. */
+ * initializing the master client, amd stream local increamental buffer into memory. */
 void rdbChannelSyncSuccess(void) {
     replicationResurrectProvisionalMaster();
     /* Wait for the accumulated buffer to be processed before reading any more replication updates */
@@ -3193,6 +3194,68 @@ void setupMainConnForPsync(connection *conn) {
     cancelReplicationHandshake(1);
 }
 
+/*
+ * RDB-Channel sync high level interface design:
+ *  - RDB-Channel sync begins when the replica sends a REPLCONF MAINCONN to the master during initial 
+ *    handshake. This allows the replica to verify whether the master supports rdb-channel sync and, if 
+ *    so, state that this is the replica's main connection, which is not used for snapshot transfer. 
+ *  - When replica lacks sufficient data for PSYNC, the master will send -FULLSYNCNEEDED response instead 
+ *    of RDB data. As a next step, the replica creates a new connection (rdb-channel) and configures it against 
+ *    the master with the appropriate capabilities and requirements. The replica then requests a sync 
+ *    using the RDB connection. 
+ *  - Prior to forking, the master sends the replica the snapshot's end repl-offset, and attaches the replica 
+ *    to the replication backlog to keep repl data until the replica requests psync. The replica uses the main 
+ *    connection to request a PSYNC starting at the snapshot end offset. 
+ *  - The master main threads sends incremental changes via the main connection, while the bgsave process 
+ *    sends the RDB directly to the replica via the rdb-connection. As for the replica, the incremental 
+ *    changes are stored on a local buffer, while the RDB is loaded into memory. 
+ *  - Once the replica completes loading the rdb, it drops the rdb-connection and streams the accumulated incremental 
+ *    changes into memory. Repl steady state continues normally.
+ * 
+ * Sync performance is improved in two ways by RDB-channels:
+ * - CPU load from the master's main process. As a result of using another connection for RDB transfers, we allow bgsave 
+ *   to write directly to the replica without pipeline to main process.
+ * - Memory load from the master's node. The master will use less memory while syncing because we send incremental data 
+ *   simultaneously with the snapshot.
+ *
+ * ----------------------------------  New Replica state machine ----------------------------------
+ * 
+ *                                                             RDB Channel Sync                                                
+ *                                                          ┌───────────────────────────────────────────────────────────┐    
+ *                                                          │   RDB connection states            Main connection states │    
+ * ┌───────────────────┐           ┌────────────┐           │       ┌──────────────────────────┐                        │    
+ * │RECEIVE_PING_REPLY │       ┌───►SEND_PSYNC  │ -FULLSYNCNEEDED───┤RDB_CONN_SEND_CAPA        │                        │    
+ * └────────┬──────────┘       │   └─┬──────────┘        │  │       └──┬───────────────────────┘                        │    
+ *          │+PONG             │     │PSYNC (use cached-master)        │                                                │    
+ * ┌────────▼──────────┐       │   ┌─▼─────────────────┐ │  │  ┌───────▼───────────────────────┐                        │    
+ * │SEND_HANDSHAKE     │       │ ┌─┤RECEIVE_PSYNC_REPLY├─┘  │  │RDB_CONN_RECEIVE_REPLCONF_REPLY│                        │    
+ * └────────┬──────────┘       │ │ └─┬─────────────────┘    │  └───────┬───────────────────────┘                        │    
+ *          │                  │ │   │+FULLRESYNC           │          │                                                │    
+ * ┌────────▼──────────┐       │ │ ┌─▼─────────────────┐    │  ┌───────▼───────────────┐         ┌───────────────────┐  │    
+ * │RECEIVE_AUTH_REPLY │       │ │ │TRANSFER           │    │  │RDB_CONN_RECEIVE_ENDOFF│   ┌─────►SEND_PSYNC         │  │    
+ * └────────┬──────────┘       │ │ └───────────────────┘    │  └───────┬───────────────┘   │     └────┬──────────────┘  │    
+ *          │+OK               │ │                          │          │$ENDOFF            │          │PSYNC use snapshot    
+ * ┌────────▼──────────┐       │ │                          │          ├───────────────────┘          │end-offset provided   
+ * │RECEIVE_PORT_REPLY │       │ │                          │          │                              │by the master    │    
+ * └────────┬──────────┘       │ │                          │  ┌───────▼───────────────┐         ┌────▼──────────────┐  │    
+ *          │+OK               │ │+CONTINUE                 │  │RDB_CONN_RDB_LOAD      │         │RECEIVE_PSYNC_REPLY│  │    
+ * ┌────────▼──────────┐       │ │                          │  └───────┬───────────────┘         └────┬──────────────┘  │    
+ * │RECEIVE_IP_REPLY   │       │ │                          │          │Done loading snapshot         │+CONTINUE        │    
+ * └────────┬──────────┘       │ │                          │  ┌───────▼───────────────┐         ┌────▼──────────────┐  │    
+ *          │+OK               │ │                          │  │RDB_CONN_RDB_LOADED    │         │TRANSFER           │  │    
+ * ┌────────▼──────────┐       │ │                          │  └───────┬───────────────┘         └─────┬─────────────┘  │    
+ * │RECEIVE_IP_REPLY   │       │ │                          │          │                               │                │    
+ * └────────┬──────────┘       │ │                          │          │Slave loads local replication  │                │    
+ *          │+OK               │ │                          │          │buffer into memory             │                │    
+ * ┌────────▼────────────────┐ │ │                ┌─────────┼──────────┴───────────────────────────────┘                │    
+ * │RECEIVE_NO_FULLSYNC_REPLY│ │ │                │         │                                                           │    
+ * └─┬────┬──────────────────┘ │ └────┐           │         └───────────────────────────────────────────────────────────┘    
+ *   │+OK │Unrecognized REPLCONF      │           │                                                                          
+ * ┌─▼────▼────────────┐       │   ┌──▼───────────▼────┐                                                                     
+ * │RECEIVE_CAPA_REPLY ├───────┘   │CONNECTED          │                                                                     
+ * └───────────────────┘           └───────────────────┘   
+ *
+ * /
 /* This handler fires when the non blocking connect was able to
  * establish a connection with the master. */
 void syncWithMaster(connection *conn) {
