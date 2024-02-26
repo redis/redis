@@ -47,9 +47,9 @@
 
 /* Return values for expireIfNeeded */
 typedef enum {
-    KEY_VALID = 0,
-    KEY_EXPIRED,
-    KEY_DELETED
+    KEY_VALID = 0, /* Could be volatile and not yet expired, non-volatile, or even non-existing key. */
+    KEY_EXPIRED, /* Logically expired but not yet deleted. */
+    KEY_DELETED /* The key was deleted now. */
 } keyStatus;
 
 keyStatus expireIfNeeded(redisDb *db, robj *key, int flags);
