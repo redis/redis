@@ -269,10 +269,11 @@ void freeLuaScriptsSync(dict *lua_scripts, lua_State *lua) {
     dictRelease(lua_scripts);
     lua_close(lua);
 
-#if defined(__linux__) && defined(USE_LIBC)
+#if defined(__linux__) && !defined(__APPLE__) && !defined(USE_LIBC)
     /* The lua interpreter may hold a lot of memory internally, and lua is
      * using libc. libc may take a bit longer to return the memory to the OS,
-     * so after lua_close, we call malloc_trim try to purge it earlier. */
+     * so after lua_close, we call malloc_trim try to purge it earlier.
+     * We only do this if redis and lua use different allocators. */
     malloc_trim(0);
 #endif
 }

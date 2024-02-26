@@ -95,7 +95,7 @@
 #endif
 
 /* Includes for malloc_trim(). */
-#if defined(__linux__) && defined(USE_LIBC)
+#if defined(__linux__) && !defined(__APPLE__) && !defined(USE_LIBC)
 #include <malloc.h>
 #endif
 
