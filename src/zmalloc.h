@@ -94,6 +94,11 @@
 #endif
 #endif
 
+/* Includes for malloc_trim(). */
+#if defined(__linux__) && defined(USE_LIBC)
+#include <malloc.h>
+#endif
+
 /* We can enable the Redis defrag capabilities only if we are using Jemalloc
  * and the version used is our special version modified for Redis having
  * the ability to return per-allocation fragmentation hints. */
