@@ -71,6 +71,7 @@
  */
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
+#define USE_LIBC 1
 
 #if !defined(NO_MALLOC_USABLE_SIZE) && \
     (defined(__GLIBC__) || defined(__FreeBSD__) || \

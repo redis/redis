@@ -264,15 +264,26 @@ void scriptingInit(int setup) {
     lctx.lua = lua;
 }
 
+/* Free lua_scripts dict and close lua interpreter. */
+void freeLuaScriptsSync(dict *lua_scripts, lua_State *lua) {
+    dictRelease(lua_scripts);
+    lua_close(lua);
+
+#if defined(__linux__) && defined(USE_LIBC)
+    /* The lua interpreter may hold a lot of memory internally, and lua is
+     * using libc. libc may take a bit longer to return the memory to the OS,
+     * so after lua_close, we call malloc_trim try to purge it earlier. */
+    malloc_trim(0);
+#endif
+}
+
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(int async) {
-    if (async) {
+    if (async)
         freeLuaScriptsAsync(lctx.lua_scripts, lctx.lua);
-    } else {
-        dictRelease(lctx.lua_scripts);
-        lua_close(lctx.lua);
-    }
+    else
+        freeLuaScriptsSync(lctx.lua_scripts, lctx.lua);
 }
 
 void scriptingReset(int async) {

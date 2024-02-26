@@ -44,8 +44,7 @@ void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
     lua_State *lua = args[1];
     long long len = dictSize(lua_scripts);
-    dictRelease(lua_scripts);
-    lua_close(lua);
+    freeLuaScriptsSync(lua_scripts, lua);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -204,8 +203,7 @@ void freeLuaScriptsAsync(dict *lua_scripts, lua_State *lua) {
         atomicIncr(lazyfree_objects,dictSize(lua_scripts));
         bioCreateLazyFreeJob(lazyFreeLuaScripts,2,lua_scripts,lua);
     } else {
-        dictRelease(lua_scripts);
-        lua_close(lua);
+        freeLuaScriptsSync(lua_scripts, lua);
     }
 }
 
