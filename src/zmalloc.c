@@ -59,7 +59,7 @@ void zlibc_free(void *ptr) {
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #else
-/* Use at least 8 bits alignment on all systems. */
+/* Use at least 8 bytes alignment on all systems. */
 #if SIZE_MAX < 0xffffffffffffffffull
 #define PREFIX_SIZE 8
 #else
@@ -78,6 +78,7 @@ void zlibc_free(void *ptr) {
 #define calloc(count,size) tc_calloc(count,size)
 #define realloc(ptr,size) tc_realloc(ptr,size)
 #define free(ptr) tc_free(ptr)
+/* Explicitly override malloc/free etc when using jemalloc. */
 #elif defined(USE_JEMALLOC)
 #define malloc(size) je_malloc(size)
 #define calloc(count,size) je_calloc(count,size)
@@ -122,6 +123,7 @@ static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     if (usable) *usable = size;
     return ptr;
 #else
+    size = MALLOC_MIN_SIZE(size);
     *((size_t*)ptr) = size;
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     if (usable) *usable = size;
@@ -198,6 +200,7 @@ static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     if (usable) *usable = size;
     return ptr;
 #else
+    size = MALLOC_MIN_SIZE(size);
     *((size_t*)ptr) = size;
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     if (usable) *usable = size;
@@ -457,7 +460,7 @@ void zmadvise_dontneed(void *ptr) {
 #include <fcntl.h>
 #endif
 
-/* Get the i'th field from "/proc/self/stats" note i is 1 based as appears in the 'proc' man page */
+/* Get the i'th field from "/proc/self/stat" note i is 1 based as appears in the 'proc' man page */
 int get_proc_stat_ll(int i, long long *res) {
 #if defined(HAVE_PROC_STAT)
     char buf[4096];
@@ -626,7 +629,7 @@ size_t zmalloc_get_rss(void) {
 
 #if defined(USE_JEMALLOC)
 
-#include <assert.h>
+#include "redisassert.h"
 
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
@@ -898,20 +901,55 @@ size_t zmalloc_get_memory_size(void) {
 }
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
+#include "redisassert.h"
+
+#define TEST(name) printf("test — %s\n", name);
+
 int zmalloc_test(int argc, char **argv, int flags) {
-    void *ptr;
+    void *ptr, *ptr2;
 
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
+
     printf("Malloc prefix size: %d\n", (int) PREFIX_SIZE);
-    printf("Initial used memory: %zu\n", zmalloc_used_memory());
-    ptr = zmalloc(123);
-    printf("Allocated 123 bytes; used: %zu\n", zmalloc_used_memory());
-    ptr = zrealloc(ptr, 456);
-    printf("Reallocated to 456 bytes; used: %zu\n", zmalloc_used_memory());
-    zfree(ptr);
-    printf("Freed pointer; used: %zu\n", zmalloc_used_memory());
+
+    TEST("Initial used memory is 0") {
+        assert(zmalloc_used_memory() == 0);
+    }
+
+    TEST("Allocated 123 bytes") {
+        ptr = zmalloc(123);
+        printf("Allocated 123 bytes; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Reallocated to 456 bytes") {
+        ptr = zrealloc(ptr, 456);
+        printf("Reallocated to 456 bytes; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Callocated 123 bytes") {
+        ptr2 = zcalloc(123);
+        printf("Callocated 123 bytes; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Freed pointers") {
+        zfree(ptr);
+        zfree(ptr2);
+        printf("Freed pointers; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Allocated 0 bytes") {
+        ptr = zmalloc(0);
+        printf("Allocated 0 bytes; used: %zu\n", zmalloc_used_memory());
+        zfree(ptr);
+    }
+
+    TEST("At the end used memory is 0") {
+        assert(zmalloc_used_memory() == 0);
+    }
+
     return 0;
 }
 #endif
