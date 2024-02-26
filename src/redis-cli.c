@@ -8883,7 +8883,7 @@ static redisReply *sendScan(unsigned long long *it) {
         reply = redisCommand(context, "SCAN %llu MATCH %b COUNT %d",
             *it, config.pattern, sdslen(config.pattern), config.count);
     else
-        reply = redisCommand(context,"SCAN %llu COUNT %d",
+        reply = redisCommand(context, "SCAN %llu COUNT %d",
             *it, config.count);
 
     /* Handle any error conditions */
