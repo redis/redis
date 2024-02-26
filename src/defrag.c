@@ -824,7 +824,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
             client *c = dictGetKey(clientde);
             dictEntry *pubsub_channel = dictFind(ctx->clientPubSubChannels(c), newchannel);
             serverAssert(pubsub_channel);
-            dictSetKey(c->pubsub_channels, pubsub_channel, newchannel);
+            dictSetKey(ctx->clientPubSubChannels(c), pubsub_channel, newchannel);
         }
         dictReleaseIterator(di);
     }
@@ -1136,11 +1136,11 @@ void activeDefragCycle(void) {
                 if (defrag_state == DEFRAG_EXPIRES) {
                     expires_cursor = kvstoreDictScanDefrag(db->expires, slot, expires_cursor,
                                                            scanCallbackCountScanned, &defragfns, NULL);
-                    if (!expires_cursor) defrag_state = DEFRAG_KEYS;
+                    if (!expires_cursor) defrag_state = DEFRAG_PUBSUB;
                 }
 
                 if (defrag_state == DEFRAG_PUBSUB) {
-                    if (slot == 0) {
+                    if (current_db == 0 && slot == 0) {
                         defragPubSubCtx ctx_pubsub = { server.pubsub_channels, getClientPubSubChannels, slot };
                         pubsub_cursor = kvstoreDictScanDefrag(server.pubsub_channels, slot,
                             pubsub_cursor, defragPubsubScanCallback, &defragfns, &ctx_pubsub);

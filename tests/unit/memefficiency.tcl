@@ -422,6 +422,124 @@ run_solo {defrag} {
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
 
+        test "Active defrag pubsub: $type" {
+            r flushdb
+            r config resetstat
+            r config set hz 100
+            r config set activedefrag no
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1500kb
+            r config set maxmemory 0
+
+            set channel_sizes [] ;# list to store the various sizes of all channel names
+            set channel_name_dict [dict create] ;# dict to store the various channel name of different sizes,
+                                                ;# the keys correspond to the sizes in channel_sizes
+
+            # Create channels of increasing size, starting from 400 and increasing by
+            # 50 till we reach the maximum size. The purpose of this is to allow us to
+            # use a single client to fill in gaps between different keys, which makes
+            # fragmentation more likely. If we don't do this, we would need a large
+            # number of connections, which is not suitable for testing.
+            set size 400
+            while {$size <= 8000} {
+                lappend channel_sizes $size
+                dict set channel_name_dict $size [string repeat x $size]
+                incr size 50
+            }
+
+            # Populate memory with interleaving key-pubsub pattern of variable sizes
+            set n 100
+            set rd [redis_deferring_client]
+            set rds_pubsub []
+            for {set j 0} {$j < $n} {incr j} {
+                set channels {}
+                # Fill them with keys of various sizes
+                foreach size $channel_sizes {
+                    set val "[dict get $channel_name_dict $size][format "%06d" $j]"
+                    $rd set k${j}_$size $val
+                    lappend channels $val
+                }
+
+                # Fill in the gaps behind the keys.
+                set rd_pubsub [redis_deferring_client]
+                $rd_pubsub subscribe {*}$channels
+                $rd_pubsub read
+                lappend rds_pubsub $rd_pubsub
+            }
+            for {set j 0} {$j < [expr $n * [llength $channel_sizes]]} {incr j} {
+                $rd read ; # Discard set replies
+            }
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_lessthan [s allocator_frag_ratio] 1.05
+
+            # Delete all the keys to create fragmentation
+            for {set j 0} {$j < $n} {incr j} { 
+                foreach size $channel_sizes {
+                    $rd del k${j}_$size
+                }
+            }
+            for {set j 0} {$j < [expr $n * [llength $channel_sizes]]} {incr j} { $rd read } ; # Discard del replies
+            $rd close
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_morethan [s allocator_frag_ratio] 1.15
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+            
+                # wait for the active defrag to start working (decision once a second)
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # wait for the active defrag to stop working
+                wait_for_condition 500 1000 {
+                    [s active_defrag_running] eq 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r memory malloc-stats]
+                    fail "defrag didn't stop."
+                }
+
+                # test the fragmentation is lower
+                after 120 ;# serverCron only updates the info once in 100ms
+                if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag [s allocator_frag_ratio]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
+                }
+                assert_lessthan_equal [s allocator_frag_ratio] 1.05
+            }
+
+            # todo: publish some data
+
+            foreach rd_pubsub $rds_pubsub {
+                $rd_pubsub unsubscribe {*}$channels
+                $rd_pubsub close
+            }
+        } {}
+
         if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag big list: $type" {
             r flushdb
