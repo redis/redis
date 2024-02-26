@@ -1665,6 +1665,9 @@ void freeClient(client *c) {
             moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
+        if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
+            dictDelete(server.pending_slaves, replicationGetSlaveNameGeneric(c, 0));
+        }
     }
 
     /* Master/slave cleanup Case 2:
@@ -3908,9 +3911,6 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
-        if (getClientType(c) == CLIENT_TYPE_SLAVE && (c->flags & CLIENT_REPL_RDB_CHANNEL)) {
-            dictDelete(server.pending_slaves, replicationGetSlaveNameGeneric(c, 0));
-        }
         if (async) {
             freeClientAsync(c);
             serverLog(LL_WARNING,
