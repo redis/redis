@@ -391,15 +391,12 @@ void zfree_usable(void *ptr, size_t *usable) {
 
     if (ptr == NULL) return;
 #ifdef HAVE_MALLOC_SIZE
-    size_t size = zmalloc_size(ptr);
-    update_zmalloc_stat_free(size);
-    if (usable) *usable = size;
+    update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
     free(ptr);
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
-    oldsize = *((size_t*)realptr);
+    *usable = oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
-    if (usable) *usable = oldsize;
     free(realptr);
 #endif
 }
