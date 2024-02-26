@@ -734,7 +734,8 @@ void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        if (expireIfNeeded(c->db,c->argv[j],0) == KEY_DELETED) continue;
+        if (expireIfNeeded(c->db,c->argv[j],0) == KEY_DELETED)
+            continue;
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
