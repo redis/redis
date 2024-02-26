@@ -113,17 +113,10 @@ void *extend_to_usable(void *ptr, size_t size) {
  * '*usable' is set to the usable size if non NULL. */
 static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
-    if (size >= SIZE_MAX/2) {
-        if (usable) *usable = 0;
-        return NULL;
-    }
-
+    if (size >= SIZE_MAX/2) return NULL;
     void *ptr = malloc(MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
-    if (!ptr) {
-        if (usable) *usable = 0;
-        return NULL;
-    }
 
+    if (!ptr) return NULL;
 #ifdef HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
@@ -197,16 +190,9 @@ void zfree_no_tcache(void *ptr) {
  * '*usable' is set to the usable size if non NULL. */
 static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
-    if (size >= SIZE_MAX/2) {
-        if (usable) *usable = 0;
-        return NULL;
-    }
-
+    if (size >= SIZE_MAX/2) return NULL;
     void *ptr = calloc(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
-    if (ptr == NULL) {
-        if (usable) *usable = 0;
-        return NULL;
-    }
+    if (ptr == NULL) return NULL;
 
 #ifdef HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
@@ -403,10 +389,7 @@ void zfree_usable(void *ptr, size_t *usable) {
     size_t oldsize;
 #endif
 
-    if (ptr == NULL) {
-        if (usable) *usable = 0;
-        return;
-    }
+    if (ptr == NULL) return;
 #ifdef HAVE_MALLOC_SIZE
     size_t size = zmalloc_size(ptr);
     update_zmalloc_stat_free(size);
