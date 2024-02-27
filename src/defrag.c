@@ -986,7 +986,7 @@ typedef enum {
     DEFRAG_EXPIRES,     /* Defrag the expires dictionary */
     DEFRAG_PUBSUB,      /* Defrag the pubsub dictionary */
     DEFRAG_PUBSUBSHARD  /* Defrag the pubsubshard dictionary */
-} DefragState;
+} DefragStage;
 
 /* Perform incremental defragmentation work from the serverCron.
  * This works in a similar way to activeExpireCycle, in the sense that
@@ -996,7 +996,7 @@ void activeDefragCycle(void) {
     static int slot = -1;
     static int current_db = -1;
     static int defrag_later_item_in_progress = 0;
-    static DefragState defrag_state = DEFRAG_KEYS;
+    static DefragStage defrag_stage = DEFRAG_KEYS;
     static unsigned long defrag_cursor = 0;
     static redisDb *db = NULL;
     static long long start_scan, start_stat;
@@ -1018,7 +1018,7 @@ void activeDefragCycle(void) {
             defrag_later_current_key = NULL;
             defrag_later_cursor = 0;
             current_db = -1;
-            defrag_state = DEFRAG_KEYS;
+            defrag_stage = DEFRAG_KEYS;
             defrag_cursor = 0;
             slot = -1;
             defrag_later_item_in_progress = 0;
@@ -1057,7 +1057,7 @@ void activeDefragCycle(void) {
     dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
-        if (defrag_state == DEFRAG_KEYS && defrag_cursor == 0 && (slot < 0)) {
+        if (defrag_stage == DEFRAG_KEYS && defrag_cursor == 0 && (slot < 0)) {
             /* finish any leftovers from previous db before moving to the next one */
             if (db && defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1078,7 +1078,7 @@ void activeDefragCycle(void) {
 
                 start_scan = now;
                 current_db = -1;
-                defrag_state = DEFRAG_KEYS;
+                defrag_stage = DEFRAG_KEYS;
                 defrag_cursor = 0;
                 slot = -1;
                 defrag_later_item_in_progress = 0;
@@ -1100,7 +1100,7 @@ void activeDefragCycle(void) {
             db = &server.db[current_db];
             kvstoreDictLUTDefrag(db->keys, dictDefragTables);
             kvstoreDictLUTDefrag(db->expires, dictDefragTables);
-            defrag_state = DEFRAG_KEYS;
+            defrag_stage = DEFRAG_KEYS;
             defrag_cursor = 0;
             slot = kvstoreFindDictIndexByKeyIndex(db->keys, 1);
             defrag_later_item_in_progress = 0;
@@ -1115,36 +1115,44 @@ void activeDefragCycle(void) {
             }
 
             if (!defrag_later_item_in_progress) {
-                if (defrag_state == DEFRAG_KEYS) {
-                    defrag_cursor = kvstoreDictScanDefrag(db->keys, slot, defrag_cursor, defragScanCallback,
-                                                   &defragfns, &ctx);
-                    if (!defrag_cursor) defrag_state = DEFRAG_EXPIRES;
-                }
+                /* defrag_stages holds the parameters for all defragmentation stages.
+                 * Normally, it corresponds one-to-one with `DefragStage` and maintains the same order. */
+                struct {
+                    DefragStage defragstage;
+                    kvstore *kvs;
+                    dictScanFunction *scanfn;
+                    void *ctx;
+                } defrag_stages[] = {
+                    {DEFRAG_KEYS, db->keys, defragScanCallback, &ctx},
+                    {DEFRAG_EXPIRES, db->expires, scanCallbackCountScanned, NULL},
+                    {DEFRAG_PUBSUB, current_db == 0 && slot == 0 ? server.pubsub_channels : NULL, defragPubsubScanCallback,
+                     &(defragPubSubCtx){ server.pubsub_channels, getClientPubSubChannels, slot }},
+                    {DEFRAG_PUBSUBSHARD, server.pubsubshard_channels, defragPubsubScanCallback,
+                     &(defragPubSubCtx){ server.pubsubshard_channels, getClientPubSubShardChannels, slot }}
+                };
 
-                if (defrag_state == DEFRAG_EXPIRES) {
-                    defrag_cursor = kvstoreDictScanDefrag(db->expires, slot, defrag_cursor,
-                                                           scanCallbackCountScanned, &defragfns, NULL);
-                    if (!defrag_cursor) defrag_state = DEFRAG_PUBSUB;
-                }
-
-                if (defrag_state == DEFRAG_PUBSUB) {
-                    if (current_db == 0 && slot == 0) {
-                        defragPubSubCtx ctx_pubsub = { server.pubsub_channels, getClientPubSubChannels, slot };
-                        defrag_cursor = kvstoreDictScanDefrag(server.pubsub_channels, slot,
-                            defrag_cursor, defragPubsubScanCallback, &defragfns, &ctx_pubsub);
+                unsigned int num_stages = sizeof(defrag_stages) / sizeof(defrag_stages[0]);
+                for (unsigned int i = 0; i < num_stages; i++) {
+                    if (defrag_stage != defrag_stages[i].defragstage) continue;
+                    if (defrag_stages[i].kvs) {
+                        defrag_cursor = kvstoreDictScanDefrag(defrag_stages[i].kvs, slot, defrag_cursor,
+                            defrag_stages[i].scanfn, &defragfns, defrag_stages[i].ctx);
                     }
-                    if (!defrag_cursor) defrag_state = DEFRAG_PUBSUBSHARD;
-                }
 
-                if (defrag_state == DEFRAG_PUBSUBSHARD) {
-                    defragPubSubCtx ctx_pubsub_shard = { server.pubsubshard_channels, getClientPubSubShardChannels, slot };
-                    defrag_cursor = kvstoreDictScanDefrag(server.pubsubshard_channels, slot,
-                        defrag_cursor, defragPubsubScanCallback, &defragfns, &ctx_pubsub_shard);
-                    if (!defrag_cursor) defrag_state = DEFRAG_KEYS;
+                    if (!defrag_cursor) {
+                        if (i == num_stages - 1) {
+                            /* Reached the end of the defragmentation stages, reset to DEFRAG_KEYS */
+                            defrag_stage = DEFRAG_KEYS;
+                            break;
+                        } else {
+                            /* Move to next stage. */
+                            defrag_stage = defrag_stages[i + 1].defragstage;
+                        }
+                    }
                 }
             }
 
-            slot_finished = (defrag_state == DEFRAG_KEYS && defrag_cursor == 0);
+            slot_finished = (defrag_stage == DEFRAG_KEYS && defrag_cursor == 0);
             if (slot_finished) {
                 /* Move to the next slot only if regular and large item scanning has been completed. */
                 if (listLength(db->defrag_later) > 0) {
@@ -1166,7 +1174,7 @@ void activeDefragCycle(void) {
                 server.stat_active_defrag_hits - prev_defragged > 512 ||
                 server.stat_active_defrag_scanned - prev_scanned > 64)
             {
-                if (defrag_state != DEFRAG_KEYS || ustime() > endtime) {
+                if (defrag_stage != DEFRAG_KEYS || ustime() > endtime) {
                     quit = 1;
                     break;
                 }
