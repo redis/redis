@@ -809,7 +809,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
     robj *newchannel, *channel = dictGetKey(de);
     dict *newclients, *clients = dictGetVal(de);
 
-    /* Try to defrag the key name. */
+    /* Try to defrag the channel name. */
     serverAssert(channel->refcount == (int)dictSize(clients) + 1);
     newchannel = activeDefragStringObEx(channel, dictSize(clients) + 1);
     if (newchannel) {
@@ -829,7 +829,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
         dictReleaseIterator(di);
     }
 
-    /* Try to defrag the dictionary of client that is stored as the value part. */
+    /* Try to defrag the dictionary of clients that is stored as the value part. */
     if ((newclients = dictDefragTables(clients)))
         kvstoreDictSetVal(pubsub_channels, ctx->slot, (dictEntry*)de, newclients);
 
@@ -1115,8 +1115,8 @@ void activeDefragCycle(void) {
             }
 
             if (!defrag_later_item_in_progress) {
-                /* defrag_stages holds the parameters for all defragmentation stages.
-                 * Normally, it corresponds one-to-one with `DefragStage` and maintains the same order. */
+                /* This array of structures holds the parameters for all defragmentation stages.
+                 * Each stage corresponds one-to-one with `DefragStage` and maintains the same order. */
                 struct {
                     DefragStage defragstage;
                     kvstore *kvs;
@@ -1131,6 +1131,9 @@ void activeDefragCycle(void) {
                      &(defragPubSubCtx){ server.pubsubshard_channels, getClientPubSubShardChannels, slot }}
                 };
 
+                /* Iterates over all defragmentation stages.
+                 * Note that all stages might be processed within a single iteration
+                 * of this loop, hence the loop must not exit prematurely. */
                 unsigned int num_stages = sizeof(defrag_stages) / sizeof(defrag_stages[0]);
                 for (unsigned int i = 0; i < num_stages; i++) {
                     if (defrag_stage != defrag_stages[i].defragstage) continue;
@@ -1139,7 +1142,7 @@ void activeDefragCycle(void) {
                             defrag_stages[i].scanfn, &defragfns, defrag_stages[i].ctx);
                     }
 
-                    if (!defrag_cursor) {
+                    if (!defrag_cursor) { /* Current stage completed */
                         if (i == num_stages - 1) {
                             /* Reached the end of the defragmentation stages, reset to DEFRAG_KEYS */
                             defrag_stage = DEFRAG_KEYS;
