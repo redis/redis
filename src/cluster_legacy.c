@@ -3019,22 +3019,13 @@ int clusterProcessPacket(clusterLink *link) {
                         /* `sender` was moved to another shard and has become a replica, remove its slot assignment */
 
                         int slots = clusterDelNodeSlots(sender);
-                        if (master != NULL) {
-                            serverLog(LL_NOTICE, "Node %.40s (%s) moved from shard %.40s to shard %.40s"
-                                    " and became a slave; removed all %d slot(s) it used to own",
-                                    sender->name,
-                                    sender->human_nodename,
-                                    sender->shard_id,
-                                    master->shard_id,
-                                    slots);
-                        } else {
-                            /* We have no knowledge of `master` */
-                            serverLog(LL_NOTICE, "Node %.40s (%s) is no longer a master in shard %.40s;"
-                                    " removed all %d slot(s) it used to own",
+                            serverLog(LL_NOTICE, "Node %.40s (%s) is no longer master of shard %.40s; removed all %d slot(s) it used to own",
                                     sender->name,
                                     sender->human_nodename,
                                     sender->shard_id,
                                     slots);
+                       if (master != NULL) {
+                           serverLog(LL_NOTICE, "Node %.40s (%s) is now part of shard %.40s, ... whatever);
                         }
                     }
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
