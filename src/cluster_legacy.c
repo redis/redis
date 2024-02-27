@@ -3016,9 +3016,10 @@ int clusterProcessPacket(clusterLink *link) {
                                     master->human_nodename);
                         }
                     } else {
+                        /* `sender` was moved to another shard and has become a replica, remove its slot assignment */
+
                         int slots = clusterDelNodeSlots(sender);
                         if (master != NULL) {
-                            /* `sender` was moved to another shard and has become a replica, remove its slot assignment */
                             serverLog(LL_NOTICE, "Node %.40s (%s) moved from shard %.40s to shard %.40s"
                                     " and became a slave; removed all %d slot(s) it used to own",
                                     sender->name,
