@@ -1157,7 +1157,9 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->lines = NULL;
     state->has_tail = 0;
     state->force_all = 0;
-    if (fp == NULL) return state;
+    //todo debug
+    // if (fp == NULL) return state;
+    return state;
 
     int count = 0;
 
