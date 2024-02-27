@@ -381,16 +381,16 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
-static int anetCreateSocket(char *err, int domain) {
+static int anetCreateSocket(char *err, int domain, int type, int protocol, int sockopts) {
     int s;
-    if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
+    if ((s = socket(domain, type, protocol)) == ANET_ERR) {
         anetSetError(err, "creating socket: %s", strerror(errno));
         return ANET_ERR;
     }
 
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
-    if (anetSetReuseAddr(err,s) == ANET_ERR) {
+    if (sockopts & SO_REUSEADDR && anetSetReuseAddr(err,s) == ANET_ERR) {
         close(s);
         return ANET_ERR;
     }
@@ -420,11 +420,15 @@ static int anetTcpGenericConnect(char *err, const char *addr, int port,
         /* Try to create the socket and to connect it.
          * If we fail in the socket() call, or on connect(), we retry with
          * the next entry in servinfo. */
-        if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
+        #if defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
+        if (flags & ANET_CONNECT_NONBLOCK) p->ai_socktype |= (SOCK_NONBLOCK | SOCK_CLOEXEC);
+        #endif
+        if ((s = anetCreateSocket(err,p->ai_family,p->ai_socktype,p->ai_protocol,SO_REUSEADDR)) == -1)
             continue;
-        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+        #if !(defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC))
         if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
             goto error;
+        #endif
         if (source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -490,34 +494,6 @@ int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
 {
     return anetTcpGenericConnect(err,addr,port,source_addr,
             ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
-}
-
-int anetUnixGenericConnect(char *err, const char *path, int flags)
-{
-    int s;
-    struct sockaddr_un sa;
-
-    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
-        return ANET_ERR;
-
-    sa.sun_family = AF_LOCAL;
-    redis_strlcpy(sa.sun_path,path,sizeof(sa.sun_path));
-    if (flags & ANET_CONNECT_NONBLOCK) {
-        if (anetNonBlock(err,s) != ANET_OK) {
-            close(s);
-            return ANET_ERR;
-        }
-    }
-    if (connect(s,(struct sockaddr*)&sa,sizeof(sa)) == -1) {
-        if (errno == EINPROGRESS &&
-            flags & ANET_CONNECT_NONBLOCK)
-            return s;
-
-        anetSetError(err, "connect: %s", strerror(errno));
-        close(s);
-        return ANET_ERR;
-    }
-    return s;
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog, mode_t perm) {
@@ -608,7 +584,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
         anetSetError(err,"unix socket path too long (%zu), must be under %zu", strlen(path), sizeof(sa.sun_path));
         return ANET_ERR;
     }
-    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_LOCAL,SOCK_STREAM,0,0)) == ANET_ERR)
         return ANET_ERR;
 
     memset(&sa,0,sizeof(sa));
