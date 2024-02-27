@@ -802,7 +802,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     return frag_pct;
 }
 
-/* Defrag scan callback for the main db dictionary. */
+/* Defrag scan callback for the pubsub dictionary. */
 void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
     defragPubSubCtx *ctx = privdata;
     kvstore *pubsub_channels = ctx->pubsub_channels;
