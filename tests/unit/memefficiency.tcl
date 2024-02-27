@@ -298,14 +298,6 @@ run_solo {defrag} {
                 $rd read ; # Discard replies
             }
 
-            # This is to cover the pubsub(shard) defragmentation code.
-            set rd1 [redis_deferring_client]
-            $rd1 subscribe chan
-            $rd1 read
-            set rd2 [redis_deferring_client]
-            $rd2 ssubscribe chan
-            $rd2 read
-
             # create some small items (effective in cluster-enabled)
             r set "{bighash}smallitem" val
             r set "{biglist}smallitem" val
@@ -405,16 +397,6 @@ run_solo {defrag} {
                 if {!$::no_latency} {
                     assert {$max_latency <= 30}
                 }
-
-                # Ensure that pubsub(shrad) defragmentation didn't break that data structure.
-                r publish chan "hello"
-                assert_equal {message chan hello} [$rd1 read]
-                $rd1 unsubscribe chan
-                $rd1 close
-                r spublish chan "hello"
-                assert_equal {smessage chan hello} [$rd2 read]
-                $rd2 sunsubscribe chan
-                $rd2 close
             }
             # verify the data isn't corrupted or changed
             set newdigest [debug_digest]
@@ -464,13 +446,18 @@ run_solo {defrag} {
 
                 # Fill in the gaps behind the keys.
                 set rd_pubsub [redis_deferring_client]
-                $rd_pubsub subscribe {*}$channels
-                $rd_pubsub read
+                assert_equal {153} [llength [subscribe $rd_pubsub $channels]]
                 lappend rds_pubsub $rd_pubsub
             }
             for {set j 0} {$j < [expr $n * [llength $channel_sizes]]} {incr j} {
                 $rd read ; # Discard set replies
             }
+
+            # This is just to cover the pubsubshard defragmentation code.
+            set rd_pubsubshard [redis_deferring_client]
+            $rd_pubsubshard ssubscribe chan
+            $rd_pubsubshard read
+
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
                 puts "used [s allocator_allocated]"
@@ -532,13 +519,23 @@ run_solo {defrag} {
                 assert_lessthan_equal [s allocator_frag_ratio] 1.05
             }
 
-            # todo: publish some data
-
-            foreach rd_pubsub $rds_pubsub {
-                $rd_pubsub unsubscribe {*}$channels
+            # Publishes some message to all the pubsub clients to make sure that
+            # we didn't break the data structure.
+            for {set j 0} {$j < $n} {incr j} {
+                set rd_pubsub [lindex $rds_pubsub $j]
+                set channel_name [dict get $channel_name_dict 400][format "%06d" $j]
+                r publish $channel_name "hello"
+                assert_equal "message $channel_name hello" [$rd_pubsub read] 
+                $rd_pubsub unsubscribe $channel_name
+                $rd_pubsub read
                 $rd_pubsub close
             }
-        } {}
+            # Ensure that pubsubshrad defragmentation didn't break that data structure.
+            r spublish chan "hello"
+            assert_equal {smessage chan hello} [$rd_pubsubshard read]
+            $rd_pubsubshard sunsubscribe chan
+            $rd_pubsubshard close
+        }
 
         if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag big list: $type" {
