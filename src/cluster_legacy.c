@@ -3028,7 +3028,7 @@ int clusterProcessPacket(clusterLink *link) {
                                     slots);
                         } else {
                             /* We have no knowledge of `master` */
-                            serverLog(LL_NOTICE, "Node %.40s (%s) is not longer a master in shard %.40s;"
+                            serverLog(LL_NOTICE, "Node %.40s (%s) is no longer a master in shard %.40s;"
                                     " removed all %d slot(s) it used to own",
                                     sender->name,
                                     sender->human_nodename,
