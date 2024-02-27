@@ -4458,8 +4458,8 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
     // //todo debug
-    // serverLog(LL_WARNING,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
-    //     master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
+    serverLog(LL_WARNING,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
+        master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
@@ -5133,7 +5133,7 @@ void sentinelTimer(void) {
     sentinelRunPendingScripts();
     sentinelCollectTerminatedScripts();
     sentinelKillTimedoutScripts();
-    
+
     /* We continuously change the frequency of the Redis "timer interrupt"
      * in order to desynchronize every Sentinel from every other.
      * This non-determinism avoids that Sentinels started at the same time
