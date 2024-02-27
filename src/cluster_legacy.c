@@ -2994,7 +2994,7 @@ int clusterProcessPacket(clusterLink *link) {
                     if (master && !memcmp(master->shard_id, sender->shard_id, CLUSTER_NAMELEN)) {
                         /* 'sender' was a primary and was in the same shard as `master`, its new primary */
                         if (sender->configEpoch > senderConfigEpoch) {
-                            serverLog(LL_WARNING,
+                            serverLog(LL_NOTICE,
                                     "Ignore stale gossip message from %.40s (%s) in shard %.40s;"
                                     " gossip config epoch: %llu, current config epoch: %llu", 
                                     sender->name,
