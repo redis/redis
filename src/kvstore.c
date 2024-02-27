@@ -291,6 +291,8 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
     kvs->bucket_count = 0;
     if (kvs->dict_size_index)
         memset(kvs->dict_size_index, 0, sizeof(unsigned long long) * (kvs->num_dicts + 1));
+    kvs->overhead_hashtable_lut = 0;
+    kvs->overhead_hashtable_rehashing = 0;
 }
 
 void kvstoreRelease(kvstore *kvs) {
