@@ -1141,15 +1141,12 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
  * If it is impossible to read the old file, NULL is returned.
  * If the old file does not exist at all, an empty state is returned. */
 struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
-    
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- fopen: %lld", (long long)mstime());
 
     FILE *fp = fopen(path,"r");
     if (fp == NULL && errno != ENOENT) return NULL;
 
     char buf[CONFIG_MAX_LINE+1];
     int linenum = -1;
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- zmalloc: %lld", (long long)mstime());
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
     state->option_to_line = dictCreate(&optionToLineDictType,NULL);
     state->rewritten = dictCreate(&optionSetDictType,NULL);
@@ -1157,105 +1154,69 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->lines = NULL;
     state->has_tail = 0;
     state->force_all = 0;
-    //todo debug
     // if (fp == NULL) return state;
-    return state;
 
-    int count = 0;
+    // /* Read the old file line by line, populate the state. */
+    // while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
+    //     int argc;
+    //     sds *argv;
+    //     sds line = sdstrim(sdsnew(buf),"\r\n\t ");
 
-    long long start_time = (long long)mstime();
-    long long now = start_time;
-    long long fgets_time = 0ll;
-    long long sdssplitargs_time = 0ll;
-    long long handle_time = 0ll;
-    long long sdstolower_time = 0ll;
-    long long rewrite_time = 0ll;
-    long long free_time = 0ll;
-    /* Read the old file line by line, populate the state. */
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- beforewhile: %lld", start_time);
-    now = (long long)mstime();
-    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL) {
-        
-        fgets_time += (long long)mstime() - now;
-        now = (long long)mstime();
+    //     linenum++; /* Zero based, so we init at -1 */
 
-        int argc;
-        sds *argv;
-        sds line = sdstrim(sdsnew(buf),"\r\n\t ");
+    //     /* Handle comments and empty lines. */
+    //     if (line[0] == '#' || line[0] == '\0') {
+    //         if (!state->has_tail && !strcmp(line,REDIS_CONFIG_REWRITE_SIGNATURE))
+    //             state->has_tail = 1;
+    //         rewriteConfigAppendLine(state,line);
+    //         continue;
+    //     }
 
-        linenum++; /* Zero based, so we init at -1 */
+    //     /* Not a comment, split into arguments. */
+    //     argv = sdssplitargs(line,&argc);
 
-        /* Handle comments and empty lines. */
-        if (line[0] == '#' || line[0] == '\0') {
-            if (!state->has_tail && !strcmp(line,REDIS_CONFIG_REWRITE_SIGNATURE))
-                state->has_tail = 1;
-            rewriteConfigAppendLine(state,line);
-            continue;
-        }
+    //     if (argv == NULL) {
+    //         /* Apparently the line is unparsable for some reason, for
+    //          * instance it may have unbalanced quotes. Load it as a
+    //          * comment. */
+    //         sds aux = sdsnew("# ??? ");
+    //         aux = sdscatsds(aux,line);
+    //         sdsfree(line);
+    //         rewriteConfigAppendLine(state,aux);
+    //         continue;
+    //     }
 
-        handle_time += (long long)mstime() - now;
-        now = (long long)mstime();
+    //     sdstolower(argv[0]); /* We only want lowercase config directives. */
 
-        /* Not a comment, split into arguments. */
-        argv = sdssplitargs(line,&argc);
+    //     /* Now we populate the state according to the content of this line.
+    //      * Append the line and populate the option -> line numbers map. */
+    //     rewriteConfigAppendLine(state,line);
 
-        sdssplitargs_time += (long long)mstime() - now;
-        now = (long long)mstime();
-
-        if (argv == NULL) {
-            /* Apparently the line is unparsable for some reason, for
-             * instance it may have unbalanced quotes. Load it as a
-             * comment. */
-            sds aux = sdsnew("# ??? ");
-            aux = sdscatsds(aux,line);
-            sdsfree(line);
-            rewriteConfigAppendLine(state,aux);
-            continue;
-        }
-
-        sdstolower(argv[0]); /* We only want lowercase config directives. */
-
-        sdstolower_time += (long long)mstime() - now;
-        now = (long long)mstime();
-
-        /* Now we populate the state according to the content of this line.
-         * Append the line and populate the option -> line numbers map. */
-        rewriteConfigAppendLine(state,line);
-
-        rewrite_time += (long long)mstime() - now;
-        now = (long long)mstime();
-
-        /* Translate options using the word "slave" to the corresponding name
-         * "replica", before adding such option to the config name -> lines
-         * mapping. */
-        char *p = strstr(argv[0],"slave");
-        if (p) {
-            sds alt = sdsempty();
-            alt = sdscatlen(alt,argv[0],p-argv[0]);
-            alt = sdscatlen(alt,"replica",7);
-            alt = sdscatlen(alt,p+5,strlen(p+5));
-            sdsfree(argv[0]);
-            argv[0] = alt;
-        }
-        /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
-            to avoid messing up the sequence. */
-        if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
-            sds sentinelOption = sdsempty();
-            sentinelOption = sdscatfmt(sentinelOption,"%S %S",argv[0],argv[1]);
-            rewriteConfigAddLineNumberToOption(state,sentinelOption,linenum);
-            sdsfree(sentinelOption);
-        } else {
-            rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
-        }
-        sdsfreesplitres(argv,argc);
-        count++;
-        free_time += (long long)mstime() - now;
-        now = (long long)mstime();
-    }
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- count: %d, fgets_time: %lld, handle_time: %lld, sdssplitargs_time: %lld, sdstolower_time: %lld, rewrite_time: %lld,  free_time: %lld",
-         count, fgets_time, handle_time, sdssplitargs_time, sdstolower_time, rewrite_time, free_time);
-    serverLog(LL_WARNING, "rewriteConfigReadOldFile-- fclose: %lld", (long long)mstime());
-    fclose(fp);
+    //     /* Translate options using the word "slave" to the corresponding name
+    //      * "replica", before adding such option to the config name -> lines
+    //      * mapping. */
+    //     char *p = strstr(argv[0],"slave");
+    //     if (p) {
+    //         sds alt = sdsempty();
+    //         alt = sdscatlen(alt,argv[0],p-argv[0]);
+    //         alt = sdscatlen(alt,"replica",7);
+    //         alt = sdscatlen(alt,p+5,strlen(p+5));
+    //         sdsfree(argv[0]);
+    //         argv[0] = alt;
+    //     }
+    //     /* If this is sentinel config, we use sentinel "sentinel <config>" as option 
+    //         to avoid messing up the sequence. */
+    //     if (server.sentinel_mode && argc > 1 && !strcasecmp(argv[0],"sentinel")) {
+    //         sds sentinelOption = sdsempty();
+    //         sentinelOption = sdscatfmt(sentinelOption,"%S %S",argv[0],argv[1]);
+    //         rewriteConfigAddLineNumberToOption(state,sentinelOption,linenum);
+    //         sdsfree(sentinelOption);
+    //     } else {
+    //         rewriteConfigAddLineNumberToOption(state,argv[0],linenum);
+    //     }
+    //     sdsfreesplitres(argv,argc);
+    // }
+    // fclose(fp);
     return state;
 }
 
@@ -1686,7 +1647,6 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         serverLog(LL_WARNING, "Could not create tmp config file (%s)", strerror(errno));
         return retval;
     }
-    mstime_t beforeWhile = mstime(); // 获取结束flush时间
     
     while (offset < sdslen(content)) {
          written_bytes = write(fd, content + offset, sdslen(content) - offset);
@@ -1697,7 +1657,6 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
          }
          offset+=written_bytes;
     }
-    mstime_t fsyncT = mstime(); // 获取结束flush时间
 
     if (fsync(fd))
         serverLog(LL_WARNING, "Could not sync tmp config file to disk (%s)", strerror(errno));
@@ -1709,9 +1668,6 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
         retval = 0;
         serverLog(LL_DEBUG, "Rewritten config file (%s) successfully", configfile);
     }
-    mstime_t end = mstime(); // 获取结束flush时间
-    serverLog(LL_WARNING, "inner-- beforeWhile: %lld, fsyncT: %lld, end: %lld",
-         (long long)beforeWhile, (long long)fsyncT, (long long)end);
 
 cleanup:
     close(fd);
@@ -1734,8 +1690,6 @@ int rewriteConfig(char *path, int force_all) {
     sds newcontent;
     int retval;
 
-    mstime_t readT = mstime(); // 获取read
-
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
     if (force_all) state->force_all = 1;
@@ -1748,7 +1702,6 @@ int rewriteConfig(char *path, int force_all) {
         config->interface.rewrite(config->data, config->name, state);
     }
 
-    mstime_t stateT = mstime(); // 获取state
     rewriteConfigBindOption(state);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,CONFIG_DEFAULT_UNIX_SOCKET_PERM);
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
@@ -1761,23 +1714,17 @@ int rewriteConfig(char *path, int force_all) {
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigOOMScoreAdjValuesOption(state);
 
-    mstime_t reSentinelT = mstime(); // reSentinel
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
 
-    mstime_t removeOrphaneT = mstime(); // removeOrphaneT
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case
      * of multiple "save" options or duplicated options. */
     rewriteConfigRemoveOrphaned(state);
 
-    mstime_t getContentT = mstime(); // getContentT
     /* Step 4: generate a new configuration file from the modified state
      * and write it into the original file. */
     newcontent = rewriteConfigGetContentFromState(state);
-
-    serverLog(LL_WARNING, "rewrite-- readT: %lld, stateT: %lld, reSentinelT: %lld, removeOrphaneT: %lld, getContentT: %lld",
-         (long long)readT, (long long)stateT, (long long)reSentinelT, (long long)removeOrphaneT, (long long)getContentT);
     retval = rewriteConfigOverwriteFile(server.configfile,newcontent);
 
     sdsfree(newcontent);

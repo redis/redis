@@ -2306,28 +2306,19 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
  *
  * On failure the function logs a warning on the Redis log. */
 void sentinelFlushConfig(void) {
-    mstime_t beforeFlush = mstime(); // 获取开始flush时间
     int fd = -1;
     int saved_hz = server.hz;
     int rewrite_status;
 
     server.hz = CONFIG_DEFAULT_HZ;
-
-    mstime_t beforeRewrite = mstime(); // 获取开始Rewrite时间
     rewrite_status = rewriteConfig(server.configfile, 0);
     
     server.hz = saved_hz;
 
     if (rewrite_status == -1) goto werr;
-    mstime_t openT = mstime(); // 获取开始open时间
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
-    mstime_t fsyncT = mstime(); // 获取开始fsync时间
     if (fsync(fd) == -1) goto werr;
-    mstime_t closeT = mstime(); // 获取开始fsync时间
     if (close(fd) == EOF) goto werr;
-    mstime_t afterFlush = mstime(); // 获取结束flush时间
-    serverLog(LL_WARNING, "flush: %lld, beforeRewrite: %lld, openT: %lld, fsyncT: %lld, closeT:%lld, endflush: %lld",
-         (long long)beforeFlush, (long long)beforeRewrite, (long long)openT, (long long)fsyncT, (long long)closeT, (long long)afterFlush);
     return;
 
 werr:
@@ -4388,8 +4379,6 @@ void sentinelSimFailureCrash(void) {
  * If a vote is not available returns NULL, otherwise return the Sentinel
  * runid and populate the leader_epoch with the epoch of the vote. */
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch) {
-    //todo del
-    mstime_t start_time = mstime(); // 获取开始时间
     if (master->leader_epoch < req_epoch)
     {
         sdsfree(master->leader);
@@ -4404,9 +4393,6 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
         if (strcasecmp(master->leader,sentinel.myid))
             master->failover_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
     }
-    mstime_t end_time = mstime(); // 获取结束时间
-    //todo del
-    serverLog(LL_WARNING, "start : %lld, now: %lld ", (long long)start_time, (long long) end_time);
 
     *leader_epoch = master->leader_epoch;
     return master->leader ? sdsnew(master->leader) : NULL;
@@ -4457,8 +4443,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
 
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
-    // //todo debug
-    serverLog(LL_WARNING,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
+    serverLog(LL_DEBUG,"helper: start vote master | master :%s, master epoch %llu, master->leader_epoch %llu",
         master->name, (unsigned long long)epoch, (unsigned long long) master->leader_epoch);
 
     /* Count other sentinels votes */
@@ -4469,8 +4454,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
         if (ri->leader != NULL && ri->leader_epoch == counter_epoch)
             sentinelLeaderIncr(counters,ri->leader);
 
-        //todo debug
-        serverLog(LL_WARNING, "helper: ri: %s | leader: %s, leader_epoch: %llu",
+        serverLog(LL_DEBUG, "helper: ri: %s | leader: %s, leader_epoch: %llu",
             ri->name, ri->leader, (unsigned long long) ri->leader_epoch);
     }
     dictReleaseIterator(di);
@@ -4486,11 +4470,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
             max_votes = votes;
             winner = dictGetKey(de);
         }
-        //todo del
-        serverLog(LL_WARNING,"helper: counter | sentinel: %s, votes got: %llu", dictGetKey(de), (unsigned long long) votes);
     }
-    //todo del
-    serverLog(LL_WARNING,"helper: winner for now | winner: %s", winner);
     dictReleaseIterator(di);
 
     /* Count this Sentinel vote:
@@ -4501,9 +4481,6 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     else
         myvote = sentinelVoteLeader(master,epoch,sentinel.myid,&leader_epoch);
 
-    //todo del
-    serverLog(LL_WARNING,"helper: myvote | myvote: %s, leader_epoch: %llu", myvote, (unsigned long long)leader_epoch);
-
     if (myvote && leader_epoch == epoch) {
         uint64_t votes = sentinelLeaderIncr(counters,myvote);
 
@@ -4513,8 +4490,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
         }
     }
 
-    //todo debug
-    serverLog(LL_WARNING, "helper: counter | winner: %s, max_votes got: %llu", myvote, (unsigned long long) max_votes);
+    serverLog(LL_DEBUG, "helper: counter | winner: %s, max_votes got: %llu", myvote, (unsigned long long) max_votes);
 
     voters_quorum = voters/2+1;
     if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
@@ -4931,7 +4907,7 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
 
     di = dictGetIterator(master->slaves);
     while(in_progress < master->parallel_syncs &&
-          (de = dictNext(di)) != NULL)
+        (de = dictNext(di)) != NULL)
     {
         sentinelRedisInstance *slave = dictGetVal(de);
         int retval;
@@ -5118,8 +5094,6 @@ void sentinelCheckTiltCondition(void) {
     mstime_t delta = now - sentinel.previous_time;
 
     if (delta < 0 || delta > SENTINEL_TILT_TRIGGER) {
-        //todo del
-        serverLog(LL_WARNING, "now : %lld, delta: %lld ", (long long)now, (long long)delta);
         sentinel.tilt = 1;
         sentinel.tilt_start_time = mstime();
         sentinelEvent(LL_WARNING,"+tilt",NULL,"#tilt mode entered");
