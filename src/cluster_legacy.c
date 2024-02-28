@@ -3019,7 +3019,7 @@ int clusterProcessPacket(clusterLink *link) {
                         /* `sender` was moved to another shard and has become a replica, remove its slot assignment */
                         int slots = clusterDelNodeSlots(sender);
                         serverLog(LL_NOTICE, "Node %.40s (%s) is no longer master of shard %.40s;"
-                                "removed all %d slot(s) it used to own",
+                                " removed all %d slot(s) it used to own",
                                 sender->name,
                                 sender->human_nodename,
                                 sender->shard_id,
