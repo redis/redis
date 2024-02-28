@@ -3006,14 +3006,18 @@ int clusterProcessPacket(clusterLink *link) {
                             /* A failover occurred in the shard where `sender` belongs to and `sender` is no longer
                              * a primary. Update slot assignment to `master`, which is the new primary in the shard */
                             int slots = clusterMoveNodeSlots(sender, master);
+                            /* `master` is still a `slave` in this observer node's view; update its role and configEpoch */
+                            clusterSetNodeAsMaster(master);
+                            master->configEpoch = senderConfigEpoch;
                             serverLog(LL_NOTICE, "A failover occurred in shard %.40s; node %.40s (%s)"
-                                    " lost %d slot(s) to node %.40s (%s)",
+                                    " lost %d slot(s) to node %.40s (%s) with a config epoch of %llu",
                                     sender->shard_id,
                                     sender->name,
                                     sender->human_nodename,
                                     slots,
                                     master->name,
-                                    master->human_nodename);
+                                    master->human_nodename,
+                                    (unsigned long long) master->configEpoch);
                         }
                     } else {
                         /* `sender` was moved to another shard and has become a replica, remove its slot assignment */
