@@ -746,7 +746,7 @@ static int versionIsSupported(sds version, sds since) {
         versionPos = strchr(versionPos, '.');
         sincePos = strchr(sincePos, '.');
         if (!versionPos || !sincePos)
-            return 0;
+            return 1;
         versionPos++;
         sincePos++;
     }
@@ -763,7 +763,7 @@ static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds 
             i++;
             continue;
         }
-        for (j = i; j != *numargs; j++) {
+        for (j = i; j != *numargs - 1; j++) {
             args[j] = args[j + 1];
         }
         (*numargs)--;
