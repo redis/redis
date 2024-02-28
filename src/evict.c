@@ -545,7 +545,7 @@ int performEvictions(void) {
 
     int keys_freed = 0;
     size_t mem_reported, mem_tofree;
-    long long mem_freed; /* May be negative */
+    long long mem_freed = 0; /* May be negative */
     mstime_t latency, eviction_latency;
     long long delta;
     int slaves = listLength(server.slaves);
