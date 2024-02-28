@@ -94,8 +94,8 @@
 #endif
 #endif
 
-/* Includes for malloc_trim(). */
-#if defined(__linux__) && !defined(__APPLE__) && !defined(USE_LIBC)
+/* Includes for malloc_trim(), see zlibc_trim(). */
+#if defined(__GLIBC__) && !defined(USE_LIBC)
 #include <malloc.h>
 #endif
 
@@ -136,6 +136,7 @@ size_t zmalloc_get_private_dirty(long pid);
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid);
 size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
+void zlibc_trim(void);
 void zmadvise_dontneed(void *ptr);
 
 #ifdef HAVE_DEFRAG

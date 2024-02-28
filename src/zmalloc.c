@@ -50,7 +50,6 @@ void zlibc_free(void *ptr) {
 }
 
 #include <string.h>
-#include <pthread.h>
 #include "zmalloc.h"
 #include "atomicvar.h"
 
@@ -753,6 +752,15 @@ int jemalloc_purge(void) {
 }
 
 #endif
+
+/* This function provides us access to the libc malloc_trim(). */
+void zlibc_trim(void) {
+#if defined(__GLIBC__) && !defined(USE_LIBC)
+    malloc_trim(0);
+#else
+    return;
+#endif
+}
 
 #if defined(__APPLE__)
 /* For proc_pidinfo() used later in zmalloc_get_smap_bytes_by_field().
