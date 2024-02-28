@@ -1049,7 +1049,7 @@ void activeDefragCycle(void) {
     dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
     do {
         /* if we're not continuing a scan from the last call or loop, start a new one */
-        if (defrag_stage == 0 && defrag_cursor == 0 && (slot < 0)) {
+        if (!defrag_stage && !defrag_cursor && (slot < 0)) {
             /* finish any leftovers from previous db before moving to the next one */
             if (db && defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
@@ -1107,8 +1107,7 @@ void activeDefragCycle(void) {
             }
 
             if (!defrag_later_item_in_progress) {
-                /* This array of structures holds the parameters for all defragmentation stages.
-                 * Each stage corresponds one-to-one with `DefragStage` and maintains the same order. */
+                /* This array of structures holds the parameters for all defragmentation stages. */
                 struct {
                     kvstore *kvs;
                     dictScanFunction *scanfn;
@@ -1122,12 +1121,11 @@ void activeDefragCycle(void) {
                      &(defragPubSubCtx){ server.pubsubshard_channels, getClientPubSubShardChannels, slot }}
                 };
 
-                /* Iterates over all defragmentation stages.
-                 * Note that all stages might be processed within a single iteration
-                 * of this loop, hence the loop must not exit prematurely. */
+                /* Iterates over all defragmentation stages, starting from the last unfinished stage. */
                 int num_stages = sizeof(defrag_stages) / sizeof(defrag_stages[0]);
+                serverAssert(defrag_stage < num_stages);
                 for (int i = defrag_stage; i < num_stages; i++) {
-                    if (defrag_stage != i) continue;
+                    if (defrag_stage != i) break; /* previous stage not finished */
                     if (defrag_stages[i].kvs) {
                         defrag_cursor = kvstoreDictScanDefrag(defrag_stages[i].kvs, slot, defrag_cursor,
                             defrag_stages[i].scanfn, &defragfns, defrag_stages[i].ctx);
@@ -1141,7 +1139,7 @@ void activeDefragCycle(void) {
                 if (defrag_stage == num_stages) defrag_stage = 0;
             }
 
-            slot_finished = (defrag_stage == 0 && defrag_cursor == 0);
+            slot_finished = (!defrag_stage && !defrag_cursor);
             if (slot_finished) {
                 /* Move to the next slot only if regular and large item scanning has been completed. */
                 if (listLength(db->defrag_later) > 0) {
