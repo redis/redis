@@ -13765,6 +13765,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StreamIteratorDelete);
     REGISTER_API(StreamTrimByLength);
     REGISTER_API(StreamTrimByID);
+    REGISTER_API(SetAdd);
+    REGISTER_API(SetRem);
+    REGISTER_API(SetIsMember);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(KeyAtPosWithFlags);
@@ -13990,7 +13993,4 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RdbStreamFree);
     REGISTER_API(RdbLoad);
     REGISTER_API(RdbSave);
-    REGISTER_API(SetAdd);
-    REGISTER_API(SetRem);
-    REGISTER_API(SetIsMember);
 }

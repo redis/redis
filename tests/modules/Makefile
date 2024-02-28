@@ -49,6 +49,7 @@ TEST_MODULES = \
     hash.so \
     zset.so \
     stream.so \
+    set.so \
     mallocsize.so \
     aclcheck.so \
     list.so \
@@ -62,8 +63,7 @@ TEST_MODULES = \
     usercall.so \
     postnotifications.so \
     moduleauthtwo.so \
-    rdbloadsave.so \
-    set.so
+    rdbloadsave.so
 
 .PHONY: all
 
