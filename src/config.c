@@ -1154,6 +1154,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     state->lines = NULL;
     state->has_tail = 0;
     state->force_all = 0;
+    // Note: do not reload from disk to reduce time consumption
     // if (fp == NULL) return state;
 
     // /* Read the old file line by line, populate the state. */

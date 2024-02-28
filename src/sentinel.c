@@ -2312,7 +2312,6 @@ void sentinelFlushConfig(void) {
 
     server.hz = CONFIG_DEFAULT_HZ;
     rewrite_status = rewriteConfig(server.configfile, 0);
-    
     server.hz = saved_hz;
 
     if (rewrite_status == -1) goto werr;
@@ -3507,7 +3506,6 @@ int sentinelIsQuorumReachable(sentinelRedisInstance *master, int *usableptr) {
     int usable = 1; /* Number of usable Sentinels. Init to 1 to count myself. */
     int result = SENTINEL_ISQR_OK;
     int voters = dictSize(master->sentinels)+1; /* Known Sentinels + myself. */
-
 
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
