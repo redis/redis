@@ -2992,7 +2992,7 @@ int clusterProcessPacket(clusterLink *link) {
                 if (clusterNodeIsMaster(sender)) {
                     /* Master turned into a slave! Reconfigure the node. */
                     if (master && !memcmp(master->shard_id, sender->shard_id, CLUSTER_NAMELEN)) {
-                        /* 'sender' was a primary and was in the same shard as `master`, its new primary */
+                        /* `sender` was a primary and was in the same shard as `master`, its new primary */
                         if (sender->configEpoch > senderConfigEpoch) {
                             serverLog(LL_NOTICE,
                                     "Ignore stale message from %.40s (%s) in shard %.40s;"
