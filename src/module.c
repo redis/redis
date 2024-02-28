@@ -13623,7 +13623,7 @@ int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
  * - ENOTSUP if the key refers to a value of a type other than set */
 int RM_SetIsMember(RedisModuleKey *key, RedisModuleString *ele) {
     if (!key || !key->value) {
-        /*return 0 for empty key*/
+        /* return 0 for empty key */
         return 0;
     } else if (key->value->type != OBJ_SET) {
         errno = ENOTSUP; /* wrong type */
