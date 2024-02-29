@@ -534,6 +534,10 @@ int kvstoreNumNonEmptyDicts(kvstore *kvs) {
     return kvs->non_empty_dicts;
 }
 
+int kvstoreNumAllocatedDicts(kvstore *kvs) {
+    return kvs->allocated_dicts;
+}
+
 int kvstoreNumDicts(kvstore *kvs) {
     return kvs->num_dicts;
 }

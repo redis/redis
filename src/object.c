@@ -1246,7 +1246,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        if (!kvstoreBuckets(db->keys)) continue;
+        if (!kvstoreNumAllocatedDicts(db->keys)) continue;
 
         unsigned long long keyscount = kvstoreSize(db->keys);
 

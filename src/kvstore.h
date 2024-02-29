@@ -30,6 +30,7 @@ void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full);
 int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target);
 int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx);
 int kvstoreNumNonEmptyDicts(kvstore *kvs);
+int kvstoreNumAllocatedDicts(kvstore *kvs);
 int kvstoreNumDicts(kvstore *kvs);
 uint64_t kvstoreGetHash(kvstore *kvs, const void *key);
 
