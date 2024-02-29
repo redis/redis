@@ -492,6 +492,13 @@ start_server {tags {"hash"}} {
         list [r hincrby htest foo 2]
     } {2}
 
+    test {HINCRBY HINCRBYFLOAT against non-integer increment value} {
+        r del incrhash
+        r hset incrhash field 5
+        assert_error "*value is not an integer*" {r hincrby incrhash field v}
+        assert_error "*value is not a*" {r hincrbyfloat incrhash field v}
+    }
+
     test {HINCRBY against non existing hash key} {
         set rv {}
         r hdel smallhash tmp

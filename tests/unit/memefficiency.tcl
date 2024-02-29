@@ -80,6 +80,15 @@ run_solo {defrag} {
                     fail "defrag not started."
                 }
 
+                # This test usually runs for a while, during this interval, we test the range.
+                assert_range [s active_defrag_running] 65 75
+                r config set active-defrag-cycle-min 1
+                r config set active-defrag-cycle-max 1
+                after 120 ;# serverCron only updates the info once in 100ms
+                assert_range [s active_defrag_running] 1 1
+                r config set active-defrag-cycle-min 65
+                r config set active-defrag-cycle-max 75
+
                 # Wait for the active defrag to stop working.
                 wait_for_condition 2000 100 {
                     [s active_defrag_running] eq 0

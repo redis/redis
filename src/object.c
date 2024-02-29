@@ -232,8 +232,8 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
-robj *createQuicklistObject(void) {
-    quicklist *l = quicklistCreate();
+robj *createQuicklistObject(int fill, int compress) {
+    quicklist *l = quicklistNew(fill, compress);
     robj *o = createObject(OBJ_LIST,l);
     o->encoding = OBJ_ENCODING_QUICKLIST;
     return o;
@@ -1184,9 +1184,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->total_frag_bytes =
         server.cron_malloc_stats.process_rss - server.cron_malloc_stats.zmalloc_used;
     mh->allocator_frag =
-        (float)server.cron_malloc_stats.allocator_active / server.cron_malloc_stats.allocator_allocated;
+        (float)server.cron_malloc_stats.allocator_frag_smallbins_bytes / server.cron_malloc_stats.allocator_allocated + 1;
     mh->allocator_frag_bytes =
-        server.cron_malloc_stats.allocator_active - server.cron_malloc_stats.allocator_allocated;
+        server.cron_malloc_stats.allocator_frag_smallbins_bytes;
     mh->allocator_rss =
         (float)server.cron_malloc_stats.allocator_resident / server.cron_malloc_stats.allocator_active;
     mh->allocator_rss_bytes =
@@ -1246,18 +1246,19 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        unsigned long long keyscount = dbSize(db, DB_MAIN);
+        unsigned long long keyscount = kvstoreSize(db->keys);
         if (keyscount == 0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
         mh->db[mh->num_dbs].dbid = j;
 
-        mem = dbMemUsage(db, DB_MAIN);
+        mem = kvstoreMemUsage(db->keys) +
+              keyscount * sizeof(robj);
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        mem = dbMemUsage(db, DB_EXPIRES);
+        mem = kvstoreMemUsage(db->expires);
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
@@ -1274,7 +1275,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     if (zmalloc_used > mh->startup_allocated)
         net_usage = zmalloc_used - mh->startup_allocated;
     mh->dataset_perc = (float)mh->dataset*100/net_usage;
-    mh->bytes_per_key = mh->total_keys ? (net_usage / mh->total_keys) : 0;
+    mh->bytes_per_key = mh->total_keys ? (mh->dataset / mh->total_keys) : 0;
 
     return mh;
 }
@@ -1544,7 +1545,7 @@ NULL
                 return;
             }
         }
-        if ((de = dbFind(c->db, c->argv[2]->ptr, DB_MAIN)) == NULL) {
+        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyNull(c);
             return;
         }
@@ -1555,7 +1556,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,27+mh->num_dbs);
+        addReplyMapLen(c,28+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1626,6 +1627,9 @@ NULL
 
         addReplyBulkCString(c,"allocator.resident");
         addReplyLongLong(c,server.cron_malloc_stats.allocator_resident);
+
+        addReplyBulkCString(c,"allocator.muzzy");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_muzzy);
 
         addReplyBulkCString(c,"allocator-fragmentation.ratio");
         addReplyDouble(c,mh->allocator_frag);

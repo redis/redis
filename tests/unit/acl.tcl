@@ -802,6 +802,16 @@ start_server {tags {"acl external:skip"}} {
         assert {[dict get $entry username] eq {antirez}}
     }
 
+    test {ACLLOG - zero max length is correctly handled} {
+        r ACL LOG RESET
+        r CONFIG SET acllog-max-len 0
+        for {set j 0} {$j < 10} {incr j} {
+            catch {r SET obj:$j 123}
+        }
+        r AUTH default ""
+        assert {[llength [r ACL LOG]] == 0}
+    }
+
     test {ACL LOG entries are limited to a maximum amount} {
         r ACL LOG RESET
         r CONFIG SET acllog-max-len 5
@@ -810,6 +820,11 @@ start_server {tags {"acl external:skip"}} {
             catch {r SET obj:$j 123}
         }
         r AUTH default ""
+        assert {[llength [r ACL LOG]] == 5}
+    }
+
+    test {ACL LOG entries are still present on update of max len config} {
+        r CONFIG SET acllog-max-len 0
         assert {[llength [r ACL LOG]] == 5}
     }
 
