@@ -277,6 +277,7 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         dictEmpty(d, callback);
+        freeDictIfNeeded(kvs, didx);
     }
 
     listEmpty(kvs->rehashing);
