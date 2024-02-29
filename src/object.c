@@ -1265,10 +1265,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
         mh->num_dbs++;
 
-        mh->db_overhead_hashtable_lut += kvstoreOverheadHashtableLut(db->keys);
-        mh->db_overhead_hashtable_lut += kvstoreOverheadHashtableLut(db->expires);
-        mh->db_overhead_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->keys);
-        mh->db_overhead_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->expires);
+        mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->keys);
+        mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->expires);
+        mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->keys);
+        mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->expires);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->keys);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->expires);
     }
@@ -1609,16 +1609,16 @@ NULL
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
         }
 
-        addReplyBulkCString(c,"overhead.hashtable.lut");
-        addReplyLongLong(c, mh->db_overhead_hashtable_lut);
+        addReplyBulkCString(c,"overhead.db.hashtable.lut");
+        addReplyLongLong(c, mh->overhead_db_hashtable_lut);
 
-        addReplyBulkCString(c,"overhead.hashtable.rehashing");
-        addReplyLongLong(c, mh->db_overhead_hashtable_rehashing);
+        addReplyBulkCString(c,"overhead.db.hashtable.rehashing");
+        addReplyLongLong(c, mh->overhead_db_hashtable_rehashing);
 
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);
 
-        addReplyBulkCString(c,"database.dict.rehashing.count");
+        addReplyBulkCString(c,"db.dict.rehashing.count");
         addReplyLongLong(c, mh->db_dict_rehashing_count);
 
         addReplyBulkCString(c,"keys.count");

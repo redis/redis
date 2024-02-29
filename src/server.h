@@ -1422,8 +1422,8 @@ struct redisMemOverhead {
     float rss_extra;
     size_t rss_extra_bytes;
     size_t num_dbs;
-    size_t db_overhead_hashtable_lut;
-    size_t db_overhead_hashtable_rehashing;
+    size_t overhead_db_hashtable_lut;
+    size_t overhead_db_hashtable_rehashing;
     unsigned long db_dict_rehashing_count;
     struct {
         size_t dbid;

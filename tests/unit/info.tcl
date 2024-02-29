@@ -471,18 +471,18 @@ start_server {tags {"info" "external:skip"}} {
         r flushall
         set info_mem [r info memory]
         set mem_stats [r memory stats]
-        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
-        assert_equal [dict get $mem_stats overhead.hashtable.lut] {0}
-        assert_equal [dict get $mem_stats overhead.hashtable.rehashing] {0}
-        assert_equal [dict get $mem_stats database.dict.rehashing.count] {0}
+        assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] {0}
+        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
+        assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
         # Initial dict expand is not rehashing
         r set a b
         set info_mem [r info memory]
         set mem_stats [r memory stats]
-        assert_equal [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] {0}
-        assert_range [dict get $mem_stats overhead.hashtable.lut] 1 64
-        assert_equal [dict get $mem_stats overhead.hashtable.rehashing] {0}
-        assert_equal [dict get $mem_stats database.dict.rehashing.count] {0}
+        assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
+        assert_range [dict get $mem_stats overhead.db.hashtable.lut] 1 64
+        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
+        assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
         # set 4 more keys to trigger rehashing
         # get the info within a transaction to make sure the rehashing is not completed
         r multi 
@@ -495,9 +495,9 @@ start_server {tags {"info" "external:skip"}} {
         set res [r exec]
         set info_mem [lindex $res 4]
         set mem_stats [lindex $res 5]
-        assert_range [getInfoProperty $info_mem mem_overhead_hashtable_rehashing] 1 64
-        assert_range [dict get $mem_stats overhead.hashtable.lut] 1 192
-        assert_range [dict get $mem_stats overhead.hashtable.rehashing] 1 64
-        assert_equal [dict get $mem_stats database.dict.rehashing.count] {1}
+        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 64
+        assert_range [dict get $mem_stats overhead.db.hashtable.lut] 1 192
+        assert_range [dict get $mem_stats overhead.db.hashtable.rehashing] 1 64
+        assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
     }
 }

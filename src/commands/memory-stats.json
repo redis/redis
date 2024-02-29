@@ -47,16 +47,16 @@
                 "functions.caches": {
                     "type": "integer"
                 },
-                "overhead.hashtable.lut": {
+                "overhead.db.hashtable.lut": {
                     "type": "integer"
                 },
-                "overhead.hashtable.rehashing": {
+                "overhead.db.hashtable.rehashing": {
                     "type": "integer"
                 },
                 "overhead.total": {
                     "type": "integer"
                 },
-                "database.dict.rehashing.count": {
+                "db.dict.rehashing.count": {
                     "type": "integer"
                 },
                 "keys.count": {
@@ -109,7 +109,7 @@
                 }
             },
             "patternProperties": {
-                "^db.": {
+                "^db\\.\\d+$": {
                     "type": "object",
                     "properties": {
                         "overhead.hashtable.main": {
