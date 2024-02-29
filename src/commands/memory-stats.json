@@ -83,6 +83,9 @@
                 "allocator.resident": {
                     "type": "integer"
                 },
+                "allocator.muzzy": {
+                    "type": "integer"
+                },
                 "allocator-fragmentation.ratio": {
                     "type": "number"
                 },
