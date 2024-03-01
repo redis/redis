@@ -1246,8 +1246,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
+        if (!kvstoreNumAllocatedDicts(db->keys)) continue;
+
         unsigned long long keyscount = kvstoreSize(db->keys);
-        if (keyscount == 0) continue;
 
         mh->total_keys += keyscount;
         mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
@@ -1263,6 +1264,13 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mem_total+=mem;
 
         mh->num_dbs++;
+
+        mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->keys);
+        mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->expires);
+        mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->keys);
+        mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->expires);
+        mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->keys);
+        mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->expires);
     }
 
     mh->overhead_total = mem_total;
@@ -1556,7 +1564,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,28+mh->num_dbs);
+        addReplyMapLen(c,31+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1601,8 +1609,17 @@ NULL
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
         }
 
+        addReplyBulkCString(c,"overhead.db.hashtable.lut");
+        addReplyLongLong(c, mh->overhead_db_hashtable_lut);
+
+        addReplyBulkCString(c,"overhead.db.hashtable.rehashing");
+        addReplyLongLong(c, mh->overhead_db_hashtable_rehashing);
+
         addReplyBulkCString(c,"overhead.total");
         addReplyLongLong(c,mh->overhead_total);
+
+        addReplyBulkCString(c,"db.dict.rehashing.count");
+        addReplyLongLong(c, mh->db_dict_rehashing_count);
 
         addReplyBulkCString(c,"keys.count");
         addReplyLongLong(c,mh->total_keys);
