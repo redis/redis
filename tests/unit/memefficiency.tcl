@@ -183,7 +183,7 @@ run_solo {defrag} {
             r config resetstat
             r config set hz 100
             r config set activedefrag no
-            r config set active-defrag-threshold-lower 7
+            r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
