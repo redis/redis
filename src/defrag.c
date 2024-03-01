@@ -980,11 +980,32 @@ void computeDefragCycles(void) {
     }
 }
 
+/* Struct for tracking defragmentation state. */
+typedef struct defragStage {
+    kvstore *kvs;
+    dictScanFunction *scanfn;
+    void *ctx;
+} defragStage;
+
+/* This function iterates over the defrag stages and finds the next non-empty slot
+ * that is closest to the provided slot. If no slot is found, returns -1. */
+int getNextClosestNonEmptySlot(defragStage *stages, int stages_num, int slot) {
+    int closest_slot = INT_MAX;
+    for (int i = 0; i < stages_num; i++) {
+        if (!stages[i].kvs) continue;
+        int temp = kvstoreGetNextNonEmptyDictIndex(stages[i].kvs, slot);
+        if (temp != -1 && temp < closest_slot) {
+            closest_slot = temp;
+        }
+    }
+
+    return closest_slot == INT_MAX ? -1 : closest_slot;
+}
+
 /* Perform incremental defragmentation work from the serverCron.
  * This works in a similar way to activeExpireCycle, in the sense that
  * we do incremental work across calls. */
 void activeDefragCycle(void) {
-    static defragCtx ctx;
     static int slot = -1;
     static int current_db = -1;
     static int defrag_later_item_in_progress = 0;
@@ -1075,7 +1096,6 @@ void activeDefragCycle(void) {
                 slot = -1;
                 defrag_later_item_in_progress = 0;
                 db = NULL;
-                memset(&ctx, -1, sizeof(ctx));
                 server.active_defrag_running = 0;
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
@@ -1094,10 +1114,9 @@ void activeDefragCycle(void) {
             kvstoreDictLUTDefrag(db->expires, dictDefragTables);
             defrag_stage = 0;
             defrag_cursor = 0;
-            slot = kvstoreFindDictIndexByKeyIndex(db->keys, 1);
+            slot = 0; /* Always start from the first slot because we still need to
+                       * defragment pubsub, which only defragments in the first slot */
             defrag_later_item_in_progress = 0;
-            ctx.db = db;
-            ctx.slot = slot;
         }
         do {
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
@@ -1106,21 +1125,16 @@ void activeDefragCycle(void) {
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
+            /* This array of structures holds the parameters for all defragmentation stages. */
+            defragStage defrag_stages[] = {
+                {db->keys, defragScanCallback, &(defragCtx){ db, slot }},
+                {db->expires, scanCallbackCountScanned, NULL},
+                {(current_db == 0 && slot == 0) ? server.pubsub_channels : NULL, defragPubsubScanCallback,
+                    &(defragPubSubCtx){ server.pubsub_channels, getClientPubSubChannels, slot }},
+                {server.pubsubshard_channels, defragPubsubScanCallback,
+                    &(defragPubSubCtx){ server.pubsubshard_channels, getClientPubSubShardChannels, slot }}
+            };
             if (!defrag_later_item_in_progress) {
-                /* This array of structures holds the parameters for all defragmentation stages. */
-                struct {
-                    kvstore *kvs;
-                    dictScanFunction *scanfn;
-                    void *ctx;
-                } defrag_stages[] = {
-                    {db->keys, defragScanCallback, &ctx},
-                    {db->expires, scanCallbackCountScanned, NULL},
-                    {(current_db == 0 && slot == 0) ? server.pubsub_channels : NULL, defragPubsubScanCallback,
-                     &(defragPubSubCtx){ server.pubsub_channels, getClientPubSubChannels, slot }},
-                    {server.pubsubshard_channels, defragPubsubScanCallback,
-                     &(defragPubSubCtx){ server.pubsubshard_channels, getClientPubSubShardChannels, slot }}
-                };
-
                 /* Iterates over all defragmentation stages, starting from the last unfinished stage. */
                 int num_stages = sizeof(defrag_stages) / sizeof(defrag_stages[0]);
                 serverAssert(defrag_stage < num_stages);
@@ -1146,9 +1160,8 @@ void activeDefragCycle(void) {
                     defrag_later_item_in_progress = 1;
                     continue;
                 }
-                slot = kvstoreGetNextNonEmptyDictIndex(db->keys, slot);
+                slot = getNextClosestNonEmptySlot(defrag_stages, sizeof(defrag_stages)/sizeof(defrag_stages[0]), slot);
                 defrag_later_item_in_progress = 0;
-                ctx.slot = slot;
             }
     
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
