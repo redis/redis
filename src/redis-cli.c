@@ -9963,7 +9963,8 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
     unsigned long long total_keys = 0, size;
     char buf[2][256];
 
-    line_count += cleanPrintfln("--- Key length  Percentile  Total keys");
+    line_count += cleanPrintfln("Key length     Percentile Total keys");
+    line_count += cleanPrintfln("-------------- ---------- -----------");
 
     for (int i = 0; dist->size_dist[i].size; i++) {
         if (dist->size_dist[i].count) {
@@ -9973,7 +9974,7 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
                 size = dist->size_dist[i].size;
             }
             total_keys += dist->size_dist[i].count;
-            line_count += cleanPrintfln("%14s %10.4f%% %11llu",
+            line_count += cleanPrintfln("%14s %9.4f%% %11llu",
                 bytesToHuman(buf[1], sizeof(buf[1]), size),
                 (double)100 * total_keys / dist->total_count,
                 total_keys);
@@ -9981,7 +9982,7 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
     }
 
     if (total_keys < dist->total_count) {
-        line_count += cleanPrintfln("           inf %10.4f%% %11llu", 100.0, dist->total_count);
+        line_count += cleanPrintfln("           inf %9.4f%% %11llu", 100.0, dist->total_count);
     }
 
     line_count += cleanPrintfln("Total key length is %s (%s avg)",
@@ -10037,7 +10038,7 @@ static int displayKeyStatsSizeType(dict *memkeys_types_dict) {
     int line_count = 0;
     char buf[256];
 
-    line_count += cleanPrintfln("--- TOP SIZE PER TYPE");
+    line_count += cleanPrintfln("--- Top size per type ---");
     di = dictGetIterator(memkeys_types_dict);
     while ((de = dictNext(di))) {
         typeinfo *type = dictGetVal(de);
@@ -10059,7 +10060,7 @@ static int displayKeyStatsLengthType(dict *bigkeys_types_dict) {
     int line_count = 0;
     char buf[256];
 
-    line_count += cleanPrintfln("--- TOP LENGTH AND CARDINALITY PER TYPE");
+    line_count += cleanPrintfln("--- Top length and cardinality per type ---");
     di = dictGetIterator(bigkeys_types_dict);
     while ((de = dictNext(di))) {
         typeinfo *type = dictGetVal(de);
@@ -10086,7 +10087,8 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
 
     hdr_iter_percentile_init(&iter, keysize_histogram, 1);
 
-    line_count += cleanPrintfln("%9s %11s %12s","--- Key Size", "Percentile", "Total Keys");
+    line_count += cleanPrintfln("Key size Percentile Total keys");
+    line_count += cleanPrintfln("-------- ---------- -----------");
 
     while (hdr_iter_next(&iter)) {
         /* Skip repeat in hdr_histogram cumulative_count, and set the last line */
@@ -10107,7 +10109,7 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
                 percentile = iter.specifics.percentiles.percentile;
             }
 
-            line_count += cleanPrintfln("%12s %10.4f%% %12lld",
+            line_count += cleanPrintfln("%8s %9.4f%% %11lld",
                 bytesToHuman(size, sizeof(size), iter.highest_equivalent_value),
                 percentile,
                 iter.cumulative_count);
@@ -10131,7 +10133,8 @@ static int displayKeyStatsType(unsigned long long sampled,
     int line_count = 0;
     char total_size[64], size_avg[64], total_length[64], length_avg[64];
 
-    line_count += cleanPrintfln("--- Type |  Total keys| Keys %%|Tot size|Avg size| Total length/card|Avg ln/card");
+    line_count += cleanPrintfln("Type        Total keys  Keys %% Tot size Avg size  Total length/card Avg ln/card");
+    line_count += cleanPrintfln("--------- ------------ ------- -------- -------- ------------------ -----------");
 
     di = dictGetIterator(memkeys_types_dict);
     while ((de = dictNext(di))) {
@@ -10184,7 +10187,7 @@ typedef struct key_info {
 static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_limit) {
     int line_count = 0, i = 0;
 
-    line_count += cleanPrintfln("--- TOP %llu KEY SIZES", top_sizes_limit);
+    line_count += cleanPrintfln("--- Top %llu key sizes ---", top_sizes_limit);
     char buffer[32];
     listIter *iter = listGetIterator(top_key_sizes, AL_START_HEAD);
     listNode *node;
