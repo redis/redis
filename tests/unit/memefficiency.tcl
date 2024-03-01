@@ -421,13 +421,13 @@ run_solo {defrag} {
             set rd [redis_deferring_client]
             set rd_pubsub [redis_deferring_client]
             for {set j 0} {$j < $n} {incr j} {
-                set val "$dummy_channel[format "%06d" $j]"
+                set channel_name "$dummy_channel[format "%06d" $j]"
                 if {$j % 2 == 0} {
-                    $rd_pubsub subscribe $val
+                    $rd_pubsub subscribe $channel_name
                 } else {
-                    $rd_pubsub ssubscribe $val
+                    $rd_pubsub ssubscribe $channel_name
                 }
-                $rd set k$j $val
+                $rd set k$j $channel_name
             }
             for {set j 0} {$j < $n} {incr j} {
                 $rd_pubsub read ; # Discard subscribe or ssubscribe replies
@@ -493,21 +493,20 @@ run_solo {defrag} {
 
             # Publishes some message to all the pubsub clients to make sure that
             # we didn't break the data structure.
+            for {set j 0} {$j < $n} {incr j} {
+                set channel "$dummy_channel[format "%06d" $j]"
+                if {$j % 2 == 0} {
+                    r publish $channel "hello"
+                    assert_equal "message $channel hello" [$rd_pubsub read] 
+                    $rd_pubsub unsubscribe $channel
+                } else {
+                    r spublish $channel "hello"
+                    assert_equal "smessage $channel hello" [$rd_pubsub read] 
+                    $rd_pubsub sunsubscribe $channel
+                }
+                $rd_pubsub read
+            }
             $rd_pubsub close
-            # for {set j 0} {$j < $n} {incr j} {
-            #     set rd_pubsub [lindex $rds_pubsub $j]
-            #     set channel_name [dict get $channel_name_dict 400][format "%06d" $j]
-            #     r publish $channel_name "hello"
-            #     assert_equal "message $channel_name hello" [$rd_pubsub read] 
-            #     $rd_pubsub unsubscribe $channel_name
-            #     $rd_pubsub read
-            #     $rd_pubsub close
-            # }
-            # Ensure that pubsubshrad defragmentation didn't break that data structure.
-            # r spublish chan "hello"
-            # assert_equal {smessage chan hello} [$rd_pubsubshard read]
-            # $rd_pubsubshard sunsubscribe chan
-            # $rd_pubsubshard close
         }
 
         if {$type eq "standalone"} { ;# skip in cluster mode
