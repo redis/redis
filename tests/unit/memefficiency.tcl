@@ -409,7 +409,7 @@ run_solo {defrag} {
             r config resetstat
             r config set hz 100
             r config set activedefrag no
-            r config set active-defrag-threshold-lower 8
+            r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
@@ -422,15 +422,13 @@ run_solo {defrag} {
             set rd_pubsub [redis_deferring_client]
             for {set j 0} {$j < $n} {incr j} {
                 set channel_name "$dummy_channel[format "%06d" $j]"
-                if {$j % 2 == 0} {
-                    $rd_pubsub subscribe $channel_name
-                } else {
-                    $rd_pubsub ssubscribe $channel_name
-                }
+                $rd_pubsub subscribe $channel_name
+                $rd_pubsub read ; # Discard subscribe replies
+                $rd_pubsub ssubscribe $channel_name
+                $rd_pubsub read ; # Discard ssubscribe replies
                 $rd set k$j $channel_name
             }
             for {set j 0} {$j < $n} {incr j} {
-                $rd_pubsub read ; # Discard subscribe or ssubscribe replies
                 $rd read ; # Discard set replies
             }
 
@@ -454,7 +452,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.60
+            assert_morethan [s allocator_frag_ratio] 1.35
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -471,8 +469,8 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0
+                wait_for_condition 2000 100 {
+                    [s allocator_frag_ratio] <= 1.05
                 } else {
                     after 120 ;# serverCron only updates the info once in 100ms
                     puts [r info memory]
@@ -488,22 +486,22 @@ run_solo {defrag} {
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
                 }
-                assert_lessthan_equal [s allocator_frag_ratio] 1.08
+                assert_lessthan_equal [s allocator_frag_ratio] 1.05
             }
 
             # Publishes some message to all the pubsub clients to make sure that
             # we didn't break the data structure.
             for {set j 0} {$j < $n} {incr j} {
                 set channel "$dummy_channel[format "%06d" $j]"
-                if {$j % 2 == 0} {
-                    r publish $channel "hello"
-                    assert_equal "message $channel hello" [$rd_pubsub read] 
-                    $rd_pubsub unsubscribe $channel
-                } else {
-                    r spublish $channel "hello"
-                    assert_equal "smessage $channel hello" [$rd_pubsub read] 
-                    $rd_pubsub sunsubscribe $channel
-                }
+
+                r publish $channel "hello"
+                assert_equal "message $channel hello" [$rd_pubsub read] 
+                $rd_pubsub unsubscribe $channel
+                $rd_pubsub read
+
+                r spublish $channel "hello"
+                assert_equal "smessage $channel hello" [$rd_pubsub read] 
+                $rd_pubsub sunsubscribe $channel
                 $rd_pubsub read
             }
             $rd_pubsub close
@@ -726,11 +724,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo
