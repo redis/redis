@@ -242,7 +242,8 @@ class Argument(object):
 
 def to_c_name(str):
     return str.replace(":", "").replace(".", "_").replace("$", "_")\
-        .replace("^", "_").replace("*", "_").replace("-", "_")
+        .replace("^", "_").replace("*", "_").replace("-", "_") \
+        .replace("\\d", "_").replace("+", "_").replace("\\", "_")
 
 
 class ReplySchema(object):
