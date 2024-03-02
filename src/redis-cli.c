@@ -745,8 +745,13 @@ static int versionIsSupported(sds version, sds since) {
         }
         versionPos = strchr(versionPos, '.');
         sincePos = strchr(sincePos, '.');
-        if (!versionPos || !sincePos)
-            return 0;
+
+        /* If we finished to parse both `version` and `since`, it means they are equal */
+        if (!versionPos && !sincePos) return 1;
+
+        /* Different number of digits considered as not supported */
+        if (!versionPos || !sincePos) return 0;
+
         versionPos++;
         sincePos++;
     }
@@ -763,7 +768,7 @@ static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds 
             i++;
             continue;
         }
-        for (j = i; j != *numargs; j++) {
+        for (j = i; j != *numargs - 1; j++) {
             args[j] = args[j + 1];
         }
         (*numargs)--;
