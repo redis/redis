@@ -427,8 +427,6 @@ run_solo {defrag} {
                 $rd_pubsub ssubscribe $channel_name
                 $rd_pubsub read ; # Discard ssubscribe replies
                 $rd set k$j $channel_name
-            }
-            for {set j 0} {$j < $n} {incr j} {
                 $rd read ; # Discard set replies
             }
 
@@ -493,12 +491,10 @@ run_solo {defrag} {
             # we didn't break the data structure.
             for {set j 0} {$j < $n} {incr j} {
                 set channel "$dummy_channel[format "%06d" $j]"
-
                 r publish $channel "hello"
                 assert_equal "message $channel hello" [$rd_pubsub read] 
                 $rd_pubsub unsubscribe $channel
                 $rd_pubsub read
-
                 r spublish $channel "hello"
                 assert_equal "smessage $channel hello" [$rd_pubsub read] 
                 $rd_pubsub sunsubscribe $channel
@@ -724,11 +720,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo
