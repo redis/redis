@@ -788,17 +788,21 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * or not, a false detection can cause the defragmenter to waste a lot of CPU
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
-    size_t resident, active, allocated;
-    zmalloc_get_allocator_info(&allocated, &active, &resident);
-    float frag_pct = ((float)active / allocated)*100 - 100;
-    size_t frag_bytes = active - allocated;
+    size_t resident, active, allocated, frag_smallbins_bytes;
+    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
+
+    /* Calculate the fragmentation ratio as the proportion of wasted memory in small
+     * bins (which are defraggable) relative to the total allocated memory (including large bins).
+     * This is because otherwise, if most of the memory usage is large bins, we may show high percentage,
+     * despite the fact it's not a lot of memory for the user. */
+    float frag_pct = (float)frag_smallbins_bytes / allocated * 100;
     float rss_pct = ((float)resident / allocated)*100 - 100;
     size_t rss_bytes = resident - allocated;
     if(out_frag_bytes)
-        *out_frag_bytes = frag_bytes;
+        *out_frag_bytes = frag_smallbins_bytes;
     serverLog(LL_DEBUG,
         "allocated=%zu, active=%zu, resident=%zu, frag=%.2f%% (%.2f%% rss), frag_bytes=%zu (%zu rss)",
-        allocated, active, resident, frag_pct, rss_pct, frag_bytes, rss_bytes);
+        allocated, active, resident, frag_pct, rss_pct, frag_smallbins_bytes, rss_bytes);
     return frag_pct;
 }
 

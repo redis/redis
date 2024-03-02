@@ -61,6 +61,8 @@ struct _kvstore {
     unsigned long long key_count;          /* Total number of keys in this kvstore. */
     unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
     unsigned long long *dict_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
+    size_t overhead_hashtable_lut;         /* The overhead of all dictionaries. */
+    size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
 };
 
 /* Structure for kvstore iterator that allows iterating across multiple dicts. */
@@ -155,11 +157,14 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     }
 }
 
-static void createDictIfNeeded(kvstore *kvs, int didx) {
-    if (kvstoreGetDict(kvs, didx))
-        return;
+/* Create the dict if it does not exist and return it. */
+static dict *createDictIfNeeded(kvstore *kvs, int didx) {
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (d) return d;
+
     kvs->dicts[didx] = dictCreate(&kvs->dtype);
     kvs->allocated_dicts++;
+    return kvs->dicts[didx];
 }
 
 static void freeDictIfNeeded(kvstore *kvs, int didx) {
@@ -188,11 +193,11 @@ static void kvstoreDictRehashingStarted(dict *d) {
     listAddNodeTail(kvs->rehashing, d);
     metadata->rehashing_node = listLast(kvs->rehashing);
 
-    if (kvs->num_dicts == 1)
-        return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
     kvs->bucket_count += to; /* Started rehashing (Add the new ht size) */
+    kvs->overhead_hashtable_lut += to;
+    kvs->overhead_hashtable_rehashing += from;
 }
 
 /* Remove dictionary from the rehashing list.
@@ -207,11 +212,11 @@ static void kvstoreDictRehashingCompleted(dict *d) {
         metadata->rehashing_node = NULL;
     }
 
-    if (kvs->num_dicts == 1)
-        return;
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
     kvs->bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
+    kvs->overhead_hashtable_lut -= from;
+    kvs->overhead_hashtable_rehashing -= from;
 }
 
 /* Returns the size of the DB dict metadata in bytes. */
@@ -236,7 +241,7 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
     memcpy(&kvs->dtype, type, sizeof(kvs->dtype));
     kvs->flags = flags;
 
-    /* kvstore must be the one to set this callbacks, so we make sure the
+    /* kvstore must be the one to set these callbacks, so we make sure the
      * caller didn't do it */
     assert(!type->userdata);
     assert(!type->dictMetadataBytes);
@@ -261,6 +266,8 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
     kvs->resize_cursor = 0;
     kvs->dict_size_index = kvs->num_dicts > 1? zcalloc(sizeof(unsigned long long) * (kvs->num_dicts + 1)) : NULL;
     kvs->bucket_count = 0;
+    kvs->overhead_hashtable_lut = 0;
+    kvs->overhead_hashtable_rehashing = 0;
 
     return kvs;
 }
@@ -274,6 +281,7 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         dictEmpty(d, callback);
+        freeDictIfNeeded(kvs, didx);
     }
 
     listEmpty(kvs->rehashing);
@@ -284,6 +292,8 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
     kvs->bucket_count = 0;
     if (kvs->dict_size_index)
         memset(kvs->dict_size_index, 0, sizeof(unsigned long long) * (kvs->num_dicts + 1));
+    kvs->overhead_hashtable_lut = 0;
+    kvs->overhead_hashtable_rehashing = 0;
 }
 
 void kvstoreRelease(kvstore *kvs) {
@@ -402,7 +412,7 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
  * Based on the parameter `try_expand`, appropriate dict expand API is invoked.
  * if try_expand is set to 1, `dictTryExpand` is used else `dictExpand`.
  * The return code is either `DICT_OK`/`DICT_ERR` for both the API(s).
- * `DICT_OK` response is for successful expansion. However ,`DICT_ERR` response signifies failure in allocation in
+ * `DICT_OK` response is for successful expansion. However, `DICT_ERR` response signifies failure in allocation in
  * `dictTryExpand` call and in case of `dictExpand` call it signifies no expansion was performed.
  */
 int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb) {
@@ -525,6 +535,10 @@ int kvstoreNumNonEmptyDicts(kvstore *kvs) {
     return kvs->non_empty_dicts;
 }
 
+int kvstoreNumAllocatedDicts(kvstore *kvs) {
+    return kvs->allocated_dicts;
+}
+
 int kvstoreNumDicts(kvstore *kvs) {
     return kvs->num_dicts;
 }
@@ -581,7 +595,7 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
     return de;
 }
 
-/* This method traverses through kvstore dictionaries and triggers a resize .
+/* This method traverses through kvstore dictionaries and triggers a resize.
  * It first tries to shrink if needed, and if it isn't, it tries to expand. */
 void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
     if (limit > kvs->num_dicts)
@@ -599,7 +613,7 @@ void kvstoreTryResizeDicts(kvstore *kvs, int limit) {
 
 /* Our hash table implementation performs rehashing incrementally while
  * we write/read from the hash table. Still if the server is idle, the hash
- * table will use two tables for a long time. So we try to use 1 millisecond
+ * table will use two tables for a long time. So we try to use threshold_us
  * of CPU time at every call of this function to perform some rehashing.
  *
  * The function returns the amount of microsecs spent if some rehashing was
@@ -608,21 +622,33 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us) {
     if (listLength(kvs->rehashing) == 0)
         return 0;
 
-    /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
+    /* Our goal is to rehash as many dictionaries as we can before reaching threshold_us,
      * after each dictionary completes rehashing, it removes itself from the list. */
     listNode *node;
     monotime timer;
-    uint64_t elapsed_us = UINT64_MAX;
+    uint64_t elapsed_us = 0;
     elapsedStart(&timer);
     while ((node = listFirst(kvs->rehashing))) {
+        dictRehashMicroseconds(listNodeValue(node), threshold_us - elapsed_us);
+
         elapsed_us = elapsedUs(timer);
         if (elapsed_us >= threshold_us) {
             break;  /* Reached the time limit. */
         }
-        dictRehashMicroseconds(listNodeValue(node), threshold_us - elapsed_us);
     }
-    assert(elapsed_us != UINT64_MAX);
     return elapsed_us;
+}
+
+size_t kvstoreOverheadHashtableLut(kvstore *kvs) {
+    return kvs->overhead_hashtable_lut * sizeof(dictEntry *);
+}
+
+size_t kvstoreOverheadHashtableRehashing(kvstore *kvs) {
+    return kvs->overhead_hashtable_rehashing * sizeof(dictEntry *);
+}
+
+unsigned long kvstoreDictRehashingCount(kvstore *kvs) {
+    return listLength(kvs->rehashing);
 }
 
 unsigned long kvstoreDictSize(kvstore *kvs, int didx)
@@ -755,8 +781,7 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
 }
 
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
-    createDictIfNeeded(kvs, didx);
-    dict *d = kvstoreGetDict(kvs, didx);
+    dict *d = createDictIfNeeded(kvs, didx);
     dictEntry *ret = dictAddRaw(d, key, existing);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);

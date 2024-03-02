@@ -264,15 +264,31 @@ void scriptingInit(int setup) {
     lctx.lua = lua;
 }
 
+/* Free lua_scripts dict and close lua interpreter. */
+void freeLuaScriptsSync(dict *lua_scripts, lua_State *lua) {
+    dictRelease(lua_scripts);
+    lua_close(lua);
+
+#if !defined(USE_LIBC)
+    /* The lua interpreter may hold a lot of memory internally, and lua is
+     * using libc. libc may take a bit longer to return the memory to the OS,
+     * so after lua_close, we call malloc_trim try to purge it earlier.
+     *
+     * We do that only when Redis itself does not use libc. When Lua and Redis
+     * use different allocators, one won't use the fragmentation holes of the
+     * other, and released memory can take a long time until it is returned to
+     * the OS. */
+    zlibc_trim();
+#endif
+}
+
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(int async) {
     if (async)
-        freeLuaScriptsAsync(lctx.lua_scripts);
+        freeLuaScriptsAsync(lctx.lua_scripts, lctx.lua);
     else
-        dictRelease(lctx.lua_scripts);
-    lctx.lua_scripts_mem = 0;
-    lua_close(lctx.lua);
+        freeLuaScriptsSync(lctx.lua_scripts, lctx.lua);
 }
 
 void scriptingReset(int async) {
