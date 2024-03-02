@@ -112,7 +112,7 @@
                 }
             },
             "patternProperties": {
-                "^db\\\\.\\\\d+$": {
+                "^db\\.\\d+$": {
                     "type": "object",
                     "properties": {
                         "overhead.hashtable.main": {
