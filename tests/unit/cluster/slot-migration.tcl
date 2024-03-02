@@ -131,7 +131,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-allow-replica
         assert_equal [get_open_slots 3] "\[609->-$R1_id\]"
         assert_equal [get_open_slots 4] "\[609-<-$R0_id\]"
         catch {[R 3 get aga]} e
-        assert_equal {ASK} [lindex [split $e] 0]
+        assert_equal {MOVED} [lindex [split $e] 0]
         assert_equal {609} [lindex [split $e] 1]
     }
 

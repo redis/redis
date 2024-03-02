@@ -319,7 +319,7 @@ test {Migrate the last slot away from a node using redis-cli} {
 
         # Check that the now empty primary node doesn't turn itself into
         # a replica of any other nodes
-        after 5000
+        wait_for_cluster_propagation
         assert_match *master* [$owner_r role]
     }
 }

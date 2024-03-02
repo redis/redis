@@ -702,7 +702,7 @@ void migrateCommand(client *c) {
 
     /* If we are here and a socket error happened, we don't want to retry.
      * Just signal the problem to the client, but only do it if we did not
-     * already queue a different error reported by the target server. */
+     * already queue a different error reported by the destination server. */
     if (!error_from_target && socket_error) {
         may_retry = 0;
         goto socket_err;
@@ -1078,7 +1078,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * can safely serve the request, otherwise we return a TRYAGAIN
                  * error). To do so we set the importing/migrating state and
                  * increment a counter for every missing key. */
-                if ((n == myself || n == clusterNodeGetSlaveof(myself)) &&
+                if (n == myself &&
                     getMigratingSlotDest(slot) != NULL)
                 {
                     migrating_slot = 1;
@@ -1477,3 +1477,4 @@ void readwriteCommand(client *c) {
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
 }
+

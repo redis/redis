@@ -2325,7 +2325,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
  * Sometimes it is not actually the "Sender" of the information, like in the
  * case we receive the info via an UPDATE packet. */
 void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch, unsigned char *slots) {
-    int updateConfig = 0;
+    int j;
     clusterNode *curmaster = NULL, *newmaster = NULL;
     /* The dirty slots list is a list of slots for which we lose the ownership
      * while having still keys inside. This usually happens after a failover
@@ -2353,7 +2353,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         return;
     }
 
-    for (int j = 0; j < CLUSTER_SLOTS; j++) {
+    for (j = 0; j < CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(slots,j)) {
             sender_slots++;
 
@@ -2414,12 +2414,13 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                             server.cluster->migrating_slots_to[j]->human_nodename,
                             server.cluster->migrating_slots_to[j]->shard_id);
                         server.cluster->migrating_slots_to[j] = NULL;
-                        updateConfig ++;
                     }
                 }
 
                 /* Handle the case where we are importing this slot and the ownership changes */
-                if (server.cluster->importing_slots_from[j] != NULL) {
+                if (server.cluster->importing_slots_from[j] != NULL &&
+                    server.cluster->importing_slots_from[j] != sender)
+                {
                     /* Update importing_slots_from to point to the sender, if it is in the
                      * same shard as the previous slot owner */
                     if (areInSameShard(sender, server.cluster->importing_slots_from[j])) {
@@ -2443,11 +2444,14 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                             server.cluster->importing_slots_from[j]->shard_id);
                         server.cluster->importing_slots_from[j] = NULL;
                     }
-                    clusterDelSlot(j);
-                    clusterAddSlot(sender,j);
-                    bitmapClearBit(server.cluster->owner_not_claiming_slot, j);
-                    updateConfig ++;
                 }
+
+                clusterDelSlot(j);
+                clusterAddSlot(sender,j);
+                bitmapClearBit(server.cluster->owner_not_claiming_slot, j);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                     CLUSTER_TODO_UPDATE_STATE|
+                                     CLUSTER_TODO_FSYNC_CONFIG);
             }
         } else {
             if (server.cluster->slots[j] == sender) {
@@ -2479,7 +2483,9 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     sender->human_nodename,
                     sender->shard_id);
                 server.cluster->migrating_slots_to[j] = sender;
-                updateConfig ++;
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                     CLUSTER_TODO_UPDATE_STATE|
+                                     CLUSTER_TODO_FSYNC_CONFIG);
             }
 
             /* If the sender is no longer the owner of the slot, and I am a primary
@@ -2525,8 +2531,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     * values. */
                     clusterDelSlot(j);
                     clusterAddSlot(myself,j);
+                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                         CLUSTER_TODO_UPDATE_STATE|
+                                         CLUSTER_TODO_FSYNC_CONFIG);
                 }
-                updateConfig ++;
             }
         }
     }
@@ -2535,7 +2543,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
      * in the state of the server if a module disabled Redis Cluster
      * keys redirections. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
-        goto finish;
+        return;
 
     /* Handle a special case where newmaster is not set but both sender
      * and myself own no slots and in the same shard. Set the sender as
@@ -2581,7 +2589,9 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             /* Don't clear the migrating/importing states if this is a replica that
              * just gets promoted to the new primary in the shard. */
             clusterSetMaster(sender, !areInSameShard(sender, myself));
-            updateConfig ++;
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                 CLUSTER_TODO_UPDATE_STATE|
+                                 CLUSTER_TODO_FSYNC_CONFIG);
         } else if ((sender_slots >= migrated_our_slots) &&
                    !areInSameShard(sender, myself))
         {
@@ -2613,11 +2623,6 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 );
             delKeysInSlot(dirty_slots[j]);
         }
-    }
-
-finish:
-    if (updateConfig) {
-        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_FSYNC_CONFIG);
     }
 }
 
@@ -5359,18 +5364,18 @@ int verifyClusterConfigWithData(void) {
             clusterAddSlot(myself,j);
         } else if (server.cluster->importing_slots_from[j] != server.cluster->slots[j]) {
             if (server.cluster->importing_slots_from[j] == NULL) {
-                serverLog(LL_WARNING, "I have keys for slot %d, but the slot is "
-                                      "assigned to another node. Deleting keys in the slot.", j);
+                serverLog(LL_NOTICE, "I have keys for slot %d, but the slot is "
+                        "assigned to another node. Deleting keys in the slot.", j);
             } else {
-                serverLog(LL_WARNING, "I am importing keys from node %.40s (%s) in shard %.40s to slot %d, "
-                                      "but the slot is now owned by node %.40s (%s) in shard %.40s. Deleting keys in the slot",
-                                      server.cluster->importing_slots_from[j]->name,
-                                      server.cluster->importing_slots_from[j]->human_nodename,
-                                      server.cluster->importing_slots_from[j]->shard_id,
-                                      j,
-                                      server.cluster->slots[j]->name,
-                                      server.cluster->slots[j]->human_nodename,
-                                      server.cluster->slots[j]->shard_id);
+                serverLog(LL_NOTICE, "I am importing keys from node %.40s (%s) in shard %.40s to slot %d, "
+                        "but the slot is now owned by node %.40s (%s) in shard %.40s. Deleting keys in the slot",
+                        server.cluster->importing_slots_from[j]->name,
+                        server.cluster->importing_slots_from[j]->human_nodename,
+                        server.cluster->importing_slots_from[j]->shard_id,
+                        j,
+                        server.cluster->slots[j]->name,
+                        server.cluster->slots[j]->human_nodename,
+                        server.cluster->slots[j]->shard_id);
             }
             delKeysInSlot(j);
         }
