@@ -1854,6 +1854,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkString(r,"SADD",4) ||
                 !rioWriteBulkObject(r,key))
             {
+                setTypeReleaseIterator(si);
                 return 0;
             }
         }

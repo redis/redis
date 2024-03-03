@@ -45,7 +45,14 @@
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
 
-int expireIfNeeded(redisDb *db, robj *key, int flags);
+/* Return values for expireIfNeeded */
+typedef enum {
+    KEY_VALID = 0, /* Could be volatile and not yet expired, non-volatile, or even non-existing key. */
+    KEY_EXPIRED, /* Logically expired but not yet deleted. */
+    KEY_DELETED /* The key was deleted now. */
+} keyStatus;
+
+keyStatus expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
 
@@ -104,7 +111,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
         if (flags & LOOKUP_NOEXPIRE)
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
-        if (expireIfNeeded(db, key, expire_flags)) {
+        if (expireIfNeeded(db, key, expire_flags) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -366,7 +373,7 @@ robj *dbRandomKey(redisDb *db) {
                  * return a key name that may be already expired. */
                 return keyobj;
             }
-            if (expireIfNeeded(db,keyobj,0)) {
+            if (expireIfNeeded(db,keyobj,0) != KEY_VALID) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
             }
@@ -727,7 +734,8 @@ void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j],0);
+        if (expireIfNeeded(c->db,c->argv[j],0) == KEY_DELETED)
+            continue;
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
@@ -1180,7 +1188,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
                 }
                 continue;
             }
-            if (expireIfNeeded(c->db, &kobj, 0)) {
+            if (expireIfNeeded(c->db, &kobj, 0) != KEY_VALID) {
                 listDelNode(keys, ln);
             }
         }
@@ -1801,7 +1809,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  * propagation of a DEL/UNLINK command in AOF / replication stream.
  *
  * On replicas, this function does not delete expired keys by default, but
- * it still returns 1 if the key is logically expired. To force deletion
+ * it still returns KEY_EXPIRED if the key is logically expired. To force deletion
  * of logically expired keys even on replicas, use the EXPIRE_FORCE_DELETE_EXPIRED
  * flag. Note though that if the current client is executing
  * replicated commands from the master, keys are never considered expired.
@@ -1810,11 +1818,12 @@ int keyIsExpired(redisDb *db, robj *key) {
  * the actual key deletion and propagation of the deletion, use the
  * EXPIRE_AVOID_DELETE_EXPIRED flag.
  *
- * The return value of the function is 0 if the key is still valid,
- * otherwise the function returns 1 if the key is expired. */
-int expireIfNeeded(redisDb *db, robj *key, int flags) {
-    if (server.lazy_expire_disabled) return 0;
-    if (!keyIsExpired(db,key)) return 0;
+ * The return value of the function is KEY_VALID if the key is still valid.
+ * The function returns KEY_EXPIRED if the key is expired BUT not deleted, 
+ * or returns KEY_DELETED if the key is expired and deleted. */
+keyStatus expireIfNeeded(redisDb *db, robj *key, int flags) {
+    if (server.lazy_expire_disabled) return KEY_VALID;
+    if (!keyIsExpired(db,key)) return KEY_VALID;
 
     /* If we are running in the context of a replica, instead of
      * evicting the expired key from the database, we return ASAP:
@@ -1824,25 +1833,25 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
      * replicas.
      *
      * Still we try to return the right information to the caller,
-     * that is, 0 if we think the key should be still valid, 1 if
-     * we think the key is expired at this time.
+     * that is, KEY_VALID if we think the key should still be valid, 
+     * KEY_EXPIRED if we think the key is expired but don't want to delete it at this time.
      *
      * When replicating commands from the master, keys are never considered
      * expired. */
     if (server.masterhost != NULL) {
-        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return 0;
-        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return 1;
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
+        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
     }
 
     /* In some cases we're explicitly instructed to return an indication of a
      * missing key without actually deleting it, even on masters. */
     if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
-        return 1;
+        return KEY_EXPIRED;
 
     /* If 'expire' action is paused, for whatever reason, then don't expire any key.
      * Typically, at the end of the pause we will properly expire the key OR we
      * will have failed over and the new primary will send us the expire. */
-    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return 1;
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
 
     /* The key needs to be converted from static to heap before deleted */
     int static_key = key->refcount == OBJ_STATIC_REFCOUNT;
@@ -1854,7 +1863,7 @@ int expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (static_key) {
         decrRefCount(key);
     }
-    return 1;
+    return KEY_DELETED;
 }
 
 /* CB passed to kvstoreExpand.

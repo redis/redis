@@ -1422,6 +1422,9 @@ struct redisMemOverhead {
     float rss_extra;
     size_t rss_extra_bytes;
     size_t num_dbs;
+    size_t overhead_db_hashtable_lut;
+    size_t overhead_db_hashtable_rehashing;
+    unsigned long db_dict_rehashing_count;
     struct {
         size_t dbid;
         size_t overhead_ht_main;
@@ -1464,6 +1467,8 @@ struct malloc_stats {
     size_t allocator_allocated;
     size_t allocator_active;
     size_t allocator_resident;
+    size_t allocator_muzzy;
+    size_t allocator_frag_smallbins_bytes;
 };
 
 /*-----------------------------------------------------------------------------
@@ -3379,7 +3384,8 @@ void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
 sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
-void freeLuaScriptsAsync(dict *lua_scripts);
+void freeLuaScriptsSync(dict *lua_scripts, lua_State *lua);
+void freeLuaScriptsAsync(dict *lua_scripts, lua_State *lua);
 void freeFunctionsAsync(functionsLibCtx *lib_ctx);
 int ldbIsEnabled(void);
 void ldbLog(sds entry);

@@ -149,6 +149,8 @@ void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeTimeEvent *next_te, *te = eventLoop->timeEventHead;
     while (te) {
         next_te = te->next;
+        if (te->finalizerProc)
+            te->finalizerProc(eventLoop, te->clientData);
         zfree(te);
         te = next_te;
     }

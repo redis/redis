@@ -9392,7 +9392,7 @@ struct COMMAND_ARG XGROUP_CREATE_Args[] = {
 {MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_CREATE_id_selector_Subargs},
 {MAKE_ARG("mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("entries-read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("entriesread",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="entries-read"},
 };
 
 /********** XGROUP CREATECONSUMER ********************/
@@ -9557,7 +9557,7 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XINFO CONSUMERS history */
 commandHistory XINFO_CONSUMERS_History[] = {
-{"7.2.0","Added the `inactive` field."},
+{"7.2.0","Added the `inactive` field, and changed the meaning of `idle`."},
 };
 #endif
 
