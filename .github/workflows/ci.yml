@@ -7,7 +7,7 @@ jobs:
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
@@ -28,7 +28,7 @@ jobs:
   test-sanitizer-address:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: make
         # build with TLS module just for compilation coverage
         run: make SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS' BUILD_TLS=module
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     container: debian:buster
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: make
       run: |
         apt-get update && apt-get install -y build-essential
@@ -52,14 +52,14 @@ jobs:
   build-macos-latest:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: make
       run: make REDIS_CFLAGS='-Werror'
 
   build-32bit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386
@@ -68,7 +68,7 @@ jobs:
   build-libc-malloc:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: make
       run: make REDIS_CFLAGS='-Werror' MALLOC=libc
 
@@ -76,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     container: centos:7
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: make
       run: |
         yum -y install gcc make
