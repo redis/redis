@@ -28,6 +28,7 @@ int kvstoreGetFairRandomDictIndex(kvstore *kvs);
 void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full);
 
 int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target);
+int kvstoreGetFirstNonEmptyDictIndex(kvstore *kvs);
 int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx);
 int kvstoreNumNonEmptyDicts(kvstore *kvs);
 int kvstoreNumAllocatedDicts(kvstore *kvs);

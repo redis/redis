@@ -1128,7 +1128,7 @@ void activeDefragCycle(void) {
             if (!defrag_later_item_in_progress) {
                 /* Continue defragmentation from the previous stage.
                  * If slot is -1, it means this stage starts from the beginning. */
-                if (slot == -1) slot = kvstoreFindDictIndexByKeyIndex(current_stage->kvs, 1);
+                if (slot == -1) slot = kvstoreGetFirstNonEmptyDictIndex(current_stage->kvs);
                 defrag_cursor = kvstoreDictScanDefrag(current_stage->kvs, slot, defrag_cursor,
                     current_stage->scanfn, &defragfns, &(defragCtx){current_stage->privdata, slot});
             }

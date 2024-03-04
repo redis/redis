@@ -525,6 +525,11 @@ int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
     return result;
 }
 
+/* Wrapper for kvstoreFindDictIndexByKeyIndex to get the first non-empty dict index in the kvstore. */
+int kvstoreGetFirstNonEmptyDictIndex(kvstore *kvs) {
+    return kvstoreFindDictIndexByKeyIndex(kvs, 1);
+}
+
 /* Returns next non-empty dict index strictly after given one, or -1 if provided didx is the last one. */
 int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx) {
     if (kvs->num_dicts == 1) {
@@ -554,7 +559,7 @@ kvstoreIterator *kvstoreIteratorInit(kvstore *kvs) {
     kvstoreIterator *kvs_it = zmalloc(sizeof(*kvs_it));
     kvs_it->kvs = kvs;
     kvs_it->didx = -1;
-    kvs_it->next_didx = kvstoreFindDictIndexByKeyIndex(kvs_it->kvs, 1); /* Finds first non-empty dict index. */
+    kvs_it->next_didx = kvstoreGetFirstNonEmptyDictIndex(kvs_it->kvs); /* Finds first non-empty dict index. */
     dictInitSafeIterator(&kvs_it->di, NULL);
     return kvs_it;
 }
