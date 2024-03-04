@@ -1145,14 +1145,19 @@ void activeDefragCycle(void) {
                     defrag_stage++;
                 defrag_later_item_in_progress = 0;
             }
+
+            /* Check if all defragmentation stages have been processed.
+             * If so, mark as finished and reset the stage counter to move on to next database. */
+            if (defrag_stage == num_stages) {
+                all_stages_finished = 1;
+                defrag_stage = 0;
+            }
     
             /* Once in 16 scan iterations, 512 pointer reallocations. or 64 keys
              * (if we have a lot of pointers in one hash bucket or rehashing),
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
              * the last db we call defragOtherGlobals, which must be done in one cycle */
-            all_stages_finished = (defrag_stage == num_stages);
-            if (defrag_stage == num_stages) defrag_stage = 0;
             if (all_stages_finished ||
                 ++iterations > 16 ||
                 server.stat_active_defrag_hits - prev_defragged > 512 ||
