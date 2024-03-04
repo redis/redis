@@ -2508,6 +2508,23 @@ static int updateMaxmemory(const char **err) {
     return 1;
 }
 
+static int updateMaxmemoryEvalScripts(const char **err) {
+    UNUSED(err);
+    if (server.maxmemory_eval_scripts) {
+        size_t used = luaEvalScriptsMemory();
+        if (server.maxmemory_eval_scripts < used) {
+            serverLog(LL_WARNING, "WARNING: the new maxmemory-eval-scripts value set "
+                                  "via CONFIG SET (%llu) is smaller than the current "
+                                  "eval scripts memory usage (%zu). This will result "
+                                  "in eval scripts eviction.", server.maxmemory_eval_scripts, used);
+        }
+        evalScriptsEvictionPoolAlloc();
+    } else {
+        evalScriptsEvictionPoolFree();
+    }
+    return 1;
+}
+
 static int updateGoodSlaves(const char **err) {
     UNUSED(err);
     refreshGoodSlavesCount();
@@ -3227,6 +3244,7 @@ standardConfig static_configs[] = {
 
     /* Unsigned Long Long configs */
     createULongLongConfig("maxmemory", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory, 0, MEMORY_CONFIG, NULL, updateMaxmemory),
+    createULongLongConfig("maxmemory-eval-scripts", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.maxmemory_eval_scripts, 0, MEMORY_CONFIG, NULL, updateMaxmemoryEvalScripts),
     createULongLongConfig("cluster-link-sendbuf-limit", NULL, MODIFIABLE_CONFIG, 0, ULLONG_MAX, server.cluster_link_msg_queue_limit_bytes, 0, MEMORY_CONFIG, NULL, NULL),
 
     /* Size_t configs */

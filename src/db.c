@@ -128,7 +128,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
             } else {
-                val->lru = LRU_CLOCK();
+                updateLRU(val);
             }
         }
 

@@ -1238,7 +1238,7 @@ void cronUpdateMemoryStats(void) {
             /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
              * so we must deduct it in order to be able to calculate correct
              * "allocator fragmentation" ratio */
-            size_t lua_memory = evalMemory();
+            size_t lua_memory = evalVMEngineMemory();
             server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
         }
         if (!server.cron_malloc_stats.allocator_active)
@@ -1385,6 +1385,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Handle background operations on Redis databases. */
     databasesCron();
+
+    /* Delete some lua eval scripts if they are consuming too much memory.  */
+    run_with_period(100) evictEvalScripts(EVAL_SCRIPTS_EVICTING_THRESHOLD_US);
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
@@ -2524,6 +2527,7 @@ void resetServerStats(void) {
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
+    server.stat_evicted_eval_scripts = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -5610,7 +5614,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
-        long long memory_lua = evalMemory();
+        long long memory_lua = evalVMEngineMemory();
         long long memory_functions = functionsMemory();
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
@@ -5653,7 +5657,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "used_memory_vm_eval:%lld\r\n", memory_lua,
             "used_memory_lua_human:%s\r\n", used_memory_lua_hmem, /* deprecated */
             "used_memory_scripts_eval:%lld\r\n", (long long)mh->lua_caches,
-            "number_of_cached_scripts:%lu\r\n", dictSize(evalScriptsDict()),
+            "number_of_cached_scripts:%lu\r\n", evalDictSize(),
             "number_of_functions:%lu\r\n", functionsNum(),
             "number_of_libraries:%lu\r\n", functionsLibNum(),
             "used_memory_vm_functions:%lld\r\n", memory_functions,
@@ -5826,6 +5830,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
+            "evicted_eval_scripts:%lld\r\n", server.stat_evicted_eval_scripts,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
             "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,

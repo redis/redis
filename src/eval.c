@@ -46,6 +46,7 @@ void ldbDisable(client *c);
 void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
+size_t luaScriptMemory(sds sha, luaScript *lua_script);
 
 static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
@@ -58,7 +59,7 @@ static uint64_t dictStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-/* server.lua_scripts sha (as sds string) -> scripts (as luaScript) cache. */
+/* lua scripts sha (as sds string) -> scripts (as luaScript) cache. */
 dictType shaScriptObjectDictType = {
         dictStrCaseHash,            /* hash function */
         NULL,                       /* key dup */
@@ -73,8 +74,10 @@ dictType shaScriptObjectDictType = {
 struct luaCtx {
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
-    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
-    unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
+    dict *lua_eval_scripts; /* A dictionary of SHA1 -> Lua scripts, from EVAL*. */
+    dict *lua_load_scripts; /* A dictionary of SHA1 -> Lua scripts, from SCRIPT LOAD. */
+    unsigned long long lua_eval_scripts_mem; /* Cached scripts' memory + oh, from EVAL*. */
+    unsigned long long lua_load_scripts_mem; /* Cached scripts' memory + oh, from SCRIPT LOAD. */
 } lctx;
 
 /* Debugger shared state is stored inside this global structure. */
@@ -189,11 +192,11 @@ void scriptingInit(int setup) {
         ldbInit();
     }
 
-    /* Initialize a dictionary we use to map SHAs to scripts.
-     * This is useful for replication, as we need to replicate EVALSHA
-     * as EVAL, so we need to remember the associated script. */
-    lctx.lua_scripts = dictCreate(&shaScriptObjectDictType);
-    lctx.lua_scripts_mem = 0;
+    /* Initialize the dicts we use to map SHAs to scripts. */
+    lctx.lua_eval_scripts = dictCreate(&shaScriptObjectDictType);
+    lctx.lua_load_scripts = dictCreate(&shaScriptObjectDictType);
+    lctx.lua_eval_scripts_mem = 0;
+    lctx.lua_load_scripts_mem = 0;
 
     luaRegisterRedisAPI(lua);
 
@@ -264,9 +267,10 @@ void scriptingInit(int setup) {
     lctx.lua = lua;
 }
 
-/* Free lua_scripts dict and close lua interpreter. */
-void freeLuaScriptsSync(dict *lua_scripts, lua_State *lua) {
-    dictRelease(lua_scripts);
+/* Free lua script dicts and close lua interpreter. */
+void freeLuaScriptsSync(dict *lua_eval_scripts, dict *lua_load_scripts, lua_State *lua) {
+    dictRelease(lua_eval_scripts);
+    dictRelease(lua_load_scripts);
     lua_close(lua);
 
 #if !defined(USE_LIBC)
@@ -286,9 +290,9 @@ void freeLuaScriptsSync(dict *lua_scripts, lua_State *lua) {
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(int async) {
     if (async)
-        freeLuaScriptsAsync(lctx.lua_scripts, lctx.lua);
+        freeLuaScriptsAsync(lctx.lua_eval_scripts, lctx.lua_load_scripts, lctx.lua);
     else
-        freeLuaScriptsSync(lctx.lua_scripts, lctx.lua);
+        freeLuaScriptsSync(lctx.lua_eval_scripts, lctx.lua_load_scripts, lctx.lua);
 }
 
 void scriptingReset(int async) {
@@ -321,6 +325,59 @@ static void evalCalcFunctionName(int evalsha, sds script, char *out_funcname) {
                 sha[j]+('a'-'A') : sha[j];
         out_funcname[42] = '\0';
     }
+}
+
+/* Add a lua script to the dictionary.
+ * Which dictionary is finally added to is decided based on evalsha. */
+int evalDictAdd(sds sha, luaScript *lua_script, int evalsha) {
+    dict *d = evalsha ? lctx.lua_load_scripts : lctx.lua_eval_scripts;
+    int retval = dictAdd(d, sha, lua_script);
+    if (retval == DICT_OK) {
+        if (evalsha) {
+            lctx.lua_load_scripts_mem += luaScriptMemory(sha, lua_script);
+        } else {
+            lctx.lua_eval_scripts_mem += luaScriptMemory(sha, lua_script);
+        }
+        updateLRU(lua_script->body);
+    }
+    return retval;
+}
+
+/* Delete a lua script from the dictionary.
+ * Which dictionary finally to delete from is decided based on evalsha. */
+int evalDictDelete(sds sha, luaScript *lua_script, int evalsha) {
+    dict *d = evalsha ? lctx.lua_load_scripts : lctx.lua_eval_scripts;
+    int retval = dictDelete(d, sha);
+    if (retval == DICT_OK) {
+        if (evalsha) {
+            lctx.lua_load_scripts_mem -= luaScriptMemory(sha, lua_script);
+        } else {
+            lctx.lua_eval_scripts_mem -= luaScriptMemory(sha, lua_script);
+        }
+    }
+    return retval;
+}
+
+/* Search lua script in two dictionaries. In most normal cases, according
+ * to the evalsha hint, we will only have one lookup. Although there will
+ * be two lookups when the script does not exist, this is not a hot path.
+ *
+ * Note that this function will not update the lru of the lua body.
+ * For simplicity, updates are called by the caller, currently updates
+ * are only needed when lua function is actually called. */
+dictEntry *evalDictFind(const char *name, int evalsha) {
+    dict *d1 = evalsha ? lctx.lua_load_scripts : lctx.lua_eval_scripts;
+    dictEntry *de = dictFind(d1, name);
+    if (!de) {
+        dict *d2 = evalsha ? lctx.lua_eval_scripts : lctx.lua_load_scripts;
+        if (!de) de = dictFind(d2, name);
+    }
+    return de;
+}
+
+/* Returns the total number of lua scripts cached. */
+unsigned long evalDictSize(void) {
+    return dictSize(lctx.lua_load_scripts) + dictSize(lctx.lua_eval_scripts);
 }
 
 /* Helper function to try and extract shebang flags from the script body.
@@ -403,7 +460,7 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
     uint64_t script_flags;
     evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
     char *lua_cur_script = funcname + 2;
-    c->cur_script = dictFind(lctx.lua_scripts, lua_cur_script);
+    c->cur_script = evalDictFind(lua_cur_script, evalsha);
     if (!c->cur_script) {
         if (evalsha)
             return cmd_flags;
@@ -434,8 +491,11 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
  * exists, and in such a case, it behaves like in the success case.
  *
  * If 'c' is not NULL, on error the client is informed with an appropriate
- * error describing the nature of the problem and the Lua interpreter error. */
-sds luaCreateFunction(client *c, robj *body) {
+ * error describing the nature of the problem and the Lua interpreter error.
+ *
+ * evalsha is a hint, indicating whether the lua function is created from
+ * the EVAL context or from the SCRIPT LOAD. */
+sds luaCreateFunction(client *c, robj *body, int evalsha) {
     char funcname[43];
     dictEntry *de;
     uint64_t script_flags;
@@ -444,7 +504,7 @@ sds luaCreateFunction(client *c, robj *body) {
     funcname[1] = '_';
     sha1hex(funcname+2,body->ptr,sdslen(body->ptr));
 
-    if ((de = dictFind(lctx.lua_scripts,funcname+2)) != NULL) {
+    if ((de = evalDictFind(funcname+2, evalsha)) != NULL) {
         return dictGetKey(de);
     }
 
@@ -480,11 +540,27 @@ sds luaCreateFunction(client *c, robj *body) {
     l->body = body;
     l->flags = script_flags;
     sds sha = sdsnewlen(funcname+2,40);
-    int retval = dictAdd(lctx.lua_scripts,sha,l);
+    int retval = evalDictAdd(sha, l, evalsha);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
-    lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
     return sha;
+}
+
+/* Delete a Lua function with the specified sha.
+ *
+ * This will delete the lua function from the lua interpreter and delete
+ * the lua function from server. */
+void luaDeleteFunction(sds sha, luaScript *lua_script, int evalsha) {
+    char funcname[43];
+    funcname[0] = 'f';
+    funcname[1] = '_';
+    memcpy(funcname+2, sha, 40);
+    funcname[42] = '\0';
+
+    lua_pushnil(lctx.lua);
+    lua_setfield(lctx.lua, LUA_REGISTRYINDEX, funcname);
+
+    serverAssert(evalDictDelete(sha, lua_script, evalsha) == DICT_OK);
 }
 
 void evalGenericCommand(client *c, int evalsha) {
@@ -525,7 +601,7 @@ void evalGenericCommand(client *c, int evalsha) {
             addReplyErrorObject(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c,c->argv[1]) == NULL) {
+        if (luaCreateFunction(c, c->argv[1], evalsha) == NULL) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
@@ -539,8 +615,9 @@ void evalGenericCommand(client *c, int evalsha) {
     char *lua_cur_script = funcname + 2;
     dictEntry *de = c->cur_script;
     if (!de)
-        de = dictFind(lctx.lua_scripts, lua_cur_script);
+        de = evalDictFind(lua_cur_script, evalsha);
     luaScript *l = dictGetVal(de);
+    updateLRU(l->body);
     int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
     scriptRunCtx rctx;
@@ -633,13 +710,16 @@ NULL
 
         addReplyArrayLen(c, c->argc-2);
         for (j = 2; j < c->argc; j++) {
-            if (dictFind(lctx.lua_scripts,c->argv[j]->ptr))
+            /* In SCRIPT EXIST we pass in evalsha = 1, because in most cases
+             * we will only get sha through SCRIPT LOAD. */
+            if (evalDictFind(c->argv[j]->ptr, 1))
                 addReply(c,shared.cone);
             else
                 addReply(c,shared.czero);
         }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
-        sds sha = luaCreateFunction(c,c->argv[2]);
+        /* In SCRIPT LOAD we pass in evalsha = 1 as a hint. */
+        sds sha = luaCreateFunction(c, c->argv[2], 1);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
@@ -668,18 +748,42 @@ NULL
     }
 }
 
-unsigned long evalMemory(void) {
+/* Returns number of bytes used by the current lua script VM engine for
+ * EVAL framework. */
+unsigned long evalVMEngineMemory(void) {
     return luaMemory(lctx.lua);
 }
 
-dict* evalScriptsDict(void) {
-    return lctx.lua_scripts;
+dict *luaEvalScriptsDict(void) {
+    return lctx.lua_eval_scripts;
 }
 
-unsigned long evalScriptsMemory(void) {
-    return lctx.lua_scripts_mem +
-            dictMemUsage(lctx.lua_scripts) +
-            dictSize(lctx.lua_scripts) * sizeof(luaScript);
+dict *luaLoadScriptsDict(void) {
+    return lctx.lua_load_scripts;
+}
+
+/* Returns the memory cached for a single lua script. */
+size_t luaScriptMemory(sds sha, luaScript *lua_script) {
+    return sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(lua_script->body);
+}
+
+/* Returns the number of bytes overhead by lua scripts (from EVAL). */
+unsigned long luaEvalScriptsMemory(void) {
+    return lctx.lua_eval_scripts_mem +
+            dictMemUsage(lctx.lua_eval_scripts) +
+            dictSize(lctx.lua_eval_scripts) * sizeof(luaScript);
+}
+
+/* Returns the number of bytes overhead by lua scripts (from SCRIPT LOAD). */
+unsigned long luaLoadScriptsMemory(void) {
+    return lctx.lua_load_scripts_mem +
+           dictMemUsage(lctx.lua_load_scripts) +
+           dictSize(lctx.lua_load_scripts) * sizeof(luaScript);
+}
+
+/* Returns the number of bytes overhead by all lua scripts overhead. */
+unsigned long luaScriptsMemory(void) {
+    return luaEvalScriptsMemory() + luaLoadScriptsMemory();
 }
 
 /* ---------------------------------------------------------------------------

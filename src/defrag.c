@@ -805,7 +805,8 @@ void defragOtherGlobals(void) {
     /* there are many more pointers to defrag (e.g. client argv, output / aof buffers, etc.
      * but we assume most of these are short lived, we only need to defrag allocations
      * that remain static for a long time */
-    activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
+    activeDefragSdsDict(luaEvalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
+    activeDefragSdsDict(luaLoadScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     moduleDefragGlobals();
 }
 
