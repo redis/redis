@@ -39,14 +39,13 @@
 #ifdef HAVE_DEFRAG
 
 typedef struct defragCtx {
-    redisDb *db;
+    void *privdata;
     int slot;
 } defragCtx;
 
 typedef struct defragPubSubCtx {
     kvstore *pubsub_channels;
     dict *(*clientPubSubChannels)(client*);
-    int slot;
 } defragPubSubCtx;
 
 /* this method was added to jemalloc in order to help us understand which
@@ -697,7 +696,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     robj *newob, *ob;
     unsigned char *newzl;
     sds newsds;
-    redisDb *db = ctx->db;
+    redisDb *db = ctx->privdata;
     int slot = ctx->slot;
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
@@ -808,8 +807,9 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
 
 /* Defrag scan callback for the pubsub dictionary. */
 void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
-    defragPubSubCtx *ctx = privdata;
-    kvstore *pubsub_channels = ctx->pubsub_channels;
+    defragCtx *ctx = privdata;
+    defragPubSubCtx *pubsub_ctx = ctx->privdata;
+    kvstore *pubsub_channels = pubsub_ctx->pubsub_channels;
     robj *newchannel, *channel = dictGetKey(de);
     dict *newclients, *clients = dictGetVal(de);
 
@@ -826,9 +826,9 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
         dictEntry *clientde;
         while((clientde = dictNext(di)) != NULL) {
             client *c = dictGetKey(clientde);
-            dictEntry *pubsub_channel = dictFind(ctx->clientPubSubChannels(c), newchannel);
+            dictEntry *pubsub_channel = dictFind(pubsub_ctx->clientPubSubChannels(c), newchannel);
             serverAssert(pubsub_channel);
-            dictSetKey(ctx->clientPubSubChannels(c), pubsub_channel, newchannel);
+            dictSetKey(pubsub_ctx->clientPubSubChannels(c), pubsub_channel, newchannel);
         }
         dictReleaseIterator(di);
     }
@@ -984,28 +984,6 @@ void computeDefragCycles(void) {
     }
 }
 
-/* Struct for tracking defragmentation state. */
-typedef struct defragStage {
-    kvstore *kvs;
-    dictScanFunction *scanfn;
-    void *ctx;
-} defragStage;
-
-/* This function iterates over the defrag stages and finds the next non-empty slot
- * that is closest to the provided slot. If no slot is found, returns -1. */
-int getNextClosestNonEmptySlot(defragStage *stages, int stages_num, int slot) {
-    int closest_slot = INT_MAX;
-    for (int i = 0; i < stages_num; i++) {
-        if (!stages[i].kvs) continue;
-        int temp = kvstoreGetNextNonEmptyDictIndex(stages[i].kvs, slot);
-        if (temp != -1 && temp < closest_slot) {
-            closest_slot = temp;
-        }
-    }
-
-    return closest_slot == INT_MAX ? -1 : closest_slot;
-}
-
 /* Perform incremental defragmentation work from the serverCron.
  * This works in a similar way to activeExpireCycle, in the sense that
  * we do incremental work across calls. */
@@ -1022,7 +1000,7 @@ void activeDefragCycle(void) {
     unsigned long long prev_scanned = server.stat_active_defrag_scanned;
     long long start, timelimit, endtime;
     mstime_t latency;
-    int slot_finished = 0;
+    int all_stages_finished = 0;
     int quit = 0;
 
     if (!server.active_defrag_enabled) {
@@ -1118,53 +1096,53 @@ void activeDefragCycle(void) {
             kvstoreDictLUTDefrag(db->expires, dictDefragTables);
             defrag_stage = 0;
             defrag_cursor = 0;
-            slot = 0; /* Always start from the first slot because we still need to
-                       * defragment pubsub, which only defragments in the first slot */
+            slot = -1;
             defrag_later_item_in_progress = 0;
         }
+
+        /* This array of structures holds the parameters for all defragmentation stages. */
+        typedef struct defragStage {
+            kvstore *kvs;
+            dictScanFunction *scanfn;
+            void *privdata;
+        } defragStage;
+        defragStage defrag_stages[] = {
+            {db->keys, defragScanCallback, db},
+            {db->expires, scanCallbackCountScanned, NULL},
+            {server.pubsub_channels, defragPubsubScanCallback,
+                &(defragPubSubCtx){server.pubsub_channels, getClientPubSubChannels}},
+            {server.pubsubshard_channels, defragPubsubScanCallback,
+                &(defragPubSubCtx){server.pubsubshard_channels, getClientPubSubShardChannels}},
+        };
         do {
+            int num_stages = sizeof(defrag_stages) / sizeof(defrag_stages[0]);
+            serverAssert(defrag_stage < num_stages);
+            defragStage *current_stage = &defrag_stages[defrag_stage];
+
             /* before scanning the next bucket, see if we have big keys left from the previous bucket to scan */
             if (defragLaterStep(db, slot, endtime)) {
                 quit = 1; /* time is up, we didn't finish all the work */
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
-            /* This array of structures holds the parameters for all defragmentation stages. */
-            defragStage defrag_stages[] = {
-                {db->keys, defragScanCallback, &(defragCtx){ db, slot }},
-                {db->expires, scanCallbackCountScanned, NULL},
-                {(current_db == 0 && slot == 0) ? server.pubsub_channels : NULL, defragPubsubScanCallback,
-                    &(defragPubSubCtx){ server.pubsub_channels, getClientPubSubChannels, slot }},
-                {server.pubsubshard_channels, defragPubsubScanCallback,
-                    &(defragPubSubCtx){ server.pubsubshard_channels, getClientPubSubShardChannels, slot }}
-            };
             if (!defrag_later_item_in_progress) {
-                /* Iterates over all defragmentation stages, starting from the last unfinished stage. */
-                int num_stages = sizeof(defrag_stages) / sizeof(defrag_stages[0]);
-                serverAssert(defrag_stage < num_stages);
-                for (int i = defrag_stage; i < num_stages; i++) {
-                    if (defrag_stage != i) break; /* previous stage not finished */
-                    if (defrag_stages[i].kvs) {
-                        defrag_cursor = kvstoreDictScanDefrag(defrag_stages[i].kvs, slot, defrag_cursor,
-                            defrag_stages[i].scanfn, &defragfns, defrag_stages[i].ctx);
-                    }
-
-                    /* Move to next stage if current stage completed */
-                    if (!defrag_cursor) defrag_stage++;
-                }
-
-                /* All stages completed */
-                if (defrag_stage == num_stages) defrag_stage = 0;
+                /* Continue defragmentation from the previous stage.
+                 * If slot is -1, it means this stage starts from the beginning. */
+                if (slot == -1) slot = kvstoreFindDictIndexByKeyIndex(current_stage->kvs, 1);
+                defrag_cursor = kvstoreDictScanDefrag(current_stage->kvs, slot, defrag_cursor,
+                    current_stage->scanfn, &defragfns, &(defragCtx){current_stage->privdata, slot});
             }
 
-            slot_finished = (!defrag_stage && !defrag_cursor);
-            if (slot_finished) {
+            if (!defrag_cursor) {
                 /* Move to the next slot only if regular and large item scanning has been completed. */
                 if (listLength(db->defrag_later) > 0) {
                     defrag_later_item_in_progress = 1;
                     continue;
                 }
-                slot = getNextClosestNonEmptySlot(defrag_stages, sizeof(defrag_stages)/sizeof(defrag_stages[0]), slot);
+
+                /* Move to the next slot in the current stage. If we've reached the end, move to the next stage. */
+                if ((slot = kvstoreGetNextNonEmptyDictIndex(current_stage->kvs, slot)) == -1)
+                    defrag_stage++;
                 defrag_later_item_in_progress = 0;
             }
     
@@ -1173,12 +1151,15 @@ void activeDefragCycle(void) {
              * check if we reached the time limit.
              * But regardless, don't start a new db in this loop, this is because after
              * the last db we call defragOtherGlobals, which must be done in one cycle */
-            if ((slot_finished && slot == -1) ||
+            all_stages_finished = (defrag_stage == num_stages);
+            if (defrag_stage == num_stages) defrag_stage = 0;
+            if (all_stages_finished ||
                 ++iterations > 16 ||
                 server.stat_active_defrag_hits - prev_defragged > 512 ||
                 server.stat_active_defrag_scanned - prev_scanned > 64)
             {
-                if (slot_finished || ustime() > endtime) {
+                /* Quit if all stages were finished or timeout. */
+                if (all_stages_finished || ustime() > endtime) {
                     quit = 1;
                     break;
                 }
@@ -1186,7 +1167,7 @@ void activeDefragCycle(void) {
                 prev_defragged = server.stat_active_defrag_hits;
                 prev_scanned = server.stat_active_defrag_scanned;
             }
-        } while((!slot_finished || slot > 0) && !quit);
+        } while(!all_stages_finished && !quit);
     } while(!quit);
 
     latencyEndMonitor(latency);

@@ -527,6 +527,10 @@ int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
 
 /* Returns next non-empty dict index strictly after given one, or -1 if provided didx is the last one. */
 int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx) {
+    if (kvs->num_dicts == 1) {
+        assert(didx == 0);
+        return -1;
+    }
     unsigned long long next_key = cumulativeKeyCountRead(kvs, didx) + 1;
     return next_key <= kvstoreSize(kvs) ? kvstoreFindDictIndexByKeyIndex(kvs, next_key) : -1;
 }
