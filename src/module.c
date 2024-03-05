@@ -59,6 +59,7 @@
 #include "script.h"
 #include "call_reply.h"
 #include "hdr_histogram.h"
+#include "crc16_slottable.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -9113,6 +9114,13 @@ unsigned int RM_ClusterKeySlot(RedisModuleString *key) {
     return keyHashSlot(key->ptr, sdslen(key->ptr));
 }
 
+/* Returns a short string that can be used as a key or as a hash tag in a key,
+ * such that the key maps to the given cluster slot. Returns NULL if slot is not
+ * a valid slot. */
+const char *RM_ClusterSampleKeyNameBySlot(unsigned int slot) {
+    return (slot < CLUSTER_SLOTS) ? crc16_slot_table[slot] : NULL;
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules Timers API
  *
@@ -13851,6 +13859,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
     REGISTER_API(ClusterKeySlot);
+    REGISTER_API(ClusterSampleKeyNameBySlot);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
     REGISTER_API(DictSize);

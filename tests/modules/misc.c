@@ -525,6 +525,14 @@ int test_malloc_api(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int test_keyslot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    /* Static check of the ClusterKeySlot + ClusterSampleKeyNameBySlot
+     * round-trip for all slots. */
+    for (unsigned int slot = 0; slot < 16384; slot++) {
+        const char *tag = RedisModule_ClusterSampleKeyNameBySlot(slot);
+        RedisModuleString *key = RedisModule_CreateStringPrintf(ctx, "x{%s}y", tag);
+        assert(slot == RedisModule_ClusterKeySlot(key));
+        RedisModule_FreeString(ctx, key);
+    }
     if (argc != 2){
         return RedisModule_WrongArity(ctx);
     }
