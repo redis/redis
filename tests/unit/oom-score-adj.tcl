@@ -1,5 +1,4 @@
 set system_name [string tolower [exec uname -s]]
-set user_id [exec id -u]
 
 if {$system_name eq {linux}} {
     start_server {tags {"oom-score-adj external:skip"}} {
@@ -62,7 +61,7 @@ if {$system_name eq {linux}} {
             puts $fd -1000
             close $fd
         } e
-        if {$user_id != 0 && [string match "*permission denied*" $e]} {
+        if {[string match "*permission denied*" $e]} {
             test {CONFIG SET oom-score-adj handles configuration failures} {
                 # Bad config
                 r config set oom-score-adj no
