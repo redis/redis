@@ -93,7 +93,7 @@
                 "type": "string",
                 "optional": true,
                 "multiple":false,
-                "since": "7.2.0"
+                "since": "7.2.5"
             }
         ]
     }

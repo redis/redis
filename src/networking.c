@@ -3076,6 +3076,8 @@ void clientCommand(client *c) {
 "      Return clients of specified type.",
 "    * USER <username>",
 "      Return clients of specified user.",
+"COUNT <username>",
+"    Return the count of clients connected with the specified username.",
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
 "PAUSE <timeout> [WRITE|ALL]",
@@ -3299,12 +3301,12 @@ NULL
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr, "count")) {
         sds o = NULL;
-        if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr, "user")) {
-            user = ACLGetUserByName(c->argv[3]->ptr,
-                                    sdslen(c->argv[3]->ptr));
+        if (c->argc == 3) {
+            user = ACLGetUserByName(c->argv[2]->ptr,
+                                    sdslen(c->argv[2]->ptr));
             if (user == NULL) {
                 addReplyErrorFormat(c, "No such user '%s'",
-                                    (char *) c->argv[3]->ptr);
+                                    (char *) c->argv[2]->ptr);
                 return;
             }
             o = sdscatprintf(sdsempty(), "%lu", listLength(user->clients));
