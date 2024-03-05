@@ -1512,12 +1512,6 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
-    if (c->user && c->user != DefaultUser) {
-        if(c->user_client_node) {
-            listDelNode(c->user->clients, c->user_client_node);
-            c->user_client_node = NULL;
-        }
-    }
     /* Clear the tracking status. */
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
@@ -3080,6 +3074,8 @@ void clientCommand(client *c) {
 "    Return information about client connections. Options:",
 "    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
 "      Return clients of specified type.",
+"    * USER <username>",
+"      Return clients of specified user.",
 "UNPAUSE",
 "    Stop the current client pause, resuming traffic.",
 "PAUSE <timeout> [WRITE|ALL]",
@@ -3142,6 +3138,14 @@ NULL
                     o = sdscatlen(o, "\n", 1);
                 }
             }
+        } else if(c->argc == 4 && !strcasecmp(c->argv[2]->ptr, "user")) {
+            user = ACLGetUserByName(c->argv[3]->ptr, sdslen(c->argv[3]->ptr));
+            if (user == NULL) {
+                addReplyErrorFormat(c,"No such user '%s'",
+                    (char*) c->argv[3]->ptr);
+                return;
+            }
+            o = getUserClientsInfoString(user);
         } else if (c->argc != 2) {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
@@ -3303,13 +3307,13 @@ NULL
                                     (char *) c->argv[3]->ptr);
                 return;
             }
-            o = getUserClientsInfoString(user);
+            o = sdscatprintf(sdsempty(), "%lu", listLength(user->clients));
             addReplyVerbatim(c, o, sdslen(o), "txt");
             sdsfree(o);
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
-        }
+        } 
     } else if (!strcasecmp(c->argv[1]->ptr,"unblock") && (c->argc == 3 ||
                                                           c->argc == 4))
     {

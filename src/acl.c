@@ -451,10 +451,10 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->selectors = listCreate();
     listSetFreeMethod(u->selectors,ACLListFreeSelector);
     listSetDupMethod(u->selectors,ACLListDuplicateSelector);
-    u->clients = listCreate();
     /* Add the initial root selector */
     aclSelector *s = ACLCreateSelector(SELECTOR_FLAG_ROOT);
     listAddNodeHead(u->selectors, s);
+    u->clients = listCreate();
 
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
