@@ -1101,6 +1101,7 @@ void databasesCron(void) {
                     break;
                 rehash_db++;
             }
+            server.stat_active_rehashing_time_used += elapsed_us;
         }
     }
 }
@@ -2522,6 +2523,7 @@ void resetServerStats(void) {
     server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
+    server.stat_active_rehashing_time_used = 0;
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
     server.stat_total_eviction_exceeded_time = 0;
@@ -5824,6 +5826,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "expired_stale_perc:%.2f\r\n", server.stat_expired_stale_perc*100,
             "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
+            "active_rehashing_cpu_milliseconds:%lld\r\n", server.stat_active_rehashing_time_used / 1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
