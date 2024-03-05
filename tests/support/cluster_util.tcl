@@ -101,6 +101,46 @@ proc cluster_setup {masters node_count slot_allocator code} {
     uplevel 1 $code
 }
 
+proc merge_options {default_options test_options} {
+    # Extract "overrides" from the default options
+    array set default_overrides [lindex $default_options 1]
+
+    # Initialize an empty array for test_overrides to handle cases where there are no test "overrides"
+    array set test_overrides {}
+
+    # Search for "overrides" in the test options and extract them if found
+    foreach {key value} $test_options {
+        if {$key == "overrides"} {
+            array set test_overrides $value
+            break
+        }
+    }
+
+    # Merge overrides, with test overrides taking precedence over default overrides
+    foreach key [array names test_overrides] {
+        set default_overrides($key) $test_overrides($key)
+    }
+
+    # Reconstruct the test options, removing any existing "overrides" and appending the merged ones
+    set merged_options {}
+    set overrides_found 0
+    foreach {key value} $test_options {
+        if {$key == "overrides"} {
+            set overrides_found 1
+            lappend merged_options overrides [array get default_overrides]
+        } else {
+            lappend merged_options $key $value
+        }
+    }
+
+    # If "overrides" was not previously found in test_options, add the merged overrides at the end
+    if {!$overrides_found} {
+        lappend merged_options overrides [array get default_overrides]
+    }
+
+    return $merged_options
+}
+
 # Start a cluster with the given number of masters and replicas. Replicas
 # will be allocated to masters by round robin.
 proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation}} {
@@ -112,7 +152,7 @@ proc start_cluster {masters replicas options code {slot_allocator continuous_slo
     # Configure the starting of multiple servers. Set cluster node timeout
     # aggressively since many tests depend on ping/pong messages. 
     set cluster_options [list overrides [list cluster-enabled yes cluster-ping-interval 100 cluster-node-timeout 3000]]
-    set options [concat $cluster_options $options]
+    set options [merge_options $cluster_options $options]
 
     # Cluster mode only supports a single database, so before executing the tests
     # it needs to be configured correctly and needs to be reset after the tests. 
