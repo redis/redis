@@ -1,5 +1,4 @@
 set system_name [string tolower [exec uname -s]]
-set user_id [exec id -u]
 
 if {$system_name eq {linux}} {
     start_server {tags {"oom-score-adj external:skip"}} {
@@ -56,8 +55,15 @@ if {$system_name eq {linux}} {
             }
         }
 
+        # Determine whether the current user is unprivileged
+        set original_value [exec cat /proc/self/oom_score_adj]
+        catch {
+            set fd [open "/proc/self/oom_score_adj" "w"]
+            puts $fd -1000
+            close $fd
+        } e
         # Failed oom-score-adj tests can only run unprivileged
-        if {$user_id != 0} {
+        if {[string match "*permission denied*" $e]} {
             test {CONFIG SET oom-score-adj handles configuration failures} {
                 # Bad config
                 r config set oom-score-adj no
@@ -81,6 +87,11 @@ if {$system_name eq {linux}} {
                 # Make sure previous values remain
                 assert {[r config get oom-score-adj-values] == {oom-score-adj-values {0 100 100}}}
             }
+        } else {
+            # Restore the original oom_score_adj value
+            set fd [open "/proc/self/oom_score_adj" "w"]
+            puts $fd $original_value
+            close $fd
         }
 
         test {CONFIG SET oom-score-adj-values doesn't touch proc when disabled} {
