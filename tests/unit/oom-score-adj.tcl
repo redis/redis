@@ -57,7 +57,12 @@ if {$system_name eq {linux}} {
         }
 
         # Failed oom-score-adj tests can only run unprivileged
-        if {$user_id != 0} {
+        catch {
+            set fd [open "/proc/self/oom_score_adj" "w"]
+            puts $fd -1000
+            close $fd
+        } e
+        if {$user_id != 0 && [string match "*permission denied*" $e]} {
             test {CONFIG SET oom-score-adj handles configuration failures} {
                 # Bad config
                 r config set oom-score-adj no
