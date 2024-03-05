@@ -3141,10 +3141,12 @@ NULL
                 }
             }
         } else if(c->argc == 4 && !strcasecmp(c->argv[2]->ptr, "user")) {
+            o = sdsempty();
             user = ACLGetUserByName(c->argv[3]->ptr, sdslen(c->argv[3]->ptr));
             if (user == NULL) {
                 addReplyErrorFormat(c,"No such user '%s'",
                     (char*) c->argv[3]->ptr);
+                sdsfree(o);
                 return;
             }
             o = getUserClientsInfoString(user);
@@ -3300,7 +3302,6 @@ NULL
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr, "count")) {
-        sds o = NULL;
         if (c->argc == 3) {
             user = ACLGetUserByName(c->argv[2]->ptr,
                                     sdslen(c->argv[2]->ptr));
@@ -3309,7 +3310,7 @@ NULL
                                     (char *) c->argv[2]->ptr);
                 return;
             }
-            o = sdscatprintf(sdsempty(), "%lu", listLength(user->clients));
+            sds o = sdscatprintf(sdsempty(), "%lu", listLength(user->clients));
             addReplyVerbatim(c, o, sdslen(o), "txt");
             sdsfree(o);
         } else {

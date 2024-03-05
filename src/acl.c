@@ -451,6 +451,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->selectors = listCreate();
     listSetFreeMethod(u->selectors,ACLListFreeSelector);
     listSetDupMethod(u->selectors,ACLListDuplicateSelector);
+
     /* Add the initial root selector */
     aclSelector *s = ACLCreateSelector(SELECTOR_FLAG_ROOT);
     listAddNodeHead(u->selectors, s);
