@@ -35,6 +35,10 @@ int kvstoreNumAllocatedDicts(kvstore *kvs);
 int kvstoreNumDicts(kvstore *kvs);
 uint64_t kvstoreGetHash(kvstore *kvs, const void *key);
 
+void kvstoreDictRehashingStarted(dict *d);
+void kvstoreDictRehashingCompleted(dict *d);
+size_t kvstoreDictMetadataSize(dict *d);
+
 /* kvstore iterator specific functions */
 kvstoreIterator *kvstoreIteratorInit(kvstore *kvs);
 void kvstoreIteratorRelease(kvstoreIterator *kvs_it);

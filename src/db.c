@@ -567,8 +567,8 @@ redisDb *initTempDb(void) {
     for (int i=0; i<server.dbnum; i++) {
         tempDb[i].id = i;
         int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
-        tempDb[i].keys = kvstoreCreate(&dbDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        tempDb[i].keys = kvstoreCreate(&kvstoreDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        tempDb[i].expires = kvstoreCreate(&kvstoreExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     }
 
     return tempDb;
