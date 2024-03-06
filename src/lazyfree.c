@@ -42,9 +42,10 @@ void lazyFreeTrackingTable(void *args[]) {
 /* Release the lua_scripts dict. */
 void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
-    lua_State *lua = args[1];
+    list *lua_scripts_lru_list = args[1];
+    lua_State *lua = args[2];
     long long len = dictSize(lua_scripts);
-    freeLuaScriptsSync(lua_scripts, lua);
+    freeLuaScriptsSync(lua_scripts, lua_scripts_lru_list, lua);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -196,14 +197,14 @@ void freeTrackingRadixTreeAsync(rax *tracking) {
     }
 }
 
-/* Free lua_scripts dict, if the dict is huge enough, free it in async way.
+/* Free lua_scripts dict and lru list, if the dict is huge enough, free them in async way.
  * Close lua interpreter, if there are a lot of lua scripts, close it in async way. */
-void freeLuaScriptsAsync(dict *lua_scripts, lua_State *lua) {
+void freeLuaScriptsAsync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State *lua) {
     if (dictSize(lua_scripts) > LAZYFREE_THRESHOLD) {
         atomicIncr(lazyfree_objects,dictSize(lua_scripts));
-        bioCreateLazyFreeJob(lazyFreeLuaScripts,2,lua_scripts,lua);
+        bioCreateLazyFreeJob(lazyFreeLuaScripts,3,lua_scripts,lua_scripts_lru_list,lua);
     } else {
-        freeLuaScriptsSync(lua_scripts, lua);
+        freeLuaScriptsSync(lua_scripts, lua_scripts_lru_list, lua);
     }
 }
 
