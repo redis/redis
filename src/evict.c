@@ -33,6 +33,7 @@
 #include "server.h"
 #include "bio.h"
 #include "atomicvar.h"
+#include "script.h"
 #include <math.h>
 
 /* ----------------------------------------------------------------------------
@@ -40,7 +41,7 @@
  * --------------------------------------------------------------------------*/
 
 /* To improve the quality of the LRU approximation we take a set of keys
- * that are good candidate for eviction across evict-alike calls.
+ * that are good candidate for eviction across performEvictions() calls.
  *
  * Entries inside the eviction pool are taken ordered by idle time, putting
  * greater idle times to the right (ascending order).
@@ -61,10 +62,6 @@ struct evictionPoolEntry {
 };
 
 static struct evictionPoolEntry *EvictionPoolLRU;
-static struct evictionPoolEntry *EvalScriptsEvictionPoolLRU = NULL;
-
-unsigned long long getEvictionIdleTime(void *val, int flag);
-void evictionPoolInsert(struct evictionPoolEntry *pool, sds key, unsigned long long idle, int dbid, int slot);
 
 /* ----------------------------------------------------------------------------
  * Implementation of eviction, aging and LRU
@@ -121,12 +118,10 @@ unsigned long long estimateObjectIdleTime(robj *o) {
  * When we try to evict a key, and all the entries in the pool don't exist
  * we populate it again. This time we'll be sure that the pool has at least
  * one key that can be evicted, if there is at least one key that can be
- * evicted in the whole database.
- *
- * This will also be used to evict lua eval scripts, using the same algorithm. */
+ * evicted in the whole database. */
 
 /* Create a new eviction pool. */
-struct evictionPoolEntry *evictionPoolAllocInternal(void) {
+void evictionPoolAlloc(void) {
     struct evictionPoolEntry *ep;
     int j;
 
@@ -137,39 +132,7 @@ struct evictionPoolEntry *evictionPoolAllocInternal(void) {
         ep[j].cached = sdsnewlen(NULL,EVPOOL_CACHED_SDS_SIZE);
         ep[j].dbid = 0;
     }
-    return ep;
-}
-
-void evictionPoolAlloc(void) {
-    EvictionPoolLRU = evictionPoolAllocInternal();
-}
-
-void evalScriptsEvictionPoolAlloc(void) {
-    if (EvalScriptsEvictionPoolLRU) return;
-
-    EvalScriptsEvictionPoolLRU = evictionPoolAllocInternal();
-}
-
-/* Remove the entry from the pool. */
-void removeEntryFromPool(struct evictionPoolEntry *pool, int i) {
-    if (pool[i].key == NULL) return;
-
-    if (pool[i].key != pool[i].cached)
-        sdsfree(pool[i].key);
-    pool[i].key = NULL;
-    pool[i].idle = 0;
-}
-
-void evalScriptsEvictionPoolFree(void) {
-    if (EvalScriptsEvictionPoolLRU == NULL) return;
-
-    struct evictionPoolEntry *pool = EvictionPoolLRU;
-    for (int i = 0; i < EVPOOL_SIZE; i++) {
-        removeEntryFromPool(pool, i);
-        sdsfree(pool[i].cached);
-    }
-    zfree(EvalScriptsEvictionPoolLRU);
-    EvalScriptsEvictionPoolLRU = NULL;
+    EvictionPoolLRU = ep;
 }
 
 /* This is a helper function for performEvictions(), it is used in order
@@ -181,7 +144,7 @@ void evalScriptsEvictionPoolFree(void) {
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
 int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool) {
-    int j, count;
+    int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
     int slot = kvstoreGetFairRandomDictIndex(samplekvs);
@@ -189,6 +152,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
+        robj *o;
         dictEntry *de;
 
         de = samples[j];
@@ -200,112 +164,85 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
             if (samplekvs != db->keys)
                 de = kvstoreDictFind(db->keys, slot, key);
+            o = dictGetVal(de);
         }
 
-        int flag;
+        /* Calculate the idle time according to the policy. This is called
+         * idle just because the code initially handled LRU, but is in fact
+         * just a score where a higher score means better candidate. */
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
-            flag = MAXMEMORY_FLAG_LRU;
+            idle = estimateObjectIdleTime(o);
         } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-            flag = MAXMEMORY_FLAG_LFU;
+            /* When we use an LRU policy, we sort the keys by idle time
+             * so that we expire keys starting from greater idle time.
+             * However when the policy is an LFU one, we have a frequency
+             * estimation, and we want to evict keys with lower frequency
+             * first. So inside the pool we put objects using the inverted
+             * frequency subtracting the actual frequency to the maximum
+             * frequency of 255. */
+            idle = 255-LFUDecrAndReturn(o);
         } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
-            flag = MAXMEMORY_FLAG_TTL;
+            /* In this case the sooner the expire the better. */
+            idle = ULLONG_MAX - (long)dictGetVal(de);
         } else {
             serverPanic("Unknown eviction policy in evictionPoolPopulate()");
         }
 
-        idle = getEvictionIdleTime(dictGetVal(de), flag);
-        evictionPoolInsert(pool, key, idle, db->id, slot);
+        /* Insert the element inside the pool.
+         * First, find the first empty bucket or the first populated
+         * bucket that has an idle time smaller than our idle time. */
+        k = 0;
+        while (k < EVPOOL_SIZE &&
+               pool[k].key &&
+               pool[k].idle < idle) k++;
+        if (k == 0 && pool[EVPOOL_SIZE-1].key != NULL) {
+            /* Can't insert if the element is < the worst element we have
+             * and there are no empty buckets. */
+            continue;
+        } else if (k < EVPOOL_SIZE && pool[k].key == NULL) {
+            /* Inserting into empty position. No setup needed before insert. */
+        } else {
+            /* Inserting in the middle. Now k points to the first element
+             * greater than the element to insert.  */
+            if (pool[EVPOOL_SIZE-1].key == NULL) {
+                /* Free space on the right? Insert at k shifting
+                 * all the elements from k to end to the right. */
+
+                /* Save SDS before overwriting. */
+                sds cached = pool[EVPOOL_SIZE-1].cached;
+                memmove(pool+k+1,pool+k,
+                    sizeof(pool[0])*(EVPOOL_SIZE-k-1));
+                pool[k].cached = cached;
+            } else {
+                /* No free space on right? Insert at k-1 */
+                k--;
+                /* Shift all elements on the left of k (included) to the
+                 * left, so we discard the element with smaller idle time. */
+                sds cached = pool[0].cached; /* Save SDS before overwriting. */
+                if (pool[0].key != pool[0].cached) sdsfree(pool[0].key);
+                memmove(pool,pool+1,sizeof(pool[0])*k);
+                pool[k].cached = cached;
+            }
+        }
+
+        /* Try to reuse the cached SDS string allocated in the pool entry,
+         * because allocating and deallocating this object is costly
+         * (according to the profiler, not my fantasy. Remember:
+         * premature optimization bla bla bla. */
+        int klen = sdslen(key);
+        if (klen > EVPOOL_CACHED_SDS_SIZE) {
+            pool[k].key = sdsdup(key);
+        } else {
+            memcpy(pool[k].cached,key,klen+1);
+            sdssetlen(pool[k].cached,klen);
+            pool[k].key = pool[k].cached;
+        }
+        pool[k].idle = idle;
+        pool[k].dbid = db->id;
+        pool[k].slot = slot;
     }
 
     return count;
-}
-
-/* Get the idle value of val for eviction according to the policy flag. */
-unsigned long long getEvictionIdleTime(void *val, int flag) {
-    /* Calculate the idle time according to the policy. This is called
-     * idle just because the code initially handled LRU, but is in fact
-     * just a score where a higher score means better candidate. */
-    unsigned long long idle;
-    if (flag == MAXMEMORY_FLAG_LRU) {
-        robj *o = val;
-        idle = estimateObjectIdleTime(o);
-    } else if (flag == MAXMEMORY_FLAG_LFU) {
-        /* When we use an LRU policy, we sort the keys by idle time
-         * so that we expire keys starting from greater idle time.
-         * However when the policy is an LFU one, we have a frequency
-         * estimation, and we want to evict keys with lower frequency
-         * first. So inside the pool we put objects using the inverted
-         * frequency subtracting the actual frequency to the maximum
-         * frequency of 255. */
-        robj *o = val;
-        idle = 255-LFUDecrAndReturn(o);
-    } else if (flag == MAXMEMORY_FLAG_TTL) {
-        /* In this case the sooner the expire the better. */
-        idle = ULLONG_MAX - (long)val;
-    } else {
-        serverPanic("Unknown eviction policy in getEvictionIdleTime()");
-    }
-
-    return idle;
-}
-
-/* Insert elements into the pool based on the idle value.
- *
- * Key insertion is in ascending order, so keys with smaller idle value
- * are on the left, and keys with higher idle value are on the right. */
-void evictionPoolInsert(struct evictionPoolEntry *pool, sds key, unsigned long long idle, int dbid, int slot) {
-    /* Insert the element inside the pool.
-     * First, find the first empty bucket or the first populated
-     * bucket that has an idle time smaller than our idle time. */
-    int k = 0;
-    while (k < EVPOOL_SIZE &&
-           pool[k].key &&
-           pool[k].idle < idle) k++;
-    if (k == 0 && pool[EVPOOL_SIZE-1].key != NULL) {
-        /* Can't insert if the element is < the worst element we have
-         * and there are no empty buckets. */
-        return;
-    } else if (k < EVPOOL_SIZE && pool[k].key == NULL) {
-        /* Inserting into empty position. No setup needed before insert. */
-    } else {
-        /* Inserting in the middle. Now k points to the first element
-         * greater than the element to insert.  */
-        if (pool[EVPOOL_SIZE-1].key == NULL) {
-            /* Free space on the right? Insert at k shifting
-             * all the elements from k to end to the right. */
-
-            /* Save SDS before overwriting. */
-            sds cached = pool[EVPOOL_SIZE-1].cached;
-            memmove(pool+k+1,pool+k,
-                    sizeof(pool[0])*(EVPOOL_SIZE-k-1));
-            pool[k].cached = cached;
-        } else {
-            /* No free space on right? Insert at k-1 */
-            k--;
-            /* Shift all elements on the left of k (included) to the
-             * left, so we discard the element with smaller idle time. */
-            sds cached = pool[0].cached; /* Save SDS before overwriting. */
-            if (pool[0].key != pool[0].cached) sdsfree(pool[0].key);
-            memmove(pool,pool+1,sizeof(pool[0])*k);
-            pool[k].cached = cached;
-        }
-    }
-
-    /* Try to reuse the cached SDS string allocated in the pool entry,
-     * because allocating and deallocating this object is costly
-     * (according to the profiler, not my fantasy. Remember:
-     * premature optimization bla bla bla. */
-    int klen = sdslen(key);
-    if (klen > EVPOOL_CACHED_SDS_SIZE) {
-        pool[k].key = sdsdup(key);
-    } else {
-        memcpy(pool[k].cached,key,klen+1);
-        sdssetlen(pool[k].cached,klen);
-        pool[k].key = pool[k].cached;
-    }
-    pool[k].idle = idle;
-    pool[k].dbid = dbid;
-    pool[k].slot = slot;
 }
 
 /* ----------------------------------------------------------------------------
@@ -698,7 +635,10 @@ int performEvictions(void) {
                     de = kvstoreDictFind(kvs, pool[k].slot, pool[k].key);
 
                     /* Remove the entry from the pool. */
-                    removeEntryFromPool(pool, k);
+                    if (pool[k].key != pool[k].cached)
+                        sdsfree(pool[k].key);
+                    pool[k].key = NULL;
+                    pool[k].idle = 0;
 
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
@@ -793,7 +733,7 @@ int performEvictions(void) {
                 /* After some time, exit the loop early - even if memory limit
                  * hasn't been reached.  If we suddenly need to free a lot of
                  * memory, don't want to spend too much time here.  */
-                if (elapsedUs(evictionTimer) >= eviction_time_limit_us) {
+                if (elapsedUs(evictionTimer) > eviction_time_limit_us) {
                     // We still need to free memory - start eviction timer proc
                     startEvictionTimeProc();
                     break;
@@ -839,100 +779,4 @@ update_metrics:
         }
     }
     return result;
-}
-
-/* This is a helper function for evictEvalScripts(), it is used in order
- * to populate the evictionPool with a few entries every time we want to
- * expire a script. */
-#define EVAL_SCRIPTS_SAMPLES_SIZE 5
-void EvalScriptEvictionPoolPopulate(dict *lua_eval_scripts, struct evictionPoolEntry *pool) {
-    dictEntry *samples[EVAL_SCRIPTS_SAMPLES_SIZE];
-    int count = dictGetSomeKeys(lua_eval_scripts, samples, EVAL_SCRIPTS_SAMPLES_SIZE);
-    for (int j = 0; j < count; j++) {
-        dictEntry *de = samples[j];
-        sds key = dictGetKey(de);
-        luaScript *l = dictGetVal(de);
-        robj *body = l->body;
-        unsigned long long idle = idle = getEvictionIdleTime(body, MAXMEMORY_FLAG_LRU);;
-        evictionPoolInsert(pool, key, idle, 0, 0);
-    }
-}
-
-/* Users who abuse EVAL will generate a new lua script on each call, which
- * can consume large amounts of memory over time. Since EVAL is mostly the
- * one that abuses the lua cache, and these won't have pipeline issues, we
- * implement script eviction only for these (not for one loaded with SCRIPT
- * LOAD).
- *
- * This function will evict lua eval scripts based on maxmemory-eval-scripts
- * limit. */
-void evictEvalScripts(uint64_t threshold_us) {
-    if (!server.maxmemory_eval_scripts)
-        return;
-
-    unsigned long mem_reported = luaEvalScriptsMemory();
-    if (mem_reported <= server.maxmemory_eval_scripts)
-        return;
-
-    long long delta = 0;
-    long long mem_freed = 0;
-    unsigned long mem_to_free = mem_reported - server.maxmemory_eval_scripts;
-
-    int scripts_freed = 0;
-    dict *lua_eval_scripts = luaEvalScriptsDict();
-
-    monotime evictionTimer;
-    elapsedStart(&evictionTimer);
-
-    while (mem_freed < (long long)mem_to_free) {
-        dictEntry *de = NULL;
-        sds best_script = NULL;
-        luaScript *lua_script = NULL;
-
-        struct evictionPoolEntry *pool = EvalScriptsEvictionPoolLRU;
-        while (best_script == NULL) {
-            /* No lua eval scripts to evict. */
-            if (dictSize(lua_eval_scripts) == 0) break;
-
-            EvalScriptEvictionPoolPopulate(lua_eval_scripts, pool);
-
-            /* Go backward from best to the worst script to evict. */
-            for (int k = EVPOOL_SIZE-1; k >= 0; k--) {
-                if (pool[k].key == NULL) continue;
-
-                de = dictFind(lua_eval_scripts, pool[k].key);
-
-                /* Remove the entry from the pool. */
-                removeEntryFromPool(pool, k);
-
-                /* If the script exists, is our pick. Otherwise, it is
-                 * a ghost and we need to try the next element. */
-                if (de) {
-                    best_script = dictGetKey(de);
-                    lua_script = dictGetVal(de);
-                    break;
-                }
-            }
-        }
-
-        /* We are not able to find a lua eval script to evict. */
-        if (best_script == NULL) break;
-
-        /* Finally, remove the selected lua eval script. */
-        delta = (long long) luaEvalScriptsMemory();
-        luaDeleteFunction(best_script, lua_script, 0);
-        delta -= (long long) luaEvalScriptsMemory();
-        mem_freed += delta;
-        scripts_freed++;
-
-        if (scripts_freed % 16 == 0) {
-            /* After some time, exit the loop early, even if the memory limit
-             * hasn't been reached. We will continue the eviction later. */
-            if (elapsedUs(evictionTimer) >= threshold_us) {
-                break;
-            }
-        }
-    }
-
-    server.stat_evicted_eval_scripts += scripts_freed;
 }

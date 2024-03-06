@@ -140,7 +140,6 @@ struct hdr_histogram;
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 #define INCREMENTAL_REHASHING_THRESHOLD_US 1000
-#define EVAL_SCRIPTS_EVICTING_THRESHOLD_US 1000
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -567,7 +566,6 @@ typedef enum {
 #define MAXMEMORY_FLAG_LRU (1<<0)
 #define MAXMEMORY_FLAG_LFU (1<<1)
 #define MAXMEMORY_FLAG_ALLKEYS (1<<2)
-#define MAXMEMORY_FLAG_TTL (1<<3)
 #define MAXMEMORY_FLAG_NO_SHARED_INTEGERS \
     (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU)
 
@@ -1662,7 +1660,6 @@ struct redisServer {
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_evictedclients;  /* Number of evicted clients */
-    long long stat_evicted_eval_scripts; /* Number of evicted lua eval scripts. */
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
@@ -1934,7 +1931,6 @@ struct redisServer {
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
-    unsigned long long maxmemory_eval_scripts;  /* Memory limit for total eval scripts. */
     ssize_t maxmemory_clients;       /* Memory limit for total client buffers */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Precision of random sampling */
@@ -2765,7 +2761,6 @@ void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
 void dismissObject(robj *o, size_t dump_size);
 robj *createObject(int type, void *ptr);
-void updateLRU(robj *o);
 void initObjectLRUOrLFU(robj *o);
 robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
@@ -3387,36 +3382,29 @@ void scriptingInit(int setup);
 int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
-sds luaCreateFunction(client *c, robj *body, int evalsha);
+sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
-void freeLuaScriptsSync(dict *lua_eval_scripts, dict *lua_load_scripts, lua_State *lua);
-void freeLuaScriptsAsync(dict *lua_eval_scripts, dict *lua_load_scripts, lua_State *lua);
+void freeLuaScriptsSync(dict *lua_scripts, lua_State *lua);
+void freeLuaScriptsAsync(dict *lua_scripts, lua_State *lua);
 void freeFunctionsAsync(functionsLibCtx *lib_ctx);
 int ldbIsEnabled(void);
 void ldbLog(sds entry);
 void ldbLogRedisReply(char *reply);
 void sha1hex(char *digest, char *script, size_t len);
-unsigned long evalVMEngineMemory(void);
-dict *luaEvalScriptsDict(void);
-dict *luaLoadScriptsDict(void);
-unsigned long luaEvalScriptsMemory(void);
-unsigned long luaScriptsMemory(void);
-unsigned long evalDictSize(void);
+unsigned long evalMemory(void);
+dict* evalScriptsDict(void);
+unsigned long evalScriptsMemory(void);
 uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
 uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
 int isInsideYieldingLongCommand(void);
 
 typedef struct luaScript {
     uint64_t flags;
-    robj *body; /* lua body robj, we will also maintain the script's lru
-                 * here, assign the lru when the script is created, and
-                 * update the lru before the script is actually called. */
+    robj *body;
 } luaScript;
 /* Cache of recently used small arguments to avoid malloc calls. */
 #define LUA_CMD_OBJCACHE_SIZE 32
 #define LUA_CMD_OBJCACHE_MAX_LEN 64
-
-void luaDeleteFunction(sds sha, luaScript *lua_script, int evalsha);
 
 /* Blocked clients API */
 void processUnblockedClients(void);
@@ -3455,10 +3443,8 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key);
 void flushSlaveKeysWithExpireList(void);
 size_t getSlaveKeyWithExpireCount(void);
 
-/* evict.c -- maxmemory handling and eviction. */
+/* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);
-void evalScriptsEvictionPoolAlloc(void);
-void evalScriptsEvictionPoolFree(void);
 #define LFU_INIT_VAL 5
 unsigned long LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);
@@ -3468,7 +3454,6 @@ unsigned long LFUDecrAndReturn(robj *o);
 #define EVICT_FAIL 2
 int performEvictions(void);
 void startEvictionTimeProc(void);
-void evictEvalScripts(uint64_t threshold_us);
 
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);

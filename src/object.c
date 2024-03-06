@@ -50,10 +50,6 @@ robj *createObject(int type, void *ptr) {
     return o;
 }
 
-void updateLRU(robj *o) {
-    o->lru = LRU_CLOCK();
-}
-
 void initObjectLRUOrLFU(robj *o) {
     if (o->refcount == OBJ_SHARED_REFCOUNT)
         return;
@@ -62,7 +58,7 @@ void initObjectLRUOrLFU(robj *o) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
     } else {
-        updateLRU(o);
+        o->lru = LRU_CLOCK();
     }
     return;
 }
@@ -1242,7 +1238,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->aof_buffer = mem;
     mem_total+=mem;
 
-    mem = luaScriptsMemory();
+    mem = evalScriptsMemory();
     mh->lua_caches = mem;
     mem_total+=mem;
     mh->functions_caches = functionsMemoryOverhead();
@@ -1364,7 +1360,7 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Too many scripts are cached? */
-        if (evalDictSize() > 1000) {
+        if (dictSize(evalScriptsDict()) > 1000) {
             many_scripts = 1;
             num_reports++;
         }
