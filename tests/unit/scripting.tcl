@@ -146,6 +146,14 @@ start_server {tags {"scripting"}} {
         } 1 x
     } {number 1}
 
+    test {EVAL - Lua number -> Redis integer conversion} {
+        r set x 0
+        run_script {
+            local foo = redis.pcall('hincrby','hash','field',200000000)
+            return {type(foo),foo}
+        } 0
+    } {number 200000000}
+
     test {EVAL - Redis bulk -> Lua type conversion} {
         r set mykey myval
         run_script {
