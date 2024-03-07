@@ -522,10 +522,11 @@ void luaDeleteFunction(client *c, sds sha) {
 
 /* Users who abuse EVAL will generate a new lua script on each call, which can
  * consume large amounts of memory over time. Since EVAL is mostly the one that
- * abuses the lua cache, and these won't have pipeline issues, we implement
- * script eviction only for these (not for one loaded with SCRIPT LOAD).
- * Considering that we don't have many scripts, then unlike keys, we don't need
- * to worry about the memory usage of keeping a true sorted LRU linked list.
+ * abuses the lua cache, and these won't have pipeline issues (scripts won't
+ * disappear when EVALSHA needs it and cause failure), we implement script eviction
+ * only for these (not for one loaded with SCRIPT LOAD). Considering that we don't
+ * have many scripts, then unlike keys, we don't need to worry about the memory
+ * usage of keeping a true sorted LRU linked list.
  *
  * evalsha is a hint, indicating whether the lua function is added from the EVAL
  * context or from the SCRIPT LOAD.
@@ -539,7 +540,7 @@ listNode *luaScriptsFIFOAdd(client *c, sds sha, int evalsha) {
     if (evalsha) return NULL;
 
     /* Evict oldest. */
-    if (listLength(lctx.lua_scripts_lru_list) == FIFO_LIST_LENGTH) {
+    while (listLength(lctx.lua_scripts_lru_list) >= FIFO_LIST_LENGTH) {
         listNode *ln = listFirst(lctx.lua_scripts_lru_list);
         sds oldest = listNodeValue(ln);
         luaDeleteFunction(c, oldest);
