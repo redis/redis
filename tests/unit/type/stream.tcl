@@ -457,6 +457,22 @@ start_server {
         $rd close
     }
 
+    test {XREAD last element fblocking from non-emoty stream} {
+        # should return last element immediately, w/o blocking
+
+        # add 3 entries to a stream
+        r DEL lestream
+        r XADD lestream 1-0 k1 v1
+        r XADD lestream 2-0 k2 v2
+        r XADD lestream 3-0 k3 v3
+
+        # read the last entry
+        set res [r XREAD BLOCK 1000000 STREAMS lestream +]
+
+        # verify it's the last entry
+        assert_equal $res {{lestream {{3-0 {k3 v3}}}}}
+    }
+
     test {XREAD last element from multiple streams} {
         # should return last element only from non-empty streams
 
