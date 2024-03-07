@@ -9117,7 +9117,7 @@ unsigned int RM_ClusterKeySlot(RedisModuleString *key) {
 /* Returns a short string that can be used as a key or as a hash tag in a key,
  * such that the key maps to the given cluster slot. Returns NULL if slot is not
  * a valid slot. */
-const char *RM_ClusterSampleKeyNameBySlot(unsigned int slot) {
+const char *RM_ClusterCanonicalKeyNameInSlot(unsigned int slot) {
     return (slot < CLUSTER_SLOTS) ? crc16_slot_table[slot] : NULL;
 }
 
@@ -13859,7 +13859,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
     REGISTER_API(ClusterKeySlot);
-    REGISTER_API(ClusterSampleKeyNameBySlot);
+    REGISTER_API(ClusterCanonicalKeyNameInSlot);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
     REGISTER_API(DictSize);
