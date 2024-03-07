@@ -188,7 +188,7 @@ foreach call_type {nested normal} {
 
         # make sure we get BUSY error, and that we didn't get here too early
         assert_error {*BUSY Slow module operation*} {r ping}
-        assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] $busy_time_limit
         # abort the blocking operation
         r set_slow_bg_operation 0
 

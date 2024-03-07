@@ -47,7 +47,16 @@
                 "functions.caches": {
                     "type": "integer"
                 },
+                "overhead.db.hashtable.lut": {
+                    "type": "integer"
+                },
+                "overhead.db.hashtable.rehashing": {
+                    "type": "integer"
+                },
                 "overhead.total": {
+                    "type": "integer"
+                },
+                "db.dict.rehashing.count": {
                     "type": "integer"
                 },
                 "keys.count": {
@@ -72,6 +81,9 @@
                     "type": "integer"
                 },
                 "allocator.resident": {
+                    "type": "integer"
+                },
+                "allocator.muzzy": {
                     "type": "integer"
                 },
                 "allocator-fragmentation.ratio": {
@@ -100,7 +112,7 @@
                 }
             },
             "patternProperties": {
-                "^db.": {
+                "^db\\.\\d+$": {
                     "type": "object",
                     "properties": {
                         "overhead.hashtable.main": {
