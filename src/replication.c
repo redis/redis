@@ -3255,8 +3255,8 @@ void setupMainConnForPsync(connection *conn) {
  * │RECEIVE_CAPA_REPLY ├───────┘   │CONNECTED          │                                                                     
  * └───────────────────┘           └───────────────────┘   
  *
- * /
-/* This handler fires when the non blocking connect was able to
+ *
+ * This handler fires when the non blocking connect was able to
  * establish a connection with the master. */
 void syncWithMaster(connection *conn) {
     char tmpfile[256], *err = NULL;

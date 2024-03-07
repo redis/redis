@@ -6060,7 +6060,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     "offset=%lld,lag=%ld,type=%s\r\n",
                     slaveid,slaveip,slave->slave_listening_port,state,
                     slave->repl_ack_off, lag, 
-                    slave->flags & CLIENT_REPL_RDB_CHANNEL ? "rdb-conn":"main-conn");
+                    slave->flags & CLIENT_REPL_RDB_CHANNEL ? "rdb-conn": 
+                    slave->replstate == SLAVE_STATE_BG_RDB_LOAD ? "main-conn": "normal-slave");
                 slaveid++;
             }
         }
