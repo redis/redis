@@ -180,6 +180,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     node->container = QUICKLIST_NODE_CONTAINER_PACKED;
     node->recompress = 0;
     node->dont_compress = 0;
+    node->attempted_compress = 0;
     return node;
 }
 
@@ -212,10 +213,8 @@ void quicklistRelease(quicklist *quicklist) {
  * Returns 1 if listpack compressed successfully.
  * Returns 0 if compression failed or if listpack too small to compress. */
 REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
-#ifdef REDIS_TEST
-    node->attempted_compress = 1;
-#endif
     if (node->dont_compress) return 0;
+    node->attempted_compress = 1;
 
     /* validate that the node is neither
      * tail nor head (it has prev and next)*/
@@ -240,6 +239,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     zfree(node->entry);
     node->entry = (unsigned char *)lzf;
     node->encoding = QUICKLIST_NODE_ENCODING_LZF;
+    node->attempted_compress = 0;
     return 1;
 }
 
@@ -254,9 +254,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
 /* Uncompress the listpack in 'node' and update encoding details.
  * Returns 1 on successful decode, 0 on failure to decode. */
 REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
-#ifdef REDIS_TEST
     node->attempted_compress = 0;
-#endif
     node->recompress = 0;
 
     void *decompressed = zmalloc(node->sz);
@@ -275,17 +273,25 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 /* Decompress only compressed nodes. */
 #define quicklistDecompressNode(_node)                                         \
     do {                                                                       \
-        if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {     \
-            __quicklistDecompressNode((_node));                                \
+        if ((_node)) {                                                         \
+            if ((_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {            \
+                __quicklistDecompressNode((_node));                            \
+            }                                                                  \
+            (_node)->attempted_compress = 0;                                   \
         }                                                                      \
     } while (0)
 
 /* Force node to not be immediately re-compressible */
 #define quicklistDecompressNodeForUse(_node)                                   \
     do {                                                                       \
-        if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {     \
-            __quicklistDecompressNode((_node));                                \
-            (_node)->recompress = 1;                                           \
+        if ((_node)) {                                                         \
+            if ((_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {            \
+                __quicklistDecompressNode((_node));                            \
+                (_node)->recompress = 1;                                       \
+            } else if ((_node)->attempted_compress) {                          \
+                (_node)->recompress = 1;                                       \
+                (_node)->attempted_compress = 0;                               \
+            }                                                                  \
         }                                                                      \
     } while (0)
 
@@ -3256,6 +3262,29 @@ int quicklistTest(int argc, char *argv[], int flags) {
         /* make sure the deleted ones are indeed gone */
         assert(!quicklistBookmarkFind(ql, "0"));
         assert(!quicklistBookmarkFind(ql, "_test"));
+        quicklistRelease(ql);
+    }
+
+    TEST("Test that a small node is compressed correctly when its size increases enough") {
+        quicklist *ql = quicklistNew(2, 1);
+        quicklistPushTail(ql, "0", 1);
+        quicklistPushTail(ql, "1", 1);
+        quicklistPushTail(ql, "2", 1);
+        quicklistPushTail(ql, "3", 1);
+        quicklistPushTail(ql, "4", 1);
+        quicklistPushTail(ql, "5", 1);
+        quicklistDelRange(ql, 2, 1);
+        assert(ql->head->next->attempted_compress == 1);
+
+        size_t sz = 1024;
+        unsigned char *s = zmalloc(sz);
+        memset(s, 'a', sz);
+        quicklistEntry entry;
+        quicklistIter *iter = quicklistGetIteratorEntryAtIdx(ql, 2, &entry);
+        quicklistInsertAfter(iter, &entry, s, sz);
+        quicklistReleaseIterator(iter);
+        assert(ql->head->next->encoding == QUICKLIST_NODE_ENCODING_LZF);
+        zfree(s);
         quicklistRelease(ql);
     }
 
