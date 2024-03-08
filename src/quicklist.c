@@ -281,7 +281,8 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
         }                                                                      \
     } while (0)
 
-/* Force node to not be immediately re-compressible */
+/* Force node to be immediately re-compressible. If the node was too small to
+ * compress before, we also allow it to be immediately re-compressible. */
 #define quicklistDecompressNodeForUse(_node)                                   \
     do {                                                                       \
         if ((_node)) {                                                         \
