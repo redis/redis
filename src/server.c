@@ -1231,7 +1231,8 @@ void cronUpdateMemoryStats(void) {
                                    &server.cron_malloc_stats.allocator_resident,
                                    NULL,
                                    &server.cron_malloc_stats.allocator_muzzy,
-                                   &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
+                                   &server.cron_malloc_stats.allocator_frag_smallbins_bytes,
+                                   server.lua_arena);
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
         if (!server.cron_malloc_stats.allocator_resident) {

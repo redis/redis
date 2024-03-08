@@ -84,6 +84,7 @@ void zlibc_free(void *ptr) {
 #define realloc(ptr,size) je_realloc(ptr,size)
 #define free(ptr) je_free(ptr)
 #define mallocx(size,flags) je_mallocx(size,flags)
+#define rallocx(ptr,size,flags) je_rallocx(ptr,size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
 
@@ -166,22 +167,63 @@ void *zmalloc_usable(size_t size, size_t *usable) {
     return ptr;
 }
 
-/* Allocation and free functions that bypass the thread cache
- * and go straight to the allocator arena bins.
- * Currently implemented only for jemalloc. Used for online defragmentation. */
-#ifdef HAVE_DEFRAG
-void *zmalloc_no_tcache(size_t size) {
+#if defined(USE_JEMALLOC)
+void *zmalloc_with_flags(size_t size, int flags) {
     if (size >= SIZE_MAX/2) zmalloc_oom_handler(size);
-    void *ptr = mallocx(size+PREFIX_SIZE, MALLOCX_TCACHE_NONE);
+    void *ptr = mallocx(size+PREFIX_SIZE, flags);
     if (!ptr) zmalloc_oom_handler(size);
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
 }
 
-void zfree_no_tcache(void *ptr) {
+void *zrealloc_with_flags(void *ptr, size_t size, int flags) {
+    /* Not allocating anything, just redirect to free. */
+    if (size == 0 && ptr != NULL) {
+        zfree_with_flags(ptr, flags);
+        return NULL;
+    }
+
+    /* Not freeing anything, just redirect to malloc. */
+    if (ptr == NULL)
+        return zmalloc_with_flags(size, flags);
+
+    /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
+    if (size >= SIZE_MAX/2) {
+        zfree_with_flags(ptr, flags);
+        zmalloc_oom_handler(size);
+        return NULL;
+    }
+
+    size_t oldsize = zmalloc_size(ptr);
+    void *newptr = rallocx(ptr, size, flags);
+    if (newptr == NULL) {
+        zmalloc_oom_handler(size);
+        return NULL;
+    }
+
+    update_zmalloc_stat_free(oldsize);
+    size = zmalloc_size(newptr);
+    update_zmalloc_stat_alloc(size);
+    return newptr;
+}
+
+void zfree_with_flags(void *ptr, int flags) {
     if (ptr == NULL) return;
     update_zmalloc_stat_free(zmalloc_size(ptr));
-    dallocx(ptr, MALLOCX_TCACHE_NONE);
+    dallocx(ptr, flags);
+}
+#endif
+
+/* Allocation and free functions that bypass the thread cache
+ * and go straight to the allocator arena bins.
+ * Currently implemented only for jemalloc. Used for online defragmentation. */
+#ifdef HAVE_DEFRAG
+void *zmalloc_no_tcache(size_t size) {
+    return zmalloc_with_flags(size, MALLOCX_TCACHE_NONE);
+}
+
+void zfree_no_tcache(void *ptr) {
+    zfree_with_flags(ptr, MALLOCX_TCACHE_NONE);
 }
 #endif
 
@@ -635,7 +677,7 @@ size_t zmalloc_get_rss(void) {
 
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
  * Done by summing the memory in unused regs in all slabs of all small bins. */
-size_t zmalloc_get_frag_smallbins(void) {
+size_t zmalloc_get_frag_smallbins(unsigned int lua_arena) {
     unsigned nbins;
     size_t sz, frag = 0;
     char buf[100];
@@ -666,6 +708,21 @@ size_t zmalloc_get_frag_smallbins(void) {
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
 
+        /* When lua uses jemalloc arena, we need to remove it from frag. */
+        if (lua_arena != UINT_MAX) {
+            size_t lua_curregs;
+            snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curregs", lua_arena, j);
+            sz = sizeof(size_t);
+            assert(!je_mallctl(buf, &lua_curregs, &sz, NULL, 0));
+            curregs = curregs - lua_curregs;
+
+            size_t lua_curslabs;
+            snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curslabs", lua_arena, j);
+            sz = sizeof(size_t);
+            assert(!je_mallctl(buf, &lua_curslabs, &sz, NULL, 0));
+            curslabs = curslabs - lua_curslabs;
+        }
+
         /* Calculate the fragmentation bytes for the current bin and add it to the total. */
         frag += ((nregs * curslabs) - curregs) * reg_size;
     }
@@ -674,7 +731,8 @@ size_t zmalloc_get_frag_smallbins(void) {
 }
 
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
-                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes,
+                               unsigned int lua_arena)
 {
     uint64_t epoch = 1;
     size_t sz;
@@ -693,6 +751,22 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
      * into account all allocations done by this process (not only zmalloc). */
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
 
+    /* When lua uses jemalloc arena, we need to remove it from allocated. */
+    if (lua_arena != UINT_MAX) {
+        char buf[100];
+        size_t lua_small_allcated;
+        snprintf(buf, sizeof(buf), "stats.arenas.%u.small.allocated", lua_arena);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &lua_small_allcated, &sz, NULL, 0));
+        allocated -= lua_small_allcated;
+
+        size_t lua_large_allacted;
+        snprintf(buf, sizeof(buf), "stats.arenas.%u.large.allocated", lua_arena);
+        sz = sizeof(size_t);
+        assert(!je_mallctl(buf, &lua_large_allacted, &sz, NULL, 0));
+        allocated -= lua_large_allacted;
+    }
+
     /* Retained memory is memory released by `madvised(..., MADV_DONTNEED)`, which is not part
      * of RSS or mapped memory, and doesn't have a strong association with physical memory in the OS.
      * It is still part of the VM-Size, and may be used again in later allocations. */
@@ -708,10 +782,19 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
         assert(!je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pmuzzy", &pmuzzy, &sz, NULL, 0));
         assert(!je_mallctl("arenas.page", &page, &sz, NULL, 0));
         *muzzy = pmuzzy * page;
+
+        if (lua_arena != UINT_MAX) {
+            char buf[100];
+            size_t lua_pmuzzy;
+            snprintf(buf, sizeof(buf), "stats.arenas.%u.pmuzzy", lua_arena);
+            sz = sizeof(size_t);
+            assert(!je_mallctl(buf, &lua_pmuzzy, &sz, NULL, 0));
+            *muzzy -= lua_pmuzzy * page;
+        }
     }
 
     /* Total size of consumed meomry in unused regs in small bins (AKA external fragmentation). */
-    *frag_smallbins_bytes = zmalloc_get_frag_smallbins();
+    *frag_smallbins_bytes = zmalloc_get_frag_smallbins(lua_arena);
     return 1;
 }
 
@@ -738,8 +821,10 @@ int jemalloc_purge(void) {
 #else
 
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
-                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes,
+                               unsigned int lua_arena)
 {
+    UNUSED(lua_arena);
     *allocated = *resident = *active = *frag_smallbins_bytes = 0;
     if (retained) *retained = 0;
     if (muzzy) *muzzy = 0;

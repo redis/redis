@@ -129,7 +129,8 @@ size_t zmalloc_used_memory(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
 size_t zmalloc_get_rss(void);
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
-                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes);
+                               size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes,
+                               unsigned int lua_arena);
 void set_jemalloc_bg_thread(int enable);
 int jemalloc_purge(void);
 size_t zmalloc_get_private_dirty(long pid);
@@ -138,6 +139,12 @@ size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
 void zlibc_trim(void);
 void zmadvise_dontneed(void *ptr);
+
+#if defined(USE_JEMALLOC)
+void *zmalloc_with_flags(size_t size, int flags);
+void *zrealloc_with_flags(void *ptr, size_t size, int flags);
+void zfree_with_flags(void *ptr, int flags);
+#endif
 
 #ifdef HAVE_DEFRAG
 void zfree_no_tcache(void *ptr);
