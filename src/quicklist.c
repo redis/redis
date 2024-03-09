@@ -3267,21 +3267,26 @@ int quicklistTest(int argc, char *argv[], int flags) {
     }
 
     TEST("Test that a small node is compressed correctly when its size increases enough") {
+        quicklistIter *iter;
+        quicklistEntry entry;
         quicklist *ql = quicklistNew(2, 1);
         quicklistPushTail(ql, "0", 1);
         quicklistPushTail(ql, "1", 1);
-        quicklistPushTail(ql, "2", 1);
         quicklistPushTail(ql, "3", 1);
         quicklistPushTail(ql, "4", 1);
-        quicklistPushTail(ql, "5", 1);
-        quicklistDelRange(ql, 2, 1);
-        assert(ql->head->next->attempted_compress == 1);
 
+        /* Create a compression failed node in the middle. */
+        iter = quicklistGetIteratorEntryAtIdx(ql, 1, &entry);
+        quicklistInsertAfter(iter, &entry, "2", 1);
+        quicklistReleaseIterator(iter);
+        assert(ql->head->next->attempted_compress == 1); /* too small to compress */
+
+        /* Add a large element to the node that failed to compress
+         * due to its small size, then ensure it can be compressed. */
         size_t sz = 1024;
         unsigned char *s = zmalloc(sz);
         memset(s, 'a', sz);
-        quicklistEntry entry;
-        quicklistIter *iter = quicklistGetIteratorEntryAtIdx(ql, 2, &entry);
+        iter = quicklistGetIteratorEntryAtIdx(ql, 2, &entry);
         quicklistInsertAfter(iter, &entry, s, sz);
         quicklistReleaseIterator(iter);
         assert(ql->head->next->encoding == QUICKLIST_NODE_ENCODING_LZF);
