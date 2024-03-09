@@ -119,6 +119,32 @@ start_server {
         r ping
     }
 
+    test {A node which is too small to compress, is correctly compressed when its size increases sufficiently} {
+        set orig_depth [config_get_set list-compress-depth 1]
+        set orig_fill [config_get_set list-max-listpack-size 2]
+
+        # Creates a node in the middle of the list that should
+        # be compressed, but is too small to be compressed.
+        r del key
+        r rpush key a b d e
+        r linsert key after b c
+        # Wait for the log message that confirms the node is too small to be compressed
+        set loglines [count_log_lines 0]
+        r debug quicklist key
+        wait_for_log_messages 0 {"*container : PACKED, encoding: RAW, size: 10, count: 1, recompress: 0, attempted_compress: 1*"} $loglines 1000 10
+
+        # Add a element to the failed node to make it big enough,
+        # then make sure it can be compressed correctly.
+        r linsert key after c [string repeat "x" 1000]
+        # Wait for the log message that confirms the node is now compressed correctly
+        set loglines [count_log_lines 0]
+        r debug quicklist key
+        wait_for_log_messages 0 {"*container : PACKED, encoding: LZF, size: 1014, count: 2, recompress: 0, attempted_compress: 0*"} $loglines 1000 10
+
+        config_set list-compress-depth $orig_depth
+        config_set list-max-listpack-size $orig_fill
+    } {} {needs:debug}
+
 foreach comp {2 1 0} {
     set cycles 1000
     if {$::accurate} { set cycles 10000 }
