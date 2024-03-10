@@ -457,7 +457,7 @@ start_server {
         $rd close
     }
 
-    test {XREAD last element fblocking from non-emoty stream} {
+    test {XREAD last element blocking from non-empty stream} {
         # should return last element immediately, w/o blocking
 
         # add 3 entries to a stream
