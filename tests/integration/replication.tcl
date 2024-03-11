@@ -1454,3 +1454,69 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server {} {
+        set slave [srv 0 client]
+        $slave slaveof $master_host $master_port
+
+        # Here we are assuming that master link is successful on the first attempt.
+        test "Test normal establishment process of the master link" {
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal 1 [status $slave master_sync_attempts]
+        }
+
+        test "Test master_sync_attempts increments after the reconnect" {
+            $slave client kill type master
+
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal 2 [status $slave master_sync_attempts]
+        }
+
+        test "Test master_sync_attempts is reset after slaveof no one" {
+            $slave slaveof no one
+            $slave slaveof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal 1 [status $slave master_sync_attempts]
+        }
+
+        test "Test master_sync_attempts is reset after master changed" {
+            start_server {} {
+                set new_master_host [srv 0 host]
+                set new_master_port [srv 0 port]
+                $slave slaveof $new_master_host $new_master_port
+
+                wait_for_condition 50 100 {
+                    [lindex [$slave role] 0] eq {slave} &&
+                    [string match {*master_link_status:up*} [$slave info replication]]
+                } else {
+                    fail "Can't turn the instance into a replica"
+                }
+
+                assert_equal 1 [status $slave master_sync_attempts]
+            }
+        }
+    }
+}

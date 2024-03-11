@@ -2933,7 +2933,7 @@ write_error: /* Handle sendCommand() errors. */
 
 int connectWithMaster(void) {
     server.repl_transfer_s = connCreate(connTypeOfReplication());
-    server.repl_master_connect_time = server.unixtime;
+    server.repl_master_sync_attempts++;
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
         serverLog(LL_WARNING,"Unable to connect to MASTER: %s",
@@ -3054,6 +3054,8 @@ void replicationSetMaster(char *ip, int port) {
     server.repl_state = REPL_STATE_CONNECT;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
+    /* Master link changed, reset the attempts number. */
+    server.repl_master_sync_attempts = 0;
     connectWithMaster();
 }
 
@@ -3104,6 +3106,9 @@ void replicationUnsetMaster(void) {
     /* Reset up and down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
     server.repl_up_since = 0;
+
+    /* Reset the attempts number. */
+    server.repl_master_sync_attempts = 0;
 
     /* Fire the role change modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
