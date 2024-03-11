@@ -9302,7 +9302,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                     exit(1);
                 }
 
-                /* wWe only show the original progress output when writing to a file */
+                /* We only show the original progress output when writing to a file */
                 if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
                     printf("[%05.2f%%] Biggest %-6s found so far %s with %llu %s\n",
                         pct, type->name, type->biggest_key, sizes[i],
