@@ -10106,8 +10106,8 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
 static int displayKeyStatsProgressbar(unsigned long long sampled,
                                       unsigned long long total_keys) {
     int line_count = 0;
-    char progressbar[256] = "keys scanned";
-    char buf[2][256];
+    char progressbar[512];
+    char buf[2][128];
 
     /* We can go over 100% if keys are added in the middle of the scans *
      * Cap at 100% or the progressbar memset will overflow              */
@@ -10128,6 +10128,8 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
         char default_color[] = "\033[39m";
         snprintf(progressbar, sizeof(progressbar), "%s%s%s%s%s",
             green, buf[0], red, buf[1], default_color);
+    } else {
+        snprintf(progressbar, sizeof(progressbar), "%s", "keys scanned");
     }
 
     line_count += cleanPrintfln("%6.2f%% %s", completion_pct * 100, progressbar);
