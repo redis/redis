@@ -387,9 +387,6 @@ static int anetCreateSocket(char *err, int domain, int type, int protocol, int s
      * It is just a flag that is nice to have. Its absence
      * will not affect this socket's functionality.
      */
-#ifdef SOCK_CLOEXEC
-    type |= SOCK_CLOEXEC;
-#endif
     if ((s = socket(domain, type, protocol)) == -1) {
         anetSetError(err, "creating socket: %s", strerror(errno));
         return ANET_ERR;
@@ -448,12 +445,8 @@ static int anetTcpGenericConnect(char *err, const char *addr, int port,
 #else
         sockflags |= O_CLOEXEC;
 #endif
-        if ((s = anetCreateSocket(err,p->ai_family,p->ai_socktype,p->ai_protocol,SO_REUSEADDR,sockflags)) == -1)
+        if ((s = anetCreateSocket(err,p->ai_family,p->ai_socktype,p->ai_protocol,SO_REUSEADDR,sockflags)) == ANET_ERR)
             continue;
-#ifndef SOCK_NONBLOCK
-        if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
-            goto error;
-#endif
         if (source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -615,6 +608,11 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     type |= SOCK_NONBLOCK;
 #else
     sockflags |= O_NONBLOCK;
+#endif
+#ifdef SOCK_CLOEXEC
+    type |= SOCK_CLOEXEC;
+#else
+    sockflags |= O_CLOEXEC;
 #endif
     if ((s = anetCreateSocket(err,AF_LOCAL,type,0,SO_REUSEADDR,sockflags)) == ANET_ERR)
         return ANET_ERR;
