@@ -66,8 +66,12 @@ static int connUnixListen(connListener *listener) {
             serverLog(LL_WARNING, "Failed opening Unix socket: %s", server.neterr);
             exit(1);
         }
+#ifndef SOCK_NONBLOCK
         anetNonBlock(NULL, fd);
+#endif
+#ifndef SOCK_CLOEXEC
         anetCloexec(fd);
+#endif
         listener->fd[listener->count++] = fd;
     }
 

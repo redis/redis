@@ -587,7 +587,11 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
         anetSetError(err,"unix socket path too long (%zu), must be under %zu", strlen(path), sizeof(sa.sun_path));
         return ANET_ERR;
     }
-    if ((s = anetCreateSocket(err,AF_LOCAL,SOCK_STREAM,0,SO_REUSEADDR)) == ANET_ERR)
+    int type = SOCK_STREAM;
+#ifdef SOCK_NONBLOCK
+    type |= SOCK_NONBLOCK;
+#endif
+    if ((s = anetCreateSocket(err,AF_LOCAL,type,0,SO_REUSEADDR)) == ANET_ERR)
         return ANET_ERR;
 
     memset(&sa,0,sizeof(sa));
