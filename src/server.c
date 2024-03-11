@@ -2654,6 +2654,7 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     int slot_count_bits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
+    int flags = (server.cluster_enabled) ? KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS : KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
         server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
