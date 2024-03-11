@@ -2308,11 +2308,10 @@ void xreadCommand(client *c) {
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
-                if (ids[id_idx].seq > 0) {
-                    ids[id_idx].seq--;
-                } else {
-                    ids[id_idx].ms--;
-                    ids[id_idx].seq = UINT64_MAX;
+                if (streamDecrID(&ids[id_idx]) != C_OK) {
+                    /* shouldn't happen */
+                    addReplyError(c,"the stream last element ID is 0-0");
+                    goto cleanup;
                 }
             } else {
                 ids[id_idx].ms = 0;
