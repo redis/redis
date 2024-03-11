@@ -383,7 +383,10 @@ static int anetSetReuseAddr(char *err, int fd) {
 
 static int anetCreateSocket(char *err, int domain, int type, int protocol, int sockopts) {
     int s;
-    if ((s = socket(domain, type, protocol)) == ANET_ERR) {
+#ifdef SOCK_CLOEXEC
+    type |= SOCK_CLOEXEC;
+#endif
+    if ((s = socket(domain, type, protocol)) == -1) {
         anetSetError(err, "creating socket: %s", strerror(errno));
         return ANET_ERR;
     }
@@ -420,15 +423,15 @@ static int anetTcpGenericConnect(char *err, const char *addr, int port,
         /* Try to create the socket and to connect it.
          * If we fail in the socket() call, or on connect(), we retry with
          * the next entry in servinfo. */
-        #if defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
-        if (flags & ANET_CONNECT_NONBLOCK) p->ai_socktype |= (SOCK_NONBLOCK | SOCK_CLOEXEC);
-        #endif
+#ifdef SOCK_NONBLOCK
+        if (flags & ANET_CONNECT_NONBLOCK) p->ai_socktype |= SOCK_NONBLOCK;
+#endif
         if ((s = anetCreateSocket(err,p->ai_family,p->ai_socktype,p->ai_protocol,SO_REUSEADDR)) == -1)
             continue;
-        #if !(defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC))
+#ifndef SOCK_NONBLOCK
         if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
             goto error;
-        #endif
+#endif
         if (source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -584,7 +587,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
         anetSetError(err,"unix socket path too long (%zu), must be under %zu", strlen(path), sizeof(sa.sun_path));
         return ANET_ERR;
     }
-    if ((s = anetCreateSocket(err,AF_LOCAL,SOCK_STREAM,0,0)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_LOCAL,SOCK_STREAM,0,SO_REUSEADDR)) == ANET_ERR)
         return ANET_ERR;
 
     memset(&sa,0,sizeof(sa));
