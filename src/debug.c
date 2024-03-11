@@ -1931,7 +1931,7 @@ void logCurrentClient(client *cc, const char *title) {
     serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
         if (j >= clientArgsToLog(cc)){
-            serverLog(LL_WARNING|LL_RAW,"client->argv[%d]: *redacted*\n", j);
+            serverLog(LL_WARNING|LL_RAW,"argv[%d]: *redacted*\n", j);
             continue;
         }
         robj *decoded;
