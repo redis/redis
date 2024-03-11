@@ -1170,7 +1170,6 @@ void syncCommand(client *c) {
  * result in an empty RDB. */
 void replconfCommand(client *c) {
     int j;
-    
     if ((c->argc % 2) == 0) {
         /* Number of arguments must be odd to make sure that every
          * option has a corresponding value. */
