@@ -247,7 +247,7 @@ static struct config {
     char *rdb_filename;
     int bigkeys;
     int memkeys;
-    int memkeys_samples;
+    long long memkeys_samples;
     int hotkeys;
     int keystats;
     unsigned long long cursor;
@@ -408,22 +408,13 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
-int isPositiveInteger(char* string) {
-    for (size_t i=0; i<strlen(string); i++) {
-        if (isdigit(string[i]) == 0) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 /* Erase the lines before printing, and returns the number of lines printed */
 int cleanPrintln(char *string) {
     int line_length;
     char *position = strchr(string, '\n');
 
-    /* clear the line */
-    if (config.output == OUTPUT_STANDARD) {
+    /* Clear the line if in TTY */
+    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
         printf("\033[2K\r");
     }
 
@@ -2808,27 +2799,58 @@ static int parseOptions(int argc, char **argv) {
             config.memkeys = 1;
             config.memkeys_samples = -1; /* use redis default */
         } else if (!strcmp(argv[i],"--memkeys-samples") && !lastarg) {
+            char *endptr;
             config.memkeys = 1;
-            config.memkeys_samples = atoi(argv[++i]);
+            config.keystats = 1;
+            config.memkeys_samples = strtoll(argv[++i], &endptr, 10);
+            if (*endptr) {
+                fprintf(stderr, "--memkeys-samples conversion error.\n");
+                exit(1);
+            }
+            if (config.memkeys_samples < 0) {
+               fprintf(stderr, "--memkeys-samples value should be positive.\n");
+               exit(1);
+            }
         } else if (!strcmp(argv[i],"--hotkeys")) {
             config.hotkeys = 1;
-        } else if (!strcmp(argv[i], "--keystats")){
+        } else if (!strcmp(argv[i], "--keystats")) {
             config.keystats = 1;
             config.memkeys_samples = -1; /* use redis default */
         } else if (!strcmp(argv[i],"--keystats-samples") && !lastarg) {
+            char *endptr;
             config.keystats = 1;
-            config.memkeys_samples = atoi(argv[++i]);
+            config.memkeys_samples = strtoll(argv[++i], &endptr, 10);
+            if (*endptr) {
+                fprintf(stderr, "--keystats-samples conversion error.\n");
+                exit(1);
+            }
+            if (config.memkeys_samples < 0) {
+               fprintf(stderr, "--keystats-samples value should be positive.\n");
+               exit(1);
+            }
         } else if (!strcmp(argv[i],"--cursor") && !lastarg) {
-            if (isPositiveInteger(argv[i+1])) {
-                config.cursor = strtoull(argv[++i],NULL,10);
-            } else {
+            i++;
+            char sign = *argv[i];
+            char *endptr;
+            config.cursor = strtoull(argv[i], &endptr, 10);
+            if (*endptr) {
+               fprintf(stderr, "--cursor conversion error.\n");
+               exit(1);
+            }
+            if (sign == '-' && config.cursor != 0) {
                 fprintf(stderr, "--cursor should be followed by a positive integer.\n");
                 exit(1);
             }
         } else if (!strcmp(argv[i],"--top") && !lastarg) {
-            if (isPositiveInteger(argv[i+1])) {
-                config.top_sizes_limit = strtoul(argv[++i],NULL,10);
-            } else {
+            i++;
+            char sign = *argv[i];
+            char *endptr;
+            config.top_sizes_limit = strtoull(argv[i], &endptr, 10);
+            if (*endptr) {
+               fprintf(stderr, "--top conversion error.\n");
+               exit(1);
+            }
+            if (sign == '-' && config.top_sizes_limit != 0) {
                 fprintf(stderr, "--top should be followed by a positive integer.\n");
                 exit(1);
             }
@@ -9122,7 +9144,7 @@ static void getKeyTypes(dict *types_dict, redisReply *keys, typeinfo **types) {
 
 static void getKeySizes(redisReply *keys, typeinfo **types,
                         unsigned long long *sizes, int memkeys,
-                        int memkeys_samples)
+                        long long memkeys_samples)
 {
     redisReply *reply;
     unsigned int i;
@@ -9199,7 +9221,10 @@ static void sendReadOnly(void) {
     freeReplyObject(read_reply);
 }
 
-static void findBigKeys(int memkeys, int memkeys_samples) {
+static int displayKeyStatsProgressbar(unsigned long long sampled,
+                                      unsigned long long total_keys);
+
+static void findBigKeys(int memkeys, long long memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
@@ -9277,18 +9302,41 @@ static void findBigKeys(int memkeys, int memkeys_samples) {
                     exit(1);
                 }
 
-                printf(
-                   "[%05.2f%%] Biggest %-6s found so far %s with %llu %s\n",
-                   pct, type->name, type->biggest_key, sizes[i],
-                   !memkeys? type->sizeunit: "bytes");
+                /* wWe only show the original progress output when writing to a file */
+                if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+                    printf("[%05.2f%%] Biggest %-6s found so far %s with %llu %s\n",
+                        pct, type->name, type->biggest_key, sizes[i],
+                        !memkeys? type->sizeunit: "bytes");
+
+                    /* Update overall progress */
+                    if(sampled % 1000000 == 0) {
+                        printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
+                    }
+                }
 
                 /* Keep track of the biggest size for this type */
                 type->biggest = sizes[i];
             }
 
-            /* Update overall progress */
-            if(sampled % 1000000 == 0) {
-                printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
+            /* Show the progress bar in TTY */
+            if (scan_loops % 10 == 0 && (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {            
+                int line_count = 0;
+
+                line_count = displayKeyStatsProgressbar(sampled, total_keys);
+                line_count += cleanPrintfln("");
+
+                di = dictGetIterator(types_dict);
+                while ((de = dictNext(di))) {
+                    typeinfo *current_type = dictGetVal(de);
+                    if (current_type->biggest > 0) {
+                        line_count += cleanPrintfln("Biggest %-9s found so far %s with %llu %s",
+                            current_type->name, current_type->biggest_key, current_type->biggest,
+                            !memkeys? current_type->sizeunit: "bytes");
+                    }
+                }
+                dictReleaseIterator(di);
+
+                printf("\033[%dA\r", line_count);
             }
         }
 
@@ -9300,15 +9348,33 @@ static void findBigKeys(int memkeys, int memkeys_samples) {
         freeReplyObject(reply);
     } while(force_cancel_loop == 0 && it != 0);
 
+    /* Final progress bar if TTY */
+    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
+        displayKeyStatsProgressbar(sampled, total_keys);
+
+        /* Clean the types info shown during the progress bar */
+        int line_count = 0;
+        di = dictGetIterator(types_dict);
+        while ((de = dictNext(di)))
+            line_count += cleanPrintfln("");
+        dictReleaseIterator(di);
+        printf("\033[%dA\r", line_count);
+    }
+
     if(types) zfree(types);
     if(sizes) zfree(sizes);
 
     /* We're done */
     printf("\n-------- summary -------\n\n");
-    if (force_cancel_loop) printf("[%05.2f%%] ", pct);
-    printf("Sampled %llu keys in the keyspace!\n", sampled);
+
+    /* Show percentage and sampled output when writing to a file */
+    if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+        if (force_cancel_loop) printf("[%05.2f%%] ", pct);
+        printf("Sampled %llu keys in the keyspace!\n", sampled);
+    }
+
     printf("Total key length in bytes is %llu (avg len %.2f)\n\n",
-       totlen, totlen ? (double)totlen/sampled : 0);
+        totlen, totlen ? (double)totlen/sampled : 0);
 
     /* Output the biggest keys we found, for types we did find */
     di = dictGetIterator(types_dict);
@@ -9423,9 +9489,13 @@ static void findHotKeys(void) {
         /* Now update our stats */
         for(i=0;i<keys->elements;i++) {
             sampled++;
-            /* Update overall progress */
-            if(sampled % 1000000 == 0) {
-                printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
+
+            /* Only show the original progress output when writing to a file */
+            if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+                /* Update overall progress */
+                if(sampled % 1000000 == 0) {
+                    printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
+                }
             }
 
             /* Use eviction pool here */
@@ -9442,9 +9512,30 @@ static void findHotKeys(void) {
             }
             counters[k] = freqs[i];
             hotkeys[k] = sdscatrepr(sdsempty(), keys->element[i]->str, keys->element[i]->len);
-            printf(
-               "[%05.2f%%] Hot key '%s' found so far with counter %llu\n",
-               pct, hotkeys[k], freqs[i]);
+
+            /* Only show the original progress output when writing to a file */
+            if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+                printf("[%05.2f%%] Hot key %s found so far with counter %llu\n",
+                    pct, hotkeys[k], freqs[i]);
+            }
+        }
+
+        /* Show the progress bar in TTY */
+        if (scan_loops % 10 == 0 && (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+            int line_count = 0;
+
+            line_count = displayKeyStatsProgressbar(sampled, total_keys);
+            line_count += cleanPrintfln("");
+
+            for (i=1; i<= HOTKEYS_SAMPLE; i++) {
+                k = HOTKEYS_SAMPLE - i;
+                if(counters[k]>0) {
+                    line_count += cleanPrintfln("hot key found with counter: %llu\tkeyname: %s", 
+                        counters[k], hotkeys[k]);
+                }
+            }
+
+            printf("\033[%dA\r", line_count);
         }
 
         /* Sleep if we've been directed to do so */
@@ -9455,12 +9546,31 @@ static void findHotKeys(void) {
         freeReplyObject(reply);
     } while(force_cancel_loop ==0 && it != 0);
 
+    /* Final progress bar in TTY */
+    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
+        displayKeyStatsProgressbar(sampled, total_keys);
+
+        /* clean the types info shown during the progress bar */
+        int line_count = 0;
+        line_count += cleanPrintfln("");
+        for (i=1; i<= HOTKEYS_SAMPLE; i++) {
+            k = HOTKEYS_SAMPLE - i;
+            if(counters[k]>0)
+                line_count += cleanPrintfln("");
+        }
+        printf("\033[%dA\r", line_count);
+    }
+
     if (freqs) zfree(freqs);
 
     /* We're done */
     printf("\n-------- summary -------\n\n");
-    if(force_cancel_loop)printf("[%05.2f%%] ",pct);
-    printf("Sampled %llu keys in the keyspace!\n", sampled);
+
+    /* Show the original output when writing to a file */
+    if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+        if(force_cancel_loop) printf("[%05.2f%%] ",pct);
+        printf("Sampled %llu keys in the keyspace!\n", sampled);
+    }
 
     for (i=1; i<= HOTKEYS_SAMPLE; i++) {
         k = HOTKEYS_SAMPLE - i;
@@ -9986,48 +10096,42 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
     }
 
     line_count += cleanPrintfln("Total key length is %s (%s avg)",
-    bytesToHuman(buf[0], sizeof(buf[0]), dist->total_size),
-    dist->total_count ? bytesToHuman(buf[1], sizeof(buf[1]), dist->total_size/dist->total_count) : "0");
+        bytesToHuman(buf[0], sizeof(buf[0]), dist->total_size),
+        dist->total_count ? bytesToHuman(buf[1], sizeof(buf[1]), dist->total_size/dist->total_count) : "0");
 
     return line_count;
 }
 
 #define PROGRESSBAR_WIDTH 60
 static int displayKeyStatsProgressbar(unsigned long long sampled,
-                                      unsigned long long total_keys,
-                                      unsigned long long total_size) {
+                                      unsigned long long total_keys) {
     int line_count = 0;
-    char buf[3][256];
+    char progressbar[256] = "keys scanned";
+    char buf[2][256];
 
-    /* We can go over 100% if keys are added in the middle of the scans */
-    /* Cap at 100% or the progressbar memset will overflow              */
+    /* We can go over 100% if keys are added in the middle of the scans *
+     * Cap at 100% or the progressbar memset will overflow              */
     double completion_pct = total_keys ? sampled < total_keys ? (double) sampled/total_keys : 1 : 0;
 
-    sds red = sdsempty();
-    sds green = sdsempty();
-    sds default_color = sdsempty();
-    if (config.output == OUTPUT_STANDARD) {
-        red = sdscat(red, "\033[31m");
-        green = sdscat(green, "\033[32m");
-        default_color = sdscat(default_color, "\033[39m");
+    /* If we are not redirecting to a file, build the progress bar */
+    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
+        int completed_width = (int)round(PROGRESSBAR_WIDTH * completion_pct);
+        memset(buf[0], '|', completed_width);
+        buf[0][completed_width]= '\0';
+
+        int uncompleted_width = PROGRESSBAR_WIDTH - completed_width;
+        memset(buf[1], '-', uncompleted_width);
+        buf[1][uncompleted_width]= '\0';
+
+        char red[] = "\033[31m";
+        char green[] = "\033[32m";
+        char default_color[] = "\033[39m";
+        snprintf(progressbar, sizeof(progressbar), "%s%s%s%s%s",
+            green, buf[0], red, buf[1], default_color);
     }
 
-    /* --- completion percentage with progress bar */
-    int completed_width = (int)round(PROGRESSBAR_WIDTH * completion_pct);
-    memset(buf[0], '|', completed_width);
-    buf[0][completed_width]= '\0';
-    int uncompleted_width = PROGRESSBAR_WIDTH - completed_width;
-    memset(buf[1], '-', uncompleted_width);
-    buf[1][uncompleted_width]= '\0';
-
-    line_count += cleanPrintfln("%6.2f%% %s%s%s%s%s",
-        completion_pct * 100, green, buf[0], red, buf[1], default_color);
+    line_count += cleanPrintfln("%6.2f%% %s", completion_pct * 100, progressbar);
     line_count += cleanPrintfln("Keys sampled: %llu", sampled);
-    line_count += cleanPrintfln("Keys size:    %s", bytesToHuman(buf[2], sizeof(buf[2]), total_size));
-
-    sdsfree(red);
-    sdsfree(green);
-    sdsfree(default_color);
 
     return line_count;
 }
@@ -10280,8 +10384,10 @@ static void displayKeyStats(unsigned long long sampled,
                             unsigned long top_sizes_limit,
                             int move_cursor_up) {
     int line_count = 0;
+    char buf[256];
 
-    line_count += displayKeyStatsProgressbar(sampled, total_keys, total_size);
+    line_count += displayKeyStatsProgressbar(sampled, total_keys);
+    line_count += cleanPrintfln("Keys size:    %s", bytesToHuman(buf, sizeof(buf), total_size));
     line_count += cleanPrintfln("");
     line_count += displayKeyStatsTopSizes(top_key_sizes, top_sizes_limit);
     line_count += cleanPrintfln("");
@@ -10289,9 +10395,9 @@ static void displayKeyStats(unsigned long long sampled,
     line_count += cleanPrintfln("");
     line_count += displayKeyStatsLengthType(bigkeys_types_dict);
 
-    /* If we need to refresh the stats later on */
+    /* If we need to refresh the stats */
     if (move_cursor_up) {
-        printf("\033[%dA\r", (line_count));
+        printf("\033[%dA\r", line_count);
     }
 
     fflush(stdout);
@@ -10316,7 +10422,7 @@ static void updateKeyType(redisReply *element, unsigned long long size, typeinfo
     }
 }
 
-static void keyStats(int memkeys_samples, unsigned long long cursor, unsigned long top_sizes_limit) {
+static void keyStats(long long memkeys_samples, unsigned long long cursor, unsigned long top_sizes_limit) {
     unsigned long long sampled = 0, total_keys, total_size = 0, it = 0, scan_loops = 0;
     unsigned long long *memkeys_sizes = NULL, *bigkeys_sizes = NULL;
     redisReply *reply, *keys;
@@ -10446,9 +10552,9 @@ static void keyStats(int memkeys_samples, unsigned long long cursor, unsigned lo
         }
 
         /* refresh keystats info on regular basis */
-        if (scan_loops % 10 == 0 && config.output == OUTPUT_STANDARD) {
+        if (scan_loops % 10 == 0 && (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
              displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict,
-                             top_sizes, top_sizes_limit, 1);
+                top_sizes, top_sizes_limit, 1);
         }
 
         /* Sleep if we've been directed to do so */
