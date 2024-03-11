@@ -1627,7 +1627,9 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    dict *pending_slaves;       /* Dict[Slave rdb-client id] = rdb-client of the related replica. */
+    dict *slaves_waiting_psync;       /* Dict[Slave rdb-client id] = rdb-client of the related replica. 
+                                 * This dict contains slaves for the period from the beginning of their RDB connection to the end of their main 
+                                 * connection's partial synchronization. */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
 

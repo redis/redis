@@ -231,7 +231,7 @@ void peerPendingSlaveToBacklogBlock(client* slave) {
     serverLog(LL_DEBUG, "Peer slave %s with cid %ld, %s ", replicationGetSlaveName(slave), *cid, 
         tail? "with repl-backlog tail": "repl-backlog is empty");
     slave->ref_repl_buf_node = tail? ln: NULL;
-    dictAdd(server.pending_slaves, cid, slave);
+    dictAdd(server.slaves_waiting_psync, cid, slave);
 }
 
 /* Attach pending replicas with new replication backlog head. */
@@ -242,7 +242,7 @@ void peerPendingSlavesToBacklogBlockRetrospect(void) {
     replBufBlock *head = ln ? listNodeValue(ln) : NULL;
     if (head == NULL) return;
     /* Update pending slaves to wait on new buffer block */
-    di = dictGetSafeIterator(server.pending_slaves);
+    di = dictGetSafeIterator(server.slaves_waiting_psync);
     while((de = dictNext(di)) != NULL) {
         client* slave = dictGetVal(de);
         if (slave->ref_repl_buf_node) continue;
@@ -257,8 +257,8 @@ void unpeerPendingSlaveFromBacklogBlock(client* slave) {
     listNode *ln;
     replBufBlock *o;
     client *peer_slave;
-    /* Get replDataBlock pointed by this replica */
-    de = dictFind(server.pending_slaves, &slave->associated_rdb_client_id);
+    /* Get replBufBlock pointed by this replica */
+    de = dictFind(server.slaves_waiting_psync, &slave->associated_rdb_client_id);
     peer_slave = dictGetVal(de);
     ln = peer_slave->ref_repl_buf_node;
     o = ln ? listNodeValue(ln) : NULL;
@@ -269,7 +269,7 @@ void unpeerPendingSlaveFromBacklogBlock(client* slave) {
     peer_slave->ref_repl_buf_node = NULL;
     serverLog(LL_DEBUG, "Unpeer pending slave %s with cid %ld, repl buffer block %s", 
         replicationGetSlaveName(slave), slave->associated_rdb_client_id, o? "ref count decreased": "doesn't exist");
-    dictDelete(server.pending_slaves, &slave->associated_rdb_client_id);
+    dictDelete(server.slaves_waiting_psync, &slave->associated_rdb_client_id);
 }
 
 void resetReplicationBuffer(void) {
@@ -493,7 +493,7 @@ void feedReplicationBuffer(char *s, size_t len) {
              * into replication backlog. */
             serverAssert(add_new_block == 1 && start_pos == 0);
         }
-        if (empty_backlog && dictSize(server.pending_slaves) > 0) {
+        if (empty_backlog && dictSize(server.slaves_waiting_psync) > 0) {
             /* Increase refcount for pending replicas. */
             peerPendingSlavesToBacklogBlockRetrospect();
         }
@@ -876,7 +876,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
-    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.pending_slaves, &c->associated_rdb_client_id)) {
+    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.slaves_waiting_psync, &c->associated_rdb_client_id)) {
         c->replstate = SLAVE_STATE_BG_RDB_LOAD;
         unpeerPendingSlaveFromBacklogBlock(c);
     } else {
@@ -4655,7 +4655,7 @@ void replicationCron(void) {
     if (listLength(server.repl_buffer_blocks) > 0) {
         replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
         serverAssert(o->refcount > 0 &&
-            o->refcount <= (int)listLength(server.slaves) + 1 + (int)dictSize(server.pending_slaves));
+            o->refcount <= (int)listLength(server.slaves) + 1 + (int)dictSize(server.slaves_waiting_psync));
     }
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */

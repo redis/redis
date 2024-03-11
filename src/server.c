@@ -2582,7 +2582,7 @@ void initServer(void) {
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
-    server.pending_slaves = dictCreate(&intDictType);
+    server.slaves_waiting_psync = dictCreate(&intDictType);
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();

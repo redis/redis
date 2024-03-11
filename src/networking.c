@@ -1667,7 +1667,7 @@ void freeClient(client *c) {
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
         if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
-            dictDelete(server.pending_slaves, &c->id);
+            dictDelete(server.slaves_waiting_psync, &c->id);
         }
     }
 
