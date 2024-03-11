@@ -1240,6 +1240,7 @@ typedef struct client {
     char *slave_addr;       /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     int slave_req;          /* Slave requirements: SLAVE_REQ_* */
+    uint64_t associated_rdb_client_id; /* The client id of this replica's rdb connection */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
@@ -1626,7 +1627,7 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    dict *pending_slaves;       /* Dict[Slave IP] = rdb-client of the related replica. */
+    dict *pending_slaves;       /* Dict[Slave rdb-client id] = rdb-client of the related replica. */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
 
@@ -1904,6 +1905,7 @@ struct redisServer {
     int masterport;                 /* Port of master */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     client *master;     /* Client that is master for this slave */
+    uint64_t rdb_client_id;         /* Rdb client id as it defined at master side */
     struct {
         connection* conn;
         char replid[CONFIG_RUN_ID_SIZE+1];
@@ -2797,6 +2799,7 @@ int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const cha
 int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(client *c, robj *o, int type);
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg);
+int getLongUnsignedIntFromObjectOrReply(client *c, robj *o, uint64_t *target, const char *msg);
 int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);
 int getLongLongFromObject(robj *o, long long *target);
@@ -2840,7 +2843,6 @@ int replicationCountAOFAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(client *c);
-char *replicationGetSlaveNameGeneric(client *c, int with_type);
 long long getPsyncInitialOffset(void);
 int replicationSetupSlaveForFullResync(client *slave, long long offset);
 void changeReplicationId(void);

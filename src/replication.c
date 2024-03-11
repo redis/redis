@@ -74,7 +74,7 @@ static ConnectionType *connTypeOfReplication(void) {
  * pair. Mostly useful for logging, since we want to log a slave using its
  * IP address and its listening port which is more clear for the user, for
  * example: "Closing connection with replica 10.1.2.3:6380". */
-char *replicationGetSlaveNameGeneric(client *c, int with_type) {
+char *replicationGetSlaveName(client *c) {
     static char buf[NET_HOST_PORT_STR_LEN];
     char ip[NET_IP_STR_LEN];
 
@@ -92,19 +92,7 @@ char *replicationGetSlaveNameGeneric(client *c, int with_type) {
         snprintf(buf,sizeof(buf),"client id #%llu",
             (unsigned long long) c->id);
     }
-    if (with_type) {
-        /* RDB channel SYNC */
-        if (c->flags & CLIENT_REPL_MAIN_CHANNEL) {
-            redis_strlcat(buf, ":<main-conn>", sizeof(buf));
-        } else if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
-            redis_strlcat(buf, ":<rdb-conn>", sizeof(buf));
-        }
-    }
     return buf;
-}
-
-char *replicationGetSlaveName(client *c) {
-    return replicationGetSlaveNameGeneric(c, 1);
 }
 
 /* Plain unlink() can block for quite some time in order to actually apply
@@ -229,7 +217,8 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
 void peerPendingSlaveToBacklogBlock(client* slave) {
     listNode *ln = NULL;
     replBufBlock *tail = NULL;
-    sds slave_name = sdsnew(replicationGetSlaveNameGeneric(slave, 0));
+    uint64_t *cid = (uint64_t*)zmalloc(sizeof(uint64_t));
+    *cid = slave->id;
     if (server.repl_backlog == NULL) {
         createReplicationBacklog();
     } else {
@@ -239,9 +228,10 @@ void peerPendingSlaveToBacklogBlock(client* slave) {
             tail->refcount++;
         }
     }
-    serverLog(LL_DEBUG, "Peer slave %s %s ", slave_name, tail? "with repl-backlog tail": "repl-backlog is empty");
+    serverLog(LL_DEBUG, "Peer slave %s with cid %ld, %s ", replicationGetSlaveName(slave), *cid, 
+        tail? "with repl-backlog tail": "repl-backlog is empty");
     slave->ref_repl_buf_node = tail? ln: NULL;
-    dictAdd(server.pending_slaves, slave_name, slave);
+    dictAdd(server.pending_slaves, cid, slave);
 }
 
 /* Attach pending replicas with new replication backlog head. */
@@ -258,7 +248,7 @@ void peerPendingSlavesToBacklogBlockRetrospect(void) {
         if (slave->ref_repl_buf_node) continue;
         slave->ref_repl_buf_node = ln;
         head->refcount++;
-        serverLog(LL_DEBUG, "Retrospect peer slave %s", (sds)dictGetKey(de));
+        serverLog(LL_DEBUG, "Retrospect peer slave %ld", (uint64_t)dictGetKey(de));
     }
 }
 
@@ -267,9 +257,8 @@ void unpeerPendingSlaveFromBacklogBlock(client* slave) {
     listNode *ln;
     replBufBlock *o;
     client *peer_slave;
-    sds slave_name = replicationGetSlaveNameGeneric(slave, 0);
     /* Get replDataBlock pointed by this replica */
-    de = dictFind(server.pending_slaves, slave_name);
+    de = dictFind(server.pending_slaves, &slave->associated_rdb_client_id);
     peer_slave = dictGetVal(de);
     ln = peer_slave->ref_repl_buf_node;
     o = ln ? listNodeValue(ln) : NULL;
@@ -278,8 +267,9 @@ void unpeerPendingSlaveFromBacklogBlock(client* slave) {
         o->refcount--;
     }
     peer_slave->ref_repl_buf_node = NULL;
-    serverLog(LL_DEBUG, "Unpeer pending slave %s, repl buffer block %s", slave_name, o? "ref count decreased": "doesn't exist");
-    dictDelete(server.pending_slaves, slave_name);
+    serverLog(LL_DEBUG, "Unpeer pending slave %s with cid %ld, repl buffer block %s", 
+        replicationGetSlaveName(slave), slave->associated_rdb_client_id, o? "ref count decreased": "doesn't exist");
+    dictDelete(server.pending_slaves, &slave->associated_rdb_client_id);
 }
 
 void resetReplicationBuffer(void) {
@@ -886,7 +876,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
-    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.pending_slaves, replicationGetSlaveNameGeneric(c,0))) {
+    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.pending_slaves, &c->associated_rdb_client_id)) {
         c->replstate = SLAVE_STATE_BG_RDB_LOAD;
         unpeerPendingSlaveFromBacklogBlock(c);
     } else {
@@ -1420,6 +1410,14 @@ void replconfCommand(client *c) {
             } else {
                 c->flags &= ~CLIENT_REPL_MAIN_CHANNEL;
             }
+        } else if (!strcasecmp(c->argv[j]->ptr, "identify")) {
+            /* REPLCONF identify <client-id> is used to identify the current replica main connection with existing
+             * rdb-connection with the given id. */
+            uint64_t client_id = 0;
+            if (getLongUnsignedIntFromObjectOrReply(c, c->argv[j +1], &client_id, NULL) != C_OK) {
+                return;
+            }
+            c->associated_rdb_client_id = client_id;
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -2594,18 +2592,19 @@ void abortRdbConnectionSync(void) {
     server.repl_provisional_master.reploff = 0;
     server.repl_provisional_master.conn = NULL;
     server.repl_provisional_master.dbid = -1;
+    server.rdb_client_id = -1;
     freePendingReplDataBuf();
     return;
 }
 
 /* Replication: Master side.
  * Send current replication offset to replica. Use the following structure:
- * $ENDOFF:<repl-offset> <master-repl-id> <current-db-id> */
+ * $ENDOFF:<repl-offset> <master-repl-id> <current-db-id> <client-id> */
 int sendCurrentOffsetToReplica(client* replica) {
     char buf[128];
     int buflen;
-    buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d\r\n", server.master_repl_offset, server.replid, server.db->id);
-    serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld", replicationGetSlaveName(replica), server.master_repl_offset);    
+    buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d %ld\r\n", server.master_repl_offset, server.replid, server.db->id, replica->id);
+    serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld and client-id %ld", replicationGetSlaveName(replica), server.master_repl_offset, replica->id);    
     if (connSyncWrite(replica->conn, buf, buflen, server.repl_syncio_timeout*1000) != buflen) {
         freeClientAsync(replica);
         return C_ERR;
@@ -2678,6 +2677,7 @@ void fullSyncWithMaster(connection* conn) {
     /* Receive master rdb-channel end offset response */
     if (server.repl_rdb_conn_state == REPL_RDB_CONN_RECEIVE_ENDOFF) {
         char buf[PROTO_IOBUF_LEN];
+        int64_t rdb_client_id;
         connSyncReadLine(conn, buf, 1024, server.repl_syncio_timeout * 1000);
         if (buf[0] == '\0') {
             /* Retry again later */
@@ -2687,10 +2687,11 @@ void fullSyncWithMaster(connection* conn) {
         char master_replid[CONFIG_RUN_ID_SIZE+1];
         int dbid;
         /* Parse end offset response */
-        char *endoff_format = "$ENDOFF:%lld %40s %d";
-        if (sscanf(buf, endoff_format, &reploffset, master_replid, &dbid) != 3) {
+        char *endoff_format = "$ENDOFF:%lld %40s %d %ld";
+        if (sscanf(buf, endoff_format, &reploffset, master_replid, &dbid, &rdb_client_id) != 4) {
             goto error;
         }
+        server.rdb_client_id = rdb_client_id;
         server.master_initial_offset = reploffset;
 
         /* Initiate repl_provisional_master to act as this replica temp master until RDB is loaded */
@@ -2703,7 +2704,7 @@ void fullSyncWithMaster(connection* conn) {
         /* Now that we have the snapshot end-offset, we can ask for psync from that offset. Prepare the  
          * main connection accordingly.*/
         server.repl_transfer_s->state = CONN_STATE_CONNECTED;
-        server.repl_state = REPL_STATE_SEND_PSYNC;
+        server.repl_state = REPL_STATE_SEND_HANDSHAKE;
         serverAssert(connSetReadHandler(server.repl_transfer_s, setupMainConnForPsync) != C_ERR);
         setupMainConnForPsync(server.repl_transfer_s);
 
@@ -2875,6 +2876,7 @@ void rdbChannelSyncSuccess(void) {
     /* We can resume reading from the master connection once the local replication buffer has been loaded. */
     replicationSteadyStateInit();
     replicationSendAck(); /* Send ACK to notify primary that replica is synced */
+    server.rdb_client_id = -1;
 }
 
 /* Replication: Replica side.
@@ -3167,6 +3169,29 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
  * to adjust the replica main for loading incremental changes into the local buffer. */
 void setupMainConnForPsync(connection *conn) {
     int psync_result;
+    char llstr[LONG_STR_SIZE];
+    char* err = NULL;
+    if (server.repl_state == REPL_STATE_SEND_HANDSHAKE) {
+        /* We already have an initialized connection at master side, we only need to associate it with RDB connection */
+        ll2string(llstr,sizeof(llstr), server.rdb_client_id);
+        err = sendCommand(conn, "REPLCONF", "identify", llstr, NULL);
+        if (err) goto error;
+        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+        return;
+    }
+
+    if (server.repl_state == REPL_STATE_RECEIVE_CAPA_REPLY) {
+        err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto error;
+        if (err[0] == '-') {
+            serverLog(LL_NOTICE,"Master does not understand REPLCONF identify: %s", err);
+            goto error;
+        }
+        sdsfree(err);
+        err = NULL;
+        server.repl_state = REPL_STATE_SEND_PSYNC;
+    }
+
     if (server.repl_state == REPL_STATE_SEND_PSYNC) {
         if (server.debug_sleep_after_fork) usleep(server.debug_sleep_after_fork);
         if (slaveTryPartialResynchronization(conn,0) == PSYNC_WRITE_ERROR) {
@@ -3189,6 +3214,7 @@ void setupMainConnForPsync(connection *conn) {
         return;
     }
 
+    error:
     /* The rdb-conn-sync session must be aborted for any psync_result other than PSYNC_CONTINUE or PSYNC_WAIT_REPLY. */
     serverLog(LL_WARNING, "Aborting RDB connection sync. Main connection psync result %d", psync_result);
     cancelReplicationHandshake(1);

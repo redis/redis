@@ -187,6 +187,7 @@ client *createClient(connection *conn) {
     c->slave_addr = NULL;
     c->slave_capa = SLAVE_CAPA_NONE;
     c->slave_req = SLAVE_REQ_NONE;
+    c->associated_rdb_client_id = 0;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = 0;
@@ -1666,7 +1667,7 @@ void freeClient(client *c) {
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
         if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
-            dictDelete(server.pending_slaves, replicationGetSlaveNameGeneric(c, 0));
+            dictDelete(server.pending_slaves, &c->id);
         }
     }
 

@@ -290,6 +290,12 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
+void dictIntDestructor(dict *d, void *val)
+{
+    UNUSED(d);
+    zfree(val);
+}
+
 void *dictSdsDup(dict *d, const void *key) {
     UNUSED(d);
     return sdsdup((const sds) key);
@@ -325,6 +331,11 @@ uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
+/* Dict hash function for unsigned long */
+uint64_t dictIntHash(const void *key) {
+    return dictGenIntHashFunction((unsigned char*)key, sizeof(uint64_t));
+}
+
 /* Dict compare function for null terminated string */
 int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     int l1,l2;
@@ -334,6 +345,12 @@ int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     l2 = strlen((char*)key2);
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
+}
+
+/* Dict compare function for long unsigned int */
+int dictIntCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return *(uint64_t*)key1 == *(uint64_t*)(key2);
 }
 
 /* Dict case insensitive compare function for null terminated string */
@@ -562,6 +579,18 @@ dictType stringSetDictType = {
     NULL,                       /* val dup */
     dictCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
+    NULL,                       /* val destructor */
+    NULL                        /* allow to expand */
+};
+
+/* Dict for *uint64_t keys, values are pointers. 
+ * The key and value do not have a destructor. */
+dictType intDictType = {
+    dictIntHash,                /* hash function */
+    NULL,                       /* key dup */   
+    NULL,                       /* val dup */
+    dictIntCompare,             /* key compare */
+    dictIntDestructor,          /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
 };
@@ -2061,6 +2090,7 @@ void initServerConfig(void) {
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
+    server.rdb_client_id = -1;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2552,7 +2582,7 @@ void initServer(void) {
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
-    server.pending_slaves = dictCreate(&stringSetDictType);
+    server.pending_slaves = dictCreate(&intDictType);
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();

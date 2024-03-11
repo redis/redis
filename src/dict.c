@@ -114,6 +114,10 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
     return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
+uint64_t dictGenIntHashFunction(const unsigned char *buf, size_t len) {
+    return siphash_nocase(buf,len,dict_hash_function_seed);
+}
+
 /* --------------------- dictEntry pointer bit tricks ----------------------  */
 
 /* The 3 least significant bits in a pointer to a dictEntry determines what the
