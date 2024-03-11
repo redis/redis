@@ -204,17 +204,17 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
     }
 }
 
-/* Replication: Master side - connection peering.
- * On rdb-channel sync, connection peering is used to keep replication data in 
- * the backlog until the replica requests PSYNC. Peering happens in two forms, 
+/* Replication: Master side - connections association.
+ * On rdb-channel sync, connection association is used to keep replication data in 
+ * the backlog until the replica requests PSYNC. Association happens in two forms, 
  * if there's an existing buffer block at the fork time, the replica is attached
  * to the tail, if there is no tail, the replica will be attached when a new
  * buffer block is created (see the Retrospect function below).
-  * Replica listening IP and port is used as a unique key
- * for the peering. On COB overrun, peering is deleted and the RDB connection 
+ * Replica rdb client id is used as a unique key for the association. 
+ * On COB overrun, association is deleted and the RDB connection 
  * is dropped.
  */
-void peerPendingSlaveToBacklogBlock(client* slave) {
+void addSlaveToPsyncWaitingDict(client* slave) {
     listNode *ln = NULL;
     replBufBlock *tail = NULL;
     uint64_t *cid = (uint64_t*)zmalloc(sizeof(uint64_t));
@@ -235,7 +235,7 @@ void peerPendingSlaveToBacklogBlock(client* slave) {
 }
 
 /* Attach pending replicas with new replication backlog head. */
-void peerPendingSlavesToBacklogBlockRetrospect(void) {
+void addSlaveToPsyncWaitingDictRetrospect(void) {
     dictIterator *di;
     dictEntry *de;
     listNode *ln = listFirst(server.repl_buffer_blocks);
@@ -252,7 +252,7 @@ void peerPendingSlavesToBacklogBlockRetrospect(void) {
     }
 }
 
-void unpeerPendingSlaveFromBacklogBlock(client* slave) {
+void removeSlaveFromPsyncWaitingDict(client* slave) {
     dictEntry *de;
     listNode *ln;
     replBufBlock *o;
@@ -495,7 +495,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
         if (empty_backlog && dictSize(server.slaves_waiting_psync) > 0) {
             /* Increase refcount for pending replicas. */
-            peerPendingSlavesToBacklogBlockRetrospect();
+            addSlaveToPsyncWaitingDictRetrospect();
         }
         if (add_new_block) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
@@ -878,7 +878,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
     c->flags |= CLIENT_SLAVE;
     if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.slaves_waiting_psync, &c->associated_rdb_client_id)) {
         c->replstate = SLAVE_STATE_BG_RDB_LOAD;
-        unpeerPendingSlaveFromBacklogBlock(c);
+        removeSlaveFromPsyncWaitingDict(c);
     } else {
         c->replstate = SLAVE_STATE_ONLINE;
     }
