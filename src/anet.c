@@ -381,7 +381,7 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
-static int anetCreateSocket(char *err, int domain, int type, int protocol, int sockopts) {
+static int anetCreateSocket(char *err, int domain, int type, int protocol, int sockopts, int flags) {
     int s;
     /* In general, SOCK_CLOEXEC won't have noticeable effect.
      * It is just a flag that is nice to have. Its absence
@@ -395,7 +395,12 @@ static int anetCreateSocket(char *err, int domain, int type, int protocol, int s
         return ANET_ERR;
     }
 
-    if (sockopts & O_NONBLOCK && anetNonBlock(err, s) == ANET_ERR) {
+    if (flags & O_NONBLOCK && anetNonBlock(err, s) == ANET_ERR) {
+        close(s);
+        return ANET_ERR;
+    }
+
+    if (flags & O_CLOEXEC && anetCloexec(s) == ANET_ERR) {
         close(s);
         return ANET_ERR;
     }
@@ -432,13 +437,18 @@ static int anetTcpGenericConnect(char *err, const char *addr, int port,
         /* Try to create the socket and to connect it.
          * If we fail in the socket() call, or on connect(), we retry with
          * the next entry in servinfo. */
-        int sockopts = SO_REUSEADDR;
+        int sockflags = 0;
 #ifdef SOCK_NONBLOCK
         if (flags & ANET_CONNECT_NONBLOCK) p->ai_socktype |= SOCK_NONBLOCK;
 #else
-        if (flags & ANET_CONNECT_NONBLOCK) sockopts |= O_NONBLOCK;
+        if (flags & ANET_CONNECT_NONBLOCK) sockflags |= O_NONBLOCK;
 #endif
-        if ((s = anetCreateSocket(err,p->ai_family,p->ai_socktype,p->ai_protocol,sockopts)) == -1)
+#ifdef SOCK_CLOEXEC
+        p->ai_socktype |= SOCK_CLOEXEC;
+#else
+        sockflags |= O_CLOEXEC;
+#endif
+        if ((s = anetCreateSocket(err,p->ai_family,p->ai_socktype,p->ai_protocol,SO_REUSEADDR,sockflags)) == -1)
             continue;
 #ifndef SOCK_NONBLOCK
         if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
@@ -599,14 +609,14 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
         anetSetError(err,"unix socket path too long (%zu), must be under %zu", strlen(path), sizeof(sa.sun_path));
         return ANET_ERR;
     }
+    int sockflags = 0;
     int type = SOCK_STREAM;
-    int sockopts = SO_REUSEADDR;
 #ifdef SOCK_NONBLOCK
     type |= SOCK_NONBLOCK;
 #else
-    sockopts |= O_NONBLOCK;
+    sockflags |= O_NONBLOCK;
 #endif
-    if ((s = anetCreateSocket(err,AF_LOCAL,type,0,sockopts)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_LOCAL,type,0,SO_REUSEADDR,sockflags)) == ANET_ERR)
         return ANET_ERR;
 
     memset(&sa,0,sizeof(sa));
