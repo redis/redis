@@ -46,7 +46,6 @@ uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us);
 
 /* Specific dict access by dict-index */
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);
-void kvstoreFreeDictIfEmpty(kvstore *kvs, int didx);
 kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx);
 kvstoreDictIterator *kvstoreGetDictSafeIterator(kvstore *kvs, int didx);
 void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_id);
