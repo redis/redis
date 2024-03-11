@@ -165,10 +165,7 @@ static dict *createDictIfNeeded(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
-/* Free the dict if the dict is empty. Unlike freeDictIfNeeded which is handled
- * implicitly by kvstore and depends on the configuration, this one is meant to
- * be an explicit decision by the caller who may know the dict will no longer
- * be needed. */
+/* Free the dict if the dict is empty. */
 void kvstoreFreeDictIfEmpty(kvstore *kvs, int didx) {
     if (!kvstoreGetDict(kvs, didx) ||
         kvstoreDictSize(kvs, didx) != 0)
