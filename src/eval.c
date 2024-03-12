@@ -46,14 +46,12 @@ void ldbDisable(client *c);
 void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
-listNode *luaScriptsFIFOAdd(client *c, sds sha, int evalsha);
+listNode *luaScriptsLRUAdd(client *c, sds sha, int evalsha);
 
 static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
     if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(((luaScript*)val)->body);
-    /* node release is not the job of the dict, just for listing. */
-    if (((luaScript*)val)->node) ((luaScript*)val)->node = NULL;
     zfree(val);
 }
 
@@ -442,8 +440,8 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
  * If 'c' is not NULL, on error the client is informed with an appropriate
  * error describing the nature of the problem and the Lua interpreter error.
  *
- * evalsha is a hint, indicating whether the lua function is created from
- * the EVAL context or from the SCRIPT LOAD. */
+ * 'evalsha' indicating whether the lua function is created from the EVAL context
+ * or from the SCRIPT LOAD. */
 sds luaCreateFunction(client *c, robj *body, int evalsha) {
     char funcname[43];
     dictEntry *de;
@@ -489,7 +487,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
     l->body = body;
     l->flags = script_flags;
     sds sha = sdsnewlen(funcname+2,40);
-    l->node = luaScriptsFIFOAdd(c, sha, evalsha);
+    l->node = luaScriptsLRUAdd(c, sha, evalsha);
     int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
@@ -515,7 +513,9 @@ void luaDeleteFunction(client *c, sds sha) {
     dictEntry *de = dictUnlink(lctx.lua_scripts, sha);
     serverAssertWithInfo(c ? c : lctx.lua_client, NULL, de);
     luaScript *l = dictGetVal(de);
-    if (l->node) listDelNode(lctx.lua_scripts_lru_list, l->node);
+    /* We only delete `EVAL` scripts, which must exist in the LRU list. */
+    serverAssert(l->node);
+    listDelNode(lctx.lua_scripts_lru_list, l->node);
     lctx.lua_scripts_mem -= sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(l->body);
     dictFreeUnlinkedEntry(lctx.lua_scripts, de);
 }
@@ -528,19 +528,19 @@ void luaDeleteFunction(client *c, sds sha) {
  * have many scripts, then unlike keys, we don't need to worry about the memory
  * usage of keeping a true sorted LRU linked list.
  *
- * evalsha is a hint, indicating whether the lua function is added from the EVAL
- * context or from the SCRIPT LOAD.
+ * 'evalsha' indicating whether the lua function is added from the EVAL context
+ * or from the SCRIPT LOAD.
  *
  * Returns the corresponding node added, which is used to save it in luaScript
  * and use it for quick removal and re-insertion into an LRU list each time the
  * script is used. */
-#define FIFO_LIST_LENGTH 500
-listNode *luaScriptsFIFOAdd(client *c, sds sha, int evalsha) {
+#define LRU_LIST_LENGTH 500
+listNode *luaScriptsLRUAdd(client *c, sds sha, int evalsha) {
     /* Script eviction only applies to EVAL, not SCRIPT LOAD. */
     if (evalsha) return NULL;
 
     /* Evict oldest. */
-    while (listLength(lctx.lua_scripts_lru_list) >= FIFO_LIST_LENGTH) {
+    while (listLength(lctx.lua_scripts_lru_list) >= LRU_LIST_LENGTH) {
         listNode *ln = listFirst(lctx.lua_scripts_lru_list);
         sds oldest = listNodeValue(ln);
         luaDeleteFunction(c, oldest);
@@ -711,7 +711,6 @@ NULL
                 addReply(c,shared.czero);
         }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
-        /* In SCRIPT LOAD we pass in evalsha = 1 as a hint. */
         sds sha = luaCreateFunction(c, c->argv[2], 1);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
