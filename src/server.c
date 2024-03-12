@@ -333,7 +333,7 @@ uint64_t dictCStrCaseHash(const void *key) {
 
 /* Dict hash function for unsigned long */
 uint64_t dictIntHash(const void *key) {
-    return dictGenIntHashFunction((unsigned char*)key, sizeof(uint64_t));
+    return (uint64_t)key;
 }
 
 /* Dict compare function for null terminated string */
@@ -589,8 +589,8 @@ dictType intDictType = {
     dictIntHash,                /* hash function */
     NULL,                       /* key dup */   
     NULL,                       /* val dup */
-    dictIntCompare,             /* key compare */
-    dictIntDestructor,          /* key destructor */
+    NULL,                       /* key compare */
+    NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
 };

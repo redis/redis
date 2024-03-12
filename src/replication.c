@@ -217,8 +217,6 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
 void addSlaveToPsyncWaitingDict(client* slave) {
     listNode *ln = NULL;
     replBufBlock *tail = NULL;
-    uint64_t *cid = (uint64_t*)zmalloc(sizeof(uint64_t));
-    *cid = slave->id;
     if (server.repl_backlog == NULL) {
         createReplicationBacklog();
     } else {
@@ -228,10 +226,10 @@ void addSlaveToPsyncWaitingDict(client* slave) {
             tail->refcount++;
         }
     }
-    serverLog(LL_DEBUG, "Peer slave %s with cid %ld, %s ", replicationGetSlaveName(slave), *cid, 
+    serverLog(LL_DEBUG, "Peer slave %s with cid %ld, %s ", replicationGetSlaveName(slave), slave->id,
         tail? "with repl-backlog tail": "repl-backlog is empty");
     slave->ref_repl_buf_node = tail? ln: NULL;
-    dictAdd(server.slaves_waiting_psync, cid, slave);
+    dictAdd(server.slaves_waiting_psync, (void*)slave->id, slave);
 }
 
 /* Attach pending replicas with new replication backlog head. */
@@ -258,7 +256,7 @@ void removeSlaveFromPsyncWaitingDict(client* slave) {
     replBufBlock *o;
     client *peer_slave;
     /* Get replBufBlock pointed by this replica */
-    de = dictFind(server.slaves_waiting_psync, &slave->associated_rdb_client_id);
+    de = dictFind(server.slaves_waiting_psync, (void*)slave->associated_rdb_client_id);
     peer_slave = dictGetVal(de);
     ln = peer_slave->ref_repl_buf_node;
     o = ln ? listNodeValue(ln) : NULL;
@@ -269,7 +267,7 @@ void removeSlaveFromPsyncWaitingDict(client* slave) {
     peer_slave->ref_repl_buf_node = NULL;
     serverLog(LL_DEBUG, "Unpeer pending slave %s with cid %ld, repl buffer block %s", 
         replicationGetSlaveName(slave), slave->associated_rdb_client_id, o? "ref count decreased": "doesn't exist");
-    dictDelete(server.slaves_waiting_psync, &slave->associated_rdb_client_id);
+    dictDelete(server.slaves_waiting_psync, (void*)slave->associated_rdb_client_id);
 }
 
 void resetReplicationBuffer(void) {
@@ -876,7 +874,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
-    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.slaves_waiting_psync, &c->associated_rdb_client_id)) {
+    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.slaves_waiting_psync, (void*)c->associated_rdb_client_id)) {
         c->replstate = SLAVE_STATE_BG_RDB_LOAD;
         removeSlaveFromPsyncWaitingDict(c);
     } else {
