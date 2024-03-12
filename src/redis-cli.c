@@ -10313,10 +10313,7 @@ static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_
 static key_info* createKeySizeInfo(char* key_name, size_t key_name_len, char *key_type, unsigned long long size) {
     key_info *key;
 
-    if ((key = zmalloc(sizeof(key_info))) == NULL) {
-        return NULL;
-    }
-
+    key = zmalloc(sizeof(key_info));
     key->size = size;
     snprintf(key->type_name, sizeof(key->type_name), "%s", key_type);
     key->key_name = sdscatrepr(sdsempty(), key_name, key_name_len);
@@ -10330,7 +10327,7 @@ static key_info* createKeySizeInfo(char* key_name, size_t key_name_len, char *ke
 /* Insert key info in topkeys sorted by size (from high to low size).
  * Keep a maximum of config.top_sizes_limit items in topkeys list.
  * key_name and type_name are copied.
- * Return: -1 insertion failure, 0 size was not added (too small), 1 size was inserted. */
+ * Return: 0 size was not added (too small), 1 size was inserted. */
 static int updateTopSizes(char* key_name, size_t key_name_len, unsigned long long key_size,
                           char *type_name, list *topkeys, unsigned long top_sizes_limit) {
     listNode *node;
@@ -10352,20 +10349,13 @@ static int updateTopSizes(char* key_name, size_t key_name_len, unsigned long lon
     listReleaseIterator(iter);
 
     new_node = createKeySizeInfo(key_name, key_name_len, type_name, key_size);
-    if (new_node == NULL) {
-        return -1;
-    }
 
     if (node) {
         /* insert before the node */
-        if (listInsertNode(topkeys, node, new_node, 0) == NULL) {
-            return -1;
-        }
+        listInsertNode(topkeys, node, new_node, 0);
     } else {
         /* insert as the last node */
-        if (listAddNodeTail(topkeys, new_node) == NULL) {
-            return -1;
-        }
+        listAddNodeTail(topkeys, new_node);
     }
 
     /* trim to stay within the limit */
@@ -10536,11 +10526,8 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
             total_size += memkeys_sizes[i];
             sampled++;
 
-            if (updateTopSizes(keys->element[i]->str, keys->element[i]->len, memkeys_sizes[i],
-                               memkeys_types[i]->name, top_sizes, top_sizes_limit) == -1) {
-                fprintf(stderr, "Failed to allocate memory for list node.\n");
-                exit(1);
-            }
+            updateTopSizes(keys->element[i]->str, keys->element[i]->len, memkeys_sizes[i],
+                           memkeys_types[i]->name, top_sizes, top_sizes_limit);
             updateKeyType(keys->element[i], memkeys_sizes[i], memkeys_types[i]);
             updateKeyType(keys->element[i], bigkeys_sizes[i], bigkeys_types[i]);
 
