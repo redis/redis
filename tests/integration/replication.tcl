@@ -1520,3 +1520,45 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    # Configure the master in order to make a full resync take a certain amount of time.
+    $master config set repl-diskless-sync yes
+    $master config set repl-diskless-sync-delay 3
+    $master config set repl-diskless-sync-max-replicas 0
+
+    start_server {} {
+        set slave [srv 0 client]
+        $slave slaveof $master_host $master_port
+
+        test "Test the total_disconnect_time_sec has obtained valid statistics" {
+
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert {[status $slave total_disconnect_time_sec] >= 3}
+        }
+
+        test "Test the total_disconnect_time_sec not reset after slaveof no one" {
+            $slave slaveof no one
+            $slave slaveof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert {[status $slave total_disconnect_time_sec] >= 6}
+        }
+    }
+}
