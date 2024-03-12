@@ -1029,6 +1029,12 @@ foreach type {single multiple single_multiple} {
         r srem $myset {*}$members
     }
 
+    proc verify_rehashing_completed_key {myset table_size keys} {
+        set htstats [r debug HTSTATS-KEY $myset]
+        assert {![string match {*rehashing target*} $htstats]}
+        return {[string match {*table size: $table_size*number of elements: $keys*} $htstats]}
+    }
+
     test "SRANDMEMBER with a dict containing long chain" {
         set origin_save [config_get_set save ""]
         set origin_max_lp [config_get_set set-max-listpack-entries 0]
@@ -1099,7 +1105,10 @@ foreach type {single multiple single_multiple} {
         #    otherwise we would need more iterations.
         rem_hash_set_top_N myset [expr {[r scard myset] - 30}]
         assert_equal [r scard myset] 30
-        assert {[is_rehashing myset]}
+        
+        # Hash set rehashing would be completed while removing members from the `myset`
+        # We also check the size and members in the hash table.
+        verify_rehashing_completed_key myset 64 30
 
         # Now that we have a hash set with only one long chain bucket.
         set htstats [r debug HTSTATS-KEY myset full]

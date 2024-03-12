@@ -878,7 +878,7 @@ int startBgsaveForReplication(int mincapa, int req) {
             retval = rdbSaveToSlavesSockets(req,rsiptr);
         else {
             /* Keep the page cache since it'll get used soon */
-            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
+            retval = rdbSaveBackground(req, server.rdb_filename, rsiptr, RDBFLAGS_REPLICATION | RDBFLAGS_KEEP_CACHE);
         }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
@@ -2240,6 +2240,10 @@ void readSyncBulkPayload(connection *conn) {
                                     "disabled");
                 bg_unlink(server.rdb_filename);
             }
+
+            /* If disk-based RDB loading fails, remove the half-loaded dataset. */
+            emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
+
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */
             return;

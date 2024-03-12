@@ -414,8 +414,9 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * to a channel which we are subscribed to, then we wanna postpone that message to be added
      * after the command's reply (specifically important during multi-exec). the exception is
      * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
-     * The check for executing_client also avoids affecting push messages that are part of eviction. */
-    if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&
+     * The check for executing_client also avoids affecting push messages that are part of eviction.
+     * Check CLIENT_PUSHING first to avoid race conditions, as it's absent in module's fake client. */
+    if ((c->flags & CLIENT_PUSHING) && c == server.current_client &&
         server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
     {
         _addReplyProtoToList(c,server.pending_push_messages,s,len);
@@ -1450,7 +1451,7 @@ void unlinkClient(client *c) {
     listNode *ln;
 
     /* If this is marked as current client unset it. */
-    if (server.current_client == c) server.current_client = NULL;
+    if (c->conn && server.current_client == c) server.current_client = NULL;
 
     /* Certain operations must be done only if the client has an active connection.
      * If the client was already unlinked or if it's a "fake client" the
@@ -1494,7 +1495,7 @@ void unlinkClient(client *c) {
     }
 
     /* Remove from the list of pending reads if needed. */
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    serverAssert(!c->conn || io_threads_op == IO_THREADS_OP_IDLE);
     if (c->pending_read_list_node != NULL) {
         listDelNode(server.clients_pending_read,c->pending_read_list_node);
         c->pending_read_list_node = NULL;
@@ -1649,6 +1650,12 @@ void freeClient(client *c) {
     reqresReset(c, 1);
 #endif
 
+    /* Remove the contribution that this client gave to our
+     * incrementally computed memory usage. */
+    if (c->conn)
+        server.stat_clients_type_memory[c->last_memory_type] -=
+            c->last_memory_usage;
+
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
      * places where active clients may be referenced. */
@@ -1697,10 +1704,6 @@ void freeClient(client *c) {
      * we lost the connection with the master. */
     if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
 
-    /* Remove the contribution that this client gave to our
-     * incrementally computed memory usage. */
-    server.stat_clients_type_memory[c->last_memory_type] -=
-        c->last_memory_usage;
     /* Remove client from memory usage buckets */
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
@@ -1719,7 +1722,7 @@ void freeClient(client *c) {
     zfree(c);
 }
 
-/* Schedule a client to free it at a safe time in the serverCron() function.
+/* Schedule a client to free it at a safe time in the beforeSleep() function.
  * This function is useful when we need to terminate a client but we are in
  * a context where calling freeClient() is not possible, because the client
  * should be valid for the continuation of the flow of the program. */
@@ -2487,7 +2490,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        updateClientMemUsageAndBucket(c);
+        if (c->conn) updateClientMemUsageAndBucket(c);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -2717,7 +2720,13 @@ void readQueryFromClient(connection *conn) {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
 
-    if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
+    if (!(c->flags & CLIENT_MASTER) &&
+        /* The commands cached in the MULTI/EXEC queue have not been executed yet,
+         * so they are also considered a part of the query buffer in a broader sense.
+         *
+         * For unauthenticated clients, the query buffer cannot exceed 1MB at most. */
+        (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len ||
+         (c->mstate.argv_len_sums + sdslen(c->querybuf) > 1024*1024 && authRequired(c)))) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
@@ -2841,7 +2850,7 @@ sds catClientInfoString(sds s, client *client) {
         " laddr=%s", getClientSockname(client),
         " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)),
         " name=%s", client->name ? (char*)client->name->ptr : "",
-        " age=%I", (long long)(server.unixtime - client->ctime),
+        " age=%I", (long long)(commandTimeSnapshot() / 1000 - client->ctime),
         " idle=%I", (long long)(server.unixtime - client->lastinteraction),
         " flags=%s", flags,
         " db=%i", client->db->id,
@@ -2849,6 +2858,7 @@ sds catClientInfoString(sds s, client *client) {
         " psub=%i", (int) dictSize(client->pubsub_patterns),
         " ssub=%i", (int) dictSize(client->pubsubshard_channels),
         " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
+        " watch=%i", (int) listLength(client->watched_keys),
         " qbuf=%U", (unsigned long long) sdslen(client->querybuf),
         " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf),
         " argv-mem=%U", (unsigned long long) client->argv_len_sum,
@@ -3033,6 +3043,10 @@ void clientCommand(client *c) {
 "      Kill connections authenticated by <username>.",
 "    * SKIPME (YES|NO)",
 "      Skip killing current connection (default: yes).",
+"    * ID <client-id>",
+"      Kill connections by client id.",
+"    * MAXAGE <maxage>",
+"      Kill connections older than the specified age.",
 "LIST [options ...]",
 "    Return information about client connections. Options:",
 "    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
@@ -3144,6 +3158,7 @@ NULL
         user *user = NULL;
         int type = -1;
         uint64_t id = 0;
+        long long max_age = 0;
         int skipme = 1;
         int killed = 0, close_this_client = 0;
 
@@ -3165,6 +3180,18 @@ NULL
                                                       "client-id should be greater than 0") != C_OK)
                         return;
                     id = tmp;
+                } else if (!strcasecmp(c->argv[i]->ptr,"maxage") && moreargs) {
+                    long long tmp;
+
+                    if (getLongLongFromObjectOrReply(c, c->argv[i+1], &tmp,
+                                                     "maxage is not an integer or out of range") != C_OK)
+                        return;
+                    if (tmp <= 0) {
+                        addReplyError(c, "maxage should be greater than 0");
+                        return;
+                    }
+
+                    max_age = tmp;
                 } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
                     type = getClientTypeByName(c->argv[i+1]->ptr);
                     if (type == -1) {
@@ -3214,6 +3241,7 @@ NULL
             if (id != 0 && client->id != id) continue;
             if (user && client->user != user) continue;
             if (c == client && skipme) continue;
+            if (max_age != 0 && (long long)(commandTimeSnapshot() / 1000 - client->ctime) < max_age) continue;
 
             /* Kill it. */
             if (c == client) {

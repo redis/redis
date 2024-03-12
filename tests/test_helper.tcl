@@ -307,7 +307,7 @@ proc redis_client {args} {
         set args [lrange $args 1 end]
     }
 
-    # create client that defers reading reply
+    # create client that won't defers reading reply
     set client [redis [srv $level "host"] [srv $level "port"] 0 $::tls]
 
     # select the right db and read the response (OK), or at least ping

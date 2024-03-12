@@ -475,7 +475,7 @@ start_server {
         $rd close 
     }
 
-    test {Blocking XREADGROUP for stream key that has clients blocked on list - avoid endless loop} {
+    test {Blocking XREADGROUP for stream key that has clients blocked on stream - avoid endless loop} {
         r DEL mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
 
@@ -496,6 +496,34 @@ start_server {
         $rd3 close
 
         assert_equal [r ping] {PONG}
+    }
+
+    test {Blocking XREADGROUP for stream key that has clients blocked on stream - reprocessing command} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $rd1 xreadgroup GROUP mygroup myuser BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+
+        set start [clock milliseconds]
+        $rd2 xreadgroup GROUP mygroup myuser BLOCK 1000 STREAMS mystream >
+        wait_for_blocked_clients_count 2
+
+        # After a while call xadd and let rd2 re-process the command.
+        after 200
+        r xadd mystream * field value
+        assert_equal {} [$rd2 read]
+        set end [clock milliseconds]
+
+        # Before the fix in #13004, this time would have been 1200+ (i.e. more than 1200ms),
+        # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
+        assert_range [expr $end-$start] 1000 1150
+
+        $rd1 close
+        $rd2 close
     }
 
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
@@ -1249,7 +1277,7 @@ start_server {
         set replica [srv 0 client]
 
         foreach autoclaim {0 1} {
-            test "Replication tests of XCLAIM with deleted entries (autclaim=$autoclaim)" {
+            test "Replication tests of XCLAIM with deleted entries (autoclaim=$autoclaim)" {
                 $replica replicaof $master_host $master_port
                 wait_for_condition 50 100 {
                     [s 0 master_link_status] eq {up}
@@ -1279,6 +1307,27 @@ start_server {
                     assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 1
                 }
             }
+        }
+
+        test {XREADGROUP ACK would propagate entries-read} {
+            $master del mystream
+            $master xadd mystream * a b c d e f
+            $master xgroup create mystream mygroup $
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+            $master xadd mystream * a1 b1 a1 b2
+            $master xadd mystream * name v1 name v1
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+
+            set reply [$master XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+            assert_equal [dict get $group entries-read] 3
+            assert_equal [dict get $group lag] 0
+
+            set reply [$replica XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+            assert_equal [dict get $group entries-read] 3
+            assert_equal [dict get $group lag] 0
         }
     }
 

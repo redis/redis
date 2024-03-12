@@ -44,17 +44,21 @@
 #define DICT_OK 0
 #define DICT_ERR 1
 
+/* Hash table parameters */
+#define HASHTABLE_MIN_FILL        8      /* Minimal hash table fill 12.5%(100/8) */
+
 typedef struct dictEntry dictEntry; /* opaque */
 typedef struct dict dict;
 
 typedef struct dictType {
+    /* Callbacks */
     uint64_t (*hashFunction)(const void *key);
     void *(*keyDup)(dict *d, const void *key);
     void *(*valDup)(dict *d, const void *obj);
     int (*keyCompare)(dict *d, const void *key1, const void *key2);
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
-    int (*expandAllowed)(size_t moreMem, double usedRatio);
+    int (*resizeAllowed)(size_t moreMem, double usedRatio);
     /* Invoked at the start of dict initialization/rehashing (old and new ht are already created) */
     void (*rehashingStarted)(dict *d);
     /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists
@@ -63,6 +67,10 @@ typedef struct dictType {
     /* Allow a dict to carry extra caller-defined metadata. The
      * extra memory is initialized to 0 when a dict is allocated. */
     size_t (*dictMetadataBytes)(dict *d);
+
+    /* Data */
+    void *userdata;
+
     /* Flags */
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
@@ -91,6 +99,7 @@ struct dict {
     /* Keep small vars at end for optimal (minimal) struct padding */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
+    int16_t pauseAutoResize;  /* If >0 automatic resizing is disallowed (<0 indicates coding error) */
     void *metadata[];
 };
 
@@ -155,6 +164,8 @@ typedef struct {
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 #define dictPauseRehashing(d) ((d)->pauserehash++)
 #define dictResumeRehashing(d) ((d)->pauserehash--)
+#define dictPauseAutoResize(d) ((d)->pauseAutoResize++)
+#define dictResumeAutoResize(d) ((d)->pauseAutoResize--)
 
 /* If our unsigned long type can store a 64 bit number, use a 64 bit PRNG. */
 #if ULONG_MAX >= 0xffffffffffffffff
@@ -171,9 +182,9 @@ typedef enum {
 
 /* API */
 dict *dictCreate(dictType *type);
-dict **dictCreateMultiple(dictType *type, int count);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
+int dictShrink(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
 void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing);
@@ -188,7 +199,8 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);
-int dictResize(dict *d);
+int dictShrinkIfNeeded(dict *d);
+int dictExpandIfNeeded(dict *d);
 void dictSetKey(dict *d, dictEntry* de, void *key);
 void dictSetVal(dict *d, dictEntry *de, void *val);
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);

@@ -146,6 +146,14 @@ start_server {tags {"scripting"}} {
         } 1 x
     } {number 1}
 
+    test {EVAL - Lua number -> Redis integer conversion} {
+        r del hash
+        run_script {
+            local foo = redis.pcall('hincrby','hash','field',200000000)
+            return {type(foo),foo}
+        } 0
+    } {number 200000000}
+
     test {EVAL - Redis bulk -> Lua type conversion} {
         r set mykey myval
         run_script {
@@ -256,6 +264,10 @@ start_server {tags {"scripting"}} {
     test {EVAL - Scripts do not block on wait} {
         run_script {return redis.pcall('wait','1','0')} 0
     } {0}
+
+    test {EVAL - Scripts do not block on waitaof} {
+        run_script {return redis.pcall('waitaof','0','1','0')} 0
+    } {0 0}
 
     test {EVAL - Scripts do not block on XREAD with BLOCK option} {
         r del s
@@ -615,6 +627,52 @@ start_server {tags {"scripting"}} {
         list [run_script {return redis.sha1hex('')} 0] \
              [run_script {return redis.sha1hex('Pizza & Mandolino')} 0]
     } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
+
+    test "Measures elapsed time os.clock()" {
+        set escaped [run_script {
+            local start = os.clock()
+            while os.clock() - start < 1 do end
+            return {double = os.clock() - start}
+        } 0]
+        assert_morethan_equal $escaped 1 ;# 1 second
+    }
+
+    test "Prohibit dangerous lua methods in sandbox" {
+        assert_equal "" [run_script {
+            local allowed_methods = {"clock"}
+            -- Find a value from a tuple and return the position.
+            local indexOf = function(tuple, value)
+                for i, v in ipairs(tuple) do
+                    if v == value then return i end
+                end
+                return nil
+            end
+            -- Check for disallowed methods and verify all allowed methods exist.
+            -- If an allowed method is found, it's removed from 'allowed_methods'.
+            -- If 'allowed_methods' is empty at the end, all allowed methods were found.
+            for key, value in pairs(os) do
+                local index = indexOf(allowed_methods, key)
+                if index == nil or type(value) ~= "function" then
+                    return "Disallowed "..type(value)..":"..key
+                end
+                table.remove(allowed_methods, index)
+            end
+            if #allowed_methods ~= 0 then
+                return "Expected method not found: "..table.concat(allowed_methods, ",")
+            end
+            return ""
+        } 0]
+    }
+
+    test "Verify execution of prohibit dangerous Lua methods will fail" {
+        assert_error {ERR *attempt to call field 'execute'*} {run_script {os.execute()} 0}
+        assert_error {ERR *attempt to call field 'exit'*} {run_script {os.exit()} 0}
+        assert_error {ERR *attempt to call field 'getenv'*} {run_script {os.getenv()} 0}
+        assert_error {ERR *attempt to call field 'remove'*} {run_script {os.remove()} 0}
+        assert_error {ERR *attempt to call field 'rename'*} {run_script {os.rename()} 0}
+        assert_error {ERR *attempt to call field 'setlocale'*} {run_script {os.setlocale()} 0}
+        assert_error {ERR *attempt to call field 'tmpname'*} {run_script {os.tmpname()} 0}
+    }
 
     test {Globals protection reading an undeclared global variable} {
         catch {run_script {return a} 0} e
