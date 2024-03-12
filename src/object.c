@@ -896,39 +896,6 @@ int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const ch
     return C_OK;
 }
 
-int getLongUnsignedIntFromObject(robj *o, uint64_t *target) {
-    unsigned long long value;
-
-    if (o == NULL) {
-        value = 0;
-    } else {
-        serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
-        if (sdsEncodedObject(o)) {
-            if (string2ull(o->ptr, &value) == 0) return C_ERR;
-        } else if (o->encoding == OBJ_ENCODING_INT) {
-            value = (uint64_t)o->ptr;
-        } else {
-            serverPanic("Unknown string encoding");
-        }
-    }
-    if (target) *target = (uint64_t)value;
-    return C_OK;
-}
-
-int getLongUnsignedIntFromObjectOrReply(client *c, robj *o, uint64_t *target, const char *msg) {
-    uint64_t value;
-    if (getLongUnsignedIntFromObject(o, &value) != C_OK) {
-        if (msg != NULL) {
-            addReplyError(c,(char*)msg);
-        } else {
-            addReplyError(c,"value is not an integer or out of range");
-        }
-        return C_ERR;
-    }
-    *target = value;
-    return C_OK;
-}
-
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
     long long value;
 

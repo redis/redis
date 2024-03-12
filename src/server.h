@@ -1627,9 +1627,10 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    dict *slaves_waiting_psync;       /* Dict[Slave rdb-client id] = rdb-client of the related replica. 
-                                 * This dict contains slaves for the period from the beginning of their RDB connection to the end of their main 
-                                 * connection's partial synchronization. */
+    dict *slaves_waiting_psync; /* Dict[Slave rdb-client id] = rdb-client of the related replica. 
+                                 * This dict contains slaves for the period from the beginning of 
+                                 * their RDB connection to the end of their main connection's 
+                                 * partial synchronization. */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
 
@@ -2801,7 +2802,6 @@ int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const cha
 int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(client *c, robj *o, int type);
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg);
-int getLongUnsignedIntFromObjectOrReply(client *c, robj *o, uint64_t *target, const char *msg);
 int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);
 int getLongLongFromObject(robj *o, long long *target);

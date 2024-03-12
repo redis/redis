@@ -1413,11 +1413,11 @@ void replconfCommand(client *c) {
         } else if (!strcasecmp(c->argv[j]->ptr, "identify")) {
             /* REPLCONF identify <client-id> is used to identify the current replica main connection with existing
              * rdb-connection with the given id. */
-            uint64_t client_id = 0;
-            if (getLongUnsignedIntFromObjectOrReply(c, c->argv[j +1], &client_id, NULL) != C_OK) {
+            long long client_id = 0;
+            if (getLongLongFromObjectOrReply(c, c->argv[j +1], &client_id, NULL) != C_OK) {
                 return;
             }
-            c->associated_rdb_client_id = client_id;
+            c->associated_rdb_client_id = (uint64_t)client_id;
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
