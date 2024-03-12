@@ -188,6 +188,7 @@ client *createClient(connection *conn) {
     c->slave_capa = SLAVE_CAPA_NONE;
     c->slave_req = SLAVE_REQ_NONE;
     c->associated_rdb_client_id = 0;
+    c->first_free_time = 0;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = 0;
@@ -1667,6 +1668,7 @@ void freeClient(client *c) {
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
         if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
+            c->flags &= ~CLIENT_PROTECTED;
             dictDelete(server.slaves_waiting_psync, (void*)c->id);
         }
     }
@@ -1775,8 +1777,17 @@ int freeClientsInAsyncFreeQueue(void) {
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
 
-        if (c->flags & CLIENT_PROTECTED) continue;
-
+        if (c->flags & CLIENT_PROTECTED) {
+            if (!(c->flags & CLIENT_REPL_RDB_CHANNEL)) continue;
+            /* Check if we can remove RDB connection protection. */
+            if (!c->first_free_time) {
+                c->first_free_time = server.unixtime;
+                continue;
+            }
+            if (server.unixtime - c->first_free_time > WAIT_BEFORE_RDB_CLIENT_FREE) {
+                c->flags &= ~CLIENT_PROTECTED;
+            }
+        }
         c->flags &= ~CLIENT_CLOSE_ASAP;
         freeClient(c);
         listDelNode(server.clients_to_close,ln);

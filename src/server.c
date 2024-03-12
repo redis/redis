@@ -6096,6 +6096,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             }
         }
         info = sdscatprintf(info,
+            "slaves_waiting_psync:%lu\r\n"
             "master_failover_state:%s\r\n"
             "master_replid:%s\r\n"
             "master_replid2:%s\r\n"
@@ -6105,6 +6106,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "repl_backlog_size:%lld\r\n"
             "repl_backlog_first_byte_offset:%lld\r\n"
             "repl_backlog_histlen:%lld\r\n",
+            dictSize(server.slaves_waiting_psync),
             getFailoverStateString(),
             server.replid,
             server.replid2,

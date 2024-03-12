@@ -229,6 +229,8 @@ void addSlaveToPsyncWaitingDict(client* slave) {
     serverLog(LL_DEBUG, "Peer slave %s with cid %ld, %s ", replicationGetSlaveName(slave), slave->id,
         tail? "with repl-backlog tail": "repl-backlog is empty");
     slave->ref_repl_buf_node = tail? ln: NULL;
+    /* Prevent rdb client from being freed before psync is established. */
+    slave->flags |= CLIENT_PROTECTED;
     dictAdd(server.slaves_waiting_psync, (void*)slave->id, slave);
 }
 
@@ -265,6 +267,7 @@ void removeSlaveFromPsyncWaitingDict(client* slave) {
         o->refcount--;
     }
     peer_slave->ref_repl_buf_node = NULL;
+    peer_slave->flags &= ~CLIENT_PROTECTED;
     serverLog(LL_DEBUG, "Unpeer pending slave %s with cid %ld, repl buffer block %s", 
         replicationGetSlaveName(slave), slave->associated_rdb_client_id, o? "ref count decreased": "doesn't exist");
     dictDelete(server.slaves_waiting_psync, (void*)slave->associated_rdb_client_id);
