@@ -1161,19 +1161,21 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
     eptr = zzlFirstInRange(zl,range);
     if (eptr == NULL) return zl;
 
+    unsigned char* first_ele = eptr;
     /* When the tail of the listpack is deleted, eptr will be NULL. */
     while (eptr && (sptr = lpNext(zl,eptr)) != NULL) {
         score = zzlGetScore(sptr);
         if (zslValueLteMax(score,range)) {
-            /* Delete both the element and the score. */
-            zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
+            eptr = lpNext(zl,sptr);
         } else {
             /* No longer in range. */
             break;
         }
     }
-
+    if (num) {
+        zl = lpDeleteRangeWithEntry(zl, &first_ele, 2 * num);
+    }
     if (deleted != NULL) *deleted = num;
     return zl;
 }
@@ -1187,18 +1189,20 @@ unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsi
     eptr = zzlFirstInLexRange(zl,range);
     if (eptr == NULL) return zl;
 
+    unsigned char* first_ele = eptr;
     /* When the tail of the listpack is deleted, eptr will be NULL. */
     while (eptr && (sptr = lpNext(zl,eptr)) != NULL) {
         if (zzlLexValueLteMax(eptr,range)) {
-            /* Delete both the element and the score. */
-            zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
+            eptr = lpNext(zl,sptr);
         } else {
             /* No longer in range. */
             break;
         }
     }
-
+    if (num) {
+        zl = lpDeleteRangeWithEntry(zl, &first_ele, 2 * num);
+    }
     if (deleted != NULL) *deleted = num;
     return zl;
 }
