@@ -170,7 +170,8 @@ static dict *createDictIfNeeded(kvstore *kvs, int didx) {
 static void freeDictIfNeeded(kvstore *kvs, int didx) {
     if (!(kvs->flags & KVSTORE_FREE_EMPTY_DICTS) ||
         !kvstoreGetDict(kvs, didx) ||
-        kvstoreDictSize(kvs, didx) != 0)
+        kvstoreDictSize(kvs, didx) != 0 ||
+        kvstoreGetDict(kvs, didx)->pauserehash)
         return;
     dictRelease(kvs->dicts[didx]);
     kvs->dicts[didx] = NULL;
@@ -391,6 +392,8 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
     int skip = !d || (skip_cb && skip_cb(d));
     if (!skip) {
         _cursor = dictScan(d, cursor, scan_cb, privdata);
+        /* In dictScan, scan_cb may delete entries (e.g., in active expire case). */
+        freeDictIfNeeded(kvs, didx);
     }
     /* scanning done for the current dictionary or if the scanning wasn't possible, move to the next dict index. */
     if (_cursor == 0 || skip) {
