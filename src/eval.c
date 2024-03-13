@@ -172,8 +172,8 @@ int luaRedisReplicateCommandsCommand(lua_State *lua) {
     return 1;
 }
 
-/* When lua uses jemalloc, pass in luaAlloc as a parameter of lua_newstate. */
 #if defined(USE_JEMALLOC)
+/* When lua uses jemalloc, pass in luaAlloc as a parameter of lua_newstate. */
 static void *luaAlloc(void *ud, void *ptr, size_t osize, size_t nsize) {
     UNUSED(ud);
     UNUSED(osize);
@@ -184,28 +184,15 @@ static void *luaAlloc(void *ud, void *ptr, size_t osize, size_t nsize) {
         return zrealloc_with_flags(ptr, nsize, MALLOCX_ARENA(server.lua_arena));
     }
 }
-#endif
 
+/* Create a lua interpreter, and use jemalloc as lua memory allocator. */
 lua_State *createLuaState(void) {
-#if defined(USE_JEMALLOC)
-    /* Use jemalloc as lua memory allocator. */
-    lua_State *lua = lua_newstate(luaAlloc, NULL);
-#else
-    /* Use glibc (default) as lua memory allocator. */
-    lua_State *lua = lua_open();
-#endif
-
-    return lua;
+    return lua_newstate(luaAlloc, NULL);
 }
 
-/* This function is called the first time at server startup. */
+/* Under jemalloc we need to create a new arena for lua to avoid blocking
+ * defragger. */
 void scriptingSetup(void) {
-    lctx.lua_client = NULL;
-    server.lua_arena = UINT_MAX;
-    server.script_disable_deny_script = 0;
-    ldbInit();
-
-#if defined(USE_JEMALLOC)
     unsigned int arena;
     size_t sz = sizeof(unsigned int);
     int err = je_mallctl("arenas.create", (void *)&arena, &sz, NULL, 0);
@@ -214,8 +201,19 @@ void scriptingSetup(void) {
         exit(1);
     }
     server.lua_arena = arena;
-#endif
 }
+
+#else
+
+/* Create a lua interpreter and use glibc (default) as lua memory allocator. */
+lua_State *createLuaState(void) {
+    return lua_open();
+}
+
+/* There is nothing to set up under glib. */
+void scriptingSetup(void) {}
+
+#endif
 
 /* Initialize the scripting environment.
  *
@@ -228,7 +226,13 @@ void scriptingSetup(void) {
  *
  * However it is simpler to just call scriptingReset() that does just that. */
 void scriptingInit(int setup) {
-    if (setup) scriptingSetup();
+    if (setup) {
+        lctx.lua_client = NULL;
+        server.lua_arena = UINT_MAX;
+        server.script_disable_deny_script = 0;
+        ldbInit();
+        scriptingSetup();
+    }
 
     lua_State *lua = createLuaState();
 
