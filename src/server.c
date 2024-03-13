@@ -333,7 +333,7 @@ uint64_t dictCStrCaseHash(const void *key) {
 
 /* Dict hash function for unsigned long */
 uint64_t dictIntHash(const void *key) {
-    return (uint64_t)key;
+    return (uint64_t)(uintptr_t)key;
 }
 
 /* Dict compare function for null terminated string */

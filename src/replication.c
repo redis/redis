@@ -226,7 +226,7 @@ void addSlaveToPsyncWaitingDict(client* slave) {
             tail->refcount++;
         }
     }
-    serverLog(LL_DEBUG, "Peer slave %s with cid %ld, %s ", replicationGetSlaveName(slave), slave->id,
+    serverLog(LL_DEBUG, "Peer slave %s with cid %lu, %s ", replicationGetSlaveName(slave), slave->id,
         tail? "with repl-backlog tail": "repl-backlog is empty");
     slave->ref_repl_buf_node = tail? ln: NULL;
     /* Prevent rdb client from being freed before psync is established. */
@@ -248,7 +248,7 @@ void addSlaveToPsyncWaitingDictRetrospect(void) {
         if (slave->ref_repl_buf_node) continue;
         slave->ref_repl_buf_node = ln;
         head->refcount++;
-        serverLog(LL_DEBUG, "Retrospect peer slave %ld", (uint64_t)dictGetKey(de));
+        serverLog(LL_DEBUG, "Retrospect peer slave %lu", (uint64_t)dictGetKey(de));
     }
 }
 
@@ -268,7 +268,7 @@ void removeSlaveFromPsyncWaitingDict(client* slave) {
     }
     peer_slave->ref_repl_buf_node = NULL;
     peer_slave->flags &= ~CLIENT_PROTECTED;
-    serverLog(LL_DEBUG, "Unpeer pending slave %s with cid %ld, repl buffer block %s", 
+    serverLog(LL_DEBUG, "Unpeer pending slave %s with cid %lu, repl buffer block %s", 
         replicationGetSlaveName(slave), slave->associated_rdb_client_id, o? "ref count decreased": "doesn't exist");
     dictDelete(server.slaves_waiting_psync, (void*)slave->associated_rdb_client_id);
 }
@@ -2604,8 +2604,9 @@ void abortRdbConnectionSync(void) {
 int sendCurrentOffsetToReplica(client* replica) {
     char buf[128];
     int buflen;
-    buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d %ld\r\n", server.master_repl_offset, server.replid, server.db->id, replica->id);
-    serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld and client-id %ld", replicationGetSlaveName(replica), server.master_repl_offset, replica->id);    
+    buflen = snprintf(buf, sizeof(buf), "$ENDOFF:%lld %s %d %lu\r\n", server.master_repl_offset, server.replid, server.db->id, replica->id);
+    serverLog(LL_NOTICE, "Sending to replica %s RDB end offset %lld and client-id %lu", 
+        replicationGetSlaveName(replica), server.master_repl_offset, replica->id);    
     if (connSyncWrite(replica->conn, buf, buflen, server.repl_syncio_timeout*1000) != buflen) {
         freeClientAsync(replica);
         return C_ERR;
@@ -3169,7 +3170,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
  * This connection handler fires after rdb-channel was initialized. We use it
  * to adjust the replica main for loading incremental changes into the local buffer. */
 void setupMainConnForPsync(connection *conn) {
-    int psync_result;
+    int psync_result = -1;
     char llstr[LONG_STR_SIZE];
     char* err = NULL;
     if (server.repl_state == REPL_STATE_SEND_HANDSHAKE) {
