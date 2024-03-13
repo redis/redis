@@ -16,6 +16,10 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
+
+# Optimization flags. To override, the OPTIMIZATION variable can be passed, but
+# some automatic defaults are added to it. To specify optimization flags
+# explicitly without any defaults added, pass the OPT variable instead.
 OPTIMIZATION?=-O3
 ifeq ($(OPTIMIZATION),-O3)
 	ifeq (clang,$(CLANG))
