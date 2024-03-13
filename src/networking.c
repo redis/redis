@@ -1785,6 +1785,7 @@ int freeClientsInAsyncFreeQueue(void) {
                 continue;
             }
             if (server.unixtime - c->first_free_time > WAIT_BEFORE_RDB_CLIENT_FREE) {
+                serverLog(LL_NOTICE, "Replica main connection failed to establish PSYNC within the grace period. Freeing RDB client %lu.", c->id);
                 c->flags &= ~CLIENT_PROTECTED;
             }
         }

@@ -378,6 +378,8 @@ foreach mdl {no yes} rdbchannel {no yes} {
                             wait_for_ofs_sync $master [lindex $slaves 1]
                             wait_for_ofs_sync $master [lindex $slaves 2]
 
+                            assert [string match *slaves_waiting_psync:0* [$master info replication]]
+
                             # Check digests
                             set digest [$master debug digest]
                             set digest0 [[lindex $slaves 0] debug digest]
@@ -1856,7 +1858,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
         $replica config set repl-rdb-channel yes
         $replica config set loglevel debug
         $replica config set repl-timeout 10
-        # Stop replica after master fork for 5 seconds
+        # Stop replica after master fork for 2 seconds
         $replica debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
 
         test "Test rdb-channel connection peering - replica able to establish psync" {
@@ -1910,7 +1912,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
             $replica1 config set repl-timeout 10
             $replica2 config set repl-timeout 10
 
-            # Stop replica after master fork for 5 seconds
+            # Stop replica after master fork for 2 seconds
             $replica1 debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
             $replica2 debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
 
@@ -1923,6 +1925,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
                 verify_replica_online $master 0 500
                 wait_for_log_messages -2 {"*MASTER <-> REPLICA sync: Finished with success*"} 0 2000 1
                 $replica1 slaveof no one
+                assert [string match *slaves_waiting_psync:0* [$master info replication]]
             }
 
             test "Test rdb-channel connection peering - start with backlog" {
@@ -1932,9 +1935,116 @@ start_server {tags {"repl rdb-channel external:skip"}} {
                 incr $loglines 
                 verify_replica_online $master 0 500     
                 wait_for_log_messages -1 {"*MASTER <-> REPLICA sync: Finished with success*"} 0 2000 1
+                assert [string match *slaves_waiting_psync:0* [$master info replication]]
             }
 
             stop_write_load $load_handle0
         }
+    }
+}
+
+proc start_bg_server_sleep {host port sec} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_server_sleep.tcl $host $port $sec &
+}
+
+proc stop_bg_server_sleep {handle} {
+    catch {exec /bin/kill -9 $handle}
+}
+
+start_server {tags {"repl rdb-channel external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    
+    $master config set repl-diskless-sync yes
+    $master config set repl-rdb-channel yes
+    $master config set repl-backlog-size [expr {10 ** 6}]
+    $master config set loglevel debug
+    $master config set repl-timeout 10
+    # generate small db
+    populate 10 master 10
+    # Stop master main process after fork for 2 seconds
+    $master debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
+
+    start_server {} {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+        set replica_log [srv 0 stdout]
+        set loglines [count_log_lines 0]
+        
+        set load_handle0 [start_write_load $master_host $master_port 20]
+
+        $replica config set repl-rdb-channel yes
+        $replica config set loglevel debug
+        $replica config set repl-timeout 10
+
+        test "Test rdb-channel psync established after rdb load, master keep repl-block" {
+            $replica slaveof $master_host $master_port
+            set res [wait_for_log_messages 0 {"*Done loading RDB*"} $loglines 2000 1]
+            set loglines [lindex $res 1]
+            incr $loglines
+            # At this point rdb is loaded but psync hasn't been established yet. 
+            # Force the replica to sleep for 3 seconds so the master main process will wake up, while the replica is unresponsive.
+            set sleep_handle [start_bg_server_sleep $replica_host $replica_port 3]
+            wait_for_condition 50 100 {
+                [string match {*slaves_waiting_psync:1*} [$master info replication]]
+            } else {
+                fail "Master freed RDB client before psync was established"
+            }
+
+            verify_replica_online $master 0 500
+            wait_for_condition 50 100 {
+                [string match {*slaves_waiting_psync:0*} [$master info replication]]
+            } else {
+                fail "Master did not free repl buf block after psync establishment"
+            }
+            $replica slaveof no one
+        }
+        stop_write_load $load_handle0
+    }
+
+    start_server {} {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+        set replica_log [srv 0 stdout]
+        set loglines [count_log_lines 0]
+        
+        set load_handle0 [start_write_load $master_host $master_port 20]
+
+        $replica config set repl-rdb-channel yes
+        $replica config set loglevel debug
+        $replica config set repl-timeout 10
+
+        test "Test rdb-channel psync established after rdb load, master dismiss repl-block" {
+            $replica slaveof $master_host $master_port
+            set res [wait_for_log_messages 0 {"*Done loading RDB*"} $loglines 2000 1]
+            set loglines [lindex $res 1]
+            incr $loglines
+            # At this point rdb is loaded but psync hasn't been established yet. 
+            # Force the replica to sleep for 8 seconds so the master main process will wake up, while the replica is unresponsive.
+            # We expect the grace time to be over before the replica wake up, so sync will fail.
+            set sleep_handle [start_bg_server_sleep $replica_host $replica_port 8]
+            wait_for_condition 50 100 {
+                [string match {*slaves_waiting_psync:1*} [$master info replication]]
+            } else {
+                fail "Master should wait before freeing repl block"
+            }
+
+            # Sync should fail once the replica ask for PSYNC using main channel
+            set res [wait_for_log_messages -1 {"*Replica main connection failed to establish PSYNC within the grace period*"} 0 2000 1]
+
+            # Should succeed on retry
+            verify_replica_online $master 0 500
+            wait_for_condition 50 100 {
+                [string match {*slaves_waiting_psync:0*} [$master info replication]]
+            } else {
+                fail "Master did not free repl buf block after psync establishment"
+            }
+            $replica slaveof no one
+        }
+        stop_write_load $load_handle0
     }
 }
