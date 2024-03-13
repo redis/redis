@@ -1543,7 +1543,7 @@ void freeClient(client *c) {
 
     /* If a client is protected, yet we need to free it right now, make sure
      * to at least use asynchronous freeing. */
-    if (c->flags & CLIENT_PROTECTED) {
+    if ((c->flags & CLIENT_PROTECTED) || (c->flags & CLIENT_PROTECTED_RDB_CHANNEL)) {
         freeClientAsync(c);
         return;
     }
@@ -1668,7 +1668,6 @@ void freeClient(client *c) {
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
         if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
-            c->flags &= ~CLIENT_PROTECTED;
             dictDelete(server.slaves_waiting_psync, (void*)c->id);
         }
     }
@@ -1777,18 +1776,19 @@ int freeClientsInAsyncFreeQueue(void) {
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
 
-        if (c->flags & CLIENT_PROTECTED) {
-            if (!(c->flags & CLIENT_REPL_RDB_CHANNEL)) continue;
-            /* Check if we can remove RDB connection protection. */
-            if (!c->first_free_time) {
-                c->first_free_time = server.unixtime;
+        if (c->flags & CLIENT_PROTECTED_RDB_CHANNEL) {            /* Check if we can remove RDB connection protection. */
+            if (!c->rdb_client_disconnect_time) {
+                c->rdb_client_disconnect_time = server.unixtime;
                 continue;
             }
-            if (server.unixtime - c->first_free_time > WAIT_BEFORE_RDB_CLIENT_FREE) {
+            if (server.unixtime - c->rdb_client_disconnect_time > WAIT_BEFORE_RDB_CLIENT_FREE) {
                 serverLog(LL_NOTICE, "Replica main connection failed to establish PSYNC within the grace period. Freeing RDB client %lu.", c->id);
-                c->flags &= ~CLIENT_PROTECTED;
+                c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
             }
         }
+
+        if (c->flags & CLIENT_PROTECTED) continue;
+
         c->flags &= ~CLIENT_CLOSE_ASAP;
         freeClient(c);
         listDelNode(server.clients_to_close,ln);
