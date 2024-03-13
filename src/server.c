@@ -1228,7 +1228,10 @@ void cronUpdateMemoryStats(void) {
          * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
         zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
                                    &server.cron_malloc_stats.allocator_active,
-                                   &server.cron_malloc_stats.allocator_resident);
+                                   &server.cron_malloc_stats.allocator_resident,
+                                   NULL,
+                                   &server.cron_malloc_stats.allocator_muzzy,
+                                   &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
         if (!server.cron_malloc_stats.allocator_resident) {
@@ -2521,6 +2524,7 @@ void resetServerStats(void) {
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
+    server.stat_evictedscripts = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -2653,10 +2657,15 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    int slot_count_bits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
+    int slot_count_bits = 0;
+    int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
+    if (server.cluster_enabled) {
+        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    }
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
+        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -5643,6 +5652,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "allocator_allocated:%zu\r\n", server.cron_malloc_stats.allocator_allocated,
             "allocator_active:%zu\r\n", server.cron_malloc_stats.allocator_active,
             "allocator_resident:%zu\r\n", server.cron_malloc_stats.allocator_resident,
+            "allocator_muzzy:%zu\r\n", server.cron_malloc_stats.allocator_muzzy,
             "total_system_memory:%lu\r\n", (unsigned long)total_system_mem,
             "total_system_memory_human:%s\r\n", total_system_hmem,
             "used_memory_lua:%lld\r\n", memory_lua, /* deprecated, renamed to used_memory_vm_eval */
@@ -5681,6 +5691,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
+            "mem_overhead_db_hashtable_rehashing:%zu\r\n", mh->overhead_db_hashtable_rehashing,
             "active_defrag_running:%d\r\n", server.active_defrag_running,
             "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),
             "lazyfreed_objects:%zu\r\n", lazyfreeGetFreedObjectsCount()));
@@ -5821,6 +5832,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
+            "evicted_scripts:%lld\r\n", server.stat_evictedscripts,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
             "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,

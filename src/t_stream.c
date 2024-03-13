@@ -1713,10 +1713,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
             group->last_id = id;
-            /* Group last ID should be propagated only if NOACK was
-             * specified, otherwise the last id will be included
-             * in the propagation of XCLAIM itself. */
-            if (noack) propagate_last_id = 1;
+            /* In the past, we would only set it when NOACK was specified. And in
+             * #9127, XCLAIM did not propagate entries_read in ACK, which would
+             * cause entries_read to be inconsistent between master and replicas,
+             * so here we call streamPropagateGroupID unconditionally. */
+            propagate_last_id = 1;
         }
 
         /* Emit a two elements array for each item. The first is
@@ -2290,6 +2291,28 @@ void xreadCommand(client *c) {
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
+            } else {
+                ids[id_idx].ms = 0;
+                ids[id_idx].seq = 0;
+            }
+            continue;
+        } else if (strcmp(c->argv[i]->ptr,"+") == 0) {
+            if (xreadgroup) {
+                addReplyError(c,"The + ID is meaningless in the context of "
+                                "XREADGROUP: you want to read the history of "
+                                "this consumer by specifying a proper ID, or "
+                                "use the > ID to get new messages. The + ID would "
+                                "just return an empty result set.");
+                goto cleanup;
+            }
+            if (o) {
+                stream *s = o->ptr;
+                ids[id_idx] = s->last_id;
+                if (streamDecrID(&ids[id_idx]) != C_OK) {
+                    /* shouldn't happen */
+                    addReplyError(c,"the stream last element ID is 0-0");
+                    goto cleanup;
+                }
             } else {
                 ids[id_idx].ms = 0;
                 ids[id_idx].seq = 0;

@@ -117,7 +117,9 @@ aofInfo *aofInfoDup(aofInfo *orig) {
     return ai;
 }
 
-/* Format aofInfo as a string and it will be a line in the manifest. */
+/* Format aofInfo as a string and it will be a line in the manifest.
+ *
+ * When update this format, make sure to update redis-check-aof as well. */
 sds aofInfoFormat(sds buf, aofInfo *ai) {
     sds filename_repr = NULL;
 
@@ -1854,6 +1856,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkString(r,"SADD",4) ||
                 !rioWriteBulkObject(r,key))
             {
+                setTypeReleaseIterator(si);
                 return 0;
             }
         }

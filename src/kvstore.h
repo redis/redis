@@ -28,8 +28,10 @@ int kvstoreGetFairRandomDictIndex(kvstore *kvs);
 void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full);
 
 int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target);
+int kvstoreGetFirstNonEmptyDictIndex(kvstore *kvs);
 int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx);
 int kvstoreNumNonEmptyDicts(kvstore *kvs);
+int kvstoreNumAllocatedDicts(kvstore *kvs);
 int kvstoreNumDicts(kvstore *kvs);
 uint64_t kvstoreGetHash(kvstore *kvs, const void *key);
 
@@ -43,6 +45,9 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
 /* Rehashing */
 void kvstoreTryResizeDicts(kvstore *kvs, int limit);
 uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us);
+size_t kvstoreOverheadHashtableLut(kvstore *kvs);
+size_t kvstoreOverheadHashtableRehashing(kvstore *kvs);
+unsigned long kvstoreDictRehashingCount(kvstore *kvs);
 
 /* Specific dict access by dict-index */
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);
@@ -56,7 +61,7 @@ dictEntry *kvstoreDictFindEntryByPtrAndHash(kvstore *kvs, int didx, const void *
 unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, unsigned int count);
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size);
 unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
-typedef void (kvstoreDictLUTDefragFunction)(dict **d);
+typedef dict *(kvstoreDictLUTDefragFunction)(dict *d);
 void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn);
 void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key);
