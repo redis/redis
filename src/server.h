@@ -138,7 +138,7 @@ struct hdr_histogram;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
-#define WAIT_BEFORE_RDB_CLIENT_FREE 5 /* Grace period for replica main channel to establish psync. */
+#define WAIT_BEFORE_RDB_CLIENT_FREE 5 /* Grace period in seconds for replica main channel to establish psync. */
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -1243,7 +1243,7 @@ typedef struct client {
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     int slave_req;          /* Slave requirements: SLAVE_REQ_* */
     uint64_t associated_rdb_client_id; /* The client id of this replica's rdb connection */
-    time_t first_free_time; /* Time of the first freeClient call on this client. Used for delaying free. */
+    time_t rdb_client_disconnect_time; /* Time of the first freeClient call on this client. Used for delaying free. */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
@@ -2678,7 +2678,7 @@ int clientHasPendingReplies(client *c);
 int updateClientMemUsageAndBucket(client *c);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
-void removeFromServerCientList(client *c);
+void removeFromServerClientList(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
 void protectClient(client *c);

@@ -188,7 +188,7 @@ client *createClient(connection *conn) {
     c->slave_capa = SLAVE_CAPA_NONE;
     c->slave_req = SLAVE_REQ_NONE;
     c->associated_rdb_client_id = 0;
-    c->first_free_time = 0;
+    c->rdb_client_disconnect_time = 0;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = 0;
@@ -1417,7 +1417,7 @@ int anyOtherSlaveWaitRdb(client *except_me) {
     return 0;
 }
 
-void removeFromServerCientList(client *c) {
+void removeFromServerClientList(client *c) {
     if (c->client_list_node) {
         uint64_t id = htonu64(c->id);
         raxRemove(server.clients_index, (unsigned char*)&id, sizeof(id), NULL);
@@ -1440,7 +1440,7 @@ void unlinkClient(client *c) {
      * conn is already set to NULL. */
     if (c->conn) {
         /* Remove from the list of active clients. */
-        removeFromServerCientList(c);
+        removeFromServerClientList(c);
 
         /* Check if this is a replica waiting for diskless replication (rdb pipe),
          * in which case it needs to be cleaned from that list */
