@@ -2657,10 +2657,15 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    int slot_count_bits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
+    int slot_count_bits = 0;
+    int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
+    if (server.cluster_enabled) {
+        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    }
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
+        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
