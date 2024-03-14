@@ -1985,7 +1985,6 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
          * The range is empty when start > end or start >= length. */
         if (start > end || start >= llen) {
             addReply(c,shared.czero);
-            goto cleanup;
         }
         if (end >= llen) end = llen-1;
     }
@@ -2024,10 +2023,11 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             break;
         }
         dictResumeAutoResize(zs->dict);
-        dictShrinkIfNeeded(zs->dict);
         if (dictSize(zs->dict) == 0) {
             dbDelete(c->db,key);
             keyremoved = 1;
+        } else {
+            dictShrinkIfNeeded(zs->dict);
         }
     } else {
         serverPanic("Unknown sorted set encoding");
