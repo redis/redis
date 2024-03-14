@@ -89,6 +89,11 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
+void addClientToRaxGeneric(rax* rax, client *c) {
+    uint64_t id = htonu64(c->id);
+    raxInsert(rax, (unsigned char*)&id,sizeof(id),c,NULL);
+}
+
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
 void linkClient(client *c) {
@@ -97,8 +102,7 @@ void linkClient(client *c) {
      * this way removing the client in unlinkClient() will not require
      * a linear scan, but just a constant time operation. */
     c->client_list_node = listLast(server.clients);
-    uint64_t id = htonu64(c->id);
-    raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
+    addClientToRaxGeneric(server.clients_index, c);
 }
 
 /* Initialize client authentication state.
@@ -1417,10 +1421,14 @@ int anyOtherSlaveWaitRdb(client *except_me) {
     return 0;
 }
 
+void removeClientFromRaxGeneric(rax* rax, client *c) {
+        uint64_t id = htonu64(c->id);
+        raxRemove(rax, (unsigned char*)&id, sizeof(id), NULL);
+}
+
 void removeFromServerClientList(client *c) {
     if (c->client_list_node) {
-        uint64_t id = htonu64(c->id);
-        raxRemove(server.clients_index, (unsigned char*)&id, sizeof(id), NULL);
+        removeClientFromRaxGeneric(server.clients_index, c);
         listDelNode(server.clients, c->client_list_node);
         c->client_list_node = NULL;
     }
@@ -1668,7 +1676,7 @@ void freeClient(client *c) {
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
         if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
-            dictDelete(server.slaves_waiting_psync, (void*)c->id);
+            removeClientFromRaxGeneric(server.slaves_waiting_psync, c);
         }
     }
 
@@ -1797,13 +1805,18 @@ int freeClientsInAsyncFreeQueue(void) {
     return freed;
 }
 
+/* Return a client by id or null from a given rax struct. */
+client *lookupClientByIDGeneric(rax* rax, uint64_t id) {
+    id = htonu64(id);
+    client *c = raxFind(rax,(unsigned char*)&id,sizeof(id));
+    return (c == raxNotFound) ? NULL : c;
+}
+
 /* Return a client by ID, or NULL if the client ID is not in the set
  * of registered clients. Note that "fake clients", created with -1 as FD,
  * are not registered clients. */
 client *lookupClientByID(uint64_t id) {
-    id = htonu64(id);
-    client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
-    return (c == raxNotFound) ? NULL : c;
+    return lookupClientByIDGeneric(server.clients_index, id);
 }
 
 /* This function should be called from _writeToClient when the reply list is not empty,

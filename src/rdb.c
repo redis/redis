@@ -3558,7 +3558,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                  * to inform it with the save end offset.*/
                 sendCurrentOffsetToReplica(slave);
                 /* Make sure repl traffic is appended to the replication backlog */                
-                addSlaveToPsyncWaitingDict(slave);
+                addSlaveToPsyncWaitingRax(slave);
             } else {
                 server.rdb_pipe_numconns++;
             }

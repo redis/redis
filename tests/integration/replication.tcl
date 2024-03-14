@@ -1915,14 +1915,13 @@ start_server {tags {"repl rdb-channel external:skip"}} {
             # Stop replica after master fork for 2 seconds
             $replica1 debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
             $replica2 debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
-
             test "Test rdb-channel connection peering - start with empty backlog (retrospect)" {
                 $replica1 slaveof $master_host $master_port
-                set res [wait_for_log_messages 0 {"*Peer slave * repl-backlog is empty*"} $loglines 2000 1]
-                set res [wait_for_log_messages 0 {"*Retrospect peer slave*"} $loglines 2000 1]
+                set res [wait_for_log_messages 0 {"*Add slave * repl-backlog is empty*"} $loglines 2000 1]
+                set res [wait_for_log_messages 0 {"*Retrospect attach slave*"} $loglines 2000 1]
                 set loglines [lindex $res 1]
                 incr $loglines 
-                verify_replica_online $master 0 500
+                verify_replica_online $master 0 700
                 wait_for_log_messages -2 {"*MASTER <-> REPLICA sync: Finished with success*"} 0 2000 1
                 $replica1 slaveof no one
                 assert [string match *slaves_waiting_psync:0* [$master info replication]]
@@ -1930,10 +1929,10 @@ start_server {tags {"repl rdb-channel external:skip"}} {
 
             test "Test rdb-channel connection peering - start with backlog" {
                 $replica2 slaveof $master_host $master_port
-                set res [wait_for_log_messages 0 {"*Peer slave * with repl-backlog tail*"} $loglines 2000 1]
+                set res [wait_for_log_messages 0 {"*Add slave * with repl-backlog tail*"} $loglines 2000 1]
                 set loglines [lindex $res 1]
                 incr $loglines 
-                verify_replica_online $master 0 500     
+                verify_replica_online $master 0 700
                 wait_for_log_messages -1 {"*MASTER <-> REPLICA sync: Finished with success*"} 0 2000 1
                 assert [string match *slaves_waiting_psync:0* [$master info replication]]
             }

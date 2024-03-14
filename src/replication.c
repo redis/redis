@@ -214,7 +214,7 @@ void rebaseReplicationBuffer(long long base_repl_offset) {
  * On COB overrun, association is deleted and the RDB connection 
  * is dropped.
  */
-void addSlaveToPsyncWaitingDict(client* slave) {
+void addSlaveToPsyncWaitingRax(client* slave) {
     listNode *ln = NULL;
     replBufBlock *tail = NULL;
     if (server.repl_backlog == NULL) {
@@ -226,40 +226,39 @@ void addSlaveToPsyncWaitingDict(client* slave) {
             tail->refcount++;
         }
     }
-    serverLog(LL_DEBUG, "Peer slave %s with cid %lu, %s ", replicationGetSlaveName(slave), slave->id,
+    serverLog(LL_DEBUG, "Add slave %s to waiting psync rax, with cid %lu, %s ", replicationGetSlaveName(slave), slave->id,
         tail? "with repl-backlog tail": "repl-backlog is empty");
     slave->ref_repl_buf_node = tail? ln: NULL;
     /* Prevent rdb client from being freed before psync is established. */
     slave->flags |= CLIENT_PROTECTED_RDB_CHANNEL;
-    dictAdd(server.slaves_waiting_psync, (void*)slave->id, slave);
+    addClientToRaxGeneric(server.slaves_waiting_psync, slave);
 }
 
-/* Attach pending replicas with new replication backlog head. */
-void addSlaveToPsyncWaitingDictRetrospect(void) {
-    dictIterator *di;
-    dictEntry *de;
+/* Attach waiting psync replicas with new replication backlog head. */
+void addSlaveToPsyncWaitingRaxRetrospect(void) {
     listNode *ln = listFirst(server.repl_buffer_blocks);
     replBufBlock *head = ln ? listNodeValue(ln) : NULL;
+    raxIterator iter;
+
     if (head == NULL) return;
-    /* Update pending slaves to wait on new buffer block */
-    di = dictGetSafeIterator(server.slaves_waiting_psync);
-    while((de = dictNext(di)) != NULL) {
-        client* slave = dictGetVal(de);
+    /* Update waiting psync slaves to wait on new buffer block */
+    raxStart(&iter,server.slaves_waiting_psync);
+    raxSeek(&iter, "^", NULL, 0);
+    while(raxNext(&iter)) {
+        client* slave = iter.data;
         if (slave->ref_repl_buf_node) continue;
         slave->ref_repl_buf_node = ln;
         head->refcount++;
-        serverLog(LL_DEBUG, "Retrospect peer slave %lu", (uint64_t)dictGetKey(de));
+        serverLog(LL_DEBUG, "Retrospect attach slave %lu to repl buf block", slave->id);
     }
+    raxStop(&iter);
 }
 
-void removeSlaveFromPsyncWaitingDict(client* slave) {
-    dictEntry *de;
+void removeSlaveFromPsyncWaitingRax(client* slave) {
     listNode *ln;
     replBufBlock *o;
-    client *peer_slave;
-    /* Get replBufBlock pointed by this replica */
-    de = dictFind(server.slaves_waiting_psync, (void*)slave->associated_rdb_client_id);
-    peer_slave = dictGetVal(de);
+    /* Get replBufBlock pointed by this replica */ 
+    client *peer_slave = lookupClientByIDGeneric(server.slaves_waiting_psync, slave->associated_rdb_client_id);
     ln = peer_slave->ref_repl_buf_node;
     o = ln ? listNodeValue(ln) : NULL;
     if (o != NULL) {
@@ -268,9 +267,9 @@ void removeSlaveFromPsyncWaitingDict(client* slave) {
     }
     peer_slave->ref_repl_buf_node = NULL;
     peer_slave->flags &= ~CLIENT_PROTECTED_RDB_CHANNEL;
-    serverLog(LL_DEBUG, "Unpeer pending slave %s with cid %lu, repl buffer block %s", 
+    serverLog(LL_DEBUG, "Remove psync waiting slave %s with cid %lu, repl buffer block %s", 
         replicationGetSlaveName(slave), slave->associated_rdb_client_id, o? "ref count decreased": "doesn't exist");
-    dictDelete(server.slaves_waiting_psync, (void*)slave->associated_rdb_client_id);
+    removeClientFromRaxGeneric(server.slaves_waiting_psync, peer_slave);
 }
 
 void resetReplicationBuffer(void) {
@@ -494,9 +493,9 @@ void feedReplicationBuffer(char *s, size_t len) {
              * into replication backlog. */
             serverAssert(add_new_block == 1 && start_pos == 0);
         }
-        if (empty_backlog && dictSize(server.slaves_waiting_psync) > 0) {
+        if (empty_backlog && raxSize(server.slaves_waiting_psync) > 0) {
             /* Increase refcount for pending replicas. */
-            addSlaveToPsyncWaitingDictRetrospect();
+            addSlaveToPsyncWaitingRaxRetrospect();
         }
         if (add_new_block) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
@@ -877,9 +876,9 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
-    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && dictFind(server.slaves_waiting_psync, (void*)c->associated_rdb_client_id)) {
+    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && lookupClientByIDGeneric(server.slaves_waiting_psync, c->associated_rdb_client_id)) {
         c->replstate = SLAVE_STATE_BG_RDB_LOAD;
-        removeSlaveFromPsyncWaitingDict(c);
+        removeSlaveFromPsyncWaitingRax(c);
     } else {
         c->replstate = SLAVE_STATE_ONLINE;
     }
@@ -4657,7 +4656,7 @@ void replicationCron(void) {
     if (listLength(server.repl_buffer_blocks) > 0) {
         replBufBlock *o = listNodeValue(listFirst(server.repl_buffer_blocks));
         serverAssert(o->refcount > 0 &&
-            o->refcount <= (int)listLength(server.slaves) + 1 + (int)dictSize(server.slaves_waiting_psync));
+            o->refcount <= (int)listLength(server.slaves) + 1 + (int)raxSize(server.slaves_waiting_psync));
     }
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */

@@ -1630,8 +1630,8 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    dict *slaves_waiting_psync; /* Dict[Slave rdb-client id] = rdb-client of the related replica. 
-                                 * This dict contains slaves for the period from the beginning of 
+    rax *slaves_waiting_psync;  /* Radis tree using rdb-client id as keys and rdb-client as values.
+                                 * This rax contains slaves for the period from the beginning of 
                                  * their RDB connection to the end of their main connection's 
                                  * partial synchronization. */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
@@ -2678,13 +2678,16 @@ int clientHasPendingReplies(client *c);
 int updateClientMemUsageAndBucket(client *c);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
+void removeClientFromRaxGeneric(rax* rax, client *c);
 void removeFromServerClientList(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
+void addClientToRaxGeneric(rax* rax, client *c);
 void protectClient(client *c);
 void unprotectClient(client *c);
 void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
+client *lookupClientByIDGeneric(rax* rax, uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
 
@@ -2868,7 +2871,7 @@ void abortFailover(const char *err);
 const char *getFailoverStateString(void);
 void abortRdbConnectionSync(void);
 int sendCurrentOffsetToReplica(client* replica);
-void addSlaveToPsyncWaitingDict(client* slave);
+void addSlaveToPsyncWaitingRax(client* slave);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

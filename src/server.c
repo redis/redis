@@ -290,12 +290,6 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
-void dictIntDestructor(dict *d, void *val)
-{
-    UNUSED(d);
-    zfree(val);
-}
-
 void *dictSdsDup(dict *d, const void *key) {
     UNUSED(d);
     return sdsdup((const sds) key);
@@ -331,11 +325,6 @@ uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-/* Dict hash function for unsigned long */
-uint64_t dictIntHash(const void *key) {
-    return (uint64_t)(uintptr_t)key;
-}
-
 /* Dict compare function for null terminated string */
 int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     int l1,l2;
@@ -345,12 +334,6 @@ int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
     l2 = strlen((char*)key2);
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
-}
-
-/* Dict compare function for long unsigned int */
-int dictIntCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
-    return *(uint64_t*)key1 == *(uint64_t*)(key2);
 }
 
 /* Dict case insensitive compare function for null terminated string */
@@ -579,18 +562,6 @@ dictType stringSetDictType = {
     NULL,                       /* val dup */
     dictCStrKeyCaseCompare,     /* key compare */
     dictSdsDestructor,          /* key destructor */
-    NULL,                       /* val destructor */
-    NULL                        /* allow to expand */
-};
-
-/* Dict for *uint64_t keys, values are pointers. 
- * The key and value do not have a destructor. */
-dictType intDictType = {
-    dictIntHash,                /* hash function */
-    NULL,                       /* key dup */   
-    NULL,                       /* val dup */
-    NULL,                       /* key compare */
-    NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     NULL                        /* allow to expand */
 };
@@ -2582,7 +2553,7 @@ void initServer(void) {
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
-    server.slaves_waiting_psync = dictCreate(&intDictType);
+    server.slaves_waiting_psync = raxNew();
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();
@@ -6106,7 +6077,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "repl_backlog_size:%lld\r\n"
             "repl_backlog_first_byte_offset:%lld\r\n"
             "repl_backlog_histlen:%lld\r\n",
-            dictSize(server.slaves_waiting_psync),
+            raxSize(server.slaves_waiting_psync),
             getFailoverStateString(),
             server.replid,
             server.replid2,
