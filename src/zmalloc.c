@@ -882,6 +882,15 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
     return 1;
 }
 
+int zmalloc_get_allocator_info_by_arena(unsigned int arena, size_t *allocated, size_t *active,
+                                        size_t *resident, size_t *frag_smallbins_bytes)
+{
+    UNUSED(arena);
+    *allocated = *resident = *active = *frag_smallbins_bytes = 0;
+    return 1;
+}
+
+
 void set_jemalloc_bg_thread(int enable) {
     ((void)(enable));
 }
