@@ -274,6 +274,27 @@ start_server {tags {"info" "external:skip"}} {
             $rd close
         }
 
+        test {errorstats: limit errors will not increase indefinitely} {
+            r config resetstat
+            for {set j 1} {$j <= 1100} {incr j} {
+                assert_error "$j my error message" {
+                    r eval {return redis.error_reply(string.format('%s my error message', ARGV[1]))} 0 $j
+                }
+            }
+
+            assert_equal [count_log_message 0 "Errorstats stopped adding new errors"] 1
+
+            # Since we currently have no metrics exposed for server.errors, we use lazyfree
+            # to verify that we only have 1k errors. Noted that resetErrorTableStats now is
+            # after resetServerStats, so we can still count lazyfree after reset.
+            r config resetstat
+            wait_for_condition 50 100 {
+                [s lazyfreed_objects] eq 1000
+            } else {
+                fail "errorstats resetstat lazyfree error"
+            }
+        }
+
         test {stats: eventloop metrics} {
             set info1 [r info stats]
             set cycle1 [getInfoProperty $info1 eventloop_cycles]

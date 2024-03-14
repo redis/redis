@@ -39,6 +39,15 @@ void lazyFreeTrackingTable(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
+/* Release the error stats rax tree. */
+void lazyFreeErrors(void *args[]) {
+    rax *errors = args[0];
+    size_t len = errors->numele;
+    raxFreeWithCallback(errors, zfree);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
 /* Release the lua_scripts dict. */
 void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
@@ -194,6 +203,18 @@ void freeTrackingRadixTreeAsync(rax *tracking) {
         bioCreateLazyFreeJob(lazyFreeTrackingTable,1,tracking);
     } else {
         freeTrackingRadixTree(tracking);
+    }
+}
+
+/* Free the error stats rax tree.
+ * If the rax tree is huge enough, free it in async way. */
+void freeErrorsRadixTreeAsync(rax *errors) {
+    /* Because this rax has only keys and no values so we use numnodes. */
+    if (errors->numnodes > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,errors->numele);
+        bioCreateLazyFreeJob(lazyFreeErrors,1,errors);
+    } else {
+        raxFreeWithCallback(errors, zfree);
     }
 }
 
