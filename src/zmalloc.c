@@ -682,8 +682,11 @@ size_t zmalloc_get_rss(void) {
 #define STRINGIFY(x) STRINGIFY_(x)
 
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
- * Done by summing the memory in unused regs in all slabs of all small bins. */
-size_t zmalloc_get_frag_smallbins(void) {
+ * Done by summing the memory in unused regs in all slabs of all small bins.
+ *
+ * Pass in arena to get the information of the specified arena, otherwise pass
+ * in UINT_MAX to get all. */
+size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
     unsigned nbins;
     size_t sz, frag = 0;
     char buf[100];
@@ -700,7 +703,10 @@ size_t zmalloc_get_frag_smallbins(void) {
         assert(!je_mallctl(buf, &reg_size, &sz, NULL, 0));
 
         /* Number of used regions in the bin */
-        snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curregs", j);
+        if (arena == UINT_MAX)
+            snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curregs", j);
+        else
+            snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curregs", arena, j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &curregs, &sz, NULL, 0));
 
@@ -710,7 +716,10 @@ size_t zmalloc_get_frag_smallbins(void) {
         assert(!je_mallctl(buf, &nregs, &sz, NULL, 0));
 
         /* Number of current slabs in the bin */
-        snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curslabs", j);
+        if (arena == UINT_MAX)
+            snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curslabs", j);
+        else
+            snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curslabs", arena, j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
 
@@ -719,6 +728,12 @@ size_t zmalloc_get_frag_smallbins(void) {
     }
 
     return frag;
+}
+
+/* Compute the total memory wasted in fragmentation of inside small arena bins.
+ * Done by summing the memory in unused regs in all slabs of all small bins. */
+size_t zmalloc_get_frag_smallbins(void) {
+    return zmalloc_get_frag_smallbins_by_arena(UINT_MAX);
 }
 
 /* Get memory allocation information from allocator.
@@ -765,47 +780,6 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
     /* Total size of consumed meomry in unused regs in small bins (AKA external fragmentation). */
     *frag_smallbins_bytes = zmalloc_get_frag_smallbins();
     return 1;
-}
-
-/* Compute the total memory wasted in fragmentation of inside small arena bins
- * in the specified arena. Done by summing the memory in unused regs in all
- * slabs of all small bins. */
-size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
-    unsigned nbins;
-    size_t sz, frag = 0;
-    char buf[100];
-
-    sz = sizeof(unsigned);
-    assert(!je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0));
-    for (unsigned j = 0; j < nbins; j++) {
-        size_t curregs, curslabs, reg_size;
-        uint32_t nregs;
-
-        /* The size of the current bin */
-        snprintf(buf, sizeof(buf), "arenas.bin.%d.size", j);
-        sz = sizeof(size_t);
-        assert(!je_mallctl(buf, &reg_size, &sz, NULL, 0));
-
-        /* Number of used regions in the bin */
-        snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curregs", arena, j);
-        sz = sizeof(size_t);
-        assert(!je_mallctl(buf, &curregs, &sz, NULL, 0));
-
-        /* Number of regions per slab */
-        snprintf(buf, sizeof(buf), "arenas.bin.%d.nregs", j);
-        sz = sizeof(uint32_t);
-        assert(!je_mallctl(buf, &nregs, &sz, NULL, 0));
-
-        /* Number of current slabs in the bin */
-        snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curslabs", arena, j);
-        sz = sizeof(size_t);
-        assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
-
-        /* Calculate the fragmentation bytes for the current bin and add it to the total. */
-        frag += ((nregs * curslabs) - curregs) * reg_size;
-    }
-
-    return frag;
 }
 
 /* Get the specified arena memory allocation information from allocator.
