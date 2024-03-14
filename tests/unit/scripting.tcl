@@ -146,6 +146,14 @@ start_server {tags {"scripting"}} {
         } 1 x
     } {number 1}
 
+    test {EVAL - Lua number -> Redis integer conversion} {
+        r del hash
+        run_script {
+            local foo = redis.pcall('hincrby','hash','field',200000000)
+            return {type(foo),foo}
+        } 0
+    } {number 200000000}
+
     test {EVAL - Redis bulk -> Lua type conversion} {
         r set mykey myval
         run_script {
@@ -568,13 +576,19 @@ start_server {tags {"scripting"}} {
     # script command is only relevant for is_eval Lua
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
+
+        r script load {return redis.call('get',KEYS[1])}
         set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]
         assert_equal $v myval
-        set e ""
         r script flush
-        catch {r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey} e
-        set e
-    } {NOSCRIPT*}
+        assert_error {NOSCRIPT*} {r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey}
+
+        r eval {return redis.call('get',KEYS[1])} 1 mykey
+        set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]
+        assert_equal $v myval
+        r script flush
+        assert_error {NOSCRIPT*} {r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey}
+    }
 
     test {SCRIPTING FLUSH ASYNC} {
         for {set j 0} {$j < 100} {incr j} {
@@ -1506,6 +1520,93 @@ start_server {tags {"scripting needs:debug external:skip"}} {
         assert_equal [r ping] {PONG}
     }
 }
+
+start_server {tags {"scripting external:skip"}} {
+    test {Lua scripts eviction does not generate many scripts} {
+        r script flush
+        r config resetstat
+
+        # "return 1" sha is: e0e1f9fabfc9d4800c877a703b823ac0578ff8db
+        # "return 500" sha is: 98fe65896b61b785c5ed328a5a0a1421f4f1490c
+        for {set j 1} {$j <= 250} {incr j} {
+            r eval "return $j" 0
+        }
+        for {set j 251} {$j <= 500} {incr j} {
+            r eval_ro "return $j" 0
+        }
+        assert_equal [s number_of_cached_scripts] 500
+        assert_equal 1 [r evalsha e0e1f9fabfc9d4800c877a703b823ac0578ff8db 0]
+        assert_equal 1 [r evalsha_ro e0e1f9fabfc9d4800c877a703b823ac0578ff8db 0]
+        assert_equal 500 [r evalsha 98fe65896b61b785c5ed328a5a0a1421f4f1490c 0]
+        assert_equal 500 [r evalsha_ro 98fe65896b61b785c5ed328a5a0a1421f4f1490c 0]
+
+        # Scripts between "return 1" and "return 500" are evicted
+        for {set j 501} {$j <= 750} {incr j} {
+            r eval "return $j" 0
+        }
+        for {set j 751} {$j <= 1000} {incr j} {
+            r eval "return $j" 0
+        }
+        assert_error {NOSCRIPT*} {r evalsha e0e1f9fabfc9d4800c877a703b823ac0578ff8db 0}
+        assert_error {NOSCRIPT*} {r evalsha_ro e0e1f9fabfc9d4800c877a703b823ac0578ff8db 0}
+        assert_error {NOSCRIPT*} {r evalsha 98fe65896b61b785c5ed328a5a0a1421f4f1490c 0}
+        assert_error {NOSCRIPT*} {r evalsha_ro 98fe65896b61b785c5ed328a5a0a1421f4f1490c 0}
+
+        assert_equal [s evicted_scripts] 500
+        assert_equal [s number_of_cached_scripts] 500
+    }
+
+    test {Lua scripts eviction is plain LRU} {
+        r script flush
+        r config resetstat
+
+        # "return 1" sha is: e0e1f9fabfc9d4800c877a703b823ac0578ff8db
+        # "return 2" sha is: 7f923f79fe76194c868d7e1d0820de36700eb649
+        # "return 3" sha is: 09d3822de862f46d784e6a36848b4f0736dda47a
+        # "return 500" sha is: 98fe65896b61b785c5ed328a5a0a1421f4f1490c
+        # "return 1000" sha is: 94f1a7bc9f985a1a1d5a826a85579137d9d840c8
+        for {set j 1} {$j <= 500} {incr j} {
+            r eval "return $j" 0
+        }
+
+        # Call "return 1" to move it to the tail.
+        r eval "return 1" 0
+        # Call "return 2" to move it to the tail.
+        r evalsha 7f923f79fe76194c868d7e1d0820de36700eb649 0
+        # Create a new script, "return 3" will be evicted.
+        r eval "return 1000" 0
+        # "return 1" is ok since it was moved to tail.
+        assert_equal 1 [r evalsha e0e1f9fabfc9d4800c877a703b823ac0578ff8db 0]
+        # "return 2" is ok since it was moved to tail.
+        assert_equal 1 [r evalsha e0e1f9fabfc9d4800c877a703b823ac0578ff8db 0]
+        # "return 3" was evicted.
+        assert_error {NOSCRIPT*} {r evalsha 09d3822de862f46d784e6a36848b4f0736dda47a 0}
+        # Others are ok.
+        assert_equal 500 [r evalsha 98fe65896b61b785c5ed328a5a0a1421f4f1490c 0]
+        assert_equal 1000 [r evalsha 94f1a7bc9f985a1a1d5a826a85579137d9d840c8 0]
+
+        assert_equal [s evicted_scripts] 1
+        assert_equal [s number_of_cached_scripts] 500
+    }
+
+    test {Lua scripts eviction does not affect script load} {
+        r script flush
+        r config resetstat
+
+        set num [randomRange 500 1000]
+        for {set j 1} {$j <= $num} {incr j} {
+            r script load "return $j"
+            r eval "return 'str_$j'" 0
+        }
+        set evicted [s evicted_scripts]
+        set cached [s number_of_cached_scripts]
+        # evicted = num eval scripts - 500 eval scripts
+        assert_equal $evicted [expr $num-500]
+        # cached = num load scripts + 500 eval scripts
+        assert_equal $cached [expr $num+500]
+    }
+}
+
 } ;# is_eval
 
 start_server {tags {"scripting needs:debug"}} {

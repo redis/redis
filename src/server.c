@@ -2524,6 +2524,7 @@ void resetServerStats(void) {
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
+    server.stat_evictedscripts = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -2656,10 +2657,15 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    int slot_count_bits = (server.cluster_enabled) ? CLUSTER_SLOT_MASK_BITS : 0;
+    int slot_count_bits = 0;
+    int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
+    if (server.cluster_enabled) {
+        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    }
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
+        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -5826,6 +5832,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
+            "evicted_scripts:%lld\r\n", server.stat_evictedscripts,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
             "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,

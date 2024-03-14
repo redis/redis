@@ -263,9 +263,9 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     unsigned int slot = 0;
 
     /* Add the channel to the client -> channels hash table */
-    if (dictAdd(type.clientPubSubChannels(c),channel,NULL) == DICT_OK) {
+    void *position = dictFindPositionForInsert(type.clientPubSubChannels(c),channel,NULL);
+    if (position) { /* Not yet subscribed to this channel */
         retval = 1;
-        incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
             slot = getKeySlot(channel->ptr);
@@ -275,6 +275,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
 
         if (existing) {
             clients = dictGetVal(existing);
+            channel = dictGetKey(existing);
         } else {
             clients = dictCreate(&clientDictType);
             kvstoreDictSetVal(*type.serverPubSubChannels, slot, de, clients);
@@ -282,6 +283,8 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         }
 
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
+        serverAssert(dictInsertAtPosition(type.clientPubSubChannels(c), channel, position));
+        incrRefCount(channel);
     }
     /* Notify the client */
     addReplyPubsubSubscribed(c,channel,type);

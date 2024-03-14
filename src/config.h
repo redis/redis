@@ -96,7 +96,9 @@
 #endif
 
 /* Test for accept4() */
-#ifdef __linux__
+#if defined(__linux__) || defined(OpenBSD5_7) || \
+    (__FreeBSD__ >= 10 || __FreeBSD_version >= 1000000) || \
+    (defined(NetBSD8_0) || __NetBSD_Version__ >= 800000000)
 #define HAVE_ACCEPT4 1
 #endif
 

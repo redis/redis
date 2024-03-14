@@ -166,7 +166,6 @@ typedef struct clusterNode {
     sds replicate;  /* Master ID if node is a slave */
     int *slots;
     int slots_count;
-    int current_slot_index;
     int *updated_slots;         /* Used by updateClusterSlotsConfiguration */
     int updated_slots_count;    /* Used by updateClusterSlotsConfiguration */
     int replicas_count;
@@ -417,7 +416,6 @@ static void setClusterKeyHashTag(client c) {
     assert(c->thread_id >= 0);
     clusterNode *node = c->cluster_node;
     assert(node);
-    assert(node->current_slot_index < node->slots_count);
     int is_updating_slots = 0;
     atomicGet(config.is_updating_slots, is_updating_slots);
     /* If updateClusterSlotsConfiguration is updating the slots array,
@@ -427,7 +425,7 @@ static void setClusterKeyHashTag(client c) {
      * updateClusterSlotsConfiguration won't actually do anything, since
      * the updated_slots_count array will be already NULL. */
     if (is_updating_slots) updateClusterSlotsConfiguration();
-    int slot = node->slots[node->current_slot_index];
+    int slot = node->slots[rand() % node->slots_count];
     const char *tag = crc16_slot_table[slot];
     int taglen = strlen(tag);
     size_t i;
@@ -1047,7 +1045,6 @@ static clusterNode *createClusterNode(char *ip, int port) {
     node->replicas_count = 0;
     node->slots = zmalloc(CLUSTER_SLOTS * sizeof(int));
     node->slots_count = 0;
-    node->current_slot_index = 0;
     node->updated_slots = NULL;
     node->updated_slots_count = 0;
     node->migrating = NULL;
@@ -1370,7 +1367,6 @@ static void updateClusterSlotsConfiguration(void) {
             int *oldslots = node->slots;
             node->slots = node->updated_slots;
             node->slots_count = node->updated_slots_count;
-            node->current_slot_index = 0;
             node->updated_slots = NULL;
             node->updated_slots_count = 0;
             zfree(oldslots);
