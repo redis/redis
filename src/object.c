@@ -1183,10 +1183,15 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.zmalloc_used;
     mh->total_frag_bytes =
         server.cron_malloc_stats.process_rss - server.cron_malloc_stats.zmalloc_used;
-    mh->allocator_frag =
-        (float)server.cron_malloc_stats.allocator_frag_smallbins_bytes / server.cron_malloc_stats.allocator_allocated + 1;
-    mh->allocator_frag_bytes =
-        server.cron_malloc_stats.allocator_frag_smallbins_bytes;
+    /* Starting with redis 8.0, the lua memory is part of the total memory usage
+     * of redis, and that includes RSS and all other memory metrics. We only want
+     * to deduct it from active defrag. */
+    size_t frag_smallbins_bytes =
+        server.cron_malloc_stats.allocator_frag_smallbins_bytes - server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes;
+    size_t allocated =
+        server.cron_malloc_stats.allocator_allocated - server.cron_malloc_stats.lua_allocator_allocated;
+    mh->allocator_frag = (float)frag_smallbins_bytes / allocated + 1;
+    mh->allocator_frag_bytes = frag_smallbins_bytes;
     mh->allocator_rss =
         (float)server.cron_malloc_stats.allocator_resident / server.cron_malloc_stats.allocator_active;
     mh->allocator_rss_bytes =

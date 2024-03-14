@@ -788,7 +788,16 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
     size_t resident, active, allocated, frag_smallbins_bytes;
-    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes, server.lua_arena);
+    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
+
+    if (server.lua_arena != UINT_MAX) {
+        size_t lua_resident, lua_active, lua_allocated, lua_frag_smallbins_bytes;
+        zmalloc_get_allocator_info_by_arena(server.lua_arena, &lua_allocated, &lua_active, &lua_resident, &lua_frag_smallbins_bytes);
+        resident -= lua_resident;
+        active -= lua_active;
+        allocated -= lua_allocated;
+        frag_smallbins_bytes -= lua_frag_smallbins_bytes;
+    }
 
     /* Calculate the fragmentation ratio as the proportion of wasted memory in small
      * bins (which are defraggable) relative to the total allocated memory (including large bins).
