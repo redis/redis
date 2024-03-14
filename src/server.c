@@ -2554,6 +2554,7 @@ void initServer(void) {
     server.slaves = listCreate();
     server.monitors = listCreate();
     server.slaves_waiting_psync = raxNew();
+    server.wait_before_rdb_client_free = DEFAULT_WAIT_BEFORE_RDB_CLIENT_FREE;
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();

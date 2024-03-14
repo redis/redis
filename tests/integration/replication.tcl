@@ -1965,6 +1965,7 @@ start_server {tags {"repl rdb-channel external:skip"}} {
     populate 10 master 10
     # Stop master main process after fork for 2 seconds
     $master debug sleep-after-fork [expr {2 * [expr {10 ** 6}]}]
+    $master debug wait-before-rdb-client-free 5
 
     start_server {} {
         set replica [srv 0 client]

@@ -138,7 +138,8 @@ struct hdr_histogram;
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
-#define WAIT_BEFORE_RDB_CLIENT_FREE 5 /* Grace period in seconds for replica main channel to establish psync. */
+#define DEFAULT_WAIT_BEFORE_RDB_CLIENT_FREE 60 /* Grace period in seconds for replica main
+                                                  channel to establish psync. */
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -1899,6 +1900,8 @@ struct redisServer {
                                          * delay (start sooner if they all connect). */
     int rdb_channel_enabled;        /* Config used to determine if the replica should 
                                      * use rdb channel for full syncs. */
+    int wait_before_rdb_client_free;/* Grace period in seconds for replica main channel 
+                                     * to establish psync. */
     int debug_sleep_after_fork;     /* Debug param that force the main connection to 
                                      * sleep for N seconds after fork() in repl. */
     size_t repl_buffer_mem;         /* The memory of replication buffer. */
