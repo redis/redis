@@ -125,7 +125,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             server.current_client->cmd->proc != touchCommand)
             flags |= LOOKUP_NOTOUCH;
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
-            if (canUseSharedObject() && val->refcount == OBJ_SHARED_REFCOUNT) {
+            if (!canUseSharedObject() && val->refcount == OBJ_SHARED_REFCOUNT) {
                 val = dupStringObject(val);
             }
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
