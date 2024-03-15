@@ -631,6 +631,10 @@ void trimStringObjectIfNeeded(robj *o, int trim_small_values) {
     }
 }
 
+int canUseSharedObject(void) {
+    return server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS);
+}
+
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncodingEx(robj *o, int try_trim) {
     long value;
@@ -662,8 +666,7 @@ robj *tryObjectEncodingEx(robj *o, int try_trim) {
          * Note that we avoid using shared integers when maxmemory is used
          * because every object needs to have a private LRU field for the LRU
          * algorithm to work well. */
-        if ((server.maxmemory == 0 ||
-            !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) &&
+        if (canUseSharedObject() &&
             value >= 0 &&
             value < OBJ_SHARED_INTEGERS)
         {

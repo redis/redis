@@ -124,12 +124,10 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
         if (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH &&
             server.current_client->cmd->proc != touchCommand)
             flags |= LOOKUP_NOTOUCH;
-        if (server.maxmemory != 0 && (server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS) &&
-            !(flags & LOOKUP_NOTOUCH) && !(flags & LOOKUP_WRITE) && val->refcount == OBJ_SHARED_REFCOUNT &&
-            val->type == OBJ_STRING) {
-            val = dupStringObject(val);
-        }
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
+            if (canUseSharedObject() && val->refcount == OBJ_SHARED_REFCOUNT) {
+                val = dupStringObject(val);
+            }
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
             } else {
