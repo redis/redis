@@ -194,7 +194,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     }
 
     intvl = idle/3;
-    if (intvl < 10) intvl = 10; // kernel expects at least 10 seconds
+    if (intvl < 10) intvl = 10; /* kernel expects at least 10 seconds */
     if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
