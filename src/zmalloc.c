@@ -733,7 +733,7 @@ size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
  * Done by summing the memory in unused regs in all slabs of all small bins. */
 size_t zmalloc_get_frag_smallbins(void) {
-    return zmalloc_get_frag_smallbins_by_arena(UINT_MAX);
+    return zmalloc_get_frag_smallbins_by_arena(MALLCTL_ARENAS_ALL);
 }
 
 /* Get memory allocation information from allocator.
