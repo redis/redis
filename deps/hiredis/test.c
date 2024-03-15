@@ -2253,7 +2253,7 @@ static void test_async_polling(struct config config) {
      */
     test("Ping/Pong from onConnected callback (Issue #931): ");
     c = do_aconnect(config, ASTEST_ISSUE_931_PING);
-    /* connect callback issues ping, reponse callback destroys context */
+    /* connect callback issues ping, response callback destroys context */
     while(astest.ac)
         redisPollTick(c, 0.1);
     assert(astest.connected == 0);

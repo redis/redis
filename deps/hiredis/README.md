@@ -147,7 +147,7 @@ The values are not stored in the `redisContext`, so they are not automatically a
 These functions return `REDIS_OK` on success.
 On failure, `REDIS_ERR` is returned and the underlying connection is closed.
 
-To configure these for an asyncronous context (see *Asynchronous API* below), use `ac->c` to get the redisContext out of an asyncRedisContext.
+To configure these for an asynchronous context (see *Asynchronous API* below), use `ac->c` to get the redisContext out of an asyncRedisContext.
 
 ```C
 int redisEnableKeepAlive(redisContext *c);
