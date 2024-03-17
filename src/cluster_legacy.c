@@ -1450,6 +1450,10 @@ int clusterNodeFailureReportsCount(clusterNode *node) {
     return listLength(node->fail_reports);
 }
 
+static int clusterNodeNameComparator(const void *node1, const void *node2) {
+    return strncasecmp(((clusterNode *)node1)->name, ((clusterNode *)node2)->name, CLUSTER_NAMELEN);
+}
+
 int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
     int j;
 
@@ -1470,28 +1474,16 @@ int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
 }
 
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
-    int j, pos = -1;
+    int j;
 
     /* If it's already a slave, don't add it again. */
-    for (j = 0; j < master->numslaves; j++) {
+    for (j = 0; j < master->numslaves; j++)
         if (master->slaves[j] == slave) return C_ERR;
-        /* Find lexicographic order index for the slave. */
-        if (pos == -1 && strcasecmp(slave->name, master->slaves[j]->name) > 0) {
-            pos = j;
-        }
-    }
-    /* If no slave(s) are found or it's lexicographically smallest. */
-    if (pos == -1) pos = 0;
-
+    master->slaves = zrealloc(master->slaves,
+        sizeof(clusterNode*)*(master->numslaves+1));
+    master->slaves[master->numslaves] = slave;
     master->numslaves++;
-    master->slaves = zrealloc(master->slaves, sizeof(clusterNode*)*(master->numslaves));
-    
-    /* Copy all remaining nodes to the right. */
-    int remaining_slaves = (master->numslaves - pos) - 1;
-    if (remaining_slaves > 0) {
-        memmove(master->slaves+(pos+1), master->slaves+pos, (sizeof(*master->slaves) * remaining_slaves));
-    }
-    master->slaves[pos] = slave;
+    qsort(master->slaves, master->numslaves, sizeof(clusterNode *), clusterNodeNameComparator);
     master->flags |= CLUSTER_NODE_MIGRATE_TO;
     return C_OK;
 }
