@@ -283,13 +283,13 @@ start_server {tags {"info" "external:skip"}} {
             }
 
             assert_equal [count_log_message 0 "Errorstats stopped adding new errors"] 1
+            assert_equal [count_log_message 0 "Current errors code list"] 1
+            assert_equal "count=1" [errorstat ERRORSTATS_DISABLED]
 
             # Since we currently have no metrics exposed for server.errors, we use lazyfree
-            # to verify that we only have 1k errors. Noted that resetErrorTableStats now is
-            # after resetServerStats, so we can still count lazyfree after reset.
-            r config resetstat
+            # to verify that we only have 128 errors.
             wait_for_condition 50 100 {
-                [s lazyfreed_objects] eq 1000
+                [s lazyfreed_objects] eq 128
             } else {
                 fail "errorstats resetstat lazyfree error"
             }
