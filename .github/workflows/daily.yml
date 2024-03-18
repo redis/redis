@@ -589,9 +589,11 @@ jobs:
       - name: make
         run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
+        # Work around ASAN issue, see https://github.com/google/sanitizers/issues/1716
         run: |
           sudo apt-get update
           sudo apt-get install tcl8.6 tclx -y
+          sudo sysctl vm.mmap_rnd_bits=28
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
         run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
