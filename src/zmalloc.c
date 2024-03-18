@@ -678,14 +678,6 @@ size_t zmalloc_get_rss(void) {
 
 #include "redisassert.h"
 
-/* Update the statistics cached by mallctl. Make sure to call this before getting
- * information from the allocator. */
-void zmalloc_update_epoch(void) {
-    uint64_t epoch = 1;
-    size_t sz = sizeof(epoch);
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
-}
-
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
  * Done by summing the memory in unused regs in all slabs of all small bins.
  *
@@ -737,13 +729,22 @@ size_t zmalloc_get_frag_smallbins(void) {
 
 /* Get memory allocation information from allocator.
  *
- * For the meaning of the parameters, please refer to the function implementation
+ * refresh_stats indicates whether to refresh cached statistics.
+ * For the meaning of the other parameters, please refer to the function implementation
  * and INFO's allocator_* in redis-doc. */
-int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+int zmalloc_get_allocator_info(int refresh_stats, size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
     size_t sz;
     *allocated = *resident = *active = 0;
+
+    /* Update the statistics cached by mallctl. */
+    if (refresh_stats) {
+        uint64_t epoch = 1;
+        sz = sizeof(epoch);
+        je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    }
+
     sz = sizeof(size_t);
     /* Unlike RSS, this does not include RSS from shared libraries and other non
      * heap mappings. */
@@ -781,14 +782,22 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
 
 /* Get the specified arena memory allocation information from allocator.
  *
- * For the meaning of the parameters, please refer to the function implementation
+ * refresh_stats indicates whether to refresh cached statistics.
+ * For the meaning of the other parameters, please refer to the function implementation
  * and INFO's allocator_* in redis-doc. */
-int zmalloc_get_allocator_info_by_arena(unsigned int arena, size_t *allocated, size_t *active,
-                                        size_t *resident, size_t *frag_smallbins_bytes)
+int zmalloc_get_allocator_info_by_arena(unsigned int arena, int refresh_stats, size_t *allocated,
+                                        size_t *active, size_t *resident, size_t *frag_smallbins_bytes)
 {
     char buf[100];
     size_t sz;
     *allocated = *resident = *active = 0;
+
+    /* Update the statistics cached by mallctl. */
+    if (refresh_stats) {
+        uint64_t epoch = 1;
+        sz = sizeof(epoch);
+        je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    }
 
     sz = sizeof(size_t);
     /* Unlike RSS, this does not include RSS from shared libraries and other non
@@ -839,8 +848,6 @@ int jemalloc_purge(void) {
 }
 
 #else
-
-void zmalloc_update_epoch(void) {}
 
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)

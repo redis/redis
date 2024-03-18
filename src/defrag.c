@@ -787,14 +787,12 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * or not, a false detection can cause the defragmenter to waste a lot of CPU
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
-    zmalloc_update_epoch();
-
     size_t resident, active, allocated, frag_smallbins_bytes;
-    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
+    zmalloc_get_allocator_info(1, &allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
 
     if (server.lua_arena != UINT_MAX) {
         size_t lua_resident, lua_active, lua_allocated, lua_frag_smallbins_bytes;
-        zmalloc_get_allocator_info_by_arena(server.lua_arena, &lua_allocated, &lua_active, &lua_resident, &lua_frag_smallbins_bytes);
+        zmalloc_get_allocator_info_by_arena(server.lua_arena, 0, &lua_allocated, &lua_active, &lua_resident, &lua_frag_smallbins_bytes);
         resident -= lua_resident;
         active -= lua_active;
         allocated -= lua_allocated;

@@ -1226,8 +1226,8 @@ void cronUpdateMemoryStats(void) {
          * The fragmentation ratio it'll show is potentially more accurate
          * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
          * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
-        zmalloc_update_epoch();
-        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
+        zmalloc_get_allocator_info(1,
+                                   &server.cron_malloc_stats.allocator_allocated,
                                    &server.cron_malloc_stats.allocator_active,
                                    &server.cron_malloc_stats.allocator_resident,
                                    NULL,
@@ -1235,6 +1235,7 @@ void cronUpdateMemoryStats(void) {
                                    &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
         if (server.lua_arena != UINT_MAX) {
             zmalloc_get_allocator_info_by_arena(server.lua_arena,
+                                                0,
                                                 &server.cron_malloc_stats.lua_allocator_allocated,
                                                 &server.cron_malloc_stats.lua_allocator_active,
                                                 &server.cron_malloc_stats.lua_allocator_resident,
