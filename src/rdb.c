@@ -2967,7 +2967,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         processModuleLoadingProgressEvent(0);
     }
     if (server.repl_state == REPL_STATE_TRANSFER && rioCheckType(r) == RIO_TYPE_CONN) {
-        atomicIncr(server.stat_total_reads_processed, len);
+        atomicIncr(server.stat_net_repl_input_bytes, len);
     }
 }
 

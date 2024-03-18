@@ -501,7 +501,7 @@ void feedReplicationBuffer(char *s, size_t len) {
         }
         if (add_new_block) {
             createReplicationBacklogIndex(listLast(server.repl_buffer_blocks));
-            
+
             /* It is important to trim after adding replication data to keep the backlog size close to
              * repl_backlog_size in the common case. We wait until we add a new block to avoid repeated
              * unnecessary trimming attempts when small amounts of data are added. See comments in
@@ -966,7 +966,7 @@ int startBgsaveForReplication(int mincapa, int req) {
      * otherwise slave will miss repl-stream-db. */
     if (rsiptr) {
         if (socket_target)
-            retval = rdbSaveToSlavesSockets(req, rsiptr);
+            retval = rdbSaveToSlavesSockets(req,rsiptr);
         else {
             /* Keep the page cache since it'll get used soon */
             retval = rdbSaveBackground(req, server.rdb_filename, rsiptr, RDBFLAGS_REPLICATION | RDBFLAGS_KEEP_CACHE);
@@ -1006,7 +1006,7 @@ int startBgsaveForReplication(int mincapa, int req) {
         return retval;
     }
 
-    /* If the target is socket, rdbDisklessSaveToSlaves() already setup
+    /* If the target is socket, rdbSaveToSlavesSockets() already setup
      * the slaves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
         listRewind(server.slaves,&li);
@@ -2050,7 +2050,7 @@ void readSyncBulkPayload(connection *conn) {
         } else {
             /* nread here is returned by connSyncReadLine(), which calls syncReadLine() and
              * convert "\r\n" to '\0' so 1 byte is lost. */
-            atomicIncr(server.stat_total_reads_processed, nread+1);
+            atomicIncr(server.stat_net_repl_input_bytes, nread+1);
         }
 
         if (buf[0] == '-') {
@@ -2121,7 +2121,7 @@ void readSyncBulkPayload(connection *conn) {
             cancelReplicationHandshake(1);
             return;
         }
-        atomicIncr(server.stat_total_reads_processed, nread);
+        atomicIncr(server.stat_net_repl_input_bytes, nread);
 
         /* When a mark is used, we want to detect EOF asap in order to avoid
          * writing the EOF mark into the file... */
@@ -2792,7 +2792,7 @@ int readIntoReplDataBlock(connection *conn, replDataBufBlock *o,  size_t read) {
         return C_ERR;
     }
     o->used += nread;
-    atomicIncr(server.stat_total_reads_processed, nread);
+    atomicIncr(server.stat_net_repl_input_bytes, nread);
     return read - nread;
 }
 
