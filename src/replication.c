@@ -231,7 +231,8 @@ void addSlaveToPsyncWaitingRax(client* slave) {
     slave->ref_repl_buf_node = tail? ln: NULL;
     /* Prevent rdb client from being freed before psync is established. */
     slave->flags |= CLIENT_PROTECTED_RDB_CHANNEL;
-    addClientToRaxGeneric(server.slaves_waiting_psync, slave);
+    uint64_t id = htonu64(slave->id);
+    raxInsert(server.slaves_waiting_psync,(unsigned char*)&id,sizeof(id),slave,NULL);
 }
 
 /* Attach waiting psync replicas with new replication backlog head. */
@@ -258,7 +259,7 @@ void removeSlaveFromPsyncWaitingRax(client* slave) {
     listNode *ln;
     replBufBlock *o;
     /* Get replBufBlock pointed by this replica */ 
-    client *peer_slave = lookupClientByIDGeneric(server.slaves_waiting_psync, slave->associated_rdb_client_id);
+    client *peer_slave = lookupRdbClientByID(slave->associated_rdb_client_id);
     ln = peer_slave->ref_repl_buf_node;
     o = ln ? listNodeValue(ln) : NULL;
     if (o != NULL) {
@@ -269,7 +270,8 @@ void removeSlaveFromPsyncWaitingRax(client* slave) {
     peer_slave->flags &= ~CLIENT_PROTECTED_RDB_CHANNEL;
     serverLog(LL_DEBUG, "Remove psync waiting slave %s with cid %lu, repl buffer block %s", 
         replicationGetSlaveName(slave), slave->associated_rdb_client_id, o? "ref count decreased": "doesn't exist");
-    removeClientFromRaxGeneric(server.slaves_waiting_psync, peer_slave);
+    uint64_t id = htonu64(peer_slave->id);
+    raxRemove(server.slaves_waiting_psync,(unsigned char*)&id,sizeof(id),NULL);
 }
 
 void resetReplicationBuffer(void) {
@@ -877,7 +879,7 @@ int masterTryPartialResynchronization(client *c, long long psync_offset) {
      * 2) Inform the client we can continue with +CONTINUE
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= CLIENT_SLAVE;
-    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && lookupClientByIDGeneric(server.slaves_waiting_psync, c->associated_rdb_client_id)) {
+    if (c->flags & CLIENT_REPL_MAIN_CHANNEL && lookupRdbClientByID(c->associated_rdb_client_id)) {
         c->replstate = SLAVE_STATE_BG_RDB_LOAD;
         removeSlaveFromPsyncWaitingRax(c);
     } else {

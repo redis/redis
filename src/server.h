@@ -2727,16 +2727,14 @@ int clientHasPendingReplies(client *c);
 int updateClientMemUsageAndBucket(client *c);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
-void removeClientFromRaxGeneric(rax* rax, client *c);
 void removeFromServerClientList(client *c);
 int writeToClient(client *c, int handler_installed);
 void linkClient(client *c);
-void addClientToRaxGeneric(rax* rax, client *c);
 void protectClient(client *c);
 void unprotectClient(client *c);
 void initThreadedIO(void);
 client *lookupClientByID(uint64_t id);
-client *lookupClientByIDGeneric(rax* rax, uint64_t id);
+client *lookupRdbClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
 

@@ -86,11 +86,6 @@ void freeClientReplyValue(void *o) {
     zfree(o);
 }
 
-void addClientToRaxGeneric(rax* rax, client *c) {
-    uint64_t id = htonu64(c->id);
-    raxInsert(rax, (unsigned char*)&id,sizeof(id),c,NULL);
-}
-
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
 void linkClient(client *c) {
@@ -99,7 +94,8 @@ void linkClient(client *c) {
      * this way removing the client in unlinkClient() will not require
      * a linear scan, but just a constant time operation. */
     c->client_list_node = listLast(server.clients);
-    addClientToRaxGeneric(server.clients_index, c);
+    uint64_t id = htonu64(c->id);
+    raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
 /* Initialize client authentication state.
@@ -1455,19 +1451,6 @@ int anyOtherSlaveWaitRdb(client *except_me) {
     return 0;
 }
 
-void removeClientFromRaxGeneric(rax* rax, client *c) {
-        uint64_t id = htonu64(c->id);
-        raxRemove(rax, (unsigned char*)&id, sizeof(id), NULL);
-}
-
-void removeFromServerClientList(client *c) {
-    if (c->client_list_node) {
-        removeClientFromRaxGeneric(server.clients_index, c);
-        listDelNode(server.clients, c->client_list_node);
-        c->client_list_node = NULL;
-    }
-}
-
 /* Remove the specified client from global lists where the client could
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
@@ -1482,7 +1465,12 @@ void unlinkClient(client *c) {
      * conn is already set to NULL. */
     if (c->conn) {
         /* Remove from the list of active clients. */
-        removeFromServerClientList(c);
+        if (c->client_list_node) {
+            uint64_t id = htonu64(c->id);
+            raxRemove(server.clients_index,(unsigned char*)&id,sizeof(id),NULL);
+            listDelNode(server.clients,c->client_list_node);
+            c->client_list_node = NULL;
+        }
 
         /* Check if this is a replica waiting for diskless replication (rdb pipe),
          * in which case it needs to be cleaned from that list */
@@ -1718,8 +1706,8 @@ void freeClient(client *c) {
                                   REDISMODULE_SUBEVENT_REPLICA_CHANGE_OFFLINE,
                                   NULL);
         if (c->flags & CLIENT_REPL_RDB_CHANNEL) {
-            removeClientFromRaxGeneric(server.slaves_waiting_psync, c);
-        }
+            uint64_t id = htonu64(c->id);
+            raxRemove(server.slaves_waiting_psync,(unsigned char*)&id,sizeof(id),NULL);        }
     }
 
     /* Master/slave cleanup Case 2:
@@ -1843,18 +1831,23 @@ int freeClientsInAsyncFreeQueue(void) {
     return freed;
 }
 
-/* Return a client by id or null from a given rax struct. */
-client *lookupClientByIDGeneric(rax* rax, uint64_t id) {
-    id = htonu64(id);
-    client *c = raxFind(rax,(unsigned char*)&id,sizeof(id));
-    return (c == raxNotFound) ? NULL : c;
-}
-
 /* Return a client by ID, or NULL if the client ID is not in the set
  * of registered clients. Note that "fake clients", created with -1 as FD,
  * are not registered clients. */
 client *lookupClientByID(uint64_t id) {
-    return lookupClientByIDGeneric(server.clients_index, id);
+    id = htonu64(id);
+    void *c = NULL;
+    raxFind(server.clients_index,(unsigned char*)&id,sizeof(id),&c);
+    return c;
+}
+
+/* Return a client by ID, or NULL if the client ID is not in the set
+ * of slaves waiting psync clients. */
+client *lookupRdbClientByID(uint64_t id) {
+    id = htonu64(id);
+    void *c = NULL;
+    raxFind(server.slaves_waiting_psync,(unsigned char*)&id,sizeof(id),&c);
+    return c;
 }
 
 /* This function should be called from _writeToClient when the reply list is not empty,
