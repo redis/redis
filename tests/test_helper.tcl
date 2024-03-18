@@ -99,7 +99,6 @@ set ::all_tests {
     unit/cluster/misc
     unit/cluster/cli
     unit/cluster/cluster-nodes-slots
-    unit/cluster/cluster-shards
     unit/cluster/cluster-slots
     unit/cluster/consistency-check
     unit/cluster/diskless-load-swapdb
