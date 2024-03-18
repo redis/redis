@@ -350,7 +350,7 @@ start_server {tags {"hash"}} {
         set _ $rv
     } {{{} {}} {{} {}} {{} {}}}
 
-    test {HMGET HRANDFIELD HGET HGETALL HDEL HINCRBY HINCRBYFLOAT HSTRLEN against wrong type} {
+    test {Hash commands against wrong type} {
         r set wrongtype somevalue
         assert_error "WRONGTYPE Operation against a key*" {r hmget wrongtype field1 field2}
         assert_error "WRONGTYPE Operation against a key*" {r hrandfield wrongtype}
@@ -360,6 +360,14 @@ start_server {tags {"hash"}} {
         assert_error "WRONGTYPE Operation against a key*" {r hincrby wrongtype field1 2}
         assert_error "WRONGTYPE Operation against a key*" {r hincrbyfloat wrongtype field1 2.5}
         assert_error "WRONGTYPE Operation against a key*" {r hstrlen wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hvals wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hkeys wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hexists wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hset wrongtype field1 val1}
+        assert_error "WRONGTYPE Operation against a key*" {r hmset wrongtype field1 val1 field2 val2}
+        assert_error "WRONGTYPE Operation against a key*" {r hsetnx wrongtype field1 val1}
+        assert_error "WRONGTYPE Operation against a key*" {r hlen wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hscan wrongtype 0}
     }
 
     test {HMGET - small hash} {
@@ -426,6 +434,11 @@ start_server {tags {"hash"}} {
         lsort [r hgetall bighash]
     } [lsort [array get bighash]]
 
+    test {HGETALL against non-existing key} {
+        r del htest
+        r hgetall htest
+    } {}
+
     test {HDEL and return value} {
         set rv {}
         lappend rv [r hdel smallhash nokey]
@@ -478,6 +491,13 @@ start_server {tags {"hash"}} {
         r del htest
         list [r hincrby htest foo 2]
     } {2}
+
+    test {HINCRBY HINCRBYFLOAT against non-integer increment value} {
+        r del incrhash
+        r hset incrhash field 5
+        assert_error "*value is not an integer*" {r hincrby incrhash field v}
+        assert_error "*value is not a*" {r hincrbyfloat incrhash field v}
+    }
 
     test {HINCRBY against non existing hash key} {
         set rv {}

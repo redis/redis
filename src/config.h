@@ -40,8 +40,12 @@
 #include <fcntl.h>
 #endif
 
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1060
+#define MAC_OS_10_6_DETECTED
+#endif
+
 /* Define redis_fstat to fstat or fstat64() */
-#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else
@@ -92,11 +96,13 @@
 #endif
 
 /* Test for accept4() */
-#ifdef __linux__
+#if defined(__linux__) || defined(OpenBSD5_7) || \
+    (__FreeBSD__ >= 10 || __FreeBSD_version >= 1000000) || \
+    (defined(NetBSD8_0) || __NetBSD_Version__ >= 800000000)
 #define HAVE_ACCEPT4 1
 #endif
 
-#if (defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
+#if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
 #define HAVE_KQUEUE 1
 #endif
 
@@ -293,7 +299,7 @@ void setproctitle(const char *fmt, ...);
 #include <kernel/OS.h>
 #define redis_set_thread_title(name) rename_thread(find_thread(0), name)
 #else
-#if (defined __APPLE__ && defined(MAC_OS_X_VERSION_10_7))
+#if (defined __APPLE__ && defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 1070)
 int pthread_setname_np(const char *name);
 #include <pthread.h>
 #define redis_set_thread_title(name) pthread_setname_np(name)

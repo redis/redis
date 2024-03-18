@@ -6,6 +6,16 @@
         "since": "3.2.10",
         "arity": -5,
         "function": "georadiusbymemberroCommand",
+        "history": [
+            [
+                "6.2.0",
+                "Added the `ANY` option for `COUNT`."
+            ],
+            [
+                "7.0.0", 
+                "Added support for uppercase unit names."
+            ]
+        ],
         "deprecated_since": "6.2.0",
         "replaced_by": "`GEOSEARCH` with the `BYRADIUS` and `FROMMEMBER` arguments",
         "doc_flags": [

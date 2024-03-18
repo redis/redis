@@ -32,6 +32,7 @@
 
 #include "hiredis.h"
 #include "async.h"
+#include "net.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -39,6 +40,14 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <wincrypt.h>
+#ifdef OPENSSL_IS_BORINGSSL
+#undef X509_NAME
+#undef X509_EXTENSIONS
+#undef PKCS7_ISSUER_AND_SERIAL
+#undef PKCS7_SIGNER_INFO
+#undef OCSP_REQUEST
+#undef OCSP_RESPONSE
+#endif
 #else
 #include <pthread.h>
 #endif
@@ -49,6 +58,8 @@
 #include "win32.h"
 #include "async_private.h"
 #include "hiredis_ssl.h"
+
+#define OPENSSL_1_1_0 0x10100000L
 
 void __redisSetError(redisContext *c, int type, const char *str);
 
@@ -91,7 +102,7 @@ redisContextFuncs redisContextSSLFuncs;
  * Note that this is only required for OpenSSL < 1.1.0.
  */
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < OPENSSL_1_1_0
 #define HIREDIS_USE_CRYPTO_LOCKS
 #endif
 
@@ -219,6 +230,25 @@ redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *
         const char *cert_filename, const char *private_key_filename,
         const char *server_name, redisSSLContextError *error)
 {
+    redisSSLOptions options = {
+        .cacert_filename = cacert_filename,
+        .capath = capath,
+        .cert_filename = cert_filename,
+        .private_key_filename = private_key_filename,
+        .server_name = server_name,
+        .verify_mode = REDIS_SSL_VERIFY_PEER,
+    };
+
+    return redisCreateSSLContextWithOptions(&options, error);
+}
+
+redisSSLContext *redisCreateSSLContextWithOptions(redisSSLOptions *options, redisSSLContextError *error) {
+    const char *cacert_filename = options->cacert_filename;
+    const char *capath = options->capath;
+    const char *cert_filename = options->cert_filename;
+    const char *private_key_filename = options->private_key_filename;
+    const char *server_name = options->server_name;
+
 #ifdef _WIN32
     HCERTSTORE win_store = NULL;
     PCCERT_CONTEXT win_ctx = NULL;
@@ -228,14 +258,26 @@ redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *
     if (ctx == NULL)
         goto error;
 
-    ctx->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+    const SSL_METHOD *ssl_method;
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_1_1_0
+    ssl_method = TLS_client_method();
+#else
+    ssl_method = SSLv23_client_method();
+#endif
+
+    ctx->ssl_ctx = SSL_CTX_new(ssl_method);
     if (!ctx->ssl_ctx) {
         if (error) *error = REDIS_SSL_CTX_CREATE_FAILED;
         goto error;
     }
 
-    SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
-    SSL_CTX_set_verify(ctx->ssl_ctx, SSL_VERIFY_PEER, NULL);
+#if OPENSSL_VERSION_NUMBER >= OPENSSL_1_1_0
+    SSL_CTX_set_min_proto_version(ctx->ssl_ctx, TLS1_2_VERSION);
+#else
+    SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
+#endif
+
+    SSL_CTX_set_verify(ctx->ssl_ctx, options->verify_mode, NULL);
 
     if ((cert_filename != NULL && private_key_filename == NULL) ||
             (private_key_filename != NULL && cert_filename == NULL)) {
@@ -271,6 +313,11 @@ redisSSLContext *redisCreateSSLContext(const char *cacert_filename, const char *
 #endif
         if (!SSL_CTX_load_verify_locations(ctx->ssl_ctx, cacert_filename, capath)) {
             if (error) *error = REDIS_SSL_CTX_CA_CERT_LOAD_FAILED;
+            goto error;
+        }
+    } else {
+        if (!SSL_CTX_set_default_verify_paths(ctx->ssl_ctx)) {
+            if (error) *error = REDIS_SSL_CTX_CLIENT_DEFAULT_CERT_FAILED;
             goto error;
         }
     }
@@ -560,6 +607,7 @@ static void redisSSLAsyncWrite(redisAsyncContext *ac) {
 }
 
 redisContextFuncs redisContextSSLFuncs = {
+    .close = redisNetClose,
     .free_privctx = redisSSLFree,
     .async_read = redisSSLAsyncRead,
     .async_write = redisSSLAsyncWrite,

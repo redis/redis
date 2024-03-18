@@ -78,6 +78,7 @@ static connection *connCreateUnix(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Unix;
     conn->fd = -1;
+    conn->iovcnt = IOV_MAX;
 
     return conn;
 }
@@ -91,7 +92,8 @@ static connection *connCreateAcceptedUnix(int fd, void *priv) {
 }
 
 static void connUnixAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cfd, max = MAX_ACCEPTS_PER_CALL;
+    int cfd;
+    int max = server.max_new_conns_per_cycle;
     UNUSED(el);
     UNUSED(mask);
     UNUSED(privdata);

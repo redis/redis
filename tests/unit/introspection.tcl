@@ -7,7 +7,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT LIST} {
         r client list
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
@@ -17,7 +17,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT INFO} {
         r client info
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*}
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
@@ -32,7 +32,51 @@ start_server {tags {"introspection"}} {
         assert_error "ERR No such user*" {r client kill user wrong_user}
 
         assert_error "ERR syntax error*" {r client kill skipme yes_or_no}
+
+        assert_error "ERR *not an integer or out of range*" {r client kill maxage str}
+        assert_error "ERR *not an integer or out of range*" {r client kill maxage 9999999999999999999}
+        assert_error "ERR *greater than 0*" {r client kill maxage -1}
     }
+
+    test {CLIENT KILL maxAGE will kill old clients} {
+        # This test is very likely to do a false positive if the execute time
+        # takes longer than the max age, so give it a few more chances. Go with
+        # 3 retries of increasing sleep_time, i.e. start with 2s, then go 4s, 8s.
+        set sleep_time 2
+        for {set i 0} {$i < 3} {incr i} {
+            set rd1 [redis_deferring_client]
+            r debug sleep $sleep_time
+            set rd2 [redis_deferring_client]
+            r acl setuser dummy on nopass +ping
+            $rd1 auth dummy ""
+            $rd1 read
+            $rd2 auth dummy ""
+            $rd2 read
+
+            # Should kill rd1 but not rd2
+            set max_age [expr $sleep_time / 2]
+            set res [r client kill user dummy maxage $max_age]
+            if {$res == 1} {
+                break
+            } else {
+                # Clean up and try again next time
+                set sleep_time [expr $sleep_time * 2]
+                $rd1 close
+                $rd2 close
+            }
+
+        } ;# for
+
+        if {$::verbose} { puts "CLIENT KILL maxAGE will kill old clients test attempts: $i" }
+        assert_equal $res 1
+
+        # rd2 should still be connected
+        $rd2 ping
+        assert_equal "PONG" [$rd2 read]
+
+        $rd1 close
+        $rd2 close
+    } {0} {"needs:debug"}
 
     test {CLIENT KILL SKIPME YES/NO will kill all clients} {
         # Kill all clients except `me`
@@ -59,6 +103,29 @@ start_server {tags {"introspection"}} {
         $rd2 close
         $rd3 close
         $rd4 close
+    }
+
+    test {CLIENT command unhappy path coverage} {
+        assert_error "ERR*wrong number of arguments*" {r client caching}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching maybe}
+        assert_error "ERR*syntax*" {r client no-evict wrongInput}
+        assert_error "ERR*syntax*" {r client reply wrongInput}
+        assert_error "ERR*syntax*" {r client tracking wrongInput}
+        assert_error "ERR*syntax*" {r client tracking on wrongInput}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching off}
+        assert_error "ERR*when the client is in tracking mode*" {r client caching on}
+
+        r CLIENT TRACKING ON optout
+        assert_error "ERR*syntax*" {r client caching on}
+
+        r CLIENT TRACKING off optout
+        assert_error "ERR*when the client is in tracking mode*" {r client caching on}
+
+        assert_error "ERR*No such*" {r client kill 000.123.321.567:0000}
+        assert_error "ERR*No such*" {r client kill 127.0.0.1:}
+
+        assert_error "ERR*timeout is not an integer*" {r client pause abc}
+        assert_error "ERR timeout is negative" {r client pause -1}
     }
 
     test "CLIENT KILL close the client connection during bgsave" {
@@ -271,30 +338,14 @@ start_server {tags {"introspection"}} {
         r client getname
     } {}
 
+    test {CLIENT GETNAME check if name set correctly} {
+        r client setname testName
+        r client getName
+    } {testName}
+
     test {CLIENT LIST shows empty fields for unassigned names} {
         r client list
     } {*name= *}
-
-    test {Coverage: Basic CLIENT CACHING} {
-        set rd_redirection [redis_deferring_client]
-        $rd_redirection client id
-        set redir_id [$rd_redirection read]
-        r CLIENT TRACKING on OPTIN REDIRECT $redir_id
-        r CLIENT CACHING yes
-        r CLIENT TRACKING off
-    } {OK}
-
-    test {Coverage: Basic CLIENT REPLY} {
-        r CLIENT REPLY on
-    } {OK}
-
-    test {Coverage: Basic CLIENT TRACKINGINFO} {
-        r CLIENT TRACKINGINFO
-    } {flags off redirect -1 prefixes {}}
-
-    test {Coverage: Basic CLIENT GETREDIR} {
-        r CLIENT GETREDIR
-    } {-1}
 
     test {CLIENT SETNAME does not accept spaces} {
         catch {r client setname "foo bar"} e
@@ -400,6 +451,10 @@ start_server {tags {"introspection"}} {
             replicaof
             slaveof
             requirepass
+            server-cpulist
+            bio-cpulist
+            aof-rewrite-cpulist
+            bgsave-cpulist
             server_cpulist
             bio_cpulist
             aof_rewrite_cpulist
@@ -652,6 +707,10 @@ start_server {tags {"introspection"}} {
     }
 
     test {redis-server command line arguments - error cases} {
+        # Take '--invalid' as the option.
+        catch {exec src/redis-server --invalid} err
+        assert_match {*Bad directive or wrong number of arguments*} $err
+
         catch {exec src/redis-server --port} err
         assert_match {*'port'*wrong number of arguments*} $err
 

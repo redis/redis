@@ -239,7 +239,7 @@ void replyToBlockedClientTimedOut(client *c) {
         addReplyLongLong(c,server.fsynced_reploff >= c->bstate.reploffset);
         addReplyLongLong(c,replicationCountAOFAcksByOffset(c->bstate.reploffset));
     } else if (c->bstate.btype == BLOCKED_MODULE) {
-        moduleBlockedClientTimedOut(c);
+        moduleBlockedClientTimedOut(c, 0);
     } else {
         serverPanic("Unknown btype in replyToBlockedClientTimedOut().");
     }
@@ -325,6 +325,9 @@ void handleClientsBlockedOnKeys(void) {
      * (i.e. not from call(), module context, etc.) */
     serverAssert(server.also_propagate.numops == 0);
 
+    /* If a command being unblocked causes another command to get unblocked,
+     * like a BLMOVE would do, then the new unblocked command will get processed
+     * right away rather than wait for later. */
     while(listLength(server.ready_keys) != 0) {
         list *l;
 
@@ -367,7 +370,12 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
     list *l;
     int j;
 
-    c->bstate.timeout = timeout;
+    if (!(c->flags & CLIENT_REPROCESSING_COMMAND)) {
+        /* If the client is re-processing the command, we do not set the timeout
+         * because we need to retain the client's original timeout. */
+        c->bstate.timeout = timeout;
+    }
+
     for (j = 0; j < numkeys; j++) {
         /* If the key already exists in the dictionary ignore it. */
         if (!(client_blocked_entry = dictAddRaw(c->bstate.keys,keys[j],NULL))) {
@@ -388,7 +396,6 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         }
         listAddNodeTail(l,c);
         dictSetVal(c->bstate.keys,client_blocked_entry,listLast(l));
-
 
         /* We need to add the key to blocking_keys_unblock_on_nokey, if the client
          * wants to be awakened if key is deleted (like XREADGROUP) */
@@ -564,7 +571,10 @@ static void handleClientsBlockedOnKey(readyList *rl) {
         listIter li;
         listRewind(clients,&li);
 
-        while((ln = listNext(&li))) {
+        /* Avoid processing more than the initial count so that we're not stuck
+         * in an endless loop in case the reprocessing of the command blocks again. */
+        long count = listLength(clients);
+        while ((ln = listNext(&li)) && count--) {
             client *receiver = listNodeValue(ln);
             robj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
@@ -650,7 +660,7 @@ static void unblockClientOnKey(client *c, robj *key) {
          * to run atomically, this is why we must enter the execution unit here before
          * running the command, and exit the execution unit after calling the unblock handler (if exists).
          * Notice that we also must set the current client so it will be available
-         * when we will try to send the the client side caching notification (done on 'afterCommand'). */
+         * when we will try to send the client side caching notification (done on 'afterCommand'). */
         client *old_client = server.current_client;
         server.current_client = c;
         enterExecutionUnit(1, 0);
@@ -697,6 +707,9 @@ static void moduleUnblockClientOnKey(client *c, robj *key) {
  * we want to remove the pending flag to indicate we already responded to the
  * command with timeout reply. */
 void unblockClientOnTimeout(client *c) {
+    /* The client has been unlocked (in the moduleUnblocked list), return ASAP. */
+    if (c->bstate.btype == BLOCKED_MODULE && isModuleClientUnblocked(c)) return;
+
     replyToBlockedClientTimedOut(c);
     if (c->flags & CLIENT_PENDING_COMMAND)
         c->flags &= ~CLIENT_PENDING_COMMAND;
@@ -714,17 +727,29 @@ void unblockClientOnError(client *c, const char *err_str) {
     unblockClient(c, 1);
 }
 
-/* sets blocking_keys to the total number of keys which has at least one client blocked on them
- * sets blocking_keys_on_nokey to the total number of keys which has at least one client
- * blocked on them to be written or deleted */
-void totalNumberOfBlockingKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey) {
-    unsigned long bkeys=0, bkeys_on_nokey=0;
-    for (int j = 0; j < server.dbnum; j++) {
-        bkeys += dictSize(server.db[j].blocking_keys);
-        bkeys_on_nokey += dictSize(server.db[j].blocking_keys_unblock_on_nokey);
-    }
-    if (blocking_keys)
-        *blocking_keys = bkeys;
-    if (bloking_keys_on_nokey)
-        *bloking_keys_on_nokey = bkeys_on_nokey;
+void blockedBeforeSleep(void) {
+    /* Handle precise timeouts of blocked clients. */
+    handleBlockedClientsTimeout();
+
+    /* Unblock all the clients blocked for synchronous replication
+     * in WAIT or WAITAOF. */
+    if (listLength(server.clients_waiting_acks))
+        processClientsWaitingReplicas();
+
+    /* Try to process blocked clients every once in while.
+     *
+     * Example: A module calls RM_SignalKeyAsReady from within a timer callback
+     * (So we don't visit processCommand() at all).
+     *
+     * This may unblock clients, so must be done before processUnblockedClients */
+    handleClientsBlockedOnKeys();
+
+    /* Check if there are clients unblocked by modules that implement
+     * blocking commands. */
+    if (moduleCount())
+        moduleHandleBlockedClients();
+
+    /* Try to process pending commands for clients that were just unblocked. */
+    if (listLength(server.unblocked_clients))
+        processUnblockedClients();
 }

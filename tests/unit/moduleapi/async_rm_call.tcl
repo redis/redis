@@ -15,7 +15,18 @@ start_server {tags {"modules"}} {
         assert_equal {0} [r llen l]
     }
 
-    foreach cmd {do_rm_call_async do_rm_call_async_script_mode} {
+    test "Blpop on threaded async RM_Call" {
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async_on_thread blpop l 0
+        wait_for_blocked_clients_count 1
+        r lpush l a
+        assert_equal [$rd read] {l a}
+        wait_for_blocked_clients_count 0
+        $rd close
+    }
+
+    foreach cmd {do_rm_call_async do_rm_call_async_script_mode } {
 
         test "Blpop on async RM_Call using $cmd" {
             set rd [redis_deferring_client]
@@ -25,6 +36,7 @@ start_server {tags {"modules"}} {
             r lpush l a
             assert_equal [$rd read] {l a}
             wait_for_blocked_clients_count 0
+            $rd close
         }
 
         test "Brpop on async RM_Call using $cmd" {
@@ -35,6 +47,7 @@ start_server {tags {"modules"}} {
             r lpush l a
             assert_equal [$rd read] {l a}
             wait_for_blocked_clients_count 0
+            $rd close
         }
 
         test "Brpoplpush on async RM_Call using $cmd" {
@@ -45,6 +58,7 @@ start_server {tags {"modules"}} {
             r lpush l1 a
             assert_equal [$rd read] {a}
             wait_for_blocked_clients_count 0
+            $rd close
             r lpop l2
         } {a}
 
@@ -56,6 +70,7 @@ start_server {tags {"modules"}} {
             r lpush l1 a
             assert_equal [$rd read] {a}
             wait_for_blocked_clients_count 0
+            $rd close
             r lpop l2
         } {a}
 
@@ -67,6 +82,7 @@ start_server {tags {"modules"}} {
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
             wait_for_blocked_clients_count 0
+            $rd close
         }
 
         test "Bzpopmax on async RM_Call using $cmd" {
@@ -77,6 +93,7 @@ start_server {tags {"modules"}} {
             r zadd s 10 foo
             assert_equal [$rd read] {s foo 10}
             wait_for_blocked_clients_count 0
+            $rd close
         }
     }
 
@@ -88,6 +105,7 @@ start_server {tags {"modules"}} {
         r lpush l a
         assert_equal [$rd read] {l a}
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test multiple async RM_Call waiting on the same event} {
@@ -101,6 +119,8 @@ start_server {tags {"modules"}} {
         assert_equal [$rd1 read] {l element}
         assert_equal [$rd2 read] {l element}
         wait_for_blocked_clients_count 0
+        $rd1 close
+        $rd2 close
     }
 
     test {async RM_Call calls RM_Call} {
@@ -136,6 +156,7 @@ start_server {tags {"modules"}} {
         }
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Become replica while having async RM_Call running} {
@@ -156,6 +177,7 @@ start_server {tags {"modules"}} {
         r lpush l 1
         # make sure the async rm_call was aborted
         assert_equal [r llen l] {1}
+        $rd close
     }
 
     test {Pipeline with blocking RM_Call} {
@@ -175,6 +197,7 @@ start_server {tags {"modules"}} {
         assert_equal [$rd read] {PONG}
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {blocking RM_Call abort} {
@@ -195,6 +218,7 @@ start_server {tags {"modules"}} {
         r lpush l 1
         # make sure the async rm_call was aborted
         assert_equal [r llen l] {1}
+        $rd close
     }
 }
 
@@ -220,6 +244,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test unblock handler are executed as a unit} {
@@ -245,6 +270,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test no propagation of blocking command} {
@@ -269,6 +295,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 }
 
@@ -287,6 +314,14 @@ start_server {tags {"modules"}} {
         r lpush l a
         assert_equal [$rd read] {OK}
 
+        # Explanation of the first multi exec block:
+        # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
+        # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_bar} changed
         assert_replication_stream $repl {
             {select *}
             {lpush l a}
@@ -303,6 +338,7 @@ start_server {tags {"modules"}} {
         close_replication_stream $repl
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 
     test {Test unblock handler are executed as a unit with lazy expire} {
@@ -327,6 +363,25 @@ start_server {tags {"modules"}} {
         r lpush l a
         assert_equal [$rd read] {OK}
 
+        # Explanation of the first multi exec block:
+        # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
+        # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_bar} changed
+        #
+        # Explanation of the second multi exec block:
+        # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
+        # {del string_foo} - lazy expiration of string_foo when 'blpop_and_set_multiple_keys' tries to write to it. 
+        # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {incr expired} - the post notification job, registered after string_foo got expired
+        # {incr string_changed{string_foo}} - post notification job triggered when we set string_foo
+        # {incr string_changed{string_bar}} - post notification job triggered when we set string_bar
+        # {incr string_total} - post notification job triggered when we incr 'string_changed{string_foo}'
+        # {incr string_total} - post notification job triggered when we incr 'string_changed{string_bar}'
         assert_replication_stream $repl {
             {select *}
             {lpush l a}
@@ -355,9 +410,10 @@ start_server {tags {"modules"}} {
         }
         close_replication_stream $repl
         r DEBUG SET-ACTIVE-EXPIRE 1
+        
+        wait_for_blocked_clients_count 0
+        $rd close
     }
-
-    wait_for_blocked_clients_count 0
 }
 
 start_server {tags {"modules"}} {
@@ -376,5 +432,6 @@ start_server {tags {"modules"}} {
         assert_equal [$rd read] {4}
 
         wait_for_blocked_clients_count 0
+        $rd close
     }
 }

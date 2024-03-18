@@ -34,10 +34,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <assert.h>
 #include <limits.h>
+#include "redisassert.h"
 #include "sds.h"
 #include "sdsalloc.h"
+#include "util.h"
 
 const char *SDS_NOINIT = "SDS_NOINIT";
 
@@ -348,20 +349,22 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
      * type. */
     int use_realloc = (oldtype==type || (type < oldtype && type > SDS_TYPE_8));
     size_t newlen = use_realloc ? oldhdrlen+size+1 : hdrlen+size+1;
-    int alloc_already_optimal = 0;
-    #if defined(USE_JEMALLOC)
-        /* je_nallocx returns the expected allocation size for the newlen.
-         * We aim to avoid calling realloc() when using Jemalloc if there is no
-         * change in the allocation size, as it incurs a cost even if the
-         * allocation size stays the same. */
-        alloc_already_optimal = (je_nallocx(newlen, 0) == zmalloc_size(sh));
-    #endif
 
-    if (use_realloc && !alloc_already_optimal) {
-        newsh = s_realloc(sh, newlen);
-        if (newsh == NULL) return NULL;
-        s = (char*)newsh+oldhdrlen;
-    } else if (!alloc_already_optimal) {
+    if (use_realloc) {
+        int alloc_already_optimal = 0;
+        #if defined(USE_JEMALLOC)
+            /* je_nallocx returns the expected allocation size for the newlen.
+             * We aim to avoid calling realloc() when using Jemalloc if there is no
+             * change in the allocation size, as it incurs a cost even if the
+             * allocation size stays the same. */
+            alloc_already_optimal = (je_nallocx(newlen, 0) == zmalloc_size(sh));
+        #endif
+        if (!alloc_already_optimal) {
+            newsh = s_realloc(sh, newlen);
+            if (newsh == NULL) return NULL;
+            s = (char*)newsh+oldhdrlen;
+        }
+    } else {
         newsh = s_malloc(newlen);
         if (newsh == NULL) return NULL;
         memcpy((char*)newsh+hdrlen, s, len);
@@ -526,90 +529,13 @@ sds sdscpy(sds s, const char *t) {
     return sdscpylen(s, t, strlen(t));
 }
 
-/* Helper for sdscatlonglong() doing the actual number -> string
- * conversion. 's' must point to a string with room for at least
- * SDS_LLSTR_SIZE bytes.
- *
- * The function returns the length of the null-terminated string
- * representation stored at 's'. */
-#define SDS_LLSTR_SIZE 21
-int sdsll2str(char *s, long long value) {
-    char *p, aux;
-    unsigned long long v;
-    size_t l;
-
-    /* Generate the string representation, this method produces
-     * a reversed string. */
-    if (value < 0) {
-        /* Since v is unsigned, if value==LLONG_MIN, -LLONG_MIN will overflow. */
-        if (value != LLONG_MIN) {
-            v = -value;
-        } else {
-            v = ((unsigned long long)LLONG_MAX) + 1;
-        }
-    } else {
-        v = value;
-    }
-
-    p = s;
-    do {
-        *p++ = '0'+(v%10);
-        v /= 10;
-    } while(v);
-    if (value < 0) *p++ = '-';
-
-    /* Compute length and add null term. */
-    l = p-s;
-    *p = '\0';
-
-    /* Reverse the string. */
-    p--;
-    while(s < p) {
-        aux = *s;
-        *s = *p;
-        *p = aux;
-        s++;
-        p--;
-    }
-    return l;
-}
-
-/* Identical sdsll2str(), but for unsigned long long type. */
-int sdsull2str(char *s, unsigned long long v) {
-    char *p, aux;
-    size_t l;
-
-    /* Generate the string representation, this method produces
-     * a reversed string. */
-    p = s;
-    do {
-        *p++ = '0'+(v%10);
-        v /= 10;
-    } while(v);
-
-    /* Compute length and add null term. */
-    l = p-s;
-    *p = '\0';
-
-    /* Reverse the string. */
-    p--;
-    while(s < p) {
-        aux = *s;
-        *s = *p;
-        *p = aux;
-        s++;
-        p--;
-    }
-    return l;
-}
-
 /* Create an sds string from a long long value. It is much faster than:
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
 sds sdsfromlonglong(long long value) {
-    char buf[SDS_LLSTR_SIZE];
-    int len = sdsll2str(buf,value);
+    char buf[LONG_STR_SIZE];
+    int len = ll2string(buf,sizeof(buf),value);
 
     return sdsnewlen(buf,len);
 }
@@ -745,8 +671,8 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 else
                     num = va_arg(ap,long long);
                 {
-                    char buf[SDS_LLSTR_SIZE];
-                    l = sdsll2str(buf,num);
+                    char buf[LONG_STR_SIZE];
+                    l = ll2string(buf,sizeof(buf),num);
                     if (sdsavail(s) < l) {
                         s = sdsMakeRoomFor(s,l);
                     }
@@ -762,8 +688,8 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 else
                     unum = va_arg(ap,unsigned long long);
                 {
-                    char buf[SDS_LLSTR_SIZE];
-                    l = sdsull2str(buf,unum);
+                    char buf[LONG_STR_SIZE];
+                    l = ull2string(buf,sizeof(buf),unum);
                     if (sdsavail(s) < l) {
                         s = sdsMakeRoomFor(s,l);
                     }

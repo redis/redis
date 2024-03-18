@@ -242,10 +242,12 @@ robj *streamDup(robj *o) {
             raxStart(&ri_cpel, consumer->pel);
             raxSeek(&ri_cpel, "^", NULL, 0);
             while (raxNext(&ri_cpel)) {
-                streamNACK *new_nack = raxFind(new_cg->pel,ri_cpel.key,sizeof(streamID));
+                void *result;
+                int found = raxFind(new_cg->pel,ri_cpel.key,sizeof(streamID),&result);
 
-                serverAssert(new_nack != raxNotFound);
+                serverAssert(found);
 
+                streamNACK *new_nack = result;
                 new_nack->consumer = new_consumer;
                 raxInsert(new_consumer->pel,ri_cpel.key,sizeof(streamID),new_nack,NULL);
             }
@@ -461,7 +463,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     }
 
     /* Avoid overflow when trying to add an element to the stream (listpack
-     * can only host up to 32bit length sttrings, and also a total listpack size
+     * can only host up to 32bit length strings, and also a total listpack size
      * can't be bigger than 32bit length. */
     size_t totelelen = 0;
     for (int64_t i = 0; i < numfields*2; i++) {
@@ -1711,10 +1713,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
             group->last_id = id;
-            /* Group last ID should be propagated only if NOACK was
-             * specified, otherwise the last id will be included
-             * in the propagation of XCLAIM itself. */
-            if (noack) propagate_last_id = 1;
+            /* In the past, we would only set it when NOACK was specified. And in
+             * #9127, XCLAIM did not propagate entries_read in ACK, which would
+             * cause entries_read to be inconsistent between master and replicas,
+             * so here we call streamPropagateGroupID unconditionally. */
+            propagate_last_id = 1;
         }
 
         /* Emit a two elements array for each item. The first is
@@ -1760,8 +1763,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * or update it if the consumer is the same as before. */
             if (group_inserted == 0) {
                 streamFreeNACK(nack);
-                nack = raxFind(group->pel,buf,sizeof(buf));
-                serverAssert(nack != raxNotFound);
+                void *result;
+                int found = raxFind(group->pel,buf,sizeof(buf),&result);
+                serverAssert(found);
+                nack = result;
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
@@ -2048,7 +2053,6 @@ void xaddCommand(client *c) {
     sds replyid = createStreamIDString(&id);
     addReplyBulkCBuffer(c, replyid, sdslen(replyid));
 
-    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -2067,6 +2071,8 @@ void xaddCommand(client *c) {
             streamRewriteTrimArgument(c,s,parsed_args.trim_strategy,parsed_args.trim_strategy_arg_idx);
         }
     }
+
+    signalModifiedKey(c,c->db,c->argv[1]);
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
@@ -2188,14 +2194,6 @@ void xreadCommand(client *c) {
         int moreargs = c->argc-i-1;
         char *o = c->argv[i]->ptr;
         if (!strcasecmp(o,"BLOCK") && moreargs) {
-            if (c->flags & CLIENT_SCRIPT) {
-                /*
-                 * Although the CLIENT_DENY_BLOCKING flag should protect from blocking the client
-                 * on Lua/MULTI/RM_Call we want special treatment for Lua to keep backward compatibility.
-                 * There is no sense to use BLOCK option within Lua. */
-                addReplyErrorFormat(c, "%s command is not allowed with BLOCK option from scripts", (char *)c->argv[0]->ptr);
-                return;
-            }
             i++;
             if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
                 UNIT_MILLISECONDS) != C_OK) return;
@@ -2208,9 +2206,10 @@ void xreadCommand(client *c) {
             streams_arg = i+1;
             streams_count = (c->argc-streams_arg);
             if ((streams_count % 2) != 0) {
+                char symbol = xreadgroup ? '>' : '$';
                 addReplyErrorFormat(c,"Unbalanced '%s' list of streams: "
-                                      "for each stream key an ID or '>' must be "
-                                      "specified.", c->cmd->fullname);
+                                      "for each stream key an ID or '%c' must be "
+                                      "specified.", c->cmd->fullname,symbol);
                 return;
             }
             streams_count /= 2; /* We have two arguments for each stream. */
@@ -2292,6 +2291,28 @@ void xreadCommand(client *c) {
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
+            } else {
+                ids[id_idx].ms = 0;
+                ids[id_idx].seq = 0;
+            }
+            continue;
+        } else if (strcmp(c->argv[i]->ptr,"+") == 0) {
+            if (xreadgroup) {
+                addReplyError(c,"The + ID is meaningless in the context of "
+                                "XREADGROUP: you want to read the history of "
+                                "this consumer by specifying a proper ID, or "
+                                "use the > ID to get new messages. The + ID would "
+                                "just return an empty result set.");
+                goto cleanup;
+            }
+            if (o) {
+                stream *s = o->ptr;
+                ids[id_idx] = s->last_id;
+                if (streamDecrID(&ids[id_idx]) != C_OK) {
+                    /* shouldn't happen */
+                    addReplyError(c,"the stream last element ID is 0-0");
+                    goto cleanup;
+                }
             } else {
                 ids[id_idx].ms = 0;
                 ids[id_idx].seq = 0;
@@ -2480,7 +2501,7 @@ void streamFreeConsumer(streamConsumer *sc) {
  * consumer group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
     if (s->cgroups == NULL) s->cgroups = raxNew();
-    if (raxFind(s->cgroups,(unsigned char*)name,namelen) != raxNotFound)
+    if (raxFind(s->cgroups,(unsigned char*)name,namelen,NULL))
         return NULL;
 
     streamCG *cg = zmalloc(sizeof(*cg));
@@ -2503,9 +2524,9 @@ void streamFreeCG(streamCG *cg) {
  * pointer, otherwise if there is no such group, NULL is returned. */
 streamCG *streamLookupCG(stream *s, sds groupname) {
     if (s->cgroups == NULL) return NULL;
-    streamCG *cg = raxFind(s->cgroups,(unsigned char*)groupname,
-                           sdslen(groupname));
-    return (cg == raxNotFound) ? NULL : cg;
+    void *cg = NULL;
+    raxFind(s->cgroups,(unsigned char*)groupname,sdslen(groupname),&cg);
+    return cg;
 }
 
 /* Create a consumer with the specified name in the group 'cg' and return.
@@ -2535,9 +2556,8 @@ streamConsumer *streamCreateConsumer(streamCG *cg, sds name, robj *key, int dbid
 /* Lookup the consumer with the specified name in the group 'cg'. */
 streamConsumer *streamLookupConsumer(streamCG *cg, sds name) {
     if (cg == NULL) return NULL;
-    streamConsumer *consumer = raxFind(cg->consumers,(unsigned char*)name,
-                                       sdslen(name));
-    if (consumer == raxNotFound) return NULL;
+    void *consumer = NULL;
+    raxFind(cg->consumers,(unsigned char*)name,sdslen(name),&consumer);
     return consumer;
 }
 
@@ -2851,8 +2871,9 @@ void xackCommand(client *c) {
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
          * we are able to remove the entry from both PELs. */
-        streamNACK *nack = raxFind(group->pel,buf,sizeof(buf));
-        if (nack != raxNotFound) {
+        void *result;
+        if (raxFind(group->pel,buf,sizeof(buf),&result)) {
+            streamNACK *nack = result;
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamFreeNACK(nack);
@@ -3231,12 +3252,14 @@ void xclaimCommand(client *c) {
         streamEncodeID(buf,&id);
 
         /* Lookup the ID in the group PEL. */
-        streamNACK *nack = raxFind(group->pel,buf,sizeof(buf));
+        void *result = NULL;
+        raxFind(group->pel,buf,sizeof(buf),&result);
+        streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!streamEntryExists(o->ptr,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
-            if (nack != raxNotFound) {
+            if (nack != NULL) {
                 /* Propagate this change (we are going to delete the NACK). */
                 streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
                 propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
@@ -3254,13 +3277,13 @@ void xclaimCommand(client *c) {
          * entry in the PEL from scratch, so that XCLAIM can also
          * be used to create entries in the PEL. Useful for AOF
          * and replication of consumer groups. */
-        if (force && nack == raxNotFound) {
+        if (force && nack == NULL) {
             /* Create the NACK. */
             nack = streamCreateNACK(NULL);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
         }
 
-        if (nack != raxNotFound) {
+        if (nack != NULL) {
             /* We need to check if the minimum idle time requested
              * by the caller is satisfied by this entry.
              *

@@ -78,6 +78,7 @@ static connection *connCreateSocket(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
+    conn->iovcnt = IOV_MAX;
 
     return conn;
 }
@@ -308,7 +309,8 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
 }
 
 static void connSocketAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
+    int cport, cfd;
+    int max = server.max_new_conns_per_cycle;
     char cip[NET_IP_STR_LEN];
     UNUSED(el);
     UNUSED(mask);
@@ -359,6 +361,7 @@ static int connSocketBlockingConnect(connection *conn, const char *addr, int por
     if ((aeWait(fd, AE_WRITABLE, timeout) & AE_WRITABLE) == 0) {
         conn->state = CONN_STATE_ERROR;
         conn->last_errno = ETIMEDOUT;
+        return C_ERR;
     }
 
     conn->fd = fd;

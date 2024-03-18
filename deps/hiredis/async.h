@@ -46,6 +46,7 @@ typedef struct redisCallback {
     struct redisCallback *next; /* simple singly linked list */
     redisCallbackFn *fn;
     int pending_subs;
+    int unsubscribe_sent;
     void *privdata;
 } redisCallback;
 
@@ -57,6 +58,7 @@ typedef struct redisCallbackList {
 /* Connection callback prototypes */
 typedef void (redisDisconnectCallback)(const struct redisAsyncContext*, int status);
 typedef void (redisConnectCallback)(const struct redisAsyncContext*, int status);
+typedef void (redisConnectCallbackNC)(struct redisAsyncContext *, int status);
 typedef void(redisTimerCallback)(void *timer, void *privdata);
 
 /* Context for an async connection to Redis */
@@ -92,6 +94,7 @@ typedef struct redisAsyncContext {
 
     /* Called when the first write event was received. */
     redisConnectCallback *onConnect;
+    redisConnectCallbackNC *onConnectNC;
 
     /* Regular command callbacks */
     redisCallbackList replies;
@@ -105,6 +108,7 @@ typedef struct redisAsyncContext {
         redisCallbackList replies;
         struct dict *channels;
         struct dict *patterns;
+        int pending_unsubs;
     } sub;
 
     /* Any configured RESP3 PUSH handler */
@@ -119,6 +123,7 @@ redisAsyncContext *redisAsyncConnectBindWithReuse(const char *ip, int port,
                                                   const char *source_addr);
 redisAsyncContext *redisAsyncConnectUnix(const char *path);
 int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn);
+int redisAsyncSetConnectCallbackNC(redisAsyncContext *ac, redisConnectCallbackNC *fn);
 int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallback *fn);
 
 redisAsyncPushFn *redisAsyncSetPushCallback(redisAsyncContext *ac, redisAsyncPushFn *fn);

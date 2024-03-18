@@ -1,8 +1,12 @@
 start_cluster 2 2 {tags {external:skip cluster}} {
 
     test "Test change cluster-announce-port and cluster-announce-tls-port at runtime" {
-        set baseport [lindex [R 0 config get port] 1]
-        set count [expr [llength $::servers] +1 ]
+        if {$::tls} {
+            set baseport [lindex [R 0 config get tls-port] 1]
+        } else {
+            set baseport [lindex [R 0 config get port] 1]
+        }
+        set count [expr [llength $::servers] + 1]
         set used_port [find_available_port $baseport $count]
 
         R 0 config set cluster-announce-tls-port $used_port
@@ -17,12 +21,16 @@ start_cluster 2 2 {tags {external:skip cluster}} {
 
         R 0 config set cluster-announce-tls-port 0
         R 0 config set cluster-announce-port 0
-        assert_match "*:$baseport@*" [R 0 CLUSTER NODES] 
+        assert_match "*:$baseport@*" [R 0 CLUSTER NODES]
     }
 
     test "Test change cluster-announce-bus-port at runtime" {
-        set baseport [lindex [R 0 config get port] 1]
-        set count [expr [llength $::servers] +1 ]
+        if {$::tls} {
+            set baseport [lindex [R 0 config get tls-port] 1]
+        } else {
+            set baseport [lindex [R 0 config get port] 1]
+        }
+        set count [expr [llength $::servers] + 1]
         set used_port [find_available_port $baseport $count]
 
         # Verify config set cluster-announce-bus-port

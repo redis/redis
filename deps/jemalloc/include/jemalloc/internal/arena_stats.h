@@ -2,23 +2,13 @@
 #define JEMALLOC_INTERNAL_ARENA_STATS_H
 
 #include "jemalloc/internal/atomic.h"
+#include "jemalloc/internal/lockedint.h"
 #include "jemalloc/internal/mutex.h"
 #include "jemalloc/internal/mutex_prof.h"
+#include "jemalloc/internal/pa.h"
 #include "jemalloc/internal/sc.h"
 
 JEMALLOC_DIAGNOSTIC_DISABLE_SPURIOUS
-
-/*
- * In those architectures that support 64-bit atomics, we use atomic updates for
- * our 64-bit values.  Otherwise, we use a plain uint64_t and synchronize
- * externally.
- */
-#ifdef JEMALLOC_ATOMIC_U64
-typedef atomic_u64_t arena_stats_u64_t;
-#else
-/* Must hold the arena stats mutex while reading atomically. */
-typedef uint64_t arena_stats_u64_t;
-#endif
 
 typedef struct arena_stats_large_s arena_stats_large_t;
 struct arena_stats_large_s {
@@ -26,51 +16,25 @@ struct arena_stats_large_s {
 	 * Total number of allocation/deallocation requests served directly by
 	 * the arena.
 	 */
-	arena_stats_u64_t	nmalloc;
-	arena_stats_u64_t	ndalloc;
+	locked_u64_t	nmalloc;
+	locked_u64_t	ndalloc;
 
 	/*
 	 * Number of allocation requests that correspond to this size class.
 	 * This includes requests served by tcache, though tcache only
 	 * periodically merges into this counter.
 	 */
-	arena_stats_u64_t	nrequests; /* Partially derived. */
+	locked_u64_t	nrequests; /* Partially derived. */
 	/*
 	 * Number of tcache fills / flushes for large (similarly, periodically
 	 * merged).  Note that there is no large tcache batch-fill currently
 	 * (i.e. only fill 1 at a time); however flush may be batched.
 	 */
-	arena_stats_u64_t	nfills; /* Partially derived. */
-	arena_stats_u64_t	nflushes; /* Partially derived. */
+	locked_u64_t	nfills; /* Partially derived. */
+	locked_u64_t	nflushes; /* Partially derived. */
 
 	/* Current number of allocations of this size class. */
 	size_t		curlextents; /* Derived. */
-};
-
-typedef struct arena_stats_decay_s arena_stats_decay_t;
-struct arena_stats_decay_s {
-	/* Total number of purge sweeps. */
-	arena_stats_u64_t	npurge;
-	/* Total number of madvise calls made. */
-	arena_stats_u64_t	nmadvise;
-	/* Total number of pages purged. */
-	arena_stats_u64_t	purged;
-};
-
-typedef struct arena_stats_extents_s arena_stats_extents_t;
-struct arena_stats_extents_s {
-	/*
-	 * Stats for a given index in the range [0, SC_NPSIZES] in an extents_t.
-	 * We track both bytes and # of extents: two extents in the same bucket
-	 * may have different sizes if adjacent size classes differ by more than
-	 * a page, so bytes cannot always be derived from # of extents.
-	 */
-	atomic_zu_t ndirty;
-	atomic_zu_t dirty_bytes;
-	atomic_zu_t nmuzzy;
-	atomic_zu_t muzzy_bytes;
-	atomic_zu_t nretained;
-	atomic_zu_t retained_bytes;
 };
 
 /*
@@ -80,43 +44,36 @@ struct arena_stats_extents_s {
  */
 typedef struct arena_stats_s arena_stats_t;
 struct arena_stats_s {
-#ifndef JEMALLOC_ATOMIC_U64
-	malloc_mutex_t		mtx;
-#endif
-
-	/* Number of bytes currently mapped, excluding retained memory. */
-	atomic_zu_t		mapped; /* Partially derived. */
+	LOCKEDINT_MTX_DECLARE(mtx)
 
 	/*
-	 * Number of unused virtual memory bytes currently retained.  Retained
-	 * bytes are technically mapped (though always decommitted or purged),
-	 * but they are excluded from the mapped statistic (above).
+	 * resident includes the base stats -- that's why it lives here and not
+	 * in pa_shard_stats_t.
 	 */
-	atomic_zu_t		retained; /* Derived. */
+	size_t			base; /* Derived. */
+	size_t			resident; /* Derived. */
+	size_t			metadata_thp; /* Derived. */
+	size_t			mapped; /* Derived. */
 
-	/* Number of extent_t structs allocated by base, but not being used. */
-	atomic_zu_t		extent_avail;
-
-	arena_stats_decay_t	decay_dirty;
-	arena_stats_decay_t	decay_muzzy;
-
-	atomic_zu_t		base; /* Derived. */
 	atomic_zu_t		internal;
-	atomic_zu_t		resident; /* Derived. */
-	atomic_zu_t		metadata_thp;
 
-	atomic_zu_t		allocated_large; /* Derived. */
-	arena_stats_u64_t	nmalloc_large; /* Derived. */
-	arena_stats_u64_t	ndalloc_large; /* Derived. */
-	arena_stats_u64_t	nfills_large; /* Derived. */
-	arena_stats_u64_t	nflushes_large; /* Derived. */
-	arena_stats_u64_t	nrequests_large; /* Derived. */
+	size_t			allocated_large; /* Derived. */
+	uint64_t		nmalloc_large; /* Derived. */
+	uint64_t		ndalloc_large; /* Derived. */
+	uint64_t		nfills_large; /* Derived. */
+	uint64_t		nflushes_large; /* Derived. */
+	uint64_t		nrequests_large; /* Derived. */
 
-	/* VM space had to be leaked (undocumented).  Normally 0. */
-	atomic_zu_t		abandoned_vm;
+	/*
+	 * The stats logically owned by the pa_shard in the same arena.  This
+	 * lives here only because it's convenient for the purposes of the ctl
+	 * module -- it only knows about the single arena_stats.
+	 */
+	pa_shard_stats_t	pa_shard_stats;
 
 	/* Number of bytes cached in tcache associated with this arena. */
-	atomic_zu_t		tcache_bytes; /* Derived. */
+	size_t			tcache_bytes; /* Derived. */
+	size_t			tcache_stashed_bytes; /* Derived. */
 
 	mutex_prof_data_t mutex_prof_data[mutex_prof_num_arena_mutexes];
 
@@ -134,138 +91,24 @@ arena_stats_init(tsdn_t *tsdn, arena_stats_t *arena_stats) {
 			assert(((char *)arena_stats)[i] == 0);
 		}
 	}
-#ifndef JEMALLOC_ATOMIC_U64
-	if (malloc_mutex_init(&arena_stats->mtx, "arena_stats",
+	if (LOCKEDINT_MTX_INIT(arena_stats->mtx, "arena_stats",
 	    WITNESS_RANK_ARENA_STATS, malloc_mutex_rank_exclusive)) {
 		return true;
 	}
-#endif
 	/* Memory is zeroed, so there is no need to clear stats. */
 	return false;
 }
 
 static inline void
-arena_stats_lock(tsdn_t *tsdn, arena_stats_t *arena_stats) {
-#ifndef JEMALLOC_ATOMIC_U64
-	malloc_mutex_lock(tsdn, &arena_stats->mtx);
-#endif
-}
-
-static inline void
-arena_stats_unlock(tsdn_t *tsdn, arena_stats_t *arena_stats) {
-#ifndef JEMALLOC_ATOMIC_U64
-	malloc_mutex_unlock(tsdn, &arena_stats->mtx);
-#endif
-}
-
-static inline uint64_t
-arena_stats_read_u64(tsdn_t *tsdn, arena_stats_t *arena_stats,
-    arena_stats_u64_t *p) {
-#ifdef JEMALLOC_ATOMIC_U64
-	return atomic_load_u64(p, ATOMIC_RELAXED);
-#else
-	malloc_mutex_assert_owner(tsdn, &arena_stats->mtx);
-	return *p;
-#endif
-}
-
-static inline void
-arena_stats_add_u64(tsdn_t *tsdn, arena_stats_t *arena_stats,
-    arena_stats_u64_t *p, uint64_t x) {
-#ifdef JEMALLOC_ATOMIC_U64
-	atomic_fetch_add_u64(p, x, ATOMIC_RELAXED);
-#else
-	malloc_mutex_assert_owner(tsdn, &arena_stats->mtx);
-	*p += x;
-#endif
-}
-
-static inline void
-arena_stats_sub_u64(tsdn_t *tsdn, arena_stats_t *arena_stats,
-    arena_stats_u64_t *p, uint64_t x) {
-#ifdef JEMALLOC_ATOMIC_U64
-	uint64_t r = atomic_fetch_sub_u64(p, x, ATOMIC_RELAXED);
-	assert(r - x <= r);
-#else
-	malloc_mutex_assert_owner(tsdn, &arena_stats->mtx);
-	*p -= x;
-	assert(*p + x >= *p);
-#endif
-}
-
-/*
- * Non-atomically sets *dst += src.  *dst needs external synchronization.
- * This lets us avoid the cost of a fetch_add when its unnecessary (note that
- * the types here are atomic).
- */
-static inline void
-arena_stats_accum_u64(arena_stats_u64_t *dst, uint64_t src) {
-#ifdef JEMALLOC_ATOMIC_U64
-	uint64_t cur_dst = atomic_load_u64(dst, ATOMIC_RELAXED);
-	atomic_store_u64(dst, src + cur_dst, ATOMIC_RELAXED);
-#else
-	*dst += src;
-#endif
-}
-
-static inline size_t
-arena_stats_read_zu(tsdn_t *tsdn, arena_stats_t *arena_stats,
-    atomic_zu_t *p) {
-#ifdef JEMALLOC_ATOMIC_U64
-	return atomic_load_zu(p, ATOMIC_RELAXED);
-#else
-	malloc_mutex_assert_owner(tsdn, &arena_stats->mtx);
-	return atomic_load_zu(p, ATOMIC_RELAXED);
-#endif
-}
-
-static inline void
-arena_stats_add_zu(tsdn_t *tsdn, arena_stats_t *arena_stats,
-    atomic_zu_t *p, size_t x) {
-#ifdef JEMALLOC_ATOMIC_U64
-	atomic_fetch_add_zu(p, x, ATOMIC_RELAXED);
-#else
-	malloc_mutex_assert_owner(tsdn, &arena_stats->mtx);
-	size_t cur = atomic_load_zu(p, ATOMIC_RELAXED);
-	atomic_store_zu(p, cur + x, ATOMIC_RELAXED);
-#endif
-}
-
-static inline void
-arena_stats_sub_zu(tsdn_t *tsdn, arena_stats_t *arena_stats,
-    atomic_zu_t *p, size_t x) {
-#ifdef JEMALLOC_ATOMIC_U64
-	size_t r = atomic_fetch_sub_zu(p, x, ATOMIC_RELAXED);
-	assert(r - x <= r);
-#else
-	malloc_mutex_assert_owner(tsdn, &arena_stats->mtx);
-	size_t cur = atomic_load_zu(p, ATOMIC_RELAXED);
-	atomic_store_zu(p, cur - x, ATOMIC_RELAXED);
-#endif
-}
-
-/* Like the _u64 variant, needs an externally synchronized *dst. */
-static inline void
-arena_stats_accum_zu(atomic_zu_t *dst, size_t src) {
-	size_t cur_dst = atomic_load_zu(dst, ATOMIC_RELAXED);
-	atomic_store_zu(dst, src + cur_dst, ATOMIC_RELAXED);
-}
-
-static inline void
 arena_stats_large_flush_nrequests_add(tsdn_t *tsdn, arena_stats_t *arena_stats,
     szind_t szind, uint64_t nrequests) {
-	arena_stats_lock(tsdn, arena_stats);
+	LOCKEDINT_MTX_LOCK(tsdn, arena_stats->mtx);
 	arena_stats_large_t *lstats = &arena_stats->lstats[szind - SC_NBINS];
-	arena_stats_add_u64(tsdn, arena_stats, &lstats->nrequests, nrequests);
-	arena_stats_add_u64(tsdn, arena_stats, &lstats->nflushes, 1);
-	arena_stats_unlock(tsdn, arena_stats);
-}
-
-static inline void
-arena_stats_mapped_add(tsdn_t *tsdn, arena_stats_t *arena_stats, size_t size) {
-	arena_stats_lock(tsdn, arena_stats);
-	arena_stats_add_zu(tsdn, arena_stats, &arena_stats->mapped, size);
-	arena_stats_unlock(tsdn, arena_stats);
+	locked_inc_u64(tsdn, LOCKEDINT_MTX(arena_stats->mtx),
+	    &lstats->nrequests, nrequests);
+	locked_inc_u64(tsdn, LOCKEDINT_MTX(arena_stats->mtx),
+	    &lstats->nflushes, 1);
+	LOCKEDINT_MTX_UNLOCK(tsdn, arena_stats->mtx);
 }
 
 #endif /* JEMALLOC_INTERNAL_ARENA_STATS_H */

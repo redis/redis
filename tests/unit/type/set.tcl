@@ -53,14 +53,18 @@ start_server {
         assert_equal {16 17} [lsort [r smembers myset]]
     }
 
-    test {SMISMEMBER against non set} {
+    test {SMISMEMBER SMEMBERS SCARD against non set} {
         r lpush mylist foo
         assert_error WRONGTYPE* {r smismember mylist bar}
+        assert_error WRONGTYPE* {r smembers mylist}
+        assert_error WRONGTYPE* {r scard mylist}
     }
 
-    test {SMISMEMBER non existing key} {
+    test {SMISMEMBER SMEMBERS SCARD against non existing key} {
         assert_equal {0} [r smismember myset1 foo]
         assert_equal {0 0} [r smismember myset1 foo bar]
+        assert_equal {} [r smembers myset1]
+        assert_equal {0} [r scard myset1]
     }
 
     test {SMISMEMBER requires one or more members} {
@@ -109,13 +113,60 @@ start_server {
         assert_equal {1} [r smismember myset 213244124402402314402033402]
     }
 
-    test "SADD overflows the maximum allowed integers in an intset" {
+foreach type {single multiple single_multiple} {
+    test "SADD overflows the maximum allowed integers in an intset - $type" {
         r del myset
-        for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+
+        if {$type == "single"} {
+            # All are single sadd commands.
+            for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+        } elseif {$type == "multiple"} {
+            # One sadd command to add all elements.
+            set args {}
+            for {set i 0} {$i < 512} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        } elseif {$type == "single_multiple"} {
+            # First one sadd adds an element (creates a key) and then one sadd adds all elements.
+            r sadd myset 1
+            set args {}
+            for {set i 0} {$i < 512} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        }
+
         assert_encoding intset myset
+        assert_equal 512 [r scard myset]
         assert_equal 1 [r sadd myset 512]
         assert_encoding hashtable myset
     }
+
+    test "SADD overflows the maximum allowed elements in a listpack - $type" {
+        r del myset
+
+        if {$type == "single"} {
+            # All are single sadd commands.
+            r sadd myset a
+            for {set i 0} {$i < 127} {incr i} { r sadd myset $i }
+        } elseif {$type == "multiple"} {
+            # One sadd command to add all elements.
+            set args {}
+            lappend args a
+            for {set i 0} {$i < 127} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        } elseif {$type == "single_multiple"} {
+            # First one sadd adds an element (creates a key) and then one sadd adds all elements.
+            r sadd myset a
+            set args {}
+            lappend args a
+            for {set i 0} {$i < 127} {incr i} { lappend args $i }
+            r sadd myset {*}$args
+        }
+
+        assert_encoding listpack myset
+        assert_equal 128 [r scard myset]
+        assert_equal 1 [r sadd myset b]
+        assert_encoding hashtable myset
+    }
+}
 
     test {Variadic SADD} {
         r del myset
@@ -714,6 +765,7 @@ start_server {
         assert_encoding $type myset
         set res [r spop myset 30]
         assert {[lsort $content] eq [lsort $res]}
+        assert_equal {0} [r exists myset]
     }
 
     test "SPOP new implementation: code path #2 $type" {
@@ -736,6 +788,29 @@ start_server {
         assert {[lsort $union] eq [lsort $content]}
     }
     }
+
+    test "SPOP new implementation: code path #1 propagate as DEL or UNLINK" {
+        r del myset1{t} myset2{t}
+        r sadd myset1{t} 1 2 3 4 5
+        r sadd myset2{t} 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65
+
+        set repl [attach_to_replication_stream]
+
+        r config set lazyfree-lazy-server-del no
+        r spop myset1{t} [r scard myset1{t}]
+        r config set lazyfree-lazy-server-del yes
+        r spop myset2{t} [r scard myset2{t}]
+        assert_equal {0} [r exists myset1{t} myset2{t}]
+
+        # Verify the propagate of DEL and UNLINK.
+        assert_replication_stream $repl {
+            {select *}
+            {del myset1{t}}
+            {unlink myset2{t}}
+        }
+
+        close_replication_stream $repl
+    } {} {needs:repl}
 
     test "SRANDMEMBER count of 0 is handled correctly" {
         r srandmember myset 0
@@ -926,6 +1001,138 @@ start_server {
             }
         }
     }
+
+    proc is_rehashing {myset} {
+        set htstats [r debug HTSTATS-KEY $myset]
+        return [string match {*rehashing target*} $htstats]
+    }
+
+    proc rem_hash_set_top_N {myset n} {
+        set cursor 0
+        set members {}
+        set enough 0
+        while 1 {
+            set res [r sscan $myset $cursor]
+            set cursor [lindex $res 0]
+            set k [lindex $res 1]
+            foreach m $k {
+                lappend members $m
+                if {[llength $members] >= $n} {
+                    set enough 1
+                    break
+                }
+            }
+            if {$enough || $cursor == 0} {
+                break
+            }
+        }
+        r srem $myset {*}$members
+    }
+
+    proc verify_rehashing_completed_key {myset table_size keys} {
+        set htstats [r debug HTSTATS-KEY $myset]
+        assert {![string match {*rehashing target*} $htstats]}
+        return {[string match {*table size: $table_size*number of elements: $keys*} $htstats]}
+    }
+
+    test "SRANDMEMBER with a dict containing long chain" {
+        set origin_save [config_get_set save ""]
+        set origin_max_lp [config_get_set set-max-listpack-entries 0]
+        set origin_save_delay [config_get_set rdb-key-save-delay 2147483647]
+
+        # 1) Create a hash set with 100000 members.
+        set members {}
+        for {set i 0} {$i < 100000} {incr i} {
+            lappend members [format "m:%d" $i]
+        }
+        create_set myset $members
+
+        # 2) Wait for the hash set rehashing to finish.
+        while {[is_rehashing myset]} {
+            r srandmember myset 100
+        }
+
+        # 3) Turn off the rehashing of this set, and remove the members to 500.
+        r bgsave
+        rem_hash_set_top_N myset [expr {[r scard myset] - 500}]
+        assert_equal [r scard myset] 500
+
+        # 4) Kill RDB child process to restart rehashing.
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # 5) Let the set hash to start rehashing
+        r spop myset 1
+        assert [is_rehashing myset]
+
+        # 6) Verify that when rdb saving is in progress, rehashing will still be performed (because
+        # the ratio is extreme) by waiting for it to finish during an active bgsave.
+        r bgsave
+
+        while {[is_rehashing myset]} {
+            r srandmember myset 1
+        }
+        if {$::verbose} {
+            puts [r debug HTSTATS-KEY myset full]
+        }
+
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        # 7) Check that eventually, SRANDMEMBER returns all elements.
+        array set allmyset {}
+        foreach ele [r smembers myset] {
+            set allmyset($ele) 1
+        }
+        unset -nocomplain auxset
+        set iterations 1000
+        while {$iterations != 0} {
+            incr iterations -1
+            set res [r srandmember myset -10]
+            foreach ele $res {
+                set auxset($ele) 1
+            }
+            if {[lsort [array names allmyset]] eq
+                [lsort [array names auxset]]} {
+                break;
+            }
+        }
+        assert {$iterations != 0}
+
+        # 8) Remove the members to 30 in order to calculate the value of Chi-Square Distribution,
+        #    otherwise we would need more iterations.
+        rem_hash_set_top_N myset [expr {[r scard myset] - 30}]
+        assert_equal [r scard myset] 30
+        
+        # Hash set rehashing would be completed while removing members from the `myset`
+        # We also check the size and members in the hash table.
+        verify_rehashing_completed_key myset 64 30
+
+        # Now that we have a hash set with only one long chain bucket.
+        set htstats [r debug HTSTATS-KEY myset full]
+        assert {[regexp {different slots: ([0-9]+)} $htstats - different_slots]}
+        assert {[regexp {max chain length: ([0-9]+)} $htstats - max_chain_length]}
+        assert {$different_slots == 1 && $max_chain_length == 30}
+
+        # 9) Use positive count (PATH 4) to get 10 elements (out of 30) each time.
+        unset -nocomplain allkey
+        set iterations 1000
+        while {$iterations != 0} {
+            incr iterations -1
+            set res [r srandmember myset 10]
+            foreach ele $res {
+                lappend allkey $ele
+            }
+        }
+        # validate even distribution of random sampling (df = 29, 73 means 0.00001 probability)
+        assert_lessthan [chi_square_value $allkey] 73
+
+        r config set save $origin_save
+        r config set set-max-listpack-entries $origin_max_lp
+        r config set rdb-key-save-delay $origin_save_delay
+    } {OK} {needs:debug slow}
 
     proc setup_move {} {
         r del myset3{t} myset4{t}

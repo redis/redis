@@ -133,4 +133,36 @@ start_server {tags {"modules usercall"}} {
         assert_equal [dict get $entry reason] {command}
         assert_match {*cmd=usercall.call_with_user_flag*} [dict get $entry client-info]
     }
+
+    start_server {tags {"wait aof network external:skip"}} {
+        set slave [srv 0 client]
+        set slave_host [srv 0 host]
+        set slave_port [srv 0 port]
+        set slave_pid [srv 0 pid]
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+
+        $master config set appendonly yes
+        $master config set appendfsync everysec
+        $slave config set appendonly yes
+        $slave config set appendfsync everysec
+
+        test {Setup slave} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        test {test module replicate only to replicas and WAITAOF} {
+            $master set x 1
+            assert_equal [$master waitaof 1 1 10000] {1 1}
+            $master usercall.call_with_user_flag A! config set loglevel notice
+            # Make sure WAITAOF doesn't hang
+            assert_equal [$master waitaof 1 1 10000] {1 1}
+        }
+    }
 }

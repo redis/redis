@@ -209,6 +209,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     run_ctx->c = engine_client;
     run_ctx->original_client = caller;
     run_ctx->funcname = funcname;
+    run_ctx->slot = caller->slot;
 
     client *script_client = run_ctx->c;
     client *curr_client = run_ctx->original_client;
@@ -262,6 +263,8 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
         unprotectClient(run_ctx->original_client);
     }
 
+    run_ctx->slot = -1;
+
     preventCommandPropagation(run_ctx->original_client);
 
     /*  unset curr_run_ctx so we will know there is no running script */
@@ -292,6 +295,7 @@ void scriptKill(client *c, int is_eval) {
     if (mustObeyClient(curr_run_ctx->original_client)) {
         addReplyError(c,
                 "-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.");
+        return;
     }
     if (curr_run_ctx->flags & SCRIPT_WRITE_DIRTY) {
         addReplyError(c,
@@ -428,7 +432,7 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     c->flags &= ~(CLIENT_READONLY | CLIENT_ASKING);
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
     int hashslot = -1;
-    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != server.cluster->myself) {
+    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != getMyClusterNode()) {
         if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
             *err = sdsnew(
                     "Script attempted to execute a write command while the "
@@ -436,7 +440,22 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
         } else if (error_code == CLUSTER_REDIR_DOWN_STATE) {
             *err = sdsnew("Script attempted to execute a command while the "
                     "cluster is down");
+        } else if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
+            *err = sdscatfmt(sdsempty(), 
+                             "Command '%S' in script attempted to access keys that don't hash to the same slot",
+                             c->cmd->fullname);
+        } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
+            /* The request spawns multiple keys in the same slot,
+             * but the slot is not "stable" currently as there is
+             * a migration or import in progress. */
+            *err = sdscatfmt(sdsempty(),
+                             "Unable to execute command '%S' in script "
+                             "because undeclared keys were accessed during rehashing of the slot",
+                             c->cmd->fullname); 
+        } else if (error_code == CLUSTER_REDIR_DOWN_UNBOUND) {
+            *err = sdsnew("Script attempted to access a slot not served"); 
         } else {
+            /* error_code == CLUSTER_REDIR_MOVED || error_code == CLUSTER_REDIR_ASK */
             *err = sdsnew("Script attempted to access a non local key in a "
                     "cluster node");
         }
@@ -447,14 +466,18 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
      * already been thrown. This is only checking for cross slot keys being accessed
      * that weren't pre-declared. */
     if (hashslot != -1 && !(run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT)) {
-        if (original_c->slot == -1) {
-            original_c->slot = hashslot;
-        } else if (original_c->slot != hashslot) {
+        if (run_ctx->slot == -1) {
+            run_ctx->slot = hashslot;
+        } else if (run_ctx->slot != hashslot) {
             *err = sdsnew("Script attempted to access keys that do not hash to "
                     "the same slot");
             return C_ERR;
         }
     }
+
+    c->slot = hashslot;
+    original_c->slot = hashslot;
+
     return C_OK;
 }
 
