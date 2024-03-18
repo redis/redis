@@ -177,9 +177,9 @@ static dict *createDictIfNeeded(kvstore *kvs, int didx) {
  * KVSTORE_FREE_EMPTY_DICTS to determine whether the empty dict needs
  * to be freed.
  *
- * Note that for rehashing dicts, that is, in the case of safe iterators,
- * we won't delete the dict. The dict will check whether it needs to
- * be deleted when we're releasing the iterator. */
+ * Note that for rehashing dicts, that is, in the case of safe iterators
+ * and Scan, we won't delete the dict. We will check whether it needs
+ * to be deleted when we're releasing the iterator. */
 static void freeDictIfNeeded(kvstore *kvs, int didx) {
     if (!(kvs->flags & KVSTORE_FREE_EMPTY_DICTS) ||
         !kvstoreGetDict(kvs, didx) ||
@@ -584,6 +584,7 @@ kvstoreIterator *kvstoreIteratorInit(kvstore *kvs) {
 void kvstoreIteratorRelease(kvstoreIterator *kvs_it) {
     dictIterator *iter = &kvs_it->di;
     dictResetIterator(iter);
+    /* In the safe iterator context, we may delete entries. */
     freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
     zfree(kvs_it);
 }
@@ -598,6 +599,7 @@ dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it) {
         /* Before we move to the next dict, reset the iter of the previous dict. */
         dictIterator *iter = &kvs_it->di;
         dictResetIterator(iter);
+        /* In the safe iterator context, we may delete entries. */
         freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
     }
 
@@ -622,6 +624,7 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
             /* Before we move to the next dict, reset the iter of the previous dict. */
             dictIterator *iter = &kvs_it->di;
             dictResetIterator(iter);
+            /* In the safe iterator context, we may delete entries. */
             freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
         }
         dictInitSafeIterator(&kvs_it->di, d);
@@ -718,6 +721,7 @@ void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_di)
     /* The dict may be deleted during the iteration process, so here need to check for NULL. */
     if (kvstoreGetDict(kvs_di->kvs, kvs_di->didx)) {
         dictResetIterator(&kvs_di->di);
+        /* In the safe iterator context, we may delete entries. */
         freeDictIfNeeded(kvs_di->kvs, kvs_di->didx);
     }
 
