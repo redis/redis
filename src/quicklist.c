@@ -100,8 +100,8 @@ quicklistBookmark *_quicklistBookmarkFindByName(quicklist *ql, const char *name)
 quicklistBookmark *_quicklistBookmarkFindByNode(quicklist *ql, quicklistNode *node);
 void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 
-quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset, int after);
-quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
+REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset, int after);
+REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
 
 /* Simple way to give quicklistEntry structs default values with one call. */
 #define initEntry(e)                                                           \
