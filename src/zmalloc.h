@@ -128,6 +128,7 @@ __attribute__((malloc)) char *zstrdup(const char *s);
 size_t zmalloc_used_memory(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
 size_t zmalloc_get_rss(void);
+void zmalloc_update_epoch(void);
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes);
 int zmalloc_get_allocator_info_by_arena(unsigned int arena, size_t *allocated, size_t *active,

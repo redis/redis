@@ -681,11 +681,20 @@ size_t zmalloc_get_rss(void) {
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
 
+
+/* Update the statistics cached by mallctl. Make sure to call this before getting
+ * information from the allocator. */
+void zmalloc_update_epoch(void) {
+    uint64_t epoch = 1;
+    size_t sz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+}
+
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
  * Done by summing the memory in unused regs in all slabs of all small bins.
  *
  * Pass in arena to get the information of the specified arena, otherwise pass
- * in UINT_MAX to get all. */
+ * in MALLCTL_ARENAS_ALL to get all. */
 size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
     unsigned nbins;
     size_t sz, frag = 0;
@@ -743,12 +752,8 @@ size_t zmalloc_get_frag_smallbins(void) {
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
-    uint64_t epoch = 1;
     size_t sz;
     *allocated = *resident = *active = 0;
-    /* Update the statistics cached by mallctl. */
-    sz = sizeof(epoch);
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
     sz = sizeof(size_t);
     /* Unlike RSS, this does not include RSS from shared libraries and other non
      * heap mappings. */
@@ -790,13 +795,9 @@ int zmalloc_get_allocator_info_by_arena(unsigned int arena, size_t *allocated, s
                                         size_t *resident, size_t *frag_smallbins_bytes)
 {
     char buf[100];
-    uint64_t epoch = 1;
     size_t sz;
     *allocated = *resident = *active = 0;
 
-    /* Update the statistics cached by mallctl. */
-    sz = sizeof(epoch);
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
     sz = sizeof(size_t);
     /* Unlike RSS, this does not include RSS from shared libraries and other non
      * heap mappings. */
@@ -846,6 +847,8 @@ int jemalloc_purge(void) {
 }
 
 #else
+
+void zmalloc_get_allocator_info(void) {}
 
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
