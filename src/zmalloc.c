@@ -678,10 +678,6 @@ size_t zmalloc_get_rss(void) {
 
 #include "redisassert.h"
 
-#define STRINGIFY_(x) #x
-#define STRINGIFY(x) STRINGIFY_(x)
-
-
 /* Update the statistics cached by mallctl. Make sure to call this before getting
  * information from the allocator. */
 void zmalloc_update_epoch(void) {
@@ -707,28 +703,22 @@ size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
         uint32_t nregs;
 
         /* The size of the current bin */
-        snprintf(buf, sizeof(buf), "arenas.bin.%d.size", j);
+        snprintf(buf, sizeof(buf), "arenas.bin.%u.size", j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &reg_size, &sz, NULL, 0));
 
         /* Number of used regions in the bin */
-        if (arena == UINT_MAX)
-            snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curregs", j);
-        else
-            snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curregs", arena, j);
+        snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%u.curregs", arena, j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &curregs, &sz, NULL, 0));
 
         /* Number of regions per slab */
-        snprintf(buf, sizeof(buf), "arenas.bin.%d.nregs", j);
+        snprintf(buf, sizeof(buf), "arenas.bin.%u.nregs", j);
         sz = sizeof(uint32_t);
         assert(!je_mallctl(buf, &nregs, &sz, NULL, 0));
 
         /* Number of current slabs in the bin */
-        if (arena == UINT_MAX)
-            snprintf(buf, sizeof(buf), "stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".bins.%d.curslabs", j);
-        else
-            snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%d.curslabs", arena, j);
+        snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%u.curslabs", arena, j);
         sz = sizeof(size_t);
         assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
 
@@ -776,8 +766,10 @@ int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *reside
     /* Unlike retained, Muzzy representats memory released with `madvised(..., MADV_FREE)`.
      * These pages will show as RSS for the process, until the OS decides to re-use them. */
     if (muzzy) {
+        char buf[100];
         size_t pmuzzy, page;
-        assert(!je_mallctl("stats.arenas." STRINGIFY(MALLCTL_ARENAS_ALL) ".pmuzzy", &pmuzzy, &sz, NULL, 0));
+        snprintf(buf, sizeof(buf), "stats.arenas.%u.pmuzzy", MALLCTL_ARENAS_ALL);
+        assert(!je_mallctl(buf, &pmuzzy, &sz, NULL, 0));
         assert(!je_mallctl("arenas.page", &page, &sz, NULL, 0));
         *muzzy = pmuzzy * page;
     }
@@ -839,7 +831,7 @@ int jemalloc_purge(void) {
     unsigned narenas = 0;
     size_t sz = sizeof(unsigned);
     if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
-        snprintf(tmp, sizeof(tmp), "arena.%d.purge", narenas);
+        snprintf(tmp, sizeof(tmp), "arena.%u.purge", narenas);
         if (!je_mallctl(tmp, NULL, 0, NULL, 0))
             return 0;
     }
