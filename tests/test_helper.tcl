@@ -105,7 +105,6 @@ set ::all_tests {
     unit/cluster/diskless-load-swapdb
     unit/cluster/faildet
     unit/cluster/failover
-    unit/cluster/failover-loop
     unit/cluster/half-migrated-slot
     unit/cluster/info
     unit/cluster/manual-failover

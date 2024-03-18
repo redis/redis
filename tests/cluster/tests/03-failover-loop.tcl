@@ -3,27 +3,31 @@
 # iterations. The test checks that certain properties
 # are preserved across iterations.
 
-start_cluster 5 5 {tags {external:skip cluster}} {
+source "../tests/includes/init-tests.tcl"
+
+test "Create a 5 nodes cluster" {
+    create_cluster 5 5
+}
 
 test "Cluster is up" {
-    wait_for_cluster_state ok
+    assert_cluster_state ok
 }
 
 set iterations 20
-set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
+set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 
 while {[incr iterations -1]} {
-    set tokill [randomRange 1 10] ;# Remove server 0 because we are going to use cluster
-    puts "tokill: $tokill"
+    set tokill [randomInt 10]
+    set other [expr {($tokill+1)%10}] ; # Some other instance.
     set key [randstring 20 20 alpha]
     set val [randstring 20 20 alpha]
-    set role [s [expr -$tokill] role]
+    set role [RI $tokill role]
     if {$role eq {master}} {
         set slave {}
-        set myid [dict get [cluster_get_myself $tokill] id]
-        for {set id 0} {$id < [llength $::servers]} {incr id} {
+        set myid [dict get [get_myself $tokill] id]
+        foreach_redis_id id {
             if {$id == $tokill} continue
-            if {[dict get [cluster_get_myself $id] slaveof] eq $myid} {
+            if {[dict get [get_myself $id] slaveof] eq $myid} {
                 set slave $id
             }
         }
@@ -37,7 +41,7 @@ while {[incr iterations -1]} {
     if {$role eq {master}} {
         test "Wait for slave of #$tokill to sync" {
             wait_for_condition 1000 50 {
-                [string match {*state=online*} [s [expr -$tokill] slave0]]
+                [string match {*state=online*} [RI $tokill slave0]]
             } else {
                 fail "Slave of node #$tokill is not ok"
             }
@@ -57,11 +61,10 @@ while {[incr iterations -1]} {
         }
     }
 
-    set paused_pid [srv [expr -$tokill] pid]
     test "Terminating node #$tokill" {
         # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
         R $tokill config set appendonly no
-        pause_process $paused_pid
+        kill_instance redis $tokill
     }
 
     if {$role eq {master}} {
@@ -75,14 +78,7 @@ while {[incr iterations -1]} {
     }
 
     test "Cluster should eventually be up again" {
-        for {set j 0} {$j < [llength $::servers]} {incr j} {
-            if {[process_is_paused $paused_pid]} continue
-            wait_for_condition 1000 50 {
-                [CI $j cluster_state] eq "ok"
-            } else {
-                fail "Cluster node $j cluster_state:[CI $j cluster_state]"
-            }
-        }
+        assert_cluster_state ok
     }
 
     test "Cluster is writable again" {
@@ -93,13 +89,12 @@ while {[incr iterations -1]} {
     }
 
     test "Restarting node #$tokill" {
-        resume_process $paused_pid
-        restart_server [expr -$tokill] true false
+        restart_instance redis $tokill
     }
 
     test "Instance #$tokill is now a slave" {
         wait_for_condition 1000 50 {
-            [s [expr -$tokill] role] eq {slave}
+            [RI $tokill role] eq {slave}
         } else {
             fail "Restarted instance is not a slave"
         }
@@ -116,9 +111,7 @@ while {[incr iterations -1]} {
 }
 
 test "Post condition: current_epoch >= my_epoch everywhere" {
-    for {set id 0} {$id < [llength $::servers]} {incr id} {
+    foreach_redis_id id {
         assert {[CI $id cluster_current_epoch] >= [CI $id cluster_my_epoch]}
     }
 }
-
-} ;# start_cluster

@@ -1,3 +1,5 @@
+source "../tests/includes/init-tests.tcl"
+
 # Initial slot distribution.
 set ::slot0 [list 0 1000 1002 5459 5461 5461 10926 10926]
 set ::slot1 [list 5460 5460 5462 10922 10925 10925]
@@ -8,6 +10,11 @@ proc cluster_create_with_split_slots {masters replicas} {
     for {set j 0} {$j < $masters} {incr j} {
         R $j cluster ADDSLOTSRANGE {*}[set ::slot${j}]
     }
+    if {$replicas} {
+        cluster_allocate_slaves $masters $replicas
+    }
+    set ::cluster_master_nodes $masters
+    set ::cluster_replica_nodes $replicas
 }
 
 # Get the node info with the specific node_id from the
@@ -43,13 +50,12 @@ proc cluster_ensure_master {id} {
     }
 }
 
-start_cluster 4 4 {tags {external:skip cluster}} {
-
-set ::cluster_master_nodes 4
-set ::cluster_replica_nodes 4
+test "Create a 8 nodes cluster with 4 shards" {
+    cluster_create_with_split_slots 4 4
+}
 
 test "Cluster should start ok" {
-    wait_for_cluster_state ok
+    assert_cluster_state ok
 }
 
 test "Set cluster hostnames and verify they are propagated" {
@@ -78,10 +84,10 @@ test "Verify information about the shards" {
             assert_equal "127.0.0.1"  [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] endpoint]
 
             if {$::tls} {
-                assert_equal [srv -$i pport] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
-                assert_equal [srv -$i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] tls-port]
+                assert_equal [get_instance_attrib redis $i plaintext-port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
+                assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] tls-port]
             } else {
-                assert_equal [srv -$i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
+                assert_equal [get_instance_attrib redis $i port] [dict get [get_node_info_from_shard [lindex $ids $i] $ref "node"] port]
             }
 
             if {$i < 4} {
@@ -95,27 +101,23 @@ test "Verify information about the shards" {
     }
 }
 
-# TODO: # TODO: R 8 will be accessed, but we have not started so many servers
-if {false} {
 test "Verify no slot shard" {
     # Node 8 has no slots assigned
     set node_8_id [R 8 CLUSTER MYID]
     assert_equal {} [dict get [get_node_info_from_shard $node_8_id 8 "shard"] slots]
     assert_equal {} [dict get [get_node_info_from_shard $node_8_id 0 "shard"] slots]
 }
-}
 
 set node_0_id [R 0 CLUSTER MYID]
-set paused_pid [srv 0 pid]
 
 test "Kill a node and tell the replica to immediately takeover" {
-    pause_process $paused_pid
+    kill_instance redis 0
     R 4 cluster failover force
 }
 
 # Primary 0 node should report as fail, wait until the new primary acknowledges it.
 test "Verify health as fail for killed node" {
-    wait_for_condition 500 100 {
+    wait_for_condition 50 100 {
         "fail" eq [dict get [get_node_info_from_shard $node_0_id 4 "node"] "health"]
     } else {
         fail "New primary never detected the node failed"
@@ -126,12 +128,12 @@ set primary_id 4
 set replica_id 0
 
 test "Restarting primary node" {
-    resume_process $paused_pid
+    restart_instance redis $replica_id
 }
 
 test "Instance #0 gets converted into a replica" {
     wait_for_condition 1000 50 {
-        [s -$replica_id role] eq {slave}
+        [RI $replica_id role] eq {slave}
     } else {
         fail "Old primary was not converted into replica"
     }
@@ -197,8 +199,6 @@ test "Test the replica reports a loading state while it's loading" {
     assert_equal "online" [dict get [get_node_info_from_shard $replica_cluster_id $replica_id "node"] health]
 }
 
-# TODO: R 19 will be accessed, but we have not started so many servers
-if {false} {
 test "Regression test for a crash when calling SHARDS during handshake" {
     # Reset forget a node, so we can use it to establish handshaking connections
     set id [R 19 CLUSTER MYID]
@@ -206,17 +206,15 @@ test "Regression test for a crash when calling SHARDS during handshake" {
     for {set i 0} {$i < 19} {incr i} {
         R $i CLUSTER FORGET $id
     }
-    R 19 cluster meet 127.0.0.1 [srv 0 port]
+    R 19 cluster meet 127.0.0.1 [get_instance_attrib redis 0 port]
     # This should line would previously crash, since all the outbound
     # connections were in handshake state.
     R 19 CLUSTER SHARDS
 }
-}
 
 test "Cluster is up" {
-    wait_for_cluster_state ok
+    assert_cluster_state ok
 }
-
 test "Shard ids are unique" {
     set shard_ids {}
     for {set i 0} {$i < 4} {incr i} {
@@ -233,8 +231,6 @@ test "CLUSTER MYSHARDID reports same id for both primary and replica" {
     }
 }
 
-# TODO: R 8 will be accessed, but we have not started so many servers
-if {false} {
 test "New replica receives primary's shard id" {
     #find a primary
     set id 0
@@ -247,25 +243,22 @@ test "New replica receives primary's shard id" {
     assert_equal {OK} [R 8 cluster replicate [R $id cluster myid]]
     assert_equal [R 8 cluster myshardid] [R $id cluster myshardid]
 }
-}
 
 test "CLUSTER MYSHARDID reports same shard id after shard restart" {
     set node_ids {}
     for {set i 0} {$i < 8} {incr i 4} {
         dict set node_ids $i [R $i cluster myshardid]
-        set paused_pid [srv -$i pid]
-        pause_process $paused_pid
+        kill_instance redis $i
         wait_for_condition 50 100 {
-            [process_is_paused $paused_pid]
+            [instance_is_killed redis $i]
         } else {
             fail "instance $i is not killed"
         }
     }
     for {set i 0} {$i < 8} {incr i 4} {
-        set paused_pid [srv -$i pid]
-        resume_process $paused_pid
+        restart_instance redis $i
     }
-    wait_for_cluster_state ok
+    assert_cluster_state ok
     for {set i 0} {$i < 8} {incr i 4} {
         assert_equal [dict get $node_ids $i] [R $i cluster myshardid]
     }
@@ -277,22 +270,18 @@ test "CLUSTER MYSHARDID reports same shard id after cluster restart" {
         dict set node_ids $i [R $i cluster myshardid]
     }
     for {set i 0} {$i < 8} {incr i} {
-        set paused_pid [srv -$i pid]
-        pause_process $paused_pid
+        kill_instance redis $i
         wait_for_condition 50 100 {
-            [process_is_paused $paused_pid]
+            [instance_is_killed redis $i]
         } else {
             fail "instance $i is not killed"
         }
     }
     for {set i 0} {$i < 8} {incr i} {
-        set paused_pid [srv -$i pid]
-        resume_process $paused_pid
+        restart_instance redis $i
     }
-    wait_for_cluster_state ok
+    assert_cluster_state ok
     for {set i 0} {$i < 8} {incr i} {
         assert_equal [dict get $node_ids $i] [R $i cluster myshardid]
     }
 }
-
-} cluster_create_with_split_slots cluster_allocate_replicas ;# start_cluster
