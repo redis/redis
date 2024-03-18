@@ -849,19 +849,21 @@ int jemalloc_purge(void) {
 
 #else
 
-int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+int zmalloc_get_allocator_info(int refresh_stats, size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
 {
+    UNUSED(refresh_stats);
     *allocated = *resident = *active = *frag_smallbins_bytes = 0;
     if (retained) *retained = 0;
     if (muzzy) *muzzy = 0;
     return 1;
 }
 
-int zmalloc_get_allocator_info_by_arena(unsigned int arena, size_t *allocated, size_t *active,
-                                        size_t *resident, size_t *frag_smallbins_bytes)
+int zmalloc_get_allocator_info_by_arena(unsigned int arena, int refresh_stats, size_t *allocated,
+                                        size_t *active, size_t *resident, size_t *frag_smallbins_bytes)
 {
     UNUSED(arena);
+    UNUSED(refresh_stats);
     *allocated = *resident = *active = *frag_smallbins_bytes = 0;
     return 1;
 }
