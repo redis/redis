@@ -997,6 +997,32 @@ unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **new
 }
 
 /* Delete a range of entries from the listpack start with the element pointed by 'p'. */
+unsigned char *lpDeleteRangeWithEntryPtr(unsigned char *lp, unsigned char **first, unsigned char *tail, unsigned long num) {
+    if (num == 0) return lp;  /* Nothing to delete, return ASAP. */
+    size_t bytes = lpBytes(lp);
+    unsigned char *eofptr = lp + bytes - 1;
+    assert(*first != NULL); 
+    if (tail == NULL) tail = eofptr;
+    /* Store the offset of the element 'first', so that we can obtain its
+     * address again after a reallocation. */
+    unsigned long poff = *first-lp;
+
+    /* Move tail to the front of the listpack */
+    memmove(*first, tail, eofptr - tail + 1);
+    lpSetTotalBytes(lp, bytes - (tail - *first));
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN)
+        lpSetNumElements(lp, numele-num);
+    lp = lpShrinkToFit(lp);
+
+    /* Store the entry. */
+    *first = lp+poff;
+    if ((*first)[0] == LP_EOF) *first = NULL;
+
+    return lp;
+}
+
+/* Delete a range of entries from the listpack start with the element pointed by 'p'. */
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num) {
     size_t bytes = lpBytes(lp);
     unsigned long deleted = 0;

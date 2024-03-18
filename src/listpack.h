@@ -69,6 +69,7 @@ unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s,
 unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long lval);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
+unsigned char *lpDeleteRangeWithEntryPtr(unsigned char *lp, unsigned char **first, unsigned char *tail, unsigned long num);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
 unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);

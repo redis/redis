@@ -1174,7 +1174,8 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
         }
     }
     if (num)
-        zl = lpDeleteRangeWithEntry(zl, &first_ele, 2 * num);
+        zl = lpDeleteRangeWithEntryPtr(zl, &first_ele, eptr, 2*num);
+        // zl = lpDeleteRangeWithEntry(zl, &first_ele, 2 * num);
     if (deleted != NULL) *deleted = num;
     return zl;
 }
