@@ -1451,7 +1451,7 @@ int clusterNodeFailureReportsCount(clusterNode *node) {
 }
 
 static int clusterNodeNameComparator(const void *node1, const void *node2) {
-    return strncasecmp(((clusterNode *)node1)->name, ((clusterNode *)node2)->name, CLUSTER_NAMELEN);
+    return strncasecmp((*(clusterNode **)node1)->name, (*(clusterNode **)node2)->name, CLUSTER_NAMELEN);
 }
 
 int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
