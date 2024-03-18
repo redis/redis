@@ -848,7 +848,7 @@ int jemalloc_purge(void) {
 
 #else
 
-void zmalloc_get_allocator_info(void) {}
+void zmalloc_update_epoch(void) {}
 
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes)
