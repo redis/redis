@@ -98,10 +98,10 @@ static dict **kvstoreGetDictRef(kvstore *kvs, int didx) {
     return &kvs->dicts[didx];
 }
 
-static int kvstoreDictIsPauseRehashing(kvstore *kvs, int didx)
+static int kvstoreDictIsRehashingPaused(kvstore *kvs, int didx)
 {
     dict *d = kvstoreGetDict(kvs, didx);
-    return d ? dictIsPauseRehashing(d) : 0;
+    return d ? dictIsRehashingPaused(d) : 0;
 }
 
 /* Returns total (cumulative) number of keys up until given dict-index (inclusive).
@@ -173,11 +173,18 @@ static dict *createDictIfNeeded(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
+/* Called when the dict will delete entries, the function will check
+ * KVSTORE_FREE_EMPTY_DICTS to determine whether the empty dict needs
+ * to be freed.
+ *
+ * Note that for rehashing dicts, that is, in the case of safe iterators,
+ * we won't delete the dict. The dict will check whether it needs to
+ * be deleted when we're releasing the iterator. */
 static void freeDictIfNeeded(kvstore *kvs, int didx) {
     if (!(kvs->flags & KVSTORE_FREE_EMPTY_DICTS) ||
         !kvstoreGetDict(kvs, didx) ||
         kvstoreDictSize(kvs, didx) != 0 ||
-        kvstoreDictIsPauseRehashing(kvs, didx))
+        kvstoreDictIsRehashingPaused(kvs, didx))
         return;
     dictRelease(kvs->dicts[didx]);
     kvs->dicts[didx] = NULL;
