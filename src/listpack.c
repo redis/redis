@@ -996,7 +996,9 @@ unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **new
     return lpInsert(lp,NULL,NULL,0,p,LP_REPLACE,newp);
 }
 
-/* Delete a range of entries from the listpack start with the element pointed by 'p'. */
+/* Delete a range of entries from the first address to tail address. 
+ * 'num' means the num of entries in this range. The function returns 
+ * the new listpack as return value, and also sets 'first' pointing to the next entry. */
 unsigned char *lpDeleteRangeWithEntryPtr(unsigned char *lp, unsigned char **first, unsigned char *tail, unsigned long num) {
     if (num == 0) return lp;  /* Nothing to delete, return ASAP. */
     size_t bytes = lpBytes(lp);
@@ -1026,9 +1028,7 @@ unsigned char *lpDeleteRangeWithEntryPtr(unsigned char *lp, unsigned char **firs
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num) {
     size_t bytes = lpBytes(lp);
     unsigned long deleted = 0;
-    unsigned char *eofptr = lp + bytes - 1;
-    unsigned char *first, *tail;
-    first = tail = *p;
+    unsigned char *tail = *p;
 
     if (num == 0) return lp;  /* Nothing to delete, return ASAP. */
 
@@ -1042,23 +1042,7 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
         lpAssertValidEntry(lp, bytes, tail);
     }
 
-    /* Store the offset of the element 'first', so that we can obtain its
-     * address again after a reallocation. */
-    unsigned long poff = first-lp;
-
-    /* Move tail to the front of the listpack */
-    memmove(first, tail, eofptr - tail + 1);
-    lpSetTotalBytes(lp, bytes - (tail - first));
-    uint32_t numele = lpGetNumElements(lp);
-    if (numele != LP_HDR_NUMELE_UNKNOWN)
-        lpSetNumElements(lp, numele-deleted);
-    lp = lpShrinkToFit(lp);
-
-    /* Store the entry. */
-    *p = lp+poff;
-    if ((*p)[0] == LP_EOF) *p = NULL;
-
-    return lp;
+    return lpDeleteRangeWithEntryPtr(lp, p, tail, deleted);
 }
 
 /* Delete a range of entries from the listpack. */
