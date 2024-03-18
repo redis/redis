@@ -164,6 +164,7 @@ typedef struct {
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 #define dictPauseRehashing(d) ((d)->pauserehash++)
 #define dictResumeRehashing(d) ((d)->pauserehash--)
+#define dictIsPauseRehashing(d) ((d)->pauserehash > 0)
 #define dictPauseAutoResize(d) ((d)->pauseAutoResize++)
 #define dictResumeAutoResize(d) ((d)->pauseAutoResize--)
 
