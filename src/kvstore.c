@@ -186,7 +186,10 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
         kvstoreDictSize(kvs, didx) != 0 ||
         kvstoreDictIsRehashingPaused(kvs, didx))
         return;
-    dictRelease(kvs->dicts[didx]);
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (dictIsRehashing(d) && d->type->rehashingCompleted) 
+        d->type->rehashingCompleted(d);
+    dictRelease(d);
     kvs->dicts[didx] = NULL;
     kvs->allocated_dicts--;
 }
