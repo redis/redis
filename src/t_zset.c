@@ -1985,7 +1985,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
          * The range is empty when start > end or start >= length. */
         if (start > end || start >= llen) {
             addReply(c,shared.czero);
-            return;
+            goto cleanup;
         }
         if (end >= llen) end = llen-1;
     }
