@@ -4051,9 +4051,12 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
             /* There must be an element in the sorted set. */
             serverAssertWithInfo(c,zobj,zln != NULL);
+            /* Avoid the unnecessary copy of sds. */
             ele = result_count == 0 ? sdsdup(zln->ele) : zln->ele;
             score = zln->score;
-            /* Avoid the unnecessary copy of sds. */
+            /* In previous versions, we call notifyKeyspaceEvent after the first entry is deleted. 
+             * Here we have to be compatible with this behavior. Otherwise we can delete all entries 
+             * in one zslDeleteRangeByRank. */
             if (result_count == 0) {
                 serverAssertWithInfo(c, zobj, zsetRemoveFromSkiplist(zs, ele));
             }
