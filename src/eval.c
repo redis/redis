@@ -201,6 +201,15 @@ void scriptingSetup(void) {
         exit(1);
     }
     server.lua_arena = arena;
+
+    unsigned int tcache;
+    sz = sizeof(unsigned int);
+    err = je_mallctl("tcache.create", (void *)&tcache, &sz, NULL, 0);
+    if (err) {
+        serverLog(LL_WARNING, "Failed creating the lua jemalloc tcache.");
+        exit(1);
+    }
+    server.lua_tcache = tcache;
 }
 
 #else
@@ -229,6 +238,7 @@ void scriptingInit(int setup) {
     if (setup) {
         lctx.lua_client = NULL;
         server.lua_arena = UINT_MAX;
+        server.lua_tcache = UINT_MAX;
         server.script_disable_deny_script = 0;
         ldbInit();
         scriptingSetup();
