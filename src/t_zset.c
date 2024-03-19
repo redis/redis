@@ -1234,7 +1234,8 @@ unsigned long zsetLength(const robj *zobj) {
  * and the value len hint indicates the approximate individual size of the added elements,
  * they are used to determine the initial representation.
  *
- * If the hints are not known, and underestimation or 0 is suitable. */
+ * If the hints are not known, and underestimation or 0 is suitable. 
+ * We should never pass a negative value because it will convert to a very large unsigned number. */
 robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
     if (size_hint <= server.zset_max_listpack_entries &&
         val_len_hint <= server.zset_max_listpack_value)
@@ -3073,7 +3074,7 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
-    handler->dstobj = zsetTypeCreate(length, 0);
+    handler->dstobj = zsetTypeCreate(length >= 0 ? length : 0, 0);
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
