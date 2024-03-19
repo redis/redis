@@ -177,10 +177,15 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
+    int slot_count_bits = 0;
+    int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
+    if (server.cluster_enabled) {
+        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
-    db->keys = kvstoreCreate(&dbDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-    db->expires = kvstoreCreate(&dbExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
+    db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
     atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldkeys, oldexpires);
 }

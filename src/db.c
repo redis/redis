@@ -563,12 +563,17 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
 
 /* Initialize temporary db on replica for use during diskless replication. */
 redisDb *initTempDb(void) {
+    int slot_count_bits = 0;
+    int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
+    if (server.cluster_enabled) {
+        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    }
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
         tempDb[i].id = i;
-        int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
-        tempDb[i].keys = kvstoreCreate(&dbDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        tempDb[i].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
+        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
     }
 
     return tempDb;
