@@ -178,10 +178,10 @@ static void *luaAlloc(void *ud, void *ptr, size_t osize, size_t nsize) {
     UNUSED(ud);
     UNUSED(osize);
     if (nsize == 0) {
-        zfree_with_flags(ptr, MALLOCX_ARENA(server.lua_arena));
+        zfree_with_flags(ptr, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE_NONE);
         return NULL;
     } else {
-        return zrealloc_with_flags(ptr, nsize, MALLOCX_ARENA(server.lua_arena));
+        return zrealloc_with_flags(ptr, nsize, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE_NONE);
     }
 }
 
