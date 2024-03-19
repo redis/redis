@@ -1817,7 +1817,7 @@ int freeClientsInAsyncFreeQueue(void) {
             }
             if (server.unixtime - c->rdb_client_disconnect_time > server.wait_before_rdb_client_free) {
                 serverLog(LL_NOTICE, "Replica main connection failed to establish PSYNC within the grace period. Freeing RDB client %lu.", c->id);
-                c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
+                c->flags &= ~CLIENT_PROTECTED_RDB_CHANNEL;
             }
         }
 
@@ -2671,6 +2671,9 @@ void readQueryFromClient(connection *conn) {
     int nread, big_arg = 0;
     size_t qblen, readlen;
 
+    /* If the replica RDB client is marked as closed ASAP, do not try to read from it */
+    if ((c->flags & CLIENT_CLOSE_ASAP) && (c->flags & CLIENT_PROTECTED_RDB_CHANNEL)) return;
+
     /* Check if we want to read from the client later when exiting from
      * the event loop. This is the case if threaded I/O is enabled. */
     if (postponeClientRead(c)) return;
@@ -2732,6 +2735,9 @@ void readQueryFromClient(connection *conn) {
         if (server.verbosity <= LL_VERBOSE) {
             sds info = catClientInfoString(sdsempty(), c);
             serverLog(LL_VERBOSE, "Client closed connection %s", info);
+            if (c->flags & CLIENT_PROTECTED_RDB_CHANNEL) {
+                serverLog(LL_VERBOSE, "Postpone RDB client (%lu) free for %d seconds", c->id, server.wait_before_rdb_client_free);
+            }
             sdsfree(info);
         }
         freeClientAsync(c);
