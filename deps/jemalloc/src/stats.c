@@ -321,7 +321,7 @@ stats_arena_bins_print(emitter_t *emitter, bool mutex, unsigned i,
 
 	COL_HDR(row, size, NULL, right, 20, size)
 	COL_HDR(row, ind, NULL, right, 4, unsigned)
-	COL_HDR(row, allocated, NULL, right, 13, uint64)
+	COL_HDR(row, allocated, NULL, right, 13, size)
 	COL_HDR(row, nmalloc, NULL, right, 13, uint64)
 	COL_HDR(row, nmalloc_ps, "(#/sec)", right, 8, uint64)
 	COL_HDR(row, ndalloc, NULL, right, 13, uint64)
