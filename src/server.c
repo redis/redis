@@ -2611,6 +2611,7 @@ void initServer(void) {
     server.slaves = listCreate();
     server.monitors = listCreate();
     server.clients_pending_write = listCreate();
+    server.clients_pending_write_async = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();
     server.replication_allowed = 1;
@@ -2865,6 +2866,7 @@ void initListeners(void) {
 void InitServerLast(void) {
     bioInit();
     initThreadedIO();
+    initIOUring();
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
     server.initial_memory_usage = zmalloc_used_memory();
 }
@@ -7180,6 +7182,7 @@ int main(int argc, char **argv) {
 
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
+    freeIOUring();
     return 0;
 }
 

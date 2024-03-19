@@ -211,6 +211,7 @@ client *createClient(connection *conn) {
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
     listInitNode(&c->clients_pending_write_node, c);
+    listInitNode(&c->clients_pending_write_async_node, c);
     c->mem_usage_bucket = NULL;
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
@@ -1822,10 +1823,8 @@ client *lookupClientByID(uint64_t id) {
 
 /* This function should be called from _writeToClient when the reply list is not empty,
  * it gathers the scattered buffers from reply list and sends them away with connWritev.
- * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
- * and 'nwritten' is an output parameter, it means how many bytes server write
- * to client. */
-static int _writevToClient(client *c, ssize_t *nwritten) {
+ * If we write successfully, it returns C_OK, otherwise, C_ERR is returned. */
+static int _writevToClient(client *c) {
     int iovcnt = 0;
     int iovmax = min(IOV_MAX, c->conn->iovcnt);
     struct iovec iov[iovmax];
@@ -1859,12 +1858,12 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         offset = 0;
     }
     if (iovcnt == 0) return C_OK;
-    *nwritten = connWritev(c->conn, iov, iovcnt);
-    if (*nwritten <= 0) return C_ERR;
+    c->nwritten = connWritev(c->conn, iov, iovcnt);
+    if (c->nwritten <= 0) return C_ERR;
 
     /* Locate the new node which has leftover data and
      * release all nodes in front of it. */
-    ssize_t remaining = *nwritten;
+    ssize_t remaining = c->nwritten;
     if (c->bufpos > 0) { /* deal with static reply buffer first. */
         int buf_len = c->bufpos - c->sentlen;
         c->sentlen += remaining;
@@ -1895,11 +1894,8 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
 
 /* This function does actual writing output buffers to different types of
  * clients, it is called by writeToClient.
- * If we write successfully, it returns C_OK, otherwise, C_ERR is returned,
- * and 'nwritten' is an output parameter, it means how many bytes server write
- * to client. */
-int _writeToClient(client *c, ssize_t *nwritten) {
-    *nwritten = 0;
+ * If we write successfully, it returns C_OK, otherwise, C_ERR is returned. */
+int _writeToClient(client *c) {
     if (getClientType(c) == CLIENT_TYPE_SLAVE) {
         serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
 
@@ -1907,10 +1903,10 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         serverAssert(o->used >= c->ref_block_pos);
         /* Send current block if it is not fully sent. */
         if (o->used > c->ref_block_pos) {
-            *nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
+            c->nwritten = connWrite(c->conn, o->buf+c->ref_block_pos,
                                   o->used-c->ref_block_pos);
-            if (*nwritten <= 0) return C_ERR;
-            c->ref_block_pos += *nwritten;
+            if (c->nwritten <= 0) return C_ERR;
+            c->ref_block_pos += c->nwritten;
         }
 
         /* If we fully sent the object on head, go to the next one. */
@@ -1928,7 +1924,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
     /* When the reply list is not empty, it's better to use writev to save us some
      * system calls and TCP packets. */
     if (listLength(c->reply) > 0) {
-        int ret = _writevToClient(c, nwritten);
+        int ret = _writevToClient(c);
         if (ret != C_OK) return ret;
 
         /* If there are no longer objects in the list, we expect
@@ -1936,9 +1932,14 @@ int _writeToClient(client *c, ssize_t *nwritten) {
         if (listLength(c->reply) == 0)
             serverAssert(c->reply_bytes == 0);
     } else if (c->bufpos > 0) {
-        *nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
-        if (*nwritten <= 0) return C_ERR;
-        c->sentlen += *nwritten;
+        if (server.io_uring_enabled) {
+            c->flags |= CLIENT_PENDING_WRITE_ASYNC;
+            ioUringPrepWrite(c);
+            return C_OK;
+        }
+        c->nwritten = connWrite(c->conn, c->buf + c->sentlen, c->bufpos - c->sentlen);
+        if (c->nwritten <= 0) return C_ERR;
+        c->sentlen += c->nwritten;
 
         /* If the buffer was sent, set bufpos to zero to continue with
          * the remainder of the reply. */
@@ -1946,7 +1947,7 @@ int _writeToClient(client *c, ssize_t *nwritten) {
             c->bufpos = 0;
             c->sentlen = 0;
         }
-    } 
+    }
 
     return C_OK;
 }
@@ -1963,12 +1964,14 @@ int writeToClient(client *c, int handler_installed) {
     /* Update total number of writes on server */
     atomicIncr(server.stat_total_writes_processed, 1);
 
-    ssize_t nwritten = 0, totwritten = 0;
-
+    ssize_t totwritten = 0;
+    c->nwritten = 0;
     while(clientHasPendingReplies(c)) {
-        int ret = _writeToClient(c, &nwritten);
+        int ret = _writeToClient(c);
+        /* If use io_uring to write, just return. */
+        if (c->flags & CLIENT_PENDING_WRITE_ASYNC) return C_OK;
         if (ret == C_ERR) break;
-        totwritten += nwritten;
+        totwritten += c->nwritten;
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
@@ -1993,7 +1996,7 @@ int writeToClient(client *c, int handler_installed) {
         atomicIncr(server.stat_net_output_bytes, totwritten);
     }
 
-    if (nwritten == -1) {
+    if (c->nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", connGetLastError(c->conn));
@@ -2039,6 +2042,44 @@ void sendReplyToClient(connection *conn) {
     writeToClient(c,1);
 }
 
+int checkPendingWriteAsync(client *c) {
+    /* Note that where synchronous system calls will return -1 on
+     * failure and set errno to the actual error value,
+     * io_uring never uses errno. Instead it returns the negated
+     * errno directly in the CQE res field. */
+    if (c->nwritten <= 0) {
+        if (c->nwritten != -EAGAIN) {
+            c->conn->last_errno = -(c->nwritten);
+            /* Don't overwrite the state of a connection that is not already
+             * connected, not to mess with handler callbacks. */
+            if (c->nwritten != -EINTR && c->conn->state == CONN_STATE_CONNECTED)
+                c->conn->state = CONN_STATE_ERROR;
+        }
+        if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
+            serverLog(LL_VERBOSE,
+                "Error writing to client: %s", connGetLastError(c->conn));
+            freeClientAsync(c);
+        }
+        return C_ERR;
+    }
+
+    c->sentlen += c->nwritten;
+    /* If the buffer was sent, set bufpos to zero to continue with
+        * the remainder of the reply. */
+    if ((int)c->sentlen == c->bufpos) {
+        c->bufpos = 0;
+        c->sentlen = 0;
+    }
+    atomicIncr(server.stat_net_output_bytes, c->nwritten);
+    /* For clients representing masters we don't count sending data
+     * as an interaction, since we always send REPLCONF ACK commands
+     * that take some time to just fill the socket output buffer.
+     * We just rely on data / pings received for timeout detection. */
+    if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
+
+    return C_OK;
+}
+
 /* This function is called just before entering the event loop, in the hope
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
@@ -2066,8 +2107,34 @@ int handleClientsWithPendingWrites(void) {
 
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
-        if (clientHasPendingReplies(c)) {
+        if (clientHasPendingReplies(c) && !(c->flags & CLIENT_PENDING_WRITE_ASYNC)) {
             installClientWriteHandler(c);
+        }
+    }
+
+    /* An optimization for connWrite: batch submit the write(3). */
+    if (server.io_uring_enabled) {
+        ioUringSubmitAndWait();
+        listRewind(server.clients_pending_write_async, &li);
+        while ((ln = listNext(&li))) {
+            client *c = listNodeValue(ln);
+            c->flags &= ~CLIENT_PENDING_WRITE_ASYNC;
+            listUnlinkNode(server.clients_pending_write_async, ln);
+
+            if (checkPendingWriteAsync(c) == C_ERR) continue;
+            if (!clientHasPendingReplies(c)) {
+                c->sentlen = 0;
+                /* Close connection after entire reply has been sent. */
+                if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
+                    freeClientAsync(c);
+                    continue;
+                }
+            }
+            /* Update client's memory usage after writing.
+             * Since this isn't thread safe we do this conditionally. In case of threaded writes this is done in
+             * handleClientsWithPendingWritesUsingThreads(). */
+            if (io_threads_op == IO_THREADS_OP_IDLE)
+                updateClientMemUsageAndBucket(c);
         }
     }
     return processed;

@@ -403,6 +403,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 #define CLIENT_REPROCESSING_COMMAND (1ULL<<50) /* The client is re-processing the command. */
 
+#define CLIENT_PENDING_WRITE_ASYNC (1ULL<<51) /* Client has output to send using io_uring_prep_write(5). */
+
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
 typedef enum blocking_type {
@@ -1273,12 +1275,15 @@ typedef struct client {
 
     /* list node in clients_pending_write list */
     listNode clients_pending_write_node;
+    /* list node in clients_pending_write_async list */
+    listNode clients_pending_write_async_node;
     /* Response buffer */
     size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
     mstime_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+    ssize_t nwritten; /* How many bytes server write to client. */
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
@@ -1606,6 +1611,7 @@ struct redisServer {
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
+    list *clients_pending_write_async; /* The clients which submited to io_uring to handle io async. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
@@ -2067,6 +2073,9 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
+     /* io_uring */
+    int io_uring_enabled; /* If io_uring enabled (0 by default) */
+    struct io_uring *io_uring;
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -3724,6 +3733,12 @@ void lcsCommand(client *c);
 void quitCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
+
+/* io_uring.c -- io_uring related operations */
+void initIOUring(void);
+void freeIOUring(void);
+void ioUringPrepWrite(client *c);
+void ioUringSubmitAndWait(void);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
