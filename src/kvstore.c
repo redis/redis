@@ -957,6 +957,9 @@ int kvstoreTest(int argc, char **argv, int flags) {
         }
         kvstoreIteratorRelease(kvs_it);
 
+        /* Make sure the dict was removed from the rehashing list. */
+        while (kvstoreIncrementallyRehash(kvs2, 1000)) {}
+
         dict *d = kvstoreGetDict(kvs2, didx);
         assert(d == NULL);
         assert(kvstoreDictSize(kvs2, didx) == 0);
