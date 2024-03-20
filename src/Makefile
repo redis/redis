@@ -280,8 +280,9 @@ ifeq ($(uname_S),Linux)
 endif
 
 ifeq ($(USE_IO_URING),yes)
-	FINAL_CFLAGS+= -DUSE_IO_URING
-	FINAL_LIBS+= -luring
+	DEPENDENCY_TARGETS+= liburing
+	FINAL_CFLAGS+= -DUSE_IO_URING -I../deps/liburing/include
+	FINAL_LIBS := ../deps/liburing/src/liburing.a $(FINAL_LIBS)
 endif
 
 # LIBSSL & LIBCRYPTO
