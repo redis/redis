@@ -1,0 +1,34 @@
+.\" Copyright (C) 2022 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_sqring_wait 3 "January 25, 2022" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_sqring_wait \- wait for free space in the SQ ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_sqring_wait(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+The function
+.BR io_uring_sqring_wait (3)
+allows the caller to wait for space to free up in the SQ ring belonging to the
+.I ring
+param, which happens when the kernel side thread
+has consumed one or more entries. If the SQ ring is currently non-full,
+no action is taken.
+
+This feature can only be used when the ring has been setup with
+.B IORING_SETUP_SQPOLL
+and hence is using an offloaded approach to request submissions.
+
+.SH RETURN VALUE
+On success it returns the free space. If the kernel does not support the
+feature, -EINVAL is returned.
+.SH SEE ALSO
+.BR io_uring_submit (3),
+.BR io_uring_wait_cqe (3),
+.BR io_uring_wait_cqes (3)

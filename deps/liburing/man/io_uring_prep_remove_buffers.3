@@ -1,0 +1,52 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_remove_buffers 3 "March 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_remove_buffers \- prepare a remove buffers request
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_remove_buffers(struct io_uring_sqe *" sqe ","
+.BI "                                   int " nr ","
+.BI "                                   int " bgid ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_remove_buffers (3)
+function prepares a request for removing previously supplied buffers. The
+submission queue entry
+.I sqe
+is setup to remove
+.I nr
+number of buffers from the buffer group ID indicated by
+.IR bgid .
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+These are the errors that are reported in the CQE
+.I res
+field. On success,
+.I res
+will contain the number of successfully removed buffers. On error,
+the following errors can occur.
+.TP
+.B -ENOMEM
+The kernel was unable to allocate memory for the request.
+.TP
+.B -EINVAL
+One of the fields set in the SQE was invalid.
+.TP
+.B -ENOENT
+No buffers exist at the specified
+.I bgid
+buffer group ID.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_register (2),
+.BR io_uring_prep_provide_buffers (3)

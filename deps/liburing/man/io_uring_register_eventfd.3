@@ -1,0 +1,51 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_register_eventfd 3 "April 16, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_register_eventfd \- register an eventfd with a ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_register_eventfd(struct io_uring *" ring ","
+.BI "                              int " fd ");"
+.PP
+.BI "int io_uring_register_eventfd_async(struct io_uring *" ring ","
+.BI "                                    int " fd ");"
+.PP
+.BI "int io_uring_unregister_eventfd(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+.BR io_uring_register_eventfd (3)
+registers the eventfd file descriptor
+.I fd
+with the ring identified by
+.IR ring .
+
+Whenever completions are posted to the CQ ring, an eventfd notification
+is generated with the registered eventfd descriptor. If
+.BR io_uring_register_eventfd_async (3)
+is used, only events that completed out-of-line will trigger a notification.
+
+It notifications are no longer desired,
+.BR io_uring_unregister_eventfd (3)
+may be called to remove the eventfd registration. No eventfd argument is
+needed, as a ring can only have a single eventfd registered.
+
+.SH NOTES
+While io_uring generally takes care to avoid spurious events, they can occur.
+Similarly, batched completions of CQEs may only trigger a single eventfd
+notification even if multiple CQEs are posted. The application should make no
+assumptions on number of events being available having a direct correlation to
+eventfd notifications posted. An eventfd notification must thus only be treated
+as a hint to check the CQ ring for completions.
+.SH RETURN VALUE
+Returns 0 on success, or
+or
+.BR -errno
+on error.
+.SH SEE ALSO
+.BR eventfd (2)

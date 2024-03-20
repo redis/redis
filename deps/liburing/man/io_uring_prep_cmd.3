@@ -1,0 +1,91 @@
+.\" Copyright (C) 2023 Breno Leitao <leitao@debian.org>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_cmd 3 "July 27, 2023" "liburing-2.5" "liburing Manual"
+.SH NAME
+io_uring_prep_cmd_sock \- prepare a command request for a socket
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_cmd_sock(struct io_uring_sqe *" sqe ","
+.BI "                            int " cmd_op ","
+.BI "                            int " fd ","
+.BI "                            int " level ","
+.BI "                            int " optname ","
+.BI "                            void " *optval ","
+.BI "                            int " optlen ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_cmd_sock (3)
+function prepares an cmd request for a socket. The submission queue entry
+.I sqe
+is setup to use the socket file descriptor pointed to by
+.I fd
+to start an command operation defined by
+.I cmd_op.
+
+This is a generic function, and each command has their own individual
+.I level, optname, optval
+values.  The optlen defines the size pointed by
+.I optval.
+
+.SH Available commands
+
+.TP
+.B SOCKET_URING_OP_SIOCINQ
+Returns the amount of queued unread data in the receive buffer.
+The socket must not be in LISTEN state, otherwise an error
+.B -EINVAL
+is returned in the CQE
+.I res
+field.
+The following arguments are not used for this command
+.I level, optname, optval
+and
+.I optlen.
+
+Negative return value means an error.
+
+For more information about this command, please check
+.BR unix(7).
+
+
+.TP
+.B SIOCOUTQ
+Returns the amount of unsent data in the socket send queue.
+The socket must not be in LISTEN state, otherwise an error
+.B -EINVAL
+is returned in the CQE
+.I res.
+field.
+The following arguments are not used for this command
+.I level, optname, optval
+and
+.I optlen.
+
+Negative return value means an error.
+
+For more information about this command, please check
+.BR unix(7).
+
+.SH NOTES
+The memory block pointed by
+.I optval
+needs to be valid/live until the CQE returns.
+
+.SH RETURN VALUE
+Dependent on the command.
+
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_register (2),
+.BR unix (7)

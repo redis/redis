@@ -1,0 +1,41 @@
+.\" Copyright (C) 2021 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_cqe_seen 3 "November 15, 2021" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_cqe_seen \- mark io_uring completion event as consumed
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_cqe_seen(struct io_uring *" ring ","
+.BI "                       struct io_uring_cqe *" cqe ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_cqe_seen (3)
+function marks the IO completion
+.I cqe
+belonging to the
+.I ring
+param as consumed.
+
+After the caller has submitted a request with
+.BR io_uring_submit (3),
+the application can retrieve the completion with
+.BR io_uring_wait_cqe (3),
+.BR io_uring_peek_cqe (3),
+or any of the other CQE retrieval helpers, and mark it as consumed with
+.BR io_uring_cqe_seen (3).
+
+Completions must be marked as completed so their slot can get reused.
+.SH RETURN VALUE
+None
+.SH SEE ALSO
+.BR io_uring_submit (3),
+.BR io_uring_peek_cqe (3),
+.BR io_uring_wait_cqe (3),
+.BR io_uring_wait_cqes (3),
+.BR io_uring_wait_cqe_timeout (3)

@@ -1,0 +1,106 @@
+liburing
+--------
+
+This is the io_uring library, liburing. liburing provides helpers to setup and
+teardown io_uring instances, and also a simplified interface for
+applications that don't need (or want) to deal with the full kernel
+side implementation.
+
+For more info on io_uring, please see:
+
+https://kernel.dk/io_uring.pdf
+
+Subscribe to io-uring@vger.kernel.org for io_uring related discussions
+and development for both kernel and userspace. The list is archived here:
+
+https://lore.kernel.org/io-uring/
+
+
+kernel version dependency
+--------------------------
+
+liburing itself is not tied to any specific kernel release, and hence it's
+possible to use the newest liburing release even on older kernels (and vice
+versa). Newer features may only be available on more recent kernels,
+obviously.
+
+
+ulimit settings
+---------------
+
+io_uring accounts memory it needs under the rlimit memlocked option, which
+can be quite low on some setups (64K). The default is usually enough for
+most use cases, but bigger rings or things like registered buffers deplete
+it quickly. root isn't under this restriction, but regular users are. Going
+into detail on how to bump the limit on various systems is beyond the scope
+of this little blurb, but check /etc/security/limits.conf for user specific
+settings, or /etc/systemd/user.conf and /etc/systemd/system.conf for systemd
+setups. This affects 5.11 and earlier, new kernels are less dependent
+on RLIMIT_MEMLOCK as it is only used for registering buffers.
+
+
+Regressions tests
+-----------------
+
+The bulk of liburing is actually regression/unit tests for both liburing and
+the kernel io_uring support. Please note that this suite isn't expected to
+pass on older kernels, and may even crash or hang older kernels!
+
+
+Building liburing
+-----------------
+
+    #
+    # Prepare build config (optional).
+    #
+    #  --cc  specifies the C   compiler.
+    #  --cxx speficies the C++ compiler.
+    #
+    ./configure --cc=gcc --cxx=g++;
+
+    #
+    # Build liburing.
+    #
+    make -j$(nproc);
+
+    #
+    # Install liburing (headers, shared/static libs, and manpage).
+    #
+    sudo make install;
+
+See './configure --help' for more information about build config options.
+
+
+FFI support
+-----------
+
+By default, the build results in 4 lib files:
+
+    2 shared libs:
+
+        liburing.so
+        liburing-ffi.so
+
+    2 static libs:
+
+        liburing.a
+        liburing-ffi.a
+
+Languages and applications that can't use 'static inline' functions in
+liburing.h should use the FFI variants.
+
+liburing's main public interface lives in liburing.h as 'static inline'
+functions. Users wishing to consume liburing purely as a binary dependency
+should link against liburing-ffi. It contains definitions for every 'static
+inline' function.
+
+
+License
+-------
+
+All software contained within this repo is dual licensed LGPL and MIT, see
+COPYING and LICENSE, except for a header coming from the kernel which is
+dual licensed GPL with a Linux-syscall-note exception and MIT, see
+COPYING.GPL and <https://spdx.org/licenses/Linux-syscall-note.html>.
+
+Jens Axboe 2022-05-19

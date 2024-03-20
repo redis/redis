@@ -1,0 +1,56 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_madvise 3 "March 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_madvise \- prepare a madvise request
+.SH SYNOPSIS
+.nf
+.B #include <sys/mman.h>
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_madvise(struct io_uring_sqe *" sqe ","
+.BI "                           void *" addr ","
+.BI "                           off_t " len ","
+.BI "                           int " advice ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_madvise (3)
+function prepares an madvise request. The submission queue entry
+.I sqe
+is setup to start an madvise operation at the virtual address of
+.I addr
+and of
+.I len
+length in bytes, giving it the advise located in
+.IR advice .
+
+This function prepares an async
+.BR madvise (2)
+request. See that man page for details.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation. See the related man page for
+details on possible values. Note that where synchronous system calls will return
+.B -1
+on failure and set
+.I errno
+to the actual error value, io_uring never uses
+.IR errno .
+Instead it returns the negated
+.I errno
+directly in the CQE
+.I res
+field.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_register (2),
+.BR madvise (2)

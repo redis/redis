@@ -1,0 +1,72 @@
+.\" Copyright (C) 2022 Christian Hergert <chergert@redhat.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_check_version 3 "December 1, 2022" "liburing-2.4" "liburing Manual"
+.SH NAME
+io_uring_check_version \- functions and macros to check the liburing version
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "bool io_uring_check_version(int " major ", int " minor ");"
+.BI "IO_URING_CHECK_VERSION(" major ", " minor ");"
+.PP
+.BI "int io_uring_major_version(void);"
+.BI "IO_URING_VERSION_MAJOR;"
+.PP
+.BI "int io_uring_minor_version(void);"
+.BI "IO_URING_VERSION_MINOR;"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_check_version (3)
+function returns
+.I true
+if the liburing library loaded by the dynamic linker is greater-than
+or equal-to the
+.I major
+and
+.I minor
+numbers provided.
+
+.PP
+The
+.BR IO_URING_CHECK_VERSION (3)
+macro returns
+.I 1
+if the liburing library being compiled against is greater-than or equal-to the
+.I major
+and
+.I minor
+numbers provided.
+
+.PP
+The
+.BR io_uring_major_version (3)
+function returns the
+.I major
+version number of the liburing library loaded by the dynamic linker.
+
+.PP
+The
+.BR IO_URING_VERSION_MAJOR (3)
+macro returns the
+.I major
+version number of the liburing library being compiled against.
+
+.PP
+The
+.BR io_uring_minor_version (3)
+function returns the
+.I minor
+version number of the liburing library loaded by the dynamic linker.
+
+.PP
+The
+.BR IO_URING_VERSION_MINOR (3)
+macro returns the
+.I minor
+version number of the liburing library being compiled against.
+

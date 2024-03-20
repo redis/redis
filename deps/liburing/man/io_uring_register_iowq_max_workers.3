@@ -1,0 +1,71 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_register_iowq_max_workers 3 "March 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_register_iowq_max_workers \- modify the maximum allowed async workers
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_register_iowq_max_workers(struct io_uring *" ring ","
+.BI "                                       unsigned int *" values ");"
+.fi
+.SH DESCRIPTION
+.PP
+io_uring async workers are split into two types:
+.TP
+.B Bounded
+These workers have a bounded execution time. Examples of that are filesystem
+reads, which normally complete in a relatively short amount of time. In case
+of disk failures, they are still bounded by a timeout operation that will
+abort them if exceeded.
+.TP
+.B Unbounded
+Work items here may take an indefinite amount of time to complete. Examples
+include doing IO to sockets, pipes, or any other non-regular type of file.
+
+.PP
+By default, the amount of bounded IO workers is limited to how many SQ entries
+the ring was setup with, or 4 times the number of online CPUs in the system,
+whichever is smaller. Unbounded workers are only limited by the process task
+limit, as indicated by the rlimit
+.B RLIMIT_NPROC
+limit.
+
+This can be modified by calling
+.B io_uring_register_iowq_max_workers
+with
+.I ring
+set to the ring in question, and
+.I values
+pointing to an array of two values. The first element should contain the number
+of desired bounded workers, and the second element should contain the number
+of desired unbounded workers. These are both maximum values, io_uring will
+not maintain a high count of idle workers, they are reaped when they are not
+necessary anymore.
+
+If called with both values set to 0, the existing values are returned.
+
+.SH RETURN VALUE
+Returns
+.B 0
+on success, with
+.I values
+containing the previous values for the settings. On error, any of the following
+may be returned.
+.TP
+.B -EFAULT
+The kernel was unable to copy the memory pointer to by
+.I values
+as it was invalid.
+.TP
+.B -EINVAL
+.I values
+was
+.B NULL
+or the new values exceeded the maximum allowed value.
+.SH SEE ALSO
+.BR io_uring_queue_init (3),
+.BR io_uring_register (2)

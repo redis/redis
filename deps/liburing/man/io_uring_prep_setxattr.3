@@ -1,0 +1,64 @@
+.\" Copyright (C) 2023 Rutvik Patel <heyrutvik@gmail.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_setxattr 3 "January 23, 2023" "liburing-2.4" "liburing Manual"
+.SH NAME
+io_uring_prep_setxattr, io_uring_prep_fsetxattr \- prepare a request to set an 
+extended attribute value
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_setxattr(struct io_uring_sqe *" sqe ","
+.BI "                            const char *" name ","
+.BI "                            const char *" value ","
+.BI "                            const char *" path ","
+.BI "                            int " flags ","
+.BI "                            unsigned int " len ");"
+.PP
+.BI "void io_uring_prep_fsetxattr(struct io_uring_sqe *" sqe ","
+.BI "                             int " fd ","
+.BI "                             const char *" name ","
+.BI "                             const char *" value ","
+.BI "                             int " flags ","
+.BI "                             unsigned int " len ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_setxattr (3)
+function prepares a request to set an extended attribute value. The submission 
+queue entry 
+.I sqe
+is setup to set the
+.I value
+of the extended attribute identified by
+.I name
+and associated with the given
+.I path
+in the filesystem with modifier flags
+.IR flags .
+The
+.I len
+argument specifies the size (in bytes) of
+.IR value .
+
+.BR io_uring_prep_fsetxattr (3)
+is identical to 
+.BR io_uring_prep_setxattr (3),
+only the extended attribute is set on the open file referred to by
+.I fd
+in place of
+.IR path .
+
+This function prepares an async 
+.BR setxattr (2)
+request. See that man page for details.
+
+.SH RETURN VALUE
+None
+
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR setxattr (2)

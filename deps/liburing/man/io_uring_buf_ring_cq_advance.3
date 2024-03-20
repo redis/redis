@@ -1,0 +1,55 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_buf_ring_cq_advance 3 "May 18, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_buf_ring_cq_advance \- advance index of provided buffer and CQ ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_buf_ring_cq_advance(struct io_uring *" ring ",
+.BI "                                  struct io_uring_buf_ring *" br ",
+.BI "                                  int " count ");"
+.PP
+.BI "void __io_uring_buf_ring_cq_advance(struct io_uring *" ring ",
+.BI "                                    struct io_uring_buf_ring *" br ",
+.BI "                                    int " cq_count ",
+.BI "                                    int " buf_count ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_buf_ring_cq_advance (3)
+commits
+.I count
+previously added buffers to the shared buffer ring
+.IR br ,
+making them visible to the kernel and hence consumable. This passes ownership
+of the buffer to the ring. At the same time, it advances the CQ ring of
+.I ring
+by
+.I count
+amount. This effectively bundles both a
+.BR io_uring_buf_ring_advance (3)
+call and a
+.BR io_uring_cq_advance (3)
+into one operation. Since updating either ring index entails a store memory
+barrier, doing both at once is more efficient.
+
+The
+.BR __io_uring_buf_ring_cq_advance (3)
+function performs the same operation, except it splits the counts into two
+separate values. It advances the CQ ring by
+.I cq_count
+entries, and the buffer ring by
+.I buf_count
+entries rather than increment both by the same value.
+
+.SH RETURN VALUE
+None
+.SH SEE ALSO
+.BR io_uring_register_buf_ring (3),
+.BR io_uring_buf_ring_add (3),
+.BR io_uring_buf_ring_advance (3)

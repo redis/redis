@@ -1,0 +1,31 @@
+.\" Copyright (C) 2022 Dylan Yudaken <dylany@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_cq_has_overflow 3 "September 5, 2022" "liburing-2.3" "liburing Manual"
+.SH NAME
+io_uring_cq_has_overflow \- returns if there are overflow entries waiting to move to the CQ ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "bool io_uring_cq_has_overflow(const struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_cq_has_overflow (3)
+function informs the application if CQ entries have overflowed and are waiting to be flushed to
+the CQ ring. For example using
+.BR io_uring_get_events (3)
+.SH NOTES
+Using this function is only valid if the ring has
+.B IORING_FEAT_NODROP
+set, as it's checking for a flag set by kernels supporting that feature. For
+really old kernels that don't support this feature, if CQE overflow is
+experienced the CQEs are lost. If that happens, the CQ ring overflow offset
+will get incremented.
+.SH RETURN VALUE
+True if there are CQ entries waiting to be flushed to the CQ ring.
+.SH SEE ALSO
+.BR io_uring_get_events (3)

@@ -1,0 +1,96 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_send_zc 3 "September 6, 2022" "liburing-2.3" "liburing Manual"
+.SH NAME
+io_uring_prep_send_zc \- prepare a zerocopy send request
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_send_zc(struct io_uring_sqe *" sqe ","
+.BI "                           int " sockfd ","
+.BI "                           const void *" buf ","
+.BI "                           size_t " len ","
+.BI "                           int " flags ","
+.BI "                           unsigned " zc_flags ");"
+.PP
+.BI "void io_uring_prep_send_zc_fixed(struct io_uring_sqe *" sqe ","
+.BI "                                 int " sockfd ","
+.BI "                                 const void *" buf ","
+.BI "                                 size_t " len ","
+.BI "                                 int " flags ","
+.BI "                                 unsigned " zc_flags ");"
+.BI "                                 unsigned " buf_index ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_send_zc (3)
+function prepares a zerocopy send request. The submission queue entry
+.I sqe
+is setup to use the file descriptor
+.I sockfd
+to start sending the data from
+.I buf
+of size
+.I len
+bytes with send modifier flags
+.I flags
+and zerocopy modifier flags
+.IR zc_flags .
+
+The 
+.BR io_uring_prep_send_zc_fixed (3)
+works just like
+.BR io_uring_prep_send_zc (3)
+except it requires the use of buffers that have been registered with 
+.BR io_uring_register_buffers (3).
+The
+.I buf
+and
+.I len
+arguments must fall within a region specified by
+.I buf_index
+in the previously registered buffer. The buffer need not be aligned with the 
+start of the registered buffer.
+
+Note that using
+.B IOSQE_IO_LINK
+with this request type requires the setting of
+.B MSG_WAITALL
+in the
+.I flags
+argument, as a short send isn't considered an error condition without
+that being set.
+
+These functions prepare an async zerocopy
+.BR send (2)
+request. See that man page for details. For details on the zerocopy nature
+of it, see
+.BR io_uring_enter (2) .
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation. See the related man page for
+details on possible values. Note that where synchronous system calls will return
+.B -1
+on failure and set
+.I errno
+to the actual error value, io_uring never uses
+.IR errno .
+Instead it returns the negated
+.I errno
+directly in the CQE
+.I res
+field.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_prep_send (3),
+.BR io_uring_enter (2),
+.BR send (2)

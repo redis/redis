@@ -1,0 +1,53 @@
+.\" Copyright (C) 2021 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_cqe_get_data 3 "November 15, 2021" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_cqe_get_data \- get user data for completion event
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void *io_uring_cqe_get_data(struct io_uring_cqe *" cqe ");"
+.BI "
+.BI "__u64 io_uring_cqe_get_data64(struct io_uring_cqe *" cqe ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_cqe_get_data (3)
+function returns the user_data with the completion queue entry
+.IR cqe
+as a data pointer.
+
+The
+.BR io_uring_cqe_get_data64 (3)
+function returns the user_data with the completion queue entry
+.IR cqe
+as a 64-bit data value.
+
+After the caller has received a completion queue entry (CQE) with
+.BR io_uring_wait_cqe (3),
+the application can call
+.BR io_uring_cqe_get_data (3)
+or
+.BR io_uring_cqe_get_data64 (3)
+function to retrieve the
+.I user_data
+value. This requires that
+.I user_data
+has been set earlier with the function
+.BR io_uring_sqe_set_data (3)
+or
+.BR io_uring_sqe_set_data64 (3).
+
+.SH RETURN VALUE
+If the
+.I user_data
+value has been set before submitting the request, it will be returned.
+Otherwise, the return value is undefined.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_sqe_set_data (3),
+.BR io_uring_sqe_submit (3)

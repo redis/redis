@@ -1,0 +1,11 @@
+ifneq ($(findstring $(MAKEFLAGS),s),s)
+ifndef V
+	QUIET_CC	= @echo '    '   CC $@;
+	QUIET_CXX	= @echo '    '  CXX $@;
+	QUIET_LINK	= @echo '  '   LINK $@;
+	QUIET_AR	= @echo '    '   AR $@;
+	QUIET_RANLIB	= @echo '' RANLIB $@;
+endif
+endif
+
+

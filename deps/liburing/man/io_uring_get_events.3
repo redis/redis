@@ -1,0 +1,33 @@
+.\" Copyright (C) 2022 Dylan Yudaken
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_get_events 3 "September 5, 2022" "liburing-2.3" "liburing Manual"
+.SH NAME
+io_uring_get_events \- Flush outstanding requests to CQE ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_get_events(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_get_events (3)
+function runs outstanding work and flushes completion events to the CQE ring.
+
+There can be events needing to be flushed if the ring was full and had overflowed.
+Alternatively if the ring was setup with the
+.BR IORING_SETUP_DEFER_TASKRUN
+flag then this will process outstanding tasks, possibly resulting in more CQEs.
+
+.SH RETURN VALUE
+On success
+.BR io_uring_get_events (3)
+returns 0. On failure it returns
+.BR -errno .
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit_and_get_events (3),
+.BR io_uring_cq_has_overflow (3)

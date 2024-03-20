@@ -1,0 +1,92 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_msg_ring 3 "March 10, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_msg_ring \- send a message to another ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_msg_ring(struct io_uring_sqe *" sqe ","
+.BI "                        int " fd ","
+.BI "                        unsigned int " len ","
+.BI "                        __u64 " data ","
+.BI "                        unsigned int " flags ");"
+.PP
+.BI "void io_uring_prep_msg_ring_cqe_flags(struct io_uring_sqe *" sqe ","
+.BI "                        int " fd ","
+.BI "                        unsigned int " len ","
+.BI "                        __u64 " data ","
+.BI "                        unsigned int " flags ","
+.BI "                        unsigned int " cqe_flags ");"
+.fi
+.SH DESCRIPTION
+.PP
+.BR io_uring_prep_msg_ring (3)
+prepares to send a CQE to an io_uring file descriptor. The submission queue
+entry
+.I sqe
+is setup to use the file descriptor
+.IR fd ,
+which must identify a io_uring context, to post a CQE on that ring where the
+target CQE
+.B res
+field will contain the content of
+.I len
+and the
+.B user_data
+of
+.I data
+with the request modifier flags set by
+.IR flags .
+Currently there are no valid flag modifiers, this field must contain
+.BR 0 .
+
+The targeted ring may be any ring that the user has access to, even the ring
+itself. This request can be used for simple message passing to another ring,
+allowing 32+64 bits of data to be transferred through the
+.I len
+and
+.I data
+fields. The use case may be anything from simply waking up someone waiting
+on the targeted ring, or it can be used to pass messages between the two
+rings.
+
+.BR io_uring_prep_msg_ring_cqe_flags (3)
+is similar to
+.BR io_uring_prep_msg_ring (3) .
+But has an addition
+.I cqe_flags
+parameter, which is used to set
+.I flags
+field on CQE side. That way, you can set the CQE flags field
+.I cqe->flags
+when sending a message. Be aware that io_uring could potentially set additional
+bits into this field.
+
+.SH RETURN VALUE
+None
+
+.SH ERRORS
+These are the errors that are reported in the CQE
+.I res
+field.
+.TP
+.B -ENOMEM
+The kernel was unable to allocate memory for the request.
+.TP
+.B -EINVAL
+One of the fields set in the SQE was invalid.
+.TP
+.B -EBADFD
+The descriptor passed in
+.I fd
+does not refer to an io_uring file descriptor, or the ring is in a disabled
+state.
+.TP
+.B -EOVERFLOW
+The kernel was unable to fill a CQE on the target ring. This can happen if
+the target CQ ring is in an overflow state and the kernel wasn't able to
+allocate memory for a new CQE entry.

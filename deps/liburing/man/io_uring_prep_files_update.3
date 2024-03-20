@@ -1,0 +1,92 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_files_update 3 "March 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_files_update \- prepare a registered file update request
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_files_update(struct io_uring_sqe *" sqe ","
+.BI "                                int *" fds ","
+.BI "                                unsigned " nr_fds ","
+.BI "                                int " offset ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_files_update (3)
+function prepares a request for updating a number of previously registered file
+descriptors. The submission queue entry
+.I sqe
+is setup to use the file descriptor array pointed to by
+.I fds
+and of
+.I nr_fds
+in length to update that amount of previously registered files starting at
+offset
+.IR offset .
+
+Once a previously registered file is updated with a new one, the existing
+entry is updated and then removed from the table. This operation is equivalent to
+first unregistering that entry and then inserting a new one, just bundled into
+one combined operation.
+
+If
+.I offset
+is specified as IORING_FILE_INDEX_ALLOC, io_uring will allocate free direct
+descriptors instead of having the application to pass, and store allocated
+direct descriptors into
+.I fds
+array,
+.I cqe->res
+will return the number of direct descriptors allocated.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+These are the errors that are reported in the CQE
+.I res
+field. On success,
+.I res
+will contain the number of successfully updated file descriptors. On error,
+the following errors can occur.
+.TP
+.B -ENOMEM
+The kernel was unable to allocate memory for the request.
+.TP
+.B -EINVAL
+One of the fields set in the SQE was invalid.
+.TP
+.B -EFAULT
+The kernel was unable to copy in the memory pointed to by
+.IR fds .
+.TP
+.B -EBADF
+On of the descriptors located in
+.I fds
+didn't refer to a valid file descriptor, or one of the file descriptors in
+the array referred to an io_uring instance.
+.TP
+.B -EOVERFLOW
+The product of
+.I offset
+and
+.I nr_fds
+exceed the valid amount or overflowed.
+.SH NOTES
+As with any request that passes in data in a struct, that data must remain
+valid until the request has been successfully submitted. It need not remain
+valid until completion. Once a request has been submitted, the in-kernel
+state is stable. Very early kernels (5.4 and earlier) required state to be
+stable until the completion occurred. Applications can test for this
+behavior by inspecting the
+.B IORING_FEAT_SUBMIT_STABLE
+flag passed back from
+.BR io_uring_queue_init_params (3).
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_register (2)

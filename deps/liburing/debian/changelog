@@ -1,0 +1,38 @@
+liburing (2.2-1) stable; urgency=low
+
+  * Update to 2.2
+  * Bump up so version to 2
+  * Drop liburing1-udeb
+  * Package using dh instead of using dh_* helpers manually
+  * Add linux header dependency to liburing-dev
+  * Bump up debhelper-compact level to 13
+
+ -- Kefu Chai <tchaikov@gmail.com>  Sun, 16 Oct 2022 16:30:48 +0800
+
+liburing (0.7-1) stable; urgency=low
+
+  * Update to 0.7
+  * Fix library symlinks
+
+ -- Stefan Metzmacher <metze@samba.org>  Thu, 23 Jul 2020 00:23:00 +0200
+
+liburing (0.4-2) stable; urgency=low
+
+  * Fix /usr/lib/*/liburing.so symlink to /lib/*/liburing.so.1.0.4
+
+ -- Stefan Metzmacher <metze@samba.org>  Fri, 07 Feb 2020 15:30:00 +0100
+
+liburing (0.4-1) stable; urgency=low
+
+  * Package liburing-0.4 using a packaging layout similar to libaio1
+
+ -- Stefan Metzmacher <metze@samba.org>  Thu, 06 Feb 2020 11:30:00 +0100
+
+liburing (0.2-1ubuntu1) stable; urgency=low
+
+  * Initial release.
+  * commit 4bce856d43ab1f9a64477aa5a8f9f02f53e64b74
+  *	 Author: Jens Axboe <axboe@kernel.dk>
+  *	 Date:   Mon Nov 11 16:00:58 2019 -0700
+
+ -- Liu Changcheng <changcheng.liu@aliyun.com>  Fri, 15 Nov 2019 00:06:46 +0800

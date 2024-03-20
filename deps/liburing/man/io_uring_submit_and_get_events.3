@@ -1,0 +1,31 @@
+.\" Copyright (C), 2022  dylany
+.\" You may distribute this file under the terms of the GNU Free
+.\" Documentation License.
+.TH io_uring_submit_and_get_events 3 "September 5, 2022" "liburing-2.3" "liburing Manual"
+.SH NAME
+io_uring_submit_and_get_events \- submit requests to the submission queue and flush completions
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_submit_and_get_events(struct io_uring *" ring ");"
+.fi
+
+.SH DESCRIPTION
+The
+.BR io_uring_submit_and_get_events (3)
+function submits the next events to the submission queue as with
+.BR io_uring_submit (3) .
+After submission it will flush CQEs as with
+.BR io_uring_get_events (3) .
+
+The benefit of this function is that it does both with only one system call.
+
+.SH RETURN VALUE
+On success
+.BR io_uring_submit_and_get_events (3)
+returns the number of submitted submission queue entries. On failure it returns
+.BR -errno .
+.SH SEE ALSO
+.BR io_uring_submit (3),
+.BR io_uring_get_events (3)

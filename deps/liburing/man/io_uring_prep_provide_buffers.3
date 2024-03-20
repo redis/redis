@@ -1,0 +1,140 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_provide_buffers 3 "March 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_provide_buffers \- prepare a provide buffers request
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_provide_buffers(struct io_uring_sqe *" sqe ","
+.BI "                                   void *" addr ","
+.BI "                                   int " len ","
+.BI "                                   int " nr ","
+.BI "                                   int " bgid ","
+.BI "                                   int " bid ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_provide_buffers (3)
+function prepares a request for providing the kernel with buffers. The
+submission queue entry
+.I sqe
+is setup to consume
+.I nr
+number of
+.I len
+sized buffers starting at
+.I addr
+and identified by the buffer group ID of
+.I bgid
+and numbered sequentially starting at
+.IR bid .
+
+This function sets up a request to provide buffers to the io_uring context
+that can be used by read or receive operations. This is done by filling in
+the SQE
+.I buf_group
+field and setting
+.B IOSQE_BUFFER_SELECT
+in the SQE
+.I flags
+member. If buffer selection is used for a request, no buffer should be provided
+in the address field. Instead, the group ID is set to match one that was
+previously provided to the kernel. The kernel will then select a buffer from
+this group for the IO operation. On successful completion of the IO request,
+the CQE
+.I flags
+field will have
+.B IORING_CQE_F_BUFFER
+set and the selected buffer ID will be indicated by the upper 16-bits of the
+.I flags
+field.
+
+Different buffer group IDs can be used by the application to have different
+sizes or types of buffers available. Once a buffer has been consumed for an
+operation, it is no longer known to io_uring. It must be re-provided if so
+desired or freed by the application if no longer needed.
+
+The buffer IDs are internally tracked from
+.I bid
+and sequentially ascending from that value. If
+.B 16
+buffers are provided and start with an initial
+.I bid
+of 0, then the buffer IDs will range from
+.BR 0..15 .
+The application must be aware of this to make sense of the buffer ID passed
+back in the CQE.
+
+Buffer IDs always range from
+.B 0
+to
+.B 65535 ,
+as there are only 16-bits available in the CQE to pass them back. This range
+is independent of how the buffer group initially got created. Attempting to
+add buffer IDs larger than that, or buffer IDs that will wrap when cast to
+a 16-bit value, will cause the request to fail with
+.B -E2BIG
+or
+.B -EINVAL .
+
+Not all requests support buffer selection, as it only really makes sense for
+requests that receive data from the kernel rather than write or provide data.
+Currently, this mode of operation is supported for any file read or socket
+receive request. Attempting to use
+.B IOSQE_BUFFER_SELECT
+with a command that doesn't support it will result in a CQE
+.I res
+error of
+.BR -EINVAL .
+Buffer selection will work with operations that take a
+.B struct iovec
+as its data destination, but only if 1 iovec is provided.
+.
+.SH RETURN VALUE
+None
+.SH ERRORS
+These are the errors that are reported in the CQE
+.I res
+field. On success,
+.I res
+will contain
+.B 0
+or the number of successfully provided buffers.
+.TP
+.B -ENOMEM
+The kernel was unable to allocate memory for the request.
+.TP
+.B -EINVAL
+One of the fields set in the SQE was invalid.
+.TP
+.B -E2BIG
+The number of buffers provided was too big, or the
+.I bid
+was too big. A max value of
+.B USHRT_MAX
+buffers can be specified.
+.TP
+.B -EFAULT
+Some of the user memory given was invalid for the application.
+.TP
+.B -EOVERFLOW
+The product of
+.I len
+and
+.I nr
+exceed the valid amount or overflowed, or the sum of
+.I addr
+and the length of buffers overflowed.
+.TP
+.B -EBUSY
+Attempt to update a slot that is already used.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_register (2),
+.BR io_uring_prep_remove_buffers (3)

@@ -1,0 +1,31 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_buf_ring_advance 3 "May 18, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_buf_ring_advance \- advance index of provided buffer in buffer ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_buf_ring_advance(struct io_uring_buf_ring *" br ",
+.BI "                               int " count ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_buf_ring_advance (3)
+commits
+.I count
+previously added buffers to the shared buffer ring
+.IR br ,
+making them visible to the kernel and hence consumable. This passes ownership
+of the buffer to the ring.
+
+.SH RETURN VALUE
+None
+.SH SEE ALSO
+.BR io_uring_register_buf_ring (3),
+.BR io_uring_buf_ring_add (3),
+.BR io_uring_buf_ring_cq_advance (3)

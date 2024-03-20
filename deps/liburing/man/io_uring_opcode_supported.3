@@ -1,0 +1,30 @@
+.\" Copyright (C) 2022 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_opcode_supported 3 "January 25, 2022" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_opcode_supported \- is op code supported?
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_opcode_supported(struct io_uring_probe *" probe ","
+.BI "                              int " opcode ");"
+.fi
+.SH DESCRIPTION
+.PP
+The function
+.BR io_uring_opcode_supported (3)
+allows the caller to determine if the passed in
+.I opcode
+belonging to the
+.I probe
+param is supported. An instance of the io_uring_probe instance can be
+obtained by calling the function
+.BR io_uring_get_probe (3).
+
+.SH RETURN VALUE
+On success it returns 1, otherwise it returns 0.
+.SH SEE ALSO
+.BR io_uring_get_probe (3)

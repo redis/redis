@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+DEB_BUILD_MAINT_OPTIONS = hardening=+bindnow
+DEB_CFLAGS_MAINT_PREPEND = -Wall
+DEB_BUILD_OPTIONS += nocheck
+
+include /usr/share/dpkg/default.mk
+include /usr/share/dpkg/buildtools.mk
+
+%:
+	dh $@ --parallel
+
+override_dh_auto_configure:
+	./configure \
+	  --prefix=/usr \
+	  --includedir=/usr/include \
+	  --datadir=/usr/share \
+	  --mandir=/usr/share/man \
+	  --libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+	  --libdevdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+	  --cc=$(CC)
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	$(MAKE) runtests
+endif

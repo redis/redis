@@ -1,0 +1,26 @@
+.\" Copyright (C) 2020 Jens Axboe <axboe@kernel.dk>
+.\" Copyright (C) 2020 Red Hat, Inc.
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_queue_exit 3 "July 10, 2020" "liburing-0.7" "liburing Manual"
+.SH NAME
+io_uring_queue_exit \- tear down io_uring submission and completion queues
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_queue_exit(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+.BR io_uring_queue_exit (3)
+will release all resources acquired and initialized by
+.BR io_uring_queue_init (3).
+It first unmaps the memory shared between the application and the kernel and then closes the io_uring file descriptor.
+.SH RETURN VALUE
+None
+.SH SEE ALSO
+.BR io_uring_setup (2),
+.BR mmap (2),
+.BR io_uring_queue_init (3)

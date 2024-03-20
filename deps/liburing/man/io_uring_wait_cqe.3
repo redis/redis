@@ -1,0 +1,41 @@
+.\" Copyright (C) 2021 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_wait_cqe 3 "November 15, 2021" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_wait_cqe \- wait for one io_uring completion event
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_wait_cqe(struct io_uring *" ring ","
+.BI "                      struct io_uring_cqe **" cqe_ptr ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_wait_cqe (3)
+function waits for an IO completion from the queue belonging to the
+.I ring
+param, waiting for it if necessary. If an event is already available in
+the ring when invoked, no waiting will occur. The
+.I cqe_ptr
+param is filled in on success.
+
+After the caller has submitted a request with
+.BR io_uring_submit (3),
+the application can retrieve the completion with
+.BR io_uring_wait_cqe (3).
+
+.SH RETURN VALUE
+On success
+.BR io_uring_wait_cqe (3)
+returns 0 and the cqe_ptr param is filled in. On failure it returns
+.BR -errno .
+The return value indicates the result of waiting for a CQE, and it has no
+relation to the CQE result itself.
+.SH SEE ALSO
+.BR io_uring_submit (3),
+.BR io_uring_wait_cqe_timeout (3),
+.BR io_uring_wait_cqes (3)

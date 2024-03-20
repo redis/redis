@@ -1,0 +1,10 @@
+# Copy this to config.local, uncomment and define values
+#
+# Define tests to exclude from running
+# TEST_EXCLUDE=""
+#
+# Define raw test devices (or files) for test cases, if any
+# declare -A TEST_MAP=()
+#
+# If no TEST_MAP entry exists for a test, use the ones given in TEST_FILES
+# TEST_FILES="/dev/somedevice /data/somefile"

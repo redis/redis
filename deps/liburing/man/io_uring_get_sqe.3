@@ -1,0 +1,57 @@
+.\" Copyright (C) 2020 Jens Axboe <axboe@kernel.dk>
+.\" Copyright (C) 2020 Red Hat, Inc.
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_get_sqe 3 "July 10, 2020" "liburing-0.7" "liburing Manual"
+.SH NAME
+io_uring_get_sqe \- get the next available submission queue entry from the
+submission queue
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "struct io_uring_sqe *io_uring_get_sqe(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_get_sqe (3)
+function gets the next available submission queue entry from the submission
+queue belonging to the
+.I ring
+param.
+
+On success
+.BR io_uring_get_sqe (3)
+returns a pointer to the submission queue entry. On failure NULL is returned.
+
+If a submission queue entry is returned, it should be filled out via one of the
+prep functions such as
+.BR io_uring_prep_read (3)
+and submitted via
+.BR io_uring_submit (3).
+
+Note that neither
+.BR io_uring_get_sqe
+nor the prep functions set (or clear) the
+.B user_data
+field of the SQE. If the caller expects
+.BR io_uring_cqe_get_data (3)
+or
+.BR io_uring_cqe_get_data64 (3)
+to return valid data when reaping IO completions, either
+.BR io_uring_sqe_set_data (3)
+or
+.BR io_uring_sqe_set_data64 (3)
+.B MUST
+have been called before submitting the request.
+
+.SH RETURN VALUE
+.BR io_uring_get_sqe (3)
+returns a pointer to the next submission queue event on success and NULL on
+failure. If NULL is returned, the SQ ring is currently full and entries must
+be submitted for processing before new ones can get allocated.
+.SH SEE ALSO
+.BR io_uring_submit (3),
+.BR io_uring_sqe_set_data (3)

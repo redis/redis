@@ -1,0 +1,32 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_unregister_ring_fd 3 "March 11, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_unregister_ring_fd \- unregister a ring file descriptor
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_unregister_ring_fd(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+.BR io_uring_unregister_ring_fd (3)
+unregisters the file descriptor of the ring.
+
+Unregisters a ring descriptor previously registered with the task. This is
+done automatically when
+.BR io_uring_queue_exit (3)
+is called, but can also be done to free up space for new ring registrations.
+For more information on ring descriptor registration, see
+.BR io_uring_register_ring_fd (3)
+
+.SH RETURN VALUE
+Returns 1 on success, indicating that one file descriptor was unregistered, or
+.BR -errno
+on error.
+.SH SEE ALSO
+.BR io_uring_register_ring_fd (3),
+.BR io_uring_register_files (3)

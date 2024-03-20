@@ -1,0 +1,7 @@
+liburing for Debian
+
+The newest Linux IO interface i.e. io_uring, need
+userspace library to support it. This package
+liburing is the library for io_uring.
+
+ -- Liu Changcheng <changcheng.liu@aliyun.com>  Thu, 14 Nov 2019 21:35:39 +0800

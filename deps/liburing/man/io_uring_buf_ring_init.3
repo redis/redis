@@ -1,0 +1,30 @@
+.\" Copyright (C) 2022 Dylan Yudaken <dylany@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_buf_ring_init 3 "June 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_buf_ring_init \- Initialise a  buffer ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_buf_ring_init(struct io_uring_buf_ring *" br ");"
+.fi
+.SH DESCRIPTION
+.PP
+.BR io_uring_buf_ring_init (3)
+initialises
+.IR br
+so that it is ready to be used. It may be called after
+.BR io_uring_register_buf_ring (3)
+but must be called before the buffer ring is used in any other way.
+
+.SH RETURN VALUE
+None
+
+.SH SEE ALSO
+.BR io_uring_register_buf_ring (3),
+.BR io_uring_buf_ring_add (3)
+.BR io_uring_buf_ring_advance (3),
+.BR io_uring_buf_ring_cq_advance (3)

@@ -1,0 +1,61 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_register_iowq_aff 3 "March 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_register_iowq_aff \- register async worker CPU affinities
+.SH SYNOPSIS
+.nf
+.B #include <sched.h>
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_register_iowq_aff(struct io_uring *" ring ","
+.BI "                               size_t " cpusz ","
+.BI "                               const cpu_set_t *" mask ");
+.PP
+.BI "void io_uring_unregister_iowq_aff(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_register_iowq_aff (3)
+function registers a set of CPU affinities to be used by the io_uring async
+workers. By default, io_uring async workers are allowed to run on any CPU in
+the system. If this function is called with
+.I ring
+set to the ring in question and
+.I mask
+set to a pointer to a
+.B cpu_set_t
+value and
+.I cpusz
+set to the size of the CPU set, then async workers will only be allowed to run
+on the CPUs specified in the mask. Existing workers may need to hit a schedule
+point before they are migrated.
+
+For unregistration,
+.BR io_uring_unregister_iowq_aff (3)
+may be called to restore CPU affinities to the default.
+
+.SH RETURN VALUE
+Returns
+.B 0
+on success, or any of the following values in case of error.
+.TP
+.B -EFAULT
+The kernel was unable to copy the memory pointer to by
+.I mask
+as it was invalid.
+.TP
+.B -ENOMEM
+The kernel was unable to allocate memory for the new CPU mask.
+.TP
+.B -EINVAL
+.I cpusz
+or
+.I mask
+was NULL/0, or any other value specified was invalid.
+.SH SEE ALSO
+.BR io_uring_queue_init (3),
+.BR io_uring_register (2)

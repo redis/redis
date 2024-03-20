@@ -1,0 +1,82 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_setup_buf_ring 3 "Mar 07, 2023" "liburing-2.4" "liburing Manual"
+.SH NAME
+io_uring_setup_buf_ring \- setup and register buffer ring for provided buffers
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "struct io_uring_buf_ring *io_uring_setup_buf_ring(struct io_uring *" ring ",
+.BI "                            unsigned int " nentries ",
+.BI "                            int " bgid ",
+.BI "                            unsigned int " flags ",
+.BI "                            int *" ret ");"
+.BI "
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_setup_buf_ring (3)
+function registers a shared buffer ring to be used with provided buffers. For
+the request types that support it, provided buffers are given to the ring and
+one is selected by a request if it has
+.B IOSQE_BUFFER_SELECT
+set in the SQE
+.IR flags ,
+when the request is ready to receive data. This allows both clear ownership
+of the buffer lifetime, and a way to have more read/receive type of operations
+in flight than buffers available.
+
+The
+.I ring
+argument must pointer to the ring for which the provided buffer ring is being
+registered,
+.I nentries
+is the number of entries requested in the buffer ring. This argument must be
+a power-of 2 in size.
+.I bgid
+is the chosen buffer group ID,
+.I flags
+are modifier flags for the operation, and
+.I *ret
+is is a pointer to an integer for the error value if any part of the ring
+allocation and registration fails.
+
+The
+.I flags
+argument is currently unused and must be set to zero.
+
+Under the covers, this function uses
+.BR io_uring_register_buf_ring (3)
+to register the ring, and handles the allocation of the ring rather than
+letting the application open code it.
+
+To unregister and free a buffer group ID setup with this function, the
+application must call
+.BR io_uring_free_buf_ring (3) .
+
+Available since 5.19.
+
+.SH RETURN VALUE
+On success
+.BR io_uring_setup_buf_ring (3)
+returns a pointer to the buffer ring. On failure it returns
+.BR NULL
+and sets
+.I *ret
+to -errno.
+.SH NOTES
+Note that even if the kernel supports this feature, registering a provided
+buffer ring may still fail with
+.B -EINVAL
+if the host is a 32-bit architecture and the memory being passed in resides in
+high memory.
+.SH SEE ALSO
+.BR io_uring_register_buf_ring (3),
+.BR io_uring_buf_ring_init (3),
+.BR io_uring_buf_ring_add (3),
+.BR io_uring_buf_ring_advance (3),
+.BR io_uring_buf_ring_cq_advance (3)

@@ -1,0 +1,842 @@
+.\" Copyright (C) 2019 Jens Axboe <axboe@kernel.dk>
+.\" Copyright (C) 2019 Red Hat, Inc.
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_register 2 2019-01-17 "Linux" "Linux Programmer's Manual"
+.SH NAME
+io_uring_register \- register files or user buffers for asynchronous I/O 
+.SH SYNOPSIS
+.nf
+.BR "#include <liburing.h>"
+.PP
+.BI "int io_uring_register(unsigned int " fd ", unsigned int " opcode ,
+.BI "                      void *" arg ", unsigned int " nr_args );
+.fi
+.PP
+.SH DESCRIPTION
+.PP
+
+The
+.BR io_uring_register (2)
+system call registers resources (e.g. user buffers, files, eventfd,
+personality, restrictions) for use in an
+.BR io_uring (7)
+instance referenced by
+.IR fd .
+Registering files or user buffers allows the kernel to take long term
+references to internal data structures or create long term mappings of
+application memory, greatly reducing per-I/O overhead.
+
+.I fd
+is the file descriptor returned by a call to
+.BR io_uring_setup (2).
+If
+.I opcode
+has the flag
+.B IORING_REGISTER_USE_REGISTERED_RING
+ored into it,
+.I fd
+is instead the index of a registered ring fd.
+
+.I opcode
+can be one of:
+
+.TP
+.B IORING_REGISTER_BUFFERS
+.I arg
+points to a
+.I struct iovec
+array of
+.I nr_args
+entries.  The buffers associated with the iovecs will be locked in
+memory and charged against the user's
+.B RLIMIT_MEMLOCK
+resource limit.  See
+.BR getrlimit (2)
+for more information.  Additionally, there is a size limit of 1GiB per
+buffer.  Currently, the buffers must be anonymous, non-file-backed
+memory, such as that returned by
+.BR malloc (3)
+or
+.BR mmap (2)
+with the
+.B MAP_ANONYMOUS
+flag set.  It is expected that this limitation will be lifted in the
+future. Huge pages are supported as well. Note that the entire huge
+page will be pinned in the kernel, even if only a portion of it is
+used.
+
+After a successful call, the supplied buffers are mapped into the
+kernel and eligible for I/O.  To make use of them, the application
+must specify the
+.B IORING_OP_READ_FIXED
+or
+.B IORING_OP_WRITE_FIXED
+opcodes in the submission queue entry (see the
+.I struct io_uring_sqe
+definition in
+.BR io_uring_enter (2)),
+and set the
+.I buf_index
+field to the desired buffer index.  The memory range described by the
+submission queue entry's
+.I addr
+and
+.I len
+fields must fall within the indexed buffer.
+
+It is perfectly valid to setup a large buffer and then only use part
+of it for an I/O, as long as the range is within the originally mapped
+region.
+
+An application can increase or decrease the size or number of
+registered buffers by first unregistering the existing buffers, and
+then issuing a new call to
+.BR io_uring_register (2)
+with the new buffers.
+
+Note that before 5.13 registering buffers would wait for the ring to idle.
+If the application currently has requests in-flight, the registration will
+wait for those to finish before proceeding.
+
+An application need not unregister buffers explicitly before shutting
+down the io_uring instance. Note, however, that shutdown processing may run
+asynchronously within the kernel. As a result, it is not guaranteed that
+pages are immediately unpinned in this case. Available since 5.1.
+
+.TP
+.B IORING_REGISTER_BUFFERS2
+Register buffers for I/O. Similar to
+.B IORING_REGISTER_BUFFERS
+but aims to have a more extensible ABI.
+
+.I arg
+points to a
+.I struct io_uring_rsrc_register,
+and
+.I nr_args
+should be set to the number of bytes in the structure.
+
+.PP
+.in +8n
+.EX
+struct io_uring_rsrc_register {
+    __u32 nr;
+    __u32 resv;
+    __u64 resv2;
+    __aligned_u64 data;
+    __aligned_u64 tags;
+};
+
+.EE
+.in
+.PP
+
+.in +8n
+
+The
+.I data
+field contains a pointer to a
+.I struct iovec
+array of
+.I nr
+entries.
+The
+.I tags
+field should either be 0, then tagging is disabled, or point to an array
+of
+.I nr
+"tags" (unsigned 64 bit integers). If a tag is zero, then tagging for this
+particular resource (a buffer in this case) is disabled. Otherwise, after the
+resource had been unregistered and it's not used anymore, a CQE will be
+posted with
+.I user_data
+set to the specified tag and all other fields zeroed.
+
+Note that resource updates, e.g.
+.B IORING_REGISTER_BUFFERS_UPDATE,
+don't necessarily deallocate resources by the time it returns, but they might
+be held alive until all requests using it complete.
+
+Available since 5.13.
+
+.TP
+.B IORING_REGISTER_BUFFERS_UPDATE
+Updates registered buffers with new ones, either turning a sparse entry into
+a real one, or replacing an existing entry.
+
+.I arg
+must contain a pointer to a struct io_uring_rsrc_update2, which contains
+an offset on which to start the update, and an array of
+.I struct iovec.
+.I tags
+points to an array of tags.
+.I nr
+must contain the number of descriptors in the passed in arrays.
+See
+.B IORING_REGISTER_BUFFERS2
+for the resource tagging description.
+
+.PP
+.in +8n
+.EX
+
+struct io_uring_rsrc_update2 {
+    __u32 offset;
+    __u32 resv;
+    __aligned_u64 data;
+    __aligned_u64 tags;
+    __u32 nr;
+    __u32 resv2;
+};
+.EE
+.in
+.PP
+
+.in +8n
+
+Available since 5.13.
+
+.TP
+.B IORING_UNREGISTER_BUFFERS
+This operation takes no argument, and
+.I arg
+must be passed as NULL.  All previously registered buffers associated
+with the io_uring instance will be released synchronously. Available since 5.1.
+
+.TP
+.B IORING_REGISTER_FILES
+Register files for I/O.
+.I arg
+contains a pointer to an array of
+.I nr_args
+file descriptors (signed 32 bit integers).
+
+To make use of the registered files, the
+.B IOSQE_FIXED_FILE
+flag must be set in the
+.I flags
+member of the
+.IR "struct io_uring_sqe" ,
+and the
+.I fd
+member is set to the index of the file in the file descriptor array.
+
+The file set may be sparse, meaning that the
+.B fd
+field in the array may be set to
+.B -1.
+See
+.B IORING_REGISTER_FILES_UPDATE
+for how to update files in place.
+
+Note that before 5.13 registering files would wait for the ring to idle.
+If the application currently has requests in-flight, the registration will
+wait for those to finish before proceeding. See
+.B IORING_REGISTER_FILES_UPDATE
+for how to update an existing set without that limitation.
+
+Files are automatically unregistered when the io_uring instance is
+torn down. An application needs only unregister if it wishes to
+register a new set of fds. Available since 5.1.
+
+.TP
+.B IORING_REGISTER_FILES2
+Register files for I/O. Similar to
+.B IORING_REGISTER_FILES.
+
+.I arg
+points to a
+.I struct io_uring_rsrc_register,
+and
+.I nr_args
+should be set to the number of bytes in the structure.
+
+The
+.I data
+field contains a pointer to an array of
+.I nr
+file descriptors (signed 32 bit integers).
+.I tags
+field should either be 0 or or point to an array of
+.I nr
+"tags" (unsigned 64 bit integers). See
+.B IORING_REGISTER_BUFFERS2
+for more info on resource tagging.
+
+Note that resource updates, e.g.
+.B IORING_REGISTER_FILES_UPDATE,
+don't necessarily deallocate resources, they might be held until all requests
+using that resource complete.
+
+Available since 5.13.
+
+.TP
+.B IORING_REGISTER_FILES_UPDATE
+This operation replaces existing files in the registered file set with new
+ones, either turning a sparse entry (one where fd is equal to
+.B -1
+) into a real one, removing an existing entry (new one is set to
+.B -1
+), or replacing an existing entry with a new existing entry.
+
+.I arg
+must contain a pointer to a
+.I struct io_uring_files_update,
+which contains
+an offset on which to start the update, and an array of file descriptors to
+use for the update.
+.I nr_args
+must contain the number of descriptors in the passed in array. Available
+since 5.5.
+
+File descriptors can be skipped if they are set to
+.B IORING_REGISTER_FILES_SKIP.
+Skipping an fd will not touch the file associated with the previous
+fd at that index. Available since 5.12.
+
+.TP
+.B IORING_REGISTER_FILES_UPDATE2
+Similar to IORING_REGISTER_FILES_UPDATE, replaces existing files in the
+registered file set with new ones, either turning a sparse entry (one where
+fd is equal to
+.B -1
+) into a real one, removing an existing entry (new one is set to
+.B -1
+), or replacing an existing entry with a new existing entry.
+
+.I arg
+must contain a pointer to a
+.I struct io_uring_rsrc_update2,
+which contains
+an offset on which to start the update, and an array of file descriptors to
+use for the update stored in
+.I data.
+.I tags
+points to an array of tags.
+.I nr
+must contain the number of descriptors in the passed in arrays.
+See
+.B IORING_REGISTER_BUFFERS2
+for the resource tagging description.
+
+Available since 5.13.
+
+.TP
+.B IORING_UNREGISTER_FILES
+This operation requires no argument, and
+.I arg
+must be passed as NULL.  All previously registered files associated
+with the io_uring instance will be unregistered. Available since 5.1.
+
+.TP
+.B IORING_REGISTER_EVENTFD
+It's possible to use eventfd(2) to get notified of completion events on an
+io_uring instance. If this is desired, an eventfd file descriptor can be
+registered through this operation.
+.I arg
+must contain a pointer to the eventfd file descriptor, and
+.I nr_args
+must be 1. Note that while io_uring generally takes care to avoid spurious
+events, they can occur. Similarly, batched completions of CQEs may only trigger
+a single eventfd notification even if multiple CQEs are posted. The application
+should make no assumptions on number of events being available having a direct
+correlation to eventfd notifications posted. An eventfd notification must thus
+only be treated as a hint to check the CQ ring for completions. Available since
+5.2.
+
+An application can temporarily disable notifications, coming through the
+registered eventfd, by setting the
+.B IORING_CQ_EVENTFD_DISABLED
+bit in the
+.I flags
+field of the CQ ring.
+Available since 5.8.
+
+.TP
+.B IORING_REGISTER_EVENTFD_ASYNC
+This works just like
+.B IORING_REGISTER_EVENTFD
+, except notifications are only posted for events that complete in an async
+manner. This means that events that complete inline while being submitted
+do not trigger a notification event. The arguments supplied are the same as
+for
+.B IORING_REGISTER_EVENTFD.
+Available since 5.6.
+
+.TP
+.B IORING_UNREGISTER_EVENTFD
+Unregister an eventfd file descriptor to stop notifications. Since only one
+eventfd descriptor is currently supported, this operation takes no argument,
+and
+.I arg
+must be passed as NULL and
+.I nr_args
+must be zero. Available since 5.2.
+
+.TP
+.B IORING_REGISTER_PROBE
+This operation returns a structure, io_uring_probe, which contains information
+about the opcodes supported by io_uring on the running kernel.
+.I arg
+must contain a pointer to a struct io_uring_probe, and
+.I nr_args
+must contain the size of the ops array in that probe struct. The ops array
+is of the type io_uring_probe_op, which holds the value of the opcode and
+a flags field. If the flags field has
+.B IO_URING_OP_SUPPORTED
+set, then this opcode is supported on the running kernel. Available since 5.6.
+
+.TP
+.B IORING_REGISTER_PERSONALITY
+This operation registers credentials of the running application with io_uring,
+and returns an id associated with these credentials. Applications wishing to
+share a ring between separate users/processes can pass in this credential id
+in the sqe
+.B personality
+field. If set, that particular sqe will be issued with these credentials. Must
+be invoked with
+.I arg
+set to NULL and
+.I nr_args
+set to zero. Available since 5.6.
+
+.TP
+.B IORING_UNREGISTER_PERSONALITY
+This operation unregisters a previously registered personality with io_uring.
+.I nr_args
+must be set to the id in question, and
+.I arg
+must be set to NULL. Available since 5.6.
+
+.TP
+.B IORING_REGISTER_ENABLE_RINGS
+This operation enables an io_uring ring started in a disabled state
+.RB (IORING_SETUP_R_DISABLED
+was specified in the call to
+.BR io_uring_setup (2)).
+While the io_uring ring is disabled, submissions are not allowed and
+registrations are not restricted.
+
+After the execution of this operation, the io_uring ring is enabled:
+submissions and registration are allowed, but they will
+be validated following the registered restrictions (if any).
+This operation takes no argument, must be invoked with
+.I arg
+set to NULL and
+.I nr_args
+set to zero. Available since 5.10.
+
+.TP
+.B IORING_REGISTER_RESTRICTIONS
+.I arg
+points to a
+.I struct io_uring_restriction
+array of
+.I nr_args
+entries.
+
+With an entry it is possible to allow an
+.BR io_uring_register (2)
+.I opcode,
+or specify which
+.I opcode
+and
+.I flags
+of the submission queue entry are allowed,
+or require certain
+.I flags
+to be specified (these flags must be set on each submission queue entry).
+
+All the restrictions must be submitted with a single
+.BR io_uring_register (2)
+call and they are handled as an allowlist (opcodes and flags not registered,
+are not allowed).
+
+Restrictions can be registered only if the io_uring ring started in a disabled
+state
+.RB (IORING_SETUP_R_DISABLED
+must be specified in the call to
+.BR io_uring_setup (2)).
+
+Available since 5.10.
+
+.TP
+.B IORING_REGISTER_IOWQ_AFF
+By default, async workers created by io_uring will inherit the CPU mask of its
+parent. This is usually all the CPUs in the system, unless the parent is being
+run with a limited set. If this isn't the desired outcome, the application
+may explicitly tell io_uring what CPUs the async workers may run on.
+.I arg
+must point to a
+.B cpu_set_t
+mask, and
+.I nr_args
+the byte size of that mask.
+
+Available since 5.14.
+
+.TP
+.B IORING_UNREGISTER_IOWQ_AFF
+Undoes a CPU mask previously set with
+.B IORING_REGISTER_IOWQ_AFF.
+Must not have
+.I arg
+or
+.I nr_args
+set.
+
+Available since 5.14.
+
+.TP
+.B IORING_REGISTER_IOWQ_MAX_WORKERS
+By default, io_uring limits the unbounded workers created to the maximum
+processor count set by
+.I RLIMIT_NPROC
+and the bounded workers is a function of the SQ ring size and the number
+of CPUs in the system. Sometimes this can be excessive (or too little, for
+bounded), and this command provides a way to change the count per ring (per NUMA
+node) instead.
+
+.I arg
+must be set to an
+.I unsigned int
+pointer to an array of two values, with the values in the array being set to
+the maximum count of workers per NUMA node. Index 0 holds the bounded worker
+count, and index 1 holds the unbounded worker count. On successful return, the
+passed in array will contain the previous maximum valyes for each type. If the
+count being passed in is 0, then this command returns the current maximum values
+and doesn't modify the current setting.
+.I nr_args
+must be set to 2, as the command takes two values.
+
+Available since 5.15.
+
+.TP
+.B IORING_REGISTER_RING_FDS
+Whenever
+.BR io_uring_enter (2)
+is called to submit request or wait for completions, the kernel must grab a
+reference to the file descriptor. If the application using io_uring is threaded,
+the file table is marked as shared, and the reference grab and put of the file
+descriptor count is more expensive than it is for a non-threaded application.
+
+Similarly to how io_uring allows registration of files, this allow registration
+of the ring file descriptor itself. This reduces the overhead of the
+.BR io_uring_enter (2)
+system call.
+
+.I arg
+must be set to an unsigned int pointer to an array of type
+.I struct io_uring_rsrc_register
+of
+.I nr_args
+number of entries. The
+.B data
+field of this struct must point to an io_uring file descriptor, and the
+.B offset
+field can be either
+.B -1
+or an explicit offset desired for the registered file descriptor value. If
+.B -1
+is used, then upon successful return of this system call, the field will
+contain the value of the registered file descriptor to be used for future
+.BR io_uring_enter (2)
+system calls.
+
+On successful completion of this request, the returned descriptors may be used
+instead of the real file descriptor for
+.BR io_uring_enter (2),
+provided that
+.B IORING_ENTER_REGISTERED_RING
+is set in the
+.I flags
+for the system call. This flag tells the kernel that a registered descriptor
+is used rather than a real file descriptor.
+
+Each thread or process using a ring must register the file descriptor directly
+by issuing this request.
+
+The maximum number of supported registered ring descriptors is currently
+limited to
+.B 16.
+
+Available since 5.18.
+
+.TP
+.B IORING_UNREGISTER_RING_FDS
+Unregister descriptors previously registered with
+.B IORING_REGISTER_RING_FDS.
+
+.I arg
+must be set to an unsigned int pointer to an array of type
+.I struct io_uring_rsrc_register
+of
+.I nr_args
+number of entries. Only the
+.B offset
+field should be set in the structure, containing the registered file descriptor
+offset previously returned from
+.B IORING_REGISTER_RING_FDS
+that the application wishes to unregister.
+
+Note that this isn't done automatically on ring exit, if the thread or task
+that previously registered a ring file descriptor isn't exiting. It is
+recommended to manually unregister any previously registered ring descriptors
+if the ring is closed and the task persists. This will free up a registration
+slot, making it available for future use.
+
+Available since 5.18.
+
+.TP
+.B IORING_REGISTER_PBUF_RING
+Registers a shared buffer ring to be used with provided buffers. This is a
+newer alternative to using
+.B IORING_OP_PROVIDE_BUFFERS
+which is more efficient, to be used with request types that support the
+.B IOSQE_BUFFER_SELECT
+flag.
+
+The
+.I arg
+argument must be filled in with the appropriate information. It looks as
+follows:
+.PP
+.in +12n
+.EX
+struct io_uring_buf_reg {
+    __u64 ring_addr;
+    __u32 ring_entries;
+    __u16 bgid;
+    __u16 pad;
+    __u64 resv[3];
+};
+.EE
+.in
+.PP
+.in +8n
+The
+.I ring_addr
+field must contain the address to the memory allocated to fit this ring.
+The memory must be page aligned and hence allocated appropriately using eg
+.BR posix_memalign (3)
+or similar. The size of the ring is the product of
+.I ring_entries
+and the size of
+.IR "struct io_uring_buf" .
+.I ring_entries
+is the desired size of the ring, and must be a power-of-2 in size. The maximum
+size allowed is 2^15 (32768).
+.I bgid
+is the buffer group ID associated with this ring. SQEs that select a buffer
+have a buffer group associated with them in their
+.I buf_group
+field, and the associated CQEs will have
+.B IORING_CQE_F_BUFFER
+set in their
+.I flags
+member, which will also contain the specific ID of the buffer selected. The rest
+of the fields are reserved and must be cleared to zero.
+
+.I nr_args
+must be set to 1.
+
+Also see
+.BR io_uring_register_buf_ring (3)
+for more details. Available since 5.19.
+
+.TP
+.B IORING_UNREGISTER_PBUF_RING
+Unregister a previously registered provided buffer ring.
+.I arg
+must be set to the address of a struct io_uring_buf_reg, with just the
+.I bgid
+field set to the buffer group ID of the previously registered provided buffer
+group.
+.I nr_args
+must be set to 1. Also see
+.B IORING_REGISTER_PBUF_RING .
+
+Available since 5.19.
+
+.TP
+.B IORING_REGISTER_SYNC_CANCEL
+Performs a synchronous cancelation request, which works in a similar fashion to
+.B IORING_OP_ASYNC_CANCEL
+except it completes inline. This can be useful for scenarios where cancelations
+should happen synchronously, rather than needing to issue an SQE and wait for
+completion of that specific CQE.
+
+.I arg
+must be set to a pointer to a struct io_uring_sync_cancel_reg structure, with
+the details filled in for what request(s) to target for cancelation. See
+.BR io_uring_register_sync_cancel (3)
+for details on that. The return values are the same, except they are passed
+back synchronously rather than through the CQE
+.I res
+field.
+.I nr_args
+must be set to 1.
+
+Available since 6.0.
+
+.TP
+.B IORING_REGISTER_FILE_ALLOC_RANGE
+sets the allowable range for fixed file index allocations within the
+kernel. When requests that can instantiate a new fixed file are used with
+.B IORING_FILE_INDEX_ALLOC ,
+the application is asking the kernel to allocate a new fixed file descriptor
+rather than pass in a specific value for one. By default, the kernel will
+pick any available fixed file descriptor within the range available.
+This effectively allows the application to set aside a range just for dynamic
+allocations, with the remainder being used for specific values.
+
+.I nr_args
+must be set to 1 and
+.I arg
+must be set to a pointer to a struct io_uring_file_index_range:
+.PP
+.in +12n
+.EX
+struct io_uring_file_index_range {
+    __u32 off;
+    __u32 len;
+    __u64 resv;
+};
+.EE
+.in
+.PP
+.in +8n
+with
+.I off
+being set to the starting value for the range, and
+.I len
+being set to the number of descriptors. The reserved
+.I resv
+field must be cleared to zero.
+
+The application must have registered a file table first.
+
+Available since 6.0.
+
+.SH RETURN VALUE
+
+On success,
+.BR io_uring_register (2)
+returns either 0 or a positive value, depending on the
+.I opcode
+used.  On error, a negative error value is returned. The caller should not rely
+on the
+.I errno
+variable.
+
+.SH ERRORS
+.TP
+.B EACCES
+The
+.I opcode
+field is not allowed due to registered restrictions.
+.TP
+.B EBADF
+One or more fds in the
+.I fd
+array are invalid.
+.TP
+.B EBADFD
+.B IORING_REGISTER_ENABLE_RINGS
+or
+.B IORING_REGISTER_RESTRICTIONS
+was specified, but the io_uring ring is not disabled.
+.TP
+.B EBUSY
+.B IORING_REGISTER_BUFFERS
+or
+.B IORING_REGISTER_FILES
+or
+.B IORING_REGISTER_RESTRICTIONS
+was specified, but there were already buffers, files, or restrictions
+registered.
+.TP
+.B EEXIST
+The thread performing the registration is invalid.
+.TP
+.B EFAULT
+buffer is outside of the process' accessible address space, or
+.I iov_len
+is greater than 1GiB.
+.TP
+.B EINVAL
+.B IORING_REGISTER_BUFFERS
+or
+.B IORING_REGISTER_FILES
+was specified, but
+.I nr_args
+is 0.
+.TP
+.B EINVAL
+.B IORING_REGISTER_BUFFERS
+was specified, but
+.I nr_args
+exceeds
+.B UIO_MAXIOV
+.TP
+.B EINVAL
+.B IORING_UNREGISTER_BUFFERS
+or
+.B IORING_UNREGISTER_FILES
+was specified, and
+.I nr_args
+is non-zero or
+.I arg
+is non-NULL.
+.TP
+.B EINVAL
+.B IORING_REGISTER_RESTRICTIONS
+was specified, but
+.I nr_args
+exceeds the maximum allowed number of restrictions or restriction
+.I opcode
+is invalid.
+.TP
+.B EMFILE
+.B IORING_REGISTER_FILES
+was specified and
+.I nr_args
+exceeds the maximum allowed number of files in a fixed file set.
+.TP
+.B EMFILE
+.B IORING_REGISTER_FILES
+was specified and adding
+.I nr_args
+file references would exceed the maximum allowed number of files the user
+is allowed to have according to the
+.B
+RLIMIT_NOFILE
+resource limit and the caller does not have
+.B CAP_SYS_RESOURCE
+capability. Note that this is a per user limit, not per process.
+.TP
+.B ENOMEM
+Insufficient kernel resources are available, or the caller had a
+non-zero
+.B RLIMIT_MEMLOCK
+soft resource limit, but tried to lock more memory than the limit
+permitted.  This limit is not enforced if the process is privileged
+.RB ( CAP_IPC_LOCK ).
+.TP
+.B ENXIO
+.B IORING_UNREGISTER_BUFFERS
+or
+.B IORING_UNREGISTER_FILES
+was specified, but there were no buffers or files registered.
+.TP
+.B ENXIO
+Attempt to register files or buffers on an io_uring instance that is already
+undergoing file or buffer registration, or is being torn down.
+.TP
+.B EOPNOTSUPP
+User buffers point to file-backed memory.
+.TP
+.B EFAULT
+User buffers point to file-backed memory (newer kernels).

@@ -1,0 +1,72 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_write 3 "February 13, 2022" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_prep_write_fixed \- prepare I/O write request with registered buffer
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_write_fixed(struct io_uring_sqe *" sqe ","
+.BI "                        int " fd ",
+.BI "                        const void *" buf ","
+.BI "                        unsigned " nbytes ","
+.BI "                        __u64 " offset ","
+.BI "                        int " buf_index ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_write_fixed (3)
+prepares an IO write request with a previously registered IO buffer. The
+submission queue entry
+.I sqe
+is setup to use the file descriptor
+.I fd
+to start writing
+.I nbytes
+from the buffer
+.I buf
+at the specified
+.I offset
+and with the buffer matching the registered index of
+.IR buf_index .
+
+This works just like
+.BR io_uring_prep_write (3)
+except it requires the use of buffers that have been registered with
+.BR io_uring_register_buffers (3).
+The
+.I buf
+and
+.I nbytes
+arguments must fall within a region specified by
+.I buf_index
+in the previously registered buffer. The buffer need not be aligned with
+the start of the registered buffer.
+
+After the read has been prepared it can be submitted with one of the submit
+functions.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation. See the related man page for
+details on possible values. Note that where synchronous system calls will return
+.B -1
+on failure and set
+.I errno
+to the actual error value, io_uring never uses
+.IR errno .
+Instead it returns the negated
+.I errno
+directly in the CQE
+.I res
+field.
+.SH SEE ALSO
+.BR io_uring_prep_write (3),
+.BR io_uring_register_buffers (3)

@@ -1,0 +1,3 @@
+# Site          Directory               Pattern                 Version Script
+version=4
+https://git.kernel.dk/cgit/liburing/ snapshot\/liburing-([\d\.]+)\.tar\.(?:gz|xz) debian uupdate

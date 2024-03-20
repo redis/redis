@@ -1,0 +1,74 @@
+liburing-2.5 release
+
+- Add support for io_uring_prep_cmd_sock()
+- Add support for application allocated ring memory, for placing rings
+  in huge mem. Available through io_uring_queue_init_mem().
+- Add support for registered ring fds
+- Various documentation updates
+- Various fixes
+
+liburing-2.4 release
+
+- Add io_uring_{major,minor,check}_version() functions.
+- Add IO_URING_{MAJOR,MINOR,CHECK}_VERSION() macros.
+- FFI support (for non-C/C++ languages integration).
+- Add io_uring_prep_msg_ring_cqe_flags() function.
+- Deprecate --nolibc configure option.
+- CONFIG_NOLIBC is always enabled on x86-64, x86, and aarch64.
+- Add support for IORING_REGISTER_USE_REGISTERED_RING and use if available.
+- Add io_uring_close_ring_fd() function.
+- Add io_uring_prep_msg_ring_fd_alloc function.
+- Add io_uring_free_buf_ring() and io_uring_setup_buf_ring() functions.
+- Ensure that io_uring_prep_accept_direct(), io_uring_prep_openat_direct(),
+  io_uring_prep_openat2_direct(), io_uring_prep_msg_ring_fd(), and
+  io_uring_prep_socket_direct() factor in being called with
+  IORING_FILE_INDEX_ALLOC for allocating a direct descriptor.
+- Add io_uring_prep_sendto() function.
+- Add io_uring_prep_cmd_sock() function.
+
+liburing-2.3 release
+
+- Support non-libc build for aarch64.
+- Add io_uring_{enter,enter2,register,setup} syscall functions.
+- Add sync cancel interface, io_uring_register_sync_cancel().
+- Fix return value of io_uring_submit_and_wait_timeout() to match the
+  man page.
+- Improvements to the regression tests
+- Add support and test case for passthrough IO
+- Add recv and recvmsg multishot helpers and support
+- Add documentation and support for IORING_SETUP_DEFER_TASKRUN
+- Fix potential missing kernel entry with IORING_SETUP_IOPOLL
+- Add support and documentation for zero-copy network transmit
+- Various optimizations
+- Many cleanups
+- Many man page additions and updates
+
+liburing-2.2 release
+
+- Support non-libc builds.
+- Optimized syscall handling for x86-64/x86/aarch64.
+- Enable non-lib function calls for fast path functions.
+- Add support for multishot accept.
+- io_uring_register_files() will set RLIMIT_NOFILE if necessary.
+- Add support for registered ring fds, io_uring_register_ring_fd(),
+  reducing the overhead of an io_uring_enter() system call.
+- Add support for the message ring opcode.
+- Add support for newer request cancelation features.
+- Add support for IORING_SETUP_COOP_TASKRUN, which can help reduce the
+  overhead of io_uring in general. Most applications should set this flag,
+  see the io_uring_setup.2 man page for details.
+- Add support for registering a sparse buffer and file set.
+- Add support for a new buffer provide scheme, see
+  io_uring_register_buf_ring.3 for details.
+- Add io_uring_submit_and_wait_timeout() for submitting IO and waiting
+  for completions with a timeout.
+- Add io_uring_prep_{read,write}v2 prep helpers.
+- Add io_uring_prep_close_direct() helper.
+- Add support for SQE128 and CQE32, which are doubly sized SQE and CQE
+  rings. This is needed for some cases of the new IORING_OP_URING_CMD,
+  notably for NVMe passthrough.
+- ~5500 lines of man page additions, including adding ~90 new man pages.
+- Synced with the 5.19 kernel release, supporting all the features of
+  5.19 and earlier.
+- 24 new regression test cases, and ~7000 lines of new tests in general.
+- General optimizations and fixes.

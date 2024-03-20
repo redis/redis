@@ -1,0 +1,59 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_sync_file_range 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_sync_file_range \- prepare a sync_file_range request
+.SH SYNOPSIS
+.nf
+.B #include <fcntl.h>
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_sync_file_range(struct io_uring_sqe *" sqe ","
+.BI "                                   int " fd ","
+.BI "                                   unsigned " len ","
+.BI "                                   __u64 " offset ","
+.BI "                                   int " flags ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_sync_file_range (3)
+function prepares a sync_file_range request. The submission queue entry
+.I sqe
+is setup to use the file descriptor
+.I fd
+that should get
+.I len
+bytes synced started at offset
+.I offset
+and with modifier flags in the
+.I flags
+argument.
+
+This function prepares an async
+.BR sync_file_range (2)
+request. See that man page for details on the arguments.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation. See the related man page for
+details on possible values. Note that where synchronous system calls will return
+.B -1
+on failure and set
+.I errno
+to the actual error value, io_uring never uses
+.IR errno .
+Instead it returns the negated
+.I errno
+directly in the CQE
+.I res
+field.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR sync_file_range (2)

@@ -1,0 +1,89 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_poll_update 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_poll_update \- update an existing poll request
+.SH SYNOPSIS
+.nf
+.B #include <poll.h>
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_poll_update(struct io_uring_sqe *" sqe ","
+.BI "                               __u64 " old_user_data ","
+.BI "                               __u64 " new_user_data ","
+.BI "                               unsigned " poll_mask ","
+.BI "                               unsigned " flags ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_poll_update (3)
+function prepares a poll update request. The submission queue entry
+.I sqe
+is setup to update a poll request identified by
+.IR old_user_data ,
+replacing it with the
+.I new_user_data
+information. The
+.I poll_mask
+arguments contains the new mask to use for the poll request, and
+.I flags
+argument contains modifier flags telling io_uring what fields to update.
+
+The
+.I flags
+modifier flags is a bitmask and may contain and OR'ed mask of:
+.TP
+.B IORING_POLL_UPDATE_EVENTS
+If set, the poll update request will replace the existing events being waited
+for with the ones specified in the
+.I poll_mask
+argument to the function.
+.TP
+.B IORING_POLL_UPDATE_USER_DATA
+If set, the poll update request will update the existing user_data of the
+request with the value passed in as the
+.I new_user_data
+argument.
+.TP
+.B IORING_POLL_ADD_MULTI
+If set, this will change the poll request from a singleshot to a multishot
+request. This must be used along with
+.B IORING_POLL_UPDATE_EVENTS
+as the event field must be updated to enable multishot.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+These are the errors that are reported in the CQE
+.I res
+field. On success,
+.B 0
+is returned.
+.TP
+.B -ENOENT
+The request identified by
+.I user_data
+could not be located. This could be because it completed before the cancelation
+request was issued, or if an invalid identifier is used.
+.TP
+.B -EINVAL
+One of the fields set in the SQE was invalid.
+.TP
+.B -EALREADY
+The execution state of the request has progressed far enough that cancelation
+is no longer possible. This should normally mean that it will complete shortly,
+either successfully, or interrupted due to the cancelation.
+.TP
+.B -ECANCELED
+.B IORING_POLL_UPDATE_EVENTS
+was set and an error occurred re-arming the poll request with the new mask.
+The original poll request is terminated if this happens, and that termination
+CQE will contain the reason for the error re-arming.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_prep_poll_add (3),
+.BR io_uring_prep_poll_multishot (3)

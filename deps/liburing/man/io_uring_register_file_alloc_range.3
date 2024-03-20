@@ -1,0 +1,52 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_register_file_alloc_range 3 "Oct 21, 2022" "liburing-2.3" "liburing Manual"
+.SH NAME
+io_uring_register_file_alloc_range \- set range for fixed file allocations
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_register_file_alloc_range(struct io_uring *" ring ",
+.BI "                                       unsigned " off ","
+.BI "                                       unsigned " len ");"
+.BI "
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_register_file_alloc_range (3)
+function sets the allowable range for fixed file index allocations within the
+kernel. When requests that can instantiate a new fixed file are used with
+.B IORING_FILE_INDEX_ALLOC ,
+the application is asking the kernel to allocate a new fixed file descriptor
+rather than pass in a specific value for one. By default, the kernel will
+pick any available fixed file descriptor within the range available. Calling
+this function with
+.I off
+set to the starting offset and
+.I len
+set to the number of descriptors, the application can limit the allocated
+descriptors to that particular range. This effectively allows the application
+to set aside a range just for dynamic allocations, with the remainder being
+used for specific values.
+
+The application must have registered a fixed file table upfront, eg through
+.BR io_uring_register_files (3)
+or
+.BR io_uring_register_files_sparse (3) .
+
+Available since 6.0.
+
+.SH RETURN VALUE
+On success
+.BR io_uring_register_buf_ring (3)
+returns 0. On failure it returns
+.BR -errno .
+.SH SEE ALSO
+.BR io_uring_register_files (3)
+.BR io_uring_prep_accept_direct (3)
+.BR io_uring_prep_openat_direct (3)
+.BR io_uring_prep_socket_direct (3)

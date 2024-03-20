@@ -1,0 +1,28 @@
+.\" Copyright (C) 2022 Samuel Williams
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_nop 3 "October 20, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_nop \- prepare a nop request
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_nop(struct io_uring_sqe *" sqe ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_nop (3)
+function prepares nop (no operation) request. The submission queue entry
+.I sqe
+does not require any additional setup.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+None
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),

@@ -1,0 +1,12 @@
+prefix=@prefix@
+exec_prefix=${prefix}
+libdir=@libdir@
+includedir=@includedir@
+
+Name: @NAME@
+Version: @VERSION@
+Description: io_uring library
+URL: https://git.kernel.dk/cgit/liburing/
+
+Libs: -L${libdir} -luring
+Cflags: -I${includedir}

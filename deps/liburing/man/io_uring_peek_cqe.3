@@ -1,0 +1,38 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_peek_cqe 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_peek_cqe \- check if an io_uring completion event is available
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_peek_cqe(struct io_uring *" ring ","
+.BI "                      struct io_uring_cqe **" cqe_ptr ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_peek_cqe (3)
+function returns an IO completion from the queue belonging to the
+.I ring
+param, if one is readily available. On successful return,
+.I cqe_ptr
+param is filled with a valid CQE entry.
+
+This function does not enter the kernel to wait for an event, an event
+is only returned if it's already available in the CQ ring.
+
+.SH RETURN VALUE
+On success
+.BR io_uring_peek_cqe (3)
+returns
+.B 0
+and the cqe_ptr parameter is filled in. On failure it returns
+.BR -EAGAIN .
+.SH SEE ALSO
+.BR io_uring_submit (3),
+.BR io_uring_wait_cqes (3),
+.BR io_uring_wait_cqe (3)

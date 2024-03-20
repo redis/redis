@@ -1,0 +1,94 @@
+.\" Copyright (C) 2023 Rutvik Patel <heyrutvik@gmail.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_link_timeout 3 "January 23, 2023" "liburing-2.4" "liburing Manual"
+.SH NAME
+io_uring_prep_link_timeout \- a timeout request for linked sqes
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_link_timeout(struct io_uring_sqe *" sqe ","
+.BI "                                struct __kernel_timespec *" ts ","
+.BI "                                unsigned " flags ");"
+.fi
+.SH DESCRIPTION
+.PP
+The 
+.BR io_uring_prep_link_timeout (3)
+function prepares a timeout request for linked sqes. The submission queue entry 
+.I sqe
+is setup a timeout specified by
+.IR ts .
+The flags argument holds modifier
+.I flags
+for the timeout behaviour of the request.
+
+The
+.I ts
+argument must be filled in with the appropriate information for the timeout. It looks as follows:
+.PP
+.in +4n
+.EX
+struct __kernel_timespec {
+    __kernel_time64_t tv_sec;
+    long long tv_nsec;
+};
+.EE
+.in
+.PP
+
+The
+.I flags
+argument may contain:
+.TP
+.B IORING_TIMEOUT_ABS
+The value specified in
+.I ts
+is an absolute value rather than a relative one.
+.TP
+.B IORING_TIMEOUT_BOOTTIME
+The boottime clock source should be used.
+.TP
+.B IORING_TIMEOUT_REALTIME
+The realtime clock source should be used.
+.TP
+.B IORING_TIMEOUT_ETIME_SUCCESS
+Consider an expired timeout a success in terms of the posted completion.
+.PP
+
+It is invalid to create a chain (linked sqes) consisting only of a link timeout 
+request. If all the requests in the chain are completed before timeout, then the 
+link timeout request gets cancelled. Upon timeout, all the uncompleted requests 
+in the chain get cancelled.
+
+.SH RETURN VALUE
+None
+
+.SH ERRORS
+.PP
+These are the errors that are reported in the CQE
+.I res
+field. On success,
+.B 0
+is returned.
+.TP
+.B -ETIME
+The specified timeout occurred and triggered the completion event.
+.TP
+.B -EINVAL
+One of the fields set in the SQE was invalid. For example, two clock sources 
+where given, or the specified timeout seconds or nanoseconds where < 0.
+.TP
+.B -EFAULT
+io_uring was unable to access the data specified by ts.
+.TP
+.B -ECANCELED
+The timeout was canceled because all submitted requests were completed successfully 
+or one of the requests resulted in failure.
+
+
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_prep_timeout (3)

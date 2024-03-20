@@ -1,0 +1,49 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_register_ring_fd 3 "March 11, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_register_ring_fd \- register a ring file descriptor
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_register_ring_fd(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+.BR io_uring_register_ring_fd (3)
+registers the file descriptor of the ring.
+
+Whenever
+.BR io_uring_enter (2)
+is called to submit request or wait for completions, the kernel must grab a
+reference to the file descriptor. If the application using io_uring is threaded,
+the file table is marked as shared, and the reference grab and put of the file
+descriptor count is more expensive than it is for a non-threaded application.
+
+Similarly to how io_uring allows registration of files, this allow registration
+of the ring file descriptor itself. This reduces the overhead of the
+.BR io_uring_enter (2)
+system call.
+
+If an application using liburing is threaded, then an application should call
+this function to register the ring descriptor when a ring is set up. See NOTES
+for restrictions when a ring is shared.
+
+.SH NOTES
+When the ring descriptor is registered, it is stored internally in the
+.I struct io_uring
+structure. For applications that share a ring between threads, for example
+having one thread do submits and another reap events, then this optimization
+cannot be used as each thread may have a different index for the registered
+ring fd.
+.SH RETURN VALUE
+Returns 1 on success, indicating that one file descriptor was registered,
+or
+.BR -errno
+on error.
+.SH SEE ALSO
+.BR io_uring_unregister_ring_fd (3),
+.BR io_uring_register_files (3)

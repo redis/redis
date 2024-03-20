@@ -1,0 +1,120 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_splice 3 "March 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_splice \- prepare an splice request
+.SH SYNOPSIS
+.nf
+.B #include <fcntl.h>
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_splice(struct io_uring_sqe *" sqe ","
+.BI "                          int " fd_in ","
+.BI "                          int64_t " off_in ","
+.BI "                          int " fd_out ","
+.BI "                          int64_t " off_out ","
+.BI "                          unsigned int " nbytes ","
+.BI "                          unsigned int " splice_flags ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_splice (3)
+function prepares a splice request. The submission queue entry
+.I sqe
+is setup to use as input the file descriptor
+.I fd_in
+at offset
+.IR off_in ,
+splicing data to the file descriptor at
+.I fd_out
+and at offset
+.IR off_out .
+.I nbytes
+bytes of data should be spliced between the two descriptors.
+.I splice_flags
+are modifier flags for the operation. See
+.BR splice (2)
+for the generic splice flags.
+
+If the
+.I fd_out
+descriptor,
+.B IOSQE_FIXED_FILE
+can be set in the SQE to indicate that. For the input file, the io_uring
+specific
+.B SPLICE_F_FD_IN_FIXED
+can be set in
+.I splice_flags
+and
+.I fd_in
+given as a registered file descriptor offset.
+
+If
+.I fd_in
+refers to a pipe,
+.I off_in
+is ignored and must be set to -1.
+
+If
+.I fd_in
+does not refer to a pipe and
+.I off_in
+is -1, then
+.I nbytes
+are read from
+.I fd_in
+starting from the file offset, which is incremented by the number of bytes read.
+
+If
+.I fd_in
+does not refer to a pipe and
+.I off_in
+is not -1, then the starting offset of
+.I fd_in
+will be
+.IR off_in .
+
+The same rules apply to
+.I fd_out
+and
+.IR off_out .
+
+This function prepares an async
+.BR splice (2)
+request. See that man page for details.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation. See the related man page for
+details on possible values. Note that where synchronous system calls will return
+.B -1
+on failure and set
+.I errno
+to the actual error value, io_uring never uses
+.IR errno .
+Instead it returns the negated
+.I errno
+directly in the CQE
+.I res
+field.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_register (2),
+.BR splice (2)
+
+.SH NOTES
+Note that even if
+.I fd_in
+or
+.I fd_out
+refers to a pipe, the splice operation can still fail with
+.B EINVAL
+if one of the fd doesn't explicitly support splice operation, e.g. reading from
+terminal is unsupported from kernel 5.7 to 5.11.

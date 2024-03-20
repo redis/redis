@@ -1,0 +1,27 @@
+.\" Copyright (C) 2021 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_unregister_buffers 3 "November 15, 2021" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_unregister_buffers \- unregister buffers for fixed buffer operations
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_unregister_buffers(struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_unregister_buffers (3)
+function unregisters the fixed buffers previously registered to the
+.IR ring .
+
+.SH RETURN VALUE
+On success
+.BR io_uring_unregister_buffers (3)
+returns 0. On failure it returns
+.BR -errno .
+.SH SEE ALSO
+.BR io_uring_register_buffers (3)

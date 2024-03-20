@@ -1,0 +1,118 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_socket 3 "May 27, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_socket \- prepare a socket creation request
+.SH SYNOPSIS
+.nf
+.B #include <sys/socket.h>
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_socket(struct io_uring_sqe *" sqe ","
+.BI "                          int " domain ","
+.BI "                          int " type ","
+.BI "                          int " protocol ","
+.BI "                          unsigned int " flags ");"
+.PP
+.BI "void io_uring_prep_socket_direct(struct io_uring_sqe *" sqe ","
+.BI "                                 int " domain ","
+.BI "                                 int " type ","
+.BI "                                 int " protocol ","
+.BI "                                 unsigned int " file_index ","
+.BI "                                 unsigned int " flags ");"
+.PP
+.BI "void io_uring_prep_socket_direct_alloc(struct io_uring_sqe *" sqe ","
+.BI "                                 int " domain ","
+.BI "                                 int " type ","
+.BI "                                 int " protocol ","
+.BI "                                 unsigned int " flags ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_socket (3)
+function prepares a socket creation request. The submission queue entry
+.I sqe
+is setup to use the communication domain defined by
+.I domain
+and use the communication type defined by
+.I type
+and the protocol set by
+.IR protocol .
+The
+.I flags
+argument are currently unused.
+
+The
+.BR io_uring_prep_socket_direct (3)
+helper works just like
+.BR io_uring_prep_socket (3),
+except it maps the socket to a direct descriptor rather than return a normal
+file descriptor. The
+.I file_index
+argument should be set to the slot that should be used for this socket.
+
+The
+.BR io_uring_prep_socket_direct_alloc (3)
+helper works just like
+.BR io_uring_prep_socket_alloc (3),
+except it allocates a new direct descriptor rather than pass a free slot in. It
+is equivalent to using
+.BR io_uring_prep_socket_direct (3)
+with
+.B IORING_FILE_INDEX_ALLOC
+as the
+.I
+file_index .
+Upon completion, the
+.I res
+field of the CQE will return the direct slot that was allocated for the
+socket.
+
+If the direct variants are used, the application must first have registered
+a file table using
+.BR io_uring_register_files (3)
+of the appropriate size. Once registered, a direct socket request may use any
+entry in that table, as long as it is within the size of the registered table.
+If a specified entry already contains a file, the file will first be removed
+from the table and closed. It's consistent with the behavior of updating an
+existing file with
+.BR io_uring_register_files_update (3).
+
+For a direct descriptor socket request, the
+.I file_index
+argument can be set to
+.BR IORING_FILE_INDEX_ALLOC ,
+In this case a free entry in io_uring file table will
+be used automatically and the file index will be returned as CQE
+.IR res .
+.B -ENFILE
+is otherwise returned if there is no free entries in the io_uring file table.
+
+These functions prepare an async
+.BR socket (2)
+request. See that man page for details.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation. See the related man page for
+details on possible values. Note that where synchronous system calls will return
+.B -1
+on failure and set
+.I errno
+to the actual error value, io_uring never uses
+.IR errno .
+Instead it returns the negated
+.I errno
+directly in the CQE
+.I res
+field.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR socket (2)

@@ -1,0 +1,55 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_poll_remove 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_poll_remove \- prepare a poll deletion request
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_poll_remove(struct io_uring_sqe *" sqe ","
+.BI "                               __u64 " user_data ");"
+.BI "
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_poll_remove (3)
+function prepares a poll removal request. The submission queue entry
+.I sqe
+is setup to remove a poll request identified by
+.I user_data
+
+Works like
+.BR io_uring_prep_cancel (3)
+except only looks for poll requests. Apart from that, behavior is identical.
+See that man page for specific details.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+These are the errors that are reported in the CQE
+.I res
+field. On success,
+.B 0
+is returned.
+.TP
+.B -ENOENT
+The request identified by
+.I user_data
+could not be located. This could be because it completed before the cancelation
+request was issued, or if an invalid identifier is used.
+.TP
+.B -EINVAL
+One of the fields set in the SQE was invalid.
+.TP
+.B -EALREADY
+The execution state of the request has progressed far enough that cancelation
+is no longer possible. This should normally mean that it will complete shortly,
+either successfully, or interrupted due to the cancelation.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR io_uring_prep_cancel (3)

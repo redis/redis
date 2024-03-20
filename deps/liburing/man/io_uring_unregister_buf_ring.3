@@ -1,0 +1,30 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_unregister_buf_ring 3 "May 18, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_unregister_buf_ring \- unregister a previously registered buffer ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_unregister_buf_ring(struct io_uring *" ring ",
+.BI "                                 int " bgid ");"
+.BI "
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_unregister_buf_ring (3)
+function unregisters a previously registered shared buffer ring indicated by
+.IR bgid .
+
+.SH RETURN VALUE
+On success
+.BR io_uring_unregister_buf_ring (3)
+returns 0. On failure it returns
+.BR -errno .
+.SH SEE ALSO
+.BR io_uring_register_buf_ring (3),
+.BR io_uring_buf_ring_free (3)

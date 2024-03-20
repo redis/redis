@@ -1,0 +1,61 @@
+.\" Copyright (C) 2023 Rutvik Patel <heyrutvik@gmail.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_getxattr 3 "January 23, 2023" "liburing-2.4" "liburing Manual"
+.SH NAME
+io_uring_prep_getxattr, io_uring_prep_fgetxattr \- prepare a request to get an 
+extended attribute value
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_getxattr(struct io_uring_sqe *" sqe ","
+.BI "                            const char *" name ","
+.BI "                            char *" value ","
+.BI "                            const char *" path ","
+.BI "                            unsigned int " len ");"
+.PP
+.BI "void io_uring_prep_fgetxattr(struct io_uring_sqe *" sqe ","
+.BI "                             int " fd ","
+.BI "                             const char *" name ","
+.BI "                             char *" value ","
+.BI "                             unsigned int " len ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_getxattr (3)
+function prepares a request to get an extended attribute value. The submission 
+queue entry
+.I sqe
+is setup to get the
+.I value
+of the extended attribute identified by
+.I name
+and associated with the given
+.I path
+in the filesystem.
+The
+.I len
+argument specifies the size (in bytes) of
+.IR value .
+
+.BR io_uring_prep_fgetxattr (3)
+is identical to 
+.BR io_uring_prep_getxattr (3),
+only the open file referred to by
+.I fd
+is interrogated in place of
+.IR path .
+
+This function prepares an async 
+.BR getxattr (2)
+request. See that man page for details.
+
+.SH RETURN VALUE
+None
+
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR getxattr (2)

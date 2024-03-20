@@ -1,0 +1,38 @@
+.\" Copyright (C) 2023 Rutvik Patel <heyrutvik@gmail.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_send_set_addr 3 "January 23, 2023" "liburing-2.4" "liburing Manual"
+.SH NAME
+io_uring_prep_send_set_addr \- set address details for send requests
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_send_set_addr(struct io_uring_sqe *" sqe ","
+.BI "                                 const struct sockaddr *" dest_addr ","
+.BI "                                 __u16 " addr_len ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_send_set_addr (3)
+function sets a socket destination address specified by
+.I dest_addr
+and its length using
+.I addr_len
+parameters. It can be used once 
+.I sqe
+is prepared using any of the
+.BR send (2)
+io_uring helpers. See man pages of
+.BR io_uring_prep_send (3)
+or
+.BR io_uring_prep_send_zc (3).
+.SH RETURN VALUE
+None
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_prep_send (3),
+.BR io_uring_prep_send_zc (3),
+.BR send (2)

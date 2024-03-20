@@ -1,0 +1,82 @@
+.\" Copyright (C), 2022  Dylan Yudaken <dylany@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_recvmsg_out 3 "July 26, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_recvmsg_out - access data from multishot recvmsg
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "struct io_uring_recvmsg_out *io_uring_recvmsg_validate(void *" buf ","
+.BI "                                                       int " buf_len ","
+.BI "                                                       struct msghdr *" msgh ");"
+.PP
+.BI "void *io_uring_recvmsg_name(struct io_uring_recvmsg_out *" o ");"
+.PP
+.BI "struct cmsghdr *io_uring_recvmsg_cmsg_firsthdr(struct io_uring_recvmsg_out *" o ","
+.BI "                                               struct msghdr *" msgh ");"
+.BI "struct cmsghdr *io_uring_recvmsg_cmsg_nexthdr(struct io_uring_recvmsg_out *" o ","
+.BI "                                              struct msghdr *" msgh ","
+.BI "                                              struct cmsghdr *" cmsg ");"
+.PP
+.BI "void *io_uring_recvmsg_payload(struct io_uring_recvmsg_out *" o ","
+.BI "                               struct msghdr *" msgh ");"
+.BI "unsigned int io_uring_recvmsg_payload_length(struct io_uring_recvmsg_out *" o ","
+.BI "                                             int " buf_len ","
+.BI "                                             struct msghdr *" msgh ");"
+.PP
+.fi
+
+.SH DESCRIPTION
+
+These functions are used to access data in the payload delivered by
+.BR io_uring_prep_recvmsg_multishot (3).
+.PP
+.I msgh
+should point to the
+.I struct msghdr
+submitted with the request.
+.PP
+.BR io_uring_recvmsg_validate (3)
+will validate a buffer delivered by
+.BR io_uring_prep_recvmsg_multishot (3)
+and extract the
+.I io_uring_recvmsg_out
+if it is valid, returning a pointer to it or else NULL.
+.PP
+The structure is defined as follows:
+.PP
+.in +4n
+.EX
+
+struct io_uring_recvmsg_out {
+        __u32 namelen;    /* Name byte count as would have been populated
+                           * by recvmsg(2) */
+        __u32 controllen; /* Control byte count */
+        __u32 payloadlen; /* Payload byte count as would have been returned
+                           * by recvmsg(2) */
+        __u32 flags;      /* Flags result as would have been populated
+                           * by recvmsg(2) */
+};
+
+.IP * 3
+.BR io_uring_recvmsg_name (3)
+returns a pointer to the name in the buffer.
+.IP *
+.BR io_uring_recvmsg_cmsg_firsthdr (3)
+returns a pointer to the first cmsg in the buffer, or NULL.
+.IP *
+.BR io_uring_recvmsg_cmsg_nexthdr (3)
+returns a pointer to the next cmsg in the buffer, or NULL.
+.IP *
+.BR io_uring_recvmsg_payload (3)
+returns a pointer to the payload in the buffer.
+.IP *
+.BR io_uring_recvmsg_payload_length (3)
+Calculates the usable payload length in bytes.
+
+
+.SH "SEE ALSO"
+.BR io_uring_prep_recvmsg_multishot (3)

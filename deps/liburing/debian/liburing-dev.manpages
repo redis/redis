@@ -1,0 +1,5 @@
+usr/share/man/man2/io_uring_*.2
+usr/share/man/man3/io_uring_*.3
+usr/share/man/man7/io_uring.7
+usr/share/man/man3/IO_URING_*.3
+usr/share/man/man3/__io_uring_*.3

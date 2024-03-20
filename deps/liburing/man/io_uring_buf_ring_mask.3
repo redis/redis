@@ -1,0 +1,27 @@
+.\" Copyright (C) 2022 Dylan Yudaken <dylany@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_buf_ring_mask 3 "June 13, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_buf_ring_mask \- Calculate buffer ring mask size
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "int io_uring_buf_ring_mask(__u32 " ring_entries ");"
+.fi
+.SH DESCRIPTION
+.PP
+.BR io_uring_buf_ring_mask (3)
+calculates the appropriate size mask for a buffer ring.
+.IR ring_entries
+is the ring entries as specified in
+.BR io_uring_register_buf_ring (3) .
+
+.SH RETURN VALUE
+Size mask for the buffer ring.
+
+.SH SEE ALSO
+.BR io_uring_register_buf_ring (3),
+.BR io_uring_buf_ring_add (3)

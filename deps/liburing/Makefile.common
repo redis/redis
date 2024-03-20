@@ -1,0 +1,7 @@
+TOP := $(dir $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)))
+NAME=liburing
+SPECFILE=$(TOP)/$(NAME).spec
+VERSION=$(shell awk '/Version:/ { print $$2 }' $(SPECFILE))
+VERSION_MAJOR=$(shell echo $(VERSION) | cut -d. -f1)
+VERSION_MINOR=$(shell echo $(VERSION) | cut -d. -f2)
+TAG = $(NAME)-$(VERSION)

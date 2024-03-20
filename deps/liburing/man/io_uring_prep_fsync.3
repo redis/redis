@@ -1,0 +1,70 @@
+.\" Copyright (C) 2022 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_prep_fsync 3 "March 12, 2022" "liburing-2.2" "liburing Manual"
+.SH NAME
+io_uring_prep_fsync \- prepare an fsync request
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_prep_fsync(struct io_uring_sqe *" sqe ","
+.BI "                         int " fd ","
+.BI "                         unsigned " flags ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_prep_fsync (3)
+function prepares an fsync request. The submission queue entry
+.I sqe
+is setup to use the file descriptor
+.I fd
+that should get synced, with the modifier flags indicated by the
+.I flags
+argument.
+
+This function prepares an fsync request. It can act either like an
+.BR fsync (2)
+operation, which is the default behavior. If
+.B IORING_FSYNC_DATASYNC
+is set in the
+.I flags
+argument, then it behaves like
+.BR fdatasync (2).
+If no range is specified, the
+.I fd
+will be synced from 0 to end-of-file.
+
+It's possible to specify a range to sync, if one is desired. If the
+.I off
+field of the SQE is set to non-zero, then that indicates the offset to
+start syncing at. If
+.I len
+is set in the SQE, then that indicates the size in bytes to sync from the
+offset. Note that these fields are not accepted by this helper, so they have
+to be set manually in the SQE after calling this prep helper.
+
+.SH RETURN VALUE
+None
+.SH ERRORS
+The CQE
+.I res
+field will contain the result of the operation. See the related man page for
+details on possible values. Note that where synchronous system calls will return
+.B -1
+on failure and set
+.I errno
+to the actual error value, io_uring never uses
+.IR errno .
+Instead it returns the negated
+.I errno
+directly in the CQE
+.I res
+field.
+.SH SEE ALSO
+.BR io_uring_get_sqe (3),
+.BR io_uring_submit (3),
+.BR fsync (2),
+.BR fdatasync (2)

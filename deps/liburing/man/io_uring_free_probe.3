@@ -1,0 +1,27 @@
+.\" Copyright (C) 2022 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_free_probe 3 "January 25, 2022" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_free_probe \- free probe instance
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "void io_uring_free_probe(struct io_uring_probe *" probe ");"
+.fi
+.SH DESCRIPTION
+.PP
+The function
+.BR io_uring_free_probe (3)
+frees the
+.I probe
+instance allocated with the
+.BR io_uring_get_probe (3)
+function.
+
+.SH RETURN VALUE
+None
+.SH SEE ALSO
+.BR io_uring_get_probe (3)

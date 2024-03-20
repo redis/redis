@@ -1,0 +1,31 @@
+.\" Copyright (C) 2022 Stefan Roesch <shr@fb.com>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_sq_ready 3 "January 25, 2022" "liburing-2.1" "liburing Manual"
+.SH NAME
+io_uring_sq_ready \- number of unconsumed or unsubmitted entries in the SQ ring
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "unsigned io_uring_sq_ready(const struct io_uring *" ring ");"
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_sq_ready (3)
+function returns the number of unconsumed (if SQPOLL) or unsubmitted entries
+that exist in the SQ ring belonging to the
+.I ring
+param.
+
+Usage of this function only applies if the ring has been setup with
+.B IORING_SETUP_SQPOLL,
+where request submissions, and hence consumption from the SQ ring, happens
+through a polling thread.
+
+.SH RETURN VALUE
+Returns the number of unconsumed or unsubmitted entries in the  SQ ring.
+.SH SEE ALSO
+.BR io_uring_cq_ready (3)

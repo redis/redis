@@ -1,0 +1,63 @@
+.\" Copyright (C) 2023 Jens Axboe <axboe@kernel.dk>
+.\"
+.\" SPDX-License-Identifier: LGPL-2.0-or-later
+.\"
+.TH io_uring_for_each_cqe 3 "June 04, 2023" "liburing-2.4" "liburing Manual"
+.SH NAME
+io_uring_for_each_cqe \- iterate pending completion events
+.SH SYNOPSIS
+.nf
+.B #include <liburing.h>
+.PP
+.BI "io_uring_for_each_cqe(struct io_uring *" ring ","
+.BI "                      unsigned " head ","
+.BI "                      struct io_uring_cqe *" cqe ") { }
+.fi
+.SH DESCRIPTION
+.PP
+The
+.BR io_uring_for_each_cqe (3)
+is a macro helper that iterates completion events belonging to the
+.I ring
+using
+.I head
+as a temporary iterator, and points
+.I cqe
+to each pending event when iterating.
+
+This helper provides an efficient way to iterate all pending events in
+the ring, and then advancing the CQ ring by calling
+.BR io_uring_cq_advance (3)
+with the number of CQEs consumed when done. As updating the kernel visible
+CQ ring state involves an ordered write, doing it once for a number of
+events is more efficient than handling each completion separately and
+calling
+.BR io_uring_cqe_seen (3)
+for each of them.
+
+.SH EXAMPLE
+.EX
+void handle_cqes(struct io_uring *ring)
+{
+	struct io_uring_cqe *cqe;
+	unsigned head;
+	unsigned i = 0;
+
+	io_uring_for_each_cqe(ring, head, cqe) {
+		/* handle completion */
+		printf("cqe: %d\\n", cqe->res);
+		i++;
+	}
+
+	io_uring_cq_advance(ring, i);
+}
+.EE
+
+.SH RETURN VALUE
+None
+.SH SEE ALSO
+.BR io_uring_wait_cqe_timeout (3),
+.BR io_uring_wait_cqe (3),
+.BR io_uring_wait_cqes (3),
+.BR io_uring_cqe_seen (3),
+.BR io_uring_buf_ring_cq_advance (3)
