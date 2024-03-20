@@ -1,6 +1,10 @@
 # Tcl client library - used by the Redis test
-# Copyright (C) 2009-2023 Redis Ltd.
-# Released under the BSD license like Redis itself
+#
+# Copyright (C) 2009-Present, Redis Ltd.
+# All Rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
 #
 # This file contains a bunch of commands whose purpose is to transform
 # a RESP3 response to RESP2
