@@ -39,12 +39,22 @@ void lazyFreeTrackingTable(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
+/* Release the error stats rax tree. */
+void lazyFreeErrors(void *args[]) {
+    rax *errors = args[0];
+    size_t len = errors->numele;
+    raxFreeWithCallback(errors, zfree);
+    atomicDecr(lazyfree_objects,len);
+    atomicIncr(lazyfreed_objects,len);
+}
+
 /* Release the lua_scripts dict. */
 void lazyFreeLuaScripts(void *args[]) {
     dict *lua_scripts = args[0];
-    lua_State *lua = args[1];
+    list *lua_scripts_lru_list = args[1];
+    lua_State *lua = args[2];
     long long len = dictSize(lua_scripts);
-    freeLuaScriptsSync(lua_scripts, lua);
+    freeLuaScriptsSync(lua_scripts, lua_scripts_lru_list, lua);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -176,10 +186,15 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    int slotCountBits = server.cluster_enabled? CLUSTER_SLOT_MASK_BITS : 0;
+    int slot_count_bits = 0;
+    int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
+    if (server.cluster_enabled) {
+        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
-    db->keys = kvstoreCreate(&dbDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-    db->expires = kvstoreCreate(&dbExpiresDictType, slotCountBits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
+    db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
     atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldkeys, oldexpires);
 }
@@ -196,14 +211,26 @@ void freeTrackingRadixTreeAsync(rax *tracking) {
     }
 }
 
-/* Free lua_scripts dict, if the dict is huge enough, free it in async way.
+/* Free the error stats rax tree.
+ * If the rax tree is huge enough, free it in async way. */
+void freeErrorsRadixTreeAsync(rax *errors) {
+    /* Because this rax has only keys and no values so we use numnodes. */
+    if (errors->numnodes > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects,errors->numele);
+        bioCreateLazyFreeJob(lazyFreeErrors,1,errors);
+    } else {
+        raxFreeWithCallback(errors, zfree);
+    }
+}
+
+/* Free lua_scripts dict and lru list, if the dict is huge enough, free them in async way.
  * Close lua interpreter, if there are a lot of lua scripts, close it in async way. */
-void freeLuaScriptsAsync(dict *lua_scripts, lua_State *lua) {
+void freeLuaScriptsAsync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State *lua) {
     if (dictSize(lua_scripts) > LAZYFREE_THRESHOLD) {
         atomicIncr(lazyfree_objects,dictSize(lua_scripts));
-        bioCreateLazyFreeJob(lazyFreeLuaScripts,2,lua_scripts,lua);
+        bioCreateLazyFreeJob(lazyFreeLuaScripts,3,lua_scripts,lua_scripts_lru_list,lua);
     } else {
-        freeLuaScriptsSync(lua_scripts, lua);
+        freeLuaScriptsSync(lua_scripts, lua_scripts_lru_list, lua);
     }
 }
 
