@@ -3307,7 +3307,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 robj *argv[2];
                 argv[0] = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
                 argv[1] = &keyobj;
-                replicationFeedSlaves(server.slaves,dbid,argv,2);
+                replicationFeedSlaves(dbid,argv,2);
             }
             sdsfree(key);
             decrRefCount(val);

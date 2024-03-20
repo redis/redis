@@ -4762,6 +4762,39 @@ static clusterManagerNode *clusterManagerGetSlotOwner(clusterManagerNode *n,
     return owner;
 }
 
+static void clusterManagerSetSlotNodeReplicaOnly(clusterManagerNode *node1,
+                                                 clusterManagerNode *node2,
+                                                 int slot) {
+    /* A new CLUSTER SETSLOT variant that finalizes slot ownership on replicas
+     * only (CLUSTER SETSLOT s NODE n REPLICAONLY) is introduced in Redis 8.0+
+     * to help mitigate the single-point-of-failure issue related to the slot
+     * ownership finalization on HA clusters. We make a best-effort attempt below
+     * to utilize this enhanced reliability. Regardless of the result, we continue
+     * with finalizing slot ownership on the primary nodes. Note that this command
+     * is not essential. Redis 8.0+ will attempt to recover from failed slot
+     * ownership finalizations if they occur, although there may be a brief period
+     * where slots caught in this transition stage are unavailable. Including this
+     * additional step ensures no downtime for these slots if any failures arise. */
+    redisReply *reply = CLUSTER_MANAGER_COMMAND(node1, "CLUSTER SETSLOT %d NODE %s REPLICAONLY",
+                                                slot, (char *) node2->name);
+    if (reply->type == REDIS_REPLY_ERROR) {
+        /* Either target Redis server doesn't support this command or the slot is
+         * not in the right state*/
+        clusterManagerLogWarn("*** Failed to finalize slot on replicas: %s\n", reply->str);
+        freeReplyObject(reply);
+        return;
+    }
+    freeReplyObject(reply);
+    clusterManagerLogInfo(">>> Waiting for %d replicas to complete slot finalization\n", node1->replicas_count);
+    reply = CLUSTER_MANAGER_COMMAND(node1, "WAIT %d 1000", node1->replicas_count);
+    if (reply->type == REDIS_REPLY_ERROR) {
+        clusterManagerLogWarn("*** Failed to wait for slot finalization on replicas: %s\n", reply->str);
+    } else {
+        clusterManagerLogInfo(">>> %d replicas completed slot finalization in time\n", reply->integer);
+    }
+    freeReplyObject(reply);
+}
+
 /* Set slot status to "importing" or "migrating" */
 static int clusterManagerSetSlot(clusterManagerNode *node1,
                                  clusterManagerNode *node2,
@@ -5233,6 +5266,7 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
          * If we inform any other node first, it can happen that the target node
          * crashes before it is set as the new owner and then the slot is left
          * without an owner which results in redirect loops. See issue #7116. */
+        clusterManagerSetSlotNodeReplicaOnly(target, target, slot);
         success = clusterManagerSetSlot(target, target, slot, "node", err);
         if (!success) return 0;
 

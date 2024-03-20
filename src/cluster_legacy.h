@@ -53,6 +53,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
+#define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
 #define nodeIsSlave(n) ((n)->flags & CLUSTER_NODE_SLAVE)
 #define nodeInHandshake(n) ((n)->flags & CLUSTER_NODE_HANDSHAKE)
 #define nodeHasAddr(n) (!((n)->flags & CLUSTER_NODE_NOADDR))

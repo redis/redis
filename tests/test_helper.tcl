@@ -102,6 +102,7 @@ set ::all_tests {
     unit/cluster/human-announced-nodename
     unit/cluster/multi-slot-operations
     unit/cluster/slot-ownership
+    unit/cluster/slot-migration
     unit/cluster/links
     unit/cluster/cluster-response-tls
     unit/cluster/failure-marking
