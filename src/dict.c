@@ -706,6 +706,10 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
 /* Clear & Release the hash table */
 void dictRelease(dict *d)
 {
+    /* Someone may be monitoring a dict that started rehashing, before
+     * destroying the dict fake completion. */
+    if (dictIsRehashing(d) && d->type->rehashingCompleted)
+        d->type->rehashingCompleted(d);
     _dictClear(d,0,NULL);
     _dictClear(d,1,NULL);
     zfree(d);

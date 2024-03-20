@@ -186,10 +186,7 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
         kvstoreDictSize(kvs, didx) != 0 ||
         kvstoreDictIsRehashingPaused(kvs, didx))
         return;
-    dict *d = kvstoreGetDict(kvs, didx);
-    if (dictIsRehashing(d) && d->type->rehashingCompleted) 
-        d->type->rehashingCompleted(d);
-    dictRelease(d);
+    dictRelease(kvs->dicts[didx]);
     kvs->dicts[didx] = NULL;
     kvs->allocated_dicts--;
 }
@@ -959,6 +956,9 @@ int kvstoreTest(int argc, char **argv, int flags) {
             assert(kvstoreDictDelete(kvs2, curr_slot, key) == DICT_OK);
         }
         kvstoreIteratorRelease(kvs_it);
+
+        /* Make sure the dict was removed from the rehashing list. */
+        while (kvstoreIncrementallyRehash(kvs2, 1000)) {}
 
         dict *d = kvstoreGetDict(kvs2, didx);
         assert(d == NULL);
