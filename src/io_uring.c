@@ -34,24 +34,6 @@ void ioUringPrepWrite(client *c) {
     uringQueueLen++;
 }
 
-// void ioUringSubmitAndWait(void) {
-//     while (uringQueueLen) {
-//         io_uring_submit_and_wait(server.io_uring, uringQueueLen);
-//         struct io_uring_cqe *cqe;
-//         unsigned head;
-//         unsigned count = 0;
-//         io_uring_for_each_cqe(server.io_uring, head, cqe) {
-//             count++;
-//             client *c = io_uring_cqe_get_data(cqe);
-//             c->nwritten = cqe->res;
-//             listLinkNodeHead(server.clients_pending_write_async, &c->clients_pending_write_node);
-//             uringQueueLen--;
-//         }
-//         serverAssert(uringQueueLen == 0);
-//         io_uring_cq_advance(server.io_uring, count);
-//     }
-// }
-
 void ioUringSubmitAndWait(void) {
     if (uringQueueLen > 0) io_uring_submit(server.io_uring);
 
@@ -61,7 +43,6 @@ void ioUringSubmitAndWait(void) {
         if (io_uring_wait_cqe(server.io_uring, &cqe) == 0) {
             client *c = io_uring_cqe_get_data(cqe);
             c->nwritten = cqe->res;
-            listLinkNodeHead(server.clients_pending_write_async, &c->clients_pending_write_async_node);
             io_uring_cqe_seen(server.io_uring, cqe);
             uringQueueLen--;
         }

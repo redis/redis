@@ -211,7 +211,6 @@ client *createClient(connection *conn) {
     c->auth_callback_privdata = NULL;
     c->auth_module = NULL;
     listInitNode(&c->clients_pending_write_node, c);
-    listInitNode(&c->clients_pending_write_async_node, c);
     c->mem_usage_bucket = NULL;
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
@@ -2065,7 +2064,7 @@ int checkPendingWriteAsync(client *c) {
 
     c->sentlen += c->nwritten;
     /* If the buffer was sent, set bufpos to zero to continue with
-        * the remainder of the reply. */
+     * the remainder of the reply. */
     if ((int)c->sentlen == c->bufpos) {
         c->bufpos = 0;
         c->sentlen = 0;
@@ -2093,18 +2092,29 @@ int handleClientsWithPendingWrites(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
-        listUnlinkNode(server.clients_pending_write,ln);
 
         /* If a client is protected, don't do anything,
          * that may trigger write error or recreate handler. */
-        if (c->flags & CLIENT_PROTECTED) continue;
+        if (c->flags & CLIENT_PROTECTED) {
+            listUnlinkNode(server.clients_pending_write, ln);
+            continue;
+        }
 
         /* Don't write to clients that are going to be closed anyway. */
-        if (c->flags & CLIENT_CLOSE_ASAP) continue;
+        if (c->flags & CLIENT_CLOSE_ASAP) {
+            listUnlinkNode(server.clients_pending_write, ln);
+            continue;
+        }
 
         /* Try to write buffers to the client socket. */
-        if (writeToClient(c,0) == C_ERR) continue;
+        if (writeToClient(c,0) == C_ERR) {
+            listUnlinkNode(server.clients_pending_write, ln);
+            continue;
+        }
 
+        if (!(c->flags & CLIENT_PENDING_WRITE_ASYNC)) {
+            listUnlinkNode(server.clients_pending_write, ln);
+        }
         /* If after the synchronous writes above we still have data to
          * output to the client, we need to install the writable handler. */
         if (clientHasPendingReplies(c) && !(c->flags & CLIENT_PENDING_WRITE_ASYNC)) {
@@ -2115,11 +2125,11 @@ int handleClientsWithPendingWrites(void) {
     /* An optimization for connWrite: batch submit the write(3). */
     if (server.io_uring_enabled) {
         ioUringSubmitAndWait();
-        listRewind(server.clients_pending_write_async, &li);
+        listRewind(server.clients_pending_write, &li);
         while ((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
             c->flags &= ~CLIENT_PENDING_WRITE_ASYNC;
-            listUnlinkNode(server.clients_pending_write_async, ln);
+            listUnlinkNode(server.clients_pending_write, ln);
 
             if (checkPendingWriteAsync(c) == C_ERR) continue;
             if (!clientHasPendingReplies(c)) {
