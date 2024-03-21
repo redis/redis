@@ -62,4 +62,3 @@ test "Each master should have at least two replicas attached" {
         }
     }
 }
-

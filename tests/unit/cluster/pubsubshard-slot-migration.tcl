@@ -1,17 +1,15 @@
-source "../tests/includes/init-tests.tcl"
+source tests/support/cluster.tcl
 
-test "Create a 3 nodes cluster" {
-    cluster_create_with_continuous_slots 3 3
-}
+start_cluster 3 3 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
-set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
 
 proc get_addr_replica_serving_slot slot {
-    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
     array set node [$cluster masternode_for_slot $slot]
 
     set replicanodeinfo [$cluster cluster replicas $node(id)]
@@ -210,3 +208,5 @@ test "Reset cluster, verify sunsubscribe message" {
     $cluster close
     $subscribeclient close
 }
+
+} ;# start_cluster

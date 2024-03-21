@@ -5,23 +5,18 @@
 
 if {false} {
 
-source "../tests/includes/init-tests.tcl"
-source "../tests/includes/utils.tcl"
-
 # TODO: This test currently runs without replicas, as failovers (which may
 # happen on lower-end CI platforms) are still not handled properly by the
 # cluster during slot migration (related to #6339).
 
-test "Create a 10 nodes cluster" {
-    create_cluster 10 0
+start_cluster 10 0 {tags {external:skip cluster}} {
     config_set_all_nodes cluster-allow-replica-migration no
-}
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
-set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
 catch {unset nodefrom}
 catch {unset nodeto}
 
@@ -61,4 +56,7 @@ test "Keys are accessible" {
 }
 
 config_set_all_nodes cluster-allow-replica-migration yes
+
+} ;# start_cluster
+
 }

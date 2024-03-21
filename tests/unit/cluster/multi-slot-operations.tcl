@@ -1,5 +1,5 @@
 # This test uses a custom slot allocation for testing
-proc cluster_allocate_with_continuous_slots_local {n} {
+proc cluster_allocate_with_continuous_slots_local {masters replicas} {
     R 0 cluster ADDSLOTSRANGE 0 3276
     R 1 cluster ADDSLOTSRANGE 3277 6552
     R 2 cluster ADDSLOTSRANGE 6553 9828

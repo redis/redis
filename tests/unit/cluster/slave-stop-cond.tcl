@@ -2,15 +2,11 @@
 # Check that if there is a disconnection time limit, the slave will not try
 # to failover its master.
 
-source "../tests/includes/init-tests.tcl"
-
 # Create a cluster with 5 master and 5 slaves.
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "The first master has actually one slave" {
@@ -22,13 +18,13 @@ test "The first master has actually one slave" {
 }
 
 test {Slaves of #0 is instance #5 as expected} {
-    set port0 [get_instance_attrib redis 0 port]
+    set port0 [srv 0 port]
     assert {[lindex [R 5 role] 2] == $port0}
 }
 
 test "Instance #5 synced with the master" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up}
+        [s -5 master_link_status] eq {up}
     } else {
         fail "Instance #5 master link status is not up"
     }
@@ -38,6 +34,7 @@ test "Lower the slave validity factor of #5 to the value of 2" {
     assert {[R 5 config set cluster-slave-validity-factor 2] eq {OK}}
 }
 
+set paused_pid [srv 0 pid]
 test "Break master-slave link and prevent further reconnections" {
     # Stop the slave with a multi/exec transaction so that the master will
     # be killed as soon as it can accept writes again.
@@ -60,7 +57,7 @@ test "Break master-slave link and prevent further reconnections" {
     assert {[R 5 read] eq {OK OK}}
 
     # Kill the master so that a reconnection will not be possible.
-    kill_instance redis 0
+    pause_process $paused_pid
 }
 
 test "Slave #5 is reachable and alive" {
@@ -69,9 +66,18 @@ test "Slave #5 is reachable and alive" {
 
 test "Slave #5 should not be able to failover" {
     after 10000
-    assert {[RI 5 role] eq {slave}}
+    assert {[s -5 role] eq {slave}}
 }
 
 test "Cluster should be down" {
-    assert_cluster_state fail
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        if {[process_is_paused $paused_pid]} continue
+        wait_for_condition 100 50 {
+            [CI $j cluster_state] eq "fail"
+        } else {
+            fail "Cluster node $j cluster_state:[CI $j cluster_state]"
+        }
+    }
 }
+
+} ;# start_cluster

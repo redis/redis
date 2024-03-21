@@ -1,14 +1,13 @@
 # Test PUBSUB shard propagation in a cluster slot.
 
-source "../tests/includes/init-tests.tcl"
+source tests/support/cluster.tcl
 
-test "Create a 3 nodes cluster" {
-    cluster_create_with_continuous_slots 3 3
-}
+# Start a cluster with 3 masters and 3 replicas.
+start_cluster 3 3 {tags {external:skip cluster}} {
 
-set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
+
 test "Pub/Sub shard basics" {
-
     set slot [$cluster cluster keyslot "channel.0"]
     array set publishnode [$cluster masternode_for_slot $slot]
     array set notshardnode [$cluster masternode_notfor_slot $slot]
@@ -123,8 +122,11 @@ test "PUBSUB channels/shardchannels" {
     assert_equal {3} [llength [$publishclient pubsub shardchannels]]
 
     sunsubscribe $subscribeclient
+    $subscribeclient read
     set channel_list [$publishclient pubsub shardchannels]
     assert_equal {2} [llength $channel_list]
     assert {[lsearch -exact $channel_list "\{channel.0\}2"] >= 0}
     assert {[lsearch -exact $channel_list "\{channel.0\}3"] >= 0}
 }
+
+} ;# start_cluster

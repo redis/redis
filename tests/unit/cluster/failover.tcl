@@ -1,26 +1,22 @@
 # Check the basic monitoring and failover capabilities.
 
-source "../tests/includes/init-tests.tcl"
-
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 test "Instance #5 is a slave" {
-    assert {[RI 5 role] eq {slave}}
+    assert {[s -5 role] eq {slave}}
 }
 
 test "Instance #5 synced with the master" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up}
+        [s -5 master_link_status] eq {up}
     } else {
         fail "Instance #5 master link status is not up"
     }
@@ -28,8 +24,9 @@ test "Instance #5 synced with the master" {
 
 set current_epoch [CI 1 cluster_current_epoch]
 
+set paused_pid [srv 0 pid]
 test "Killing one master node" {
-    kill_instance redis 0
+    pause_process $paused_pid
 }
 
 test "Wait for failover" {
@@ -41,25 +38,34 @@ test "Wait for failover" {
 }
 
 test "Cluster should eventually be up again" {
-    assert_cluster_state ok
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        if {[process_is_paused $paused_pid]} continue
+        wait_for_condition 1000 50 {
+            [CI $j cluster_state] eq "ok"
+        } else {
+            fail "Cluster node $j cluster_state:[CI $j cluster_state]"
+        }
+    }
 }
 
 test "Cluster is writable" {
-    cluster_write_test 1
+    cluster_write_test [srv -1 port]
 }
 
 test "Instance #5 is now a master" {
-    assert {[RI 5 role] eq {master}}
+    assert {[s -5 role] eq {master}}
 }
 
 test "Restarting the previously killed master node" {
-    restart_instance redis 0
+    resume_process $paused_pid
 }
 
 test "Instance #0 gets converted into a slave" {
     wait_for_condition 1000 50 {
-        [RI 0 role] eq {slave}
+        [s 0 role] eq {slave}
     } else {
         fail "Old master was not converted into slave"
     }
 }
+
+} ;# start_cluster

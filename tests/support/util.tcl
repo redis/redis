@@ -653,6 +653,11 @@ proc process_is_alive pid {
     }
 }
 
+# Return true if the specified process is paused by pause_process.
+proc process_is_paused pid {
+    return [string match {*T*} [lindex [exec ps j $pid] 16]]
+}
+
 proc pause_process pid {
     exec kill -SIGSTOP $pid
     wait_for_condition 50 100 {
@@ -859,7 +864,6 @@ proc consume_subscribe_messages {client type channels} {
         # aggregate the subscription count to return to the caller
         lappend counts [lindex $msg 2]
     }
-
     # we should have received messages for channels
     assert {[llength $channels] == 0}
     return $counts
@@ -875,11 +879,17 @@ proc ssubscribe {client channels} {
     consume_subscribe_messages $client ssubscribe $channels
 }
 
+# If the incoming channels are empty, that is, unsubscribe all channel,
+# then consume_subscribe_messages cannot consume messages, caller needs
+# to read it by itself if needed.
 proc unsubscribe {client {channels {}}} {
     $client unsubscribe {*}$channels
     consume_subscribe_messages $client unsubscribe $channels
 }
 
+# If the incoming channels are empty, that is, unsubscribe all channel,
+# then consume_subscribe_messages cannot consume messages, caller needs
+# to read it by itself if needed.
 proc sunsubscribe {client {channels {}}} {
     $client sunsubscribe {*}$channels
     consume_subscribe_messages $client sunsubscribe $channels
@@ -890,6 +900,9 @@ proc psubscribe {client channels} {
     consume_subscribe_messages $client psubscribe $channels
 }
 
+# If the incoming channels are empty, that is, unsubscribe all channel,
+# then consume_subscribe_messages cannot consume messages, caller needs
+# to read it by itself if needed.
 proc punsubscribe {client {channels {}}} {
     $client punsubscribe {*}$channels
     consume_subscribe_messages $client punsubscribe $channels
