@@ -1161,19 +1161,20 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
     eptr = zzlFirstInRange(zl,range);
     if (eptr == NULL) return zl;
 
+    unsigned char *first = eptr;
     /* When the tail of the listpack is deleted, eptr will be NULL. */
     while (eptr && (sptr = lpNext(zl,eptr)) != NULL) {
         score = zzlGetScore(sptr);
         if (zslValueLteMax(score,range)) {
-            /* Delete both the element and the score. */
-            zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
+            eptr = lpNext(zl,sptr);
         } else {
             /* No longer in range. */
             break;
         }
     }
-
+    if (num)
+        zl = lpDeleteRangeWithEntryPtr(zl, &first, eptr, 2 * num);
     if (deleted != NULL) *deleted = num;
     return zl;
 }
@@ -1187,18 +1188,19 @@ unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsi
     eptr = zzlFirstInLexRange(zl,range);
     if (eptr == NULL) return zl;
 
+    unsigned char *first = eptr;
     /* When the tail of the listpack is deleted, eptr will be NULL. */
     while (eptr && (sptr = lpNext(zl,eptr)) != NULL) {
         if (zzlLexValueLteMax(eptr,range)) {
-            /* Delete both the element and the score. */
-            zl = lpDeleteRangeWithEntry(zl,&eptr,2);
             num++;
+            eptr = lpNext(zl,sptr);
         } else {
             /* No longer in range. */
             break;
         }
     }
-
+    if (num)
+        zl = lpDeleteRangeWithEntryPtr(zl, &first, eptr, 2 * num);
     if (deleted != NULL) *deleted = num;
     return zl;
 }
@@ -4002,17 +4004,26 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         addReplyArrayLen(c, rangelen);
     }
 
+    unsigned char *first_ptr = NULL;
+    unsigned char *eptr = NULL, *sptr = NULL;
+    zskiplistNode *zln = NULL;
     /* Remove the element. */
     do {
         if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *zl = zobj->ptr;
-            unsigned char *eptr, *sptr;
             unsigned char *vstr;
             unsigned int vlen;
             long long vlong;
-
-            /* Get the first or last element in the sorted set. */
-            eptr = lpSeek(zl,where == ZSET_MAX ? -2 : 0);
+            if (result_count <= 1) {
+                /* Record the start or the end address of the range. */
+                if (result_count == 1)
+                    first_ptr = eptr;
+                /* Get the first or last element in the sorted set. */
+                eptr = lpSeek(zl,where == ZSET_MAX ? -2 : 0);
+                sptr = lpNext(zl,eptr);
+            } else {
+                where == ZSET_MAX ? zzlPrev(zl, &eptr, &sptr) : zzlNext(zl, &eptr, &sptr);;
+            }
             serverAssertWithInfo(c,zobj,eptr != NULL);
             vstr = lpGetValue(eptr,&vlen,&vlong);
             if (vstr == NULL)
@@ -4021,27 +4032,40 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
                 ele = sdsnewlen(vstr,vlen);
 
             /* Get the score. */
-            sptr = lpNext(zl,eptr);
             serverAssertWithInfo(c,zobj,sptr != NULL);
             score = zzlGetScore(sptr);
+            /* In previous versions, we call notifyKeyspaceEvent after the first entry is deleted. 
+             * Here we have to be compatible with this behavior. Otherwise we can delete all entries 
+             * in one lpDeleteRangeWithEntryPtr. */
+            if (result_count == 0) {
+                zobj->ptr = lpDeleteRangeWithEntryPtr(zl, &eptr, lpNext(zl, sptr), 2);
+            }
         } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = zobj->ptr;
             zskiplist *zsl = zs->zsl;
-            zskiplistNode *zln;
-
-            /* Get the first or last element in the sorted set. */
-            zln = (where == ZSET_MAX ? zsl->tail :
-                                       zsl->header->level[0].forward);
+            if (result_count <= 1) {
+                /* Get the first or last element in the sorted set. */
+                zln = (where == ZSET_MAX ? zsl->tail :
+                                        zsl->header->level[0].forward);
+            } else {
+                zln = (where == ZSET_MAX ? zln->backward : zln->level[0].forward);
+            }
 
             /* There must be an element in the sorted set. */
             serverAssertWithInfo(c,zobj,zln != NULL);
-            ele = sdsdup(zln->ele);
+            /* Avoid the unnecessary copy of sds. */
+            ele = result_count == 0 ? sdsdup(zln->ele) : zln->ele;
             score = zln->score;
+            /* In previous versions, we call notifyKeyspaceEvent after the first entry is deleted. 
+             * Here we have to be compatible with this behavior. Otherwise we can delete all entries 
+             * in one zslDeleteRangeByRank. */
+            if (result_count == 0) {
+                serverAssertWithInfo(c, zobj, zsetRemoveFromSkiplist(zs, ele));
+            }
         } else {
             serverPanic("Unknown sorted set encoding");
         }
 
-        serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
         if (result_count == 0) { /* Do this only for the first iteration. */
@@ -4054,16 +4078,33 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         }
         addReplyBulkCBuffer(c,ele,sdslen(ele));
         addReplyDouble(c,score);
-        sdsfree(ele);
+        if (result_count == 0 || zobj->encoding == OBJ_ENCODING_LISTPACK)
+            sdsfree(ele);
         ++result_count;
     } while(--rangelen);
 
     /* Remove the key, if indeed needed. */
-    if (zsetLength(zobj) == 0) {
+    if (llen == result_count) {
         if (deleted) *deleted = 1;
 
         dbDelete(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
+    } else if (result_count > 1) {
+        if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+            unsigned char *start, *end;
+            /* Delete the rest of entries from the listpack all at once. */
+            start = where == ZSET_MAX ? eptr : first_ptr;
+            end = where == ZSET_MAX ? first_ptr : lpNext(zobj->ptr, sptr);
+            zobj->ptr = lpDeleteRangeWithEntryPtr(zobj->ptr, &start, end, 2 * (result_count - 1));
+        } else {
+            zset *zs = zobj->ptr;
+            zskiplist *zsl = zs->zsl;
+            unsigned int start, end; 
+            /* Delete the rest of entries from the skiplist all at once. */
+            start = where == ZSET_MAX ? zsl->length - result_count + 2 : 1;
+            end = where == ZSET_MAX ? zsl->length : (unsigned int)result_count - 1;
+            zslDeleteRangeByRank(zsl, start, end, zs->dict);
+        }
     }
     signalModifiedKey(c,c->db,key);
 
