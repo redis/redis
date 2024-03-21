@@ -360,19 +360,53 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
-static int anetCreateSocket(char *err, int domain) {
+#define ANET_SOCKET_CLOEXEC 1
+#define ANET_SOCKET_NONBLOCK 2
+#define ANET_SOCKET_REUSEADDR 4
+static int anetCreateSocket(char *err, int domain, int type, int protocol, int flags) {
     int s;
-    if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
+
+    /* In general, SOCK_CLOEXEC won't have noticeable effect
+     * except for cases which really need this flag.
+     * Otherwise, it is just a flag that is nice to have.
+     * Its absence shouldn't affect a common socket's functionality.
+     */
+#ifdef SOCK_CLOEXEC
+    if (flags & ANET_SOCKET_CLOEXEC) {
+      type |= SOCK_CLOEXEC;
+      flags &= ~ANET_SOCKET_CLOEXEC;
+    }
+#endif
+
+#ifdef SOCK_NONBLOCK
+    if (flags & ANET_SOCKET_NONBLOCK) {
+      type |= SOCK_NONBLOCK;
+      flags &= ~ANET_SOCKET_NONBLOCK;
+    }
+#endif
+
+    if ((s = socket(domain, type, protocol)) == -1) {
         anetSetError(err, "creating socket: %s", strerror(errno));
+        return ANET_ERR;
+    }
+
+    if (flags & ANET_SOCKET_CLOEXEC && anetCloexec(s) == ANET_ERR) {
+        close(s);
+        return ANET_ERR;
+    }
+
+    if (flags & ANET_SOCKET_NONBLOCK && anetNonBlock(err, s) == ANET_ERR) {
+        close(s);
         return ANET_ERR;
     }
 
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
-    if (anetSetReuseAddr(err,s) == ANET_ERR) {
+    if (flags & ANET_SOCKET_REUSEADDR && anetSetReuseAddr(err,s) == ANET_ERR) {
         close(s);
         return ANET_ERR;
     }
+
     return s;
 }
 
@@ -399,11 +433,10 @@ static int anetTcpGenericConnect(char *err, const char *addr, int port,
         /* Try to create the socket and to connect it.
          * If we fail in the socket() call, or on connect(), we retry with
          * the next entry in servinfo. */
-        if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
+        int sockflags = ANET_SOCKET_CLOEXEC | ANET_SOCKET_REUSEADDR;
+        if (flags & ANET_CONNECT_NONBLOCK) sockflags |= ANET_SOCKET_NONBLOCK;
+        if ((s = anetCreateSocket(err,p->ai_family,p->ai_socktype,p->ai_protocol,sockflags)) == ANET_ERR)
             continue;
-        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
-        if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
-            goto error;
         if (source_addr) {
             int bound = 0;
             /* Using getaddrinfo saves us from self-determining IPv4 vs IPv6 */
@@ -469,34 +502,6 @@ int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
 {
     return anetTcpGenericConnect(err,addr,port,source_addr,
             ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
-}
-
-int anetUnixGenericConnect(char *err, const char *path, int flags)
-{
-    int s;
-    struct sockaddr_un sa;
-
-    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
-        return ANET_ERR;
-
-    sa.sun_family = AF_LOCAL;
-    redis_strlcpy(sa.sun_path,path,sizeof(sa.sun_path));
-    if (flags & ANET_CONNECT_NONBLOCK) {
-        if (anetNonBlock(err,s) != ANET_OK) {
-            close(s);
-            return ANET_ERR;
-        }
-    }
-    if (connect(s,(struct sockaddr*)&sa,sizeof(sa)) == -1) {
-        if (errno == EINPROGRESS &&
-            flags & ANET_CONNECT_NONBLOCK)
-            return s;
-
-        anetSetError(err, "connect: %s", strerror(errno));
-        close(s);
-        return ANET_ERR;
-    }
-    return s;
 }
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int backlog, mode_t perm) {
@@ -587,7 +592,10 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
         anetSetError(err,"unix socket path too long (%zu), must be under %zu", strlen(path), sizeof(sa.sun_path));
         return ANET_ERR;
     }
-    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
+
+    int type = SOCK_STREAM;
+    int flags = ANET_SOCKET_CLOEXEC | ANET_SOCKET_NONBLOCK | ANET_SOCKET_REUSEADDR;
+    if ((s = anetCreateSocket(err,AF_LOCAL,type,0,flags)) == ANET_ERR)
         return ANET_ERR;
 
     memset(&sa,0,sizeof(sa));
