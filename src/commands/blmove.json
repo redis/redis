@@ -1,15 +1,21 @@
 {
     "BLMOVE": {
         "summary": "Pops an element from a list, pushes it to another list and returns it. Blocks until an element is available otherwise. Deletes the list if the last element was moved.",
-        "complexity": "O(1)",
+        "complexity": "O(N) where N is the number of elements returned",
         "group": "list",
         "since": "6.2.0",
-        "arity": 6,
+        "arity": -6,
         "function": "blmoveCommand",
         "command_flags": [
             "WRITE",
             "DENYOOM",
             "BLOCKING"
+        ],
+        "history": [
+            [
+                "7.3.0",
+                "Added the `count` argument."
+            ]
         ],
         "acl_categories": [
             "LIST"
@@ -56,8 +62,15 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "The popped element.",
+                    "description": "In case `count` argument was not given, the popped element.",
                     "type": "string"
+                },
+                {
+                    "description": "In case `count` argument was given, a list of elements being popped and pushed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 {
                     "description": "Operation timed-out",
@@ -111,6 +124,12 @@
             {
                 "name": "timeout",
                 "type": "double"
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "optional": true,
+                "since": "7.3.0"
             }
         ]
     }

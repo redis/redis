@@ -55,8 +55,8 @@
 "SCAN 2 MATCH " "pattern [COUNT count] [TYPE type]"
 "SCAN 2 COUNT " "count [MATCH pattern] [TYPE type]"
 
-# One-of choices: BLMOVE source destination LEFT|RIGHT LEFT|RIGHT timeout
-"BLMOVE src dst LEFT " "LEFT|RIGHT timeout"
+# One-of choices: BLMOVE source destination LEFT|RIGHT LEFT|RIGHT timeout [count]
+"BLMOVE src dst LEFT " "LEFT|RIGHT timeout [count]"
 
 # Optional args can be in any order: ZRANGE key min max [BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]
 "ZRANGE k 1 2 " "[BYSCORE|BYLEX] [REV] [LIMIT offset count] [WITHSCORES]"
