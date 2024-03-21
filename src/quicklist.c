@@ -1015,21 +1015,6 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
     quicklistNode *node = entry->node;
     quicklistNode *new_node = NULL;
 
-    if (!node) {
-        /* we have no reference node, so let's create only node in the list */
-        D("No node given!");
-        if (unlikely(isLargeElement(sz, quicklist->fill))) {
-            __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, after);
-            return;
-        }
-        new_node = quicklistCreateNode();
-        new_node->entry = lpPrepend(lpNew(0), value, sz);
-        __quicklistInsertNode(quicklist, NULL, new_node, after);
-        new_node->count++;
-        quicklist->count++;
-        return;
-    }
-
     /* Populate accounting flags for easier boolean checks later */
     if (!_quicklistNodeAllowInsert(node, fill, sz)) {
         D("Current node is full with count %d with requested fill %d",
