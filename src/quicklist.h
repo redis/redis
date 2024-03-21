@@ -35,15 +35,14 @@
 
 /* Node, quicklist, and Iterator are the only data structures used currently. */
 
-/* quicklistNode is a 32 byte struct describing a listpack for a quicklist.
- * We use bit fields keep the quicklistNode at 32 bytes.
+/* quicklistNode is a struct describing a listpack for a quicklist.
  * count: 16 bits, max 65536 (max lp bytes is 65k, so max count actually < 32k).
  * encoding: 2 bits, RAW=1, LZF=2.
  * container: 2 bits, PLAIN=1 (a single item as char array), PACKED=2 (listpack with multiple items).
  * recompress: 1 bit, bool, true if node is temporary decompressed for usage.
  * attempted_compress: 1 bit, boolean, used for verifying during testing.
  * dont_compress: 1 bit, boolean, used for preventing compression of entry.
- * extra: 9 bits, free for future use; pads out the remainder of 32 bits */
+ * extra: 9 bits, free for future use. */
 typedef struct quicklistNode {
     struct quicklistNode *prev;
     struct quicklistNode *next;
