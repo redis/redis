@@ -71,6 +71,7 @@ set ::all_tests {
     integration/redis-cli
     integration/redis-benchmark
     integration/dismiss-mem
+    integration/replica-redirect
     unit/pubsub
     unit/pubsubshard
     unit/slowlog
