@@ -7,6 +7,7 @@
         "arity": -4,
         "function": "geodistCommand",
         "command_flags": [
+            "FAST",
             "READONLY"
         ],
         "acl_categories": [

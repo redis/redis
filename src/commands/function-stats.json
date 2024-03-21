@@ -8,6 +8,7 @@
         "container": "FUNCTION",
         "function": "functionStatsCommand",
         "command_flags": [
+            "FAST",
             "NOSCRIPT",
             "ALLOW_BUSY"
         ],

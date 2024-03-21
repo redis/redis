@@ -7,6 +7,7 @@
         "arity": 1,
         "function": "randomkeyCommand",
         "command_flags": [
+            "FAST",
             "READONLY",
             "TOUCHES_ARBITRARY_KEYS"
         ],

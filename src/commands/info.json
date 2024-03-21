@@ -13,6 +13,7 @@
             ]
         ],
         "command_flags": [
+            "FAST",
             "LOADING",
             "STALE",
             "SENTINEL"

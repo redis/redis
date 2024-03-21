@@ -1,12 +1,14 @@
 {
     "SIMULATE-FAILURE": {
         "summary": "Simulates failover scenarios.",
+        "complexity": "O(1)",
         "group": "sentinel",
         "since": "3.2.0",
         "arity": -3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
         "command_flags": [
+            "FAST",
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"

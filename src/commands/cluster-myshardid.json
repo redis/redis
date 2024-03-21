@@ -9,6 +9,7 @@
         "function": "clusterCommand",
         "history": [],
         "command_flags": [
+            "FAST",
             "STALE"
         ],
         "command_tips": [

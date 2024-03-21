@@ -1,6 +1,7 @@
 {
     "PENDING-SCRIPTS": {
         "summary": "Returns information about pending scripts for Redis Sentinel.",
+        "complexity": "O(N) where N is the number of pending scripts.",
         "group": "sentinel",
         "since": "2.8.4",
         "arity": 2,

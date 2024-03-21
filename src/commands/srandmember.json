@@ -13,6 +13,7 @@
             ]
         ],
         "command_flags": [
+            "FAST",
             "READONLY"
         ],
         "acl_categories": [

@@ -9,6 +9,7 @@
         "function": "aclCommand",
         "history": [],
         "command_flags": [
+            "FAST",
             "ADMIN",
             "NOSCRIPT",
             "LOADING",

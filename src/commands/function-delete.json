@@ -8,6 +8,7 @@
         "container": "FUNCTION",
         "function": "functionDeleteCommand",
         "command_flags": [
+            "FAST",
             "NOSCRIPT",
             "WRITE"
         ],

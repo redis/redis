@@ -8,6 +8,7 @@
         "container": "FUNCTION",
         "function": "functionKillCommand",
         "command_flags": [
+            "FAST",
             "NOSCRIPT",
             "ALLOW_BUSY"
         ],

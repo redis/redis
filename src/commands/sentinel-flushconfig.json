@@ -8,6 +8,7 @@
         "container": "SENTINEL",
         "function": "sentinelCommand",
         "command_flags": [
+            "FAST",
             "ADMIN",
             "SENTINEL",
             "ONLY_SENTINEL"

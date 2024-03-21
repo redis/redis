@@ -8,6 +8,7 @@
         "container": "FUNCTION",
         "function": "functionHelpCommand",
         "command_flags": [
+            "FAST",
             "LOADING",
             "STALE"
         ],

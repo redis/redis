@@ -8,6 +8,7 @@
         "container": "MODULE",
         "function": "moduleCommand",
         "command_flags": [
+            "FAST",
             "NO_ASYNC_LOADING",
             "ADMIN",
             "NOSCRIPT",

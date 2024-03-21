@@ -1,7 +1,7 @@
 {
     "HISTORY": {
         "summary": "Returns timestamp-latency samples for an event.",
-        "complexity": "O(1)",
+        "complexity": "O(N) where N is the number of event samples.",
         "group": "server",
         "since": "2.8.13",
         "arity": 3,

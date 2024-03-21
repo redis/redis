@@ -8,6 +8,7 @@
         "function": "unsubscribeCommand",
         "command_flags": [
             "PUBSUB",
+            "FAST",
             "NOSCRIPT",
             "LOADING",
             "STALE",
