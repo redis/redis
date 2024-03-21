@@ -317,6 +317,46 @@ start_server {tags {"hash"}} {
         set _ $result
     } {foo}
 
+    test {HSETXX target hash missing - small hash} {
+        r del smallhash
+        assert_equal {} [r hsetxx smallhash __123123123__ foo]
+        assert_equal {} [r hget smallhash __123123123__]
+    }
+
+    test {HSETXX target key missing - small hash} {
+        r hset smallhash __some_field__ somevalue
+        assert_equal 0 [r hsetxx smallhash __123123123__ foo]
+        assert_equal {} [r hget smallhash __123123123__]
+        r hdel smallhash __some_field__
+    }
+
+    test {HSETXX target key exists - small hash} {
+        r hset smallhash __123123123__ foo
+        assert_equal 1 [r hsetxx smallhash __123123123__ bar]
+        assert_equal {bar} [r hget smallhash __123123123__]
+        r hdel smallhash __123123123__
+    }
+
+    test {HSETXX target hash missing - big hash} {
+        r del bighash
+        assert_equal {} [r hsetxx bighash __123123123__ foo]
+        assert_equal {} [r hget bighash __123123123__]
+    }
+
+    test {HSETXX target key missing - big hash} {
+        r hset bighash __some_field__ somevalue
+        assert_equal 0 [r hsetxx bighash __123123123__ foo]
+        assert_equal {} [r hget bighash __123123123__]
+        r hdel bighash __some_field__
+    }
+
+    test {HSETXX target key exists - big hash} {
+        r hset bighash __123123123__ foo
+        assert_equal 1 [r hsetxx bighash __123123123__ bar]
+        assert_equal {bar} [r hget bighash __123123123__]
+        r hdel bighash __123123123__
+    }
+
     test {HSET/HMSET wrong number of args} {
         assert_error {*wrong number of arguments for 'hset' command} {r hset smallhash key1 val1 key2}
         assert_error {*wrong number of arguments for 'hmset' command} {r hmset smallhash key1 val1 key2}
@@ -366,6 +406,7 @@ start_server {tags {"hash"}} {
         assert_error "WRONGTYPE Operation against a key*" {r hset wrongtype field1 val1}
         assert_error "WRONGTYPE Operation against a key*" {r hmset wrongtype field1 val1 field2 val2}
         assert_error "WRONGTYPE Operation against a key*" {r hsetnx wrongtype field1 val1}
+        assert_error "WRONGTYPE Operation against a key*" {r hsetxx wrongtype field1 val1}
         assert_error "WRONGTYPE Operation against a key*" {r hlen wrongtype}
         assert_error "WRONGTYPE Operation against a key*" {r hscan wrongtype 0}
     }
