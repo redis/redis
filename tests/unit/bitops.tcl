@@ -128,6 +128,15 @@ start_server {tags {"bitops"}} {
         }
     }
 
+    test {BITCOUNT with start} {
+        set s "foobar"
+        r set s $s
+        assert_equal [r bitcount s 0] [count_bits "foobar"]
+        assert_equal [r bitcount s 1] [count_bits "oobar"]
+        assert_equal [r bitcount s -1] [count_bits "r"]
+        assert_equal [r bitcount s -2] [count_bits "ar"]
+    }
+
     test {BITCOUNT with start, end} {
         set s "foobar"
         r set s $s
@@ -150,12 +159,10 @@ start_server {tags {"bitops"}} {
     test {BITCOUNT with illegal arguments} {
         # Used to return 0 for non-existing key instead of errors
         r del s
-        assert_error {ERR *syntax*} {r bitcount s 0}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello hello2}
 
         r set s 1
-        assert_error {ERR *syntax*} {r bitcount s 0}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello}
         assert_error {ERR *syntax*} {r bitcount s 0 1 hello hello2}
     }
