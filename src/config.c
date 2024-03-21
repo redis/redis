@@ -143,6 +143,19 @@ configEnum propagation_error_behavior_enum[] = {
     {NULL, 0}
 };
 
+configEnum log_format_enum[] = {
+    {"default", LOG_FORMAT_DEFAULT},
+    {"logfmt", LOG_FORMAT_LOGFMT},
+    {NULL, 0}
+};
+
+configEnum log_timestamp_format_enum[] = {
+    {"default", LOG_TIMESTAMP_DEFAULT},
+    {"iso8601", LOG_TIMESTAMP_ISO8601},
+    {"unix",LOG_TIMESTAMP_UNIX},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -3139,6 +3152,8 @@ standardConfig static_configs[] = {
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
     createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
     createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("log-format", NULL, MODIFIABLE_CONFIG, log_format_enum, server.log_format, LOG_FORMAT_DEFAULT, NULL, NULL),
+    createEnumConfig("log-timestamp-format", NULL, MODIFIABLE_CONFIG, log_timestamp_format_enum, server.log_timestamp_format, LOG_TIMESTAMP_DEFAULT, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
