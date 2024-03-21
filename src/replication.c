@@ -27,6 +27,11 @@ void replicationSendAck(void);
 int replicaPutOnline(client *slave);
 void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
+int replicationTimestampHandleMsg(robj *timestamp_obj);
+/*
+ * Update the latest_repl_master_timestamp and send it to replicas via REPLCONF TIMESTAMP messages.
+ */
+void replicationTimestampCron();
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -1254,6 +1259,17 @@ void replconfCommand(client *c) {
                 }
             }
             sdsfreesplitres(filters, filter_count);
+        } else if (!strcasecmp(c->argv[j]->ptr, "timestamp")) {
+            if (!(c->flags & CLIENT_MASTER)) {
+                addReplyError(c, "REPLCONF TIMESTAMP was called from a non master client. Ignoring it.");
+                return;
+            }
+            if (replicationTimestampHandleMsg(c->argv[j + 1]) != C_OK) {
+                addReplyErrorFormat(c,"Unrecognized REPLCONF TIMESTAMP option: %s",
+                    (char*)c->argv[j+1]->ptr);
+                return;
+            }
+            return;
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -3772,6 +3788,8 @@ void replicationCron(void) {
         }
     }
 
+    replicationTimestampCron();
+
     /* Second, send a newline to all the slaves in pre-synchronization
      * stage, that is, slaves waiting for the master to create the RDB file.
      *
@@ -4223,4 +4241,100 @@ void updateFailoverStatus(void) {
         replicationSetMaster(server.target_replica_host,
             server.target_replica_port);
     }
+}
+
+// ------------ Replication lag info ------------
+#define MAX_REPLICATION_LAG 60 * 60 * 24 * 30
+
+static ReplTimeContext repl_time_context = {0};
+
+// ------------ Private utility methods ---------------
+
+static void updateLatestReplmasterTimestampOnmaster() {
+    serverAssert(server.masterhost == NULL);
+
+    mstime_t curtime = mstime();
+    if (curtime <= server.repl_time.latest_repl_master_timestamp) {
+        repl_time_context.latest_repl_master_timestamp_update_failure_count++;
+        repl_time_context.lag_behind_latest_repl_master_timestamp_ms = server.repl_time.latest_repl_master_timestamp - curtime;
+    } else {
+        /* We never update the latest_repl_master_timestamp to an earlier time,
+         * which ensures we will not record a smaller than current master timestamps to the replication stream */
+        server.repl_time.latest_repl_master_timestamp = curtime;
+        repl_time_context.lag_behind_latest_repl_master_timestamp_ms = 0;
+    }
+}
+
+/*
+ * Sends REPLCONF TIMESTAMP msg carrying the latest_repl_master_timestamp to replicas.
+ */
+static void replicationTimstampSendMsg() {
+    serverAssert(server.masterhost == NULL);
+
+    robj *argv[3];
+
+    const char *args[] = {"REPLCONF", "TIMESTAMP"};
+
+    argv[0] = createStringObject(args[0], strlen(args[0]));
+    argv[1] = createStringObject(args[1], strlen(args[1]));
+    argv[2] = createStringObjectFromLongLong(server.repl_time.latest_repl_master_timestamp);
+    replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+
+    decrRefCount(argv[0]);
+    decrRefCount(argv[1]);
+    decrRefCount(argv[2]);
+}
+
+// ---------- Public API methods -----------
+
+void replicationTimestampCron() {
+    if (!server.repl_time.timestamp_enabled || !iAmMaster()) return;
+    updateLatestReplmasterTimestampOnmaster();
+    // Don't send timestamps when there is no connected replica or when a failover is in progress
+    if (!isManualFailoverOrPauseInProgress() && listLength(server.slaves)) {
+        replicationTimstampSendMsg();
+    }
+}
+
+int isManualFailoverOrPauseInProgress(void){
+    return ((server.cluster_enabled &&
+              clusterManualFailoverTimeLimit()) ||
+            server.failover_end_time) &&
+            isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA);
+}
+
+int replicationTimestampHandleMsg(robj *timestamp_obj) {
+    serverAssert(server.masterhost != NULL);
+
+    mstime_t timestamp;
+    if (getLongLongFromObject(timestamp_obj, &timestamp) != C_OK) {
+        serverLog(LL_WARNING, "Unable to parse master replication timestamp");
+        return C_ERR;
+    }
+    if (timestamp <= server.repl_time.latest_repl_master_timestamp)
+        server.repl_time.latest_repl_master_timestamp = timestamp;
+
+    mstime_t time_diff = mstime() - timestamp;
+    if (time_diff < 0 || time_diff > (long long) MAX_REPLICATION_LAG) {
+        serverLog(LL_WARNING, "Unreasonable replication timestamp received from master: %lli ms, resulting in"
+                        " replication delay of %lli ms. Defaulting replication delay to 0 ms.", timestamp, time_diff);
+        time_diff = 0;
+    }
+    repl_time_context.replication_delay_ms = time_diff;
+    return C_OK;
+}
+
+sds ReplTime_info(sds info_str) {
+    info_str = sdscatprintf(info_str,
+                            "master_timestamp:%lld\r\n"
+                            "replication_lag:%lld\r\n"
+                            "master_timestamp_replication_delay_ms:%lld\r\n"
+                            "master_timestamp_update_failure_count:%lld\r\n"
+                            "lag_behind_master_timestamp_ms:%lld\r\n",
+                            server.repl_time.latest_repl_master_timestamp,
+                            server.repl_time.latest_repl_master_timestamp == 0 ? 0 : (mstime() - server.repl_time.latest_repl_master_timestamp),
+                            repl_time_context.replication_delay_ms,
+                            repl_time_context.latest_repl_master_timestamp_update_failure_count,
+                            repl_time_context.lag_behind_latest_repl_master_timestamp_ms);
+    return info_str;
 }

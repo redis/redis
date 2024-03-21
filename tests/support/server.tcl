@@ -522,6 +522,9 @@ proc start_server {options {code undefined}} {
         dict set config $directive $arguments
     }
 
+    # Turn off replication timestamp as it interferes with legacy tests
+    dict set config "repl-timestamp-enabled" "no"
+
     # remove directives that are marked to be omitted
     foreach directive $omit {
         dict unset config $directive
