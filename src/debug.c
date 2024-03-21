@@ -474,6 +474,10 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"SLEEP-AFTER-FORK <micro seconds>",
+"    Stop the server's main process for <seconds> after forking.",
+"WAIT-BEFORE-RDB-CLIENT-FREE <seconds>",
+"    Grace period in seconds for replica main channel to establish psync.",
 "DICT-RESIZING <0|1>",
 "    Enable or disable the main dict and expire dict resizing.",
 NULL
@@ -1001,6 +1005,14 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"SLEEP-AFTER-FORK") &&
+        c->argc == 3) {
+        server.debug_sleep_after_fork = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"WAIT-BEFORE-RDB-CLIENT-FREE") &&
+        c->argc == 3) {
+        server.wait_before_rdb_client_free = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr, "dict-resizing") && c->argc == 3) {
         server.dict_resizing = atoi(c->argv[2]->ptr);
         addReply(c, shared.ok);

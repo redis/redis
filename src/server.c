@@ -2086,6 +2086,7 @@ void initServerConfig(void) {
     server.cached_master = NULL;
     server.master_initial_offset = -1;
     server.repl_state = REPL_STATE_NONE;
+    server.repl_rdb_conn_state = REPL_RDB_CONN_STATE_NONE;
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
     server.repl_transfer_s = NULL;
@@ -2093,6 +2094,7 @@ void initServerConfig(void) {
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
+    server.rdb_client_id = -1;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2591,6 +2593,8 @@ void initServer(void) {
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
+    server.slaves_waiting_psync = raxNew();
+    server.wait_before_rdb_client_free = DEFAULT_WAIT_BEFORE_RDB_CLIENT_FREE;
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_timeout_table = raxNew();
@@ -2712,6 +2716,7 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
     server.lastbgsave_status = C_OK;
+    server.master_supports_rdb_channel = -1;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
@@ -5355,6 +5360,8 @@ const char *replstateToString(int replstate) {
     case SLAVE_STATE_WAIT_BGSAVE_START:
     case SLAVE_STATE_WAIT_BGSAVE_END:
         return "wait_bgsave";
+    case SLAVE_STATE_BG_RDB_LOAD:
+        return "bg_transfer";
     case SLAVE_STATE_SEND_BULK:
         return "send_bulk";
     case SLAVE_STATE_ONLINE:
@@ -5919,7 +5926,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "master_last_io_seconds_ago:%d\r\n", server.master ? ((int)(server.unixtime-server.master->lastinteraction)) : -1,
                 "master_sync_in_progress:%d\r\n", server.repl_state == REPL_STATE_TRANSFER,
                 "slave_read_repl_offset:%lld\r\n", slave_read_repl_offset,
-                "slave_repl_offset:%lld\r\n", slave_repl_offset));
+                "slave_repl_offset:%lld\r\n", slave_repl_offset,
+                "replicas_repl_buffer_size:%zu\r\n", server.pending_repl_data.len,
+                "replicas_repl_buffer_peak:%zu\r\n", server.pending_repl_data.peak));
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
@@ -5983,9 +5992,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
                 info = sdscatprintf(info,
                     "slave%d:ip=%s,port=%d,state=%s,"
-                    "offset=%lld,lag=%ld\r\n",
+                    "offset=%lld,lag=%ld,type=%s\r\n",
                     slaveid,slaveip,slave->slave_listening_port,state,
-                    slave->repl_ack_off, lag);
+                    slave->repl_ack_off, lag, 
+                    slave->flags & CLIENT_REPL_RDB_CHANNEL ? "rdb-conn": 
+                    slave->replstate == SLAVE_STATE_BG_RDB_LOAD ? "main-conn": "normal-slave");
                 slaveid++;
             }
         }
@@ -5998,7 +6009,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "repl_backlog_active:%d\r\n", server.repl_backlog != NULL,
             "repl_backlog_size:%lld\r\n", server.repl_backlog_size,
             "repl_backlog_first_byte_offset:%lld\r\n", server.repl_backlog ? server.repl_backlog->offset : 0,
-            "repl_backlog_histlen:%lld\r\n", server.repl_backlog ? server.repl_backlog->histlen : 0));
+            "repl_backlog_histlen:%lld\r\n", server.repl_backlog ? server.repl_backlog->histlen : 0,
+            "slaves_waiting_psync:%lu\r\n", raxSize(server.slaves_waiting_psync)));
     }
 
     /* CPU */

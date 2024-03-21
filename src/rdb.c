@@ -3519,6 +3519,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     listIter li;
     pid_t childpid;
     int pipefds[2], rdb_pipe_write, safe_to_exit_pipe;
+    int direct = (req &= SLAVE_REQ_RDB_CHANNEL);
 
     if (hasActiveChildProcess()) return C_ERR;
 
@@ -3546,9 +3547,14 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
 
     /* Collect the connections of the replicas we want to transfer
      * the RDB to, which are i WAIT_BGSAVE_START state. */
-    server.rdb_pipe_conns = zmalloc(sizeof(connection *)*listLength(server.slaves));
-    server.rdb_pipe_numconns = 0;
-    server.rdb_pipe_numconns_writing = 0;
+    int connsnum = 0;
+    connection **conns = zmalloc(sizeof(connection *)*listLength(server.slaves));
+    if (!direct) {
+        server.rdb_pipe_conns = conns;
+        server.rdb_pipe_numconns = 0;
+        server.rdb_pipe_numconns_writing = 0;
+    }
+    /* Filter replica connections pending full sync (ie. in WAIT_BGSAVE_START state). */
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
@@ -3556,7 +3562,19 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             /* Check slave has the exact requirements */
             if (slave->slave_req != req)
                 continue;
-            server.rdb_pipe_conns[server.rdb_pipe_numconns++] = slave->conn;
+            conns[connsnum++] = slave->conn;
+            if (direct) {
+                /* Put the socket in blocking mode to simplify RDB transfer. */
+                connBlock(slave->conn);
+                connSendTimeout(slave->conn, server.repl_timeout * 1000);
+                /* This replica uses diskless rdb channel sync, hence we need
+                 * to inform it with the save end offset.*/
+                sendCurrentOffsetToReplica(slave);
+                /* Make sure repl traffic is appended to the replication backlog */                
+                addSlaveToPsyncWaitingRax(slave);
+            } else {
+                server.rdb_pipe_numconns++;
+            }
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
         }
     }
@@ -3566,8 +3584,11 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         /* Child */
         int retval, dummy;
         rio rdb;
-
-        rioInitWithFd(&rdb,rdb_pipe_write);
+        if (direct) {
+            rioInitWithConnset(&rdb, conns, connsnum);
+        } else {
+            rioInitWithFd(&rdb,rdb_pipe_write);
+        }
 
         /* Close the reading part, so that if the parent crashes, the child will
          * get a write error and exit. */
@@ -3583,8 +3604,11 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
-
-        rioFreeFd(&rdb);
+        if (direct) {
+            rioFreeConnset(&rdb);
+        } else {
+            rioFreeFd(&rdb);
+        }
         /* wake up the reader, tell it we're done. */
         close(rdb_pipe_write);
         close(server.rdb_child_exit_pipe); /* close write end so that we can detect the close on the parent. */
@@ -3611,14 +3635,17 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             }
             close(rdb_pipe_write);
             close(server.rdb_pipe_read);
-            close(server.rdb_child_exit_pipe);
-            zfree(server.rdb_pipe_conns);
-            server.rdb_pipe_conns = NULL;
-            server.rdb_pipe_numconns = 0;
-            server.rdb_pipe_numconns_writing = 0;
+            zfree(conns);
+            if (direct) {
+                closeChildInfoPipe();
+            } else {
+                server.rdb_pipe_conns = NULL;
+                server.rdb_pipe_numconns = 0;
+                server.rdb_pipe_numconns_writing = 0;
+            }
         } else {
-            serverLog(LL_NOTICE,"Background RDB transfer started by pid %ld",
-                (long) childpid);
+            serverLog(LL_NOTICE,"Background RDB transfer started by pid %ld to %s",
+                (long) childpid, direct? "replica socket" : "pipe");
             server.rdb_save_time_start = time(NULL);
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
             close(rdb_pipe_write); /* close write in parent so that it can detect the close on the child. */

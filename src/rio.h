@@ -97,6 +97,14 @@ struct _rio {
             off_t pos;
             sds buf;
         } fd;
+        /* Multiple connections target (used to write to N sockets). */
+        struct {
+            connection **conns;  /* Connections */
+            int *state;         /* Error state of each fd. 0 (if ok) or errno. */
+            int numconns;
+            off_t pos;
+            sds buf;
+        } connset;
     } io;
 };
 
@@ -182,4 +190,6 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
 void rioSetAutoSync(rio *r, off_t bytes);
 void rioSetReclaimCache(rio *r, int enabled); 
 uint8_t rioCheckType(rio *r);
+void rioInitWithConnset(rio *r, connection **conns, int numconns);
+void rioFreeConnset(rio *r);
 #endif

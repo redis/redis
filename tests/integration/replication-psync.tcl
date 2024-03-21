@@ -74,19 +74,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
 
                 # Wait for the slave to reach the "online"
                 # state from the POV of the master.
-                set retry 5000
-                while {$retry} {
-                    set info [$master info]
-                    if {[string match {*slave0:*state=online*} $info]} {
-                        break
-                    } else {
-                        incr retry -1
-                        after 100
-                    }
-                }
-                if {$retry == 0} {
-                    error "assertion:Slave not correctly synchronized"
-                }
+                verify_replica_online $master 0 5000
 
                 # Wait that slave acknowledge it is online so
                 # we are sure that DBSIZE and DEBUG DIGEST will not
