@@ -2189,7 +2189,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 if (!lpValidateIntegrity(lp, encoded_len, deep_integrity_validation, NULL, NULL)) {
                     rdbReportCorruptRDB("Listpack integrity check failed.");
                     decrRefCount(o);
-                    zfree(lp);
+                    lpFree(lp);
                     return NULL;
                 }
             } else {
@@ -2200,7 +2200,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     rdbReportCorruptRDB("Ziplist integrity check failed.");
                     decrRefCount(o);
                     zfree(data);
-                    zfree(lp);
+                    lpFree(lp);
                     return NULL;
                 }
                 zfree(data);
@@ -2209,7 +2209,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
             /* Silently skip empty ziplists, if we'll end up with empty quicklist we'll fail later. */
             if (lpLength(lp) == 0) {
-                zfree(lp);
+                lpFree(lp);
                 continue;
             } else {
                 quicklistAppendListpack(o->ptr, lp);
@@ -2369,7 +2369,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     unsigned char *lp = lpNew(encoded_len);
                     if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
                         rdbReportCorruptRDB("Zset ziplist integrity check failed.");
-                        zfree(lp);
+                        lpFree(lp);
                         zfree(encoded);
                         o->ptr = NULL;
                         decrRefCount(o);
@@ -2415,7 +2415,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     unsigned char *lp = lpNew(encoded_len);
                     if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
                         rdbReportCorruptRDB("Hash ziplist integrity check failed.");
-                        zfree(lp);
+                        lpFree(lp);
                         zfree(encoded);
                         o->ptr = NULL;
                         decrRefCount(o);
@@ -2507,7 +2507,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 rdbReportCorruptRDB("Stream listpack integrity check failed.");
                 sdsfree(nodekey);
                 decrRefCount(o);
-                zfree(lp);
+                lpFree(lp);
                 return NULL;
             }
 
@@ -2519,7 +2519,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 rdbReportCorruptRDB("Empty listpack inside stream");
                 sdsfree(nodekey);
                 decrRefCount(o);
-                zfree(lp);
+                lpFree(lp);
                 return NULL;
             }
 
@@ -2530,7 +2530,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             if (!retval) {
                 rdbReportCorruptRDB("Listpack re-added with existing key");
                 decrRefCount(o);
-                zfree(lp);
+                lpFree(lp);
                 return NULL;
             }
         }
