@@ -1766,11 +1766,6 @@ int main(int argc, char **argv) {
             }
             exit(1);
         }
-        if (config.cluster_node_count <= 1) {
-            fprintf(stderr, "Invalid cluster: %d node(s).\n",
-                    config.cluster_node_count);
-            exit(1);
-        }
         printf("Cluster has %d master nodes:\n\n", config.cluster_node_count);
         int i = 0;
         for (; i < config.cluster_node_count; i++) {
