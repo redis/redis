@@ -23,42 +23,54 @@
         ],
         "arguments": [
             {
-                "name": "save-selector",
+                "name": "abort-selector",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "nosave",
-                        "type": "pure-token",
-                        "token": "NOSAVE"
+                        "name": "save-selector-block",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "save-selector",
+                                "type": "oneof",
+                                "optional": true,
+                                "arguments": [
+                                    {
+                                        "name": "nosave",
+                                        "type": "pure-token",
+                                        "token": "NOSAVE"
+                                    },
+                                    {
+                                        "name": "save",
+                                        "type": "pure-token",
+                                        "token": "SAVE"
+                                    }
+                                ]
+                            },
+                            {
+                                "name": "now",
+                                "type": "pure-token",
+                                "token": "NOW",
+                                "optional": true,
+                                "since": "7.0.0"
+                            },
+                            {
+                                "name": "force",
+                                "type": "pure-token",
+                                "token": "FORCE",
+                                "optional": true,
+                                "since": "7.0.0"
+                            }
+                        ]
                     },
                     {
-                        "name": "save",
+                        "name": "abort",
                         "type": "pure-token",
-                        "token": "SAVE"
+                        "token": "ABORT",
+                        "since": "7.0.0"
                     }
                 ]
-            },
-            {
-                "name": "now",
-                "type": "pure-token",
-                "token": "NOW",
-                "optional": true,
-                "since": "7.0.0"
-            },
-            {
-                "name": "force",
-                "type": "pure-token",
-                "token": "FORCE",
-                "optional": true,
-                "since": "7.0.0"
-            },
-            {
-                "name": "abort",
-                "type": "pure-token",
-                "token": "ABORT",
-                "optional": true,
-                "since": "7.0.0"
             }
         ],
         "reply_schema": {
