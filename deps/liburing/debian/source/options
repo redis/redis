@@ -1,1 +1,0 @@
-extend-diff-ignore = "(^|/)(config\.log|config-host\.h|config-host\.mak|liburing\.pc)$"
