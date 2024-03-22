@@ -2408,9 +2408,11 @@ static int zuiCompareByRevCardinality(const void *s1, const void *s2) {
     return zuiCompareByCardinality(s1, s2) * -1;
 }
 
+#define REDIS_AGGR_NONE 0
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
+#define REDIS_AGGR_MUL 4
 #define zunionInterDictValue(_e) (dictGetVal(_e) == NULL ? 1.0 : *(double*)dictGetVal(_e))
 
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
@@ -2424,6 +2426,12 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
         *target = val < *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_MAX) {
         *target = val > *target ? val : *target;
+    } else if (aggregate == REDIS_AGGR_MUL) {
+        *target = *target * val;
+        /* The result of multiplying two doubles is NaN when one variable
+         * is 0 and the other is +inf or -inf. When these numbers are multiplied,
+         * we maintain the convention of the result being 0.0. */
+        if (isnan(*target)) *target = 0.0;
     } else {
         /* safety net */
         serverPanic("Unknown ZUNION/INTER aggregate type");
@@ -2637,7 +2645,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                                    int cardinality_only) {
     int i, j;
     long setnum;
-    int aggregate = REDIS_AGGR_SUM;
+    int aggregate = REDIS_AGGR_NONE;
     zsetopsrc *src;
     zsetopval zval;
     sds tmp;
@@ -2647,7 +2655,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zskiplistNode *znode;
     int withscores = 0;
     unsigned long cardinality = 0;
-    long limit = 0; /* Stop searching after reaching the limit. 0 means unlimited. */
+    long limit = -1; /* Stop searching after reaching the limit. 0 means unlimited. */
+    int has_weights = 0;
 
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[numkeysIndex], &setnum, NULL) != C_OK))
@@ -2699,7 +2708,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
         while (remaining) {
             if (op != SET_OP_DIFF && !cardinality_only &&
-                remaining >= (setnum + 1) &&
+                !has_weights && remaining >= (setnum + 1) &&
                 !strcasecmp(c->argv[j]->ptr,"weights"))
             {
                 j++; remaining--;
@@ -2711,8 +2720,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                         return;
                     }
                 }
+                has_weights = 1;
             } else if (op != SET_OP_DIFF && !cardinality_only &&
-                       remaining >= 2 &&
+                       aggregate == REDIS_AGGR_NONE && remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
                 j++; remaining--;
@@ -2722,19 +2732,21 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     aggregate = REDIS_AGGR_MIN;
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
                     aggregate = REDIS_AGGR_MAX;
+                } else if (!strcasecmp(c->argv[j]->ptr, "mul")) {
+                    aggregate = REDIS_AGGR_MUL;
                 } else {
                     zfree(src);
                     addReplyErrorObject(c,shared.syntaxerr);
                     return;
                 }
                 j++; remaining--;
-            } else if (remaining >= 1 &&
+            } else if (!withscores && remaining >= 1 &&
                        !dstkey && !cardinality_only &&
                        !strcasecmp(c->argv[j]->ptr,"withscores"))
             {
                 j++; remaining--;
                 withscores = 1;
-            } else if (cardinality_only && remaining >= 2 &&
+            } else if (limit == -1 && cardinality_only && remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr, "limit"))
             {
                 j++; remaining--;
@@ -2752,6 +2764,10 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             }
         }
     }
+
+    /* Use defaults if not overridden by arguments. */
+    if (aggregate == REDIS_AGGR_NONE) aggregate = REDIS_AGGR_SUM;
+    if (limit == -1) limit = 0;
 
     if (op != SET_OP_DIFF) {
         /* sort sets from the smallest to largest, this will improve our
@@ -2932,12 +2948,12 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     zfree(src);
 }
 
-/* ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] */
+/* ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX|MUL] */
 void zunionstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_UNION, 0);
 }
 
-/* ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] */
+/* ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX|MUL] */
 void zinterstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_INTER, 0);
 }
@@ -2947,12 +2963,12 @@ void zdiffstoreCommand(client *c) {
     zunionInterDiffGenericCommand(c, c->argv[1], 2, SET_OP_DIFF, 0);
 }
 
-/* ZUNION numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] */
+/* ZUNION numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX|MUL] [WITHSCORES] */
 void zunionCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_UNION, 0);
 }
 
-/* ZINTER numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX] [WITHSCORES] */
+/* ZINTER numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX|MUL] [WITHSCORES] */
 void zinterCommand(client *c) {
     zunionInterDiffGenericCommand(c, NULL, 1, SET_OP_INTER, 0);
 }

@@ -101,6 +101,11 @@
                         "name": "max",
                         "type": "pure-token",
                         "token": "MAX"
+                    },
+                    {
+                        "name": "mul",
+                        "type": "pure-token",
+                        "token": "MUL"
                     }
                 ]
             },
