@@ -2286,12 +2286,18 @@ start_server {tags {"zset"}} {
     } {b 2 c 3}
 
     test {ZRANGESTORE BYLEX} {
+        set res [r zrangestore z3{t} z1{t} \[b \[c BYLEX]
+        assert_equal $res 2
+        assert_encoding listpack z3{t}
         set res [r zrangestore z2{t} z1{t} \[b \[c BYLEX]
         assert_equal $res 2
         r zrange z2{t} 0 -1 withscores
     } {b 2 c 3}
 
     test {ZRANGESTORE BYSCORE} {
+        set res [r zrangestore z4{t} z1{t} 1 2 BYSCORE]
+        assert_equal $res 2
+        assert_encoding listpack z4{t}
         set res [r zrangestore z2{t} z1{t} 1 2 BYSCORE]
         assert_equal $res 2
         r zrange z2{t} 0 -1 withscores
