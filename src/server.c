@@ -2784,6 +2784,7 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    luaEnvInit();
     scriptingInit(1);
     if (functionsInit() == C_ERR) {
         serverPanic("Functions initialization failed, check the server logs.");

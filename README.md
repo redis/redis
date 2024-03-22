@@ -458,9 +458,9 @@ Script
 
 The script unit is composed of 3 units:
 * `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ...)
-* `script_lua.c` - responsible to execute Lua code, uses script.c to interact with Redis from within the Lua code.
-* `function_lua.c` - contains the Lua engine implementation, uses script_lua.c to execute the Lua code.
-* `functions.c` - contains Redis Functions implementation (FUNCTION command), uses functions_lua.c if the function it wants to invoke needs the Lua engine.
+* `script_lua.c` - responsible to execute Lua code, uses `script.c` to interact with Redis from within the Lua code.
+* `function_lua.c` - contains the Lua engine implementation, uses `script_lua.c` to execute the Lua code.
+* `functions.c` - contains Redis Functions implementation (`FUNCTION` command), uses `functions_lua.c` if the function it wants to invoke needs the Lua engine.
 * `eval.c` - contains the `eval` implementation using `script_lua.c` to invoke the Lua code.
 
 
