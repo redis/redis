@@ -38,6 +38,9 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+#if defined(USE_JEMALLOC)
+#include <lstate.h>
+#endif
 #include <ctype.h>
 #include <math.h>
 
@@ -175,19 +178,31 @@ int luaRedisReplicateCommandsCommand(lua_State *lua) {
 #if defined(USE_JEMALLOC)
 /* When lua uses jemalloc, pass in luaAlloc as a parameter of lua_newstate. */
 static void *luaAlloc(void *ud, void *ptr, size_t osize, size_t nsize) {
-    UNUSED(ud);
     UNUSED(osize);
+
+    unsigned int tcache = (unsigned int)(uintptr_t)ud;
     if (nsize == 0) {
-        zfree_with_flags(ptr, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(server.lua_tcache));
+        zfree_with_flags(ptr, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(tcache));
         return NULL;
     } else {
-        return zrealloc_with_flags(ptr, nsize, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(server.lua_tcache));
+        return zrealloc_with_flags(ptr, nsize, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(tcache));
     }
 }
 
 /* Create a lua interpreter, and use jemalloc as lua memory allocator. */
 lua_State *createLuaState(void) {
-    return lua_newstate(luaAlloc, NULL);
+    /* Every time a lua VM is created, a new private tcache is created for use.
+     * This private tcache will be destroyed after the lua VM is closed. */
+    unsigned int tcache;
+    size_t sz = sizeof(unsigned int);
+    int err = je_mallctl("tcache.create", (void *)&tcache, &sz, NULL, 0);
+    if (err) {
+        serverLog(LL_WARNING, "Failed creating the lua jemalloc tcache.");
+        exit(1);
+    }
+
+    /* We pass tcache as ud so that it is not bound to the server. */
+    return lua_newstate(luaAlloc, (void *)(uintptr_t)tcache);
 }
 
 /* Under jemalloc we need to create a new arena for lua to avoid blocking
@@ -201,15 +216,6 @@ void scriptingSetup(void) {
         exit(1);
     }
     server.lua_arena = arena;
-
-    unsigned int tcache;
-    sz = sizeof(unsigned int);
-    err = je_mallctl("tcache.create", (void *)&tcache, &sz, NULL, 0);
-    if (err) {
-        serverLog(LL_WARNING, "Failed creating the lua jemalloc tcache.");
-        exit(1);
-    }
-    server.lua_tcache = tcache;
 }
 
 #else
@@ -238,13 +244,16 @@ void scriptingInit(int setup) {
     if (setup) {
         lctx.lua_client = NULL;
         server.lua_arena = UINT_MAX;
-        server.lua_tcache = UINT_MAX;
         server.script_disable_deny_script = 0;
         ldbInit();
         scriptingSetup();
     }
 
     lua_State *lua = createLuaState();
+    if (lua == NULL) {
+        serverLog(LL_WARNING, "Failed creating the lua VM.");
+        exit(1);
+    }
 
     /* Initialize a dictionary we use to map SHAs to scripts.
      * Initialize a list we use for lua script evictions, it shares the
@@ -328,16 +337,11 @@ void freeLuaScriptsSync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State
     listRelease(lua_scripts_lru_list);
     lua_close(lua);
 
-#if !defined(USE_LIBC)
-    /* The lua interpreter may hold a lot of memory internally, and lua is
-     * using libc. libc may take a bit longer to return the memory to the OS,
-     * so after lua_close, we call malloc_trim try to purge it earlier.
-     *
-     * We do that only when Redis itself does not use libc. When Lua and Redis
-     * use different allocators, one won't use the fragmentation holes of the
-     * other, and released memory can take a long time until it is returned to
-     * the OS. */
-    zlibc_trim();
+#if defined(USE_JEMALLOC)
+    /* When lua is closed, destroy the previously used private tcache. */
+    void *ud = (global_State*)G(lua)->ud;
+    unsigned int lua_tcache = (unsigned int)(uintptr_t)ud;
+    je_mallctl("tcache.destroy", NULL, NULL, (void *)&lua_tcache, sizeof(unsigned int));
 #endif
 }
 
