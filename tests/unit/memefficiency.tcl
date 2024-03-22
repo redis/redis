@@ -585,12 +585,16 @@ run_solo {defrag} {
                     }
                 }
                 if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
                     puts "frag $frag"
                     puts "misses: $misses"
                     puts "hits: $hits"
                     puts "max latency $max_latency"
                     puts [r latency latest]
                     puts [r latency history active-defrag-cycle]
+                    puts [r memory malloc-stats]
                 }
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
@@ -720,11 +724,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo

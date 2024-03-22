@@ -50,7 +50,6 @@
  */
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
-#define USE_LIBC 1
 
 #if !defined(NO_MALLOC_USABLE_SIZE) && \
     (defined(__GLIBC__) || defined(__FreeBSD__) || \
@@ -71,11 +70,6 @@
 #define zmalloc_size(p) malloc_usable_size(p)
 
 #endif
-#endif
-
-/* Includes for malloc_trim(), see zlibc_trim(). */
-#if defined(__GLIBC__) && !defined(USE_LIBC)
-#include <malloc.h>
 #endif
 
 /* We can enable the Redis defrag capabilities only if we are using Jemalloc
@@ -107,16 +101,23 @@ __attribute__((malloc)) char *zstrdup(const char *s);
 size_t zmalloc_used_memory(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
 size_t zmalloc_get_rss(void);
-int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident,
+int zmalloc_get_allocator_info(int refresh_stats, size_t *allocated, size_t *active, size_t *resident,
                                size_t *retained, size_t *muzzy, size_t *frag_smallbins_bytes);
+int zmalloc_get_allocator_info_by_arena(unsigned int arena, int refresh_stats, size_t *allocated,
+                                        size_t *active, size_t *resident, size_t *frag_smallbins_bytes);
 void set_jemalloc_bg_thread(int enable);
 int jemalloc_purge(void);
 size_t zmalloc_get_private_dirty(long pid);
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid);
 size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
-void zlibc_trim(void);
 void zmadvise_dontneed(void *ptr);
+
+#if defined(USE_JEMALLOC)
+void *zmalloc_with_flags(size_t size, int flags);
+void *zrealloc_with_flags(void *ptr, size_t size, int flags);
+void zfree_with_flags(void *ptr, int flags);
+#endif
 
 #ifdef HAVE_DEFRAG
 void zfree_no_tcache(void *ptr);

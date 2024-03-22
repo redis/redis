@@ -10,6 +10,9 @@
 #include "script.h"
 #include "cluster.h"
 
+#include <lua.h>
+#include <lauxlib.h>
+
 scriptFlag scripts_flags_def[] = {
     {.flag = SCRIPT_FLAG_NO_WRITES, .str = "no-writes"},
     {.flag = SCRIPT_FLAG_ALLOW_OOM, .str = "allow-oom"},
@@ -38,6 +41,63 @@ static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
     run_ctx->flags |= SCRIPT_TIMEDOUT;
     blockingOperationStarts();
 }
+
+#if defined(USE_JEMALLOC)
+/* When lua uses jemalloc, pass in luaAlloc as a parameter of lua_newstate. */
+static void *luaAlloc(void *ud, void *ptr, size_t osize, size_t nsize) {
+    UNUSED(osize);
+
+    unsigned int tcache = (unsigned int)(uintptr_t)ud;
+    if (nsize == 0) {
+        zfree_with_flags(ptr, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(tcache));
+        return NULL;
+    } else {
+        return zrealloc_with_flags(ptr, nsize, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(tcache));
+    }
+}
+
+/* Create a lua interpreter, and use jemalloc as lua memory allocator. */
+lua_State *createLuaState(void) {
+    /* Every time a lua VM is created, a new private tcache is created for use.
+     * This private tcache will be destroyed after the lua VM is closed. */
+    unsigned int tcache;
+    size_t sz = sizeof(unsigned int);
+    int err = je_mallctl("tcache.create", (void *)&tcache, &sz, NULL, 0);
+    if (err) {
+        serverLog(LL_WARNING, "Failed creating the lua jemalloc tcache.");
+        exit(1);
+    }
+
+    /* We pass tcache as ud so that it is not bound to the server. */
+    return lua_newstate(luaAlloc, (void *)(uintptr_t)tcache);
+}
+
+/* Under jemalloc we need to create a new arena for lua to avoid blocking
+ * defragger. */
+void luaEnvInit(void) {
+    unsigned int arena;
+    size_t sz = sizeof(unsigned int);
+    int err = je_mallctl("arenas.create", (void *)&arena, &sz, NULL, 0);
+    if (err) {
+        serverLog(LL_WARNING, "Failed creating the lua jemalloc arena.");
+        exit(1);
+    }
+    server.lua_arena = arena;
+}
+
+#else
+
+/* Create a lua interpreter and use glibc (default) as lua memory allocator. */
+lua_State *createLuaState(void) {
+    return lua_open();
+}
+
+/* There is nothing to set up under glib. */
+void luaEnvInit(void) {
+    server.lua_arena = UINT_MAX;
+}
+
+#endif
 
 int scriptIsTimedout(void) {
     return scriptIsRunning() && (curr_run_ctx->flags & SCRIPT_TIMEDOUT);
