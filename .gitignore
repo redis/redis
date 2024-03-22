@@ -39,5 +39,6 @@ Makefile.dep
 .idea/*
 .ccls
 .ccls-cache/*
+.DS_Store
 compile_commands.json
 redis.code-workspace
