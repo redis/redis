@@ -28,21 +28,24 @@ void initIOUring(void) {
 
 void ioUringPrepWrite(client *c) {
     struct io_uring_sqe *sqe = io_uring_get_sqe(server.io_uring);
-    io_uring_prep_write(sqe, c->conn->fd, c->buf + c->sentlen,
-        c->bufpos - c->sentlen, 0);
+    io_uring_prep_send(sqe, c->conn->fd, c->buf + c->sentlen,
+        c->bufpos - c->sentlen, MSG_DONTWAIT);
     io_uring_sqe_set_data(sqe, c);
     uringQueueLen++;
 }
 
 void ioUringSubmitAndWait(void) {
-    if (uringQueueLen > 0) io_uring_submit(server.io_uring);
-
     /* wait for all submitted queue entries complete. */
     while (uringQueueLen) {
+        io_uring_submit(server.io_uring);
         struct io_uring_cqe *cqe;
         if (io_uring_wait_cqe(server.io_uring, &cqe) == 0) {
             client *c = io_uring_cqe_get_data(cqe);
             c->nwritten = cqe->res;
+            if ((c->bufpos - c->sentlen) > c->nwritten && c->nwritten > 0) {
+                c->sentlen += c->nwritten;
+                ioUringPrepWrite(c);
+            }
             io_uring_cqe_seen(server.io_uring, cqe);
             uringQueueLen--;
         }
