@@ -1035,9 +1035,9 @@ sds *sdssplitargs(const char *line, int *argc) {
                         current = sdscatlen(current,p,1);
                     }
                 } else if (insq) {
-                    if (*p == '\\' && *(p+1) == '\'') {
+                    if (*p == '\\' && (*(p+1) == '\'' || *(p+1) == '\\')) {
                         p++;
-                        current = sdscatlen(current,"'",1);
+                        current = sdscatlen(current,p,1);
                     } else if (*p == '\'') {
                         /* closing quote must be followed by a space or
                          * nothing at all. */
