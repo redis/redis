@@ -837,17 +837,17 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
     if (tokens == NULL) return NULL;
 
     for (j = 0; j < (len-(seplen-1)); j++) {
-        /* make sure there is room for the next element and the final one */
-        if (slots < elements+2) {
-            sds *newtokens;
-
-            slots *= 2;
-            newtokens = s_realloc(tokens,sizeof(sds)*slots);
-            if (newtokens == NULL) goto cleanup;
-            tokens = newtokens;
-        }
         /* search the separator */
         if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
+            /* make sure there is room for the next element and the final one */
+            if (slots < elements+2) {
+                sds *newtokens;
+
+                slots *= 2;
+                newtokens = s_realloc(tokens,sizeof(sds)*slots);
+                if (newtokens == NULL) goto cleanup;
+                tokens = newtokens;
+            }
             tokens[elements] = sdsnewlen(s+start,j-start);
             if (tokens[elements] == NULL) goto cleanup;
             elements++;
