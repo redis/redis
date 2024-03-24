@@ -845,6 +845,18 @@ sds ACLDescribeSelector(aclSelector *selector) {
     return res;
 }
 
+int selectorContainsClosingParanthesis(const sds s) {
+    size_t len = sdslen(s);
+    const char *p = s;
+
+    while (len--) {
+        if (*p == ')') return 1;
+        p++;
+    }
+
+    return 0;
+}
+
 /* This is similar to ACLDescribeSelectorCommandRules(), however instead of
  * describing just the user command rules, everything is described: user
  * flags, keys, passwords and finally the command rules obtained via
@@ -886,7 +898,11 @@ robj *ACLDescribeUser(user *u) {
         if (selector->flags & SELECTOR_FLAG_ROOT) {
             res = sdscatfmt(res, "%s", default_perm);
         } else {
-            res = sdscatfmt(res, " (%s)", default_perm);
+            if (selectorContainsClosingParanthesis(default_perm)) {
+                res = sdscatfmt(res, " \"(%s)\"", default_perm);
+            } else {
+                res = sdscatfmt(res, " (%s)", default_perm);
+            }
         }
         sdsfree(default_perm);
     }
@@ -2314,7 +2330,7 @@ sds ACLLoadFromFile(const char *filename) {
         if (lines[i][0] == '\0') continue;
 
         /* Split into arguments */
-        argv = sdssplitlen(lines[i],sdslen(lines[i])," ",1,&argc);
+        argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
                      "%s:%d: unbalanced quotes in acl line. ",
