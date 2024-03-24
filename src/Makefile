@@ -212,6 +212,9 @@ ifeq ($(uname_S),Haiku)
 	FINAL_CFLAGS+= -DBSD_SOURCE
 	FINAL_LDFLAGS+= -lbsd -lnetwork
 	FINAL_LIBS+= -lpthread
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE
+	endif
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
