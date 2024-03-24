@@ -1557,6 +1557,7 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[13] = createObjectFromStreamID(&group->last_id);
 
     alsoPropagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    server.dirty++;
 
     decrRefCount(argv[3]);
     decrRefCount(argv[7]);
@@ -1581,6 +1582,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[6] = createStringObjectFromLongLong(group->entries_read);
 
     alsoPropagate(c->db->id,argv,7,PROPAGATE_AOF|PROPAGATE_REPL);
+    server.dirty++;
 
     decrRefCount(argv[4]);
     decrRefCount(argv[6]);
@@ -1821,6 +1823,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             streamNACK *nack = ri.data;
             nack->delivery_time = commandTimeSnapshot();
             nack->delivery_count++;
+            server.dirty++;
         }
         arraylen++;
     }
@@ -2391,7 +2394,6 @@ void xreadCommand(client *c) {
             streamReplyWithRange(c,s,&start,NULL,count,0,
                                  groups ? groups[i] : NULL,
                                  consumer, flags, &spi);
-            if (groups) server.dirty++;
         }
     }
 
@@ -3242,7 +3244,6 @@ void xclaimCommand(client *c) {
                 /* Propagate this change (we are going to delete the NACK). */
                 streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
                 propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
-                server.dirty++;
                 /* Release the NACK */
                 raxRemove(group->pel,buf,sizeof(buf),NULL);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
@@ -3307,13 +3308,11 @@ void xclaimCommand(client *c) {
             /* Propagate this change. */
             streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
             propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
-            server.dirty++;
         }
     }
-    if (propagate_last_id) {
+    if (propagate_last_id)
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
-        server.dirty++;
-    }
+
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
 cleanup:
@@ -3431,7 +3430,6 @@ void xautoclaimCommand(client *c) {
             robj *idstr = createObjectFromStreamID(&id);
             streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
             decrRefCount(idstr);
-            server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
@@ -3484,7 +3482,6 @@ void xautoclaimCommand(client *c) {
         robj *idstr = createObjectFromStreamID(&id);
         streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
         decrRefCount(idstr);
-        server.dirty++;
     }
 
     /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */

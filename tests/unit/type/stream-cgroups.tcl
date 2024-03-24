@@ -1219,6 +1219,33 @@ start_server {
         assert_equal [dict get $consumer seen-time] [dict get $consumer active-time]
     }
 
+    test {XREADGROUP of PEL history and the dirty counter} {
+        r DEL x
+        r XADD x 1-1 f v
+        r XGROUP CREATE x g 0
+        r XGROUP CREATECONSUMER x g Alice
+
+        # First XREADGROUP, should propagate XCLAIM
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal [r XREADGROUP group g Alice streams x >] {{x {{1-1 {f v}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+
+        # Second XREADGROUP (history), should not propagate anything, but it does update delivery time and count
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal [r XREADGROUP group g Alice streams x 0] {{x {{1-1 {f v}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+
+        r XDEL x 1-1
+
+        # Third XREADGROUP (history), entry doesn't exist so the dataset doesn't change at all
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal [r XREADGROUP group g Alice streams x 0] {{x {{1-1 {}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty}
+    }
+
     start_server {tags {"external:skip"}} {
         set master [srv -1 client]
         set master_host [srv -1 host]
