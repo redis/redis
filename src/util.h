@@ -78,6 +78,7 @@ int snprintf_async_signal_safe(char *to, size_t n, const char *fmt, ...);
 #endif
 size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
 size_t redis_strlcat(char *dst, const char *src, size_t dsize);
+void redis_memzero(void *src, size_t ssize);
 
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int flags);
