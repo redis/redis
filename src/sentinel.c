@@ -2502,6 +2502,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Process line by line. */
     lines = sdssplitlen(info,strlen(info),"\r\n",2,&numlines);
+    int flush_config = 0;
     for (j = 0; j < numlines; j++) {
         sentinelRedisInstance *slave;
         sds l = lines[j];
@@ -2560,7 +2561,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                             atoi(port), ri->quorum, ri)) != NULL)
                 {
                     sentinelEvent(LL_NOTICE,"+slave",slave,"%@");
-                    sentinelFlushConfig();
+                    flush_config = 1;
                 }
             }
         }
@@ -2619,6 +2620,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 ri->replica_announced = atoi(l+18);
         }
     }
+    if (flush_config) { sentinelFlushConfig(); }
     ri->info_refresh = mstime();
     sdsfreesplitres(lines,numlines);
 
