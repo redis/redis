@@ -248,3 +248,21 @@ start_server {tags {"regression"}} {
         $rd close
     }
 }
+
+start_server {tags {"protocol"}} {
+    test {Redis can swallow annotations} {
+        set commands "#TS:1647871901\r\n"
+        append commands [formatCommand set foo1 bar1]
+        append commands "#TS:1647871902\r\n"
+        append commands [formatCommand set foo2 bar2]
+        append commands [formatCommand set foo3 bar3]
+        r write $commands
+        r flush
+        assert_equal {OK} [r read]
+        assert_equal {OK} [r read]
+        assert_equal {OK} [r read]
+        assert_equal {bar1} [r get foo1]
+        assert_equal {bar2} [r get foo2]
+        assert_equal {bar3} [r get foo3]
+    }
+}
