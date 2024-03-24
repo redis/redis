@@ -84,6 +84,8 @@ optimizations (for debugging purposes), and other similar build time options,
 those options are cached indefinitely until you issue a `make distclean`
 command.
 
+Finally, you will need `gmake`.
+
 Fixing problems building 32 bit binaries
 ---------
 
