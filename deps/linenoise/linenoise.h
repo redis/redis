@@ -48,6 +48,14 @@ typedef struct linenoiseCompletions {
   char **cvec;
 } linenoiseCompletions;
 
+
+typedef struct {
+  int len;
+  char * result;
+  int searchTermIndex;
+  int searchTermLen;
+} linenoiseHistorySearchResult;
+
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
@@ -57,6 +65,7 @@ void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
 char *linenoise(const char *prompt);
+char *linenoiseWithBuffer(const char *prompt, const char *initial_buf, const int initial_buf_len);
 void linenoiseFree(void *ptr);
 int linenoiseHistoryAdd(const char *line, int is_sensitive);
 int linenoiseHistorySetMaxLen(int len);
@@ -67,6 +76,9 @@ void linenoiseSetMultiLine(int ml);
 void linenoisePrintKeyCodes(void);
 void linenoiseMaskModeEnable(void);
 void linenoiseMaskModeDisable(void);
+int linenoiseReverseSearchModeEnabled(void);
+int linenoiseRequestOnlyPromptRefresh(void);
+int linenoiseSearchResultSumbitted(void);
 
 #ifdef __cplusplus
 }

@@ -318,6 +318,11 @@ static void cliRefreshPrompt(void) {
     if (config.pubsub_mode)
         prompt = sdscatfmt(prompt,"(subscribed mode)");
 
+    if (linenoiseReverseSearchModeEnabled() && !linenoiseSearchResultSumbitted()) {
+        char * reverseISearchPrompt = " (reverse-i-search)";
+        prompt = sdscatlen(prompt, reverseISearchPrompt, strlen(reverseISearchPrompt));
+    }
+
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
     snprintf(config.prompt,sizeof(config.prompt),"%s",prompt);
@@ -3338,7 +3343,7 @@ static int isSensitiveCommand(int argc, char **argv) {
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
-    char *line;
+    char *line = NULL;
     int argc;
     sds *argv;
 
@@ -3357,7 +3362,7 @@ static void repl(void) {
     linenoiseSetFreeHintsCallback(freeHintsCallback);
 
     /* Only use history and load the rc file when stdin is a tty. */
-    if (isatty(fileno(stdin))) {
+    if (getenv("FAKETTY_WITH_PROMPT") != NULL || isatty(fileno(stdin))) {
         historyfile = getDotfilePath(REDIS_CLI_HISTFILE_ENV,REDIS_CLI_HISTFILE_DEFAULT);
         //keep in-memory history always regardless if history file can be determined
         history = 1;
@@ -3367,9 +3372,25 @@ static void repl(void) {
         cliLoadPreferences();
     }
 
-    cliRefreshPrompt();
     while(1) {
-        line = linenoise(context ? config.prompt : "not connected> ");
+        static char * lineCpy = NULL;
+        cliRefreshPrompt();
+        line = linenoiseWithBuffer(context ? config.prompt : "not connected> ", lineCpy, lineCpy == NULL ? 0 : strlen(lineCpy));
+        if (lineCpy != NULL) {
+            free(lineCpy);
+            lineCpy = NULL;
+        }
+        
+        /* there are cases where we only want to refresh the prompt, in these cases,
+         * we should ensure that the line is persisted to the next call to linenoise */
+        if (linenoiseRequestOnlyPromptRefresh()) {
+            if (line != NULL) {
+                lineCpy = strdup(line);
+                linenoiseFree(line);
+            }
+            continue;
+        }
+
         if (line == NULL) {
             /* ^C, ^D or similar. */
             if (config.pubsub_mode) {
