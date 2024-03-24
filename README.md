@@ -217,28 +217,18 @@ You'll be able to stop and start Redis using the script named
 Code contributions
 -----------------
 
-By contributing code to the Redis project in any form, including sending a pull request via GitHub,
-a code fragment or patch via private email or public discussion groups, you agree to release your
-code under the terms of the [Redis Software Grant and Contributor License Agreement][1]. Redis software
-contains contributions to the original Redis core project, which are owned by their contributors and
-licensed under the 3BSD license. Any copy of that license in this repository applies only to those
-contributions. Redis releases all Redis project versions from 7.4.x and thereafter under the
-RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis source distribution.
+Note: By contributing code to the Redis project in any form, including sending
+a pull request via Github, a code fragment or patch via private email or
+public discussion groups, you agree to release your code under the terms
+of the BSD license that you can find in the [COPYING][1] file included in the Redis
+source distribution.
 
-Please see the [CONTRIBUTING.md][1] file in this source distribution for more information. For
-security bugs and vulnerabilities, please see [SECURITY.md][3].
+Please see the [CONTRIBUTING.md][2] file in this source distribution for more
+information. For security bugs and vulnerabilities, please see [SECURITY.md][3].
 
-[1]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING.md
-[2]: https://github.com/redis/redis/blob/unstable/LICENSE.txt
+[1]: https://github.com/redis/redis/blob/unstable/COPYING
+[2]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING.md
 [3]: https://github.com/redis/redis/blob/unstable/SECURITY.md
-
-Redis Trademarks
-----------------
-
-The purpose of a trademark is to identify the goods and services of a person or company without
-causing confusion. As the registered owner of its name and logo, Redis accepts certain limited uses
-of its trademarks but it has requirements that must be followed as described in its Trademark
-Guidelines available at: https://redis.com/legal/trademark-guidelines/.
 
 Redis internals
 ===

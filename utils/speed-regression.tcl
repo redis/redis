@@ -1,8 +1,6 @@
 #!/usr/bin/env tclsh8.5
-# Copyright (C) 2011-Present Redis Ltd. All rights reserved.
-#
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Copyright (C) 2011 Salvatore Sanfilippo
+# Released under the BSD license like Redis itself
 
 source ../tests/support/redis.tcl
 set ::port 12123
