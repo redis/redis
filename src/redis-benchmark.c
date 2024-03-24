@@ -78,6 +78,8 @@ static struct config {
     int keepalive;
     int pipeline;
     long long start;
+    long long connection_duration_usec;
+    long connection_duration_jitter_usec;
     long long totlatency;
     const char *title;
     list *clients;
@@ -118,6 +120,7 @@ typedef struct _client {
     size_t written;         /* Bytes of 'obuf' already written */
     long long start;        /* Start time of a request */
     long long latency;      /* Request latency */
+    long long client_end_time; /* Client end time (set if connection duration is set) */
     int pending;            /* Number of pending requests (replies to consume) */
     int prefix_pending;     /* If non-zero, number of pending prefix commands. Commands
                                such as auth and select are prefixed to the pipeline of
@@ -373,6 +376,15 @@ static void resetClient(client c) {
     c->pending = config.pipeline;
 }
 
+static long calculateClientDuration(){
+    long jitter = 0;
+    if (config.connection_duration_jitter_usec > 0){
+        long r = random() % config.connection_duration_jitter_usec;
+        jitter = r - (long)(config.connection_duration_jitter_usec / 2);
+    }
+    return ustime() + config.connection_duration_usec + jitter;
+}
+
 static void randomizeClientKey(client c) {
     size_t i;
 
@@ -424,7 +436,8 @@ static void clientDone(client c) {
         if (!config.num_threads && config.el) aeStop(config.el);
         return;
     }
-    if (config.keepalive) {
+    bool client_connection_timeout = (config.connection_duration_usec > 0) && (c->client_end_time < ustime());
+    if (config.keepalive && !client_connection_timeout) {
         resetClient(c);
     } else {
         if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
@@ -724,7 +737,9 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
         for (j = 0; j < config.pipeline; j++)
             c->obuf = sdscatlen(c->obuf,cmd,len);
     }
-
+    if (config.connection_duration_usec > 0){ // Set client start time if connection duration is enabled
+        c->client_end_time = calculateClientDuration();
+    }
     c->written = 0;
     c->pending = config.pipeline+c->prefix_pending;
     c->randptr = NULL;
@@ -1234,7 +1249,7 @@ static int fetchClusterConfiguration(void) {
             goto cleanup;
         }
     }
-cleanup:
+    cleanup:
     if (ctx) redisFree(ctx);
     if (!success) {
         if (config.cluster_nodes) freeClusterNodes();
@@ -1492,6 +1507,12 @@ int parseOptions(int argc, char **argv) {
             config.cluster_mode = 1;
         } else if (!strcmp(argv[i],"--enable-tracking")) {
             config.enable_tracking = 1;
+        } else if (!strcmp(argv[i],"--connection-duration")) {
+            if (lastarg) goto invalid;
+            config.connection_duration_usec = atoi(argv[++i]) * 1000; // milli to micro
+        } else if (!strcmp(argv[i],"--connection-duration-jitter")) {
+            if (lastarg) goto invalid;
+            config.connection_duration_jitter_usec = atoi(argv[++i]) * 1000; // milli to micro
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -1588,6 +1609,11 @@ usage:
 "                    mode, the key must contain \"{tag}\". Otherwise, the\n"
 "                    command will not be sent to the right cluster node.\n"
 " --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
+" --connection-duration Client connection duration limit in msec. Default 0 (No limit).\n"
+" --connection-duration-jitter Client connection duration jitter in msec,\n"
+"                    only enabled when connection-duration is set."
+"                    Jitter is calculated as +-(jitter/2)."
+"                    Default 0 (No jitter).\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD,\n"
 "                    random members and scores for ZADD.\n"
@@ -1738,7 +1764,8 @@ int main(int argc, char **argv) {
     config.slots_last_update = 0;
     config.enable_tracking = 0;
     config.resp3 = 0;
-
+    config.connection_duration_usec = 0;
+    config.connection_duration_jitter_usec = 0;
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
