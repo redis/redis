@@ -243,25 +243,38 @@ uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
  * representation is stored in the buffer pointer to by "enc" and the string
  * length is returned. Otherwise 0 is returned. */
 int rdbEncodeInteger(long long value, unsigned char *enc) {
-    if (value >= -(1<<7) && value <= (1<<7)-1) {
+    struct SignExtendBits{        
+        long long bits8:  8;        
+        long long bits16: 16;
+        long long bits32: 32;
+    } v;
+    
+    v.bits8 = value;
+    if (v.bits8 == value) {
         enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT8;
-        enc[1] = value&0xFF;
+        enc[1] = v.bits8;
         return 2;
-    } else if (value >= -(1<<15) && value <= (1<<15)-1) {
+    }
+
+    v.bits16 = value;
+    if (v.bits16 == value) {
         enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT16;
         enc[1] = value&0xFF;
         enc[2] = (value>>8)&0xFF;
         return 3;
-    } else if (value >= -((long long)1<<31) && value <= ((long long)1<<31)-1) {
+    }
+
+    v.bits32 = value;
+    if (v.bits32 == value) {
         enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT32;
         enc[1] = value&0xFF;
         enc[2] = (value>>8)&0xFF;
         enc[3] = (value>>16)&0xFF;
         enc[4] = (value>>24)&0xFF;
         return 5;
-    } else {
-        return 0;
     }
+
+    return 0;    
 }
 
 /* Loads an integer-encoded object with the specified encoding type "enctype".
