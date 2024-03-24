@@ -1,0 +1,171 @@
+.TH REDIS-CLI 1 "2016" "Redis" "User commands"
+.SH NAME
+redis\-cli \- Redis client
+
+.SH SYNOPSIS
+.B redis\-cli
+[ options ] [cmd [arg [arg ...]]]
+.LP
+
+.SH DESCRIPTION
+\fBRedis\fP is an open source (BSD licensed), in-memory data structure store,
+used as database, cache and message broker, found at
+.B http://redis.io/
+
+The \fBredis-cli\fP command is a command line client to redis-server.
+
+.SH OPTIONS
+.TP 15
+.B \-h \fIhostname\fP
+Server hostname (default: 127.0.0.1).
+.TP
+.B \-p \fIport\fP
+Server port (default: 6379).
+.TP
+.B \-s \fIsocket\fP
+Server socket (overrides hostname and port).
+.TP
+.B \-a \fIpassword\fP
+Password to use when connecting to the server.
+.TP
+.B \-r \fIrepeat\fP
+Execute specified command N times.
+.TP
+.B \-i \fIinterval\fP
+When -r is used, waits \fIinterval\fP seconds per command.
+It is possible to specify sub-second times like -i 0.1.
+.TP
+.B \-n \fIdb\fP
+Database number.
+.TP
+.B \-x
+Read last argument from STDIN.
+.TP
+.B \-d \fIdelimiter\fP
+Multi-bulk delimiter in for raw formatting (default: \n).
+.TP
+.B \-c
+Enable cluster mode (follow -ASK and -MOVED redirections).
+.TP
+.B \-\-raw
+Use raw formatting for replies (default when STDOUT is not a tty).
+.TP
+.B \-\-no\-raw
+Force formatted output even when STDOUT is not a tty.
+.TP
+.B \-\-csv
+Output in CSV format.
+.TP
+.B \-\-stat
+Print rolling stats about server: mem, clients, ...
+.TP
+.B \-\-latency
+Enter a special mode continuously sampling latency.
+.TP
+.B \-\-latency\-history
+Like \-\-latency but tracking latency changes over time.
+Default time interval is 15 sec. Change it using -i.
+.TP
+.B \-\-latency\-dist
+Shows latency as a spectrum, requires xterm 256 colors.
+Default time interval is 1 sec. Change it using -i.
+.TP
+.B \-\-lru\-test
+Simulate a cache workload with an 80-20 distribution.
+.TP
+.B \-\-slave
+Simulate a slave showing commands received from the master.
+.TP
+.B \-\-rdb \fIfilename\fP
+Transfer an RDB dump from remote server to local file.
+.TP
+.B \-\-pipe
+Transfer raw Redis protocol from stdin to server.
+.TP
+.B \-\-pipe-timeout \fIn\fP
+In --pipe mode, abort with error if after sending all data.
+no reply is received within \fIn\fP seconds.
+Default timeout: 30. Use 0 to wait forever.
+.TP
+.B \-\-bigkeys
+Sample Redis keys looking for big keys.
+.TP
+.B \-\-scan
+List all keys using the SCAN command.
+.TP
+.B \-\-pattern \fIpat\fP
+Useful with --scan to specify a SCAN pattern.
+.TP
+.B \-\-intrinsic-latency \fIsec\fP
+Run a test to measure intrinsic system latency.
+The test will run for the specified amount of seconds.
+.TP
+.B \-\-eval \fIfile\fP
+Send an EVAL command using the Lua script at \fIfile\fP.
+.TP
+.B \-\-ldb
+Used with --eval enable the Redis Lua debugger.
+.TP
+.B \-\-ldb-sync-mode
+Like --ldb but uses the synchronous Lua debugger, in
+this mode the server is blocked and script changes are
+are not rolled back from the server memory.
+.TP
+.B \-\-help
+Output this help and exit.
+.TP
+.B \-\-version
+Output version and exit.
+
+.SH EXAMPLES
+.TP
+cat /etc/passwd | redis-cli -x set mypasswd
+.TP
+redis-cli get mypasswd
+.TP
+redis-cli \-r 100 lpush mylist x
+.TP
+redis-cli \-r 100 \-i 1 info | grep used_memory_human:
+.TP
+redis-cli \-\-eval myscript.lua key1 key2 , arg1 arg2 arg3
+.TP
+redis-cli \-\-scan \-\-pattern '*:12345*'
+
+.SH BUGS
+See:
+.PD 0
+.B http://redis.io/support
+and
+.B https://github.com/antirez/redis/issues
+
+.SH COPYRIGHT
+Copyright \(co 2006\-2016
+Salvatore Sanfilippo
+.P
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+.TP 2
+*
+Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+.TP
+*
+Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+.TP
+*
+Neither the name of Redis nor the names of its contributors may be used
+to endorse or promote products derived from this software without specific
+prior written permission.
+.P
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
