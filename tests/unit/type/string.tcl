@@ -448,7 +448,10 @@ start_server {tags {"string"}} {
 
     test "GETRANGE against non-existing key" {
         r del mykey
-        assert_equal "" [r getrange mykey 0 -1]
+        # Make sure we can distinguish between an empty string and a null response
+        r readraw 1
+        assert_equal {$-1} [r getrange mykey 0 -1]
+        r readraw 0
     }
 
     test "GETRANGE against wrong key type" {
