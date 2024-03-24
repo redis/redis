@@ -38,6 +38,11 @@
         #include "ae_kqueue.c"
         #else
         #include "ae_select.c"
+                      #ifdef HAVE_POLLSET
+		      #include "ae_pollset.c"
+                      #else
+                      #include "ae_select.c"
+                      #endif
         #endif
     #endif
 #endif
