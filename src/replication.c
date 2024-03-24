@@ -980,10 +980,13 @@ void syncCommand(client *c) {
 
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
-     * when this happens replicationSetupSlaveForFullResync will replied
-     * with:
+     * when this happens masterTryPartialResynchronization() will not
+     * reply with:
      *
      * +FULLRESYNC <replid> <offset>
+     *
+     * The reply is actually delayed to replicationSetupSlaveForFullResync(),
+     * which is called immediately after BGSAVE child process forked or reused.
      *
      * So the slave knows the new replid and offset to try a PSYNC later
      * if the connection with the master is lost. */
