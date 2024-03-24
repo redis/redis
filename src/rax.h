@@ -40,7 +40,7 @@
  * provided inside the representation. So the above representation is turned
  * into:
  *
- *                  ["foo"] ""
+ *                  ("foo") ""
  *                     |
  *                  [t   b] "foo"
  *                  /     \
