@@ -222,6 +222,7 @@ typedef struct sentinelRedisInstance {
     mstime_t failover_timeout;      /* Max time to refresh failover state. */
     mstime_t failover_delay_logged; /* For what failover_start_time value we
                                        logged the failover delay. */
+    bool failover_fast_retry_flag;  /* For fast try-failover, no wait */
     struct sentinelRedisInstance *promoted_slave; /* Promoted slave instance. */
     /* Scripts executed to notify admin or reconfigure clients: when they
      * are set to NULL no script is executed. */
@@ -1338,6 +1339,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->failover_start_time = 0;
     ri->failover_timeout = sentinel_default_failover_timeout;
     ri->failover_delay_logged = 0;
+    ri->failover_fast_retry_flag = false;
     ri->promoted_slave = NULL;
     ri->notification_script = NULL;
     ri->client_reconfig_script = NULL;
@@ -4775,6 +4777,7 @@ int sentinelLeaderIncr(dict *counters, char *runid) {
     }
 }
 
+
 /* Scan all the Sentinels attached to this master to check if there
  * is a leader for the specified epoch.
  *
@@ -4839,6 +4842,63 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     voters_quorum = voters/2+1;
     if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
         winner = NULL;
+
+    winner = winner ? sdsnew(winner) : NULL;
+    sdsfree(myvote);
+    dictRelease(counters);
+    return winner;
+}
+
+/* Scan all the Sentinels attached to get the winner. */
+char *sentinelGetWinner(sentinelRedisInstance *master, uint64_t epoch) {
+    dict *counters;
+    dictIterator *di;
+    dictEntry *de;
+    char *myvote;
+    char *winner = NULL;
+    uint64_t max_votes = 0;
+    uint64_t leader_epoch;
+
+    serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
+    counters = dictCreate(&leaderVotesDictType,NULL);
+
+
+    /* Count other sentinels votes */
+    di = dictGetIterator(master->sentinels);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+        if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
+            sentinelLeaderIncr(counters,ri->leader);
+    }
+    dictReleaseIterator(di);
+
+    di = dictGetIterator(counters);
+    while((de = dictNext(di)) != NULL) {
+        uint64_t votes = dictGetUnsignedIntegerVal(de);
+
+        if (votes > max_votes) {
+            max_votes = votes;
+            winner = dictGetKey(de);
+        }
+    }
+    dictReleaseIterator(di);
+
+    /* Count this Sentinel vote:
+     * if this Sentinel did not voted yet, either vote for the most
+     * common voted sentinel, or for itself if no vote exists at all. */
+    if (winner)
+        myvote = sentinelVoteLeader(master,epoch,winner,&leader_epoch);
+    else
+        myvote = sentinelVoteLeader(master,epoch,sentinel.myid,&leader_epoch);
+
+    if (myvote && leader_epoch == epoch) {
+        uint64_t votes = sentinelLeaderIncr(counters,myvote);
+
+        if (votes > max_votes) {
+            max_votes = votes;
+            winner = myvote;
+        }
+    }
 
     winner = winner ? sdsnew(winner) : NULL;
     sdsfree(myvote);
@@ -4956,8 +5016,9 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
     if (master->flags & SRI_FAILOVER_IN_PROGRESS) return 0;
 
     /* Last failover attempt started too little time ago? */
-    if (mstime() - master->failover_start_time <
-        master->failover_timeout*2)
+    if (!master->failover_fast_retry_flag && 
+            mstime() - master->failover_start_time < 
+            master->failover_timeout*2) 
     {
         if (master->failover_delay_logged != master->failover_start_time) {
             time_t clock = (master->failover_start_time +
@@ -4975,6 +5036,7 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
     }
 
     sentinelStartFailover(master);
+    master->failover_fast_retry_flag = false;
     return 1;
 }
 
@@ -5106,6 +5168,13 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
         if (mstime() - ri->failover_start_time > election_timeout) {
             sentinelEvent(LL_WARNING,"-failover-abort-not-elected",ri,"%@");
             sentinelAbortFailover(ri);
+            /* if the sentinel is the winner which get the most votes,
+             * it will retry next failover quickly */
+            char *winner = sentinelGetWinner(ri, ri->failover_epoch);
+            if (winner && strcasecmp(winner, sentinel.myid) == 0) {
+                ri->failover_fast_retry_flag = true;
+            }
+            sdsfree(winner);
         }
         return;
     }
