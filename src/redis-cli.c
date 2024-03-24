@@ -7169,6 +7169,34 @@ cleanup:
     return success;
 }
 
+static clusterManagerNode *clusterManagerNodeByNameWaitSync(char *ref_ip, int ref_port, const char *master_id){
+    clusterManagerNode *master_node = NULL;
+    clusterManagerNode *refnode = NULL;
+    long long current_time, wait_time_max;
+
+    current_time = mstime();
+    wait_time_max = current_time + config.cluster_manager_command.timeout;
+
+    printf("Waiting for the cluster to synchronization\n");
+    while(current_time <= wait_time_max){
+        refnode = clusterManagerNewNode(ref_ip, ref_port, 0);
+	if (!clusterManagerLoadInfoFromNode(refnode)){
+            return NULL;
+        }
+
+        master_node = clusterManagerNodeByName(master_id);
+        if(master_node != NULL){
+            break;
+        }
+        printf(".");
+        fflush(stdout);
+        sleep(1);
+        current_time = mstime();
+    }
+
+    return master_node;
+}
+
 static int clusterManagerCommandAddNode(int argc, char **argv) {
     int success = 1;
     redisReply *reply = NULL;
@@ -7195,9 +7223,14 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         if (master_id != NULL) {
             master_node = clusterManagerNodeByName(master_id);
             if (master_node == NULL) {
-                clusterManagerLogErr("[ERR] No such master ID %s\n", master_id);
-                return 0;
-            }
+            /* Some new nodes have just been added to the cluster and may not be fully synchronized,
+             * Try again later */
+                master_node = clusterManagerNodeByNameWaitSync(ref_ip, ref_port, master_id);
+                if( master_node == NULL){
+                    clusterManagerLogErr("[ERR] No such master ID %s\n", master_id);
+                    return 0;
+                }
+	    }
         } else {
             master_node = clusterManagerNodeWithLeastReplicas();
             assert(master_node != NULL);
