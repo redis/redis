@@ -85,6 +85,18 @@ ifneq (,$(filter aarch64 armv%,$(uname_M)))
 endif
 
 # Backwards compatibility for selecting an allocator
+ifeq ($(USE_MIMALLOC),yes)
+	MALLOC=mimalloc
+endif
+
+ifeq ($(USE_SNMALLOC),yes)
+	MALLOC=snmalloc
+endif
+
+ifeq ($(USE_SNMALLOC_1MIB),yes)
+	MALLOC=snmalloc-1mib
+endif
+
 ifeq ($(USE_TCMALLOC),yes)
 	MALLOC=tcmalloc
 endif
@@ -262,6 +274,27 @@ endif
 ifeq ($(BUILD_WITH_SYSTEMD),yes)
 	FINAL_LIBS+=$(LIBSYSTEMD_LIBS)
 	FINAL_CFLAGS+= -DHAVE_LIBSYSTEMD
+endif
+
+ifeq ($(MALLOC),snmalloc)
+	__version := $(shell sh -c 'git submodule status | grep "snmalloc" | grep -oP "(?<=\()(.+)(?=\))"')
+	DEPENDENCY_TARGETS+= snmalloc	
+	FINAL_CFLAGS+= -DUSE_SNMALLOC -DSNMALLOC_VERSION=\"$(__version)\"
+	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-static.a -lstdc++ -latomic $(FINAL_LIBS)
+endif
+
+ifeq ($(MALLOC),snmalloc-1mib)
+	__version := $(shell sh -c 'git submodule status | grep "snmalloc" | grep -oP "(?<=\()(.+)(?=\))"')
+	DEPENDENCY_TARGETS+= snmalloc-1mib
+	FINAL_CFLAGS+= -DUSE_SNMALLOC -DSNMALLOC_VERSION='"$(__version) (1mib)"'
+	FINAL_LIBS := ../deps/snmalloc/libsnmallocshim-1mib-static.a -lstdc++ -latomic $(FINAL_LIBS)
+endif
+
+ifeq ($(MALLOC),mimalloc)
+	__version := $(shell sh -c 'git submodule status | grep "mimalloc" | grep -oP "(?<=\()(.+)(?=\))"')
+	DEPENDENCY_TARGETS+= mimalloc
+	FINAL_CFLAGS+= -DUSE_MIMALLOC -I../deps/mimalloc/include -DMIMALLOC_VERSION=\"$(__version)\"
+	FINAL_LIBS := ../deps/mimalloc/libmimalloc.a $(FINAL_LIBS)
 endif
 
 ifeq ($(MALLOC),tcmalloc)
