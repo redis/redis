@@ -547,6 +547,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         if (server.stream_node_max_bytes > 0 && server.stream_node_max_bytes < prealloc) {
             prealloc = server.stream_node_max_bytes;
         }
+        if (prealloc < totelelen) prealloc = totelelen;
         lp = lpNew(prealloc);
         lp = lpAppendInteger(lp,1); /* One item, the one we are adding. */
         lp = lpAppendInteger(lp,0); /* Zero deleted so far. */
