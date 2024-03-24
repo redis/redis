@@ -201,6 +201,22 @@ start_server {tags {"keyspace"}} {
         }
     } 
 
+    test {COPY basic usage for string encoded shared integer number} {
+        r set intkey{t} 1
+        assert {[r object refcount intkey{t}] == 2147483647}
+        r copy intkey{t} newintkey1{t}
+        assert {[r object refcount newintkey1{t}] == 2147483647}
+        set old [lindex [split [r debug object intkey{t}]] 1]
+        set new1 [lindex [split [r debug object newintkey1{t}]] 1]
+        assert {$old eq $new1}
+        r config set maxmemory 10gb
+        r config set maxmemory-policy allkeys-lru
+        r copy intkey{t} newintkey2{t}
+        assert {[r object refcount newintkey2{t}] == 1}
+        set new2 [lindex [split [r debug object newintkey2{t}]] 1]
+        assert {$old ne $new2}
+    } {} {needs:config-maxmemory}
+
     test {COPY for string does not replace an existing key without REPLACE option} {
         r set mykey2{t} hello
         catch {r copy mykey2{t} mynewkey{t} DB 10} e
