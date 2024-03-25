@@ -68,6 +68,7 @@ void blockClient(client *c, int btype) {
     /* Master client should never be blocked unless pause or module */
     serverAssert(!(c->flags & CLIENT_MASTER &&
                    btype != BLOCKED_MODULE &&
+                   btype != BLOCKED_LAZYFREE &&
                    btype != BLOCKED_POSTPONE));
 
     c->flags |= CLIENT_BLOCKED;
@@ -175,6 +176,8 @@ void unblockClient(client *c, int queue_for_reprocessing) {
         c->postponed_list_node = NULL;
     } else if (c->bstate.btype == BLOCKED_SHUTDOWN) {
         /* No special cleanup. */
+    } else if (c->bstate.btype == BLOCKED_LAZYFREE) {
+        /* No special cleanup. */
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
@@ -206,7 +209,9 @@ void unblockClient(client *c, int queue_for_reprocessing) {
  * send it a reply of some kind. After this function is called,
  * unblockClient() will be called with the same client as argument. */
 void replyToBlockedClientTimedOut(client *c) {
-    if (c->bstate.btype == BLOCKED_LIST ||
+    if (c->bstate.btype == BLOCKED_LAZYFREE) {
+        addReply(c, shared.ok); /* No reason lazy-free to fail */
+    } else if (c->bstate.btype == BLOCKED_LIST ||
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM) {
         addReplyNullArray(c);
@@ -263,9 +268,16 @@ void disconnectAllBlockedClients(void) {
             if (c->bstate.btype == BLOCKED_POSTPONE)
                 continue;
 
-            unblockClientOnError(c,
-                "-UNBLOCKED force unblock from blocking operation, "
-                "instance state changed (master -> replica?)");
+            if (c->bstate.btype == BLOCKED_LAZYFREE) {
+                addReply(c, shared.ok); /* No reason lazy-free to fail */
+                c->flags &= ~CLIENT_PENDING_COMMAND;
+                unblockClient(c, 1);
+            } else {
+
+                unblockClientOnError(c,
+                                     "-UNBLOCKED force unblock from blocking operation, "
+                                     "instance state changed (master -> replica?)");
+            }
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         }
     }
