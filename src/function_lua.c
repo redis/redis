@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2021, Redis Ltd.
+ * Copyright (c) 2021-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 /*
@@ -51,7 +30,6 @@
 #define REGISTRY_LOAD_CTX_NAME "__LIBRARY_CTX__"
 #define LIBRARY_API_NAME "__LIBRARY_API__"
 #define GLOBALS_API_NAME "__GLOBALS_API__"
-#define LOAD_TIMEOUT_MS 500
 
 /* Lua engine ctx */
 typedef struct luaEngineCtx {
@@ -67,6 +45,7 @@ typedef struct luaFunctionCtx {
 typedef struct loadCtx {
     functionLibInfo *li;
     monotime start_time;
+    size_t timeout;
 } loadCtx;
 
 typedef struct registerFunctionArgs {
@@ -85,7 +64,7 @@ static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
     loadCtx *load_ctx = luaGetFromRegistry(lua, REGISTRY_LOAD_CTX_NAME);
     serverAssert(load_ctx); /* Only supported inside script invocation */
     uint64_t duration = elapsedMs(load_ctx->start_time);
-    if (duration > LOAD_TIMEOUT_MS) {
+    if (load_ctx->timeout > 0 && duration > load_ctx->timeout) {
         lua_sethook(lua, luaEngineLoadHook, LUA_MASKLINE, 0);
 
         luaPushError(lua,"FUNCTION LOAD timeout");
@@ -100,7 +79,7 @@ static void luaEngineLoadHook(lua_State *lua, lua_Debug *ar) {
  *
  * Return NULL on compilation error and set the error to the err variable
  */
-static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds *err) {
+static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, size_t timeout, sds *err) {
     int ret = C_ERR;
     luaEngineCtx *lua_engine_ctx = engine_ctx;
     lua_State *lua = lua_engine_ctx->lua;
@@ -124,6 +103,7 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, sds 
     loadCtx load_ctx = {
         .li = li,
         .start_time = getMonotonicUs(),
+        .timeout = timeout,
     };
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, &load_ctx);
 
@@ -420,7 +400,7 @@ static int luaRegisterFunction(lua_State *lua) {
 }
 
 /* Initialize Lua engine, should be called once on start. */
-int luaEngineInitEngine() {
+int luaEngineInitEngine(void) {
     luaEngineCtx *lua_engine_ctx = zmalloc(sizeof(*lua_engine_ctx));
     lua_engine_ctx->lua = lua_open();
 

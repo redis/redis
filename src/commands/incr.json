@@ -1,6 +1,6 @@
 {
     "INCR": {
-        "summary": "Increment the integer value of a key by one",
+        "summary": "Increments the integer value of a key by one. Uses 0 as initial value if the key doesn't exist.",
         "complexity": "O(1)",
         "group": "string",
         "since": "1.0.0",
@@ -41,6 +41,10 @@
                 "type": "key",
                 "key_spec_index": 0
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "The value of key after the increment",
+            "type": "integer"
+        }
     }
 }

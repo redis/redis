@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -38,12 +17,32 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op);
 
 /* Factory method to return a set that *can* hold "value". When the object has
- * an integer-encodable value, an intset will be returned. Otherwise a regular
- * hash table. */
-robj *setTypeCreate(sds value) {
-    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
+ * an integer-encodable value, an intset will be returned. Otherwise a listpack
+ * or a regular hash table.
+ *
+ * The size hint indicates approximately how many items will be added which is
+ * used to determine the initial representation. */
+robj *setTypeCreate(sds value, size_t size_hint) {
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint <= server.set_max_intset_entries)
         return createIntsetObject();
-    return createSetListpackObject();
+    if (size_hint <= server.set_max_listpack_entries)
+        return createSetListpackObject();
+
+    /* We may oversize the set by using the hint if the hint is not accurate,
+     * but we will assume this is acceptable to maximize performance. */
+    robj *o = createSetObject();
+    dictExpand(o->ptr, size_hint);
+    return o;
+}
+
+/* Check if the existing set should be converted to another encoding based off the
+ * the size hint. */
+void setTypeMaybeConvert(robj *set, size_t size_hint) {
+    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint > server.set_max_listpack_entries)
+        || (set->encoding == OBJ_ENCODING_INTSET && size_hint > server.set_max_intset_entries))
+    {
+        setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
+    }
 }
 
 /* Return the maximum number of entries to store in an intset. */
@@ -122,17 +121,16 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
-        dictEntry *de = dictAddRaw(ht,sdsval,NULL);
-        if (de && sdsval == str) {
-            /* String was added but we don't own this sds string. Dup it and
-             * replace it in the dict entry. */
-            dictSetKey(ht,de,sdsdup((sds)str));
-            dictSetVal(ht,de,NULL);
-        } else if (!de && sdsval != str) {
-            /* String was already a member. Free our temporary sds copy. */
+        void *position = dictFindPositionForInsert(ht, sdsval, NULL);
+        if (position) {
+            /* Key doesn't already exist in the set. Add it but dup the key. */
+            if (sdsval == str) sdsval = sdsdup(sdsval);
+            dictInsertAtPosition(ht, sdsval, position);
+        } else if (sdsval != str) {
+            /* String is already a member. Free our temporary sds copy. */
             sdsfree(sdsval);
         }
-        return (de != NULL);
+        return (position != NULL);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -237,7 +235,6 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
     if (setobj->encoding == OBJ_ENCODING_HT) {
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         int deleted = (dictDelete(setobj->ptr, sdsval) == DICT_OK);
-        if (deleted && htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
         if (sdsval != str) sdsfree(sdsval); /* free temp copy */
         return deleted;
     } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
@@ -591,8 +588,10 @@ void saddCommand(client *c) {
     if (checkType(c,set,OBJ_SET)) return;
     
     if (set == NULL) {
-        set = setTypeCreate(c->argv[2]->ptr);
+        set = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         dbAdd(c->db,c->argv[1],set);
+    } else {
+        setTypeMaybeConvert(set, c->argc - 2);
     }
 
     for (j = 2; j < c->argc; j++) {
@@ -673,7 +672,7 @@ void smoveCommand(client *c) {
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
-        dstset = setTypeCreate(ele->ptr);
+        dstset = setTypeCreate(ele->ptr, 1);
         dbAdd(c->db,c->argv[2],dstset);
     }
 
@@ -777,8 +776,9 @@ void spopWithCountCommand(client *c) {
 
         /* todo: Move the spop notification to be executed after the command logic. */
 
-        /* Propagate this command as a DEL operation */
-        rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
+        /* Propagate this command as a DEL or UNLINK operation */
+        robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c, 2, aux, c->argv[1]);
         signalModifiedKey(c,c->db,c->argv[1]);
         return;
     }
@@ -786,13 +786,14 @@ void spopWithCountCommand(client *c) {
     /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
-    robj *propargv[3];
+    unsigned long batchsize = count > 1024 ? 1024 : count;
+    robj **propargv = zmalloc(sizeof(robj *) * (2 + batchsize));
     propargv[0] = shared.srem;
     propargv[1] = c->argv[1];
+    unsigned long propindex = 2;
     addReplySetLen(c,count);
 
     /* Common iteration vars. */
-    robj *objele;
     char *str;
     size_t len;
     int64_t llele;
@@ -820,16 +821,19 @@ void spopWithCountCommand(client *c) {
 
             if (str) {
                 addReplyBulkCBuffer(c, str, len);
-                objele = createStringObject(str, len);
+                propargv[propindex++] = createStringObject(str, len);
             } else {
                 addReplyBulkLongLong(c, llele);
-                objele = createStringObjectFromLongLong(llele);
+                propargv[propindex++] = createStringObjectFromLongLong(llele);
             }
-
             /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
+                }
+                propindex = 2;
+            }
 
             /* Store pointer for later deletion and move to next. */
             ps[i] = p;
@@ -840,14 +844,18 @@ void spopWithCountCommand(client *c) {
         zfree(ps);
         set->ptr = lp;
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
-        while(count--) {
-            objele = setTypePopRandom(set);
-            addReplyBulk(c, objele);
-
+        for (unsigned long i = 0; i < count; i++) {
+            propargv[propindex] = setTypePopRandom(set);
+            addReplyBulk(c, propargv[propindex]);
+            propindex++;
             /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long j = 2; j < propindex; j++) {
+                    decrRefCount(propargv[j]);
+                }
+                propindex = 2;
+            }
         }
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
@@ -897,22 +905,35 @@ void spopWithCountCommand(client *c) {
         while (setTypeNext(si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
-                objele = createStringObjectFromLongLong(llele);
+                propargv[propindex++] = createStringObjectFromLongLong(llele);
             } else {
                 addReplyBulkCBuffer(c, str, len);
-                objele = createStringObject(str, len);
+                propargv[propindex++] = createStringObject(str, len);
             }
-
             /* Replicate/AOF this command as an SREM operation */
-            propargv[2] = objele;
-            alsoPropagate(c->db->id,propargv,3,PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(objele);
+            if (propindex == 2 + batchsize) {
+                alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+                for (unsigned long i = 2; i < propindex; i++) {
+                    decrRefCount(propargv[i]);
+                }
+                propindex = 2;
+            }
         }
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value. */
         dbReplaceValue(c->db,c->argv[1],newset);
     }
+
+    /* Replicate/AOF the remaining elements as an SREM operation */
+    if (propindex != 2) {
+        alsoPropagate(c->db->id, propargv, propindex, PROPAGATE_AOF | PROPAGATE_REPL);
+        for (unsigned long i = 2; i < propindex; i++) {
+            decrRefCount(propargv[i]);
+        }
+        propindex = 2;
+    }
+    zfree(propargv);
 
     /* Don't propagate the command itself even if we incremented the
      * dirty counter. We don't want to propagate an SPOP command since
@@ -969,6 +990,11 @@ void spopCommand(client *c) {
  * implementation for more info. */
 #define SRANDMEMBER_SUB_STRATEGY_MUL 3
 
+/* If client is trying to ask for a very large number of random elements,
+ * queuing may consume an unlimited amount of memory, so we want to limit
+ * the number of randoms per time. */
+#define SRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
+
 void srandmemberWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
@@ -980,7 +1006,7 @@ void srandmemberWithCountCommand(client *c) {
 
     dict *d;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
+    if (getRangeLongFromObjectOrReply(c,c->argv[2],-LONG_MAX,LONG_MAX,&l,NULL) != C_OK) return;
     if (l >= 0) {
         count = (unsigned long) l;
     } else {
@@ -1010,13 +1036,21 @@ void srandmemberWithCountCommand(client *c) {
 
         if (set->encoding == OBJ_ENCODING_LISTPACK && count > 1) {
             /* Specialized case for listpack, traversing it only once. */
-            listpackEntry *entries = zmalloc(count * sizeof(listpackEntry));
-            lpRandomEntries(set->ptr, count, entries);
-            for (unsigned long i = 0; i < count; i++) {
-                if (entries[i].sval)
-                    addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
-                else
-                    addReplyBulkLongLong(c, entries[i].lval);
+            unsigned long limit, sample_count;
+            limit = count > SRANDFIELD_RANDOM_SAMPLE_LIMIT ? SRANDFIELD_RANDOM_SAMPLE_LIMIT : count;
+            listpackEntry *entries = zmalloc(limit * sizeof(listpackEntry));
+            while (count) {
+                sample_count = count > limit ? limit : count;
+                count -= sample_count;
+                lpRandomEntries(set->ptr, sample_count, entries);
+                for (unsigned long i = 0; i < sample_count; i++) {
+                    if (entries[i].sval)
+                        addReplyBulkCBuffer(c, entries[i].sval, entries[i].slen);
+                    else
+                        addReplyBulkLongLong(c, entries[i].lval);
+                }
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
             }
             zfree(entries);
             return;
@@ -1029,6 +1063,8 @@ void srandmemberWithCountCommand(client *c) {
             } else {
                 addReplyBulkCBuffer(c, str, len);
             }
+            if (c->flags & CLIENT_CLOSE_ASAP)
+                break;
         }
         return;
     }
@@ -1057,7 +1093,10 @@ void srandmemberWithCountCommand(client *c) {
      * Listpack encoded sets are meant to be relatively small, so
      * SRANDMEMBER_SUB_STRATEGY_MUL isn't necessary and we rather not make
      * copies of the entries. Instead, we emit them directly to the output
-     * buffer. */
+     * buffer.
+     *
+     * And it is inefficient to repeatedly pick one random element from a
+     * listpack in CASE 4. So we use this instead. */
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -1280,7 +1319,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         } else if (sets[0]->encoding == OBJ_ENCODING_LISTPACK) {
             /* To avoid many reallocs, we estimate that the result is a listpack
              * of approximately the same size as the first set. Then we shrink
-             * it or possibly convert it to intset it in the end. */
+             * it or possibly convert it to intset in the end. */
             unsigned char *lp = lpNew(lpBytes(sets[0]->ptr));
             dstset = createObject(OBJ_SET, lp);
             dstset->encoding = OBJ_ENCODING_LISTPACK;
@@ -1480,8 +1519,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
-    /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
+    /* We need a temp set object to store our union/diff. If the dstkey
+     * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
     dstset = createIntsetObject();
 
@@ -1610,7 +1649,7 @@ void sdiffstoreCommand(client *c) {
 
 void sscanCommand(client *c) {
     robj *set;
-    unsigned long cursor;
+    unsigned long long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||

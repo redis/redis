@@ -1,6 +1,8 @@
 # tests of corrupt listpack payload with valid CRC
 
-tags {"dump" "corruption" "external:skip"} {
+# The fuzzer can cause corrupt the state in many places, which could
+# mess up the reply, so we decided to skip logreqres.
+tags {"dump" "corruption" "external:skip" "logreqres:skip"} {
 
 # catch sigterm so that in case one of the random command hangs the test,
 # usually due to redis not putting a response in the output buffers,
@@ -160,6 +162,10 @@ foreach sanitize_dump {no yes} {
                         set err [format "%s" $err] ;# convert to string for pattern matching
                         if {[string match "*SIGTERM*" $err]} {
                             puts "payload that caused test to hang: $printable_dump"
+                            if {$::dump_logs} {
+                                set srv [get_srv 0]
+                                dump_server_log $srv
+                            }
                             exit 1
                         }
                         # if the server terminated update stats and restart it
@@ -169,6 +175,11 @@ foreach sanitize_dump {no yes} {
                         incr stat_terminated_by_signal $by_signal
 
                         if {$by_signal != 0 || $sanitize_dump == yes} {
+                            if {$::dump_logs} {
+                                set srv [get_srv 0]
+                                dump_server_log $srv
+                            }
+
                             puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
                             set print_commands true
                         }

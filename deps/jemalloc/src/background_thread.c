@@ -1,4 +1,3 @@
-#define JEMALLOC_BACKGROUND_THREAD_C_
 #include "jemalloc/internal/jemalloc_preamble.h"
 #include "jemalloc/internal/jemalloc_internal_includes.h"
 
@@ -54,8 +53,9 @@ pthread_create_wrapper(pthread_t *__restrict thread, const pthread_attr_t *attr,
 bool background_thread_create(tsd_t *tsd, unsigned arena_ind) NOT_REACHED
 bool background_threads_enable(tsd_t *tsd) NOT_REACHED
 bool background_threads_disable(tsd_t *tsd) NOT_REACHED
-void background_thread_interval_check(tsdn_t *tsdn, arena_t *arena,
-    arena_decay_t *decay, size_t npages_new) NOT_REACHED
+bool background_thread_is_started(background_thread_info_t *info) NOT_REACHED
+void background_thread_wakeup_early(background_thread_info_t *info,
+    nstime_t *remaining_sleep) NOT_REACHED
 void background_thread_prefork0(tsdn_t *tsdn) NOT_REACHED
 void background_thread_prefork1(tsdn_t *tsdn) NOT_REACHED
 void background_thread_postfork_parent(tsdn_t *tsdn) NOT_REACHED
@@ -74,7 +74,7 @@ background_thread_info_init(tsdn_t *tsdn, background_thread_info_t *info) {
 	info->npages_to_purge_new = 0;
 	if (config_stats) {
 		info->tot_n_runs = 0;
-		nstime_init(&info->tot_sleep_time, 0);
+		nstime_init_zero(&info->tot_sleep_time);
 	}
 }
 
@@ -82,135 +82,39 @@ static inline bool
 set_current_thread_affinity(int cpu) {
 #if defined(JEMALLOC_HAVE_SCHED_SETAFFINITY)
 	cpu_set_t cpuset;
+#else
+#  ifndef __NetBSD__
+	cpuset_t cpuset;
+#  else
+	cpuset_t *cpuset;
+#  endif
+#endif
+
+#ifndef __NetBSD__
 	CPU_ZERO(&cpuset);
 	CPU_SET(cpu, &cpuset);
-	int ret = sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
-
-	return (ret != 0);
 #else
-	return false;
+	cpuset = cpuset_create();
+#endif
+
+#if defined(JEMALLOC_HAVE_SCHED_SETAFFINITY)
+	return (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) != 0);
+#else
+#  ifndef __NetBSD__
+	int ret = pthread_setaffinity_np(pthread_self(), sizeof(cpuset_t),
+	    &cpuset);
+#  else
+	int ret = pthread_setaffinity_np(pthread_self(), cpuset_size(cpuset),
+	    cpuset);
+	cpuset_destroy(cpuset);
+#  endif
+	return ret != 0;
 #endif
 }
 
-/* Threshold for determining when to wake up the background thread. */
-#define BACKGROUND_THREAD_NPAGES_THRESHOLD UINT64_C(1024)
 #define BILLION UINT64_C(1000000000)
 /* Minimal sleep interval 100 ms. */
 #define BACKGROUND_THREAD_MIN_INTERVAL_NS (BILLION / 10)
-
-static inline size_t
-decay_npurge_after_interval(arena_decay_t *decay, size_t interval) {
-	size_t i;
-	uint64_t sum = 0;
-	for (i = 0; i < interval; i++) {
-		sum += decay->backlog[i] * h_steps[i];
-	}
-	for (; i < SMOOTHSTEP_NSTEPS; i++) {
-		sum += decay->backlog[i] * (h_steps[i] - h_steps[i - interval]);
-	}
-
-	return (size_t)(sum >> SMOOTHSTEP_BFP);
-}
-
-static uint64_t
-arena_decay_compute_purge_interval_impl(tsdn_t *tsdn, arena_decay_t *decay,
-    extents_t *extents) {
-	if (malloc_mutex_trylock(tsdn, &decay->mtx)) {
-		/* Use minimal interval if decay is contended. */
-		return BACKGROUND_THREAD_MIN_INTERVAL_NS;
-	}
-
-	uint64_t interval;
-	ssize_t decay_time = atomic_load_zd(&decay->time_ms, ATOMIC_RELAXED);
-	if (decay_time <= 0) {
-		/* Purging is eagerly done or disabled currently. */
-		interval = BACKGROUND_THREAD_INDEFINITE_SLEEP;
-		goto label_done;
-	}
-
-	uint64_t decay_interval_ns = nstime_ns(&decay->interval);
-	assert(decay_interval_ns > 0);
-	size_t npages = extents_npages_get(extents);
-	if (npages == 0) {
-		unsigned i;
-		for (i = 0; i < SMOOTHSTEP_NSTEPS; i++) {
-			if (decay->backlog[i] > 0) {
-				break;
-			}
-		}
-		if (i == SMOOTHSTEP_NSTEPS) {
-			/* No dirty pages recorded.  Sleep indefinitely. */
-			interval = BACKGROUND_THREAD_INDEFINITE_SLEEP;
-			goto label_done;
-		}
-	}
-	if (npages <= BACKGROUND_THREAD_NPAGES_THRESHOLD) {
-		/* Use max interval. */
-		interval = decay_interval_ns * SMOOTHSTEP_NSTEPS;
-		goto label_done;
-	}
-
-	size_t lb = BACKGROUND_THREAD_MIN_INTERVAL_NS / decay_interval_ns;
-	size_t ub = SMOOTHSTEP_NSTEPS;
-	/* Minimal 2 intervals to ensure reaching next epoch deadline. */
-	lb = (lb < 2) ? 2 : lb;
-	if ((decay_interval_ns * ub <= BACKGROUND_THREAD_MIN_INTERVAL_NS) ||
-	    (lb + 2 > ub)) {
-		interval = BACKGROUND_THREAD_MIN_INTERVAL_NS;
-		goto label_done;
-	}
-
-	assert(lb + 2 <= ub);
-	size_t npurge_lb, npurge_ub;
-	npurge_lb = decay_npurge_after_interval(decay, lb);
-	if (npurge_lb > BACKGROUND_THREAD_NPAGES_THRESHOLD) {
-		interval = decay_interval_ns * lb;
-		goto label_done;
-	}
-	npurge_ub = decay_npurge_after_interval(decay, ub);
-	if (npurge_ub < BACKGROUND_THREAD_NPAGES_THRESHOLD) {
-		interval = decay_interval_ns * ub;
-		goto label_done;
-	}
-
-	unsigned n_search = 0;
-	size_t target, npurge;
-	while ((npurge_lb + BACKGROUND_THREAD_NPAGES_THRESHOLD < npurge_ub)
-	    && (lb + 2 < ub)) {
-		target = (lb + ub) / 2;
-		npurge = decay_npurge_after_interval(decay, target);
-		if (npurge > BACKGROUND_THREAD_NPAGES_THRESHOLD) {
-			ub = target;
-			npurge_ub = npurge;
-		} else {
-			lb = target;
-			npurge_lb = npurge;
-		}
-		assert(n_search++ < lg_floor(SMOOTHSTEP_NSTEPS) + 1);
-	}
-	interval = decay_interval_ns * (ub + lb) / 2;
-label_done:
-	interval = (interval < BACKGROUND_THREAD_MIN_INTERVAL_NS) ?
-	    BACKGROUND_THREAD_MIN_INTERVAL_NS : interval;
-	malloc_mutex_unlock(tsdn, &decay->mtx);
-
-	return interval;
-}
-
-/* Compute purge interval for background threads. */
-static uint64_t
-arena_decay_compute_purge_interval(tsdn_t *tsdn, arena_t *arena) {
-	uint64_t i1, i2;
-	i1 = arena_decay_compute_purge_interval_impl(tsdn, &arena->decay_dirty,
-	    &arena->extents_dirty);
-	if (i1 == BACKGROUND_THREAD_MIN_INTERVAL_NS) {
-		return i1;
-	}
-	i2 = arena_decay_compute_purge_interval_impl(tsdn, &arena->decay_muzzy,
-	    &arena->extents_muzzy);
-
-	return i1 < i2 ? i1 : i2;
-}
 
 static void
 background_thread_sleep(tsdn_t *tsdn, background_thread_info_t *info,
@@ -228,7 +132,8 @@ background_thread_sleep(tsdn_t *tsdn, background_thread_info_t *info,
 
 	int ret;
 	if (interval == BACKGROUND_THREAD_INDEFINITE_SLEEP) {
-		assert(background_thread_indefinite_sleep(info));
+		background_thread_wakeup_time_set(tsdn, info,
+		    BACKGROUND_THREAD_INDEFINITE_SLEEP);
 		ret = pthread_cond_wait(&info->cond, &info->mtx.lock);
 		assert(ret == 0);
 	} else {
@@ -236,8 +141,7 @@ background_thread_sleep(tsdn_t *tsdn, background_thread_info_t *info,
 		    interval <= BACKGROUND_THREAD_INDEFINITE_SLEEP);
 		/* We need malloc clock (can be different from tv). */
 		nstime_t next_wakeup;
-		nstime_init(&next_wakeup, 0);
-		nstime_update(&next_wakeup);
+		nstime_init_update(&next_wakeup);
 		nstime_iadd(&next_wakeup, interval);
 		assert(nstime_ns(&next_wakeup) <
 		    BACKGROUND_THREAD_INDEFINITE_SLEEP);
@@ -254,8 +158,6 @@ background_thread_sleep(tsdn_t *tsdn, background_thread_info_t *info,
 		assert(!background_thread_indefinite_sleep(info));
 		ret = pthread_cond_timedwait(&info->cond, &info->mtx.lock, &ts);
 		assert(ret == ETIMEDOUT || ret == 0);
-		background_thread_wakeup_time_set(tsdn, info,
-		    BACKGROUND_THREAD_INDEFINITE_SLEEP);
 	}
 	if (config_stats) {
 		gettimeofday(&tv, NULL);
@@ -283,28 +185,48 @@ background_thread_pause_check(tsdn_t *tsdn, background_thread_info_t *info) {
 }
 
 static inline void
-background_work_sleep_once(tsdn_t *tsdn, background_thread_info_t *info, unsigned ind) {
-	uint64_t min_interval = BACKGROUND_THREAD_INDEFINITE_SLEEP;
+background_work_sleep_once(tsdn_t *tsdn, background_thread_info_t *info,
+    unsigned ind) {
+	uint64_t ns_until_deferred = BACKGROUND_THREAD_DEFERRED_MAX;
 	unsigned narenas = narenas_total_get();
+	bool slept_indefinitely = background_thread_indefinite_sleep(info);
 
 	for (unsigned i = ind; i < narenas; i += max_background_threads) {
 		arena_t *arena = arena_get(tsdn, i, false);
 		if (!arena) {
 			continue;
 		}
-		arena_decay(tsdn, arena, true, false);
-		if (min_interval == BACKGROUND_THREAD_MIN_INTERVAL_NS) {
+		/*
+		 * If thread was woken up from the indefinite sleep, don't
+		 * do the work instantly, but rather check when the deferred
+		 * work that caused this thread to wake up is scheduled for.
+		 */
+		if (!slept_indefinitely) {
+			arena_do_deferred_work(tsdn, arena);
+		}
+		if (ns_until_deferred <= BACKGROUND_THREAD_MIN_INTERVAL_NS) {
 			/* Min interval will be used. */
 			continue;
 		}
-		uint64_t interval = arena_decay_compute_purge_interval(tsdn,
-		    arena);
-		assert(interval >= BACKGROUND_THREAD_MIN_INTERVAL_NS);
-		if (min_interval > interval) {
-			min_interval = interval;
+		uint64_t ns_arena_deferred = pa_shard_time_until_deferred_work(
+		    tsdn, &arena->pa_shard);
+		if (ns_arena_deferred < ns_until_deferred) {
+			ns_until_deferred = ns_arena_deferred;
 		}
 	}
-	background_thread_sleep(tsdn, info, min_interval);
+
+	uint64_t sleep_ns;
+	if (ns_until_deferred == BACKGROUND_THREAD_DEFERRED_MAX) {
+		sleep_ns = BACKGROUND_THREAD_INDEFINITE_SLEEP;
+	} else {
+		sleep_ns =
+		    (ns_until_deferred < BACKGROUND_THREAD_MIN_INTERVAL_NS)
+		    ? BACKGROUND_THREAD_MIN_INTERVAL_NS
+		    : ns_until_deferred;
+
+	}
+
+	background_thread_sleep(tsdn, info, sleep_ns);
 }
 
 static bool
@@ -508,7 +430,7 @@ background_thread_entry(void *ind_arg) {
 	assert(thread_ind < max_background_threads);
 #ifdef JEMALLOC_HAVE_PTHREAD_SETNAME_NP
 	pthread_setname_np(pthread_self(), "jemalloc_bg_thd");
-#elif defined(__FreeBSD__)
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
 	pthread_set_name_np(pthread_self(), "jemalloc_bg_thd");
 #endif
 	if (opt_percpu_arena != percpu_arena_disabled) {
@@ -608,16 +530,16 @@ background_threads_enable(tsd_t *tsd) {
 	malloc_mutex_assert_owner(tsd_tsdn(tsd), &background_thread_lock);
 
 	VARIABLE_ARRAY(bool, marked, max_background_threads);
-	unsigned i, nmarked;
-	for (i = 0; i < max_background_threads; i++) {
+	unsigned nmarked;
+	for (unsigned i = 0; i < max_background_threads; i++) {
 		marked[i] = false;
 	}
 	nmarked = 0;
 	/* Thread 0 is required and created at the end. */
 	marked[0] = true;
 	/* Mark the threads we need to create for thread 0. */
-	unsigned n = narenas_total_get();
-	for (i = 1; i < n; i++) {
+	unsigned narenas = narenas_total_get();
+	for (unsigned i = 1; i < narenas; i++) {
 		if (marked[i % max_background_threads] ||
 		    arena_get(tsd_tsdn(tsd), i, false) == NULL) {
 			continue;
@@ -634,7 +556,18 @@ background_threads_enable(tsd_t *tsd) {
 		}
 	}
 
-	return background_thread_create_locked(tsd, 0);
+	bool err = background_thread_create_locked(tsd, 0);
+	if (err) {
+		return true;
+	}
+	for (unsigned i = 0; i < narenas; i++) {
+		arena_t *arena = arena_get(tsd_tsdn(tsd), i, false);
+		if (arena != NULL) {
+			pa_shard_set_deferral_allowed(tsd_tsdn(tsd),
+			    &arena->pa_shard, true);
+		}
+	}
+	return false;
 }
 
 bool
@@ -648,92 +581,36 @@ background_threads_disable(tsd_t *tsd) {
 		return true;
 	}
 	assert(n_background_threads == 0);
+	unsigned narenas = narenas_total_get();
+	for (unsigned i = 0; i < narenas; i++) {
+		arena_t *arena = arena_get(tsd_tsdn(tsd), i, false);
+		if (arena != NULL) {
+			pa_shard_set_deferral_allowed(tsd_tsdn(tsd),
+			    &arena->pa_shard, false);
+		}
+	}
 
 	return false;
 }
 
-/* Check if we need to signal the background thread early. */
+bool
+background_thread_is_started(background_thread_info_t *info) {
+	return info->state == background_thread_started;
+}
+
 void
-background_thread_interval_check(tsdn_t *tsdn, arena_t *arena,
-    arena_decay_t *decay, size_t npages_new) {
-	background_thread_info_t *info = arena_background_thread_info_get(
-	    arena);
-	if (malloc_mutex_trylock(tsdn, &info->mtx)) {
-		/*
-		 * Background thread may hold the mutex for a long period of
-		 * time.  We'd like to avoid the variance on application
-		 * threads.  So keep this non-blocking, and leave the work to a
-		 * future epoch.
-		 */
+background_thread_wakeup_early(background_thread_info_t *info,
+    nstime_t *remaining_sleep) {
+	/*
+	 * This is an optimization to increase batching. At this point
+	 * we know that background thread wakes up soon, so the time to cache
+	 * the just freed memory is bounded and low.
+	 */
+	if (remaining_sleep != NULL && nstime_ns(remaining_sleep) <
+	    BACKGROUND_THREAD_MIN_INTERVAL_NS) {
 		return;
 	}
-
-	if (info->state != background_thread_started) {
-		goto label_done;
-	}
-	if (malloc_mutex_trylock(tsdn, &decay->mtx)) {
-		goto label_done;
-	}
-
-	ssize_t decay_time = atomic_load_zd(&decay->time_ms, ATOMIC_RELAXED);
-	if (decay_time <= 0) {
-		/* Purging is eagerly done or disabled currently. */
-		goto label_done_unlock2;
-	}
-	uint64_t decay_interval_ns = nstime_ns(&decay->interval);
-	assert(decay_interval_ns > 0);
-
-	nstime_t diff;
-	nstime_init(&diff, background_thread_wakeup_time_get(info));
-	if (nstime_compare(&diff, &decay->epoch) <= 0) {
-		goto label_done_unlock2;
-	}
-	nstime_subtract(&diff, &decay->epoch);
-	if (nstime_ns(&diff) < BACKGROUND_THREAD_MIN_INTERVAL_NS) {
-		goto label_done_unlock2;
-	}
-
-	if (npages_new > 0) {
-		size_t n_epoch = (size_t)(nstime_ns(&diff) / decay_interval_ns);
-		/*
-		 * Compute how many new pages we would need to purge by the next
-		 * wakeup, which is used to determine if we should signal the
-		 * background thread.
-		 */
-		uint64_t npurge_new;
-		if (n_epoch >= SMOOTHSTEP_NSTEPS) {
-			npurge_new = npages_new;
-		} else {
-			uint64_t h_steps_max = h_steps[SMOOTHSTEP_NSTEPS - 1];
-			assert(h_steps_max >=
-			    h_steps[SMOOTHSTEP_NSTEPS - 1 - n_epoch]);
-			npurge_new = npages_new * (h_steps_max -
-			    h_steps[SMOOTHSTEP_NSTEPS - 1 - n_epoch]);
-			npurge_new >>= SMOOTHSTEP_BFP;
-		}
-		info->npages_to_purge_new += npurge_new;
-	}
-
-	bool should_signal;
-	if (info->npages_to_purge_new > BACKGROUND_THREAD_NPAGES_THRESHOLD) {
-		should_signal = true;
-	} else if (unlikely(background_thread_indefinite_sleep(info)) &&
-	    (extents_npages_get(&arena->extents_dirty) > 0 ||
-	    extents_npages_get(&arena->extents_muzzy) > 0 ||
-	    info->npages_to_purge_new > 0)) {
-		should_signal = true;
-	} else {
-		should_signal = false;
-	}
-
-	if (should_signal) {
-		info->npages_to_purge_new = 0;
-		pthread_cond_signal(&info->cond);
-	}
-label_done_unlock2:
-	malloc_mutex_unlock(tsdn, &decay->mtx);
-label_done:
-	malloc_mutex_unlock(tsdn, &info->mtx);
+	pthread_cond_signal(&info->cond);
 }
 
 void
@@ -794,9 +671,11 @@ background_thread_stats_read(tsdn_t *tsdn, background_thread_stats_t *stats) {
 		return true;
 	}
 
-	stats->num_threads = n_background_threads;
+	nstime_init_zero(&stats->run_interval);
+	memset(&stats->max_counter_per_bg_thd, 0, sizeof(mutex_prof_data_t));
+
 	uint64_t num_runs = 0;
-	nstime_init(&stats->run_interval, 0);
+	stats->num_threads = n_background_threads;
 	for (unsigned i = 0; i < max_background_threads; i++) {
 		background_thread_info_t *info = &background_thread_info[i];
 		if (malloc_mutex_trylock(tsdn, &info->mtx)) {
@@ -809,6 +688,8 @@ background_thread_stats_read(tsdn_t *tsdn, background_thread_stats_t *stats) {
 		if (info->state != background_thread_stopped) {
 			num_runs += info->tot_n_runs;
 			nstime_add(&stats->run_interval, &info->tot_sleep_time);
+			malloc_mutex_prof_max_update(tsdn,
+			    &stats->max_counter_per_bg_thd, &info->mtx);
 		}
 		malloc_mutex_unlock(tsdn, &info->mtx);
 	}
@@ -892,7 +773,7 @@ background_thread_boot0(void) {
 }
 
 bool
-background_thread_boot1(tsdn_t *tsdn) {
+background_thread_boot1(tsdn_t *tsdn, base_t *base) {
 #ifdef JEMALLOC_BACKGROUND_THREAD
 	assert(have_background_thread);
 	assert(narenas_total_get() > 0);
@@ -911,7 +792,7 @@ background_thread_boot1(tsdn_t *tsdn) {
 	}
 
 	background_thread_info = (background_thread_info_t *)base_alloc(tsdn,
-	    b0get(), opt_max_background_threads *
+	    base, opt_max_background_threads *
 	    sizeof(background_thread_info_t), CACHELINE);
 	if (background_thread_info == NULL) {
 		return true;

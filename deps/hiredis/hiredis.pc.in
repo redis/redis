@@ -9,4 +9,4 @@ Name: hiredis
 Description: Minimalistic C client library for Redis.
 Version: @PROJECT_VERSION@
 Libs: -L${libdir} -lhiredis
-Cflags: -I${pkgincludedir} -D_FILE_OFFSET_BITS=64
+Cflags: -I${pkgincludedir} -I${includedir} -D_FILE_OFFSET_BITS=64

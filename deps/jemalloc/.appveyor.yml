@@ -31,7 +31,6 @@ install:
   - set PATH=c:\msys64\%MSYSTEM%\bin;c:\msys64\usr\bin;%PATH%
   - if defined MSVC call "c:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" %MSVC%
   - if defined MSVC pacman --noconfirm -Rsc mingw-w64-%CPU%-gcc gcc
-  - pacman --noconfirm -Suy mingw-w64-%CPU%-make
 
 build_script:
   - bash -c "autoconf"

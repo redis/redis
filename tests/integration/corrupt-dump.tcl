@@ -146,7 +146,7 @@ test {corrupt payload: load corrupted rdb with no CRC - #3505} {
 
     # wait for termination
     wait_for_condition 100 50 {
-        ! [is_alive $srv]
+        ! [is_alive [dict get $srv pid]]
     } else {
         fail "rdb loading didn't fail"
     }
@@ -827,7 +827,7 @@ test {corrupt payload: fuzzer findings - set with duplicate elements causes sdif
         assert_equal {0 2 4 6 8 _1 _3 _3 _5 _9} [lsort [r smembers _key]]
         assert_equal {0 2 4 6 8 _1 _3 _5 _9} [lsort [r sdiff _key]]
     }
-}
+} {} {logreqres:skip} ;# This test violates {"uniqueItems": true}
 
 } ;# tags
 

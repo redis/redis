@@ -22,6 +22,12 @@
  * size that would result from such an allocation.
  */
 
+/* Page size index type. */
+typedef unsigned pszind_t;
+
+/* Size class index type. */
+typedef unsigned szind_t;
+
 /*
  * sz_pind2sz_tab encodes the same information as could be computed by
  * sz_pind2sz_compute().
@@ -39,34 +45,62 @@ extern size_t sz_index2size_tab[SC_NSIZES];
  */
 extern uint8_t sz_size2index_tab[];
 
-static const size_t sz_large_pad =
-#ifdef JEMALLOC_CACHE_OBLIVIOUS
-    PAGE
-#else
-    0
-#endif
-    ;
+/*
+ * Padding for large allocations: PAGE when opt_cache_oblivious == true (to
+ * enable cache index randomization); 0 otherwise.
+ */
+extern size_t sz_large_pad;
 
-extern void sz_boot(const sc_data_t *sc_data);
+extern void sz_boot(const sc_data_t *sc_data, bool cache_oblivious);
 
 JEMALLOC_ALWAYS_INLINE pszind_t
 sz_psz2ind(size_t psz) {
+	assert(psz > 0);
 	if (unlikely(psz > SC_LARGE_MAXCLASS)) {
 		return SC_NPSIZES;
 	}
-	pszind_t x = lg_floor((psz<<1)-1);
-	pszind_t shift = (x < SC_LG_NGROUP + LG_PAGE) ?
+	/* x is the lg of the first base >= psz. */
+	pszind_t x = lg_ceil(psz);
+	/*
+	 * sc.h introduces a lot of size classes. These size classes are divided
+	 * into different size class groups. There is a very special size class
+	 * group, each size class in or after it is an integer multiple of PAGE.
+	 * We call it first_ps_rg. It means first page size regular group. The
+	 * range of first_ps_rg is (base, base * 2], and base == PAGE *
+	 * SC_NGROUP. off_to_first_ps_rg begins from 1, instead of 0. e.g.
+	 * off_to_first_ps_rg is 1 when psz is (PAGE * SC_NGROUP + 1).
+	 */
+	pszind_t off_to_first_ps_rg = (x < SC_LG_NGROUP + LG_PAGE) ?
 	    0 : x - (SC_LG_NGROUP + LG_PAGE);
-	pszind_t grp = shift << SC_LG_NGROUP;
 
-	pszind_t lg_delta = (x < SC_LG_NGROUP + LG_PAGE + 1) ?
-	    LG_PAGE : x - SC_LG_NGROUP - 1;
+	/*
+	 * Same as sc_s::lg_delta.
+	 * Delta for off_to_first_ps_rg == 1 is PAGE,
+	 * for each increase in offset, it's multiplied by two.
+	 * Therefore, lg_delta = LG_PAGE + (off_to_first_ps_rg - 1).
+	 */
+	pszind_t lg_delta = (off_to_first_ps_rg == 0) ?
+	    LG_PAGE : LG_PAGE + (off_to_first_ps_rg - 1);
 
-	size_t delta_inverse_mask = ZU(-1) << lg_delta;
-	pszind_t mod = ((((psz-1) & delta_inverse_mask) >> lg_delta)) &
-	    ((ZU(1) << SC_LG_NGROUP) - 1);
+	/*
+	 * Let's write psz in binary, e.g. 0011 for 0x3, 0111 for 0x7.
+	 * The leftmost bits whose len is lg_base decide the base of psz.
+	 * The rightmost bits whose len is lg_delta decide (pgz % PAGE).
+	 * The middle bits whose len is SC_LG_NGROUP decide ndelta.
+	 * ndelta is offset to the first size class in the size class group,
+	 * starts from 1.
+	 * If you don't know lg_base, ndelta or lg_delta, see sc.h.
+	 * |xxxxxxxxxxxxxxxxxxxx|------------------------|yyyyyyyyyyyyyyyyyyyyy|
+	 * |<-- len: lg_base -->|<-- len: SC_LG_NGROUP-->|<-- len: lg_delta -->|
+	 *                      |<--      ndelta      -->|
+	 * rg_inner_off = ndelta - 1
+	 * Why use (psz - 1)?
+	 * To handle case: psz % (1 << lg_delta) == 0.
+	 */
+	pszind_t rg_inner_off = (((psz - 1)) >> lg_delta) & (SC_NGROUP - 1);
 
-	pszind_t ind = grp + mod;
+	pszind_t base_ind = off_to_first_ps_rg << SC_LG_NGROUP;
+	pszind_t ind = base_ind + rg_inner_off;
 	return ind;
 }
 
@@ -152,10 +186,15 @@ sz_size2index_compute(size_t size) {
 }
 
 JEMALLOC_ALWAYS_INLINE szind_t
-sz_size2index_lookup(size_t size) {
+sz_size2index_lookup_impl(size_t size) {
 	assert(size <= SC_LOOKUP_MAXCLASS);
-	szind_t ret = (sz_size2index_tab[(size + (ZU(1) << SC_LG_TINY_MIN) - 1)
-					 >> SC_LG_TINY_MIN]);
+	return sz_size2index_tab[(size + (ZU(1) << SC_LG_TINY_MIN) - 1)
+	    >> SC_LG_TINY_MIN];
+}
+
+JEMALLOC_ALWAYS_INLINE szind_t
+sz_size2index_lookup(size_t size) {
+	szind_t ret = sz_size2index_lookup_impl(size);
 	assert(ret == sz_size2index_compute(size));
 	return ret;
 }
@@ -195,8 +234,13 @@ sz_index2size_compute(szind_t index) {
 }
 
 JEMALLOC_ALWAYS_INLINE size_t
+sz_index2size_lookup_impl(szind_t index) {
+	return sz_index2size_tab[index];
+}
+
+JEMALLOC_ALWAYS_INLINE size_t
 sz_index2size_lookup(szind_t index) {
-	size_t ret = (size_t)sz_index2size_tab[index];
+	size_t ret = sz_index2size_lookup_impl(index);
 	assert(ret == sz_index2size_compute(index));
 	return ret;
 }
@@ -205,6 +249,12 @@ JEMALLOC_ALWAYS_INLINE size_t
 sz_index2size(szind_t index) {
 	assert(index < SC_NSIZES);
 	return sz_index2size_lookup(index);
+}
+
+JEMALLOC_ALWAYS_INLINE void
+sz_size2index_usize_fastpath(size_t size, szind_t *ind, size_t *usize) {
+	*ind = sz_size2index_lookup_impl(size);
+	*usize = sz_index2size_lookup_impl(*ind);
 }
 
 JEMALLOC_ALWAYS_INLINE size_t
@@ -266,7 +316,7 @@ sz_sa2u(size_t size, size_t alignment) {
 	assert(alignment != 0 && ((alignment - 1) & alignment) == 0);
 
 	/* Try for a small size class. */
-	if (size <= SC_SMALL_MAXCLASS && alignment < PAGE) {
+	if (size <= SC_SMALL_MAXCLASS && alignment <= PAGE) {
 		/*
 		 * Round size up to the nearest multiple of alignment.
 		 *
@@ -314,5 +364,8 @@ sz_sa2u(size_t size, size_t alignment) {
 	}
 	return usize;
 }
+
+size_t sz_psz_quantize_floor(size_t size);
+size_t sz_psz_quantize_ceil(size_t size);
 
 #endif /* JEMALLOC_INTERNAL_SIZE_H */

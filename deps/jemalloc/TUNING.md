@@ -1,5 +1,5 @@
 This document summarizes the common approaches for performance fine tuning with
-jemalloc (as of 5.1.0).  The default configuration of jemalloc tends to work
+jemalloc (as of 5.3.0).  The default configuration of jemalloc tends to work
 reasonably well in practice, and most applications should not have to tune any
 options. However, in order to cover a wide range of applications and avoid
 pathological cases, the default setting is sometimes kept conservative and
@@ -76,14 +76,14 @@ Examples:
 
 * High resource consumption application, prioritizing memory usage:
 
-    `background_thread:true` combined with shorter decay time (decreased
-    `dirty_decay_ms` and / or `muzzy_decay_ms`,
+    `background_thread:true,tcache_max:4096` combined with shorter decay time
+    (decreased `dirty_decay_ms` and / or `muzzy_decay_ms`,
     e.g. `dirty_decay_ms:5000,muzzy_decay_ms:5000`), and lower arena count
     (e.g. number of CPUs).
 
 * Low resource consumption application:
 
-    `narenas:1,lg_tcache_max:13` combined with shorter decay time (decreased
+    `narenas:1,tcache_max:1024` combined with shorter decay time (decreased
     `dirty_decay_ms` and / or `muzzy_decay_ms`,e.g.
     `dirty_decay_ms:1000,muzzy_decay_ms:0`).
 

@@ -75,12 +75,14 @@ start_server {
         assert_equal [lsort -integer $result] [r sort tosort GET #]
     } {} {cluster:skip}
 
-    test "SORT GET <const>" {
+foreach command {SORT SORT_RO} {
+    test "$command GET <const>" {
         r del foo
-        set res [r sort tosort GET foo]
+        set res [r $command tosort GET foo]
         assert_equal 16 [llength $res]
         foreach item $res { assert_equal {} $item }
     } {} {cluster:skip}
+}
 
     test "SORT GET (key and hash) with sanity check" {
         set l1 [r sort tosort GET # GET weight_*]
@@ -109,6 +111,10 @@ start_server {
     test "SORT extracts STORE correctly" {
         r command getkeys sort abc store def
     } {abc def}
+    
+    test "SORT_RO get keys" {
+        r command getkeys sort_ro abc
+    } {abc}
 
     test "SORT extracts multiple STORE correctly" {
         r command getkeys sort abc store invalid store stillbad store def
@@ -339,4 +345,63 @@ start_server {
             }
         } {} {cluster:skip}
     }
+
+    test {SETRANGE with huge offset} {
+        r lpush L 2 1 0
+        # expecting a different outcome on 32 and 64 bit systems
+        foreach value {9223372036854775807 2147483647} {
+            catch {[r sort_ro L by a limit 2 $value]} res
+            if {![string match "2" $res] && ![string match "*out of range*" $res]} {
+                assert_not_equal $res "expecting an error or 2"
+            }
+        }
+    }
+
+    test {SORT STORE quicklist with the right options} {
+        set origin_config [config_get_set list-max-listpack-size -1]
+        r del lst{t} lst_dst{t}
+        r config set list-max-listpack-size -1
+        r config set list-compress-depth 12
+        r lpush lst{t} {*}[split [string repeat "1" 6000] ""]
+        r sort lst{t} store lst_dst{t}
+        assert_encoding quicklist lst_dst{t}
+        assert_match "*ql_listpack_max:-1 ql_compressed:1*" [r debug object lst_dst{t}]
+        config_set list-max-listpack-size $origin_config
+    } {} {needs:debug}
+}
+
+start_cluster 1 0 {tags {"external:skip cluster sort"}} {
+
+    r flushall
+    r lpush "{a}mylist" 1 2 3
+    r set "{a}by1" 20
+    r set "{a}by2" 30
+    r set "{a}by3" 0
+    r set "{a}get1" 200
+    r set "{a}get2" 100
+    r set "{a}get3" 30
+
+    test "sort by in cluster mode" {
+        catch {r sort "{a}mylist" by by*} e
+        assert_match {ERR BY option of SORT denied in Cluster mode when *} $e
+        r sort "{a}mylist" by "{a}by*"
+    } {3 1 2}
+
+    test "sort get in cluster mode" {
+        catch {r sort "{a}mylist" by "{a}by*" get get*} e
+        assert_match {ERR GET option of SORT denied in Cluster mode when *} $e
+        r sort "{a}mylist" by "{a}by*" get "{a}get*"
+    } {30 200 100}
+
+    test "sort_ro by in cluster mode" {
+        catch {r sort_ro "{a}mylist" by by*} e
+        assert_match {ERR BY option of SORT denied in Cluster mode when *} $e
+        r sort_ro "{a}mylist" by "{a}by*"
+    } {3 1 2}
+
+    test "sort_ro get in cluster mode" {
+        catch {r sort_ro "{a}mylist" by "{a}by*" get get*} e
+        assert_match {ERR GET option of SORT denied in Cluster mode when *} $e
+        r sort_ro "{a}mylist" by "{a}by*" get "{a}get*"
+    } {30 200 100}
 }

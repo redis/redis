@@ -91,6 +91,11 @@ start_server {tags {"modules"}} {
 
     test {RESP version carries through to blocked client} {
         for {set client_proto 2} {$client_proto <= 3} {incr client_proto} {
+            if {[lsearch $::denytags "resp3"] >= 0} {
+                if {$client_proto == 3} {continue}
+            } elseif {$::force_resp3} {
+                if {$client_proto == 2} {continue}
+            }
             r hello $client_proto
             r readraw 1
             set ret [r do_fake_bg_true]
@@ -100,6 +105,7 @@ start_server {tags {"modules"}} {
                 assert_equal $ret "#t"
             }
             r readraw 0
+            r hello 2
         }
     }
 
@@ -182,7 +188,7 @@ foreach call_type {nested normal} {
 
         # make sure we get BUSY error, and that we didn't get here too early
         assert_error {*BUSY Slow module operation*} {r ping}
-        assert_morethan [expr [clock clicks -milliseconds]-$start] $busy_time_limit
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] $busy_time_limit
         # abort the blocking operation
         r set_slow_bg_operation 0
 
@@ -247,6 +253,50 @@ foreach call_type {nested normal} {
         assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
     }
 
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set replica [srv 0 client]
+        set replica_host [srv 0 host]
+        set replica_port [srv 0 port]
+
+        # Start the replication process...
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+
+        test {WAIT command on module blocked client} {
+            pause_process [srv 0 pid]
+
+            $master do_bg_rm_call_format ! hset bk1 foo bar
+
+            assert_equal [$master wait 1 1000] 0
+            resume_process [srv 0 pid]
+            assert_equal [$master wait 1 1000] 1
+            assert_equal [$replica hget bk1 foo] bar
+        }
+    }
+
+    test {Unblock by timer} {
+        # When the client is unlock, we will get the OK reply.
+        assert_match "OK" [r unblock_by_timer 100 0]
+    }
+
+    test {block time is shorter than timer period} {
+        # This command does not have the reply.
+        set rd [redis_deferring_client]
+        $rd unblock_by_timer 100 10
+        # Wait for the client to unlock.
+        after 120
+        $rd close
+    }
+
+    test {block time is equal to timer period} {
+        # These time is equal, they will be unlocked in the same event loop,
+        # when the client is unlock, we will get the OK reply from timer.
+        assert_match "OK" [r unblock_by_timer 100 100]
+    }
+    
     test "Unload the module - blockedclient" {
         assert_equal {OK} [r module unload blockedclient]
     }

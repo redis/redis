@@ -62,8 +62,8 @@ proc sanitizer_errors_from_file {filename} {
         }
 
         # GCC UBSAN output does not contain 'Sanitizer' but 'runtime error'.
-        if {[string match {*runtime error*} $log] ||
-            [string match {*Sanitizer*} $log]} {
+        if {[string match {*runtime error*} $line] ||
+            [string match {*Sanitizer*} $line]} {
             return $log
         }
     }
@@ -602,15 +602,32 @@ proc stop_bg_complex_data {handle} {
 # Write num keys with the given key prefix and value size (in bytes). If idx is
 # given, it's the index (AKA level) used with the srv procedure and it specifies
 # to which Redis instance to write the keys.
-proc populate {num {prefix key:} {size 3} {idx 0}} {
-    set rd [redis_deferring_client $idx]
-    for {set j 0} {$j < $num} {incr j} {
-        $rd set $prefix$j [string repeat A $size]
+proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
+    r $idx deferred 1
+    if {$num > 16} {set pipeline 16} else {set pipeline $num}
+    set val [string repeat A $size]
+    for {set j 0} {$j < $pipeline} {incr j} {
+        if {$expires > 0} {
+            r $idx set $prefix$j $val ex $expires
+        } else {
+            r $idx set $prefix$j $val
+        }
+        if {$prints} {puts $j}
     }
-    for {set j 0} {$j < $num} {incr j} {
-        $rd read
+    for {} {$j < $num} {incr j} {
+        if {$expires > 0} {
+            r $idx set $prefix$j $val ex $expires
+        } else {
+            r $idx set $prefix$j $val
+        }
+        r $idx read
+        if {$prints} {puts $j}
     }
-    $rd close
+    for {set j 0} {$j < $pipeline} {incr j} {
+        r $idx read
+        if {$prints} {puts $j}
+    }
+    r $idx deferred 0
 }
 
 proc get_child_pid {idx} {
@@ -628,12 +645,26 @@ proc get_child_pid {idx} {
 }
 
 proc process_is_alive pid {
-    if {[catch {exec ps -p $pid} err]} {
+    if {[catch {exec ps -p $pid -f} err]} {
         return 0
     } else {
         if {[string match "*<defunct>*" $err]} { return 0 }
         return 1
     }
+}
+
+proc pause_process pid {
+    exec kill -SIGSTOP $pid
+    wait_for_condition 50 100 {
+        [string match {*T*} [lindex [exec ps j $pid] 16]]
+    } else {
+        puts [exec ps j $pid]
+        fail "process didn't stop"
+    }
+}
+
+proc resume_process pid {
+    exec kill -SIGCONT $pid
 }
 
 proc cmdrstat {cmd r} {
@@ -878,19 +909,27 @@ proc debug_digest {{level 0}} {
     r $level debug digest
 }
 
-proc wait_for_blocked_client {} {
+proc wait_for_blocked_client {{idx 0}} {
     wait_for_condition 50 100 {
-        [s blocked_clients] ne 0
+        [s $idx blocked_clients] ne 0
     } else {
         fail "no blocked clients"
     }
 }
 
-proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10}} {
+proc wait_for_blocked_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
     wait_for_condition $maxtries $delay  {
-        [s blocked_clients] == $count
+        [s $idx blocked_clients] == $count
     } else {
         fail "Timeout waiting for blocked clients"
+    }
+}
+
+proc wait_for_watched_clients_count {count {maxtries 100} {delay 10} {idx 0}} {
+    wait_for_condition $maxtries $delay  {
+        [s $idx watching_clients] == $count
+    } else {
+        fail "Timeout waiting for watched clients"
     }
 }
 
@@ -1082,4 +1121,32 @@ proc lmap args {
         lappend temp [uplevel 1 $body]
     }
     set temp
+}
+
+proc format_command {args} {
+    set cmd "*[llength $args]\r\n"
+    foreach a $args {
+        append cmd "$[string length $a]\r\n$a\r\n"
+    }
+    set _ $cmd
+}
+
+# Returns whether or not the system supports stack traces
+proc system_backtrace_supported {} {
+    set system_name [string tolower [exec uname -s]]
+    if {$system_name eq {darwin}} {
+        return 1
+    } elseif {$system_name ne {linux}} {
+        return 0
+    }
+
+    # libmusl does not support backtrace. Also return 0 on
+    # static binaries (ldd exit code 1) where we can't detect libmusl
+    catch {
+        set ldd [exec ldd src/redis-server]
+        if {![string match {*libc.*musl*} $ldd]} {
+            return 1
+        }
+    }
+    return 0
 }

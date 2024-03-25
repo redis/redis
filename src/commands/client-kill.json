@@ -1,6 +1,6 @@
 {
     "KILL": {
-        "summary": "Kill the connection of a client",
+        "summary": "Terminates open connections.",
         "complexity": "O(N) where N is the number of client connections",
         "group": "connection",
         "since": "2.4.0",
@@ -27,6 +27,10 @@
             [
                 "6.2.0",
                 "`LADDR` option."
+            ],
+            [
+                "8.0.0",
+                "`MAXAGE` option."
             ]
         ],
         "command_flags": [
@@ -136,11 +140,31 @@
                                         "token": "NO"
                                     }
                                 ]
+                            },
+                            {
+                                "token": "MAXAGE",
+                                "name": "maxage",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "8.0.0"
                             }
                         ]
                     }
                 ]
             }
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "when called in 3 argument format",
+                    "const": "OK"
+                },
+                {
+                    "description": "when called in filter/value format, the number of clients killed",
+                    "type": "integer",
+                    "minimum": 0
+                }
+            ]
+        }
     }
 }

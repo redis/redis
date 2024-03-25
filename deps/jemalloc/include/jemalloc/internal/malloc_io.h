@@ -1,6 +1,8 @@
 #ifndef JEMALLOC_INTERNAL_MALLOC_IO_H
 #define JEMALLOC_INTERNAL_MALLOC_IO_H
 
+#include "jemalloc/internal/jemalloc_internal_types.h"
+
 #ifdef _WIN32
 #  ifdef _WIN64
 #    define FMT64_PREFIX "ll"
@@ -40,6 +42,7 @@
  */
 #define MALLOC_PRINTF_BUFSIZE	4096
 
+write_cb_t wrtmessage;
 int buferror(int err, char *buf, size_t buflen);
 uintmax_t malloc_strtoumax(const char *restrict nptr, char **restrict endptr,
     int base);
@@ -57,10 +60,10 @@ size_t malloc_snprintf(char *str, size_t size, const char *format, ...)
  * The caller can set write_cb to null to choose to print with the
  * je_malloc_message hook.
  */
-void malloc_vcprintf(void (*write_cb)(void *, const char *), void *cbopaque,
-    const char *format, va_list ap);
-void malloc_cprintf(void (*write_cb)(void *, const char *), void *cbopaque,
-    const char *format, ...) JEMALLOC_FORMAT_PRINTF(3, 4);
+void malloc_vcprintf(write_cb_t *write_cb, void *cbopaque, const char *format,
+    va_list ap);
+void malloc_cprintf(write_cb_t *write_cb, void *cbopaque, const char *format,
+    ...) JEMALLOC_FORMAT_PRINTF(3, 4);
 void malloc_printf(const char *format, ...) JEMALLOC_FORMAT_PRINTF(1, 2);
 
 static inline ssize_t

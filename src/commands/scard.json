@@ -1,6 +1,6 @@
 {
     "SCARD": {
-        "summary": "Get the number of members in a set",
+        "summary": "Returns the number of members in a set.",
         "complexity": "O(1)",
         "group": "set",
         "since": "1.0.0",
@@ -32,6 +32,11 @@
                 }
             }
         ],
+        "reply_schema": {
+            "description": "The cardinality (number of elements) of the set, or 0 if key does not exist.",
+            "type": "integer",
+            "minimum": 0
+        },
         "arguments": [
             {
                 "name": "key",

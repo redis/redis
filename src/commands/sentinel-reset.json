@@ -1,6 +1,6 @@
 {
     "RESET": {
-        "summary": "Reset masters by name pattern",
+        "summary": "Resets Redis masters by name matching a pattern.",
         "complexity": "O(N) where N is the number of monitored masters",
         "group": "sentinel",
         "since": "2.8.4",
@@ -12,6 +12,10 @@
             "SENTINEL",
             "ONLY_SENTINEL"
         ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of masters that were reset."
+        },
         "arguments": [
             {
                 "name": "pattern",

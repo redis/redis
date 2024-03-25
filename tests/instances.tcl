@@ -3,9 +3,11 @@
 # basic capabilities for spawning and handling N parallel Redis / Sentinel
 # instances.
 #
-# Copyright (C) 2014 Salvatore Sanfilippo antirez@gmail.com
-# This software is released under the BSD License. See the COPYING file for
-# more information.
+# Copyright (C) 2014-Present, Redis Ltd.
+# All Rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
 
 package require Tcl 8.5
 
@@ -105,6 +107,15 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
         } else {
             puts $cfg "port $port"
         }
+
+        if {$::log_req_res} {
+            puts $cfg "req-res-logfile stdout.reqres"
+        }
+
+        if {$::force_resp3} {
+            puts $cfg "client-default-resp 3"
+        }
+
         puts $cfg "repl-diskless-sync-delay 0"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
@@ -293,6 +304,10 @@ proc parse_options {} {
             set ::stop_on_failure 1
         } elseif {$opt eq {--loop}} {
             set ::loop 1
+        } elseif {$opt eq {--log-req-res}} {
+            set ::log_req_res 1
+        } elseif {$opt eq {--force-resp3}} {
+            set ::force_resp3 1
         } elseif {$opt eq "--help"} {
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--dont-clean            Keep log files on exit."

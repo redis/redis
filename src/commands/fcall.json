@@ -1,6 +1,6 @@
 {
     "FCALL": {
-        "summary": "Invoke a function",
+        "summary": "Invokes a function.",
         "complexity": "Depends on the function that is executed.",
         "group": "scripting",
         "since": "7.0.0",
@@ -61,6 +61,9 @@
                 "optional": true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "Return value depends on the function that is executed"
+        }
     }
 }

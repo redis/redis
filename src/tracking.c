@@ -1,31 +1,10 @@
 /* tracking.c - Client side caching: keys tracking and invalidation
  *
- * Copyright (c) 2019, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2019-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -72,8 +51,10 @@ void disableTracking(client *c) {
         raxStart(&ri,c->client_tracking_prefixes);
         raxSeek(&ri,"^",NULL,0);
         while(raxNext(&ri)) {
-            bcastState *bs = raxFind(PrefixTable,ri.key,ri.key_len);
-            serverAssert(bs != raxNotFound);
+            void *result;
+            int found = raxFind(PrefixTable,ri.key,ri.key_len,&result);
+            serverAssert(found);
+            bcastState *bs = result;
             raxRemove(bs->clients,(unsigned char*)&c,sizeof(c),NULL);
             /* Was it the last client? Remove the prefix from the
              * table. */
@@ -153,14 +134,17 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefixes, size_t numprefix) {
 /* Set the client 'c' to track the prefix 'prefix'. If the client 'c' is
  * already registered for the specified prefix, no operation is performed. */
 void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
-    bcastState *bs = raxFind(PrefixTable,(unsigned char*)prefix,plen);
+    void *result;
+    bcastState *bs;
     /* If this is the first client subscribing to such prefix, create
      * the prefix in the table. */
-    if (bs == raxNotFound) {
+    if (!raxFind(PrefixTable,(unsigned char*)prefix,plen,&result)) {
         bs = zmalloc(sizeof(*bs));
         bs->keys = raxNew();
         bs->clients = raxNew();
         raxInsert(PrefixTable,(unsigned char*)prefix,plen,bs,NULL);
+    } else {
+        bs = result;
     }
     if (raxTryInsert(bs->clients,(unsigned char*)&c,sizeof(c),NULL,NULL)) {
         if (c->client_tracking_prefixes == NULL)
@@ -214,16 +198,16 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
  * to the keys the user fetched, so that Redis will know what are the clients
  * that should receive an invalidation message with certain groups of keys
  * are modified. */
-void trackingRememberKeys(client *c) {
+void trackingRememberKeys(client *tracking, client *executing) {
     /* Return if we are in optin/out mode and the right CACHING command
      * was/wasn't given in order to modify the default behavior. */
-    uint64_t optin = c->flags & CLIENT_TRACKING_OPTIN;
-    uint64_t optout = c->flags & CLIENT_TRACKING_OPTOUT;
-    uint64_t caching_given = c->flags & CLIENT_TRACKING_CACHING;
+    uint64_t optin = tracking->flags & CLIENT_TRACKING_OPTIN;
+    uint64_t optout = tracking->flags & CLIENT_TRACKING_OPTOUT;
+    uint64_t caching_given = tracking->flags & CLIENT_TRACKING_CACHING;
     if ((optin && !caching_given) || (optout && caching_given)) return;
 
     getKeysResult result = GETKEYS_RESULT_INIT;
-    int numkeys = getKeysFromCommand(c->cmd,c->argv,c->argc,&result);
+    int numkeys = getKeysFromCommand(executing->cmd,executing->argv,executing->argc,&result);
     if (!numkeys) {
         getKeysFreeResult(&result);
         return;
@@ -231,7 +215,7 @@ void trackingRememberKeys(client *c) {
     /* Shard channels are treated as special keys for client
      * library to rely on `COMMAND` command to discover the node
      * to connect to. These channels doesn't need to be tracked. */
-    if (c->cmd->flags & CMD_PUBSUB) {
+    if (executing->cmd->flags & CMD_PUBSUB) {
         return;
     }
 
@@ -239,15 +223,18 @@ void trackingRememberKeys(client *c) {
 
     for(int j = 0; j < numkeys; j++) {
         int idx = keys[j].pos;
-        sds sdskey = c->argv[idx]->ptr;
-        rax *ids = raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey));
-        if (ids == raxNotFound) {
+        sds sdskey = executing->argv[idx]->ptr;
+        void *result;
+        rax *ids;
+        if (!raxFind(TrackingTable,(unsigned char*)sdskey,sdslen(sdskey),&result)) {
             ids = raxNew();
             int inserted = raxTryInsert(TrackingTable,(unsigned char*)sdskey,
                                         sdslen(sdskey),ids, NULL);
             serverAssert(inserted == 1);
+        } else {
+            ids = result;
         }
-        if (raxTryInsert(ids,(unsigned char*)&c->id,sizeof(c->id),NULL,NULL))
+        if (raxTryInsert(ids,(unsigned char*)&tracking->id,sizeof(tracking->id),NULL,NULL))
             TrackingTableTotalItems++;
     }
     getKeysFreeResult(&result);
@@ -266,6 +253,9 @@ void trackingRememberKeys(client *c) {
  * - Following a flush command, to send a single RESP NULL to indicate
  *   that all keys are now invalid. */
 void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
+
     int using_redirection = 0;
     if (c->client_tracking_redirection) {
         client *redir = lookupClientByID(c->client_tracking_redirection);
@@ -279,10 +269,14 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
                 addReplyBulkCBuffer(c,"tracking-redir-broken",21);
                 addReplyLongLong(c,c->client_tracking_redirection);
             }
+            if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
             return;
         }
+        if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
         c = redir;
         using_redirection = 1;
+        old_flags = c->flags;
+        c->flags |= CLIENT_PUSHING;
     }
 
     /* Only send such info for clients in RESP version 3 or more. However
@@ -301,6 +295,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
          * redirecting to another client. We can't send anything to
          * it since RESP2 does not support push messages in the same
          * connection. */
+        if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
         return;
     }
 
@@ -312,6 +307,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
         addReplyBulkCBuffer(c,keyname,keylen);
     }
     updateClientMemUsageAndBucket(c);
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
 /* This function is called when a key is modified in Redis and in the case
@@ -363,8 +359,9 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
     if (bcast && raxSize(PrefixTable) > 0)
         trackingRememberKeyToBroadcast(c,(char *)key,keylen);
 
-    rax *ids = raxFind(TrackingTable,key,keylen);
-    if (ids == raxNotFound) return;
+    void *result;
+    if (!raxFind(TrackingTable,key,keylen,&result)) return;
+    rax *ids = result;
 
     raxIterator ri;
     raxStart(&ri,ids);
@@ -393,10 +390,10 @@ void trackingInvalidateKey(client *c, robj *keyobj, int bcast) {
             continue;
         }
 
-        /* If target is current client, we need schedule key invalidation.
+        /* If target is current client and it's executing a command, we need schedule key invalidation.
          * As the invalidation messages may be interleaved with command
-         * response and should after command response */
-        if (target == server.current_client){
+         * response and should after command response. */
+        if (target == server.current_client && (server.current_client->flags & CLIENT_EXECUTING_COMMAND)) {
             incrRefCount(keyobj);
             listAddNodeTail(server.tracking_pending_keys, keyobj);
         } else {

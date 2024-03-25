@@ -1,6 +1,6 @@
 {
     "NUMSUB": {
-        "summary": "Get the count of subscribers for channels",
+        "summary": "Returns a count of subscribers to channels.",
         "complexity": "O(N) for the NUMSUB subcommand, where N is the number of requested channels",
         "group": "pubsub",
         "since": "2.8.0",
@@ -19,6 +19,10 @@
                 "optional": true,
                 "multiple": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "the number of subscribers per channel, each even element (including 0th) is channel name, each odd element is the number of subscribers",
+            "type": "array"
+        }
     }
 }
