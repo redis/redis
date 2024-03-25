@@ -1,10 +1,8 @@
 # Cluster-specific test functions.
 #
-# Copyright (C) 2014-Present, Redis Ltd.
-# All Rights reserved.
-#
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Copyright (C) 2014 Salvatore Sanfilippo antirez@gmail.com
+# This software is released under the BSD License. See the COPYING file for
+# more information.
 
 # Track cluster configuration as created by create_cluster below
 set ::cluster_master_nodes 0

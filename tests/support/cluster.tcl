@@ -1,10 +1,6 @@
 # Tcl redis cluster client as a wrapper of redis.rb.
-#
-# Copyright (C) 2014-Present, Redis Ltd.
-# All Rights reserved.
-#
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Copyright (C) 2014 Salvatore Sanfilippo
+# Released under the BSD license like Redis itself
 #
 # Example usage:
 #

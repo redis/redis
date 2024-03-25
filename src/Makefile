@@ -1,9 +1,6 @@
 # Redis Makefile
-# Copyright (c) 2011-Present, Redis Ltd.
-# All rights reserved.
-#
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Copyright (C) 2009 Salvatore Sanfilippo <antirez at gmail dot com>
+# This file is released under the BSD license, see the COPYING file
 #
 # The Makefile composes the final FINAL_CFLAGS and FINAL_LDFLAGS using
 # what is needed for Redis plus the standard CFLAGS and LDFLAGS passed.
