@@ -979,7 +979,6 @@ size_t streamRadixTreeMemoryUsage(rax *rax) {
  * are checked and averaged to estimate the total size. */
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
 size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
-    sds ele, ele2;
     dict *d;
     dictIterator *di;
     struct dictEntry *de;
@@ -1016,7 +1015,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             di = dictGetIterator(d);
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictBuckets(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
-                ele = dictGetKey(de);
+                sds ele = dictGetKey(de);
                 elesize += dictEntryMemUsage() + sdsZmallocSize(ele);
                 samples++;
             }
@@ -1057,9 +1056,9 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             di = dictGetIterator(d);
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictBuckets(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
-                ele = dictGetKey(de);
-                ele2 = dictGetVal(de);
-                elesize += sdsZmallocSize(ele) + sdsZmallocSize(ele2);
+                hfield ele = dictGetKey(de);
+                sds ele2 = dictGetVal(de);
+                elesize += hfieldZmallocSize(ele) + sdsZmallocSize(ele2);
                 elesize += dictEntryMemUsage();
                 samples++;
             }

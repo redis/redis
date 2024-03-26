@@ -1950,8 +1950,10 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
         else
             return rioWriteBulkLongLong(r, vll);
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        sds value = hashTypeCurrentFromHashTable(hi, what);
-        return rioWriteBulkString(r, value, sdslen(value));
+        char *str;
+        size_t len;
+        hashTypeCurrentFromHashTable(hi, what, &str, &len, NULL);
+        return rioWriteBulkString(r, str, len);
     }
 
     serverPanic("Unknown hash encoding");
@@ -1962,7 +1964,7 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
  * The function returns 0 on error, 1 on success. */
 int rewriteHashObject(rio *r, robj *key, robj *o) {
     hashTypeIterator *hi;
-    long long count = 0, items = hashTypeLength(o);
+    long long count = 0, items = hashTypeLength(o, 0);
 
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != C_ERR) {

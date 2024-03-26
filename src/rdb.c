@@ -268,8 +268,9 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
  * The returned value changes according to the flags, see
  * rdbGenericLoadStringObject() for more info. */
 void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
-    int plain = flags & RDB_LOAD_PLAIN;
-    int sds = flags & RDB_LOAD_SDS;
+    int plainFlag = flags & RDB_LOAD_PLAIN;
+    int sdsFlag = flags & RDB_LOAD_SDS;
+    int hfldFlag = flags & RDB_LOAD_HFLD;
     int encode = flags & RDB_LOAD_ENC;
     unsigned char enc[4];
     long long val;
@@ -295,11 +296,17 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         rdbReportCorruptRDB("Unknown RDB integer encoding type %d",enctype);
         return NULL; /* Never reached. */
     }
-    if (plain || sds) {
+    if (plainFlag || sdsFlag || hfldFlag) {
         char buf[LONG_STR_SIZE], *p;
         int len = ll2string(buf,sizeof(buf),val);
         if (lenptr) *lenptr = len;
-        p = plain ? zmalloc(len) : sdsnewlen(SDS_NOINIT,len);
+        if (plainFlag) {
+            p = zmalloc(len);
+        } else if (sdsFlag) {
+            p = sdsnewlen(SDS_NOINIT,len);
+        } else { /* hfldFlag */
+            p = hfieldNew(NULL, len, 0);
+        }
         memcpy(p,buf,len);
         return p;
     } else if (encode) {
@@ -368,8 +375,11 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
  * changes according to 'flags'. For more info check the
  * rdbGenericLoadStringObject() function. */
 void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
-    int plain = flags & RDB_LOAD_PLAIN;
-    int sds = flags & RDB_LOAD_SDS;
+    int plainFlag = flags & RDB_LOAD_PLAIN;
+    int sdsFlag = flags & RDB_LOAD_SDS;
+    int hfldFlag = flags & RDB_LOAD_HFLD;
+    int robjFlag = (!(plainFlag || sdsFlag || hfldFlag)); /* not plain/sds/hfld */
+
     uint64_t len, clen;
     unsigned char *c = NULL;
     char *val = NULL;
@@ -382,11 +392,14 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     }
 
     /* Allocate our target according to the uncompressed size. */
-    if (plain) {
+    if (plainFlag) {
         val = ztrymalloc(len);
-    } else {
+    } else if (sdsFlag || robjFlag) {
         val = sdstrynewlen(SDS_NOINIT,len);
+    } else { /* hfldFlag */
+        val = hfieldNew(NULL, len, 0);
     }
+
     if (!val) {
         serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbLoadLzfStringObject failed allocating %llu bytes", (unsigned long long)len);
         goto err;
@@ -402,17 +415,17 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     }
     zfree(c);
 
-    if (plain || sds) {
-        return val;
-    } else {
-        return createObject(OBJ_STRING,val);
-    }
+    return (robjFlag) ? createObject(OBJ_STRING,val) : (void *) val;
+
 err:
     zfree(c);
-    if (plain)
+    if (plainFlag) {
         zfree(val);
-    else
+    } else if (sdsFlag || robjFlag) {
         sdsfree(val);
+    } else { /* hfldFlag*/
+        hfieldFree(val);
+    }
     return NULL;
 }
 
@@ -495,8 +508,12 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * On I/O error NULL is returned.
  */
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
-    int plain = flags & RDB_LOAD_PLAIN;
-    int sds = flags & RDB_LOAD_SDS;
+    void *buf;
+    int plainFlag = flags & RDB_LOAD_PLAIN;
+    int sdsFlag = flags & RDB_LOAD_SDS;
+    int hfldFlag = flags & RDB_LOAD_HFLD;
+    int robjFlag = (!(plainFlag || sdsFlag || hfldFlag)); /* not plain/sds/hfld */
+
     int isencoded;
     unsigned long long len;
 
@@ -517,22 +534,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
     }
 
-    if (plain || sds) {
-        void *buf = plain ? ztrymalloc(len) : sdstrynewlen(SDS_NOINIT,len);
-        if (!buf) {
-            serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
-            return NULL;
-        }
-        if (lenptr) *lenptr = len;
-        if (len && rioRead(rdb,buf,len) == 0) {
-            if (plain)
-                zfree(buf);
-            else
-                sdsfree(buf);
-            return NULL;
-        }
-        return buf;
-    } else {
+    /* return robj */
+    if (robjFlag) {
         robj *o = tryCreateStringObject(SDS_NOINIT,len);
         if (!o) {
             serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
@@ -544,6 +547,32 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return o;
     }
+
+    /* plain/sds/hfld */
+    if (plainFlag) {
+        buf = ztrymalloc(len);
+    } else if (sdsFlag) {
+        buf = sdstrynewlen(SDS_NOINIT,len);
+    }  else { /* hfldFlag */
+        buf = hfieldNew(NULL, len, 0);
+    }
+    if (!buf) {
+        serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
+        return NULL;
+    }
+
+    if (lenptr) *lenptr = len;
+    if (len && rioRead(rdb,buf,len) == 0) {
+        if (plainFlag)
+            zfree(buf);
+        else if (sdsFlag) {
+            sdsfree(buf);
+        } else { /* hfldFlag */
+            hfieldFree(buf);
+        }
+        return NULL;
+    }
+    return buf;
 }
 
 robj *rdbLoadStringObject(rio *rdb) {
@@ -924,11 +953,11 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                sds field = dictGetKey(de);
+                hfield field = dictGetKey(de);
                 sds value = dictGetVal(de);
 
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)field,
-                        sdslen(field))) == -1)
+                        hfieldlen(field))) == -1)
                 {
                     dictReleaseIterator(di);
                     return -1;
@@ -1403,7 +1432,7 @@ werr:
     return C_ERR;
 }
 
-/* This helper function is only used for diskless replication. 
+/* This helper function is only used for diskless replication.
  * This is just a wrapper to rdbSaveRio() that additionally adds a prefix
  * and a suffix to the generated RDB dump. The prefix is:
  *
@@ -1856,7 +1885,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             decrRefCount(ele);
         }
 
-        listTypeTryConversion(o,LIST_CONV_AUTO,NULL,NULL);
+        listTypeTryConversion(o, LIST_CONV_AUTO, NULL, NULL);
     } else if (rdbtype == RDB_TYPE_SET) {
         /* Read Set value */
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -1869,7 +1898,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             o = createSetObject();
             /* It's faster to expand the dict to the right size asap in order
              * to avoid rehashing */
-            if (len > DICT_HT_INITIAL_SIZE && dictTryExpand(o->ptr,len) != DICT_OK) {
+            if (len > DICT_HT_INITIAL_SIZE && dictTryExpand(o->ptr, len) != DICT_OK) {
                 rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
                 decrRefCount(o);
                 return NULL;
@@ -1896,7 +1925,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 /* Fetch integer value from element. */
                 if (isSdsRepresentableAsLongLong(sdsele,&llval) == C_OK) {
                     uint8_t success;
-                    o->ptr = intsetAdd(o->ptr,llval,&success);
+                    o->ptr = intsetAdd(o->ptr, llval, &success);
                     if (!success) {
                         rdbReportCorruptRDB("Duplicate set members detected");
                         decrRefCount(o);
@@ -1946,7 +1975,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             /* This will also be called when the set was just converted
              * to a regular hash table encoded set. */
             if (o->encoding == OBJ_ENCODING_HT) {
-                if (dictAdd((dict*)o->ptr,sdsele,NULL) != DICT_OK) {
+                if (dictAdd((dict*)o->ptr, sdsele, NULL) != DICT_OK) {
                     rdbReportCorruptRDB("Duplicate set members detected");
                     decrRefCount(o);
                     sdsfree(sdsele);
@@ -2024,12 +2053,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             maxelelen <= server.zset_max_listpack_value &&
             lpSafeToAdd(NULL, totelelen))
         {
-            zsetConvert(o,OBJ_ENCODING_LISTPACK);
+            zsetConvert(o, OBJ_ENCODING_LISTPACK);
         }
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len;
         int ret;
-        sds field, value;
+        sds value;
+        hfield field;
         dict *dupSearchDict = NULL;
 
         len = rdbLoadLen(rdb, NULL);
@@ -2054,43 +2084,46 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         while (o->encoding == OBJ_ENCODING_LISTPACK && len > 0) {
             len--;
             /* Load raw strings */
-            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
+            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_HFLD,NULL)) == NULL) {
                 decrRefCount(o);
                 if (dupSearchDict) dictRelease(dupSearchDict);
                 return NULL;
             }
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-                sdsfree(field);
+                hfieldFree(field);
                 decrRefCount(o);
                 if (dupSearchDict) dictRelease(dupSearchDict);
                 return NULL;
             }
 
             if (dupSearchDict) {
-                sds field_dup = sdsdup(field);
+                sds field_dup = sdsnewlen(field, hfieldlen(field));
+
                 if (dictAdd(dupSearchDict, field_dup, NULL) != DICT_OK) {
                     rdbReportCorruptRDB("Hash with dup elements");
                     dictRelease(dupSearchDict);
                     decrRefCount(o);
                     sdsfree(field_dup);
-                    sdsfree(field);
+                    hfieldFree(field);
                     sdsfree(value);
                     return NULL;
                 }
             }
 
             /* Convert to hash table if size threshold is exceeded */
-            if (sdslen(field) > server.hash_max_listpack_value ||
+            if (hfieldlen(field) > server.hash_max_listpack_value ||
                 sdslen(value) > server.hash_max_listpack_value ||
-                !lpSafeToAdd(o->ptr, sdslen(field)+sdslen(value)))
+                !lpSafeToAdd(o->ptr, hfieldlen(field) + sdslen(value)))
             {
                 hashTypeConvert(o, OBJ_ENCODING_HT);
+                dictUseStoredKeyApi((dict *)o->ptr, 1);
                 ret = dictAdd((dict*)o->ptr, field, value);
+                dictUseStoredKeyApi((dict *)o->ptr, 0);
                 if (ret == DICT_ERR) {
                     rdbReportCorruptRDB("Duplicate hash fields detected");
                     if (dupSearchDict) dictRelease(dupSearchDict);
                     sdsfree(value);
-                    sdsfree(field);
+                    hfieldFree(field);
                     decrRefCount(o);
                     return NULL;
                 }
@@ -2098,10 +2131,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             }
 
             /* Add pair to listpack */
-            o->ptr = lpAppend(o->ptr, (unsigned char*)field, sdslen(field));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)field, hfieldlen(field));
             o->ptr = lpAppend(o->ptr, (unsigned char*)value, sdslen(value));
 
-            sdsfree(field);
+            hfieldFree(field);
             sdsfree(value);
         }
 
@@ -2113,7 +2146,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         }
 
         if (o->encoding == OBJ_ENCODING_HT && len > DICT_HT_INITIAL_SIZE) {
-            if (dictTryExpand(o->ptr,len) != DICT_OK) {
+            if (dictTryExpand(o->ptr, len) != DICT_OK) {
                 rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
                 decrRefCount(o);
                 return NULL;
@@ -2124,22 +2157,25 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         while (o->encoding == OBJ_ENCODING_HT && len > 0) {
             len--;
             /* Load encoded strings */
-            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
+            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_HFLD,NULL)) == NULL) {
                 decrRefCount(o);
                 return NULL;
             }
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-                sdsfree(field);
+                hfieldFree(field);
                 decrRefCount(o);
                 return NULL;
             }
 
             /* Add pair to hash table */
-            ret = dictAdd((dict*)o->ptr, field, value);
+            dict *d = o->ptr;
+            dictUseStoredKeyApi(d, 1);
+            ret = dictAdd(d, field, value);
+            dictUseStoredKeyApi(d, 0);
             if (ret == DICT_ERR) {
                 rdbReportCorruptRDB("Duplicate hash fields detected");
                 sdsfree(value);
-                sdsfree(field);
+                hfieldFree(field);
                 decrRefCount(o);
                 return NULL;
             }
@@ -2221,7 +2257,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             goto emptykey;
         }
 
-        listTypeTryConversion(o,LIST_CONV_AUTO,NULL,NULL);
+        listTypeTryConversion(o, LIST_CONV_AUTO, NULL, NULL);
     } else if (rdbtype == RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
@@ -2236,7 +2272,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
         if (encoded == NULL) return NULL;
 
-        o = createObject(OBJ_STRING,encoded); /* Obj type fixed below. */
+        o = createObject(OBJ_STRING, encoded); /* Obj type fixed below. */
 
         /* Fix the object encoding, and make sure to convert the encoded
          * data type into the base type if accordingly to the current
@@ -2292,14 +2328,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     o->type = OBJ_HASH;
                     o->encoding = OBJ_ENCODING_LISTPACK;
 
-                    if (hashTypeLength(o) > server.hash_max_listpack_entries ||
+                    if (hashTypeLength(o, 0) > server.hash_max_listpack_entries ||
                         maxlen > server.hash_max_listpack_value)
                     {
                         hashTypeConvert(o, OBJ_ENCODING_HT);
                     }
                 }
                 break;
-            case RDB_TYPE_LIST_ZIPLIST: 
+            case RDB_TYPE_LIST_ZIPLIST:
                 {
                     quicklist *ql = quicklistNew(server.list_max_listpack_size,
                                                  server.list_compress_depth);
@@ -2341,7 +2377,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 o->type = OBJ_SET;
                 o->encoding = OBJ_ENCODING_INTSET;
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
-                    setTypeConvert(o,OBJ_ENCODING_HT);
+                    setTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             case RDB_TYPE_SET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
@@ -2386,7 +2422,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     }
 
                     if (zsetLength(o) > server.zset_max_listpack_entries)
-                        zsetConvert(o,OBJ_ENCODING_SKIPLIST);
+                        zsetConvert(o, OBJ_ENCODING_SKIPLIST);
                     else
                         o->ptr = lpShrinkToFit(o->ptr);
                     break;
@@ -2408,7 +2444,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
 
                 if (zsetLength(o) > server.zset_max_listpack_entries)
-                    zsetConvert(o,OBJ_ENCODING_SKIPLIST);
+                    zsetConvert(o, OBJ_ENCODING_SKIPLIST);
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
                 {
@@ -2426,12 +2462,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     o->ptr = lp;
                     o->type = OBJ_HASH;
                     o->encoding = OBJ_ENCODING_LISTPACK;
-                    if (hashTypeLength(o) == 0) {
+                    if (hashTypeLength(o, 0) == 0) {
                         decrRefCount(o);
                         goto emptykey;
                     }
 
-                    if (hashTypeLength(o) > server.hash_max_listpack_entries)
+                    if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
                         hashTypeConvert(o, OBJ_ENCODING_HT);
                     else
                         o->ptr = lpShrinkToFit(o->ptr);
@@ -2448,12 +2484,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
                 o->type = OBJ_HASH;
                 o->encoding = OBJ_ENCODING_LISTPACK;
-                if (hashTypeLength(o) == 0) {
+                if (hashTypeIsEmpty(o)) {
                     decrRefCount(o);
                     goto emptykey;
                 }
 
-                if (hashTypeLength(o) > server.hash_max_listpack_entries)
+                if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             default:
@@ -2540,7 +2576,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
-        
+
         if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_2) {
             /* Load the first entry ID. */
             s->first_id.ms = rdbLoadLen(rdb,NULL);
@@ -2559,9 +2595,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             s->max_deleted_entry_id.ms = 0;
             s->max_deleted_entry_id.seq = 0;
             s->entries_added = s->length;
-            
+
             /* Since the rax is already loaded, we can find the first entry's
-             * ID. */ 
+             * ID. */
             streamGetEdgeID(s,1,1,&s->first_id);
         }
 
@@ -2807,7 +2843,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
         uint64_t eof = rdbLoadLen(rdb,NULL);
         if (eof == RDB_LENERR) {
             if (ptr) {
-                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                o = createModuleObject(mt, ptr); /* creating just in order to easily destroy */
                 decrRefCount(o);
             }
             return NULL;
@@ -2816,7 +2852,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
             rdbReportCorruptRDB("The RDB file contains module data for the module '%s' that is not terminated by "
                                 "the proper module value EOF marker", moduleTypeModuleName(mt));
             if (ptr) {
-                o = createModuleObject(mt,ptr); /* creating just in order to easily destroy */
+                o = createModuleObject(mt, ptr); /* creating just in order to easily destroy */
                 decrRefCount(o);
             }
             return NULL;
@@ -2828,7 +2864,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                                 moduleTypeModuleName(mt));
             return NULL;
         }
-        o = createModuleObject(mt,ptr);
+        o = createModuleObject(mt, ptr);
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
@@ -3256,8 +3292,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave.
-         * Similarly, if the base AOF is RDB format, we want to load all 
-         * the keys they are, since the log of operations in the incr AOF 
+         * Similarly, if the base AOF is RDB format, we want to load all
+         * the keys they are, since the log of operations in the incr AOF
          * is assumed to work in the exact keyspace state. */
         if (val == NULL) {
             /* Since we used to have bug that could lead to empty keys

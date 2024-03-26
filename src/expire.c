@@ -243,6 +243,10 @@ void activeExpireCycle(int type) {
             unsigned long num;
             iteration++;
 
+            /* If ebuckets DS of hash-field expire is not empty */
+            if (db->hexpires)
+                hashTypeDbActiveExpire(db);
+
             /* If there is nothing to expire try next DB ASAP. */
             if ((num = kvstoreSize(db->expires)) == 0) {
                 db->avg_ttl = 0;

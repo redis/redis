@@ -169,7 +169,7 @@ proc test_scan {type} {
         # make sure that passive expiration is triggered by the scan
         r debug set-active-expire 0
 
-        populate 1000
+            populate 1000
         r set foo bar
         r pexpire foo 1
 
