@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #ifndef __REDIS_H
@@ -1422,6 +1401,9 @@ struct redisMemOverhead {
     float rss_extra;
     size_t rss_extra_bytes;
     size_t num_dbs;
+    size_t overhead_db_hashtable_lut;
+    size_t overhead_db_hashtable_rehashing;
+    unsigned long db_dict_rehashing_count;
     struct {
         size_t dbid;
         size_t overhead_ht_main;
@@ -1560,6 +1542,7 @@ struct redisServer {
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
     rax *errors;                /* Errors table */
+    int errors_enabled;         /* If true, errorstats is enabled, and we will add new errors. */
     unsigned int lruclock; /* Clock for LRU eviction */
     volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
     mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
@@ -1657,6 +1640,7 @@ struct redisServer {
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_evictedclients;  /* Number of evicted clients */
+    long long stat_evictedscripts;  /* Number of evicted lua scripts. */
     long long stat_total_eviction_exceeded_time;  /* Total time over the memory limit, unit us */
     monotime stat_last_eviction_exceeded_time;  /* Timestamp of current eviction start, unit us */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
@@ -2699,6 +2683,7 @@ void trackingHandlePendingKeyInvalidations(void);
 void trackingInvalidateKeysOnFlush(int async);
 void freeTrackingRadixTree(rax *rt);
 void freeTrackingRadixTreeAsync(rax *rt);
+void freeErrorsRadixTreeAsync(rax *errors);
 void trackingLimitUsedSlots(void);
 uint64_t trackingGetTotalItems(void);
 uint64_t trackingGetTotalKeys(void);
@@ -3180,6 +3165,8 @@ int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
 void unmarkClientAsPubSub(client *c);
 int pubsubTotalSubscriptions(void);
+dict *getClientPubSubChannels(client *c);
+dict *getClientPubSubShardChannels(client *c);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
@@ -3379,9 +3366,9 @@ void scriptingInit(int setup);
 int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
-sds luaCreateFunction(client *c, robj *body);
 void luaLdbLineHook(lua_State *lua, lua_Debug *ar);
-void freeLuaScriptsAsync(dict *lua_scripts);
+void freeLuaScriptsSync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State *lua);
+void freeLuaScriptsAsync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State *lua);
 void freeFunctionsAsync(functionsLibCtx *lib_ctx);
 int ldbIsEnabled(void);
 void ldbLog(sds entry);
@@ -3397,6 +3384,7 @@ int isInsideYieldingLongCommand(void);
 typedef struct luaScript {
     uint64_t flags;
     robj *body;
+    listNode *node;  /* list node in lua_scripts_lru_list list. */
 } luaScript;
 /* Cache of recently used small arguments to avoid malloc calls. */
 #define LUA_CMD_OBJCACHE_SIZE 32

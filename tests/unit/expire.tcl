@@ -834,7 +834,7 @@ start_server {tags {"expire"}} {
     } {} {needs:debug}
 }
 
-start_cluster 1 0 {tags {"expire external:skip cluster slow"}} {
+start_cluster 1 0 {tags {"expire external:skip cluster"}} {
     test "expire scan should skip dictionaries with lot's of empty buckets" {
         r debug set-active-expire 0
 

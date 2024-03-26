@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-current, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -234,6 +234,7 @@ int checkSingleAof(char *aof_filename, char *aof_filepath, int last_file, int fi
     struct redis_stat sb;
     if (redis_fstat(fileno(fp),&sb) == -1) {
         printf("Cannot stat file: %s, aborting...\n", aof_filename);
+        fclose(fp);
         exit(1);
     }
 
@@ -345,6 +346,7 @@ int fileIsRDB(char *filepath) {
     struct redis_stat sb;
     if (redis_fstat(fileno(fp), &sb) == -1) {
         printf("Cannot stat file: %s\n", filepath);
+        fclose(fp);
         exit(1);
     }
 
@@ -381,6 +383,7 @@ int fileIsManifest(char *filepath) {
     struct redis_stat sb;
     if (redis_fstat(fileno(fp), &sb) == -1) {
         printf("Cannot stat file: %s\n", filepath);
+        fclose(fp);
         exit(1);
     }
 
@@ -397,15 +400,20 @@ int fileIsManifest(char *filepath) {
                 break;
             } else {
                 printf("Cannot read file: %s\n", filepath);
+                fclose(fp);
                 exit(1);
             }
         }
 
-        /* Skip comments lines */
+        /* We will skip comments lines.
+         * At present, the manifest format is fixed, see aofInfoFormat.
+         * We will break directly as long as it encounters other items. */
         if (buf[0] == '#') {
             continue;
         } else if (!memcmp(buf, "file", strlen("file"))) {
             is_manifest = 1;
+        } else {
+            break;
         }
     }
 

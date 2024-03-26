@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-current, Redis Ltd.
  * Copyright (c) 2012, Twitter, Inc.
  * All rights reserved.
  *

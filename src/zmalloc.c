@@ -1,31 +1,10 @@
 /* zmalloc - total amount of allocated memory aware version of malloc()
  *
- * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "fmacros.h"
@@ -50,7 +29,6 @@ void zlibc_free(void *ptr) {
 }
 
 #include <string.h>
-#include <pthread.h>
 #include "zmalloc.h"
 #include "atomicvar.h"
 
@@ -59,7 +37,7 @@ void zlibc_free(void *ptr) {
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #else
-/* Use at least 8 bits alignment on all systems. */
+/* Use at least 8 bytes alignment on all systems. */
 #if SIZE_MAX < 0xffffffffffffffffull
 #define PREFIX_SIZE 8
 #else
@@ -78,6 +56,7 @@ void zlibc_free(void *ptr) {
 #define calloc(count,size) tc_calloc(count,size)
 #define realloc(ptr,size) tc_realloc(ptr,size)
 #define free(ptr) tc_free(ptr)
+/* Explicitly override malloc/free etc when using jemalloc. */
 #elif defined(USE_JEMALLOC)
 #define malloc(size) je_malloc(size)
 #define calloc(count,size) je_calloc(count,size)
@@ -122,6 +101,7 @@ static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     if (usable) *usable = size;
     return ptr;
 #else
+    size = MALLOC_MIN_SIZE(size);
     *((size_t*)ptr) = size;
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     if (usable) *usable = size;
@@ -198,6 +178,7 @@ static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     if (usable) *usable = size;
     return ptr;
 #else
+    size = MALLOC_MIN_SIZE(size);
     *((size_t*)ptr) = size;
     update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     if (usable) *usable = size;
@@ -457,7 +438,7 @@ void zmadvise_dontneed(void *ptr) {
 #include <fcntl.h>
 #endif
 
-/* Get the i'th field from "/proc/self/stats" note i is 1 based as appears in the 'proc' man page */
+/* Get the i'th field from "/proc/self/stat" note i is 1 based as appears in the 'proc' man page */
 int get_proc_stat_ll(int i, long long *res) {
 #if defined(HAVE_PROC_STAT)
     char buf[4096];
@@ -626,7 +607,7 @@ size_t zmalloc_get_rss(void) {
 
 #if defined(USE_JEMALLOC)
 
-#include <assert.h>
+#include "redisassert.h"
 
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
@@ -753,6 +734,15 @@ int jemalloc_purge(void) {
 }
 
 #endif
+
+/* This function provides us access to the libc malloc_trim(). */
+void zlibc_trim(void) {
+#if defined(__GLIBC__) && !defined(USE_LIBC)
+    malloc_trim(0);
+#else
+    return;
+#endif
+}
 
 #if defined(__APPLE__)
 /* For proc_pidinfo() used later in zmalloc_get_smap_bytes_by_field().
@@ -898,20 +888,55 @@ size_t zmalloc_get_memory_size(void) {
 }
 
 #ifdef REDIS_TEST
+#include "testhelp.h"
+#include "redisassert.h"
+
+#define TEST(name) printf("test — %s\n", name);
+
 int zmalloc_test(int argc, char **argv, int flags) {
-    void *ptr;
+    void *ptr, *ptr2;
 
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
+
     printf("Malloc prefix size: %d\n", (int) PREFIX_SIZE);
-    printf("Initial used memory: %zu\n", zmalloc_used_memory());
-    ptr = zmalloc(123);
-    printf("Allocated 123 bytes; used: %zu\n", zmalloc_used_memory());
-    ptr = zrealloc(ptr, 456);
-    printf("Reallocated to 456 bytes; used: %zu\n", zmalloc_used_memory());
-    zfree(ptr);
-    printf("Freed pointer; used: %zu\n", zmalloc_used_memory());
+
+    TEST("Initial used memory is 0") {
+        assert(zmalloc_used_memory() == 0);
+    }
+
+    TEST("Allocated 123 bytes") {
+        ptr = zmalloc(123);
+        printf("Allocated 123 bytes; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Reallocated to 456 bytes") {
+        ptr = zrealloc(ptr, 456);
+        printf("Reallocated to 456 bytes; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Callocated 123 bytes") {
+        ptr2 = zcalloc(123);
+        printf("Callocated 123 bytes; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Freed pointers") {
+        zfree(ptr);
+        zfree(ptr2);
+        printf("Freed pointers; used: %zu\n", zmalloc_used_memory());
+    }
+
+    TEST("Allocated 0 bytes") {
+        ptr = zmalloc(0);
+        printf("Allocated 0 bytes; used: %zu\n", zmalloc_used_memory());
+        zfree(ptr);
+    }
+
+    TEST("At the end used memory is 0") {
+        assert(zmalloc_used_memory() == 0);
+    }
+
     return 0;
 }
 #endif

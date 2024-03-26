@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2017, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -1713,10 +1692,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
             group->last_id = id;
-            /* Group last ID should be propagated only if NOACK was
-             * specified, otherwise the last id will be included
-             * in the propagation of XCLAIM itself. */
-            if (noack) propagate_last_id = 1;
+            /* In the past, we would only set it when NOACK was specified. And in
+             * #9127, XCLAIM did not propagate entries_read in ACK, which would
+             * cause entries_read to be inconsistent between master and replicas,
+             * so here we call streamPropagateGroupID unconditionally. */
+            propagate_last_id = 1;
         }
 
         /* Emit a two elements array for each item. The first is
@@ -2290,6 +2270,28 @@ void xreadCommand(client *c) {
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
+            } else {
+                ids[id_idx].ms = 0;
+                ids[id_idx].seq = 0;
+            }
+            continue;
+        } else if (strcmp(c->argv[i]->ptr,"+") == 0) {
+            if (xreadgroup) {
+                addReplyError(c,"The + ID is meaningless in the context of "
+                                "XREADGROUP: you want to read the history of "
+                                "this consumer by specifying a proper ID, or "
+                                "use the > ID to get new messages. The + ID would "
+                                "just return an empty result set.");
+                goto cleanup;
+            }
+            if (o) {
+                stream *s = o->ptr;
+                ids[id_idx] = s->last_id;
+                if (streamDecrID(&ids[id_idx]) != C_OK) {
+                    /* shouldn't happen */
+                    addReplyError(c,"the stream last element ID is 0-0");
+                    goto cleanup;
+                }
             } else {
                 ids[id_idx].ms = 0;
                 ids[id_idx].seq = 0;

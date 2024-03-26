@@ -1,6 +1,9 @@
 # Redis Makefile
-# Copyright (C) 2009 Salvatore Sanfilippo <antirez at gmail dot com>
-# This file is released under the BSD license, see the COPYING file
+# Copyright (c) 2011-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
 #
 # The Makefile composes the final FINAL_CFLAGS and FINAL_LDFLAGS using
 # what is needed for Redis plus the standard CFLAGS and LDFLAGS passed.
@@ -16,17 +19,20 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
+
+# Optimization flags. To override, the OPTIMIZATION variable can be passed, but
+# some automatic defaults are added to it. To specify optimization flags
+# explicitly without any defaults added, pass the OPT variable instead.
 OPTIMIZATION?=-O3
 ifeq ($(OPTIMIZATION),-O3)
 	ifeq (clang,$(CLANG))
-		REDIS_CFLAGS+=-flto
+		OPTIMIZATION+=-flto
 	else
-		REDIS_CFLAGS+=-flto=auto
+		OPTIMIZATION+=-flto=auto
 	endif
-	REDIS_LDFLAGS+=-O3 -flto
 endif
 ifneq ($(OPTIMIZATION),-O0)
-	REDIS_CFLAGS+=-fno-omit-frame-pointer
+	OPTIMIZATION+=-fno-omit-frame-pointer
 endif
 DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv
 NODEPS:=clean distclean
@@ -120,7 +126,7 @@ endif
 -include .make-settings
 
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
-FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
+FINAL_LDFLAGS=$(LDFLAGS) $(OPT) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
