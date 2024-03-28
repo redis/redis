@@ -21,6 +21,8 @@
 #define REDIS_TEST_ACCURATE     (1<<0)
 #define REDIS_TEST_LARGE_MEMORY (1<<1)
 #define REDIS_TEST_VALGRIND     (1<<2)
+#define REDIS_TEST_VERBOSE      (1<<3)
+
 
 extern int __failed_tests;
 extern int __test_num;
