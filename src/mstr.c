@@ -227,12 +227,12 @@ void mstrPrint(mstr s, struct mstrKind *kind, int verbose) {
 
     if (!isMeta) {
         printf("[%p] %s: %s (strLen=%zu, mstrLen=%zu, isMeta=0)\n",
-               s, kind->name, s, mstrlen(s), mstrAllocLen(s, kind));
+               (void *)s, kind->name, s, mstrlen(s), mstrAllocLen(s, kind));
         return;
     }
 
     printf("[%p] %s: %s (strLen=%zu, mstrLen=%zu, isMeta=1, metaFlags=0x%x)\n",
-           s, kind->name, s, mstrlen(s), mstrAllocLen(s, kind),  mflags);
+           (void *)s, kind->name, s, mstrlen(s), mstrAllocLen(s, kind),  mflags);
 
     if (verbose) {
         for (unsigned int i = 0 ; i < NUM_MSTR_FLAGS ; ++i) {

@@ -39,28 +39,28 @@ static void hashTypeDeleteExpiredFields(client *c, robj *hashObj);
  *   Expiration (HFE) and using dictType `mstrHashDictTypeWithHFE`
  *----------------------------------------------------------------------------*/
 dictType mstrHashDictType = {
-        dictSdsHash,                                /* lookup hash function */
-        NULL,                                       /* key dup */
-        NULL,                                       /* val dup */
-        dictSdsMstrKeyCompare,                      /* lookup key compare */
-        dictHfieldDestructor,                       /* key destructor */
-        dictSdsDestructor,                          /* val destructor */
-        .storedHashFunction = dictMstrHash,         /* stored hash function */
-        .storedKeyCompare = dictHfieldKeyCompare,   /* stored key compare */
+    dictSdsHash,                                /* lookup hash function */
+    NULL,                                       /* key dup */
+    NULL,                                       /* val dup */
+    dictSdsMstrKeyCompare,                      /* lookup key compare */
+    dictHfieldDestructor,                       /* key destructor */
+    dictSdsDestructor,                          /* val destructor */
+    .storedHashFunction = dictMstrHash,         /* stored hash function */
+    .storedKeyCompare = dictHfieldKeyCompare,   /* stored key compare */
 };
 
 /* Define alternative dictType of hash with hash-field expiration (HFE) support */
 dictType mstrHashDictTypeWithHFE = {
-        dictSdsHash,                                /* lookup hash function */
-        NULL,                                       /* key dup */
-        NULL,                                       /* val dup */
-        dictSdsMstrKeyCompare,                      /* lookup key compare */
-        dictHfieldDestructor,                       /* key destructor */
-        dictSdsDestructor,                          /* val destructor */
-        .storedHashFunction = dictMstrHash,         /* stored hash function */
-        .storedKeyCompare = dictHfieldKeyCompare,   /* stored key compare */
-        .dictMetadataBytes = hashDictWithExpireMetadataBytes,
-        .onDictRelease = hashDictWithExpireOnRelease,
+    dictSdsHash,                                /* lookup hash function */
+    NULL,                                       /* key dup */
+    NULL,                                       /* val dup */
+    dictSdsMstrKeyCompare,                      /* lookup key compare */
+    dictHfieldDestructor,                       /* key destructor */
+    dictSdsDestructor,                          /* val destructor */
+    .storedHashFunction = dictMstrHash,         /* stored hash function */
+    .storedKeyCompare = dictHfieldKeyCompare,   /* stored key compare */
+    .dictMetadataBytes = hashDictWithExpireMetadataBytes,
+    .onDictRelease = hashDictWithExpireOnRelease,
 };
 
 /*-----------------------------------------------------------------------------
@@ -80,18 +80,18 @@ dictType mstrHashDictTypeWithHFE = {
  * in the hash.
  *----------------------------------------------------------------------------*/
 EbucketsType hashExpireBucketsType = {
-        .onDeleteItem = NULL,
-        .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
-        .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
+    .onDeleteItem = NULL,
+    .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
+    .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
 };
 
 /* dictExpireMetadata - ebuckets-type for hash fields with time-Expiration. ebuckets
  * instance Will be attached to each hash that has at least one field with expiry
  * time. */
 EbucketsType hashFieldExpireBucketsType = {
-        .onDeleteItem = NULL,
-        .getExpireMeta = hfieldGetExpireMeta, /* get ExpireMeta attached to each field */
-        .itemsAddrAreOdd = 1,                 /* Addresses of hfield (mstr) are odd!! */
+    .onDeleteItem = NULL,
+    .getExpireMeta = hfieldGetExpireMeta, /* get ExpireMeta attached to each field */
+    .itemsAddrAreOdd = 1,                 /* Addresses of hfield (mstr) are odd!! */
 };
 
 /* Each dict of hash object that has fields with time-Expiration will have the
@@ -120,11 +120,11 @@ typedef enum HfieldMetaFlags {
 } HfieldMetaFlags;
 
 mstrKind mstrFieldKind = {
-        .name = "hField",
+    .name = "hField",
 
-        /* Taking care that all metaSize[*] values are even ensures that all
-         * addresses of hfield instances will be odd. */
-        .metaSize[HFIELD_META_EXPIRE] = sizeof(ExpireMeta),
+    /* Taking care that all metaSize[*] values are even ensures that all
+     * addresses of hfield instances will be odd. */
+    .metaSize[HFIELD_META_EXPIRE] = sizeof(ExpireMeta),
 };
 static_assert(sizeof(struct ExpireMeta ) % 2 == 0, "must be even!");
 
@@ -170,7 +170,7 @@ static void dictHfieldDestructor(dict *d, void *val) {
         ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, val);
     }
 
-    hfieldFree( val);
+    hfieldFree(val);
 }
 
 static size_t hashDictWithExpireMetadataBytes(dict *d) {
@@ -1370,7 +1370,7 @@ void hscanCommand(client *c) {
         checkType(c,o,OBJ_HASH)) return;
 
     /* Next call might take a while. We can optimize it later and limit
-     * pathalogical cases to the minimum. */
+     * pathological cases to the minimum. */
     hashTypeDeleteExpiredFields(c, o);
 
     scanGenericCommand(c,o,cursor);
@@ -1642,7 +1642,7 @@ void hrandfieldCommand(client *c) {
 
 
     /* Next call might take a while. We can optimize it later and limit
-     * pathalogical cases to the minimum. */
+     * pathological cases to the minimum. */
     hashTypeDeleteExpiredFields(c, hash);
 
     hashTypeRandomElement(hash,hashTypeLength(hash, 0),&ele,NULL);

@@ -1922,7 +1922,7 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, int flags, robj *optVal) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
 
-    /* TODO refine notificiation on expiration due to hash-field expiry */
+    /* TODO refine notification on expiration due to hash-field expiry */
 
     /* The key needs to be converted from static to heap before deleted */
     int static_key = key->refcount == OBJ_STATIC_REFCOUNT;

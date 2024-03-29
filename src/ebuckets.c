@@ -134,7 +134,7 @@ static_assert(offsetof(FirstSegHdr, head) == 0, "FirstSegHdr head is not aligned
 static_assert(offsetof(NextSegHdr, head) == 0, "FirstSegHdr head is not aligned");
 static_assert(offsetof(CommonSegHdr, head) == 0, "FirstSegHdr head is not aligned");
 /* Verify attached metadata to rax is aligned */
-static_assert(offsetof(rax, metadata) % 8 == 0, "metadata field is not aligned in rax");
+static_assert(offsetof(rax, metadata) % sizeof(void*) == 0, "metadata field is not aligned in rax");
 
 /* EBucketNew - Indicates the caller to create a new bucket following the addition
  * of another item to a bucket (either single-segment or extended-segment). */
@@ -798,7 +798,7 @@ static int ebBucketPrint(uint64_t bucketKey, EbucketsType *type, FirstSegHdr *fi
     iter = firstSeg->head;
     mHead = type->getExpireMeta(iter);
 
-    printf("Bucket(key=%06ld,tot=%04d,sgs=%04d) :", bucketKey, firstSeg->totalItems, firstSeg->numSegs);
+    printf("Bucket(key=%06lld,tot=%04d,sgs=%04d) :", bucketKey, firstSeg->totalItems, firstSeg->numSegs);
     while (1) {
         mIter = type->getExpireMeta(iter);  /* not really needed. Just to hash the compiler */
         printf("    [");
@@ -807,15 +807,15 @@ static int ebBucketPrint(uint64_t bucketKey, EbucketsType *type, FirstSegHdr *fi
             uint64_t expireTime = ebGetMetaExpTime(mIter);
 
             if (i == 0 && PRINT_EXPIRE_META_FLAGS)
-                printf("%lu<n=%d,f=%d,ls=%d,lb=%d>, ",
+                printf("%llu<n=%d,f=%d,ls=%d,lb=%d>, ",
                        expireTime, mIter->numItems, mIter->firstItemBucket,
                        mIter->lastInSegment, mIter->lastItemBucket);
             else if (i == (mHead->numItems - 1) && PRINT_EXPIRE_META_FLAGS) {
-                printf("%lu<n=%d,f=%d,ls=%d,lb=%d>",
+                printf("%llu<n=%d,f=%d,ls=%d,lb=%d>",
                        expireTime, mIter->numItems, mIter->firstItemBucket,
                        mIter->lastInSegment, mIter->lastItemBucket);
             } else
-                printf("%lu%s", expireTime, (i == mHead->numItems - 1) ? "" : ", ");
+                printf("%llu%s", expireTime, (i == mHead->numItems - 1) ? "" : ", ");
 
             iter = mIter->next;
         }
@@ -842,7 +842,12 @@ static int ebBucketPrint(uint64_t bucketKey, EbucketsType *type, FirstSegHdr *fi
  *    - If the new item has a different bucket-key, then allocate a new bucket
  *      for it.
  */
-static int ebAddToBucket(EbucketsType *type, FirstSegHdr *firstSegBkt, eItem item, EBucketNew *newBucket, uint64_t *updateBucketKey) {
+static int ebAddToBucket(EbucketsType *type,
+                         FirstSegHdr *firstSegBkt,
+                         eItem item,
+                         EBucketNew *newBucket,
+                         uint64_t *updateBucketKey)
+{
     newBucket->segment.head = NULL; /* no new bucket as default */
 
     if (firstSegBkt->numSegs == 1) {
@@ -1203,7 +1208,8 @@ static void ebValidateRax(rax *rax, EbucketsType *type) {
                     assert(mIter->numItems > 0 && mIter->numItems <= EB_SEG_MAX_ITEMS);
                     prevBktKey = curBktKey;
                 } else  {
-                    assert((extendedSeg && prevBktKey == curBktKey) || (!extendedSeg && prevBktKey <= curBktKey));
+                    assert( (extendedSeg && prevBktKey == curBktKey) ||
+                            (!extendedSeg && prevBktKey <= curBktKey) );
                     assert(mIter->numItems == 0);
                     assert(mIter->firstItemBucket == 0);
                     prevBktKey = curBktKey;
@@ -1302,9 +1308,9 @@ static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int print
         numSegments += seg->numSegs;
     }
 
-    printf("Total number of items              : %lu\n", totalItems);
-    printf("Total number of buckets            : %lu\n", numBuckets);
-    printf("Total number of segments           : %lu\n", numSegments);
+    printf("Total number of items              : %llu\n", totalItems);
+    printf("Total number of buckets            : %llu\n", numBuckets);
+    printf("Total number of segments           : %llu\n", numSegments);
     printf("Average items per bucket           : %.2f\n",
            (double) totalItems / numBuckets);
     printf("Average items per segment          : %.2f\n",
@@ -1317,9 +1323,9 @@ static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int print
         printf("\nEbuckets memory usage (including FirstSegHdr/NexSegHdr):\n");
         printf("Total                              : %.2f KBytes\n",
                (double) usedMem / 1024);
-        printf("Average per bucket                 : %ld Bytes\n",
+        printf("Average per bucket                 : %lld Bytes\n",
                usedMem / numBuckets);
-        printf("Average per item                   : %ld Bytes\n",
+        printf("Average per item                   : %lld Bytes\n",
                usedMem / totalItems);
         printf("EB_BUCKET_KEY_PRECISION            : %d\n",
                EB_BUCKET_KEY_PRECISION);
@@ -1838,9 +1844,9 @@ EbucketsType myEbucketsType = {
 };
 
 EbucketsType myEbucketsType2 = {
-        .getExpireMeta = getMyItemExpireMeta,
-        .onDeleteItem = NULL,
-        .itemsAddrAreOdd = 0,
+    .getExpireMeta = getMyItemExpireMeta,
+    .onDeleteItem = NULL,
+    .itemsAddrAreOdd = 0,
 };
 
 /* XOR over all items time-expiration. Must be 0 after all addition/removal */
@@ -2203,7 +2209,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 if (expireTime < minExpTime) minExpTime = expireTime;
                 if (expireTime > maxExpTime) maxExpTime = expireTime;
                 ebAdd(&eb, &myEbucketsType2, items + i, expireTime);
-                assert(ebGetMinExpireTime(eb, &myEbucketsType2, 0) == minExpTime);
+                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2, 0) == minExpTime);
                 assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 0) == maxExpTime);
             }
             ebDestroy(&eb, &myEbucketsType2, NULL);
@@ -2225,8 +2231,8 @@ int ebucketsTest(int argc, char **argv, int flags) {
             for (int i = EB_SEG_MAX_ITEMS+1; i < numItems; i++) {
                 uint64_t itemExpireTime = (1<<EB_BUCKET_KEY_PRECISION) + i;
                 ebAdd(&eb, &myEbucketsType2, items + i, itemExpireTime);
-                assert(ebGetMinExpireTime(eb, &myEbucketsType2, 0) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
-                assert(ebGetMinExpireTime(eb, &myEbucketsType2, 1) == (uint64_t)(1<<EB_BUCKET_KEY_PRECISION));
+                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2, 0) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
+                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2, 1) == (uint64_t)(1<<EB_BUCKET_KEY_PRECISION));
                 assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 0) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
                 assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 1) == (uint64_t)((1<<EB_BUCKET_KEY_PRECISION) + i));
             }

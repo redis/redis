@@ -177,8 +177,8 @@ rax *raxNew(void) {
 }
 
 /* Allocate a new rax with metadata */
-rax *raxNewWithMetadata(int bytes) {
-    rax *rax = rax_malloc(sizeof(*rax) + bytes);
+rax *raxNewWithMetadata(int metaSize) {
+    rax *rax = rax_malloc(sizeof(*rax) + metaSize);
     if (rax == NULL) return NULL;
     rax->numele = 0;
     rax->numnodes = 1;
