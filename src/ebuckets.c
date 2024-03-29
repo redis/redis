@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include "zmalloc.h"
 #include "redisassert.h"
 #include "config.h"
@@ -798,7 +799,7 @@ static int ebBucketPrint(uint64_t bucketKey, EbucketsType *type, FirstSegHdr *fi
     iter = firstSeg->head;
     mHead = type->getExpireMeta(iter);
 
-    printf("Bucket(key=%06lld,tot=%04d,sgs=%04d) :", bucketKey, firstSeg->totalItems, firstSeg->numSegs);
+    printf("Bucket(key=%06" PRIu64 ",tot=%04d,sgs=%04d) :", bucketKey, firstSeg->totalItems, firstSeg->numSegs);
     while (1) {
         mIter = type->getExpireMeta(iter);  /* not really needed. Just to hash the compiler */
         printf("    [");
@@ -807,15 +808,15 @@ static int ebBucketPrint(uint64_t bucketKey, EbucketsType *type, FirstSegHdr *fi
             uint64_t expireTime = ebGetMetaExpTime(mIter);
 
             if (i == 0 && PRINT_EXPIRE_META_FLAGS)
-                printf("%llu<n=%d,f=%d,ls=%d,lb=%d>, ",
+                printf("%" PRIu64 "<n=%d,f=%d,ls=%d,lb=%d>, ",
                        expireTime, mIter->numItems, mIter->firstItemBucket,
                        mIter->lastInSegment, mIter->lastItemBucket);
             else if (i == (mHead->numItems - 1) && PRINT_EXPIRE_META_FLAGS) {
-                printf("%llu<n=%d,f=%d,ls=%d,lb=%d>",
+                printf("%" PRIu64 "<n=%d,f=%d,ls=%d,lb=%d>",
                        expireTime, mIter->numItems, mIter->firstItemBucket,
                        mIter->lastInSegment, mIter->lastItemBucket);
             } else
-                printf("%llu%s", expireTime, (i == mHead->numItems - 1) ? "" : ", ");
+                printf("%" PRIu64 "%s", expireTime, (i == mHead->numItems - 1) ? "" : ", ");
 
             iter = mIter->next;
         }
@@ -1308,9 +1309,9 @@ static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int print
         numSegments += seg->numSegs;
     }
 
-    printf("Total number of items              : %llu\n", totalItems);
-    printf("Total number of buckets            : %llu\n", numBuckets);
-    printf("Total number of segments           : %llu\n", numSegments);
+    printf("Total number of items              : %" PRIu64 "\n", totalItems);
+    printf("Total number of buckets            : %" PRIu64 "\n", numBuckets);
+    printf("Total number of segments           : %" PRIu64 "\n", numSegments);
     printf("Average items per bucket           : %.2f\n",
            (double) totalItems / numBuckets);
     printf("Average items per segment          : %.2f\n",
@@ -1323,9 +1324,9 @@ static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int print
         printf("\nEbuckets memory usage (including FirstSegHdr/NexSegHdr):\n");
         printf("Total                              : %.2f KBytes\n",
                (double) usedMem / 1024);
-        printf("Average per bucket                 : %lld Bytes\n",
+        printf("Average per bucket                 : %" PRIu64 " Bytes\n",
                usedMem / numBuckets);
-        printf("Average per item                   : %lld Bytes\n",
+        printf("Average per item                   : %" PRIu64 " Bytes\n",
                usedMem / totalItems);
         printf("EB_BUCKET_KEY_PRECISION            : %d\n",
                EB_BUCKET_KEY_PRECISION);
