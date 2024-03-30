@@ -5,9 +5,9 @@ set ::valgrind_errors {}
 proc start_server_error {config_file error} {
     set err {}
     append err "Can't start the Redis server\n"
-    append err "CONFIGURATION:"
+    append err "CONFIGURATION:\n"
     append err [exec cat $config_file]
-    append err "\nERROR:"
+    append err "\nERROR:\n"
     append err [string trim $error]
     send_data_packet $::test_server_fd err $err
 }

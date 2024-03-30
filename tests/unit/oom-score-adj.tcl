@@ -1,5 +1,4 @@
 set system_name [string tolower [exec uname -s]]
-set user_id [exec id -u]
 
 if {$system_name eq {linux}} {
     start_server {tags {"oom-score-adj external:skip"}} {
@@ -56,8 +55,15 @@ if {$system_name eq {linux}} {
             }
         }
 
+        # Determine whether the current user is unprivileged
+        set original_value [exec cat /proc/self/oom_score_adj]
+        catch {
+            set fd [open "/proc/self/oom_score_adj" "w"]
+            puts $fd -1000
+            close $fd
+        } e
         # Failed oom-score-adj tests can only run unprivileged
-        if {$user_id != 0} {
+        if {[string match "*permission denied*" $e]} {
             test {CONFIG SET oom-score-adj handles configuration failures} {
                 # Bad config
                 r config set oom-score-adj no
@@ -81,6 +87,11 @@ if {$system_name eq {linux}} {
                 # Make sure previous values remain
                 assert {[r config get oom-score-adj-values] == {oom-score-adj-values {0 100 100}}}
             }
+        } else {
+            # Restore the original oom_score_adj value
+            set fd [open "/proc/self/oom_score_adj" "w"]
+            puts $fd $original_value
+            close $fd
         }
 
         test {CONFIG SET oom-score-adj-values doesn't touch proc when disabled} {
@@ -101,25 +112,27 @@ if {$system_name eq {linux}} {
 
         test {CONFIG SET oom score restored on disable} {
             r config set oom-score-adj no
-            set_oom_score_adj 22
-            assert_equal [get_oom_score_adj] 22
+            set custom_oom [expr [get_oom_score_adj] + 1]
+            set_oom_score_adj $custom_oom
+            assert_equal [get_oom_score_adj] $custom_oom
 
             r config set oom-score-adj-values "9 9 9" oom-score-adj yes
-            assert_equal [get_oom_score_adj] [expr 9+22]
+            assert_equal [get_oom_score_adj] [expr 9+$custom_oom]
 
             r config set oom-score-adj no
-            assert_equal [get_oom_score_adj] 22
+            assert_equal [get_oom_score_adj] $custom_oom
         }
 
         test {CONFIG SET oom score relative and absolute} {
-            set custom_oom 9
             r config set oom-score-adj no
             set base_oom [get_oom_score_adj]
 
+            set custom_oom 9
             r config set oom-score-adj-values "$custom_oom $custom_oom $custom_oom" oom-score-adj relative
             assert_equal [get_oom_score_adj] [expr $base_oom+$custom_oom]
 
-            r config set oom-score-adj absolute
+            set custom_oom [expr [get_oom_score_adj] + 1]
+            r config set oom-score-adj-values "$custom_oom $custom_oom $custom_oom" oom-score-adj absolute
             assert_equal [get_oom_score_adj] $custom_oom
         }
 

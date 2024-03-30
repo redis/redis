@@ -1,31 +1,10 @@
 /* anet.c -- Basic TCP socket stuff made a bit less boring
  *
- * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "fmacros.h"
@@ -82,7 +61,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
         return ANET_ERR;
     }
 
-    /* Check if this flag has been set or unset, if so, 
+    /* Check if this flag has been set or unset, if so,
      * then there is no need to call fcntl to set/unset it again. */
     if (!!(flags & O_NONBLOCK) == !!non_block)
         return ANET_OK;
@@ -107,8 +86,8 @@ int anetBlock(char *err, int fd) {
     return anetSetBlock(err,fd,0);
 }
 
-/* Enable the FD_CLOEXEC on the given fd to avoid fd leaks. 
- * This function should be invoked for fd's on specific places 
+/* Enable the FD_CLOEXEC on the given fd to avoid fd leaks.
+ * This function should be invoked for fd's on specific places
  * where fork + execve system calls are called. */
 int anetCloexec(int fd) {
     int r;
@@ -130,57 +109,145 @@ int anetCloexec(int fd) {
     return r;
 }
 
-/* Set TCP keep alive option to detect dead peers. The interval option
- * is only used for Linux as we are using Linux-specific APIs to set
- * the probe send time, interval, and count. */
+/* Enable TCP keep-alive mechanism to detect dead peers,
+ * TCP_KEEPIDLE, TCP_KEEPINTVL and TCP_KEEPCNT will be set accordingly. */
 int anetKeepAlive(char *err, int fd, int interval)
 {
-    int val = 1;
-
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
+    int enabled = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &enabled, sizeof(enabled)))
     {
         anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
         return ANET_ERR;
     }
 
-#ifdef __linux__
-    /* Default settings are more or less garbage, with the keepalive time
-     * set to 7200 by default on Linux. Modify settings to make the feature
-     * actually useful. */
+    int idle;
+    int intvl;
+    int cnt;
 
-    /* Send first probe after interval. */
-    val = interval;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
+    /* There are platforms that are expected to support the full mechanism of TCP keep-alive,
+     * we want the compiler to emit warnings of unused variables if the preprocessor directives
+     * somehow fail, and other than those platforms, just omit these warnings if they happen.
+     */
+#if !(defined(_AIX) || defined(__APPLE__) || defined(__DragonFly__) || \
+    defined(__FreeBSD__) || defined(__illumos__) || defined(__linux__) || \
+    defined(__NetBSD__) || defined(__sun))
+    UNUSED(interval);
+    UNUSED(idle);
+    UNUSED(intvl);
+    UNUSED(cnt);
+#endif
+
+#ifdef __sun
+    /* The implementation of TCP keep-alive on Solaris/SmartOS is a bit unusual
+     * compared to other Unix-like systems.
+     * Thus, we need to specialize it on Solaris.
+     *
+     * There are two keep-alive mechanisms on Solaris:
+     * - By default, the first keep-alive probe is sent out after a TCP connection is idle for two hours.
+     * If the peer does not respond to the probe within eight minutes, the TCP connection is aborted.
+     * You can alter the interval for sending out the first probe using the socket option TCP_KEEPALIVE_THRESHOLD
+     * in milliseconds or TCP_KEEPIDLE in seconds.
+     * The system default is controlled by the TCP ndd parameter tcp_keepalive_interval. The minimum value is ten seconds.
+     * The maximum is ten days, while the default is two hours. If you receive no response to the probe,
+     * you can use the TCP_KEEPALIVE_ABORT_THRESHOLD socket option to change the time threshold for aborting a TCP connection.
+     * The option value is an unsigned integer in milliseconds. The value zero indicates that TCP should never time out and
+     * abort the connection when probing. The system default is controlled by the TCP ndd parameter tcp_keepalive_abort_interval.
+     * The default is eight minutes.
+     *
+     * - The second implementation is activated if socket option TCP_KEEPINTVL and/or TCP_KEEPCNT are set.
+     * The time between each consequent probes is set by TCP_KEEPINTVL in seconds.
+     * The minimum value is ten seconds. The maximum is ten days, while the default is two hours.
+     * The TCP connection will be aborted after certain amount of probes, which is set by TCP_KEEPCNT, without receiving response.
+     */
+
+    idle = interval;
+    if (idle < 10) idle = 10; // kernel expects at least 10 seconds
+    if (idle > 10*24*60*60) idle = 10*24*60*60; // kernel expects at most 10 days
+
+    /* `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, and `TCP_KEEPCNT` were not available on Solaris
+     * until version 11.4, but let's take a chance here. */
+#if defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL) && defined(TCP_KEEPCNT)
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))) {
         anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
         return ANET_ERR;
     }
 
-    /* Send next probes after the specified interval. Note that we set the
-     * delay as interval / 3, as we send three probes before detecting
-     * an error (see the next setsockopt call). */
-    val = interval/3;
-    if (val == 0) val = 1;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, sizeof(val)) < 0) {
+    intvl = idle/3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
         anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
         return ANET_ERR;
     }
 
-    /* Consider the socket in error state after three we send three ACK
-     * probes without getting a reply. */
-    val = 3;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
+    cnt = 3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt))) {
         anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
         return ANET_ERR;
     }
-#elif defined(__APPLE__)
-    /* Set idle time with interval */
-    val = interval;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &val, sizeof(val)) < 0) {
+#else
+    /* Fall back to the first implementation of tcp-alive mechanism for older Solaris,
+     * simulate the tcp-alive mechanism on other platforms via `TCP_KEEPALIVE_THRESHOLD` + `TCP_KEEPALIVE_ABORT_THRESHOLD`.
+     */
+    idle *= 1000; // kernel expects milliseconds
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_THRESHOLD, &idle, sizeof(idle))) {
+        anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    /* Note that the consequent probes will not be sent at equal intervals on Solaris,
+     * but will be sent using the exponential backoff algorithm. */
+    intvl = idle/3;
+    cnt = 3;
+    int time_to_abort = intvl * cnt;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE_ABORT_THRESHOLD, &time_to_abort, sizeof(time_to_abort))) {
+        anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#endif
+
+    return ANET_OK;
+
+#endif
+
+#ifdef TCP_KEEPIDLE
+    /* Default settings are more or less garbage, with the keepalive time
+     * set to 7200 by default on Linux and other Unix-like systems.
+     * Modify settings to make the feature actually useful. */
+
+    /* Send first probe after interval. */
+    idle = interval;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle))) {
+        anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#elif defined(TCP_KEEPALIVE)
+    /* Darwin/macOS uses TCP_KEEPALIVE in place of TCP_KEEPIDLE. */
+    idle = interval;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle))) {
         anetSetError(err, "setsockopt TCP_KEEPALIVE: %s\n", strerror(errno));
         return ANET_ERR;
     }
-#else
-    ((void) interval); /* Avoid unused var warning for non Linux systems. */
+#endif
+
+#ifdef TCP_KEEPINTVL
+    /* Send next probes after the specified interval. Note that we set the
+     * delay as interval / 3, as we send three probes before detecting
+     * an error (see the next setsockopt call). */
+    intvl = interval/3;
+    if (intvl == 0) intvl = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl))) {
+        anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#endif
+
+#ifdef TCP_KEEPCNT
+    /* Consider the socket in error state after three we send three ACK
+     * probes without getting a reply. */
+    cnt = 3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt))) {
+        anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
 #endif
 
     return ANET_OK;
@@ -239,7 +306,11 @@ int anetRecvTimeout(char *err, int fd, long long ms) {
  *
  * If flags is set to ANET_IP_ONLY the function only resolves hostnames
  * that are actually already IPv4 or IPv6 addresses. This turns the function
- * into a validating / normalizing function. */
+ * into a validating / normalizing function.
+ *
+ * If the flag ANET_PREFER_IPV4 is set, IPv4 is preferred over IPv6.
+ * If the flag ANET_PREFER_IPV6 is set, IPv6 is preferred over IPv4.
+ * */
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
                        int flags)
 {
@@ -249,9 +320,20 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
     memset(&hints,0,sizeof(hints));
     if (flags & ANET_IP_ONLY) hints.ai_flags = AI_NUMERICHOST;
     hints.ai_family = AF_UNSPEC;
+    if (flags & ANET_PREFER_IPV4 && !(flags & ANET_PREFER_IPV6)) {
+        hints.ai_family = AF_INET;
+    } else if (flags & ANET_PREFER_IPV6 && !(flags & ANET_PREFER_IPV4)) {
+        hints.ai_family = AF_INET6;
+    }
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
-    if ((rv = getaddrinfo(host, NULL, &hints, &info)) != 0) {
+    rv = getaddrinfo(host, NULL, &hints, &info);
+    if (rv != 0 && hints.ai_family != AF_UNSPEC) {
+        /* Try the other IP version. */
+        hints.ai_family = (hints.ai_family == AF_INET) ? AF_INET6 : AF_INET;
+        rv = getaddrinfo(host, NULL, &hints, &info);
+    }
+    if (rv != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
     }

@@ -1,37 +1,17 @@
 /* SORT command and helper functions.
  *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 
 #include "server.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
+#include "cluster.h"
 
 zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
@@ -235,10 +215,12 @@ void sortCommandGeneric(client *c, int readonly) {
             if (strchr(c->argv[j+1]->ptr,'*') == NULL) {
                 dontsort = 1;
             } else {
-                /* If BY is specified with a real pattern, we can't accept
-                 * it in cluster mode. */
-                if (server.cluster_enabled) {
-                    addReplyError(c,"BY option of SORT denied in Cluster mode.");
+                /* If BY is specified with a real pattern, we can't accept it in cluster mode,
+                 * unless we can make sure the keys formed by the pattern are in the same slot 
+                 * as the key to sort. */
+                if (server.cluster_enabled && patternHashSlot(sortby->ptr, sdslen(sortby->ptr)) != getKeySlot(c->argv[1]->ptr)) {
+                    addReplyError(c, "BY option of SORT denied in Cluster mode when "
+                                 "keys formed by the pattern may be in different slots.");
                     syntax_error++;
                     break;
                 }
@@ -252,8 +234,12 @@ void sortCommandGeneric(client *c, int readonly) {
             }
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"get") && leftargs >= 1) {
-            if (server.cluster_enabled) {
-                addReplyError(c,"GET option of SORT denied in Cluster mode.");
+            /* If GET is specified with a real pattern, we can't accept it in cluster mode,
+             * unless we can make sure the keys formed by the pattern are in the same slot 
+             * as the key to sort. */
+            if (server.cluster_enabled && patternHashSlot(c->argv[j+1]->ptr, sdslen(c->argv[j+1]->ptr)) != getKeySlot(c->argv[1]->ptr)) {
+                addReplyError(c, "GET option of SORT denied in Cluster mode when "
+                              "keys formed by the pattern may be in different slots.");
                 syntax_error++;
                 break;
             }
@@ -297,8 +283,7 @@ void sortCommandGeneric(client *c, int readonly) {
     if (sortval)
         incrRefCount(sortval);
     else
-        sortval = createQuicklistObject();
-
+        sortval = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
 
     /* When sorting a set with no sort specified, we must sort the output
      * so the result is consistent across scripting and replication.
@@ -550,7 +535,7 @@ void sortCommandGeneric(client *c, int readonly) {
     } else {
         /* We can't predict the size and encoding of the stored list, we
          * assume it's a large list and then convert it at the end if needed. */
-        robj *sobj = createQuicklistObject();
+        robj *sobj = createQuicklistObject(server.list_max_listpack_size, server.list_compress_depth);
 
         /* STORE option specified, set the sorting result as a List object */
         for (j = start; j <= end; j++) {

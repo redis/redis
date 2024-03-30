@@ -1,33 +1,10 @@
 /* Rax -- A radix tree implementation.
  *
- * Version 1.2 -- 7 February 2019
- *
- * Copyright (c) 2017-2019, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include <stdlib.h>
@@ -43,11 +20,6 @@
 #endif
 
 #include RAX_MALLOC_INCLUDE
-
-/* This is a special pointer that is guaranteed to never have the same value
- * of a radix tree node. It's used in order to report "not found" error without
- * requiring the function to have multiple return values. */
-void *raxNotFound = (void*)"rax-not-found-pointer";
 
 /* -------------------------------- Debugging ------------------------------ */
 
@@ -912,18 +884,19 @@ int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old)
     return raxGenericInsert(rax,s,len,data,old,0);
 }
 
-/* Find a key in the rax, returns raxNotFound special void pointer value
- * if the item was not found, otherwise the value associated with the
- * item is returned. */
-void *raxFind(rax *rax, unsigned char *s, size_t len) {
+/* Find a key in the rax: return 1 if the item is found, 0 otherwise.
+ * If there is an item and 'value' is passed in a non-NULL pointer,
+ * the value associated with the item is set at that address. */
+int raxFind(rax *rax, unsigned char *s, size_t len, void **value) {
     raxNode *h;
 
     debugf("### Lookup: %.*s\n", (int)len, s);
     int splitpos = 0;
     size_t i = raxLowWalk(rax,s,len,&h,NULL,&splitpos,NULL);
     if (i != len || (h->iscompr && splitpos != 0) || !h->iskey)
-        return raxNotFound;
-    return raxGetData(h);
+        return 0;
+    if (value != NULL) *value = raxGetData(h);
+    return 1;
 }
 
 /* Return the memory address where the 'parent' node stores the specified

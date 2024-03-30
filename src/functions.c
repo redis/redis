@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2021, Redis Ltd.
+ * Copyright (c) 2011-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "functions.h"
@@ -118,10 +97,7 @@ dictType librariesDictType = {
 /* Dictionary of engines */
 static dict *engines = NULL;
 
-/* Libraries Ctx.
- * Contains the dictionary that map a library name to library object,
- * Contains the dictionary that map a function name to function object,
- * and the cache memory used by all the functions */
+/* Libraries Ctx. */
 static functionsLibCtx *curr_functions_lib_ctx = NULL;
 
 static size_t functionMallocSize(functionInfo *fi) {
@@ -499,7 +475,6 @@ static void functionListReplyFlags(client *c, functionInfo *fi) {
  * Return general information about all the libraries:
  * * Library name
  * * The engine used to run the Library
- * * Library description
  * * Functions list
  * * Library code (if WITHCODE is given)
  *
@@ -681,7 +656,6 @@ void fcallroCommand(client *c) {
  * is saved separately with the following information:
  * * Library name
  * * Engine name
- * * Library description
  * * Library code
  * RDB_OPCODE_FUNCTION2 is saved before each library to present
  * that the payload is a library.
@@ -840,7 +814,6 @@ void functionHelpCommand(client *c) {
 "    Return general information on all the libraries:",
 "    * Library name",
 "    * The engine used to run the Library",
-"    * Library description",
 "    * Functions list",
 "    * Library code (if WITHCODE is given)",
 "    It also possible to get only function that matches a pattern using LIBRARYNAME argument.",
@@ -894,9 +867,7 @@ static int functionsVerifyName(sds name) {
 
 int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) {
     sds name = NULL;
-    sds desc = NULL;
     sds engine = NULL;
-    sds code = NULL;
     if (strncmp(payload, "#!", 2) != 0) {
         *err = sdsnew("Missing library metadata");
         return C_ERR;
@@ -948,9 +919,7 @@ int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) 
 
 error:
     if (name) sdsfree(name);
-    if (desc) sdsfree(desc);
     if (engine) sdsfree(engine);
-    if (code) sdsfree(code);
     sdsfreesplitres(parts, numparts);
     return C_ERR;
 }
@@ -1084,15 +1053,15 @@ void functionLoadCommand(client *c) {
 unsigned long functionsMemory(void) {
     dictIterator *iter = dictGetIterator(engines);
     dictEntry *entry = NULL;
-    size_t engines_nemory = 0;
+    size_t engines_memory = 0;
     while ((entry = dictNext(iter))) {
         engineInfo *ei = dictGetVal(entry);
         engine *engine = ei->engine;
-        engines_nemory += engine->get_used_memory(engine->engine_ctx);
+        engines_memory += engine->get_used_memory(engine->engine_ctx);
     }
     dictReleaseIterator(iter);
 
-    return engines_nemory;
+    return engines_memory;
 }
 
 /* Return memory overhead of all the engines combine */
@@ -1119,7 +1088,7 @@ dict* functionsLibGet(void) {
     return curr_functions_lib_ctx->libraries;
 }
 
-size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx) {
+size_t functionsLibCtxFunctionsLen(functionsLibCtx *functions_ctx) {
     return dictSize(functions_ctx->functions);
 }
 
