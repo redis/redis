@@ -221,7 +221,6 @@ void *mstrGetAllocPtr(struct mstrKind *kind, mstr str) {
 void mstrPrint(mstr s, struct mstrKind *kind, int verbose) {
     mstrFlags mflags, tmp;
     int isMeta = mstrIsMetaAttached(s);
-    int metaOffset = 0;
 
     tmp = mflags = (isMeta) ? *mstrFlagsRef(s) : 0;
 
@@ -244,7 +243,6 @@ void mstrPrint(mstr s, struct mstrKind *kind, int verbose) {
                     printf(" 0x%02x", ((unsigned char *) mRef)[j]);
                 }
                 printf(" (metaLen=%d)\n", mSize);
-                metaOffset += kind->metaSize[i];
             }
             tmp >>= 1;
         }
