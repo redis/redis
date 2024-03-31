@@ -312,7 +312,7 @@ static inline size_t mstrAllocLen(const mstr s, struct mstrKind *kind) {
 }
 
 /* returns pointer to the beginning of malloc() of mstr */
-static inline void *mstrGetStartAlloc(mstr s, struct mstrKind *kind) {
+void *mstrGetStartAlloc(mstr s, struct mstrKind *kind) {
     int hdrlen;
     mstrFlags *pMetaFlags;
 
