@@ -2,7 +2,7 @@
  *
  * This file implements operations that we need to perform in the background.
  * Currently there are 3 operations:
- * 1) a background close(2) system call. This is needed as when the process is
+ * 1) a background close(2) system call. This is needed when the process is
  *    the last owner of a reference to a file closing it means unlinking it, and
  *    the deletion of the file is slow, blocking the server.
  * 2) AOF fsync
@@ -43,9 +43,9 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-
 #include "server.h"
 #include "bio.h"
+#include <fcntl.h>
 
 static char* bio_worker_title[] = {
     "bio_close_file",
@@ -151,7 +151,7 @@ void bioInit(void) {
 
     /* Register a readable event for the pipe used to awake the event loop on job completion */
     if (aeCreateFileEvent(server.el, job_comp_pipe[0], AE_READABLE,
-                          bioPipeReadJobCompList,NULL) == AE_ERR) {
+                          bioPipeReadJobCompList, NULL) == AE_ERR) {
         serverPanic("Error registering the readable event for the bio pipe.");
     }
 
@@ -435,5 +435,5 @@ void bioPipeReadJobCompList(aeEventLoop *el, int fd, void *privdata, int mask) {
         rsp->func(rsp->arg);
         zfree(rsp);
     }
-    zfree(tmp_list);
+    listRelease(tmp_list);
 }
