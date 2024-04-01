@@ -4228,16 +4228,20 @@ void *IOThreadMain(void *myid) {
         listIter li;
         listNode *ln;
         listRewind(io_threads_list[id],&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            if (io_threads_op == IO_THREADS_OP_WRITE) {
+        if (io_threads_op == IO_THREADS_OP_WRITE) {
+            while((ln = listNext(&li))) {
+                client *c = listNodeValue(ln);
                 writeToClient(c,0);
-            } else if (io_threads_op == IO_THREADS_OP_READ) {
-                readQueryFromClient(c->conn);
-            } else {
-                serverPanic("io_threads_op value is unknown");
             }
+        } else if (io_threads_op == IO_THREADS_OP_READ) {
+            while((ln = listNext(&li))) {
+                client *c = listNodeValue(ln);
+                readQueryFromClient(c->conn);
+            }
+        } else {
+            serverPanic("io_threads_op value is unknown");
         }
+        
         listEmpty(io_threads_list[id]);
         setIOPendingCount(id, 0);
     }
