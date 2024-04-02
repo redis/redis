@@ -392,6 +392,9 @@ int ebSingleSegExpire(FirstSegHdr *firstSegHdr,
         mIter->trash = 1;
         ExpireAction act = info->onExpireItem(iter, info->ctx);
 
+        /* if (act == ACT_REMOVE_EXP_ITEM)
+         *  then don't touch the item. Assume it got deleted */
+
         /* If indicated to stop then break (cb didn't delete the item) */
         if (act == ACT_STOP_ACTIVE_EXP) {
             mIter->trash = 0;
@@ -459,6 +462,9 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
             iter = mIter->next;
             mIter->trash = 1;
             ExpireAction act = info->onExpireItem(toDelete, info->ctx);
+
+            /* if (act == ACT_REMOVE_EXP_ITEM)
+             *  then don't touch the item. Assume it got deleted */
 
             /* If indicated to stop then break (callback didn't delete the item) */
             if (act == ACT_STOP_ACTIVE_EXP) {
@@ -692,6 +698,9 @@ static int ebListExpire(ebuckets *eb,
         metaItem->trash = 1;
         ExpireAction act = info->onExpireItem(item, info->ctx);
 
+        /* if (act == ACT_REMOVE_EXP_ITEM)
+         *  then don't touch the item. Assume it got deleted */
+
         /* If indicated to stop then break (cb didn't delete the item) */
         if (act == ACT_STOP_ACTIVE_EXP) {
             metaItem->trash = 0;
@@ -737,7 +746,7 @@ static void ebValidateList(eItem head, EbucketsType *type) {
             assert(mIter->numItems > 0 && mIter->numItems <= EB_LIST_MAX_ITEMS);
             assert(mIter->firstItemBucket == 1);
         } else  {
-            /* Verify that expire time of previous item is smaller */
+            /* Verify that expire time of previous item is smaller or equal */
             assert(ebGetMetaExpTime(mIterPrev) <= ebGetMetaExpTime(mIter));
             assert(mIter->numItems == 0);
             assert(mIter->firstItemBucket == 0);

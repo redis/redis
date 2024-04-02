@@ -200,7 +200,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
     } else if (o->type == OBJ_HASH) {
         hashTypeIterator *hi = hashTypeInitIterator(o);
-        while (hashTypeNext(hi) != C_ERR) {
+        while (hashTypeNext(hi, 0) != C_ERR) {
             unsigned char eledigest[20];
             sds sdsele;
 

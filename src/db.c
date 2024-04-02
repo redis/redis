@@ -911,6 +911,11 @@ void scanCallback(void *privdata, const dictEntry *de) {
     } else if (o->type == OBJ_HASH) {
         key = keyStr;
         val = dictGetVal(de);
+
+        /* If field is expired, then ignore */
+        if (hfieldIsExpired(key))
+            return;
+
     } else if (o->type == OBJ_ZSET) {
         char buf[MAX_LONG_DOUBLE_CHARS];
         int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);

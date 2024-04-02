@@ -161,8 +161,7 @@ start_server {tags {"hash expire"}} {
                     assert_equal 1 [r HEXISTS same$h f$i]
 
                     # same expiration time
-                    r hset mix$h fieldWithoutExpire$i v$i
-                    r hset mix$h f$i v$i
+                    r hset mix$h f$i v$i fieldWithoutExpire$i v$i
                     r hpexpire mix$h 100 1 f$i
                     assert_equal 1 [r HEXISTS mix$h f$i]
                 }
@@ -177,7 +176,7 @@ start_server {tags {"hash expire"}} {
                 }
                 assert_equal 0 [r EXISTS hrand$h]
                 assert_equal 0 [r EXISTS same$h]
-                assert_equal 1 [r EXISTS mix$h]
+                assert_equal $h [r HLEN mix$h]
             }
         }
     }
@@ -274,9 +273,22 @@ start_server {tags {"hash expire"}} {
         r debug set-active-expire 1
     }
 
-    test {Lazy expire - HRANDFIELD does not return expired fields} {
-        hrandfieldTest 0
-        hrandfieldTest 1
+# OPEN: To decide if to delete expired fields at start of HRANDFIELD.
+#    test {Test HRANDFIELD does not return expired fields} {
+#        hrandfieldTest 0
+#        hrandfieldTest 1
+#    }
+
+    test {Test HRANDFIELD can return expired fields} {
+        r debug set-active-expire 0
+        r del myhash
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 1 NX 4 f1 f2 f3 f4
+        after 5
+        set res [cmp_hrandfield_result myhash "f1 f2 f3 f4 f5"]
+        assert {$res == 1}
+        r debug set-active-expire 1
+
     }
 
     test {Lazy expire - HLEN does not count expired fields} {
@@ -290,7 +302,7 @@ start_server {tags {"hash expire"}} {
         r hset h4 k1 v1 k2 v2 k3 v3 k4 v4
         r hpexpire h4 1 NX 3 k1 k3 k4
 
-        # beyond 16 fields hash-field expiration DS (ebuckets) converts from list to rax
+        # beyond 16 fields: HFE DS (ebuckets) converts from list to rax
 
         r hset h18 k1 v1 k2 v2 k3 v3 k4 v4 k5 v5 k6 v6 k7 v7 k8 v8 k9 v9 k10 v10 k11 v11 k12 v12 k13 v13 k14 v14 k15 v15 k16 v16 k17 v17 k18 v18
         r hpexpire h18 1 NX 18 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 k15 k16 k17 k18
@@ -335,6 +347,37 @@ start_server {tags {"hash expire"}} {
         assert_equal [lsort -unique [lindex [r hscan h18 0 COUNT 10] 1]] ""
         assert_equal [lsort -unique [lindex [r hscan h20 0 COUNT 100] 1]] "03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20"
         # Restore to support active expire
+        r debug set-active-expire 1
+    }
+
+    test {Test HSCAN with mostly expired fields return empty result} {
+        r debug set-active-expire 0
+
+        # Create hash with 1000 fields and 999 of them will be expired
+        r del myhash
+        for {set i 1} {$i <= 1000} {incr i} {
+            r hset myhash field$i value$i
+            if {$i > 1} {
+                r hpexpire myhash 1 NX 1 field$i
+            }
+        }
+        after 3
+
+        # Verify iterative HSCAN returns either empty result or only the first field
+        set countEmptyResult 0
+        set cur 0
+        while 1 {
+            set res [r hscan myhash $cur]
+            set cur [lindex $res 0]
+            # if the result is not empty, it should contain only the first field
+            if {[llength [lindex $res 1]] > 0} {
+                assert_equal [lindex $res 1] "field1 value1"
+            } else {
+                incr countEmptyResult
+            }
+            if {$cur == 0} break
+        }
+        assert {$countEmptyResult > 0}
         r debug set-active-expire 1
     }
 
@@ -402,6 +445,20 @@ start_server {tags {"hash expire"}} {
         after 15
         assert_equal [r hget myhash field1] "value1"
         assert_range [r hpttl myhash 1 field1] 900 1000
+    }
+
+    test {Test HGETALL with fields to be expired} {
+        r debug set-active-expire 0
+        r del myhash
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 1 NX 2 f2 f4
+        after 10
+        assert_equal [lsort [r hgetall myhash]] "f1 f3 f5 v1 v3 v5"
+        r hset myhash f6 v6 f7 v7 f8 v8 f9 v9 f10 v10 f11 v11 f12 v12 f13 v13 f14 v14 f15 v15 f16 v16 f17 v17 f18 v18 f19 v19 f20 v20
+        r hpexpire myhash 1 NX 2 f6 f8
+        after 10
+        assert_equal [lsort [r hgetall myhash]] [lsort "f1 f3 f5 f7 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18 f19 f20 v1 v3 v5 v7 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20"]
+        r debug set-active-expire 1
     }
 
     test {Test RANDOMKEY not return hash if all its fields are expired} {

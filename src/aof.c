@@ -1967,7 +1967,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = hashTypeLength(o, 0);
 
     hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi) != C_ERR) {
+    while (hashTypeNext(hi, 0) != C_ERR) {
         if (count == 0) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
