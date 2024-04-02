@@ -382,6 +382,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
 #define CLIENT_REPROCESSING_COMMAND (1ULL<<50) /* The client is re-processing the command. */
 
+#define CLIENT_PENDING_WRITE_ASYNC (1ULL<<51) /* Client has output to send using io_uring_prep_write(5). */
+
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
 typedef enum blocking_type {
@@ -1258,6 +1260,7 @@ typedef struct client {
     int bufpos;
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
+    ssize_t nwritten; /* How many bytes server write to client. */
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
@@ -2051,6 +2054,9 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
+     /* io_uring */
+    int io_uring_enabled; /* If io_uring enabled (0 by default) */
+    struct io_uring *io_uring;
 };
 
 #define MAX_KEYS_BUFFER 256
@@ -3712,6 +3718,12 @@ void lcsCommand(client *c);
 void quitCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
+
+/* io_uring.c -- io_uring related operations */
+void initIOUring(void);
+void freeIOUring(void);
+void ioUringPrepWrite(client *c);
+void ioUringSubmitAndWait(void);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
