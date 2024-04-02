@@ -4168,7 +4168,7 @@ size_t RM_ValueLength(RedisModuleKey *key) {
     case OBJ_LIST: return listTypeLength(key->value);
     case OBJ_SET: return setTypeSize(key->value);
     case OBJ_ZSET: return zsetLength(key->value);
-    case OBJ_HASH: return hashTypeLength(key->value, 0);  /* OPEN: To substract expired fields? */
+    case OBJ_HASH: return hashTypeLength(key->value, 0);  /* OPEN: To subtract expired fields? */
     case OBJ_STREAM: return streamLength(key->value);
     default: return 0;
     }
