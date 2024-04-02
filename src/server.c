@@ -1244,11 +1244,10 @@ void cronUpdateMemoryStats(void) {
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
         if (!server.cron_malloc_stats.allocator_resident) {
-            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
-             * so we must deduct it in order to be able to calculate correct
+            /* Starting with redis 8.0, LUA memory is part of zmalloc_used.
+             * so we don't need to deduct it in order to be able to calculate correct
              * "allocator fragmentation" ratio */
-            size_t lua_memory = evalMemory();
-            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
+            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss;
         }
         if (!server.cron_malloc_stats.allocator_active)
             server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
