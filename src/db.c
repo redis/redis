@@ -15,6 +15,7 @@
 
 #include <signal.h>
 #include <ctype.h>
+#include "bio.h"
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -667,50 +668,110 @@ void flushAllDataAndResetRDB(int flags) {
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
      * harm and this way the flush and purge will be synchronous. */
-    if (!(flags & EMPTYDB_ASYNC))
+    if (!(flags & EMPTYDB_ASYNC)) {
+        /* Only clear the current thread cache.
+         * Ignore the return call since this will fail if the tcache is disabled. */
+        je_mallctl("thread.tcache.flush", NULL, NULL, NULL, 0);
+
         jemalloc_purge();
+    }
 #endif
 }
 
-/* FLUSHDB [ASYNC]
- *
- * Flushes the currently SELECTed Redis DB. */
-void flushdbCommand(client *c) {
+/* Optimized FLUSHALL\FLUSHDB SYNC command finished to run by lazyfree thread */
+void flushallSyncBgDone(uint64_t client_id) {
+
+    client *c = lookupClientByID(client_id);
+
+    /* Verify that client still exists */
+    if (!c) return;
+
+    /* Update current_client (Called functions might rely on it) */
+    client *old_client = server.current_client;
+    server.current_client = c;
+
+    /* Don't update blocked_us since command was processed in bg by lazy_free thread */
+    updateStatsOnUnblock(c, 0 /*blocked_us*/, elapsedUs(c->bstate.lazyfreeStartTime), 0);
+
+    /* lazyfree bg job always succeed */
+    addReply(c, shared.ok);
+
+    /* mark client as unblocked */
+    unblockClient(c, 1);
+
+    /* FLUSH command is finished. resetClient() and update replication offset. */
+    commandProcessed(c);
+
+    /* On flush completion, update the client's memory */
+    updateClientMemUsageAndBucket(c);
+
+    /* restore current_client */
+    server.current_client = old_client;
+}
+
+void flushCommandCommon(client *c, int isFlushAll) {
+    int blocking_async = 0; /* FLUSHALL\FLUSHDB SYNC opt to run as blocking ASYNC */
     int flags;
-
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    /* flushdb should not flush the functions */
-    server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
 
-    /* Without the forceCommandPropagation, when DB was already empty,
-     * FLUSHDB will not be replicated nor put into the AOF. */
+    /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
+    if ((!(flags & EMPTYDB_ASYNC)) && (!(c->flags & CLIENT_AVOID_BLOCKING_ASYNC_FLUSH))) {
+        /* Run as ASYNC */
+        flags |= EMPTYDB_ASYNC;
+        blocking_async = 1;
+    }
+
+    if (isFlushAll)
+        flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
+    else
+        server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
+
+    /* Without the forceCommandPropagation, when DB(s) was already empty,
+     * FLUSHALL\FLUSHDB will not be replicated nor put into the AOF. */
     forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
 
-    addReply(c,shared.ok);
+    /* if blocking ASYNC, block client and add completion job request to BIO lazyfree
+     * worker's queue. To be called and reply with OK only after all preceding pending
+     * lazyfree jobs in queue were processed */
+    if (blocking_async) {
+        /* measure bg job till completion as elapsed time of flush command */
+        elapsedStart(&c->bstate.lazyfreeStartTime);
 
+        c->bstate.timeout = 0;
+        blockClient(c,BLOCKED_LAZYFREE);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id);
+    } else {
+        addReply(c, shared.ok);
+    }
 #if defined(USE_JEMALLOC)
     /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
      * for large databases, flushdb blocks for long anyway, so a bit more won't
-     * harm and this way the flush and purge will be synchronous. */
-    if (!(flags & EMPTYDB_ASYNC))
+     * harm and this way the flush and purge will be synchronous.
+     *
+     * Take care purge only FLUSHDB for sync flow. FLUSHALL sync flow already
+     * applied at flushAllDataAndResetRDB. Async flow will apply only later on */
+    if ((!isFlushAll) && (!(flags & EMPTYDB_ASYNC))) {
+        /* Only clear the current thread cache.
+         * Ignore the return call since this will fail if the tcache is disabled. */
+        je_mallctl("thread.tcache.flush", NULL, NULL, NULL, 0);
+
         jemalloc_purge();
+    }
 #endif
 }
 
-/* FLUSHALL [ASYNC]
+/* FLUSHALL [SYNC|ASYNC]
  *
  * Flushes the whole server data set. */
 void flushallCommand(client *c) {
-    int flags;
-    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
-    /* flushall should not flush the functions */
-    flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
+    flushCommandCommon(c, 1);
+}
 
-    /* Without the forceCommandPropagation, when DBs were already empty,
-     * FLUSHALL will not be replicated nor put into the AOF. */
-    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
-
-    addReply(c,shared.ok);
+/* FLUSHDB [SYNC|ASYNC]
+ *
+ * Flushes the currently SELECTed Redis DB. */
+void flushdbCommand(client *c) {
+    flushCommandCommon(c, 0);
 }
 
 /* This command implements DEL and UNLINK. */
