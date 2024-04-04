@@ -5700,9 +5700,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "allocator_active:%zu\r\n", server.cron_malloc_stats.allocator_active,
             "allocator_resident:%zu\r\n", server.cron_malloc_stats.allocator_resident,
             "allocator_muzzy:%zu\r\n", server.cron_malloc_stats.allocator_muzzy,
-            "allocator_allocated_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_allocated,
-            "allocator_active_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_active,
-            "allocator_resident_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_resident,
             "total_system_memory:%lu\r\n", (unsigned long)total_system_mem,
             "total_system_memory_human:%s\r\n", total_system_hmem,
             "used_memory_lua:%lld\r\n", memory_lua, /* deprecated, renamed to used_memory_vm_eval */
@@ -5722,8 +5719,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "maxmemory_human:%s\r\n", maxmemory_hmem,
             "maxmemory_policy:%s\r\n", evict_policy,
             "allocator_frag_ratio:%.2f\r\n", mh->allocator_frag,
-            "allocator_frag_bytes:%zu\r\n", mh->allocator_frag_bytes, /* not include lua */
-            "allocator_frag_bytes_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes,
+            "allocator_frag_bytes:%zu\r\n", mh->allocator_frag_bytes,
             "allocator_rss_ratio:%.2f\r\n", mh->allocator_rss,
             "allocator_rss_bytes:%zd\r\n", mh->allocator_rss_bytes,
             "rss_overhead_ratio:%.2f\r\n", mh->rss_extra,
@@ -6148,7 +6144,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_aof_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_AOF].sum,
             "eventloop_duration_cron_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CRON].sum,
             "eventloop_duration_max:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].max,
-            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max));
+            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max,
+            "allocator_allocated_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_allocated,
+            "allocator_active_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_active,
+            "allocator_resident_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_resident,
+            "allocator_frag_bytes_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes));
     }
 
     return info;
