@@ -603,9 +603,12 @@ void migrateCommand(client *c) {
         goto socket_err;
 
     /* Read the RESTORE replies. */
-    int error_from_target = 0;
-    int socket_error = 0;
-    int del_idx = 1; /* Index of the key argument for the replicated DEL op. */
+    int error_from_target;
+    error_from_target = 0;
+    int socket_error;
+    socket_error = 0;
+    int del_idx; 
+    del_idx = 1; /* Index of the key argument for the replicated DEL op. */
 
     /* Allocate the new argument vector that will replace the current command,
      * to propagate the MIGRATE as a DEL command (if no COPY option was given).
