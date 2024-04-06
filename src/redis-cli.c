@@ -10451,7 +10451,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     struct hdr_histogram* keysize_histogram;
     /* Record max of 1TB for a key size should cover all keys.
      * significant_figures == 4 (0.01% precision on key size)  */
-    if (hdr_init(1, INT64_C(1ULL*1024*1024*1024*1024), 4, &keysize_histogram)) {
+    if (hdr_init(1, 1ULL*1024*1024*1024*1024, 4, &keysize_histogram)) {
         fprintf(stderr, "Keystats hdr init error\n");
         exit(1);
     }
