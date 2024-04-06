@@ -10389,7 +10389,7 @@ static void updateKeyType(redisReply *element, unsigned long long size, typeinfo
         /* Keep track of biggest key name for this type */
         if (type->biggest_key)
             sdsfree(type->biggest_key);
-        type->biggest_key = sdscatrepr(sdsempty(), element->str, element->len);
+        type->biggest_key = sdsnewlen(element->str, element->len);
         if (!type->biggest_key) {
             fprintf(stderr, "Failed to allocate memory for key!\n");
             exit(1);
@@ -10411,9 +10411,9 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         it = cursor;
     }
 
-    if ((top_sizes = listCreate()) == NULL){
-	    fprintf(stderr, "top_sizes list creation failed.\n");
-	    exit(1);
+    if ((top_sizes = listCreate()) == NULL) {
+        fprintf(stderr, "top_sizes list creation failed.\n");
+        exit(1);
     }
     top_sizes->free = zfree;
 
@@ -10452,8 +10452,8 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     /* Record max of 1TB for a key size should cover all keys.
      * significant_figures == 4 (0.01% precision on key size)  */
     if (hdr_init(1, INT64_C(1ULL*1024*1024*1024*1024), 4, &keysize_histogram)) {
-	    fprintf(stderr, "Keystats hdr init error\n");
-	    exit(1);
+        fprintf(stderr, "Keystats hdr init error\n");
+        exit(1);
     }
 
     signal(SIGINT, longStatLoopModeStop);
@@ -10568,8 +10568,8 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     /* sdsfree before listRelease */
     listIter *iter = listGetIterator(top_sizes, AL_START_HEAD);
     listNode *node;
-    for (node = listNext(iter); node != NULL; node = listNext(iter)) {
-        key_info *key = (key_info*) node->value;
+    while ((node = listNext(iter)) != NULL) {
+        key_info *key = (key_info*) listNodeValue(node);
         sdsfree(key->key_name);
     }
     listReleaseIterator(iter);
