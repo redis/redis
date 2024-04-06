@@ -143,7 +143,7 @@ start_server {
 
         config_set list-compress-depth $orig_depth
         config_set list-max-listpack-size $orig_fill
-    } {} {needs:debug}
+    } {} {needs:debug external:skip}
 
 foreach comp {2 1 0} {
     set cycles 1000
