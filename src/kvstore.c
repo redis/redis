@@ -568,7 +568,11 @@ void kvstoreIteratorRelease(kvstoreIterator *kvs_it) {
     zfree(kvs_it);
 }
 
-/* Returns next dictionary from the iterator, or NULL if iteration is complete. */
+
+/* Returns next dictionary from the iterator, or NULL if iteration is complete.
+ *
+ * - Takes care to reset the iter of the previous dict before moved to the next dict.
+ */
 dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it) {
     if (kvs_it->next_didx == -1)
         return NULL;
@@ -596,16 +600,14 @@ int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it) {
 dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
     dictEntry *de = kvs_it->di.d ? dictNext(&kvs_it->di) : NULL;
     if (!de) { /* No current dict or reached the end of the dictionary. */
+
+        /* Before we move to the next dict, function kvstoreIteratorNextDict()
+         * reset the iter of the previous dict & freeDictIfNeeded(). */
         dict *d = kvstoreIteratorNextDict(kvs_it);
+
         if (!d)
             return NULL;
-        if (kvs_it->di.d) {
-            /* Before we move to the next dict, reset the iter of the previous dict. */
-            dictIterator *iter = &kvs_it->di;
-            dictResetIterator(iter);
-            /* In the safe iterator context, we may delete entries. */
-            freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
-        }
+
         dictInitSafeIterator(&kvs_it->di, d);
         de = dictNext(&kvs_it->di);
     }

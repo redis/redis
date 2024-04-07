@@ -196,6 +196,7 @@ int call_with_user_bg(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     pthread_t tid;
     int res = pthread_create(&tid, NULL, bg_call_worker, bg);
     assert(res == 0);
+    pthread_detach(tid);
 
     return REDISMODULE_OK;
 }

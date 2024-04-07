@@ -185,7 +185,7 @@ int propagateTestThreadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     pthread_t tid;
     if (pthread_create(&tid,NULL,threadMain,NULL) != 0)
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
-    REDISMODULE_NOT_USED(tid);
+    pthread_detach(tid);
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
@@ -216,7 +216,7 @@ int propagateTestDetachedThreadCommand(RedisModuleCtx *ctx, RedisModuleString **
     pthread_t tid;
     if (pthread_create(&tid,NULL,threadDetachedMain,NULL) != 0)
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
-    REDISMODULE_NOT_USED(tid);
+    pthread_detach(tid);
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
