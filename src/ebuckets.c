@@ -99,7 +99,7 @@ typedef struct CommonSegHdr {
  *                    +-------------------------------------------------------+
  *
  * Note that the cyclic references assist to update locally the segment(s) without
- * the need to "heavy" update of the rax tree for each change.
+ * the need to "heavy" traversal of the rax tree for each change.
  */
 typedef struct FirstSegHdr {
     eItem head;          /* first item in the list */
@@ -249,19 +249,14 @@ static int ebSegAddAvail(EbucketsType *type, FirstSegHdr *seg, eItem item) {
     ExpireMeta *nextMeta;
     ExpireMeta *mHead = type->getExpireMeta(head);
     ExpireMeta *mItem = type->getExpireMeta(item);
+    uint64_t itemExpireTime = ebGetMetaExpTime(mItem);
 
     seg->totalItems++;
 
     assert(mHead->numItems < EB_SEG_MAX_ITEMS);
 
-    /* reset item meta (TMP: later will be done by caller) */
-    mItem->numItems = 0;
-    mItem->lastInSegment = 0;
-    mItem->firstItemBucket = 0;
-    mItem->lastItemBucket = 0;
-
     /* if new item expiry time is smaller than the head then add it before the head */
-    if (ebGetMetaExpTime(mHead) > ebGetMetaExpTime(mItem)) {
+    if (ebGetMetaExpTime(mHead) > itemExpireTime) {
         /* Insert item as the new head */
         mItem->next = head;
         mItem->firstItemBucket = mHead->firstItemBucket;
@@ -277,7 +272,7 @@ static int ebSegAddAvail(EbucketsType *type, FirstSegHdr *seg, eItem item) {
     for (int i = 1 ; i < mHead->numItems ; i++) {
         nextMeta = type->getExpireMeta(mIter->next);
         /* Insert item in the middle */
-        if (ebGetMetaExpTime(nextMeta) > ebGetMetaExpTime(mItem)) {
+        if (ebGetMetaExpTime(nextMeta) > itemExpireTime) {
             mHead->numItems = mHead->numItems + 1;
             mItem->next = mIter->next;
             mIter->next = item;
@@ -572,7 +567,7 @@ static int ebAddToList(ebuckets *eb, EbucketsType *type, eItem item) {
 
     /* if ebucket-list is empty (NULL), then create a new list by marking 'item'
      * as the head and tail of the list */
-    if (unlikely(*eb == NULL)) {
+    if (unlikely(ebIsEmpty(*eb))) {
         metaItem->next = NULL;
         metaItem->numItems = 1;
         metaItem->lastInSegment = 1;
@@ -630,7 +625,7 @@ static int ebAddToList(ebuckets *eb, EbucketsType *type, eItem item) {
 
 /* return 0 if removed from list. Otherwise return 1 */
 static int ebRemoveFromList(ebuckets *eb, EbucketsType *type, eItem item) {
-    if (*eb == NULL)
+    if (ebIsEmpty(*eb))
         return 1; /* not found */
 
     ExpireMeta *metaItem = type->getExpireMeta(item);
@@ -1286,7 +1281,7 @@ void ebRaxDeleteCb(void *item, void *context) {
 }
 
 static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int printItems) {
-    if (eb == NULL) {
+    if (ebIsEmpty(eb)) {
         printf("Empty ebuckets\n");
         return;
     }
@@ -1355,7 +1350,7 @@ static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int print
  * @param ctx - A context pointer that can be used in optional item deletion callbacks.
  */
 void ebDestroy(ebuckets *eb, EbucketsType *type, void *ctx) {
-    if (*eb == NULL)
+    if (ebIsEmpty(*eb))
         return;
 
     if (ebIsList(*eb)) {
@@ -1435,7 +1430,7 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
     itemMeta->numItems = 0;
     itemMeta->trash = 0;
 
-    if (ebIsList(*eb) || (*eb == NULL)) {
+    if (ebIsList(*eb) || (ebIsEmpty(*eb))) {
         /* Try add item to list */
         if ( (res = ebAddToList(eb, type, item)) == 1) {
             /* Failed to add since list reached maximum size. Convert to rax */
@@ -1472,7 +1467,7 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
     info->itemsExpired = 0;
 
     /* if empty ebuckets */
-    if (*eb == NULL) return;
+    if (ebIsEmpty(*eb)) return;
 
     if (ebIsList(*eb)) {
         ebListExpire(eb, type, info, &updateList);
@@ -1549,7 +1544,7 @@ END_ACTEXP:
  * @param now - The current time in milliseconds.
  */
 uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
-    if (eb == NULL) return 0;
+    if (ebIsEmpty(eb)) return 0;
 
     uint64_t numExpired = 0;
 
@@ -1657,7 +1652,7 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
  *         the ebucket. If empty, return EB_EXPIRE_TIME_INVALID.
  */
 uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type, int accurate) {
-    if (eb == NULL)
+    if (ebIsEmpty(eb))
         return EB_EXPIRE_TIME_INVALID;
 
     if (ebIsList(eb))
@@ -1730,7 +1725,7 @@ uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type, int accurate) {
  *         the ebucket. If empty, return EB_EXPIRE_TIME_INVALID.
  */
 uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate) {
-    if (eb == NULL)
+    if (ebIsEmpty(eb))
         return EB_EXPIRE_TIME_INVALID;
 
     if (ebIsList(eb)) {
@@ -1788,7 +1783,7 @@ uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate) {
  * Retrieves the total number of items in the ebucket.
  */
 uint64_t ebGetTotalItems(ebuckets eb, EbucketsType *type) {
-    if (eb == NULL)
+    if (ebIsEmpty(eb))
         return 0;
 
     if (ebIsList(eb))
@@ -1804,7 +1799,7 @@ void ebPrint(ebuckets eb, EbucketsType *type) {
 
 /* Validate the general structure of ebuckets. Calls assert(0) on error. */
 void ebValidate(ebuckets eb, EbucketsType *type) {
-    if (eb == NULL)
+    if (ebIsEmpty(eb))
         return;
 
     if (ebIsList(eb))
@@ -1893,6 +1888,10 @@ void addItems(ebuckets *eb, uint64_t startExpire, int step, uint64_t numItems, M
     }
 }
 
+/* mimic configuration "hash-field-expiry-bits" */
+int hashFieldExpiryBits = 0;
+#define ROUND(v) (v + ((1<<hashFieldExpiryBits)-1)) & ~((1<<hashFieldExpiryBits)-1)
+
 /* expireRanges - is given as bucket-key to be agnostic to the different configuration
  *                of EB_BUCKET_KEY_PRECISION */
 void distributeTest(int lowestTime,
@@ -1917,6 +1916,7 @@ void distributeTest(int lowestTime,
         uint64_t endRange = EB_BUCKET_EXP_TIME(expireRanges[i]);
         for (int j = 0; j < ItemsPerRange[i]; j++) {
             uint64_t randomExpirey = (rand() % (endRange - startRange)) + startRange;
+            randomExpirey = ROUND(randomExpirey);
             expItemsHashValue = expItemsHashValue ^ (uint32_t) randomExpirey;
             MyItem *item = zmalloc(sizeof(MyItem));
             getMyItemExpireMeta(item)->next = listOfItems;
@@ -2013,13 +2013,13 @@ int ebucketsTest(int argc, char **argv, int flags) {
 #ifdef EB_TEST_BENCHMARK
     TEST("ebuckets - benchmark 10 million items: alloc + add + activeExpire") {
         /* All mapped to same EB_BUCKET_KEY() */
-        //uint64_t expireRanges[] = { 1805092100000, 1805092100001};      // 1 msec distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805092101000};      // 1 sec distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805092160000};      // 1 min distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805095700000};      // 1 hour distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805178500000};      // 1 day distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805696900000};      // 1 week distribution
-        uint64_t expireRanges[]   = { 1805092100000, 1807684100000};      // 1 month distribution
+        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805092100001)};      // 1 msec distribution
+        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805092101000)};      // 1 sec distribution
+        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805092160000)};      // 1 min distribution
+        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805095700000)};      // 1 hour distribution
+        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805178500000)};      // 1 day distribution
+        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805696900000)};      // 1 week distribution
+        uint64_t expireRanges[]   = { 1805092100000, ROUND(1807684100000)};      // 1 month distribution
         int itemsPerRange[] = {  0, 10000000 };
 
         /* expireRanges[] is given as bucket-key values */

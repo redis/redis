@@ -15,7 +15,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx);
 static ExpireMeta* hfieldGetExpireMeta(const eItem field);
 static ExpireMeta *hashGetExpireMeta(const eItem item);
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit);
-static ExpireAction hashTypeActiveExpire(eItem hashObj, void *dbCtx);
+static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(redisDb *db, robj *hashObj, hfield field);
 static uint64_t hfieldGetExpireTime(hfield field);
 
@@ -105,6 +105,12 @@ typedef struct dictExpireMetadata {
                                for notification and deletion of the object, if
                                needed. */
 } dictExpireMetadata;
+
+/* ActiveExpireCtx passed to hashTypeActiveExpire() */
+typedef struct ActiveExpireCtx {
+    uint32_t fieldsToExpireQuota;
+    redisDb *db;
+} ActiveExpireCtx;
 
 /* The implementation of hashes by dict was modified from storing fields as sds
  * strings to store "mstr" (Immutable string with metadata) in order to be able to
@@ -495,10 +501,11 @@ void hashTypeRename(robj *o, sds newName) {
     }
 }
 
-/* Check if the hash object is empty or not
+/* Check if the hash object is empty
  *
- * Note: Better use this func rather than doing: (hashTypeLength(o,1)==0)
- * Can be faster in case of HFE.
+ * If using HFE feature, there is an option to hash to still be defined with
+ * items but logically be empty. Better use this func rather than checking length
+ * (hashTypeLength(o,1)==0). It might be faster in case of many pending expired fields.
  */
 int hashTypeIsEmpty(const robj *o) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -920,9 +927,13 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, listpackEntry 
  *   by returning ACT_REMOVE_EXP_ITEM.
  * - If hash has no more fields afterward, it will remove the hash from keyspace.
  */
-static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *dbCtx) {
+static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     robj *hashObj = (robj *) _hashObj;
-    redisDb *db = (redisDb *) dbCtx;
+    ActiveExpireCtx *activeExpireCtx = (ActiveExpireCtx *) ctx;
+
+    /* If no more quota left for this callback, stop */
+    if (activeExpireCtx->fieldsToExpireQuota == 0)
+        return ACT_STOP_ACTIVE_EXP;
 
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK) {
         serverPanic("Listpack encoding not supported yet");
@@ -933,21 +944,25 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *dbCtx) {
     dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
 
     ExpireInfo info = {
-            .maxToExpire = 0xFFFF,
-            .onExpireItem = onFieldExpire,
-            .ctx = hashObj,
-            .now = commandTimeSnapshot(),
-            .itemsExpired = 0};
+        .maxToExpire = activeExpireCtx->fieldsToExpireQuota,
+        .onExpireItem = onFieldExpire,
+        .ctx = hashObj,
+        .now = commandTimeSnapshot(),
+        .itemsExpired = 0
+    };
 
     ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
+
+    /* Update quota left */
+    activeExpireCtx->fieldsToExpireQuota -= info.itemsExpired;
 
     /* If hash has no more fields to expire, remove it from HFE DB */
     if (info.nextExpireTime == 0) {
         if (hashTypeLength(hashObj, 0) == 0) {
             robj *key = createStringObject(dictExpireMeta->key, sdslen(dictExpireMeta->key));
-            dbDelete(db, key);
+            dbDelete(activeExpireCtx->db, key);
             //notifyKeyspaceEvent(NOTIFY_HASH,"xxxxxxxxx",c->argv[1],c->db->id);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key, db->id);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key, activeExpireCtx->db->id);
             server.dirty++;
             signalModifiedKey(NULL, &server.db[0], key);
             decrRefCount(key);
@@ -1093,17 +1108,22 @@ void hashTypeAddToExpires(redisDb *db, robj *keyObj, robj *hashObj, uint64_t exp
  *   expiration time in HFE DB.
  * - If the hash has no more fields to expire, it is removed from the HFE DB.
  * - If the hash has no more fields, it is removed from the main DB.
+ *
+ * Returns number of fields active-expired.
  */
-void hashTypeDbActiveExpire(redisDb *db) {
+uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire) {
+    ActiveExpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire };
     ExpireInfo info = {
-            .maxToExpire = 0xFFFFFFFFFFFFFF,
+            .maxToExpire = UINT64_MAX, /* Only maxFieldsToExpire play a role */
             .onExpireItem = hashTypeActiveExpire,
-            .ctx = NULL,  /* filled below with db */
+            .ctx = &ctx,
             .now = commandTimeSnapshot(),
             .itemsExpired = 0};
 
-    info.ctx = db;
     ebExpire(&db->hexpires, &hashExpireBucketsType, &info);
+
+    /* Return number of fields active-expired */
+    return maxFieldsToExpire - ctx.fieldsToExpireQuota;
 }
 
 /*-----------------------------------------------------------------------------
@@ -1781,7 +1801,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     robj *hashobj = (robj *) ctx;
     dictUseStoredKeyApi((dict *)hashobj->ptr, 1);
     hashTypeDelete(hashobj, hf);
-    server.stat_expiredHashFields++;
+    server.stat_expired_hash_fields++;
     dictUseStoredKeyApi((dict *)hashobj->ptr, 0);
     return ACT_REMOVE_EXP_ITEM;
 }
@@ -1966,6 +1986,20 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
         return;
     }
     expire += basetime;
+
+    /* Adjust the expiration time to match the configured precision reduction.
+     * This optimizes the aggregation of keys into buckets of `ebucetks` down
+     * to ~seconds, ~minutes, ~hours, etc, rather than msec resolution */
+    if (server.hash_field_expiry_bits) {
+        uint64_t tmp = (1 << server.hash_field_expiry_bits)-1;
+        expire = (expire + tmp) & ~tmp;
+
+        /* Check expire overflow after rounding */
+        if (expire > (long long) EB_EXPIRE_TIME_MAX) {
+            addReplyErrorExpireTime(c);
+            return;
+        }
+    }
 
     /* Read optional flag [NX|XX|GT|LT] */
     char *optArg = c->argv[3]->ptr;

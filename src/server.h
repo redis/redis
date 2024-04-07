@@ -1638,7 +1638,7 @@ struct redisServer {
     long long stat_numcommands;     /* Number of processed commands */
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */
-    long long stat_expiredHashFields; /* Number of expired hash-fields */
+    long long stat_expired_hash_fields; /* Number of expired hash-fields */
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
@@ -1723,6 +1723,8 @@ struct redisServer {
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
     int lazy_expire_disabled;       /* If > 0, don't trigger lazy expire */
+    int hash_field_expiry_bits;     /* LSB bits to discard from HFE expiration
+                                     * value. Optimize HFE DS by reducing precision. */
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
@@ -3456,7 +3458,7 @@ void expireSlaveKeys(void);
 void rememberSlaveKeyWithExpire(redisDb *db, robj *key);
 void flushSlaveKeysWithExpireList(void);
 size_t getSlaveKeyWithExpireCount(void);
-void hashTypeDbActiveExpire(redisDb *db);
+uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);

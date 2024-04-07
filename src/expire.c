@@ -94,6 +94,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* Max % of CPU to use. */
 #define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
                                                    we do extra efforts. */
+#define HFE_ACTIVE_EXPIRE_CYCLE_FIELDS 1000
 
 /* Data used by the expire dict scan callback. */
 typedef struct {
@@ -132,6 +133,53 @@ static inline int isExpiryDictValidForSamplingCb(dict *d) {
         return C_ERR;
     }
     return C_OK;
+}
+
+/* Active expiration Cycle for hash-fields.
+ *
+ * Note that releasing fields is expected to be more predictable and rewarding
+ * than releasing keys because it is stored in `ebuckets` DS which optimized for
+ * active expiration and in addition the deletion of fields is simple to handle. */
+static inline void activeExpireHashFieldCycle(int type) {
+    /* Remember current db across calls */
+    static unsigned int currentDb = 0;
+
+    /* Tracks the count of fields actively expired for the current database.
+     * This count continues as long as it fails to actively expire all expired
+     * fields of currentDb, indicating a possible need to adjust the value of
+     * maxToExpire. */
+    static uint64_t activeExpirySequence = 0;
+    /* Threshold for adjusting maxToExpire */
+    const uint32_t EXPIRED_FIELDS_TH = 1000000;
+    /* Maximum number of fields to actively expire in a single call */
+    uint32_t maxToExpire = HFE_ACTIVE_EXPIRE_CYCLE_FIELDS;
+
+    redisDb *db = server.db + currentDb;
+
+    /* If db is empty, move to next db and return */
+    if(ebIsEmpty(db->hexpires)) {
+        activeExpirySequence = 0;
+        currentDb = (currentDb + 1) % server.dbnum;
+        return;
+    }
+
+    /* If running for a while and didn't manage to active-expire all expired fields of
+     * currentDb (i.e. activeExpirySequence becomes significant) then adjust maxToExpire */
+    if ((activeExpirySequence > EXPIRED_FIELDS_TH) && (type == ACTIVE_EXPIRE_CYCLE_SLOW) ) {
+        /* maxToExpire is multiplied by a factor between 1 and 32, proportional to
+         * the number of times activeExpirySequence exceeded EXPIRED_FIELDS_TH */
+        uint64_t factor = activeExpirySequence / EXPIRED_FIELDS_TH;
+        maxToExpire *= (factor<32) ? factor : 32;
+    }
+
+    if (hashTypeDbActiveExpire(db, maxToExpire) == maxToExpire) {
+        /* active-expire reached maxToExpire limit */
+        activeExpirySequence += maxToExpire;
+    } else {
+        /* Managed to active-expire all expired fields of currentDb */
+        activeExpirySequence = 0;
+        currentDb = (currentDb + 1) % server.dbnum;
+    }
 }
 
 void activeExpireCycle(int type) {
@@ -232,6 +280,11 @@ void activeExpireCycle(int type) {
          * distribute the time evenly across DBs. */
         current_db++;
 
+        /* Interleaving hash-field expiration with key expiration. Better
+         * call it before handling expired keys because HFE DS is optimized for
+         * active expiration */
+        activeExpireHashFieldCycle(type);
+
         if (kvstoreSize(db->expires))
             dbs_performed++;
 
@@ -242,10 +295,6 @@ void activeExpireCycle(int type) {
         do {
             unsigned long num;
             iteration++;
-
-            /* If ebuckets DS of hash-field expire is not empty */
-            if (db->hexpires)
-                hashTypeDbActiveExpire(db);
 
             /* If there is nothing to expire try next DB ASAP. */
             if ((num = kvstoreSize(db->expires)) == 0) {

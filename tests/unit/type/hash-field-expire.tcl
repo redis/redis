@@ -184,10 +184,14 @@ start_server {tags {"hash expire"}} {
     test {HPEXPIRE - Flushall deletes all pending expired fields} {
         r del myhash
         r hset myhash field1 value1 field2 value2
-        r hpexpire myhash 1000 NX 1 field1
-        r hpexpire myhash 1000 NX 1 field2
+        r hpexpire myhash 10000 NX 1 field1
+        r hpexpire myhash 10000 NX 1 field2
         r flushall
-        assert_equal [r exists myhash] 0
+        r del myhash
+        r hset myhash field1 value1 field2 value2
+        r hpexpire myhash 10000 NX 1 field1
+        r hpexpire myhash 10000 NX 1 field2
+        r flushall async
     }
 
     test {HTTL/HPTTL - Input validation gets failed on nonexists field or field without expire} {

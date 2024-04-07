@@ -243,6 +243,8 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info);
 
 uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now);
 
+static inline int ebIsEmpty(ebuckets eb) { return eb == NULL; }
+
 uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type, int accurate);
 
 uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate);
