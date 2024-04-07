@@ -90,6 +90,7 @@ int acquire_gil(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     pthread_t tid;
     int res = pthread_create(&tid, NULL, worker, bc);
     assert(res == 0);
+    pthread_detach(tid);
 
     return REDISMODULE_OK;
 }
@@ -195,6 +196,7 @@ int do_bg_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     pthread_t tid;
     int res = pthread_create(&tid, NULL, bg_call_worker, bg);
     assert(res == 0);
+    pthread_detach(tid);
 
     return REDISMODULE_OK;
 }
@@ -344,6 +346,7 @@ static void rm_call_async_reply_on_thread(RedisModuleCtx *ctx, RedisModuleCallRe
     pthread_t tid;
     int res = pthread_create(&tid, NULL, send_async_reply, ta_rm_call_ctx);
     assert(res == 0);
+    pthread_detach(tid);
 }
 
 /*

@@ -1,8 +1,71 @@
-Note: by contributing code to the Redis project in any form, including sending
-a pull request via GitHub, a code fragment or patch via private email or
-public discussion groups, you agree to release your code under the terms
-of the Redis license that you can find in the COPYING file included in the Redis
-source distribution.
+By contributing code to the Redis project in any form you agree to the Redis Software Grant and
+Contributor License Agreement attached below. Only contributions made under the Redis Software Grant
+and Contributor License Agreement may be accepted by Redis, and any contribution is subject to the
+terms of the Redis dual-license under RSALv2/SSPLv1 as described in the LICENSE.txt file included in
+the Redis source distribution.
+
+# REDIS SOFTWARE GRANT AND CONTRIBUTOR LICENSE AGREEMENT
+
+To specify the intellectual property license granted in any Contribution, Redis Ltd., ("**Redis**")
+requires a Software Grant and Contributor License Agreement ("**Agreement**"). This Agreement is for
+your protection as a contributor as well as the protection of Redis and its users; it does not
+change your rights to use your own Contribution for any other purpose.
+
+By making any Contribution, You accept and agree to the following terms and conditions for the
+Contribution. Except for the license granted in this Agreement to Redis and the recipients of the
+software distributed by Redis, You reserve all right, title, and interest in and to Your
+Contribution.
+
+1. **Definitions**
+
+    1.1. "**You**" (or "**Your**") means the copyright owner or legal entity authorized by the
+    copyright owner that is entering into this Agreement with Redis. For legal entities, the entity
+    making a Contribution and all other entities that Control, are Controlled by, or are under
+    common Control with that entity are considered to be a single contributor. For the purposes of
+    this definition, "**Control**" means (i) the power, direct or indirect, to cause the direction
+    or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty
+    percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
+
+    1.2. "**Contribution**" means the code, documentation, or any original work of authorship,
+    including any modifications or additions to an existing work described above.
+
+2. "**Work**" means any software project stewarded by Redis.
+
+3. **Grant of Copyright License**. Subject to the terms and conditions of this Agreement, You grant
+   to Redis and to the recipients of the software distributed by Redis a perpetual, worldwide,
+   non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare
+   derivative works of, publicly display, publicly perform, sublicense, and distribute Your
+   Contribution and such derivative works.
+
+4. **Grant of Patent License**. Subject to the terms and conditions of this Agreement, You grant to
+   Redis and to the recipients of the software distributed by Redis a perpetual, worldwide,
+   non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent
+   license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work,
+   where such license applies only to those patent claims licensable by You that are necessarily
+   infringed by Your Contribution alone or by a combination of Your Contribution with the Work to
+   which such Contribution was submitted. If any entity institutes patent litigation against You or
+   any other entity (including a cross-claim or counterclaim in a lawsuit) alleging that your
+   Contribution, or the Work to which you have contributed, constitutes a direct or contributory
+   patent infringement, then any patent licenses granted to the claimant entity under this Agreement
+   for that Contribution or Work terminate as of the date such litigation is filed.
+
+5. **Representations and Warranties**. You represent and warrant that: (i) You are legally entitled
+   to grant the above licenses; and (ii) if You are an entity, each employee or agent designated by
+   You is authorized to submit the Contribution on behalf of You; and (iii) your Contribution is
+   Your original work, and that it will not infringe on any third party's intellectual property
+   right(s).
+
+6. **Disclaimer**. You are not expected to provide support for Your Contribution, except to the
+   extent You desire to provide support. You may provide support for free, for a fee, or not at all.
+   Unless required by applicable law or agreed to in writing, You provide Your Contribution on an
+   "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied,
+   including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT,
+   MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
+
+7. **Enforceability**. Nothing in this Agreement will be construed as creating any joint venture,
+   employment relationship, or partnership between You and Redis. If any provision of this Agreement
+   is held to be unenforceable, the remaining provisions of this Agreement will not be affected.
+   This represents the entire agreement between You and Redis relating to the Contribution.
 
 # IMPORTANT: HOW TO USE REDIS GITHUB ISSUES
 
@@ -52,4 +115,4 @@ view, and so forth. This helps.
 
 4. For minor fixes - open a pull request on GitHub.
 
-Thanks!
+Additional information on the RSALv2/SSPLv1 dual-license is also found in the LICENSE.txt file.
