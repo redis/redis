@@ -142,6 +142,8 @@
 /* DNS lookup */
 #define NET_IP_STR_LEN 46       /* INET6_ADDRSTRLEN is 46 */
 
+#define REFRESH_INTERVAL 300 /* milliseconds */
+
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
 int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
@@ -9217,6 +9219,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     dictEntry *de;
     typeinfo **types = NULL;
     double pct;
+    long long refresh_time = mstime();
 
     dict *types_dict = dictCreate(&typeinfoDictType);
     typeinfo_add(types_dict, "string", &type_string);
@@ -9304,8 +9307,10 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
             }
 
             /* Show the progress bar in TTY */
-            if (scan_loops % 10 == 0 && (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {            
+            if (mstime() > refresh_time + REFRESH_INTERVAL && 
+                (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
                 int line_count = 0;
+                refresh_time = mstime();
 
                 line_count = displayKeyStatsProgressbar(sampled, total_keys);
                 line_count += cleanPrintfln("");
@@ -9434,6 +9439,7 @@ static void findHotKeys(void) {
     unsigned long long sampled = 0, total_keys, *freqs = NULL, it = 0, scan_loops = 0;
     unsigned int arrsize = 0, i, k;
     double pct;
+    long long refresh_time = mstime();
 
     signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
@@ -9506,8 +9512,10 @@ static void findHotKeys(void) {
         }
 
         /* Show the progress bar in TTY */
-        if (scan_loops % 10 == 0 && (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+        if (mstime() > refresh_time + REFRESH_INTERVAL && 
+            (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
             int line_count = 0;
+            refresh_time = mstime();
 
             line_count = displayKeyStatsProgressbar(sampled, total_keys);
             line_count += cleanPrintfln("");
@@ -10031,8 +10039,8 @@ typedef struct size_dist {
     size_dist_entry *size_dist;
 } size_dist;
 
-/* distribution is an array initialized with last element {0, 0}                  */
-/* for instance: size_dist_entry distribution[] = { {32, 0}, {256, 0}, {0, 0} }; */
+/* distribution is an array initialized with last element {UINT64_MAX, 0}
+ * for instance: size_dist_entry distribution[] = { {32, 0}, {256, 0}, {UINT64_MAX, 0} }; */
 static void sizeDistInit(size_dist *dist, size_dist_entry *distribution) {
     dist->max_size = 0;
     dist->total_count = 0;
@@ -10049,7 +10057,7 @@ static void addSizeDist(size_dist *dist, unsigned long long size) {
     }
 
     int j;
-    for (j=0; size > dist->size_dist[j].size && dist->size_dist[j].size; j++);
+    for (j=0; size > dist->size_dist[j].size; j++);
     dist->size_dist[j].count++;
 }
 
@@ -10061,7 +10069,7 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
     line_count += cleanPrintfln("Key length     Percentile Total keys");
     line_count += cleanPrintfln("-------------- ---------- -----------");
 
-    for (int i = 0; dist->size_dist[i].size; i++) {
+    for (int i=0; dist->size_dist[i].size < UINT64_MAX; i++) {
         if (dist->size_dist[i].count) {
             if (dist->max_size < dist->size_dist[i].size) {
                 size = dist->max_size;
@@ -10282,8 +10290,8 @@ static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_
     char buffer[32];
     listIter *iter = listGetIterator(top_key_sizes, AL_START_HEAD);
     listNode *node;
-    for (node = listNext(iter); node != NULL; node = listNext(iter)) {
-        key_info *key = (key_info*) node->value;
+    while ((node = listNext(iter)) != NULL) {
+        key_info *key = (key_info*) listNodeValue(node);
         line_count += cleanPrintfln("%3d %8s %-10s %s",
                                     ++i,
                                     bytesToHuman(buffer, sizeof(buffer), key->size),
@@ -10406,6 +10414,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     unsigned int array_size = 0, i;
     typeinfo **memkeys_types = NULL, **bigkeys_types = NULL;
     list *top_sizes;
+    long long refresh_time = mstime();
 
     if (cursor != 0) {
         it = cursor;
@@ -10444,7 +10453,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         {16*1024*1024, 0},         /*  16 MB                                                  */
         {128*1024*1024, 0},        /* 128 MB                                                  */
         {512*1024*1024, 0},        /* 512 MB (max String size)                                */
-        {0, 0},                    /* Sizes above the last entry                              */
+        {UINT64_MAX, 0},           /* Sizes above the last entry                              */
     };
     sizeDistInit(&key_length_dist, distribution);
 
@@ -10525,10 +10534,12 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
             addSizeDist(&key_length_dist, keys->element[i]->len);
         }
 
-        /* refresh keystats info on regular basis */
-        if (scan_loops % 10 == 0 && (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
-             displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict,
+        /* Refresh keystats info on regular basis */
+        if (mstime() > refresh_time + REFRESH_INTERVAL && 
+            (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+            displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict,
                 top_sizes, top_sizes_limit, 1);
+            refresh_time = mstime();
         }
 
         /* Sleep if we've been directed to do so */
