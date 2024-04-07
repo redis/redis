@@ -2383,7 +2383,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                     /* Release the GIL, yielding CPU to give the main thread an opportunity to start
                      * event processing, and then acquire the GIL again until the main thread releases it. */
                     moduleReleaseGIL();
-                    sched_yield();
+                    usleep(0);
                     moduleAcquireGIL();
                 }
             } else {
