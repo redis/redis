@@ -602,16 +602,12 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
     if (!de) { /* No current dict or reached the end of the dictionary. */
 
         /* Before we move to the next dict, function kvstoreIteratorNextDict()
-         * reset the iter of the previous dict. */
+         * reset the iter of the previous dict & freeDictIfNeeded(). */
         dict *d = kvstoreIteratorNextDict(kvs_it);
 
         if (!d)
             return NULL;
 
-        if (kvs_it->di.d) {
-            /* In the safe iterator context, we may delete entries. */
-            freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
-        }
         dictInitSafeIterator(&kvs_it->di, d);
         de = dictNext(&kvs_it->di);
     }

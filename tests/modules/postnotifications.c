@@ -170,6 +170,7 @@ static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleSt
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 
