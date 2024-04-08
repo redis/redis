@@ -9101,7 +9101,7 @@ static void sendReadOnly(void) {
         exit(1);
     } else if (read_reply->type == REDIS_REPLY_ERROR && 
                strcmp(read_reply->str, "ERR This instance has cluster support disabled") != 0 &&
-               strcmp(read_reply->str, "ERR unknown command 'READONLY'") != 0) {
+               strncmp(read_reply->str, "ERR unknown command", 19) != 0) {
         fprintf(stderr, "Error: %s\n", read_reply->str);
         exit(1);
     }
