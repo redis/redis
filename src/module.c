@@ -3540,22 +3540,19 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  * the AOF or the replicas from the propagation of the specified command.
  * Otherwise, by default, the command will be propagated in both channels.
  *
- * #### Note about calling this function from a thread safe context:
- *
- * Normally when you call this function from the callback implementing a
+ * Whenever you call this function from the callback implementing a
  * module command, or any other callback provided by the Redis Module API,
  * Redis will accumulate all the calls to this function in the context of
  * the callback, and will propagate all the commands wrapped in a MULTI/EXEC
- * transaction. However when calling this function from a threaded safe context
- * that can live an undefined amount of time, and can be locked/unlocked in
- * at will, the behavior is different: MULTI/EXEC wrapper is not emitted
- * and the command specified is inserted in the AOF and replication stream
- * immediately.
+ * transaction.
  *
  * #### Return value
  *
  * The command returns REDISMODULE_ERR if the format specifiers are invalid
- * or the command name does not belong to a known command. */
+ * or the command name does not belong to a known command.
+ * 
+ * This function is not thread safe, and must be executed within the context
+ * of a command or thread safe context. */
 int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     struct redisCommand *cmd;
     robj **argv = NULL;
@@ -3588,7 +3585,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 }
 
 /* This function will replicate the command exactly as it was invoked
- * by the client. Note that this function will not wrap the command into
+ * by the client. Note that this function will wrap the command into
  * a MULTI/EXEC stanza, so it should not be mixed with other replication
  * commands.
  *
@@ -3597,7 +3594,10 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
  * the command can just be re-executed to deterministically re-create the
  * new state starting from the old one.
  *
- * The function always returns REDISMODULE_OK. */
+ * The function always returns REDISMODULE_OK.
+ * 
+ * This function is not thread safe, and must be executed within the context
+ * of a command or thread safe context. */
 int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
     alsoPropagate(ctx->client->db->id,
         ctx->client->argv,ctx->client->argc,
@@ -8227,7 +8227,7 @@ int moduleClientIsBlockedOnKeys(client *c) {
  * needs to be passed to the client, included but not limited some slow
  * to compute reply or some reply obtained via networking.
  *
- * Note 1: this function can be called from threads spawned by the module.
+ * Note 1: this function is thread-safe and can be called from threads spawned by the module.
  *
  * Note 2: when we unblock a client that is blocked for keys using the API
  * RedisModule_BlockClientOnKeys(), the privdata argument here is not used.
@@ -8249,7 +8249,9 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
 }
 
 /* Abort a blocked client blocking operation: the client will be unblocked
- * without firing any callback. */
+ * without firing any callback.
+ *
+ * This function is thread-safe and can be called from threads spawned by the module. */
 int RM_AbortBlock(RedisModuleBlockedClient *bc) {
     bc->reply_callback = NULL;
     bc->disconnect_callback = NULL;
