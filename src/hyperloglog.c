@@ -504,28 +504,20 @@ void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
      * we take a faster path with unrolled loops. */
     if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
         uint8_t *r = registers;
-        unsigned long r0, r1, r2, r3, r4, r5, r6, r7;
-        for (j = 0; j < 2048; j++) {
-            /* Handle 8 registers per iteration. */
+        unsigned long r0, r1, r2, r3;
+        for (j = 0; j < 4096; j++) {
+            /* Handle 4 registers per iteration. */
             r0 = r[0] & 63;
             r1 = (r[0] >> 6 | r[1] << 2) & 63;
             r2 = (r[1] >> 4 | r[2] << 4) & 63;
             r3 = (r[2] >> 2) & 63;
-            r4 = r[3] & 63;
-            r5 = (r[3] >> 6 | r[4] << 2) & 63;
-            r6 = (r[4] >> 4 | r[5] << 4) & 63;
-            r7 = (r[5] >> 2) & 63;
 
             reghisto[r0]++;
             reghisto[r1]++;
             reghisto[r2]++;
             reghisto[r3]++;
-            reghisto[r4]++;
-            reghisto[r5]++;
-            reghisto[r6]++;
-            reghisto[r7]++;
 
-            r += 6;
+            r += 3;
         }
     } else {
         for(j = 0; j < HLL_REGISTERS; j++) {
