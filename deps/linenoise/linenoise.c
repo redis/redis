@@ -995,6 +995,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 refreshLine(&l);
                 break;
             }
+            buf[0] = '\0';
+            l.pos = l.len = 0;
             enableReverseSearchMode();
             return 0;
         case CTRL_G:
