@@ -332,7 +332,7 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli_with_prompt "should disable and persist search result if user presses tab" {
-        run_command $fd "GET one"
+        run_command $fd "GET one\x0D"
 
         puts $fd "\x12"
         set result [read_cli $fd]
