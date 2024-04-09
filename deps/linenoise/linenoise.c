@@ -1437,23 +1437,25 @@ static void refreshSearchResult(struct linenoiseState *ls) {
         char *bold = "\x1B[1m";
         char *normal = "\x1B[0m";
 
-
         int size_needed = sr.searchTermIndex + sr.searchTermLen + sr.len - (sr.searchTermIndex+sr.searchTermLen) + sizeof(normal) + sizeof(bold) + sizeof(normal);
         if (size_needed > sizeof(search_result_friendly) - 1) {
             return;
         }
 
-        char prefix[sizeof(search_result_friendly)] = {0};
-        char match[sizeof(search_result_friendly)] = {0};
-        char suffix[sizeof(search_result_friendly)] = {0};
-
+        /* Allocate memory for the prefix, match, and suffix strings, one extra byte for `\0`. */
+        char *prefix = calloc(sizeof(char), sr.searchTermIndex + 1);
+        char *match = calloc(sizeof(char), sr.searchTermLen + 1);
+        char *suffix = calloc(sizeof(char), sr.len - (sr.searchTermIndex+sr.searchTermLen) + 1);
 
         memcpy(prefix, sr.result, sr.searchTermIndex);
-        memcpy(match, &sr.result[sr.searchTermIndex], sr.searchTermLen);
-        memcpy(suffix, &sr.result[sr.searchTermIndex+sr.searchTermLen], sr.len - (sr.searchTermIndex+sr.searchTermLen));
-
+        memcpy(match, sr.result + sr.searchTermIndex, sr.searchTermLen);
+        memcpy(suffix, sr.result + sr.searchTermIndex + sr.searchTermLen, sr.len - (sr.searchTermIndex+sr.searchTermLen));
         sprintf(search_result, "%s%s%s", prefix, match, suffix);
         sprintf(search_result_friendly, "%s%s%s%s%s%s", normal, prefix, bold, match, normal, suffix);
+
+        free(prefix);
+        free(match);
+        free(suffix);
 
         search_result_start_offset = sr.searchTermIndex;
     }
