@@ -199,8 +199,8 @@ static void refreshLine(struct linenoiseState *l);
 static void refreshSearchResult(struct linenoiseState * ls);
 
 static inline void resetSearchResult(void) {
-        memset(search_result, 0, sizeof(search_result));
-        memset(search_result_friendly, 0, sizeof(search_result_friendly));
+    memset(search_result, 0, sizeof(search_result));
+    memset(search_result_friendly, 0, sizeof(search_result_friendly));
 }
 
 /* Debugging macro. */
