@@ -177,13 +177,13 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  *
  * If the update_if_existing argument is false, the program is aborted
  * if the key already exists, otherwise, it can fall back to dbOverwrite. */
-static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
+static dictEntry *dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_existing) {
     dictEntry *existing;
     int slot = getKeySlot(key->ptr);
     dictEntry *de = kvstoreDictAddRaw(db->keys, slot, key->ptr, &existing);
     if (update_if_existing && existing) {
         dbSetValue(db, key, val, 1, existing);
-        return;
+        return existing;
     }
     serverAssertWithInfo(NULL, key, de != NULL);
     kvstoreDictSetKey(db->keys, slot, de, sdsdup(key->ptr));
@@ -191,10 +191,11 @@ static void dbAddInternal(redisDb *db, robj *key, robj *val, int update_if_exist
     kvstoreDictSetVal(db->keys, slot, de, val);
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
+    return de;
 }
 
-void dbAdd(redisDb *db, robj *key, robj *val) {
-    dbAddInternal(db, key, val, 0);
+dictEntry *dbAdd(redisDb *db, robj *key, robj *val) {
+    return dbAddInternal(db, key, val, 0);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -1407,23 +1408,20 @@ void renameGenericCommand(client *c, int nx) {
          * with the same name. */
         dbDelete(c->db,c->argv[2]);
     }
-    dbAdd(c->db,c->argv[2],o);
+    dictEntry *de = dbAdd(c->db, c->argv[2], o);
     if (expire != -1) setExpire(c,c->db,c->argv[2],expire);
 
     /* If hash with expiration on fields then remove it from global HFE DS and
      * keep next expiration time. Otherwise, dbDelete() will remove it from the
      * global HFE DS and we will lose the expiration time. */
-    if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
+    if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT)
         minHashExpireTime = hashTypeRemoveFromExpires(&c->db->hexpires, o);
-        /* update its key reference to the new name */
-        hashTypeRename(o, c->argv[2]->ptr);
-    }
 
     dbDelete(c->db,c->argv[1]);
 
     /* If hash with HFEs, register in db->hexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
-        hashTypeAddToExpires(c->db, c->argv[2], o, minHashExpireTime);
+        hashTypeAddToExpires(c->db, dictGetKey(de), o, minHashExpireTime);
 
     signalModifiedKey(c,c->db,c->argv[1]);
     signalModifiedKey(c,c->db,c->argv[2]);
@@ -1489,7 +1487,7 @@ void moveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    dbAdd(dst,c->argv[1],o);
+    dictEntry *dstDictEntry = dbAdd(dst,c->argv[1],o);
     if (expire != -1) setExpire(c,dst,c->argv[1],expire);
 
     /* If hash with expiration on fields, remove it from global HFE DS and keep
@@ -1506,7 +1504,7 @@ void moveCommand(client *c) {
     /* If object of type hash with expiration on fields. Taken care to add the
      * hash to hexpires of `dst` only after dbDelete(). */
     if (hashExpireTime != EB_EXPIRE_TIME_INVALID)
-        hashTypeAddToExpires(dst, c->argv[1], o, hashExpireTime);
+        hashTypeAddToExpires(dst, dictGetKey(dstDictEntry), o, hashExpireTime);
 
     signalModifiedKey(c,src,c->argv[1]);
     signalModifiedKey(c,dst,c->argv[1]);
@@ -1611,12 +1609,12 @@ void copyCommand(client *c) {
         dbDelete(dst,newkey);
     }
 
-    dbAdd(dst,newkey,newobj);
+    dictEntry *deCopy = dbAdd(dst,newkey,newobj);
     if (expire != -1) setExpire(c, dst, newkey, expire);
 
     /* If hash with expiration on fields then add it to 'dst' global HFE DS */
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
-        hashTypeAddToExpires(dst, newkey, newobj, minHashExpire);
+        hashTypeAddToExpires(dst, dictGetKey(deCopy), newobj, minHashExpire);
 
     /* OK! key copied */
     signalModifiedKey(c,dst,c->argv[2]);

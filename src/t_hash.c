@@ -22,7 +22,7 @@ static uint64_t hfieldGetExpireTime(hfield field);
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
 static uint64_t dictMstrHash(const void *key);
-static void dictHfieldDestructor(dict *d, void *val);
+static void dictHfieldDestructor(dict *d, void *field);
 static size_t hashDictWithExpireMetadataBytes(dict *d);
 static void hashDictWithExpireOnRelease(dict *d);
 static robj* hashTypeLookupWriteOrCreate(client *c, robj *key);
@@ -181,14 +181,16 @@ static uint64_t dictMstrHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, mstrlen((char*)key));
 }
 
-static void dictHfieldDestructor(dict *d, void *val) {
-    /* If attached TTL to the field, then remove it from hash's private ebuckets */
-    if (hfieldGetExpireTime(val) != EB_EXPIRE_TIME_INVALID) {
+static void dictHfieldDestructor(dict *d, void *field) {
+    /* If attached TTL to the field, then remove it from hash's private ebuckets. */
+    if (hfieldGetExpireTime(field) != EB_EXPIRE_TIME_INVALID) {
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
-        ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, val);
+        ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, field);
+
+        // TODO: Check if the field is the minimum in the hash and update the global HFE DS
     }
 
-    hfieldFree(val);
+    hfieldFree(field);
 }
 
 static size_t hashDictWithExpireMetadataBytes(dict *d) {
@@ -474,6 +476,7 @@ int hashTypeDelete(robj *o, sds field) {
             }
         }
     } else if (o->encoding == OBJ_ENCODING_HT) {
+        /* dictDelete() will call dictHfieldDestructor() */
         if (dictDelete((dict*)o->ptr, field) == C_OK) {
             deleted = 1;
         }
@@ -482,23 +485,6 @@ int hashTypeDelete(robj *o, sds field) {
         serverPanic("Unknown hash encoding");
     }
     return deleted;
-}
-
-/* Update hash on rename - in case of HFE, key is attached to dict for
- * notifications (in case of active-expiration flow) */
-void hashTypeRename(robj *o, sds newName) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        /* TODO */
-        return;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        dict *d = o->ptr;
-        if (isDictWithMetaHFE(d)) {
-            dictExpireMetadata *meta = (dictExpireMetadata *)dictMetadata(d);
-            meta->key = newName;
-        }
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
 }
 
 /* Check if the hash object is empty
@@ -1025,7 +1011,7 @@ void hashTypeDeleteExpiredFields(client *c, robj *hashObj) {
 
     /* Remove expired fields as part of lazy-expire */
     ExpireInfo info = {
-            .maxToExpire = 0xFFFFFFFF,
+            .maxToExpire = UINT64_MAX,
             .onExpireItem = onFieldExpire,
             .ctx = hashObj,
             .now = commandTimeSnapshot(),
@@ -1072,8 +1058,11 @@ uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o) {
     return expireTime;
 }
 
-/* Precondition: hashObj is a hash object with HFE metadata */
-void hashTypeAddToExpires(redisDb *db, robj *keyObj, robj *hashObj, uint64_t expireTime) {
+/* Add hash to global HFE DS and update key for notifications.
+ *
+ * key - must be the same instance that is stored in db->dict
+ */
+void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime) {
     if (expireTime == EB_EXPIRE_TIME_INVALID)
          return;
 
@@ -1084,15 +1073,10 @@ void hashTypeAddToExpires(redisDb *db, robj *keyObj, robj *hashObj, uint64_t exp
 
     serverAssert(isDictWithMetaHFE(hashObj->ptr));
 
-    /* Reuse the sds from the main dict in the expire dict */
-    dictEntry *de = dbFind(db, keyObj->ptr);
-
-    serverAssertWithInfo(NULL, keyObj, de != NULL);
-
     /* Update hash with key for notifications */
     dict *d = hashObj->ptr;
     dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
-    dictExpireMeta->key = dictGetKey(de);
+    dictExpireMeta->key = key;
 
     /* Add hash to global HFE DS */
     ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, expireTime);
