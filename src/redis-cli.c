@@ -9308,7 +9308,8 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
 
             /* Show the progress bar in TTY */
             if (mstime() > refresh_time + REFRESH_INTERVAL && 
-                (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+                (isatty(STDOUT_FILENO) || getenv("FAKETTY")))
+            {
                 int line_count = 0;
                 refresh_time = mstime();
 
@@ -9513,7 +9514,8 @@ static void findHotKeys(void) {
 
         /* Show the progress bar in TTY */
         if (mstime() > refresh_time + REFRESH_INTERVAL && 
-            (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+            (isatty(STDOUT_FILENO) || getenv("FAKETTY")))
+        {
             int line_count = 0;
             refresh_time = mstime();
 
@@ -10538,7 +10540,8 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
 
         /* Refresh keystats info on regular basis */
         if (mstime() > refresh_time + REFRESH_INTERVAL && 
-            (isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+            (isatty(STDOUT_FILENO) || getenv("FAKETTY")))
+        {
             displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict,
                 top_sizes, top_sizes_limit, 1);
             refresh_time = mstime();
