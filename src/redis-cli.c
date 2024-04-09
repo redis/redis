@@ -341,7 +341,7 @@ static void cliRefreshPrompt(void) {
         prompt = sdscatfmt(prompt,"(subscribed mode)");
 
     if (linenoiseReverseSearchModeEnabled() && !linenoiseSearchResultSumbitted()) {
-        char * reverseISearchPrompt = " (reverse-i-search)";
+        char *reverseISearchPrompt = " (reverse-i-search)";
         prompt = sdscatlen(prompt, reverseISearchPrompt, strlen(reverseISearchPrompt));
     }
 
@@ -3377,7 +3377,7 @@ static void repl(void) {
     }
 
     while(1) {
-        static char * lineCpy = NULL;
+        static char *lineCpy = NULL;
         cliRefreshPrompt();
         line = linenoiseWithBuffer(context ? config.prompt : "not connected> ", lineCpy, lineCpy == NULL ? 0 : strlen(lineCpy));
         if (lineCpy != NULL) {

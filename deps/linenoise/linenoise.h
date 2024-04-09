@@ -51,7 +51,7 @@ typedef struct linenoiseCompletions {
 
 typedef struct {
   int len;
-  char * result;
+  char *result;
   int searchTermIndex;
   int searchTermLen;
 } linenoiseHistorySearchResult;

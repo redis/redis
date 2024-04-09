@@ -196,7 +196,7 @@ enum KEY_ACTION{
 static void linenoiseAtExit(void);
 int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
-static void refreshSearchResult(struct linenoiseState * ls);
+static void refreshSearchResult(struct linenoiseState *ls);
 
 static inline void resetSearchResult(void) {
     memset(search_result, 0, sizeof(search_result));
@@ -1360,7 +1360,7 @@ int linenoiseReverseSearchModeEnabled(void) {
     return reverse_search_mode_enabled;
 }
 
-static void setNextSearchIndex(int * i) {
+static void setNextSearchIndex(int *i) {
     if (cycle_to_next_search_result == LINENOISE_CYCLE_FORWARD) {
         if (*i == history_len-1) {
             *i = 0;
@@ -1376,7 +1376,7 @@ static void setNextSearchIndex(int * i) {
     }
 }
 
-linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
+linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
     linenoiseHistorySearchResult result = {0};
 
     if (history_len == 0) {
@@ -1393,7 +1393,7 @@ linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
     setNextSearchIndex(&i);
 
     while (1) {
-        char * found = strstr(history[i], searchTerm);
+        char *found = strstr(history[i], searchTerm);
         
         /* check if we found the same string at another index when cycling, this would be annoying to cycle through
          * as it might appear that cycling isn't working */
@@ -1418,12 +1418,11 @@ linenoiseHistorySearchResult searchInHistory(char * searchTerm) {
 
     return result;
 }
-static void refreshSearchResult(struct linenoiseState * ls) {
+static void refreshSearchResult(struct linenoiseState *ls) {
     if (skip_search) {
         skip_search = 0;
         return;
     }
-
 
    if (!linenoiseReverseSearchModeEnabled()) {
         return;
@@ -1435,8 +1434,8 @@ static void refreshSearchResult(struct linenoiseState * ls) {
     cycle_to_next_search_result = LINENOISE_NO_CYCLE;
 
     if (sr.result && sr.len) {
-        char * bold = "\x1B[1m";
-        char * normal = "\x1B[0m";
+        char *bold = "\x1B[1m";
+        char *normal = "\x1B[0m";
 
 
         int size_needed = sr.searchTermIndex + sr.searchTermLen + sr.len - (sr.searchTermIndex+sr.searchTermLen) + sizeof(normal) + sizeof(bold) + sizeof(normal);
@@ -1444,9 +1443,9 @@ static void refreshSearchResult(struct linenoiseState * ls) {
             return;
         }
 
-        char prefix [sizeof(search_result_friendly)] = {0};
-        char match [sizeof(search_result_friendly)] = {0};
-        char suffix [sizeof(search_result_friendly)] = {0};
+        char prefix[sizeof(search_result_friendly)] = {0};
+        char match[sizeof(search_result_friendly)] = {0};
+        char suffix[sizeof(search_result_friendly)] = {0};
 
 
         memcpy(prefix, sr.result, sr.searchTermIndex);
