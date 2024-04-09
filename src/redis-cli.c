@@ -9364,7 +9364,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     }
 
     printf("Total key length in bytes is %llu (avg len %.2f)\n\n",
-        totlen, totlen ? (double)totlen/sampled : 0);
+       totlen, totlen ? (double)totlen/sampled : 0);
 
     /* Output the biggest keys we found, for types we did find */
     di = dictGetIterator(types_dict);
