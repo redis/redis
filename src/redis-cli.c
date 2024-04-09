@@ -415,9 +415,9 @@ int cleanPrintfln(char *fmt, ...) {
     char buf[1024]; /* limitation */
     int char_count;
 
-    va_start (args, fmt);
+    va_start(args, fmt);
     char_count = vsnprintf(buf, sizeof(buf),fmt, args);
-    va_end (args);
+    va_end(args);
 
     if (char_count >= (int)sizeof(buf)) {
         fprintf(stderr, "Warning: String was trimmed in cleanPrintln\n");
@@ -9297,7 +9297,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                         !memkeys? type->sizeunit: "bytes");
 
                     /* Update overall progress */
-                    if(sampled % 1000000 == 0) {
+                    if (sampled % 1000000 == 0) {
                         printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
                     }
                 }
@@ -9484,7 +9484,7 @@ static void findHotKeys(void) {
             /* Only show the original progress output when writing to a file */
             if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
                 /* Update overall progress */
-                if(sampled % 1000000 == 0) {
+                if (sampled % 1000000 == 0) {
                     printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
                 }
             }
@@ -9522,7 +9522,7 @@ static void findHotKeys(void) {
 
             for (i=1; i<= HOTKEYS_SAMPLE; i++) {
                 k = HOTKEYS_SAMPLE - i;
-                if(counters[k]>0) {
+                if (counters[k] > 0) {
                     line_count += cleanPrintfln("hot key found with counter: %llu\tkeyname: %s", 
                         counters[k], hotkeys[k]);
                 }
@@ -9548,7 +9548,7 @@ static void findHotKeys(void) {
         line_count += cleanPrintfln("");
         for (i=1; i<= HOTKEYS_SAMPLE; i++) {
             k = HOTKEYS_SAMPLE - i;
-            if(counters[k]>0)
+            if (counters[k] > 0)
                 line_count += cleanPrintfln("");
         }
         printf("\033[%dA\r", line_count);
@@ -9567,7 +9567,7 @@ static void findHotKeys(void) {
 
     for (i=1; i<= HOTKEYS_SAMPLE; i++) {
         k = HOTKEYS_SAMPLE - i;
-        if(counters[k]>0) {
+        if (counters[k] > 0) {
             printf("hot key found with counter: %llu\tkeyname: %s\n", counters[k], hotkeys[k]);
             sdsfree(hotkeys[k]);
         }
@@ -10097,7 +10097,8 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
 
 #define PROGRESSBAR_WIDTH 60
 static int displayKeyStatsProgressbar(unsigned long long sampled,
-                                      unsigned long long total_keys) {
+                                      unsigned long long total_keys)
+{
     int line_count = 0;
     char progressbar[512];
     char buf[2][128];
@@ -10177,7 +10178,7 @@ static int displayKeyStatsLengthType(dict *bigkeys_types_dict) {
     return line_count;
 }
 
-static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
+static int displayKeyStatsSizeDist(struct hdr_histogram *keysize_histogram) {
     int line_count = 0;
     double percentile;
     char size[32], mean[32], stddev[32];
@@ -10226,7 +10227,8 @@ static int displayKeyStatsSizeDist(struct hdr_histogram* keysize_histogram) {
 
 static int displayKeyStatsType(unsigned long long sampled,
                                dict *memkeys_types_dict,
-                               dict *bigkeys_types_dict) {
+                               dict *bigkeys_types_dict)
+{
     dictIterator *di;
     dictEntry *de;
     int line_count = 0;
@@ -10303,7 +10305,7 @@ static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_
     return line_count;
 }
 
-static key_info* createKeySizeInfo(char* key_name, size_t key_name_len, char *key_type, unsigned long long size) {
+static key_info *createKeySizeInfo(char *key_name, size_t key_name_len, char *key_type, unsigned long long size) {
     key_info *key;
 
     key = zmalloc(sizeof(key_info));
@@ -10321,7 +10323,7 @@ static key_info* createKeySizeInfo(char* key_name, size_t key_name_len, char *ke
  * Keep a maximum of config.top_sizes_limit items in topkeys list.
  * key_name and type_name are copied.
  * Return: 0 size was not added (too small), 1 size was inserted. */
-static int updateTopSizes(char* key_name, size_t key_name_len, unsigned long long key_size,
+static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long long key_size,
                           char *type_name, list *topkeys, unsigned long top_sizes_limit) {
     listNode *node;
     listIter *iter;
@@ -10457,7 +10459,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     };
     sizeDistInit(&key_length_dist, distribution);
 
-    struct hdr_histogram* keysize_histogram;
+    struct hdr_histogram *keysize_histogram;
     /* Record max of 1TB for a key size should cover all keys.
      * significant_figures == 4 (0.01% precision on key size)  */
     if (hdr_init(1, 1ULL*1024*1024*1024*1024, 4, &keysize_histogram)) {
@@ -10511,7 +10513,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         getKeyTypes(bigkeys_types_dict, keys, bigkeys_types);
         getKeySizes(keys, bigkeys_types, bigkeys_sizes, 0, memkeys_samples);
 
-        for(i=0;i<keys->elements;i++) {
+        for (i=0; i<keys->elements; i++) {
             /* Skip keys that disappeared between SCAN and TYPE */
             if (!memkeys_types[i] || !bigkeys_types[i]) {
                 continue;
