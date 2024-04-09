@@ -1431,12 +1431,17 @@ static void refreshSearchResult(struct linenoiseState *ls) {
         return;
     }
 
-    resetSearchResult();
 
     linenoiseHistorySearchResult sr = searchInHistory(ls->buf);
+    int found = sr.result && sr.len;
+
+    /* If the search term has not changed and we are cycling to the next search result
+     * (using CTRL+R or CTRL+S), there is no need to reset the old search result. */
+    if (cycle_to_next_search_result == LINENOISE_NO_CYCLE || found)
+        resetSearchResult();
     cycle_to_next_search_result = LINENOISE_NO_CYCLE;
 
-    if (sr.result && sr.len) {
+    if (found) {
         char *bold = "\x1B[1m";
         char *normal = "\x1B[0m";
 
