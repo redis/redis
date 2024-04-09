@@ -941,6 +941,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 buf[0] = '\0';
                 l.pos = l.len = 0;
                 disableReverseSearchMode();
+                return 0;
             }
             errno = EAGAIN;
             return -1;
