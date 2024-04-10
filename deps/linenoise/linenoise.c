@@ -127,6 +127,7 @@ static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
+static linenoiseRefreshPromptCallback *refreshPromptCallback = NULL;
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static int maskmode = 0; /* Show "***" instead of input. For passwords. */
@@ -148,8 +149,6 @@ static int search_result_history_index = 0;
 static int search_result_start_offset = 0;
 static int skip_search = 0;
 static int search_result_submitted = 0;
-
-static int only_refresh_prompt = 0;
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -251,15 +250,21 @@ void linenoiseSetMultiLine(int ml) {
     mlmode = ml;
 }
 
-static void refreshSearchModePrompt(struct linenoiseState *l) {
-    l->prompt = reverse_search_direction == LINENOISE_CYCLE_BACKWARD ?
-        "(reverse-i-search): " : "(i-search): ";
+static void refreshPrompt(struct linenoiseState *l) {
+    if (reverse_search_mode_enabled == 1) {
+        l->prompt = reverse_search_direction == LINENOISE_CYCLE_BACKWARD ?
+            "(reverse-i-search): " : "(i-search): ";
+    } else {
+        if (refreshPromptCallback) {
+            l->prompt = refreshPromptCallback();
+        }
+    }
     refreshLine(l);
 }
 
 static void enableReverseSearchMode(struct linenoiseState *l) {
     reverse_search_mode_enabled = 1;
-    refreshSearchModePrompt(l);
+    refreshPrompt(l);
 }
 
 static void disableReverseSearchMode(void) {
@@ -492,6 +497,10 @@ void linenoiseSetHintsCallback(linenoiseHintsCallback *fn) {
  * registered with linenoiseSetHintsCallback(). */
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *fn) {
     freeHintsCallback = fn;
+}
+
+void linenoiseSetRefreshPromptCallback(linenoiseRefreshPromptCallback *fn) {
+    refreshPromptCallback = fn;
 }
 
 /* This function is used by the callback function registered by the user
@@ -923,10 +932,10 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                     memcpy(buf, search_result, strlen(search_result));
                 }
                 disableReverseSearchMode();
-                only_refresh_prompt = 1;
-                return l.len;
+                l.pos = l.len = strlen(buf);
+                refreshPrompt(&l);
             }
-             break;
+            break;
         case ENTER:    /* enter */
             history_len--;
             free(history[history_len]);
@@ -998,7 +1007,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             if (linenoiseReverseSearchModeEnabled()) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
-                refreshSearchModePrompt(&l);
+                refreshPrompt(&l);
                 break;
             }
             buf[0] = '\0';
@@ -1010,7 +1019,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             if (linenoiseReverseSearchModeEnabled()) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
-                refreshSearchModePrompt(&l);
+                refreshPrompt(&l);
                 break;
             }
             buf[0] = '\0';
@@ -1205,19 +1214,7 @@ static char *linenoiseNoTTY(void) {
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
 char *linenoise(const char *prompt) {
-    return linenoiseWithBuffer(prompt, NULL, 0);
-}
-
-char *linenoiseWithBuffer(const char *prompt, const char *initial_buf, const int initial_buf_len) {
-    only_refresh_prompt = 0;
     char buf[LINENOISE_MAX_LINE] = {0};
-
-    if (initial_buf_len > sizeof(buf)) {
-        /* no-op, cannot use initial_buf as it it too large to fit in buf */
-    } else if (initial_buf_len) {
-        memcpy(buf, initial_buf, initial_buf_len);
-    }
-    
     int count;
 
     if (getenv("FAKETTY_WITH_PROMPT") == NULL && !isatty(STDIN_FILENO)) {
@@ -1498,10 +1495,6 @@ static void refreshSearchResult(struct linenoiseState *ls) {
 
         search_result_start_offset = sr.searchTermIndex;
     }
-}
-
-int linenoiseRequestOnlyPromptRefresh(void) {
-    return only_refresh_prompt;
 }
 
 int linenoiseSearchResultSumbitted(void) {

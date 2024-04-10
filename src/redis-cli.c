@@ -295,8 +295,8 @@ static long long mstime(void) {
     return ustime()/1000;
 }
 
-static void cliRefreshPrompt(void) {
-    if (config.eval_ldb) return;
+static char *cliRefreshPrompt(void) {
+    if (config.eval_ldb) return "";
 
     sds prompt = sdsempty();
     if (config.hostsocket != NULL) {
@@ -318,11 +318,11 @@ static void cliRefreshPrompt(void) {
     if (config.pubsub_mode)
         prompt = sdscatfmt(prompt,"(subscribed mode)");
 
-
     /* Copy the prompt in the static buffer. */
     prompt = sdscatlen(prompt,"> ",2);
     snprintf(config.prompt,sizeof(config.prompt),"%s",prompt);
     sdsfree(prompt);
+    return config.prompt;
 }
 
 /* Return the name of the dotfile for the specified 'dotfilename'.
@@ -3356,6 +3356,7 @@ static void repl(void) {
     linenoiseSetCompletionCallback(completionCallback);
     linenoiseSetHintsCallback(hintsCallback);
     linenoiseSetFreeHintsCallback(freeHintsCallback);
+    linenoiseSetRefreshPromptCallback(cliRefreshPrompt);
 
     /* Only use history and load the rc file when stdin is a tty. */
     if (getenv("FAKETTY_WITH_PROMPT") != NULL || isatty(fileno(stdin))) {
@@ -3368,24 +3369,9 @@ static void repl(void) {
         cliLoadPreferences();
     }
 
+    cliRefreshPrompt();
     while(1) {
-        static char *lineCpy = NULL;
-        cliRefreshPrompt();
-        line = linenoiseWithBuffer(context ? config.prompt : "not connected> ", lineCpy, lineCpy == NULL ? 0 : strlen(lineCpy));
-        if (lineCpy != NULL) {
-            free(lineCpy);
-            lineCpy = NULL;
-        }
-        
-        /* there are cases where we only want to refresh the prompt, in these cases,
-         * we should ensure that the line is persisted to the next call to linenoise */
-        if (linenoiseRequestOnlyPromptRefresh()) {
-            if (line != NULL) {
-                lineCpy = strdup(line);
-                linenoiseFree(line);
-            }
-            continue;
-        }
+        line = linenoise(context ? config.prompt : "not connected> ");
 
         if (line == NULL) {
             /* ^C, ^D or similar. */
