@@ -143,8 +143,8 @@ static int *history_sensitive = NULL; /* An array records whether each line in
 static int reverse_search_mode_enabled = 0;
 static int reverse_search_direction = 0;
 static int cycle_to_next_search = 0; /* indicates whether to continue the search with CTRL+S or CTRL+R. */
-static char search_result [LINENOISE_MAX_LINE];
-static char search_result_friendly [LINENOISE_MAX_LINE];
+static char search_result[LINENOISE_MAX_LINE];
+static char search_result_friendly[LINENOISE_MAX_LINE];
 static int search_result_history_index = 0;
 static int search_result_start_offset = 0;
 static int skip_search = 0;
@@ -169,10 +169,10 @@ struct linenoiseState {
 };
 
 typedef struct {
-  int len;
-  char *result;
-  int searchTermIndex;
-  int searchTermLen;
+    int len;
+    char *result;
+    int searchTermIndex;
+    int searchTermLen;
 } linenoiseHistorySearchResult;
 
 enum KEY_ACTION{

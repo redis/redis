@@ -3339,7 +3339,7 @@ static int isSensitiveCommand(int argc, char **argv) {
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
-    char *line = NULL;
+    char *line;
     int argc;
     sds *argv;
 
@@ -3372,7 +3372,6 @@ static void repl(void) {
     cliRefreshPrompt();
     while(1) {
         line = linenoise(context ? config.prompt : "not connected> ");
-
         if (line == NULL) {
             /* ^C, ^D or similar. */
             if (config.pubsub_mode) {
