@@ -160,7 +160,7 @@ start_server {tags {"cli"}} {
 
         puts -nonewline $fd "ey"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*((\[[0-9]])?)? \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
     }
 
     test_interactive_cli_with_prompt "should find and use the first search result" {
@@ -173,7 +173,7 @@ start_server {tags {"cli"}} {
 
         puts -nonewline $fd "ET b"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)> \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
 
         puts $fd "\x0D"
         set result2 [read_cli $fd]
@@ -186,7 +186,7 @@ start_server {tags {"cli"}} {
         set now [clock seconds]
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         set result2 [run_command $fd "keys \"$now\"\x0D"]
         assert_equal 1 [regexp {.*(empty array).*} $result2]
@@ -197,7 +197,7 @@ start_server {tags {"cli"}} {
 
         set now [clock seconds]
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         set result2 [run_command $fd "keys \"$now\"\x0D"]
 
@@ -213,11 +213,11 @@ start_server {tags {"cli"}} {
 
         puts -nonewline $fd "ey"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*((\[[0-9]])?)? \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*((\[[0-9]])?)? \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
     }
 
     test_interactive_cli_with_prompt "should find second search result if user presses ctrl+s" {
@@ -229,11 +229,11 @@ start_server {tags {"cli"}} {
 
         puts -nonewline $fd "ey"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*((\[[0-9]])?)? \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
 
         puts $fd "\x13"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*((\[[0-9]])?)? \(reverse-i-search\)> \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
     }
 
     test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
@@ -241,7 +241,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts $fd "\x07"
         set result2 [read_cli $fd]
@@ -253,7 +253,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts $fd "\x1B\x5B\x41"
         set result2 [read_cli $fd]
@@ -265,7 +265,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts $fd "\x1B\x5B\x42"
         set result2 [read_cli $fd]
@@ -277,7 +277,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts $fd "\x1B\x5B\x43"
         set result2 [read_cli $fd]
@@ -289,7 +289,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts $fd "\x1B\x5B\x44"
         set result2 [read_cli $fd]
@@ -301,7 +301,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts -nonewline $fd "GET blah"
         read_cli $fd
@@ -316,7 +316,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts -nonewline $fd "one"
         read_cli $fd
@@ -331,7 +331,7 @@ start_server {tags {"cli"}} {
 
         puts $fd "\x12"
         set result [read_cli $fd]
-        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])? \(reverse-i-search\)>} $result]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
         puts -nonewline $fd "GET blah"
         read_cli $fd

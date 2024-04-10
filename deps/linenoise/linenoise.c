@@ -251,8 +251,15 @@ void linenoiseSetMultiLine(int ml) {
     mlmode = ml;
 }
 
-static void enableReverseSearchMode(void) {
+static void refreshSearchModePrompt(struct linenoiseState *l) {
+    l->prompt = reverse_search_direction == LINENOISE_CYCLE_BACKWARD ?
+        "(reverse-i-search): " : "(i-search): ";
+    refreshLine(l);
+}
+
+static void enableReverseSearchMode(struct linenoiseState *l) {
     reverse_search_mode_enabled = 1;
+    refreshSearchModePrompt(l);
 }
 
 static void disableReverseSearchMode(void) {
@@ -991,25 +998,25 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             if (linenoiseReverseSearchModeEnabled()) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
-                refreshLine(&l);
+                refreshSearchModePrompt(&l);
                 break;
             }
             buf[0] = '\0';
             l.pos = l.len = 0;
-            enableReverseSearchMode();
-            return 0;
+            enableReverseSearchMode(&l);
+            break;
         case CTRL_S:
             reverse_search_direction = LINENOISE_CYCLE_FORWARD;
             if (linenoiseReverseSearchModeEnabled()) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
-                refreshLine(&l);
+                refreshSearchModePrompt(&l);
                 break;
             }
             buf[0] = '\0';
             l.pos = l.len = 0;
-            enableReverseSearchMode();
-            return 0;
+            enableReverseSearchMode(&l);
+            break;
         case CTRL_G:
             disableReverseSearchMode();
             buf[0] = '\0';
