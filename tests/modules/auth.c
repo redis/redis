@@ -209,6 +209,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     if (pthread_create(&tid, NULL, AuthBlock_ThreadMain, targ) != 0) {
         RedisModule_AbortBlock(bc);
     }
+    pthread_detach(tid);
     return REDISMODULE_AUTH_HANDLED;
 }
 

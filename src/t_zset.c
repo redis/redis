@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-current, Redis Ltd.
  * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  * All rights reserved.
  *
@@ -1234,7 +1234,8 @@ unsigned long zsetLength(const robj *zobj) {
  * and the value len hint indicates the approximate individual size of the added elements,
  * they are used to determine the initial representation.
  *
- * If the hints are not known, and underestimation or 0 is suitable. */
+ * If the hints are not known, and underestimation or 0 is suitable. 
+ * We should never pass a negative value because it will convert to a very large unsigned number. */
 robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
     if (size_hint <= server.zset_max_listpack_entries &&
         val_len_hint <= server.zset_max_listpack_value)
@@ -1596,7 +1597,6 @@ int zsetDel(robj *zobj, sds ele) {
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         if (zsetRemoveFromSkiplist(zs, ele)) {
-            if (htNeedsResize(zs->dict)) dictResize(zs->dict);
             return 1;
         }
     } else {
@@ -2011,6 +2011,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
+        dictPauseAutoResize(zs->dict);
         switch(rangetype) {
         case ZRANGE_AUTO:
         case ZRANGE_RANK:
@@ -2023,10 +2024,12 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             deleted = zslDeleteRangeByLex(zs->zsl,&lexrange,zs->dict);
             break;
         }
-        if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+        dictResumeAutoResize(zs->dict);
         if (dictSize(zs->dict) == 0) {
             dbDelete(c->db,key);
             keyremoved = 1;
+        } else {
+            dictShrinkIfNeeded(zs->dict);
         }
     } else {
         serverPanic("Unknown sorted set encoding");
@@ -2535,10 +2538,12 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
                 dictAdd(dstzset->dict,tmp,&znode->score);
                 cardinality++;
             } else {
+                dictPauseAutoResize(dstzset->dict);
                 tmp = zuiSdsFromValue(&zval);
                 if (zsetRemoveFromSkiplist(dstzset, tmp)) {
                     cardinality--;
                 }
+                dictResumeAutoResize(dstzset->dict);
             }
 
             /* Exit if result set is empty as any additional removal
@@ -2551,7 +2556,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     }
 
     /* Resize dict if needed after removing multiple elements */
-    if (htNeedsResize(dstzset->dict)) dictResize(dstzset->dict);
+    dictShrinkIfNeeded(dstzset->dict);
 
     /* Using this algorithm, we can't calculate the max element as we go,
      * we have to iterate through all elements to find the max one after. */
@@ -2660,8 +2665,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         return;
     }
 
+    /* Try to allocate the src table, and abort on insufficient memory. */
+    src = ztrycalloc(sizeof(zsetopsrc) * setnum);
+    if (src == NULL) {
+        addReplyError(c, "Insufficient memory, failed allocating transient memory, too many args.");
+        return;
+    }
+
     /* read keys to be used for input */
-    src = zcalloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
         robj *obj = lookupKeyRead(c->db, c->argv[j]);
         if (obj != NULL) {
@@ -3063,7 +3074,7 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
-    handler->dstobj = zsetTypeCreate(length, 0);
+    handler->dstobj = zsetTypeCreate(length >= 0 ? length : 0, 0);
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
@@ -4036,7 +4047,6 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         if (result_count == 0) { /* Do this only for the first iteration. */
             char *events[2] = {"zpopmin","zpopmax"};
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
-            signalModifiedKey(c,c->db,key);
         }
 
         if (use_nested_array) {
@@ -4055,6 +4065,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         dbDelete(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
     }
+    signalModifiedKey(c,c->db,key);
 
     if (c->cmd->proc == zmpopCommand) {
         /* Always replicate it as ZPOP[MIN|MAX] with COUNT option instead of ZMPOP. */

@@ -2,32 +2,11 @@
  *
  * -----------------------------------------------------------------------------
  *
- * Copyright (c) 2020, Meir Shpilraien <meir at redislabs dot com>
+ * Copyright (c) 2020-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 /* This module allow to verify 'RedisModule_AddPostNotificationJob' by registering to 3
@@ -75,7 +54,8 @@ static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const cha
     REDISMODULE_NOT_USED(key);
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "expired", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -95,7 +75,8 @@ static int KeySpace_NotificationEvicted(RedisModuleCtx *ctx, int type, const cha
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, "evicted", 7);
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -121,7 +102,8 @@ static int KeySpace_NotificationString(RedisModuleCtx *ctx, int type, const char
         new_key = RedisModule_CreateStringPrintf(NULL, "string_changed{%s}", key_str);
     }
 
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationString, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -137,7 +119,8 @@ static int KeySpace_LazyExpireInsidePostNotificationJob(RedisModuleCtx *ctx, int
     }
 
     RedisModuleString *new_key = RedisModule_CreateString(NULL, key_str + 5, strlen(key_str) - 5);;
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_PostNotificationReadKey, new_key, KeySpace_PostNotificationStringFreePD);
+    if (res == REDISMODULE_ERR) KeySpace_PostNotificationStringFreePD(new_key);
     return REDISMODULE_OK;
 }
 
@@ -187,6 +170,7 @@ static int KeySpace_PostNotificationsAsyncSet(RedisModuleCtx *ctx, RedisModuleSt
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 
@@ -213,7 +197,7 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
     REDISMODULE_NOT_USED(eid);
     REDISMODULE_NOT_USED(data);
     if (subevent > 3) {
-        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%ld'", subevent);
+        RedisModule_Log(ctx, "warning", "Got an unexpected subevent '%llu'", (unsigned long long)subevent);
         return;
     }
     static const char* events[] = {
@@ -236,7 +220,8 @@ static void KeySpace_ServerEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e
     KeySpace_EventPostNotificationCtx *pn_ctx = RedisModule_Alloc(sizeof(*pn_ctx));
     pn_ctx->triggered_on = RedisModule_HoldString(NULL, (RedisModuleString*)key_name);
     pn_ctx->new_key = RedisModule_CreateString(NULL, events[subevent], strlen(events[subevent]));
-    RedisModule_AddPostNotificationJob(ctx, KeySpace_ServerEventPostNotification, pn_ctx, KeySpace_ServerEventPostNotificationFree);
+    int res = RedisModule_AddPostNotificationJob(ctx, KeySpace_ServerEventPostNotification, pn_ctx, KeySpace_ServerEventPostNotificationFree);
+    if (res == REDISMODULE_ERR) KeySpace_ServerEventPostNotificationFree(pn_ctx);
 }
 
 /* This function must be present on each Redis module. It is used in order to

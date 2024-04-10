@@ -308,6 +308,12 @@ start_server {tags {"zset"}} {
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
+        test "ZINCRBY against invalid incr value - $encoding" {
+            r del zincr
+            r zadd zincr 1 "one"
+            assert_error "*value is not a valid*" {r zincrby zincr v "one"}
+        }
+
         test "ZADD - Variadic version base case - $encoding" {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
@@ -1983,6 +1989,34 @@ start_server {tags {"zset"}} {
         }
     }
 
+        test {BZPOPMIN unblock but the key is expired and then block again - reprocessing command} {
+            r flushall
+            r debug set-active-expire 0
+            set rd [redis_deferring_client]
+
+            set start [clock milliseconds]
+            $rd bzpopmin zset{t} 1
+            wait_for_blocked_clients_count 1
+
+            # The exec will try to awake the blocked client, but the key is expired,
+            # so the client will be blocked again during the command reprocessing.
+            r multi
+            r zadd zset{t} 1 one
+            r pexpire zset{t} 100
+            r debug sleep 0.2
+            r exec
+
+            assert_equal {} [$rd read]
+            set end [clock milliseconds]
+
+            # Before the fix in #13004, this time would have been 1200+ (i.e. more than 1200ms),
+            # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
+            assert_range [expr $end-$start] 1000 1150
+
+            r debug set-active-expire 1
+            $rd close
+        } {0} {needs:debug}
+
         test "BZPOPMIN with same key multiple times should work" {
             set rd [redis_deferring_client]
             r del z1{t} z2{t}
@@ -2252,12 +2286,18 @@ start_server {tags {"zset"}} {
     } {b 2 c 3}
 
     test {ZRANGESTORE BYLEX} {
+        set res [r zrangestore z3{t} z1{t} \[b \[c BYLEX]
+        assert_equal $res 2
+        assert_encoding listpack z3{t}
         set res [r zrangestore z2{t} z1{t} \[b \[c BYLEX]
         assert_equal $res 2
         r zrange z2{t} 0 -1 withscores
     } {b 2 c 3}
 
     test {ZRANGESTORE BYSCORE} {
+        set res [r zrangestore z4{t} z1{t} 1 2 BYSCORE]
+        assert_equal $res 2
+        assert_encoding listpack z4{t}
         set res [r zrangestore z2{t} z1{t} 1 2 BYSCORE]
         assert_equal $res 2
         r zrange z2{t} 0 -1 withscores

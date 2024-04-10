@@ -67,7 +67,7 @@ void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 char *linenoise(const char *prompt);
 char *linenoiseWithBuffer(const char *prompt, const char *initial_buf, const int initial_buf_len);
 void linenoiseFree(void *ptr);
-int linenoiseHistoryAdd(const char *line);
+int linenoiseHistoryAdd(const char *line, int is_sensitive);
 int linenoiseHistorySetMaxLen(int len);
 int linenoiseHistorySave(const char *filename);
 int linenoiseHistoryLoad(const char *filename);

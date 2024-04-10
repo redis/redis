@@ -2,32 +2,11 @@
  *
  * ----------------------------------------------------------------------------
  *
- * Copyright (c) 2009-2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -39,6 +18,10 @@
  * mechanism in order to ensure keys are eventually removed when expired even
  * if no access is performed on them.
  *----------------------------------------------------------------------------*/
+
+/* Constants table from pow(0.98, 1) to pow(0.98, 16). 
+ * Help calculating the db->avg_ttl. */
+static double avg_ttl_factor[16] = {0.98, 0.9604, 0.941192, 0.922368, 0.903921, 0.885842, 0.868126, 0.850763, 0.833748, 0.817073, 0.800731, 0.784717, 0.769022, 0.753642, 0.738569, 0.723798};
 
 /* Helper function for the activeExpireCycle() function.
  * This function will try to expire the key that is stored in the hash table
@@ -174,6 +157,7 @@ void activeExpireCycle(int type) {
 
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
+    int dbs_performed = 0;
     long long start = ustime(), timelimit, elapsed;
 
     /* If 'expire' action is paused, for whatever reason, then don't expire any key.
@@ -226,17 +210,30 @@ void activeExpireCycle(int type) {
     /* Try to smoke-out bugs (server.also_propagate should be empty here) */
     serverAssert(server.also_propagate.numops == 0);
 
-    for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
+    /* Stop iteration when one of the following conditions is met:
+     *
+     * 1) We have checked a sufficient number of databases with expiration time.
+     * 2) The time limit has been exceeded.
+     * 3) All databases have been traversed. */
+    for (j = 0; dbs_performed < dbs_per_call && timelimit_exit == 0 && j < server.dbnum; j++) {
         /* Scan callback data including expired and checked count per iteration. */
         expireScanData data;
+        data.ttl_sum = 0;
+        data.ttl_samples = 0;
 
         redisDb *db = server.db+(current_db % server.dbnum);
         data.db = db;
+
+        int db_done = 0; /* The scan of the current DB is done? */
+        int update_avg_ttl_times = 0, repeat = 0;
 
         /* Increment the DB now so we are sure if we run out of time
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
         current_db++;
+
+        if (kvstoreSize(db->expires))
+            dbs_performed++;
 
         /* Continue to expire if at the end of the cycle there are still
          * a big percentage of keys to expire, compared to the number of keys
@@ -247,7 +244,7 @@ void activeExpireCycle(int type) {
             iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
-            if ((num = dbSize(db, DB_EXPIRES)) == 0) {
+            if ((num = kvstoreSize(db->expires)) == 0) {
                 db->avg_ttl = 0;
                 break;
             }
@@ -257,8 +254,6 @@ void activeExpireCycle(int type) {
              * with an expire set, checking for expired ones. */
             data.sampled = 0;
             data.expired = 0;
-            data.ttl_sum = 0;
-            data.ttl_samples = 0;
 
             if (num > config_keys_per_loop)
                 num = config_keys_per_loop;
@@ -276,9 +271,12 @@ void activeExpireCycle(int type) {
             long max_buckets = num*20;
             long checked_buckets = 0;
 
+            int origin_ttl_samples = data.ttl_samples;
+
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = dbScan(db, DB_EXPIRES, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
+                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
                 if (db->expires_cursor == 0) {
+                    db_done = 1;
                     break;
                 }
                 checked_buckets++;
@@ -286,33 +284,57 @@ void activeExpireCycle(int type) {
             total_expired += data.expired;
             total_sampled += data.sampled;
 
-            /* Update the average TTL stats for this database. */
-            if (data.ttl_samples) {
-                long long avg_ttl = data.ttl_sum / data.ttl_samples;
+            /* If find keys with ttl not yet expired, we need to update the average TTL stats once. */
+            if (data.ttl_samples - origin_ttl_samples > 0) update_avg_ttl_times++;
 
-                /* Do a simple running average with a few samples.
-                 * We just use the current estimate with a weight of 2%
-                 * and the previous estimate with a weight of 98%. */
-                if (db->avg_ttl == 0) db->avg_ttl = avg_ttl;
-                db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
-            }
+            /* We don't repeat the cycle for the current database if the db is done
+             * for scanning or an acceptable number of stale keys (logically expired
+             * but yet not reclaimed). */
+            repeat = db_done ? 0 : (data.sampled == 0 || (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
 
             /* We can't block forever here even if there are many keys to
-             * expire. So after a given amount of milliseconds return to the
+             * expire. So after a given amount of microseconds return to the
              * caller waiting for the other active expire cycle. */
-            if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
-                elapsed = ustime()-start;
-                if (elapsed > timelimit) {
-                    timelimit_exit = 1;
-                    server.stat_expired_time_cap_reached_count++;
-                    break;
+            if ((iteration & 0xf) == 0 || !repeat) { /* Update the average TTL stats every 16 iterations or about to exit. */
+                /* Update the average TTL stats for this database, 
+                 * because this may reach the time limit. */
+                if (data.ttl_samples) {
+                    long long avg_ttl = data.ttl_sum / data.ttl_samples;
+
+                    /* Do a simple running average with a few samples.
+                     * We just use the current estimate with a weight of 2%
+                     * and the previous estimate with a weight of 98%. */
+                    if (db->avg_ttl == 0) {
+                        db->avg_ttl = avg_ttl;
+                    } else {
+                        /* The origin code is as follow.
+                         * for (int i = 0; i < update_avg_ttl_times; i++) {
+                         *   db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
+                         * } 
+                         * We can convert the loop into a sum of a geometric progression.
+                         * db->avg_ttl = db->avg_ttl * pow(0.98, update_avg_ttl_times) + 
+                         *                  avg_ttl / 50 * (pow(0.98, update_avg_ttl_times - 1) + ... + 1) 
+                         *             = db->avg_ttl * pow(0.98, update_avg_ttl_times) + 
+                         *                  avg_ttl * (1 - pow(0.98, update_avg_ttl_times))
+                         *             = avg_ttl +  (db->avg_ttl - avg_ttl) * pow(0.98, update_avg_ttl_times) 
+                         * Notice that update_avg_ttl_times is between 1 and 16, we use a constant table 
+                         * to accelerate the calculation of pow(0.98, update_avg_ttl_times).*/
+                        db->avg_ttl = avg_ttl + (db->avg_ttl - avg_ttl) * avg_ttl_factor[update_avg_ttl_times - 1] ;
+                    }
+                    update_avg_ttl_times = 0;
+                    data.ttl_sum = 0;
+                    data.ttl_samples = 0;
+                }
+                if ((iteration & 0xf) == 0) { /* check time limit every 16 iterations. */
+                    elapsed = ustime()-start;
+                    if (elapsed > timelimit) {
+                        timelimit_exit = 1;
+                        server.stat_expired_time_cap_reached_count++;
+                        break;
+                    }
                 }
             }
-            /* We don't repeat the cycle for the current database if there are
-             * an acceptable amount of stale keys (logically expired but yet
-             * not reclaimed). */
-        } while (data.sampled == 0 ||
-                 (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
+        } while (repeat);
     }
 
     elapsed = ustime()-start;
@@ -387,7 +409,7 @@ void expireSlaveKeys(void) {
         while(dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
-                dictEntry *expire = dictFind(db->expires[getKeySlot(keyname)],keyname);
+                dictEntry *expire = dbFindExpires(db, keyname);
                 int expired = 0;
 
                 if (expire &&
