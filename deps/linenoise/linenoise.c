@@ -121,7 +121,6 @@
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
-#define LINENOISE_NO_CYCLE 0
 #define LINENOISE_CYCLE_BACKWARD 1
 #define LINENOISE_CYCLE_FORWARD 2
 static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
@@ -141,7 +140,8 @@ static int *history_sensitive = NULL; /* An array records whether each line in
                                        * history is sensitive. */
 
 static int reverse_search_mode_enabled = 0;
-static int cycle_to_next_search_result = LINENOISE_NO_CYCLE;
+static int reverse_search_direction = 0;
+static int cycle_to_next_search = 0; /* indicates whether to continue the search with CTRL+S or CTRL+R. */
 static char search_result [LINENOISE_MAX_LINE];
 static char search_result_friendly [LINENOISE_MAX_LINE];
 static int search_result_history_index = 0;
@@ -168,6 +168,13 @@ struct linenoiseState {
     size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
     int history_index;  /* The history index we are currently editing. */
 };
+
+typedef struct {
+  int len;
+  char *result;
+  int searchTermIndex;
+  int searchTermLen;
+} linenoiseHistorySearchResult;
 
 enum KEY_ACTION{
 	KEY_NULL = 0,	    /* NULL */
@@ -980,9 +987,10 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
             break;
         case CTRL_R:
+            reverse_search_direction = LINENOISE_CYCLE_BACKWARD;
             if (linenoiseReverseSearchModeEnabled()) {
                 /* cycle search results */
-                cycle_to_next_search_result = LINENOISE_CYCLE_BACKWARD;
+                cycle_to_next_search = 1;
                 refreshLine(&l);
                 break;
             }
@@ -991,9 +999,10 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             enableReverseSearchMode();
             return 0;
         case CTRL_S:
+            reverse_search_direction = LINENOISE_CYCLE_FORWARD;
             if (linenoiseReverseSearchModeEnabled()) {
                 /* cycle search results */
-                cycle_to_next_search_result = LINENOISE_CYCLE_FORWARD;
+                cycle_to_next_search = 1;
                 refreshLine(&l);
                 break;
             }
@@ -1387,20 +1396,17 @@ int linenoiseReverseSearchModeEnabled(void) {
     return reverse_search_mode_enabled;
 }
 
-static void setNextSearchIndex(int *i) {
-    if (cycle_to_next_search_result == LINENOISE_CYCLE_FORWARD) {
-        if (*i == history_len-1) {
-            *i = 0;
-        } else {
-            *i = *i + 1;
-        }
+/* This function updates the search index based on the direction of the search.
+ * Returns 0 if the beginning or end of the history is reached, otherwise, returns 1. */
+static int setNextSearchIndex(int *i) {
+    if (reverse_search_direction == LINENOISE_CYCLE_FORWARD) {
+        if (*i == history_len-1) return 0;
+        *i = *i + 1;
     } else {
-        if (*i <= 0) {
-            *i = history_len-1;
-        } else {
-            *i = *i - 1;
-        }
+        if (*i <= 0) return 0;
+        *i = *i - 1;
     }
+    return 1;
 }
 
 linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
@@ -1414,17 +1420,15 @@ linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
         return result;
     }
 
-    int i = cycle_to_next_search_result ? search_result_history_index : history_len-1 ;
-    int original_i = i;
+    int i = cycle_to_next_search ? search_result_history_index :
+        (reverse_search_direction == LINENOISE_CYCLE_BACKWARD ? history_len-1 : 0);
     
-    setNextSearchIndex(&i);
-
     while (1) {
         char *found = strstr(history[i], searchTerm);
         
         /* check if we found the same string at another index when cycling, this would be annoying to cycle through
          * as it might appear that cycling isn't working */
-        int strings_are_the_same = cycle_to_next_search_result && strcmp(history[i], history[search_result_history_index]) == 0; 
+        int strings_are_the_same = cycle_to_next_search && strcmp(history[i], history[search_result_history_index]) == 0; 
         
         if (found && !strings_are_the_same) {
             int haystackIndex = found - history[i];
@@ -1436,11 +1440,8 @@ linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
             break;
         }
 
-        setNextSearchIndex(&i);
-
-        if (i == original_i) {
-            break;
-        }
+        /* Exit if reached the end. */
+        if (!setNextSearchIndex(&i)) break;
     }
 
     return result;
@@ -1455,15 +1456,14 @@ static void refreshSearchResult(struct linenoiseState *ls) {
         return;
     }
 
-
     linenoiseHistorySearchResult sr = searchInHistory(ls->buf);
     int found = sr.result && sr.len;
 
     /* If the search term has not changed and we are cycling to the next search result
      * (using CTRL+R or CTRL+S), there is no need to reset the old search result. */
-    if (cycle_to_next_search_result == LINENOISE_NO_CYCLE || found)
+    if (!cycle_to_next_search || found)
         resetSearchResult();
-    cycle_to_next_search_result = LINENOISE_NO_CYCLE;
+    cycle_to_next_search = 0;
 
     if (found) {
         char *bold = "\x1B[1m";

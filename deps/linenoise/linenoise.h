@@ -48,14 +48,6 @@ typedef struct linenoiseCompletions {
   char **cvec;
 } linenoiseCompletions;
 
-
-typedef struct {
-  int len;
-  char *result;
-  int searchTermIndex;
-  int searchTermLen;
-} linenoiseHistorySearchResult;
-
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
