@@ -295,8 +295,8 @@ static long long mstime(void) {
     return ustime()/1000;
 }
 
-static char *cliRefreshPrompt(void) {
-    if (config.eval_ldb) return "";
+static void cliRefreshPrompt(void) {
+    if (config.eval_ldb) return;
 
     sds prompt = sdsempty();
     if (config.hostsocket != NULL) {
@@ -322,7 +322,6 @@ static char *cliRefreshPrompt(void) {
     prompt = sdscatlen(prompt,"> ",2);
     snprintf(config.prompt,sizeof(config.prompt),"%s",prompt);
     sdsfree(prompt);
-    return config.prompt;
 }
 
 /* Return the name of the dotfile for the specified 'dotfilename'.
