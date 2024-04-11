@@ -676,7 +676,7 @@ static void refreshMultiLine(struct linenoiseState *l) {
         }
     }
 
-    if (!linenoiseReverseSearchModeEnabled()) {
+    if (!reverse_search_mode_enabled) {
         /* Show hits if any. */
         refreshShowHints(&ab,l,plen);
     }
@@ -914,7 +914,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
-        if (c == TAB && completionCallback != NULL && !linenoiseReverseSearchModeEnabled()) {
+        if (c == TAB && completionCallback != NULL && !reverse_search_mode_enabled) {
             c = completeLine(&l);
             /* Return on errors */
             if (c < 0) return l.len;
@@ -926,7 +926,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         case NL:       /* enter, typed before raw mode was enabled */
             break;
         case TAB:
-            if (linenoiseReverseSearchModeEnabled()) {
+            if (reverse_search_mode_enabled) {
                 if (strlen(search_result) > 0) {
                     memset(buf, 0, buflen);
                     memcpy(buf, search_result, strlen(search_result));
@@ -950,11 +950,11 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 hintsCallback = hc;
             }
 
-            if (linenoiseReverseSearchModeEnabled()) {
+            if (reverse_search_mode_enabled) {
                 search_result_submitted = 1;
             }
 
-            if (linenoiseReverseSearchModeEnabled() && strlen(search_result) > 0) {
+            if (reverse_search_mode_enabled && strlen(search_result) > 0) {
                 memset(buf, 0, buflen);
                 memcpy(buf, search_result, strlen(search_result));
                 return strlen(search_result);
@@ -962,7 +962,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 
             return (int)l.len;
         case CTRL_C:     /* ctrl-c */
-            if (linenoiseReverseSearchModeEnabled()) {
+            if (reverse_search_mode_enabled) {
                 buf[0] = '\0';
                 l.pos = l.len = 0;
                 disableReverseSearchMode();
@@ -1004,7 +1004,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             break;
         case CTRL_R:
             reverse_search_direction = LINENOISE_CYCLE_BACKWARD;
-            if (linenoiseReverseSearchModeEnabled()) {
+            if (reverse_search_mode_enabled) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
                 refreshPrompt(&l);
@@ -1016,7 +1016,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             break;
         case CTRL_S:
             reverse_search_direction = LINENOISE_CYCLE_FORWARD;
-            if (linenoiseReverseSearchModeEnabled()) {
+            if (reverse_search_mode_enabled) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
                 refreshPrompt(&l);
@@ -1041,7 +1041,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             if (read(l.ifd,seq,1) == -1) break;
             if (read(l.ifd,seq+1,1) == -1) break;
 
-            if (linenoiseReverseSearchModeEnabled()) {
+            if (reverse_search_mode_enabled) {
                 disableReverseSearchMode();
                 buf[0] = '\0';
                 l.pos = l.len = 0;
@@ -1456,7 +1456,7 @@ static void refreshSearchResult(struct linenoiseState *ls) {
         return;
     }
 
-   if (!linenoiseReverseSearchModeEnabled()) {
+   if (!reverse_search_mode_enabled) {
         return;
     }
 
@@ -1495,8 +1495,4 @@ static void refreshSearchResult(struct linenoiseState *ls) {
 
         search_result_start_offset = sr.searchTermIndex;
     }
-}
-
-int linenoiseSearchResultSumbitted(void) {
-    return search_result_submitted;
 }

@@ -69,8 +69,6 @@ void linenoiseSetMultiLine(int ml);
 void linenoisePrintKeyCodes(void);
 void linenoiseMaskModeEnable(void);
 void linenoiseMaskModeDisable(void);
-int linenoiseReverseSearchModeEnabled(void);
-int linenoiseSearchResultSumbitted(void);
 
 #ifdef __cplusplus
 }
