@@ -3356,7 +3356,6 @@ static void repl(void) {
     linenoiseSetCompletionCallback(completionCallback);
     linenoiseSetHintsCallback(hintsCallback);
     linenoiseSetFreeHintsCallback(freeHintsCallback);
-    linenoiseSetRefreshPromptCallback(cliRefreshPrompt);
 
     /* Only use history and load the rc file when stdin is a tty. */
     if (getenv("FAKETTY_WITH_PROMPT") != NULL || isatty(fileno(stdin))) {

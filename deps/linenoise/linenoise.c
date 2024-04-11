@@ -117,6 +117,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <assert.h>
 #include "linenoise.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
@@ -125,7 +126,6 @@ static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
-static linenoiseRefreshPromptCallback *refreshPromptCallback = NULL;
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static int maskmode = 0; /* Show "***" instead of input. For passwords. */
@@ -156,6 +156,7 @@ struct linenoiseState {
     int ofd;            /* Terminal stdout file descriptor. */
     char *buf;          /* Edited line buffer. */
     size_t buflen;      /* Edited line buffer size. */
+    const char *origin_prompt; /* Original prompt, used to restore when exiting search mode. */
     const char *prompt; /* Prompt to display. */
     size_t plen;        /* Prompt length. */
     size_t pos;         /* Current cursor position. */
@@ -248,25 +249,15 @@ void linenoiseSetMultiLine(int ml) {
     mlmode = ml;
 }
 
-/* This function updates the prompt based on the current state.
- * If the user is in search mode, it changes the prompt to indicate a search is in progress.
- * If not in search mode, it uses the user-provided callback to update the prompt.
- * This allows the prompt to be updated internally, without waiting for a refresh outside. */
-static void refreshPrompt(struct linenoiseState *l) {
-    if (reverse_search_mode_enabled) {
-        l->prompt = reverse_search_direction == -1 ? "(reverse-i-search): " : "(i-search): ";
-    } else {
-        if (refreshPromptCallback) {
-            l->prompt = refreshPromptCallback();
-        }
-    }
-    refreshLine(l);
-}
+#define REVERSE_SEARCH_PROMPT(direction) ((direction) == -1 ? "(reverse-i-search): " : "(i-search): ")
 
 /* Enables the reverse search mode and refreshes the prompt. */
 static void enableReverseSearchMode(struct linenoiseState *l) {
+    assert(reverse_search_mode_enabled != 1);
     reverse_search_mode_enabled = 1;
-    refreshPrompt(l);
+    l->origin_prompt = l->prompt;
+    l->prompt = REVERSE_SEARCH_PROMPT(reverse_search_direction);
+    refreshLine(l);
 }
 
 /* This function disables the reverse search mode and returns the terminal to its original state.
@@ -288,8 +279,9 @@ static void disableReverseSearchMode(struct linenoiseState *l, char *buf, size_t
 
     /* Reset the state to non-search state. */
     reverse_search_mode_enabled = 0;
+    l->prompt = l->origin_prompt;
     resetSearchResult();
-    refreshPrompt(l);
+    refreshLine(l);
 }
 
 /* Return true if the terminal name is in the list of terminals we know are
@@ -517,13 +509,6 @@ void linenoiseSetHintsCallback(linenoiseHintsCallback *fn) {
  * registered with linenoiseSetHintsCallback(). */
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *fn) {
     freeHintsCallback = fn;
-}
-
-/* Register a function to refresh the prompt. This function will be called
- * to update the prompt internally when necessary, without waiting for
- * a refresh from the user. */
-void linenoiseSetRefreshPromptCallback(linenoiseRefreshPromptCallback *fn) {
-    refreshPromptCallback = fn;
 }
 
 /* This function is used by the callback function registered by the user
@@ -1009,7 +994,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             if (reverse_search_mode_enabled) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
-                refreshPrompt(&l);
+                l.prompt = REVERSE_SEARCH_PROMPT(reverse_search_direction);
+                refreshLine(&l);
                 break;
             }
             buf[0] = '\0';
