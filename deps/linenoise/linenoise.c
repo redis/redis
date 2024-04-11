@@ -280,8 +280,8 @@ static void disableReverseSearchMode(struct linenoiseState *l, char *buf, size_t
     } else {
         ignore_once_hint = 1;
         if (strlen(search_result)) {
-            memcpy(buf, search_result, strlen(search_result));
-            buf[strlen(search_result)] = '\0';
+            strncpy(buf, search_result, buflen);
+            buf[buflen-1] = '\0';
             l->pos = l->len = strlen(buf);
         }
     }
@@ -1410,13 +1410,6 @@ linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
          * as it might appear that cycling isn't working */
         int strings_are_the_same = cycle_to_next_search && strcmp(history[i], history[search_result_history_index]) == 0; 
 
-        typedef struct {
-    int len;
-    char *result;
-    int searchTermIndex; /* position of the search term in the history record.*/
-    int searchTermLen; /*  */
-} linenoiseHistorySearchResult;
-        
         if (found && !strings_are_the_same) {
             int haystackIndex = found - history[i];
             result.result = history[i];
