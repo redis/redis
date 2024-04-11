@@ -1394,10 +1394,6 @@ int linenoiseHistoryLoad(const char *filename) {
     return 0;
 }
 
-int linenoiseReverseSearchModeEnabled(void) {
-    return reverse_search_mode_enabled;
-}
-
 /* This function updates the search index based on the direction of the search.
  * Returns 0 if the beginning or end of the history is reached, otherwise, returns 1. */
 static int setNextSearchIndex(int *i) {
@@ -1414,13 +1410,7 @@ static int setNextSearchIndex(int *i) {
 linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
     linenoiseHistorySearchResult result = {0};
 
-    if (history_len == 0) {
-        return result;
-    }
-
-    if (strlen(searchTerm) == 0) {
-        return result;
-    }
+    if (!history_len || !strlen(searchTerm)) return result;
 
     int i = cycle_to_next_search ? search_result_history_index :
         (reverse_search_direction == LINENOISE_CYCLE_BACKWARD ? history_len-1 : 0);
@@ -1448,6 +1438,7 @@ linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
 
     return result;
 }
+
 static void refreshSearchResult(struct linenoiseState *ls) {
     if (skip_search) {
         skip_search = 0;
