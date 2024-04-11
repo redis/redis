@@ -908,7 +908,6 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     linenoiseHistoryAdd("", 0);
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
-
     while(1) {
         char c;
         int nread;
