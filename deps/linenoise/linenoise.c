@@ -167,10 +167,10 @@ struct linenoiseState {
 };
 
 typedef struct {
-    int len;
-    char *result;
-    int searchTermIndex;
-    int searchTermLen;
+    int len;             /* Length of the result string. */
+    char *result;        /* Search result string. */
+    int searchTermIndex; /* Position of the search term in the history record. */
+    int searchTermLen;   /* Length of the search term. */
 } linenoiseHistorySearchResult;
 
 enum KEY_ACTION{
@@ -253,7 +253,7 @@ void linenoiseSetMultiLine(int ml) {
  * If not in search mode, it uses the user-provided callback to update the prompt.
  * This allows the prompt to be updated internally, without waiting for a refresh outside. */
 static void refreshPrompt(struct linenoiseState *l) {
-    if (reverse_search_mode_enabled == 1) {
+    if (reverse_search_mode_enabled) {
         l->prompt = reverse_search_direction == -1 ? "(reverse-i-search): " : "(i-search): ";
     } else {
         if (refreshPromptCallback) {
@@ -519,6 +519,9 @@ void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *fn) {
     freeHintsCallback = fn;
 }
 
+/* Register a function to refresh the prompt. This function will be called
+ * to update the prompt internally when necessary, without waiting for
+ * a refresh from the user. */
 void linenoiseSetRefreshPromptCallback(linenoiseRefreshPromptCallback *fn) {
     refreshPromptCallback = fn;
 }
@@ -1406,6 +1409,13 @@ linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
         /* check if we found the same string at another index when cycling, this would be annoying to cycle through
          * as it might appear that cycling isn't working */
         int strings_are_the_same = cycle_to_next_search && strcmp(history[i], history[search_result_history_index]) == 0; 
+
+        typedef struct {
+    int len;
+    char *result;
+    int searchTermIndex; /* position of the search term in the history record.*/
+    int searchTermLen; /*  */
+} linenoiseHistorySearchResult;
         
         if (found && !strings_are_the_same) {
             int haystackIndex = found - history[i];
