@@ -556,6 +556,7 @@ static void abFree(struct abuf *ab) {
  * to the right of the prompt. */
 void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
     char seq[64];
+    if (reverse_search_mode_enabled) return; /* Show hits when not in reverse search mode. */
     if (hintsCallback && plen+l->len < l->cols) {
         int color = -1, bold = 0;
         char *hint = hintsCallback(l->buf,&color,&bold);
@@ -676,11 +677,8 @@ static void refreshMultiLine(struct linenoiseState *l) {
         }
     }
 
-    if (!reverse_search_mode_enabled) {
-        /* Show hits if any. */
-        refreshShowHints(&ab,l,plen);
-    }
-
+    /* Show hits if any. */
+    refreshShowHints(&ab,l,plen);
 
     /* If we are at the very end of the screen with our prompt, we need to
      * emit a newline and move the prompt to the first column. */
