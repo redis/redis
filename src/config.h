@@ -93,7 +93,6 @@
 #endif
 #endif
 
-/* Define redis_fsync to fdatasync() in Linux and fsync() for all the rest */
 #if defined(__linux__)
 #define redis_fsync(fd) fdatasync(fd)
 #elif defined(__APPLE__)
