@@ -148,7 +148,6 @@ static char search_result_friendly[LINENOISE_MAX_LINE];
 static int search_result_history_index = 0;
 static int search_result_start_offset = 0;
 static int skip_search = 0;
-static int search_result_submitted = 0;
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -250,6 +249,10 @@ void linenoiseSetMultiLine(int ml) {
     mlmode = ml;
 }
 
+/* This function updates the prompt based on the current state.
+ * If the user is in search mode, it changes the prompt to indicate a search is in progress.
+ * If not in search mode, it uses the user-provided callback to update the prompt.
+ * This allows the prompt to be updated internally, without waiting for a refresh outside. */
 static void refreshPrompt(struct linenoiseState *l) {
     if (reverse_search_mode_enabled == 1) {
         l->prompt = reverse_search_direction == LINENOISE_CYCLE_BACKWARD ?
@@ -262,14 +265,32 @@ static void refreshPrompt(struct linenoiseState *l) {
     refreshLine(l);
 }
 
+/* Enables the reverse search mode and refreshes the prompt. */
 static void enableReverseSearchMode(struct linenoiseState *l) {
     reverse_search_mode_enabled = 1;
     refreshPrompt(l);
 }
 
-static void disableReverseSearchMode(void) {
-    resetSearchResult();
+/* This function disables the reverse search mode and returns the terminal to its original state.
+ * If the 'discard' parameter is true, it discards the user's input search keyword and search result.
+ * Otherwise, it copies the search result into 'buf', If there is no search result, it copies the
+ * input search keyword instead. */
+static void disableReverseSearchMode(struct linenoiseState *l, char *buf, size_t buflen, int discard) {
+    if (discard) {
+        buf[0] = '\0';
+        l->pos = l->len = 0;
+    } else {
+        if (strlen(search_result)) {
+            memcpy(buf, search_result, strlen(search_result));
+            buf[strlen(search_result)] = '\0';
+            l->pos = l->len = strlen(buf);
+        }
+    }
+
+    /* Reset the state to non-search state. */
     reverse_search_mode_enabled = 0;
+    resetSearchResult();
+    refreshPrompt(l);
 }
 
 /* Return true if the terminal name is in the list of terminals we know are
@@ -869,12 +890,6 @@ void linenoiseEditDeletePrevWord(struct linenoiseState *l) {
  * The function returns the length of the current buffer. */
 static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, const char *prompt)
 {
-    if (search_result_submitted) {
-        search_result_submitted = 0;
-        disableReverseSearchMode();
-        return 0;
-    }
-
     struct linenoiseState l;
 
     /* Populate the linenoise state that we pass to functions implementing
@@ -924,15 +939,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         case NL:       /* enter, typed before raw mode was enabled */
             break;
         case TAB:
-            if (reverse_search_mode_enabled) {
-                if (strlen(search_result) > 0) {
-                    memset(buf, 0, buflen);
-                    memcpy(buf, search_result, strlen(search_result));
-                }
-                disableReverseSearchMode();
-                l.pos = l.len = strlen(buf);
-                refreshPrompt(&l);
-            }
+            if (reverse_search_mode_enabled) disableReverseSearchMode(&l, buf, buflen, 0);
             break;
         case ENTER:    /* enter */
             history_len--;
@@ -948,23 +955,12 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 hintsCallback = hc;
             }
 
-            if (reverse_search_mode_enabled) {
-                search_result_submitted = 1;
-            }
-
-            if (reverse_search_mode_enabled && strlen(search_result) > 0) {
-                memset(buf, 0, buflen);
-                memcpy(buf, search_result, strlen(search_result));
-                return strlen(search_result);
-            }
-
+            if (reverse_search_mode_enabled) disableReverseSearchMode(&l, buf, buflen, 0);
             return (int)l.len;
         case CTRL_C:     /* ctrl-c */
             if (reverse_search_mode_enabled) {
-                buf[0] = '\0';
-                l.pos = l.len = 0;
-                disableReverseSearchMode();
-                return 0;
+                disableReverseSearchMode(&l, buf, buflen, 1);
+                break;
             }
             errno = EAGAIN;
             return -1;
@@ -1025,10 +1021,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             enableReverseSearchMode(&l);
             break;
         case CTRL_G:
-            disableReverseSearchMode();
-            buf[0] = '\0';
-            l.pos = l.len = 0;
-            return 0;
+            if (reverse_search_mode_enabled) disableReverseSearchMode(&l, buf, buflen, 1);
+            break;
         case CTRL_N:    /* ctrl-n */
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
             break;
@@ -1040,10 +1034,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             if (read(l.ifd,seq+1,1) == -1) break;
 
             if (reverse_search_mode_enabled) {
-                disableReverseSearchMode();
-                buf[0] = '\0';
-                l.pos = l.len = 0;
-                return 0;
+                disableReverseSearchMode(&l, buf, buflen, 1);
+                break;
             }
 
             /* ESC [ sequences. */
