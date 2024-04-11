@@ -147,7 +147,8 @@ static char search_result[LINENOISE_MAX_LINE];
 static char search_result_friendly[LINENOISE_MAX_LINE];
 static int search_result_history_index = 0;
 static int search_result_start_offset = 0;
-static int skip_search = 0;
+static int ignore_once_hint = 0; /* Flag to ignore hint once, preventing it from interfering
+                                  * with search results right after exiting search mode. */
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -280,6 +281,7 @@ static void disableReverseSearchMode(struct linenoiseState *l, char *buf, size_t
         buf[0] = '\0';
         l->pos = l->len = 0;
     } else {
+        ignore_once_hint = 1;
         if (strlen(search_result)) {
             memcpy(buf, search_result, strlen(search_result));
             buf[strlen(search_result)] = '\0';
@@ -577,7 +579,13 @@ static void abFree(struct abuf *ab) {
  * to the right of the prompt. */
 void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
     char seq[64];
-    if (reverse_search_mode_enabled) return; /* Show hits when not in reverse search mode. */
+
+    /* Show hits when not in reverse search mode and not instructed to ignore once. */
+    if (reverse_search_mode_enabled || ignore_once_hint) {
+        ignore_once_hint = 0;
+        return;
+    }
+
     if (hintsCallback && plen+l->len < l->cols) {
         int color = -1, bold = 0;
         char *hint = hintsCallback(l->buf,&color,&bold);
@@ -950,7 +958,6 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                  * line as the user typed it after a newline. */
                 linenoiseHintsCallback *hc = hintsCallback;
                 hintsCallback = NULL;
-                skip_search = 1;
                 refreshLine(&l);
                 hintsCallback = hc;
             }
@@ -1432,11 +1439,6 @@ linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
 }
 
 static void refreshSearchResult(struct linenoiseState *ls) {
-    if (skip_search) {
-        skip_search = 0;
-        return;
-    }
-
    if (!reverse_search_mode_enabled) {
         return;
     }
