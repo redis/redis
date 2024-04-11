@@ -9438,7 +9438,8 @@ static void findHotKeys(void) {
     unsigned long long counters[HOTKEYS_SAMPLE] = {0};
     sds hotkeys[HOTKEYS_SAMPLE] = {NULL};
     unsigned long long sampled = 0, total_keys, *freqs = NULL, it = 0, scan_loops = 0;
-    unsigned int arrsize = 0, i, k;
+    unsigned int arrsize = 0, i;
+    int k;
     double pct;
     long long refresh_time = mstime();
 
@@ -9522,8 +9523,7 @@ static void findHotKeys(void) {
             line_count = displayKeyStatsProgressbar(sampled, total_keys);
             line_count += cleanPrintfln("");
 
-            for (i=1; i<= HOTKEYS_SAMPLE; i++) {
-                k = HOTKEYS_SAMPLE - i;
+            for (k = HOTKEYS_SAMPLE - 1; k >= 0 ; k--) {
                 if (counters[k] > 0) {
                     line_count += cleanPrintfln("hot key found with counter: %llu\tkeyname: %s", 
                         counters[k], hotkeys[k]);
@@ -9547,12 +9547,8 @@ static void findHotKeys(void) {
 
         /* clean the types info shown during the progress bar */
         int line_count = 0;
-        line_count += cleanPrintfln("");
-        for (i=1; i<= HOTKEYS_SAMPLE; i++) {
-            k = HOTKEYS_SAMPLE - i;
-            if (counters[k] > 0)
-                line_count += cleanPrintfln("");
-        }
+        for (k = 0; k <= HOTKEYS_SAMPLE ; k++)
+            line_count += cleanPrintfln("");
         printf("\033[%dA\r", line_count);
     }
 
@@ -9567,8 +9563,7 @@ static void findHotKeys(void) {
         printf("Sampled %llu keys in the keyspace!\n", sampled);
     }
 
-    for (i=1; i<= HOTKEYS_SAMPLE; i++) {
-        k = HOTKEYS_SAMPLE - i;
+    for (k = HOTKEYS_SAMPLE - 1; k >= 0 ; k--) {
         if (counters[k] > 0) {
             printf("hot key found with counter: %llu\tkeyname: %s\n", counters[k], hotkeys[k]);
             sdsfree(hotkeys[k]);
