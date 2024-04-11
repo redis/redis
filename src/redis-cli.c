@@ -9297,15 +9297,18 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                     printf("[%05.2f%%] Biggest %-6s found so far %s with %llu %s\n",
                         pct, type->name, type->biggest_key, sizes[i],
                         !memkeys? type->sizeunit: "bytes");
-
-                    /* Update overall progress */
-                    if (sampled % 1000000 == 0) {
-                        printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
-                    }
                 }
 
                 /* Keep track of the biggest size for this type */
                 type->biggest = sizes[i];
+            }
+
+            /* We only show the original progress output when writing to a file */
+            if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+                /* Update overall progress */
+                if (sampled % 1000000 == 0) {
+                    printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
+                }
             }
 
             /* Show the progress bar in TTY */
@@ -10038,8 +10041,8 @@ typedef struct size_dist {
     size_dist_entry *size_dist;
 } size_dist;
 
-/* distribution is an array initialized with last element {UINT64_MAX, 0}
- * for instance: size_dist_entry distribution[] = { {32, 0}, {256, 0}, {UINT64_MAX, 0} }; */
+/* distribution is an array initialized with last element {0, 0}
+ * for instance: size_dist_entry distribution[] = { {32, 0}, {256, 0}, {0, 0} }; */
 static void sizeDistInit(size_dist *dist, size_dist_entry *distribution) {
     dist->max_size = 0;
     dist->total_count = 0;
@@ -10056,7 +10059,7 @@ static void addSizeDist(size_dist *dist, unsigned long long size) {
     }
 
     int j;
-    for (j=0; size > dist->size_dist[j].size; j++);
+    for (j=0; dist->size_dist[j].size && size > dist->size_dist[j].size; j++);
     dist->size_dist[j].count++;
 }
 
@@ -10068,7 +10071,7 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
     line_count += cleanPrintfln("Key length     Percentile Total keys");
     line_count += cleanPrintfln("-------------- ---------- -----------");
 
-    for (int i=0; dist->size_dist[i].size < UINT64_MAX; i++) {
+    for (int i=0; dist->size_dist[i].size; i++) {
         if (dist->size_dist[i].count) {
             if (dist->max_size < dist->size_dist[i].size) {
                 size = dist->max_size;
@@ -10454,7 +10457,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         {16*1024*1024, 0},         /*  16 MB                                                  */
         {128*1024*1024, 0},        /* 128 MB                                                  */
         {512*1024*1024, 0},        /* 512 MB (max String size)                                */
-        {UINT64_MAX, 0},           /* Sizes above the last entry                              */
+        {0, 0},                    /* Sizes above the last entry                              */
     };
     sizeDistInit(&key_length_dist, distribution);
 
