@@ -1001,19 +1001,8 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
             break;
         case CTRL_R:
-            reverse_search_direction = -1;
-            if (reverse_search_mode_enabled) {
-                /* cycle search results */
-                cycle_to_next_search = 1;
-                refreshPrompt(&l);
-                break;
-            }
-            buf[0] = '\0';
-            l.pos = l.len = 0;
-            enableReverseSearchMode(&l);
-            break;
         case CTRL_S:
-            reverse_search_direction = 1;
+            reverse_search_direction = c == CTRL_R ? -1 : 1;
             if (reverse_search_mode_enabled) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
