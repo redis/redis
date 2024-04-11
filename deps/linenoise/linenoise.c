@@ -121,8 +121,6 @@
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
-#define LINENOISE_CYCLE_BACKWARD 1
-#define LINENOISE_CYCLE_FORWARD 2
 static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
@@ -141,7 +139,7 @@ static int *history_sensitive = NULL; /* An array records whether each line in
                                        * history is sensitive. */
 
 static int reverse_search_mode_enabled = 0;
-static int reverse_search_direction = 0;
+static int reverse_search_direction = 0; /* 1 means forward, -1 means backward. */
 static int cycle_to_next_search = 0; /* indicates whether to continue the search with CTRL+S or CTRL+R. */
 static char search_result[LINENOISE_MAX_LINE];
 static char search_result_friendly[LINENOISE_MAX_LINE];
@@ -256,8 +254,7 @@ void linenoiseSetMultiLine(int ml) {
  * This allows the prompt to be updated internally, without waiting for a refresh outside. */
 static void refreshPrompt(struct linenoiseState *l) {
     if (reverse_search_mode_enabled == 1) {
-        l->prompt = reverse_search_direction == LINENOISE_CYCLE_BACKWARD ?
-            "(reverse-i-search): " : "(i-search): ";
+        l->prompt = reverse_search_direction == -1 ? "(reverse-i-search): " : "(i-search): ";
     } else {
         if (refreshPromptCallback) {
             l->prompt = refreshPromptCallback();
@@ -1004,7 +1001,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
             break;
         case CTRL_R:
-            reverse_search_direction = LINENOISE_CYCLE_BACKWARD;
+            reverse_search_direction = -1;
             if (reverse_search_mode_enabled) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
@@ -1016,7 +1013,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             enableReverseSearchMode(&l);
             break;
         case CTRL_S:
-            reverse_search_direction = LINENOISE_CYCLE_FORWARD;
+            reverse_search_direction = 1;
             if (reverse_search_mode_enabled) {
                 /* cycle search results */
                 cycle_to_next_search = 1;
@@ -1396,7 +1393,7 @@ int linenoiseHistoryLoad(const char *filename) {
 /* This function updates the search index based on the direction of the search.
  * Returns 0 if the beginning or end of the history is reached, otherwise, returns 1. */
 static int setNextSearchIndex(int *i) {
-    if (reverse_search_direction == LINENOISE_CYCLE_FORWARD) {
+    if (reverse_search_direction == 1) {
         if (*i == history_len-1) return 0;
         *i = *i + 1;
     } else {
@@ -1412,7 +1409,7 @@ linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
     if (!history_len || !strlen(searchTerm)) return result;
 
     int i = cycle_to_next_search ? search_result_history_index :
-        (reverse_search_direction == LINENOISE_CYCLE_BACKWARD ? history_len-1 : 0);
+        (reverse_search_direction == -1 ? history_len-1 : 0);
     
     while (1) {
         char *found = strstr(history[i], searchTerm);
