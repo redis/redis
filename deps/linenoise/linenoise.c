@@ -906,11 +906,13 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     l.prompt = prompt;
     l.plen = strlen(prompt);
     l.oldpos = l.pos = 0;
-    l.len = strlen(buf);
+    l.len = 0;
     l.cols = getColumns(stdin_fd, stdout_fd);
     l.maxrows = 0;
     l.history_index = 0;
 
+    /* Buffer starts empty. */
+    l.buf[0] = '\0';
     l.buflen--; /* Make sure there is always space for the nulterm */
 
     /* The latest history entry is always our current buffer, that
@@ -918,8 +920,6 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
     linenoiseHistoryAdd("", 0);
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
-    if (write(l.ofd,buf,l.len) == -1) return -1;
-    l.oldpos = l.pos = l.len;
 
     while(1) {
         char c;
