@@ -144,6 +144,8 @@
 
 #define REFRESH_INTERVAL 300 /* milliseconds */
 
+#define IS_TTY_OR_FAKETTY() (isatty(STDOUT_FILENO) || getenv("FAKETTY"))
+
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
 int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
@@ -395,7 +397,7 @@ int cleanPrintln(char *string) {
     char *position = strchr(string, '\n');
 
     /* Clear the line if in TTY */
-    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
+    if IS_TTY_OR_FAKETTY() {
         printf("\033[2K\r");
     }
 
@@ -9293,7 +9295,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                 }
 
                 /* We only show the original progress output when writing to a file */
-                if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+                if (!IS_TTY_OR_FAKETTY()) {
                     printf("[%05.2f%%] Biggest %-6s found so far %s with %llu %s\n",
                         pct, type->name, type->biggest_key, sizes[i],
                         !memkeys? type->sizeunit: "bytes");
@@ -9304,7 +9306,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
             }
 
             /* We only show the original progress output when writing to a file */
-            if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+            if (!IS_TTY_OR_FAKETTY()) {
                 /* Update overall progress */
                 if (sampled % 1000000 == 0) {
                     printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
@@ -9312,9 +9314,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
             }
 
             /* Show the progress bar in TTY */
-            if (mstime() > refresh_time + REFRESH_INTERVAL && 
-                (isatty(STDOUT_FILENO) || getenv("FAKETTY")))
-            {
+            if (mstime() > refresh_time + REFRESH_INTERVAL && IS_TTY_OR_FAKETTY()) {
                 int line_count = 0;
                 refresh_time = mstime();
 
@@ -9345,7 +9345,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     } while(force_cancel_loop == 0 && it != 0);
 
     /* Final progress bar if TTY */
-    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
+    if IS_TTY_OR_FAKETTY() {
         displayKeyStatsProgressbar(sampled, total_keys);
 
         /* Clean the types info shown during the progress bar */
@@ -9364,7 +9364,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     printf("\n-------- summary -------\n\n");
 
     /* Show percentage and sampled output when writing to a file */
-    if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+    if (!IS_TTY_OR_FAKETTY()) {
         if (force_cancel_loop) printf("[%05.2f%%] ", pct);
         printf("Sampled %llu keys in the keyspace!\n", sampled);
     }
@@ -9489,7 +9489,7 @@ static void findHotKeys(void) {
             sampled++;
 
             /* Only show the original progress output when writing to a file */
-            if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+            if (!IS_TTY_OR_FAKETTY()) {
                 /* Update overall progress */
                 if (sampled % 1000000 == 0) {
                     printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
@@ -9512,16 +9512,14 @@ static void findHotKeys(void) {
             hotkeys[k] = sdscatrepr(sdsempty(), keys->element[i]->str, keys->element[i]->len);
 
             /* Only show the original progress output when writing to a file */
-            if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+            if (!IS_TTY_OR_FAKETTY()) {
                 printf("[%05.2f%%] Hot key %s found so far with counter %llu\n",
                     pct, hotkeys[k], freqs[i]);
             }
         }
 
         /* Show the progress bar in TTY */
-        if (mstime() > refresh_time + REFRESH_INTERVAL && 
-            (isatty(STDOUT_FILENO) || getenv("FAKETTY")))
-        {
+        if (mstime() > refresh_time + REFRESH_INTERVAL && IS_TTY_OR_FAKETTY()) {
             int line_count = 0;
             refresh_time = mstime();
 
@@ -9547,7 +9545,7 @@ static void findHotKeys(void) {
     } while(force_cancel_loop ==0 && it != 0);
 
     /* Final progress bar in TTY */
-    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
+    if (IS_TTY_OR_FAKETTY()) {
         displayKeyStatsProgressbar(sampled, total_keys);
 
         /* clean the types info shown during the progress bar */
@@ -9563,7 +9561,7 @@ static void findHotKeys(void) {
     printf("\n-------- summary -------\n\n");
 
     /* Show the original output when writing to a file */
-    if (!(isatty(STDOUT_FILENO) || getenv("FAKETTY"))) {
+    if (!IS_TTY_OR_FAKETTY()) {
         if(force_cancel_loop) printf("[%05.2f%%] ",pct);
         printf("Sampled %llu keys in the keyspace!\n", sampled);
     }
@@ -10110,7 +10108,7 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
     double completion_pct = total_keys ? sampled < total_keys ? (double) sampled/total_keys : 1 : 0;
 
     /* If we are not redirecting to a file, build the progress bar */
-    if (isatty(STDOUT_FILENO) || getenv("FAKETTY")) {
+    if IS_TTY_OR_FAKETTY() {
         int completed_width = (int)round(PROGRESSBAR_WIDTH * completion_pct);
         memset(buf[0], '|', completed_width);
         buf[0][completed_width]= '\0';
@@ -10539,9 +10537,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         }
 
         /* Refresh keystats info on regular basis */
-        if (mstime() > refresh_time + REFRESH_INTERVAL && 
-            (isatty(STDOUT_FILENO) || getenv("FAKETTY")))
-        {
+        if (mstime() > refresh_time + REFRESH_INTERVAL && IS_TTY_OR_FAKETTY()) {
             displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict,
                 top_sizes, top_sizes_limit, 1);
             refresh_time = mstime();
