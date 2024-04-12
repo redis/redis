@@ -397,7 +397,7 @@ int cleanPrintln(char *string) {
     char *position = strchr(string, '\n');
 
     /* Clear the line if in TTY */
-    if IS_TTY_OR_FAKETTY() {
+    if (IS_TTY_OR_FAKETTY()) {
         printf("\033[2K\r");
     }
 
@@ -9345,7 +9345,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     } while(force_cancel_loop == 0 && it != 0);
 
     /* Final progress bar if TTY */
-    if IS_TTY_OR_FAKETTY() {
+    if (IS_TTY_OR_FAKETTY()) {
         displayKeyStatsProgressbar(sampled, total_keys);
 
         /* Clean the types info shown during the progress bar */
@@ -10108,7 +10108,7 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
     double completion_pct = total_keys ? sampled < total_keys ? (double) sampled/total_keys : 1 : 0;
 
     /* If we are not redirecting to a file, build the progress bar */
-    if IS_TTY_OR_FAKETTY() {
+    if (IS_TTY_OR_FAKETTY()) {
         int completed_width = (int)round(PROGRESSBAR_WIDTH * completion_pct);
         memset(buf[0], '|', completed_width);
         buf[0][completed_width]= '\0';
