@@ -418,7 +418,7 @@ int cleanPrintfln(char *fmt, ...) {
     int char_count;
 
     va_start(args, fmt);
-    char_count = vsnprintf(buf, sizeof(buf),fmt, args);
+    char_count = vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
     if (char_count >= (int)sizeof(buf)) {
