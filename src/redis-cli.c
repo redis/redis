@@ -10103,7 +10103,7 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
     char progressbar[512];
     char buf[2][128];
 
-    /* We can go over 100% if keys are added in the middle of the scans *
+    /* We can go over 100% if keys are added in the middle of the scans.
      * Cap at 100% or the progressbar memset will overflow              */
     double completion_pct = total_keys ? sampled < total_keys ? (double) sampled/total_keys : 1 : 0;
 
@@ -10191,15 +10191,15 @@ static int displayKeyStatsSizeDist(struct hdr_histogram *keysize_histogram) {
     line_count += cleanPrintfln("-------- ---------- -----------");
 
     while (hdr_iter_next(&iter)) {
-        /* Skip repeat in hdr_histogram cumulative_count, and set the last line */
-        /* to 100% when total_count is reached. For instance:                   */
-        /* 140.68K    99.9969%        50013                                     */
-        /* 140.68K    99.9977%        50013                                     */
-        /*   2.04G    99.9985%        50014                                     */
-        /*   2.04G   100.0000%        50014                                     */
-        /* Will display:                                                        */
-        /* 140.68K    99.9969%        50013                                     */
-        /*   2.04G   100.0000%        50014                                     */
+        /* Skip repeat in hdr_histogram cumulative_count, and set the last line
+         * to 100% when total_count is reached. For instance:
+         * 140.68K    99.9969%        50013
+         * 140.68K    99.9977%        50013
+         *   2.04G    99.9985%        50014
+         *   2.04G   100.0000%        50014
+         * Will display:
+         * 140.68K    99.9969%        50013
+         *   2.04G   100.0000%        50014                                   */
 
         if (iter.cumulative_count != last_displayed_cumulative_count) {
 
@@ -10250,7 +10250,7 @@ static int displayKeyStatsType(unsigned long long sampled,
 
             /* bigkeys info */
             dictEntry *bk_de = dictFind(bigkeys_types_dict, memkey_type->name);
-            if (bk_de) { /* if we have it in memkeys it should be in bigkeys */
+            if (bk_de) { /* If we have it in memkeys it should be in bigkeys */
                 typeinfo *bigkey_type = dictGetVal(bk_de);
                 if (bigkey_type->sizecmd && bigkey_type->count) {
                     double avg = (double)bigkey_type->totalsize/bigkey_type->count;
@@ -10281,7 +10281,7 @@ static int displayKeyStatsType(unsigned long long sampled,
 
 typedef struct key_info {
     unsigned long long size;
-    char type_name[10]; /* key type name seems to be 9 char max + \0 */
+    char type_name[10]; /* Key type name seems to be 9 char max + \0 */
     sds key_name;
 } key_info;
 
@@ -10322,21 +10322,21 @@ static key_info *createKeySizeInfo(char *key_name, size_t key_name_len, char *ke
 /* Insert key info in topkeys sorted by size (from high to low size).
  * Keep a maximum of config.top_sizes_limit items in topkeys list.
  * key_name and type_name are copied.
- * Return: 0 size was not added (too small), 1 size was inserted. */
+ * Return: 0 size was not added (too small), 1 size was inserted.  */
 static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long long key_size,
                           char *type_name, list *topkeys, unsigned long top_sizes_limit) {
     listNode *node;
     listIter *iter;
     key_info *new_node;
 
-    /* check if we do not need to add to the list */
+    /* Check if we do not need to add to the list */
     if (top_sizes_limit != 0 &&
         topkeys->len == top_sizes_limit &&
         key_size <= ((key_info*)topkeys->tail->value)->size){
         return 0;
     }
 
-    /* find where to insert the new key size */
+    /* Find where to insert the new key size */
     iter = listGetIterator(topkeys, AL_START_HEAD);
     do {
         node = listNext(iter);
@@ -10346,14 +10346,14 @@ static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long lon
     new_node = createKeySizeInfo(key_name, key_name_len, type_name, key_size);
 
     if (node) {
-        /* insert before the node */
+        /* Insert before the node */
         listInsertNode(topkeys, node, new_node, 0);
     } else {
-        /* insert as the last node */
+        /* Insert as the last node */
         listAddNodeTail(topkeys, new_node);
     }
 
-    /* trim to stay within the limit */
+    /* Trim to stay within the limit */
     if (topkeys->len == top_sizes_limit + 1) {
         sdsfree(((key_info*)topkeys->tail->value)->key_name);
         listDelNode(topkeys, topkeys->tail); /* list->free is set */
