@@ -1207,21 +1207,25 @@ void cronUpdateMemoryStats(void) {
          * The fragmentation ratio it'll show is potentially more accurate
          * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
          * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
-        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
+        zmalloc_get_allocator_info(1,
+                                   &server.cron_malloc_stats.allocator_allocated,
                                    &server.cron_malloc_stats.allocator_active,
                                    &server.cron_malloc_stats.allocator_resident,
                                    NULL,
                                    &server.cron_malloc_stats.allocator_muzzy,
                                    &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
+        if (server.lua_arena != UINT_MAX) {
+            zmalloc_get_allocator_info_by_arena(server.lua_arena,
+                                                0,
+                                                &server.cron_malloc_stats.lua_allocator_allocated,
+                                                &server.cron_malloc_stats.lua_allocator_active,
+                                                &server.cron_malloc_stats.lua_allocator_resident,
+                                                &server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes);
+        }
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
-        if (!server.cron_malloc_stats.allocator_resident) {
-            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
-             * so we must deduct it in order to be able to calculate correct
-             * "allocator fragmentation" ratio */
-            size_t lua_memory = evalMemory();
-            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
-        }
+        if (!server.cron_malloc_stats.allocator_resident)
+            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss;
         if (!server.cron_malloc_stats.allocator_active)
             server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
         if (!server.cron_malloc_stats.allocator_allocated)
@@ -2756,6 +2760,7 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    luaEnvInit();
     scriptingInit(1);
     if (functionsInit() == C_ERR) {
         serverPanic("Functions initialization failed, check the server logs.");
@@ -6120,7 +6125,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_aof_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_AOF].sum,
             "eventloop_duration_cron_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CRON].sum,
             "eventloop_duration_max:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].max,
-            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max));
+            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max,
+            "allocator_allocated_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_allocated,
+            "allocator_active_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_active,
+            "allocator_resident_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_resident,
+            "allocator_frag_bytes_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes));
     }
 
     return info;

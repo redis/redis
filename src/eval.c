@@ -17,6 +17,9 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+#if defined(USE_JEMALLOC)
+#include <lstate.h>
+#endif
 #include <ctype.h>
 #include <math.h>
 
@@ -162,12 +165,16 @@ int luaRedisReplicateCommandsCommand(lua_State *lua) {
  *
  * However it is simpler to just call scriptingReset() that does just that. */
 void scriptingInit(int setup) {
-    lua_State *lua = lua_open();
-
     if (setup) {
         lctx.lua_client = NULL;
         server.script_disable_deny_script = 0;
         ldbInit();
+    }
+
+    lua_State *lua = createLuaState();
+    if (lua == NULL) {
+        serverLog(LL_WARNING, "Failed creating the lua VM.");
+        exit(1);
     }
 
     /* Initialize a dictionary we use to map SHAs to scripts.
@@ -252,16 +259,11 @@ void freeLuaScriptsSync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State
     listRelease(lua_scripts_lru_list);
     lua_close(lua);
 
-#if !defined(USE_LIBC)
-    /* The lua interpreter may hold a lot of memory internally, and lua is
-     * using libc. libc may take a bit longer to return the memory to the OS,
-     * so after lua_close, we call malloc_trim try to purge it earlier.
-     *
-     * We do that only when Redis itself does not use libc. When Lua and Redis
-     * use different allocators, one won't use the fragmentation holes of the
-     * other, and released memory can take a long time until it is returned to
-     * the OS. */
-    zlibc_trim();
+#if defined(USE_JEMALLOC)
+    /* When lua is closed, destroy the previously used private tcache. */
+    void *ud = (global_State*)G(lua)->ud;
+    unsigned int lua_tcache = (unsigned int)(uintptr_t)ud;
+    je_mallctl("tcache.destroy", NULL, NULL, (void *)&lua_tcache, sizeof(unsigned int));
 #endif
 }
 
