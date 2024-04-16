@@ -67,14 +67,14 @@ proc hrandfieldTest {activeExpireConfig} {
     wait_for_condition 8 10 {
         [cmp_hrandfield_result myhash "field2"] == 1
     } else {
-        fail "Expected field2 to be returned by HRANDFIELD.
+        fail "Expected field2 to be returned by HRANDFIELD."
     }
 
     # On call hrandfield command lazy expire deletes field2 as well
     wait_for_condition 8 20 {
         [cmp_hrandfield_result myhash "{}"] == 1
     } else {
-        fail "Expected {} to be returned by HRANDFIELD.
+        fail "Expected {} to be returned by HRANDFIELD."
     }
 
     # restore the default value

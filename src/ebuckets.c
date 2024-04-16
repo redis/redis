@@ -623,10 +623,10 @@ static int ebAddToList(ebuckets *eb, EbucketsType *type, eItem item) {
     return 0;
 }
 
-/* return 0 if removed from list. Otherwise return 1 */
+/* return 1 if removed from list. Otherwise, return 0 */
 static int ebRemoveFromList(ebuckets *eb, EbucketsType *type, eItem item) {
     if (ebIsEmpty(*eb))
-        return 1; /* not found */
+        return 0; /* not removed */
 
     ExpireMeta *metaItem = type->getExpireMeta(item);
     eItem head = ebGetListPtr(type, *eb);
@@ -639,10 +639,10 @@ static int ebRemoveFromList(ebuckets *eb, EbucketsType *type, eItem item) {
             mNewHead->numItems = metaItem->numItems - 1;
             mNewHead->firstItemBucket = 1;
             *eb = ebMarkAsList(newHead);
-            return 0; /* found */
+            return 1; /* removed */
         }
         *eb = NULL;
-        return 0;
+        return 1; /* removed */
     }
 
     /* item is not the head of the list */
@@ -659,11 +659,11 @@ static int ebRemoveFromList(ebuckets *eb, EbucketsType *type, eItem item) {
                 metaIter->lastItemBucket = 1;
             }
             metaHead->numItems -= 1;
-            return 0; /* found */
+            return 1; /* removed */
         }
         iter = metaIter->next;
     }
-    return 1; /* not found */
+    return 0; /* not removed */
 }
 
 /* return 1 if none left. Otherwise return 0 */
@@ -928,11 +928,13 @@ static int ebAddToBucket(EbucketsType *type,
 }
 
 /*
- * Return 0 if removed item from buckets. Otherwise, return 1
+ * Remove item from rax
  *
- * The function is optimized to remove items locally from segments
- * without traversing rax tree or stepping long extended-segments. Therefore,
- * it is assumed that the item is present in the bucket without verification.
+ * Return 1 if removed. Otherwise, return 0
+ *
+ * Note: The function is optimized to remove items locally from segments without
+ *       traversing rax tree or stepping long extended-segments. Therefore, it is
+ *       assumed that the item is present in the bucket without verification.
  *
  * TODO: Written straightforward. Should be optimized to merge small segments.
  */
@@ -949,12 +951,12 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
         raxSeek(&ri, "<=", raxKey, EB_KEY_SIZE);
 
         if (raxNext(&ri) == 0)
-            return 1; /* not found */
+            return 0; /* not removed */
 
         FirstSegHdr *segHdr = ri.data;
 
         if (segHdr->head != item)
-            return 1; /* not found */
+            return 0; /* not removed */
 
         zfree(segHdr);
         raxRemove(ri.rt, ri.key, EB_KEY_SIZE, NULL);
@@ -964,7 +966,7 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
         if (rax->numele == 0) {
             raxFree(rax);
             *eb = NULL;
-            return 0;
+            return 1; /* removed */
         }
     } else if (mItem->numItems == 1) {
         /* If the `item` is the only one in its segment, there must be additional
@@ -1116,7 +1118,7 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
         }
     }
     *ebRaxNumItems(rax) -= 1;
-    return 0;
+    return 1; /* removed */
 }
 
 int ebAddToRax(ebuckets *eb, EbucketsType *type, eItem item, uint64_t bucketKeyItem) {
@@ -1385,16 +1387,18 @@ void ebDestroy(ebuckets *eb, EbucketsType *type, void *ctx) {
  * @return 1 if the item was successfully removed; otherwise, return 0.
  */
 int ebRemove(ebuckets *eb, EbucketsType *type, eItem item) {
-    int res = 0;
-    if (*eb==NULL)
-        return 1;
 
+    if (ebIsEmpty(*eb))
+        return 0; /* not removed */
+
+    int res;
     if (ebIsList(*eb))
         res = ebRemoveFromList(eb, type, item);
     else  /* rax */
         res = ebRemoveFromRax(eb, type, item);
 
-    if (res == 0)
+    /* if removed then mark as trash */
+    if (res)
         type->getExpireMeta(item)->trash = 1;
 
 #if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
@@ -2038,9 +2042,9 @@ int ebucketsTest(int argc, char **argv, int flags) {
         assert(ebGetExpireTime(&myEbucketsType, singleItem) == 1000 );
 
         /* remove the item */
-        assert(ebRemove(&eb, &myEbucketsType, singleItem) == 0);
+        assert(ebRemove(&eb, &myEbucketsType, singleItem));
         /* now the ebuckets is empty */
-        assert(ebRemove(&eb, &myEbucketsType, singleItem) == 1);
+        assert(ebRemove(&eb, &myEbucketsType, singleItem) == 0);
 
         zfree(singleItem);
 
@@ -2057,7 +2061,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
 
         for (uint64_t i = 0 ; i < EB_LIST_MAX_ITEMS ; i++) {
             assert(ebGetExpireTime(&myEbucketsType, items[i]) == i );
-            assert(ebRemove(&eb, &myEbucketsType, items[i]) == 0);
+            assert(ebRemove(&eb, &myEbucketsType, items[i]));
         }
 
         for (int i = 0 ; i < EB_LIST_MAX_ITEMS  ; i++) {
@@ -2199,7 +2203,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                     addItems(&eb, startValue, stepValue, numItems, items);
                     for (int i = 0; i < numItems; i++) {
                         int at = (i + offset) % numItems;
-                        assert(ebRemove(&eb, &myEbucketsType, items[at]) == 0);
+                        assert(ebRemove(&eb, &myEbucketsType, items[at]));
                         zfree(items[at]);
                     }
                     assert(eb == NULL);
