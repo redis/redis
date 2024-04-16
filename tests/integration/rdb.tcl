@@ -416,4 +416,65 @@ start_server {} {
     } {OK}
 }
 
+# verifies writing and reading hash key with expiring and persistent fields 
+test {hash field expiration save and load rdb} {
+    start_server{overrides {hash-max-listpack-entries 0}} {
+        r FLUSHALL
+
+        r HMSET key a 1 b 2 c 3 d 4
+        r HEXPIREAT key 2524600800 2 a b
+        r HPEXPIRE key 100 d
+
+        # sleep 100 ms to make sure d will expire after restart
+        after 100
+
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+
+        assert_equal [r hget key a] 1
+        assert_equal [r hget key b] 2
+        assert_equal [r hget key c] 3
+        assert_equal [r hget key d] nil
+        assert_equal [r hexpiretime key 3 a b c] {2524600800, 2524600800, -1}
+    }
+}
+
+# verifies writing hash with several expired keys, and active-expiring it on load
+test {hash field expiration save and load rdb} {
+    start_server{overrides {hash-max-listpack-entries 0}} {
+        r FLUSHALL
+
+        r HMSET key a 1 b 2 c 3 d 4
+        r HPEXPIRE key 100 4 a b c d
+
+        # sleep 100 ms to make sure all fields will expire after restart
+        after 100
+
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+
+        assert_equal [r hgetall key] {}
+    }
+}
+
+# verifies a long TTL value (6 bytes) is saved and loaded correctly
+test {hash field expiration save and load rdb} {
+    start_server{overrides {hash-max-listpack-entries 0}} {
+        r FLUSHALL
+
+        r HSET key a 1 
+        # set expiry to 0xabcdef987654 (6 bytes)
+        r HPEXPIREAT key 188900976391764 1 a
+
+        r save
+        restart_server 0 true false
+        wait_done_loading r
+
+        assert_equal [r hget key a ] 1
+        assert_equal [r hexpiretime key 1 a] {188900976391764}
+    }
+}
+
 } ;# tags

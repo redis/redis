@@ -504,6 +504,7 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * RDB_LOAD_PLAIN: Return a plain string allocated with zmalloc()
  *                 instead of a Redis object with an sds in it.
  * RDB_LOAD_SDS: Return an SDS string instead of a Redis object.
+ * RDB_LOAD_HFLD: Return a hash field object (mstr)
  *
  * On I/O error NULL is returned.
  */
@@ -694,11 +695,12 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_HASH:
         if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_HASH_LISTPACK);
-        else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
-            return -1;
-        else if (o->encoding == OBJ_ENCODING_HT)
-            return rdbSaveType(rdb,RDB_TYPE_HASH);
-        else
+        else if (o->encoding == OBJ_ENCODING_HT) {
+            if (hashTypeGetMinExpire(o) == EB_EXPIRE_TIME_INVALID)
+                return rdbSaveType(rdb,RDB_TYPE_HASH);
+            else
+                return rdbSaveType(rdb,RDB_TYPE_HASH_METADATA);
+        } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
         return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_3);
@@ -947,17 +949,29 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         } else if (o->encoding == OBJ_ENCODING_HT) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
+            int withTtl = 0; /* whether there is at least one field with a valid TTL */
+            unsigned char hashEntryType;
+            uint64_t ttl = 0;
 
+            /* save number of fileds in hash */
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) {
                 dictReleaseIterator(di);
                 return -1;
             }
             nwritten += n;
 
+            /* use standard hash format if no TTL was set for any field */
+            if (hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID)
+                withTtl = 1;
+
+            redisDebug("saving hash table as dict, withTtl %d", withTtl);
+
+            /* save all hash fields */
             while((de = dictNext(di)) != NULL) {
                 hfield field = dictGetKey(de);
                 sds value = dictGetVal(de);
 
+                /* save the key */
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)field,
                         hfieldlen(field))) == -1)
                 {
@@ -965,13 +979,54 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
-                if ((n = rdbSaveRawString(rdb,(unsigned char*)value,
-                        sdslen(value))) == -1)
-                {
-                    dictReleaseIterator(di);
-                    return -1;
+
+                redisDebug("saved hash key %s", (char *)field);
+
+                /* if this is a hash table with a TTL for at least one field,
+                 * save it in the "with metadata" format - one byte for included
+                 * metadata types, and than the types themselves (note that the
+                 * order is fixed, i.e. future extensions may only add new
+                 * metadata types at the end) */
+                if (withTtl) {
+                    hashEntryType = 0;
+                    if (value != NULL) hashEntryType |= RDB_HASH_ENTRY_VALUE;
+                    if (hfieldIsExpireAttached(field)) {
+                        ttl = hfieldGetExpireTime(field);
+                        hashEntryType |= RDB_HASH_ENTRY_TTL;
+                    } else
+                        ttl = 0;
+                    if ((n = rdbSaveType(rdb, hashEntryType)) == -1) {
+                        dictReleaseIterator(di);
+                        return -1;
+                    }
+                    nwritten += n;
+
+                    redisDebug("saved hash type 0x%x", hashEntryType);
                 }
-                nwritten += n;
+
+                /* save the value */
+                if (value != NULL) {
+                    if ((n = rdbSaveRawString(rdb,(unsigned char*)value,
+                            sdslen(value))) == -1)
+                    {
+                        dictReleaseIterator(di);
+                        return -1;
+                    }
+                    nwritten += n;
+
+                    redisDebug("saved hash value %s", (char *)value);
+                }
+
+                /* save the TTL */
+                if (withTtl && (ttl != 0)) {
+                    if ((n = rdbSaveLen(rdb, ttl)) == -1) {
+                        dictReleaseIterator(di);
+                        return -1;
+                    }
+                    nwritten += n;
+
+                    redisDebug("saved hash ttl %lu", ttl);
+                }
             }
             dictReleaseIterator(di);
         } else {
@@ -2185,6 +2240,131 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
+    } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
+
+        hfield field;
+        char *hkey;
+        size_t keyLen;
+        int hashEntryType;
+        sds value;
+        uint64_t ttl;
+        int ret;
+        mstime_t now = mstime();
+
+        len = rdbLoadLen(rdb, NULL);
+        if (len == RDB_LENERR) return NULL;
+        if (len == 0) goto emptykey;
+
+        redisDebug("loading metada-enriched hash with %lu keys", len);
+
+        o = createHashObject();
+        /* TODO: need to add listpack-first,-than-convert-to-hash logic like
+           for simple (noe metadata) hash when listpack encoding eith TTL will
+           be ready */
+        hashTypeConvert(NULL, o, OBJ_ENCODING_HT);
+        dict *d = o->ptr;
+
+        while (len > 0) {
+            len--;
+
+            /* read the key */
+            if ((hkey = rdbGenericLoadStringObject(rdb, RDB_LOAD_PLAIN, &keyLen)) == NULL) {
+                decrRefCount(o);
+                return NULL;
+            }
+
+            redisDebug("read key %s", hkey);
+
+            /* read the type */
+            if ((hashEntryType = rdbLoadType(rdb)) == -1) {
+                decrRefCount(o);
+                zfree(hkey);
+                return NULL;
+            }
+
+            redisDebug("read hash type 0x%x", hashEntryType);
+
+            /* if the type indicated value exists, read it */
+            if ((unsigned char)hashEntryType & RDB_HASH_ENTRY_VALUE) {
+                if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
+                    decrRefCount(o);
+                    zfree(hkey);
+                    return NULL;
+                }
+
+                redisDebug("read hash value %s", (char *)value);
+            }
+
+            /* if the type indicated TTL exists, read it */
+            if ((unsigned char)hashEntryType & RDB_HASH_ENTRY_TTL) {
+                if (rdbLoadLenByRef(rdb, NULL, &ttl) == -1) {
+                    decrRefCount(o);
+                    sds_free(value);
+                    zfree(hkey);
+                    return NULL;
+                }
+
+                redisDebug("read hash TTL %lu", ttl);
+
+            } else
+                ttl = 0;
+
+            /* Check if the hash field already expired. This function is used when
+            * loading an RDB file from disk, either at startup, or when an RDB was
+            * received from the master. In the latter case, the master is
+            * responsible for hash field expiry. If we would expire hash fiedls here,
+            * the snapshot taken by the master may not be reflected on the slave.
+            * Similarly, if the base AOF is RDB format, we want to load all
+            * the hash fields there are, since the log of operations in the incr AOF
+            * is assumed to work in the exact keyspace state.
+            * Expired hash fields on the master are silenlty discarded.
+            * Note that if all fileds in a hash has expired, the hash would not be
+            * created in memory (because it is created on the first valid field), and
+            * thus the key would be discarded as an "empty key" */
+            if (ttl != 0 && iAmMaster() && ((mstime_t)ttl < now)) { /* note: TTL was saved to RDB as unix-time in milliseconds */
+                /* TODO: consider replication (like in rdbLoadAddKeyToDb) */
+                server.rdb_last_load_hash_fields_expired++;
+                zfree(hkey);
+                sdsfree(value);
+                redisDebug("key is expired, discarding %d", 1);
+                continue;
+            }
+
+            /* compose the key and TTL (if exists) to compose a hash field */
+            if ((field = hfieldNew(hkey, keyLen, ttl != 0)) == NULL) {
+                    decrRefCount(o);
+                    sds_free(value);
+                    zfree(hkey);
+                    return NULL;
+            } else
+                zfree(hkey); /* was copied into the new mstr hash field */
+
+            /* TODO: add the TTL to hfield, possibly after inserting the hfiled to the table*/
+
+            /* Add pair to hash table */
+            dictUseStoredKeyApi(d, 1);
+            ret = dictAdd(d, field, value);
+            dictUseStoredKeyApi(d, 0);
+            if (ret == DICT_ERR) {
+                rdbReportCorruptRDB("Duplicate hash fields detected");
+                decrRefCount(o);
+                sdsfree(value);
+                hfieldFree(field);
+                return NULL;
+            }
+        }
+
+        /* All pairs should be read by now */
+        serverAssert(len == 0);
+
+        /* check for empty key (if all keys were expired) */
+        if (dictIsEmpty(d)) {
+            decrRefCount(o);
+
+            redisDebug("empty hash, returning empty key (all keys excpired?) %d", 1);
+            goto emptykey;
+        }
+
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
