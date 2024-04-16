@@ -330,7 +330,6 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
-    int allvolatile = kvstoreSize(db->keys) == kvstoreSize(db->expires);
 
     while(1) {
         sds key;
@@ -342,7 +341,7 @@ robj *dbRandomKey(redisDb *db) {
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dbFindExpires(db, key)) {
-            if (allvolatile && server.masterhost && --maxtries == 0) {
+            if (server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
