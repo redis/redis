@@ -32,7 +32,7 @@ typedef enum {
     KEY_DELETED /* The key was deleted now. */
 } keyStatus;
 
-keyStatus expireIfNeeded(redisDb *db, robj *key, int flags, robj *optVal);
+keyStatus expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
 
@@ -91,7 +91,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
         if (flags & LOOKUP_NOEXPIRE)
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
-        if (expireIfNeeded(db, key, expire_flags, val) != KEY_VALID) {
+        if (expireIfNeeded(db, key, expire_flags) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -345,18 +345,14 @@ robj *dbRandomKey(redisDb *db) {
         valobj = dictGetVal(de);
 
         /* Special care to hash that all its fields got expired */
-        if (valobj->type == OBJ_HASH && valobj->encoding == OBJ_ENCODING_HT &&
-            hashTypeIsEmpty(valobj)) {
-            if (--maxtries) {
-                expireIfNeeded(db, keyobj, 0, valobj);
-                decrRefCount(keyobj);
-                continue;
-            } else
-                return keyobj;
+        if ((valobj->type == OBJ_HASH) && (valobj->encoding == OBJ_ENCODING_HT) &&
+                (hashTypeIsEmpty(valobj)) && (--maxtries > 0)) {
+            decrRefCount(keyobj);
+            continue;
         }
 
         if (dbFindExpires(db, key)) {
-            if (allvolatile && server.masterhost && --maxtries == 0) {
+            if (allvolatile && server.masterhost && --maxtries <= 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
@@ -367,7 +363,7 @@ robj *dbRandomKey(redisDb *db) {
                  * return a key name that may be already expired. */
                 return keyobj;
             }
-            if (expireIfNeeded(db,keyobj,0, NULL) != KEY_VALID) {
+            if (expireIfNeeded(db,keyobj,0) != KEY_VALID) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
             }
@@ -805,7 +801,7 @@ void delGenericCommand(client *c, int lazy) {
     int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        if (expireIfNeeded(c->db,c->argv[j],0, NULL) == KEY_DELETED)
+        if (expireIfNeeded(c->db,c->argv[j],0) == KEY_DELETED)
             continue;
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
@@ -1252,29 +1248,24 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 
     /* Step 3: Filter the expired keys */
     if (o == NULL && listLength(keys)) {
-        robj kobj, *objVal;
+        robj kobj;
         listIter li;
         listNode *ln;
         listRewind(keys, &li);
         while ((ln = listNext(&li))) {
             sds key = listNodeValue(ln);
             initStaticStringObject(kobj, key);
-
-            objVal = lookupKeyReadWithFlags(c->db, &kobj, 0);
-
-            /* lazy-expire */
-            if (objVal == NULL) {
-                listDelNode(keys, ln);
-                continue;
-            }
-
             /* Filter an element if it isn't the type we want. */
             /* TODO: remove this in redis 8.0 */
             if (typename) {
-                if (!objectTypeCompare(objVal, type)) {
+                robj* typecheck = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
+                if (!typecheck || !objectTypeCompare(typecheck, type)) {
                     listDelNode(keys, ln);
                 }
                 continue;
+            }
+            if (expireIfNeeded(c->db, &kobj, 0) != KEY_VALID) {
+                listDelNode(keys, ln);
             }
         }
     }
@@ -1286,10 +1277,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         void *key = listNodeValue(node);
-        if (isKeysHfield)
-            addReplyBulkCBuffer(c, key, mstrlen(key));
-        else
-            addReplyBulkCBuffer(c, key, sdslen(key));
+        addReplyBulkCBuffer(c, key, (isKeysHfield) ? mstrlen(key) : sdslen(key));
         listDelNode(keys, node);
     }
 
@@ -1610,7 +1598,10 @@ void copyCommand(client *c) {
     }
 
     dictEntry *deCopy = dbAdd(dst,newkey,newobj);
-    if (expire != -1) setExpire(c, dst, newkey, expire);
+
+    /* if key with expiration then set it */
+    if (expire != -1)
+        setExpire(c, dst, newkey, expire);
 
     /* If hash with expiration on fields then add it to 'dst' global HFE DS */
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
@@ -1940,23 +1931,12 @@ int keyIsExpired(redisDb *db, robj *key) {
  * the actual key deletion and propagation of the deletion, use the
  * EXPIRE_AVOID_DELETE_EXPIRED flag.
  *
- * optVal - Optionally provide value of the key. If provided, and it's a hash type,
- * then determine if needed to expire because all its hash-fields has TTLs and
- * they've all expired (HFE feature).
- *
-* The return value of the function is KEY_VALID if the key is still valid.
+ * The return value of the function is KEY_VALID if the key is still valid.
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
  * or returns KEY_DELETED if the key is expired and deleted. */
-keyStatus expireIfNeeded(redisDb *db, robj *key, int flags, robj *optVal) {
-    int hashFieldAllExpired = 0;
+keyStatus expireIfNeeded(redisDb *db, robj *key, int flags) {
     if (server.lazy_expire_disabled) return KEY_VALID;
-
-    /* If the key is a hash, and all its fields are expired, then the key is expired. */
-    if (optVal && optVal->type == OBJ_HASH && hashTypeIsEmpty(optVal))
-        hashFieldAllExpired = 1;
-
-    if ((!keyIsExpired(db,key)) && (!hashFieldAllExpired)) return KEY_VALID;
-
+    if (!keyIsExpired(db,key)) return KEY_VALID;
 
     /* If we are running in the context of a replica, instead of
      * evicting the expired key from the database, we return ASAP:
@@ -1985,8 +1965,6 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, int flags, robj *optVal) {
      * Typically, at the end of the pause we will properly expire the key OR we
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
-
-    /* TODO refine notification on expiration due to hash-field expiry */
 
     /* The key needs to be converted from static to heap before deleted */
     int static_key = key->refcount == OBJ_STATIC_REFCOUNT;

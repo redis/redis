@@ -141,43 +141,78 @@ start_server {tags {"hash expire"}} {
         assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<48) - [clock milliseconds] + 100 ] 1 f1}
     }
 
-    test {Active/Lazy - deletes hash that all its fields got expired} {
-        for {set isActiveExp 0} {$isActiveExp <= 1} {incr isActiveExp} {
-            r debug set-active-expire $isActiveExp
-            r flushall
+    test {Lazy - doesn't delete hash that all its fields got expired} {
+        r debug set-active-expire 0
+        r flushall
 
-            set hash_sizes {1 15 16 17 31 32 33 40}
-            foreach h $hash_sizes {
-                for {set i 1} {$i <= $h} {incr i} {
+        set hash_sizes {1 15 16 17 31 32 33 40}
+        foreach h $hash_sizes {
+            for {set i 1} {$i <= $h} {incr i} {
+                # random expiration time
+                r hset hrand$h f$i v$i
+                r hpexpire hrand$h [expr {50 + int(rand() * 50)}] 1 f$i
+                assert_equal 1 [r HEXISTS hrand$h f$i]
 
-                    # random expiration time
-                    r hset hrand$h f$i v$i
-                    r hpexpire hrand$h [expr {50 + int(rand() * 50)}] 1 f$i
-                    assert_equal 1 [r HEXISTS hrand$h f$i]
+                # same expiration time
+                r hset same$h f$i v$i
+                r hpexpire same$h 100 1 f$i
+                assert_equal 1 [r HEXISTS same$h f$i]
 
-                    # same expiration time
-                    r hset same$h f$i v$i
-                    r hpexpire same$h 100 1 f$i
-                    assert_equal 1 [r HEXISTS same$h f$i]
-
-                    # same expiration time
-                    r hset mix$h f$i v$i fieldWithoutExpire$i v$i
-                    r hpexpire mix$h 100 1 f$i
-                    assert_equal 1 [r HEXISTS mix$h f$i]
-                }
+                # same expiration time
+                r hset mix$h f$i v$i fieldWithoutExpire$i v$i
+                r hpexpire mix$h 100 1 f$i
+                assert_equal 1 [r HEXISTS mix$h f$i]
             }
+        }
 
-            after 150
+        after 150
 
-            # Verify that all fields got expired and keys got deleted
-            foreach h $hash_sizes {
-                for {set i 1} {$i <= $h} {incr i} {
-                    assert_equal 0 [r HEXISTS mix$h f$i]
-                }
-                assert_equal 0 [r EXISTS hrand$h]
-                assert_equal 0 [r EXISTS same$h]
-                assert_equal $h [r HLEN mix$h]
+        # Verify that all fields got expired but keys wasn't lazy deleted
+        foreach h $hash_sizes {
+            for {set i 1} {$i <= $h} {incr i} {
+                assert_equal 0 [r HEXISTS mix$h f$i]
             }
+            assert_equal 1 [r EXISTS hrand$h]
+            assert_equal 1 [r EXISTS same$h]
+            assert_equal [expr $h * 2] [r HLEN mix$h]
+        }
+        # Restore default
+        r debug set-active-expire 1
+    }
+
+    test {Active - deletes hash that all its fields got expired} {
+        r flushall
+
+        set hash_sizes {1 15 16 17 31 32 33 40}
+        foreach h $hash_sizes {
+            for {set i 1} {$i <= $h} {incr i} {
+                # random expiration time
+                r hset hrand$h f$i v$i
+                r hpexpire hrand$h [expr {50 + int(rand() * 50)}] 1 f$i
+                assert_equal 1 [r HEXISTS hrand$h f$i]
+
+                # same expiration time
+                r hset same$h f$i v$i
+                r hpexpire same$h 100 1 f$i
+                assert_equal 1 [r HEXISTS same$h f$i]
+
+                # same expiration time
+                r hset mix$h f$i v$i fieldWithoutExpire$i v$i
+                r hpexpire mix$h 100 1 f$i
+                assert_equal 1 [r HEXISTS mix$h f$i]
+            }
+        }
+
+        after 200
+
+        # Verify that all fields got expired and keys got deleted
+        foreach h $hash_sizes {
+            for {set i 1} {$i <= $h} {incr i} {
+                assert_equal 0 [r HEXISTS mix$h f$i]
+            }
+            assert_equal 0 [r EXISTS hrand$h]
+            assert_equal 0 [r EXISTS same$h]
+            assert_equal $h [r HLEN mix$h]
         }
     }
 
@@ -295,7 +330,7 @@ start_server {tags {"hash expire"}} {
 
     }
 
-    test {Lazy expire - HLEN does not count expired fields} {
+    test {Lazy expire - HLEN does count expired fields} {
         # Enforce only lazy expire
         r debug set-active-expire 0
 
@@ -316,15 +351,15 @@ start_server {tags {"hash expire"}} {
 
         after 10
 
-        assert_equal [r hlen h1] 0
-        assert_equal [r hlen h4] 1
-        assert_equal [r hlen h18] 0
-        assert_equal [r hlen h20] 18
+        assert_equal [r hlen h1] 1
+        assert_equal [r hlen h4] 4
+        assert_equal [r hlen h18] 18
+        assert_equal [r hlen h20] 20
         # Restore to support active expire
         r debug set-active-expire 1
     }
 
-    test {Lazy expire - SCAN does not report expired fields} {
+    test {Lazy expire - HSCAN does not report expired fields} {
         # Enforce only lazy expire
         r debug set-active-expire 0
 
@@ -385,7 +420,7 @@ start_server {tags {"hash expire"}} {
         r debug set-active-expire 1
     }
 
-    test {Lazy expire - verify various HASH commands ignore expired fields} {
+    test {Lazy expire - verify various HASH commands handling expired fields} {
         # Enforce only lazy expire
         r debug set-active-expire 0
         r del h1 h2 h3 h4 h5 h18
@@ -407,8 +442,10 @@ start_server {tags {"hash expire"}} {
 
         after 150
 
-        # Verify HDEL ignore expired field
-        assert_equal [r HDEL h1 01] "0"
+        # Verify HDEL not ignore expired field. It is too much overhead to check
+        # if the field is expired before deletion.
+        assert_equal [r HDEL h1 01] "1"
+
         # Verify HGET ignore expired field
         assert_equal [r HGET h2 01] ""
         assert_equal [r HGET h2 02] ""
@@ -451,18 +488,25 @@ start_server {tags {"hash expire"}} {
         assert_range [r hpttl myhash 1 field1] 900 1000
     }
 
-    test {Test HGETALL with fields to be expired} {
+    test {Test HGETALL not return expired fields} {
+        # Test with small hash
         r debug set-active-expire 0
         r del myhash
-        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 1 NX 2 f2 f4
+        r hset myhash1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash1 1 NX 2 f2 f4
         after 10
-        assert_equal [lsort [r hgetall myhash]] "f1 f3 f5 v1 v3 v5"
-        r hset myhash f6 v6 f7 v7 f8 v8 f9 v9 f10 v10 f11 v11 f12 v12 f13 v13 f14 v14 f15 v15 f16 v16 f17 v17 f18 v18 f19 v19 f20 v20
-        r hpexpire myhash 1 NX 2 f6 f8
+        assert_equal [lsort [r hgetall myhash1]] "f1 f3 f5 v1 v3 v5"
+
+        # Test with large hash
+        r del myhash
+        for {set i 1} {$i <= 600} {incr i} {
+            r hset myhash f$i v$i
+            if {$i > 3} { r hpexpire myhash 1 NX 1 f$i }
+        }
         after 10
-        assert_equal [lsort [r hgetall myhash]] [lsort "f1 f3 f5 f7 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18 f19 f20 v1 v3 v5 v7 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20"]
+        assert_equal [lsort [r hgetall myhash]] [lsort "f1 f2 f3 v1 v2 v3"]
         r debug set-active-expire 1
+
     }
 
     test {Test RANDOMKEY not return hash if all its fields are expired} {
@@ -498,11 +542,14 @@ start_server {tags {"hash expire"}} {
         assert_equal [r exists myhash] 0
         assert_range [r hpttl myhash2 1 field1] 1 20
         after 25
-        assert_equal [r exists myhash2] 0
+        # Verify the renamed key exists
+        assert_equal [r exists myhash2] 1
         r debug set-active-expire 1
+        # Only active expire will delete the key
+        wait_for_condition 30 10 { [r exists myhash2] == 0 } else { fail "`myhash2` should be expired" }
     }
 
-    test {MOVE hash with fields to be expired} {
+    test {MOVE to another DB hash with fields to be expired} {
         r select 9
         r flushall
         r hset myhash field1 value1
@@ -510,12 +557,15 @@ start_server {tags {"hash expire"}} {
         r move myhash 10
         assert_equal [r exists myhash] 0
         assert_equal [r dbsize] 0
+
+        # Verify the key and its field exists in the target DB
         r select 10
         assert_equal [r hget myhash field1] "value1"
-        assert_equal [r dbsize] 1
-        after 120
-        assert_equal [r hget myhash field1] ""
-        assert_equal [r dbsize] 0
+        assert_equal [r exists myhash] 1
+
+        # Eventually the field will be expired and the key will be deleted
+        wait_for_condition 40 10 { [r hget myhash field1] == "" } else { fail "`field1` should be expired" }
+        wait_for_condition 40 10 { [r exists myhash] == 0 } else { fail "db should be empty" }
     } {} {singledb:skip}
 
     test {Test COPY hash with fields to be expired} {
@@ -524,17 +574,21 @@ start_server {tags {"hash expire"}} {
         r hset h2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6 f7 v7 f8 v8 f9 v9 f10 v10 f11 v11 f12 v12 f13 v13 f14 v14 f15 v15 f16 v16 f17 v17 f18 v18
         r hpexpire h1 100 NX 1 f1
         r hpexpire h2 100 NX 18 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18
-        r COPY h1 c1
-        r COPY h2 c2
+        r COPY h1 h1copy
+        r COPY h2 h2copy
         assert_equal [r hget h1 f1] "v1"
-        assert_equal [r hget c1 f1] "v1"
+        assert_equal [r hget h1copy f1] "v1"
         assert_equal [r exists h2] 1
-        assert_equal [r exists c2] 1
+        assert_equal [r exists h2copy] 1
         after 105
+
+        # Verify lazy expire of field in h1 and its copy
         assert_equal [r hget h1 f1] ""
-        assert_equal [r hget c1 f1] ""
-        assert_equal [r exists h2] 0
-        assert_equal [r exists c2] 0
+        assert_equal [r hget h1copy f1] ""
+
+        # Verify lazy expire of field in h2 and its copy. Verify the key deleted as well.
+        wait_for_condition 40 10 { [r exists h2] == 0 } else { fail "`h2` should be expired" }
+        wait_for_condition 40 10 { [r exists h2copy] == 0 } else { fail "`h2copy` should be expired" }
 
     } {} {singledb:skip}
 
@@ -542,23 +596,21 @@ start_server {tags {"hash expire"}} {
         r select 9
         r flushall
         r hset myhash field1 value1
-        r hpexpire myhash 100 NX 1 field1
+        r hpexpire myhash 50 NX 1 field1
+
         r swapdb 9 10
+
+        # Verify the key and its field doesn't exist in the source DB
         assert_equal [r exists myhash] 0
         assert_equal [r dbsize] 0
+
+        # Verify the key and its field exists in the target DB
         r select 10
         assert_equal [r hget myhash field1] "value1"
         assert_equal [r dbsize] 1
 
-        after 100
-
-        wait_for_condition 20 10 {
-            [r hget myhash field1] == ""
-        } else {
-            fail "Field 'field1' should be expired"
-        }
-
-        assert_equal [r exists myhash] 0
+        # Eventually the field will be expired and the key will be deleted
+        wait_for_condition 20 10 { [r exists myhash] == 0 } else { fail "'myhash' should be expired" }
     } {} {singledb:skip}
 
     test {HPERSIST - input validation} {
@@ -583,4 +635,146 @@ start_server {tags {"hash expire"}} {
         assert_equal [r hget myhash f2] "v2"
         assert_equal [r HTTL myhash 2 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
     }
+
+        # Start a new server with empty data and AOF file.
+        start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
+            test {TTLs are propagated as absolute timestamp in milliseconds in AOF} {
+                # This test makes sure that expire times are propagated as absolute
+                # times to the AOF file and not as relative time, so that when the AOF
+                # is reloaded the TTLs are not being shifted forward to the future.
+                # We want the time to logically pass when the server is restarted!
+
+                set aof [get_last_incr_aof_path r]
+
+                # Apply each TTL-related command to a unique key
+                # SET commands
+                r set foo1 bar ex 100
+                r set foo2 bar px 100000
+                r set foo3 bar exat [expr [clock seconds]+100]
+                r set foo4 bar PXAT [expr [clock milliseconds]+100000]
+                r setex foo5 100 bar
+                r psetex foo6 100000 bar
+                # EXPIRE-family commands
+                r set foo7 bar
+                r expire foo7 100
+                r set foo8 bar
+                r pexpire foo8 100000
+                r set foo9 bar
+                r expireat foo9 [expr [clock seconds]+100]
+                r set foo10 bar
+                r pexpireat foo10 [expr [clock seconds]*1000+100000]
+                r set foo11 bar
+                r expireat foo11 [expr [clock seconds]-100]
+                # GETEX commands
+                r set foo12 bar
+                r getex foo12 ex 100
+                r set foo13 bar
+                r getex foo13 px 100000
+                r set foo14 bar
+                r getex foo14 exat [expr [clock seconds]+100]
+                r set foo15 bar
+                r getex foo15 pxat [expr [clock milliseconds]+100000]
+                # RESTORE commands
+                r set foo16 bar
+                set encoded [r dump foo16]
+                r restore foo17 100000 $encoded
+                r restore foo18 [expr [clock milliseconds]+100000] $encoded absttl
+
+                # Assert that each TTL-related command are persisted with absolute timestamps in AOF
+                assert_aof_content $aof {
+                    {select *}
+                    {set foo1 bar PXAT *}
+                    {set foo2 bar PXAT *}
+                    {set foo3 bar PXAT *}
+                    {set foo4 bar PXAT *}
+                    {set foo5 bar PXAT *}
+                    {set foo6 bar PXAT *}
+                    {set foo7 bar}
+                    {pexpireat foo7 *}
+                    {set foo8 bar}
+                    {pexpireat foo8 *}
+                    {set foo9 bar}
+                    {pexpireat foo9 *}
+                    {set foo10 bar}
+                    {pexpireat foo10 *}
+                    {set foo11 bar}
+                    {del foo11}
+                    {set foo12 bar}
+                    {pexpireat foo12 *}
+                    {set foo13 bar}
+                    {pexpireat foo13 *}
+                    {set foo14 bar}
+                    {pexpireat foo14 *}
+                    {set foo15 bar}
+                    {pexpireat foo15 *}
+                    {set foo16 bar}
+                    {restore foo17 * * ABSTTL}
+                    {restore foo18 * * absttl}
+                }
+
+                # Remember the absolute TTLs of all the keys
+                set ttl1 [r pexpiretime foo1]
+                set ttl2 [r pexpiretime foo2]
+                set ttl3 [r pexpiretime foo3]
+                set ttl4 [r pexpiretime foo4]
+                set ttl5 [r pexpiretime foo5]
+                set ttl6 [r pexpiretime foo6]
+                set ttl7 [r pexpiretime foo7]
+                set ttl8 [r pexpiretime foo8]
+                set ttl9 [r pexpiretime foo9]
+                set ttl10 [r pexpiretime foo10]
+                assert_equal "-2" [r pexpiretime foo11] ; # foo11 is gone
+                set ttl12 [r pexpiretime foo12]
+                set ttl13 [r pexpiretime foo13]
+                set ttl14 [r pexpiretime foo14]
+                set ttl15 [r pexpiretime foo15]
+                assert_equal "-1" [r pexpiretime foo16] ; # foo16 has no TTL
+                set ttl17 [r pexpiretime foo17]
+                set ttl18 [r pexpiretime foo18]
+
+                # Let some time pass and reload data from AOF
+                after 2000
+                r debug loadaof
+
+                # Assert that relative TTLs are roughly the same
+                assert_range [r ttl foo1] 90 98
+                assert_range [r ttl foo2] 90 98
+                assert_range [r ttl foo3] 90 98
+                assert_range [r ttl foo4] 90 98
+                assert_range [r ttl foo5] 90 98
+                assert_range [r ttl foo6] 90 98
+                assert_range [r ttl foo7] 90 98
+                assert_range [r ttl foo8] 90 98
+                assert_range [r ttl foo9] 90 98
+                assert_range [r ttl foo10] 90 98
+                assert_equal [r ttl foo11] "-2" ; # foo11 is gone
+                assert_range [r ttl foo12] 90 98
+                assert_range [r ttl foo13] 90 98
+                assert_range [r ttl foo14] 90 98
+                assert_range [r ttl foo15] 90 98
+                assert_equal [r ttl foo16] "-1" ; # foo16 has no TTL
+                assert_range [r ttl foo17] 90 98
+                assert_range [r ttl foo18] 90 98
+
+                # Assert that all keys have restored the same absolute TTLs from AOF
+                assert_equal [r pexpiretime foo1] $ttl1
+                assert_equal [r pexpiretime foo2] $ttl2
+                assert_equal [r pexpiretime foo3] $ttl3
+                assert_equal [r pexpiretime foo4] $ttl4
+                assert_equal [r pexpiretime foo5] $ttl5
+                assert_equal [r pexpiretime foo6] $ttl6
+                assert_equal [r pexpiretime foo7] $ttl7
+                assert_equal [r pexpiretime foo8] $ttl8
+                assert_equal [r pexpiretime foo9] $ttl9
+                assert_equal [r pexpiretime foo10] $ttl10
+                assert_equal [r pexpiretime foo11] "-2" ; # foo11 is gone
+                assert_equal [r pexpiretime foo12] $ttl12
+                assert_equal [r pexpiretime foo13] $ttl13
+                assert_equal [r pexpiretime foo14] $ttl14
+                assert_equal [r pexpiretime foo15] $ttl15
+                assert_equal [r pexpiretime foo16] "-1" ; # foo16 has no TTL
+                assert_equal [r pexpiretime foo17] $ttl17
+                assert_equal [r pexpiretime foo18] $ttl18
+            } {} {needs:debug}
+        }
 }

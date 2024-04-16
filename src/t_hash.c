@@ -1325,7 +1325,7 @@ void hlenCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addReplyLongLong(c,hashTypeLength(o, 1));
+    addReplyLongLong(c,hashTypeLength(o, 0));
 }
 
 void hstrlenCommand(client *c) {
