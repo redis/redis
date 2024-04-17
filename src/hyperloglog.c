@@ -429,7 +429,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
  * of the pattern 000..1 of the element hash. As a side effect 'regp' is
  * set to the register index this element hashes to. */
 int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
-    uint64_t hash, bit, index;
+    uint64_t hash, index;
     int count;
 
     /* Count the number of zeroes starting from bit HLL_REGISTERS
@@ -448,12 +448,10 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
     hash >>= HLL_P; /* Remove bits used to address the register. */
     hash |= ((uint64_t)1<<HLL_Q); /* Make sure the loop terminates
                                      and count will be <= Q+1. */
-    bit = 1;
-    count = 1; /* Initialized to 1 since we count the "00000...1" pattern. */
-    while((hash & bit) == 0) {
-        count++;
-        bit <<= 1;
-    }
+
+    /* Initialized to 1 since we count the "00000...1" pattern. */
+    count = __builtin_ctzll(hash) + 1;
+
     *regp = (int) index;
     return count;
 }
