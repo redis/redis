@@ -1150,3 +1150,10 @@ proc system_backtrace_supported {} {
     }
     return 0
 }
+
+proc generate_largevalue_test_array {} {
+    array set largevalue {}
+    set largevalue(listpack) "hello"
+    set largevalue(quicklist) [string repeat "x" 8192]
+    return [array get largevalue]
+}
