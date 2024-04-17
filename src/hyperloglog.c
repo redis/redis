@@ -450,7 +450,6 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
                                      and count will be <= Q+1. */
 
     count = __builtin_ctzll(hash) + 1;
-
     *regp = (int) index;
     return count;
 }
