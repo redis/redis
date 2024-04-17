@@ -440,9 +440,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
      * included in the count, so if we find "001" the count is 3, and
      * the smallest count possible is no zeroes at all, just a 1 bit
      * at the first position, that is a count of 1.
-     *
-     * This may sound like inefficient, but actually in the average case
-     * there are high probabilities to find a 1 after a few iterations. */
+     */
     hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
     index = hash & HLL_P_MASK; /* Register index. */
     hash >>= HLL_P; /* Remove bits used to address the register. */
