@@ -124,6 +124,27 @@
 #include <stdint.h>
 #include "rax.h"
 
+/*
+ * EB_BUCKET_KEY_PRECISION - Defines the number of bits to ignore from the
+ * expiration-time when mapping to buckets. The higher the value, the more items
+ * with similar expiration-time will be aggregated into the same bucket. The lower
+ * the value, the more "accurate" the active expiration of buckets will be.
+ *
+ * Note that the accurate time expiration of each item is preserved anyway and
+ * enforced by lazy expiration. It only impacts the active expiration that will
+ * be able to work on buckets older than (1<<EB_BUCKET_KEY_PRECISION) msec ago.
+ * For example if EB_BUCKET_KEY_PRECISION is 10, then active expiration
+ * will work only on buckets that already got expired at least 1sec ago.
+ *
+ * The idea of it is to trim the rax tree depth, avoid having too many branches,
+ * and reduce frequent modifications of the tree to the minimum.
+ */
+#define EB_BUCKET_KEY_PRECISION 0   /* 1024msec */
+
+/* From expiration time to bucket-key */
+#define EB_BUCKET_KEY(exptime) ((exptime) >> EB_BUCKET_KEY_PRECISION)
+
+
 #define EB_EXPIRE_TIME_MAX     ((uint64_t)0x0000FFFFFFFFFFFF) /* Maximum expire-time. */
 #define EB_EXPIRE_TIME_INVALID (EB_EXPIRE_TIME_MAX+1) /* assumed bigger than max */
 
@@ -245,7 +266,7 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now);
 
 static inline int ebIsEmpty(ebuckets eb) { return eb == NULL; }
 
-uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type, int accurate);
+uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type);
 
 uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate);
 

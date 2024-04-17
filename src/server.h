@@ -3161,7 +3161,6 @@ void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 int hashTypeExists(robj *o, sds key);
 int hashTypeDelete(robj *o, sds key);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
-int hashTypeIsEmpty(const robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields);

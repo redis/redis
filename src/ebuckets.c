@@ -28,28 +28,6 @@
  *   > make REDIS_CFLAGS='-DREDIS_TEST -DEB_TEST_BENCHMARK' && ./src/redis-server test ebuckets
  */
 
-/***
- * EB_BUCKET_KEY_PRECISION - Defines the number of bits to ignore from the
- * expiration-time when mapping to buckets. The higher the value, the more items
- * with similar expiration-time will be aggregated into the same bucket. The lower
- * the value, the more "accurate" the active expiration of buckets will be.
- *
- * Note that the accurate time expiration of each item is preserved anyway and
- * enforced by lazy expiration. It only impacts the active expiration that will
- * be able to work on buckets older than (1<<EB_BUCKET_KEY_PRECISION) msec ago.
- * For example if EB_BUCKET_KEY_PRECISION is 10, then active expiration
- * will work only on buckets that already got expired at least 1sec ago.
- *
- * The idea of it is to trim the rax tree depth, avoid having too many branches,
- * and reduce frequent modifications of the tree to the minimum.
- *
- * UPDATE: The reason it was eventually decided to set EB_BUCKET_KEY_PRECISION
- * to 0 is that ebExpireDryRun() will be able to accurately evaluate
- * extended-segments without the need to traverse all chained segments. Just to
- * look at FirstSegHdr->totalItems. We can consider have it as a configuration in
- * EbucketsType.
- */
-#define EB_BUCKET_KEY_PRECISION 0
 /*
  *  Keep just enough bytes of bucket-key, taking into consideration configured
  *  EB_BUCKET_KEY_PRECISION, and ignoring LSB bits that has no impact.
@@ -1641,21 +1619,15 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
  *
  * @param eb - The ebucket to be checked.
  * @param type - Pointer to the EbucketsType structure defining the type of ebucket.
- * @param accurate - If 1, then the function will return accurate result. Otherwise,
- *                   it might return the lower limit with slight inaccuracy of
- *                   1<<EB_BUCKET_KEY_PRECISION msec. If EB_BUCKET_KEY_PRECISION
- *                   is 0, which is the case currently, then the function will
- *                   return accurate result anyway quickly.
- *
- *                   This special case is relevant only when the first bucket
- *                   is of type extended-segment. In this case, we might don't
- *                   want to traverse the entire bucket to find the accurate
- *                   expiration time since there is unbounded number of items.
  *
  * @return The expiration time of the item with the nearest expiration time in
- *         the ebucket. If empty, return EB_EXPIRE_TIME_INVALID.
+ *         the ebucket. If empty, return EB_EXPIRE_TIME_INVALID. If ebuckets is
+ *         of type rax and minimal bucket is extended-segment, then it might not
+ *         return accurate result up-to 1<<EB_BUCKET_KEY_PRECISION-1 msec (we
+ *         don't want to traverse the entire extended-segment since it might not
+ *         bounded).
  */
-uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type, int accurate) {
+uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type) {
     if (ebIsEmpty(eb))
         return EB_EXPIRE_TIME_INVALID;
 
@@ -1675,31 +1647,20 @@ uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type, int accurate) {
          * return the first item with the nearest expiration time */
         minExpire = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
     } else {
-        minExpire = EB_EXPIRE_TIME_MAX;
-        if (accurate == 0) {
-            /* calculate lower limit of the first bucket */
-            int mask = (1<<EB_BUCKET_KEY_PRECISION)-1;
-            uint64_t expTime = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
-            /* The reason we round it upward and not downward is because the only
-             * usage of this function is to figure out when is the next time
-             * active expiration should be performed, and it is better to do it
-             * only after 1 or more items were expired. */
-            minExpire = (expTime + (mask+1)) & (~mask);
-        } else {
-            /* Find nearest expiration time in the first bucket */
-            ExpireMeta *mIter = type->getExpireMeta(firstSegHdr->head);
-            while(1) {
-                while(1) {
-                    if (minExpire > ebGetMetaExpTime(mIter))
-                        minExpire = ebGetMetaExpTime(mIter);
-                    if (mIter->lastInSegment == 1) break;
-                    mIter = type->getExpireMeta(mIter->next);
-                }
 
-                if (mIter->lastItemBucket) break;
-                mIter = type->getExpireMeta(((NextSegHdr *) mIter->next)->head);
-            }
-        }
+        /* If reached here, then it is because it is extended segment and buckets
+         * are with lower precision than 1msec. In that case it is better not to
+         * iterate extended-segments, which might be unbounded, and just return
+         * worst possible expiration time in this bucket.
+         *
+         * The reason we return blindly worst case expiration time value in this
+         * bucket is because the only usage of this function is to figure out
+         * when is the next time active expiration should be performed, and it
+         * is better to do it only after 1 or more items were expired and not the
+         * other way around.
+         */
+        uint64_t expTime = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
+        minExpire = expTime | ( (1<<EB_BUCKET_KEY_PRECISION)-1) ;
     }
     raxStop(&iter);
     return minExpire;
@@ -2223,7 +2184,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 if (expireTime < minExpTime) minExpTime = expireTime;
                 if (expireTime > maxExpTime) maxExpTime = expireTime;
                 ebAdd(&eb, &myEbucketsType2, items + i, expireTime);
-                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2, 0) == minExpTime);
+                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2) == minExpTime);
                 assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 0) == maxExpTime);
             }
             ebDestroy(&eb, &myEbucketsType2, NULL);
@@ -2245,8 +2206,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
             for (int i = EB_SEG_MAX_ITEMS+1; i < numItems; i++) {
                 uint64_t itemExpireTime = (1<<EB_BUCKET_KEY_PRECISION) + i;
                 ebAdd(&eb, &myEbucketsType2, items + i, itemExpireTime);
-                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2, 0) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
-                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2, 1) == (uint64_t)(1<<EB_BUCKET_KEY_PRECISION));
+                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
                 assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 0) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
                 assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 1) == (uint64_t)((1<<EB_BUCKET_KEY_PRECISION) + i));
             }

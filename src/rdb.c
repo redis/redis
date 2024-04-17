@@ -2484,7 +2484,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
                 o->type = OBJ_HASH;
                 o->encoding = OBJ_ENCODING_LISTPACK;
-                if (hashTypeIsEmpty(o)) {
+                if (hashTypeLength(o, 0) == 0) {
                     decrRefCount(o);
                     goto emptykey;
                 }

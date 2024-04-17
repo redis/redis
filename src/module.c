@@ -745,7 +745,7 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     case OBJ_LIST: isempty = listTypeLength(o) == 0; break;
     case OBJ_SET: isempty = setTypeSize(o) == 0; break;
     case OBJ_ZSET: isempty = zsetLength(o) == 0; break;
-    case OBJ_HASH: isempty = hashTypeIsEmpty(o); break;
+    case OBJ_HASH: isempty = hashTypeLength(o, 0) == 0; break;
     case OBJ_STREAM: isempty = streamLength(o) == 0; break;
     default: isempty = 0;
     }

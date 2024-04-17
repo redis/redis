@@ -203,7 +203,8 @@ start_server {tags {"hash expire"}} {
             }
         }
 
-        after 200
+        # Wait for active expire
+        wait_for_condition 50 20 { [r EXISTS same40] == 0 } else { fail "hash `same40` should be expired" }
 
         # Verify that all fields got expired and keys got deleted
         foreach h $hash_sizes {
@@ -509,30 +510,6 @@ start_server {tags {"hash expire"}} {
 
     }
 
-    test {Test RANDOMKEY not return hash if all its fields are expired} {
-        for {set i 0} {$i < 100} {incr i} {
-            # Enforce only lazy expire
-            r debug set-active-expire 0
-            r flushall
-
-            # Set a small number because after some unsuccessful retries to find a
-            # non-expired key, the command will return an expired key
-            for {set h 1} {$h <= 4} {incr h} {
-                r hset h$h f1 v1
-                r hpexpire h$h 1 NX 1 f1
-                #r pexpire h$h 1
-            }
-            # Create a single hash without any field to be expired
-            r hset h5 f1 v1
-            after 5
-
-            assert_equal [r RANDOMKEY] "h5"
-
-            # Restore to support active expire
-            r debug set-active-expire 1
-        }
-    }
-
     test {Test RENAME hash with fields to be expired} {
         r debug set-active-expire 0
         r del myhash
@@ -635,146 +612,4 @@ start_server {tags {"hash expire"}} {
         assert_equal [r hget myhash f2] "v2"
         assert_equal [r HTTL myhash 2 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
     }
-
-        # Start a new server with empty data and AOF file.
-        start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
-            test {TTLs are propagated as absolute timestamp in milliseconds in AOF} {
-                # This test makes sure that expire times are propagated as absolute
-                # times to the AOF file and not as relative time, so that when the AOF
-                # is reloaded the TTLs are not being shifted forward to the future.
-                # We want the time to logically pass when the server is restarted!
-
-                set aof [get_last_incr_aof_path r]
-
-                # Apply each TTL-related command to a unique key
-                # SET commands
-                r set foo1 bar ex 100
-                r set foo2 bar px 100000
-                r set foo3 bar exat [expr [clock seconds]+100]
-                r set foo4 bar PXAT [expr [clock milliseconds]+100000]
-                r setex foo5 100 bar
-                r psetex foo6 100000 bar
-                # EXPIRE-family commands
-                r set foo7 bar
-                r expire foo7 100
-                r set foo8 bar
-                r pexpire foo8 100000
-                r set foo9 bar
-                r expireat foo9 [expr [clock seconds]+100]
-                r set foo10 bar
-                r pexpireat foo10 [expr [clock seconds]*1000+100000]
-                r set foo11 bar
-                r expireat foo11 [expr [clock seconds]-100]
-                # GETEX commands
-                r set foo12 bar
-                r getex foo12 ex 100
-                r set foo13 bar
-                r getex foo13 px 100000
-                r set foo14 bar
-                r getex foo14 exat [expr [clock seconds]+100]
-                r set foo15 bar
-                r getex foo15 pxat [expr [clock milliseconds]+100000]
-                # RESTORE commands
-                r set foo16 bar
-                set encoded [r dump foo16]
-                r restore foo17 100000 $encoded
-                r restore foo18 [expr [clock milliseconds]+100000] $encoded absttl
-
-                # Assert that each TTL-related command are persisted with absolute timestamps in AOF
-                assert_aof_content $aof {
-                    {select *}
-                    {set foo1 bar PXAT *}
-                    {set foo2 bar PXAT *}
-                    {set foo3 bar PXAT *}
-                    {set foo4 bar PXAT *}
-                    {set foo5 bar PXAT *}
-                    {set foo6 bar PXAT *}
-                    {set foo7 bar}
-                    {pexpireat foo7 *}
-                    {set foo8 bar}
-                    {pexpireat foo8 *}
-                    {set foo9 bar}
-                    {pexpireat foo9 *}
-                    {set foo10 bar}
-                    {pexpireat foo10 *}
-                    {set foo11 bar}
-                    {del foo11}
-                    {set foo12 bar}
-                    {pexpireat foo12 *}
-                    {set foo13 bar}
-                    {pexpireat foo13 *}
-                    {set foo14 bar}
-                    {pexpireat foo14 *}
-                    {set foo15 bar}
-                    {pexpireat foo15 *}
-                    {set foo16 bar}
-                    {restore foo17 * * ABSTTL}
-                    {restore foo18 * * absttl}
-                }
-
-                # Remember the absolute TTLs of all the keys
-                set ttl1 [r pexpiretime foo1]
-                set ttl2 [r pexpiretime foo2]
-                set ttl3 [r pexpiretime foo3]
-                set ttl4 [r pexpiretime foo4]
-                set ttl5 [r pexpiretime foo5]
-                set ttl6 [r pexpiretime foo6]
-                set ttl7 [r pexpiretime foo7]
-                set ttl8 [r pexpiretime foo8]
-                set ttl9 [r pexpiretime foo9]
-                set ttl10 [r pexpiretime foo10]
-                assert_equal "-2" [r pexpiretime foo11] ; # foo11 is gone
-                set ttl12 [r pexpiretime foo12]
-                set ttl13 [r pexpiretime foo13]
-                set ttl14 [r pexpiretime foo14]
-                set ttl15 [r pexpiretime foo15]
-                assert_equal "-1" [r pexpiretime foo16] ; # foo16 has no TTL
-                set ttl17 [r pexpiretime foo17]
-                set ttl18 [r pexpiretime foo18]
-
-                # Let some time pass and reload data from AOF
-                after 2000
-                r debug loadaof
-
-                # Assert that relative TTLs are roughly the same
-                assert_range [r ttl foo1] 90 98
-                assert_range [r ttl foo2] 90 98
-                assert_range [r ttl foo3] 90 98
-                assert_range [r ttl foo4] 90 98
-                assert_range [r ttl foo5] 90 98
-                assert_range [r ttl foo6] 90 98
-                assert_range [r ttl foo7] 90 98
-                assert_range [r ttl foo8] 90 98
-                assert_range [r ttl foo9] 90 98
-                assert_range [r ttl foo10] 90 98
-                assert_equal [r ttl foo11] "-2" ; # foo11 is gone
-                assert_range [r ttl foo12] 90 98
-                assert_range [r ttl foo13] 90 98
-                assert_range [r ttl foo14] 90 98
-                assert_range [r ttl foo15] 90 98
-                assert_equal [r ttl foo16] "-1" ; # foo16 has no TTL
-                assert_range [r ttl foo17] 90 98
-                assert_range [r ttl foo18] 90 98
-
-                # Assert that all keys have restored the same absolute TTLs from AOF
-                assert_equal [r pexpiretime foo1] $ttl1
-                assert_equal [r pexpiretime foo2] $ttl2
-                assert_equal [r pexpiretime foo3] $ttl3
-                assert_equal [r pexpiretime foo4] $ttl4
-                assert_equal [r pexpiretime foo5] $ttl5
-                assert_equal [r pexpiretime foo6] $ttl6
-                assert_equal [r pexpiretime foo7] $ttl7
-                assert_equal [r pexpiretime foo8] $ttl8
-                assert_equal [r pexpiretime foo9] $ttl9
-                assert_equal [r pexpiretime foo10] $ttl10
-                assert_equal [r pexpiretime foo11] "-2" ; # foo11 is gone
-                assert_equal [r pexpiretime foo12] $ttl12
-                assert_equal [r pexpiretime foo13] $ttl13
-                assert_equal [r pexpiretime foo14] $ttl14
-                assert_equal [r pexpiretime foo15] $ttl15
-                assert_equal [r pexpiretime foo16] "-1" ; # foo16 has no TTL
-                assert_equal [r pexpiretime foo17] $ttl17
-                assert_equal [r pexpiretime foo18] $ttl18
-            } {} {needs:debug}
-        }
 }

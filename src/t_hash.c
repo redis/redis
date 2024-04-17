@@ -10,6 +10,10 @@
 #include "ebuckets.h"
 #include <math.h>
 
+/* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
+ * update the expiration time of the hash object in global HFE DS. */
+#define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
+
 /* hash field expiration (HFE) funcs */
 static ExpireAction onFieldExpire(eItem item, void *ctx);
 static ExpireMeta* hfieldGetExpireMeta(const eItem field);
@@ -485,44 +489,6 @@ int hashTypeDelete(robj *o, sds field) {
         serverPanic("Unknown hash encoding");
     }
     return deleted;
-}
-
-/* Check if the hash object is empty
- *
- * If using HFE feature, there is an option to hash to still be defined with
- * items but logically be empty. Better use this func rather than checking length
- * (hashTypeLength(o,1)==0). It might be faster in case of many pending expired fields.
- */
-int hashTypeIsEmpty(const robj *o) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        return 0 == lpLength(o->ptr) / 2;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        uint64_t dSize;
-        dict *d = (dict*)o->ptr;
-        dSize = dictSize(d);
-
-        /* If dict doesn't have any HFE metadata or is not registered in global HFE
-         * DS (i.e. expireMeta is trash). It means that there are no expired HFEs. */
-        dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
-        if (!isDictWithMetaHFE(d) || (meta->expireMeta.trash))
-            return dSize == 0;
-
-        /* Hash has fields with expiry. Need to take into account expired ones */
-
-        /* If time of next hash-field to expire is greater than current time, then not empty */
-        if (ebGetExpireTime(&hashExpireBucketsType, (eItem) o) >= (uint64_t)commandTimeSnapshot())
-            return 0;
-
-        /* If not all fields with expiry, then for sure not empty */
-        if (likely(ebGetTotalItems(meta->hfe, &hashFieldExpireBucketsType) < dSize))
-            return 0;
-
-        /* All fields are with expiry, Check if maximum TTL is in the past */
-        return ebGetMaxExpireTime(meta->hfe, &hashFieldExpireBucketsType, 1) <
-                (uint64_t) commandTimeSnapshot();
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
 }
 
 /* Return the number of elements in a hash.
@@ -1752,22 +1718,34 @@ static void hfieldPersist(redisDb *db, robj *hashObj, hfield field) {
     /* If field has valid expiry then dict should have valid metadata as well */
     serverAssert(dictExpireMeta->expireMeta.trash == 0);
 
-    uint64_t hmin = ebGetMetaExpTime(&dictExpireMeta->expireMeta);
+    uint64_t minExpire = ebGetMetaExpTime(&dictExpireMeta->expireMeta);
 
     /* Remove field from private HFE DS */
     ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, field);
 
-    /* If the removed field was the minimal to expire, Might need to update the hash at global HFE DS  */
-    if (hmin == fieldExpireTime) {
-        /* If hnext min expire time of the hash is different than the one removed, then update global HFE DS */
-        uint64_t hnext = ebGetNextTimeToExpire(dictExpireMeta->hfe, &hashFieldExpireBucketsType, 1);
-        if (hnext != fieldExpireTime) {
-            ebRemove(&db->hexpires, &hashExpireBucketsType, hashObj);
-            /* If not last field to expire */
-            if (hnext != EB_EXPIRE_TIME_INVALID)
-                ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, hnext);
-        }
-    }
+    /* If the removed field was not the minimal to expire, then no need to update
+     * the hash at global HFE DS. Take into account precision loss in case
+     * EB_BUCKET_KEY_PRECISION>0 by assisting EB_BUCKET_KEY() */
+    if (EB_BUCKET_KEY(minExpire) != EB_BUCKET_KEY(fieldExpireTime)) return;
+
+    uint64_t newMinExpire = ebGetNextTimeToExpire(dictExpireMeta->hfe, &hashFieldExpireBucketsType);
+
+    /* Calculate the diff between minExpire and newMinExpire. If it is
+    * only few seconds, then don't have to update global HFE DS. At the worst
+    * case fields of hash will be active-expired up to few seconds later.
+    *
+    * In any case, active-expire operation will know to update global
+    * HFE DS more efficiently than here for a single item.
+    */
+    uint64_t diff = (minExpire > newMinExpire) ?
+                    (minExpire - newMinExpire) : (newMinExpire - minExpire);
+    if (diff < HASH_NEW_EXPIRE_DIFF_THRESHOLD) return;
+
+    ebRemove(&db->hexpires, &hashExpireBucketsType, hashObj);
+
+    /* If it was not last field to expire */
+    if (newMinExpire != EB_EXPIRE_TIME_INVALID)
+        ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, newMinExpire);
 }
 
 int hfieldIsExpired(hfield field) {
@@ -2077,17 +2055,25 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
             if ((minExpire < minExpireFields) && ((long long)minExpire <= expire) )
                 return;
 
-            /* retrieve new expired time */
+            /* retrieve new expired time. It might have changed. */
             uint64_t newMinExpire = ebGetNextTimeToExpire(dictExpireMeta->hfe,
-                                                          &hashFieldExpireBucketsType,
-                                                          0);
+                                                          &hashFieldExpireBucketsType);
 
-            if (minExpire != newMinExpire) {
-                if (minExpire != EB_EXPIRE_TIME_INVALID)
-                    ebRemove(&c->db->hexpires, &hashExpireBucketsType, hashObj);
-                if (newMinExpire != EB_EXPIRE_TIME_INVALID)
-                    ebAdd(&c->db->hexpires, &hashExpireBucketsType, hashObj, newMinExpire);
-            }
+            /* Calculate the diff between old minExpire and newMinExpire. If it is
+             * only few seconds, then don't have to update global HFE DS. At the worst
+             * case fields of hash will be active-expired up to few seconds later.
+             *
+             * In any case, active-expire operation will know to update global
+             * HFE DS more efficiently than here for a single item.
+             */
+            uint64_t diff = (minExpire > newMinExpire) ?
+                    (minExpire - newMinExpire) : (newMinExpire - minExpire);
+            if (diff < HASH_NEW_EXPIRE_DIFF_THRESHOLD) return;
+
+            if (minExpire != EB_EXPIRE_TIME_INVALID)
+                ebRemove(&c->db->hexpires, &hashExpireBucketsType, hashObj);
+            if (newMinExpire != EB_EXPIRE_TIME_INVALID)
+                ebAdd(&c->db->hexpires, &hashExpireBucketsType, hashObj, newMinExpire);
         }
     }
 }

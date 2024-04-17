@@ -335,24 +335,15 @@ robj *dbRandomKey(redisDb *db) {
 
     while(1) {
         sds key;
-        robj *keyobj, *valobj;
+        robj *keyobj;
         int randomSlot = kvstoreGetFairRandomDictIndex(db->keys);
         de = kvstoreDictGetFairRandomKey(db->keys, randomSlot);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        valobj = dictGetVal(de);
-
-        /* Special care to hash that all its fields got expired */
-        if ((valobj->type == OBJ_HASH) && (valobj->encoding == OBJ_ENCODING_HT) &&
-                (hashTypeIsEmpty(valobj)) && (--maxtries > 0)) {
-            decrRefCount(keyobj);
-            continue;
-        }
-
         if (dbFindExpires(db, key)) {
-            if (allvolatile && server.masterhost && --maxtries <= 0) {
+            if (allvolatile && server.masterhost && --maxtries == 0) {
                 /* If the DB is composed only of keys with an expire set,
                  * it could happen that all the keys are already logically
                  * expired in the slave, so the function cannot stop because
