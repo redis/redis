@@ -1864,10 +1864,6 @@ void distributeTest(int lowestTime,
     struct timeval timeBefore, timeAfter, timeDryRun, timeCreation, timeDestroy;
     ebuckets eb = ebCreate();
 
-    int totalItems = 0;
-    for (int i = 0; i < numRanges; i++)
-        totalItems += ItemsPerRange[i];
-
     /* create items with random expiry */
     uint64_t startRange = lowestTime;
 
@@ -1877,7 +1873,6 @@ void distributeTest(int lowestTime,
         uint64_t endRange = EB_BUCKET_EXP_TIME(expireRanges[i]);
         for (int j = 0; j < ItemsPerRange[i]; j++) {
             uint64_t randomExpirey = (rand() % (endRange - startRange)) + startRange;
-            randomExpirey = randomExpirey;
             expItemsHashValue = expItemsHashValue ^ (uint32_t) randomExpirey;
             MyItem *item = zmalloc(sizeof(MyItem));
             getMyItemExpireMeta(item)->next = listOfItems;
