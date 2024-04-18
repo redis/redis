@@ -932,7 +932,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     list *keys = data->keys;
     robj *o = data->o;
     sds val = NULL;
-    void *key = NULL;  /* (o->type == OBJ_HASH) ? hfield : sds */
+    void *key = NULL;  /* if OBJ_HASH then key is of type `hfield`. Otherwise, `sds` */
     data->sampled++;
 
     /* o and typename can not have values at the same time. */

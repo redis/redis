@@ -157,7 +157,7 @@ static inline void activeExpireHashFieldCycle(int type) {
     redisDb *db = server.db + currentDb;
 
     /* If db is empty, move to next db and return */
-    if(ebIsEmpty(db->hexpires)) {
+    if (ebIsEmpty(db->hexpires)) {
         activeExpirySequence = 0;
         currentDb = (currentDb + 1) % server.dbnum;
         return;
@@ -165,7 +165,7 @@ static inline void activeExpireHashFieldCycle(int type) {
 
     /* If running for a while and didn't manage to active-expire all expired fields of
      * currentDb (i.e. activeExpirySequence becomes significant) then adjust maxToExpire */
-    if ((activeExpirySequence > EXPIRED_FIELDS_TH) && (type == ACTIVE_EXPIRE_CYCLE_SLOW) ) {
+    if ((activeExpirySequence > EXPIRED_FIELDS_TH) && (type == ACTIVE_EXPIRE_CYCLE_SLOW)) {
         /* maxToExpire is multiplied by a factor between 1 and 32, proportional to
          * the number of times activeExpirySequence exceeded EXPIRED_FIELDS_TH */
         uint64_t factor = activeExpirySequence / EXPIRED_FIELDS_TH;

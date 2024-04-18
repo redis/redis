@@ -951,62 +951,6 @@ int64_t hashTypeGetMinExpire(robj *o) {
     return ebGetMetaExpTime(expireMeta);
 }
 
-/* Delete all expired fields in a hash */
-void hashTypeDeleteExpiredFields(client *c, robj *hashObj) {
-    redisDb *db = c->db;
-
-    if (hashObj->encoding == OBJ_ENCODING_LISTPACK) {
-        return; /* TODO */
-    }
-    serverAssert(hashObj->encoding == OBJ_ENCODING_HT);
-
-    dict *d = hashObj->ptr;
-
-    if (!isDictWithMetaHFE(d))
-        return;
-
-    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
-
-    /* If HFE metadata is marked as trash, return */
-    if (dictExpireMeta->expireMeta.trash)
-        return;
-
-    /* If time of next hash-field to expire is greater than current time, return */
-    if (ebGetExpireTime(&hashExpireBucketsType, hashObj) >= (uint64_t)commandTimeSnapshot() )
-        return;
-
-    /* Remove expired fields as part of lazy-expire */
-    ExpireInfo info = {
-            .maxToExpire = UINT64_MAX,
-            .onExpireItem = onFieldExpire,
-            .ctx = hashObj,
-            .now = commandTimeSnapshot(),
-            .itemsExpired = 0};
-
-    ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
-
-    /* If hash has no more fields to expire, remove it from HFE DB */
-    if (info.nextExpireTime == 0) {
-
-        /* Take care to remove hash from global HFE DS before deleting it */
-        ebRemove(&c->db->hexpires, &hashExpireBucketsType, hashObj);
-
-        if (hashTypeLength(hashObj, 0) == 0) {
-            robj *key = createStringObject(dictExpireMeta->key, sdslen(dictExpireMeta->key));
-            dbDelete(db, key);
-            //notifyKeyspaceEvent(NOTIFY_HASH,"xxxxxxxxx",c->argv[1],c->db->id);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key, db->id);
-            server.dirty++;
-            signalModifiedKey(NULL, &server.db[0], key);
-            decrRefCount(key);
-        }
-    } else {
-        /* Update hash expiry based on next time of hash-field to expire in "global" HFE */
-        ebRemove(&c->db->hexpires, &hashExpireBucketsType, hashObj);
-        ebAdd(&c->db->hexpires, &hashExpireBucketsType, hashObj, info.nextExpireTime);
-    }
-}
-
 uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o) {
     if (o->encoding == OBJ_ENCODING_LISTPACK)
         return EB_EXPIRE_TIME_INVALID; /* not supported yet */

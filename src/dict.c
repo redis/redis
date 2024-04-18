@@ -181,14 +181,14 @@ static void _dictReset(dict *d, int htidx)
 }
 
 /* Create a new hash table */
-dict *dictCreate(dictType *type) {
-    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL)
-                                              : 0;
-    dict *d = zmalloc(sizeof(*d) + metasize);
+dict *dictCreate(dictType *type)
+{
+    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL) : 0;
+    dict *d = zmalloc(sizeof(*d)+metasize);
     if (metasize > 0) {
         memset(dictMetadata(d), 0, metasize);
     }
-    _dictInit(d, type);
+    _dictInit(d,type);
     return d;
 }
 
@@ -318,7 +318,7 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
         void *key = dictGetKey(de);
         /* Get the index in the new hash table */
         if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
-                h = dictHashKey(d, key, 1) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            h = dictHashKey(d, key, 1) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
         } else {
             /* We're shrinking the table. The tables sizes are powers of
              * two, so we simply mask the bucket index in the larger table
