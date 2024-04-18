@@ -130,38 +130,41 @@ mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, 
 
 /* Create copy of mstr. Flags can be modified. For each metadata flag, if
  * same flag is set on both, then copy its metadata. */
-mstr mstrNewCopy(struct mstrKind *kind, mstr another, mstrFlags newFlags) {
-    mstr s;
+mstr mstrNewCopy(struct mstrKind *kind, mstr src, mstrFlags newFlags) {
+    mstr dst;
 
     /* if no flags are set, then just copy the string */
-    if (newFlags == 0) return mstrNew(another, mstrlen(another));
+    if (newFlags == 0) return mstrNew(src, mstrlen(src));
 
-    s = mstrNewWithMeta(kind, another, mstrlen(another), newFlags);
-    memcpy(s, another, mstrlen(another) + 1);
+    dst = mstrNewWithMeta(kind, src, mstrlen(src), newFlags);
+    memcpy(dst, src, mstrlen(src) + 1);
 
-    mstrFlags *pFlags1 = mstrFlagsRef(another),
-              *pFlags2 = mstrFlagsRef(s);
+    /* if metadata is attached to src, then selectively copy metadata */
+    if (mstrIsMetaAttached(src)) {
+        mstrFlags *pFlags1 = mstrFlagsRef(src),
+                *pFlags2 = mstrFlagsRef(dst);
 
-    mstrFlags flags1Shift = *pFlags1,
-              flags2Shift = *pFlags2;
+        mstrFlags flags1Shift = *pFlags1,
+                flags2Shift = *pFlags2;
 
-    unsigned char *at1 = ((unsigned char *)pFlags1),
-                  *at2 = ((unsigned char *)pFlags2);
+        unsigned char *at1 = ((unsigned char *) pFlags1),
+                *at2 = ((unsigned char *) pFlags2);
 
-    /* if the flag is set on both, then copy the metadata */
-    for (int i = 0 ; flags1Shift != 0 ; ++i) {
-        int isFlag1Set = flags1Shift & 0x1;
-        int isFlag2Set = flags2Shift & 0x1;
+        /* if the flag is set on both, then copy the metadata */
+        for (int i = 0; flags1Shift != 0; ++i) {
+            int isFlag1Set = flags1Shift & 0x1;
+            int isFlag2Set = flags2Shift & 0x1;
 
-        if (isFlag1Set) at1 -= kind->metaSize[i];
-        if (isFlag2Set) at2 -= kind->metaSize[i];
+            if (isFlag1Set) at1 -= kind->metaSize[i];
+            if (isFlag2Set) at2 -= kind->metaSize[i];
 
-        if (isFlag1Set && isFlag2Set)
-            memcpy(at2, at1, kind->metaSize[i]);
-        flags1Shift >>= 1;
-        flags2Shift >>= 1;
+            if (isFlag1Set && isFlag2Set)
+                memcpy(at2, at1, kind->metaSize[i]);
+            flags1Shift >>= 1;
+            flags2Shift >>= 1;
+        }
     }
-    return s;
+    return dst;
 }
 
 /* Free mstring. Note, mstrKind is required to eval sizeof metadata and find start
@@ -509,6 +512,7 @@ int mstrTest(int argc, char **argv, int flags) {
         mstrPrint(s3, &kind_mymstr, 1);
         mstrFree(&kind_mymstr, s1);
         mstrFree(&kind_mymstr, s2);
+        mstrFree(&kind_mymstr, s3);
     }
 
     return 0;

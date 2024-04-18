@@ -191,7 +191,7 @@ mstr mstrNew(const char *initStr, size_t lenStr);
 
 mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, mstrFlags flags);
 
-mstr mstrNewCopy(struct mstrKind *kind, mstr another, mstrFlags newFlags);
+mstr mstrNewCopy(struct mstrKind *kind, mstr src, mstrFlags newFlags);
 
 void *mstrGetAllocPtr(struct mstrKind *kind, mstr str);
 
