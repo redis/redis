@@ -1949,20 +1949,6 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     }
     expire += basetime;
 
-    /* Adjust the expiration time to match the configured precision reduction.
-     * This optimizes the aggregation of keys into buckets of `ebucetks` down
-     * to ~seconds, ~minutes, ~hours, etc, rather than msec resolution */
-    if (server.hash_field_expiry_bits) {
-        uint64_t tmp = (1 << server.hash_field_expiry_bits)-1;
-        expire = (expire + tmp) & ~tmp;
-
-        /* Check expire overflow after rounding */
-        if (expire > (long long) EB_EXPIRE_TIME_MAX) {
-            addReplyErrorExpireTime(c);
-            return;
-        }
-    }
-
     /* Read optional flag [NX|XX|GT|LT] */
     char *optArg = c->argv[3]->ptr;
     if (!strcasecmp(optArg, "nx")) {

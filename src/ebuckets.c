@@ -1853,10 +1853,6 @@ void addItems(ebuckets *eb, uint64_t startExpire, int step, uint64_t numItems, M
     }
 }
 
-/* mimic configuration "hash-field-expiry-bits" */
-int hashFieldExpiryBits = 0;
-#define ROUND(v) (v + ((1<<hashFieldExpiryBits)-1)) & ~((1<<hashFieldExpiryBits)-1)
-
 /* expireRanges - is given as bucket-key to be agnostic to the different configuration
  *                of EB_BUCKET_KEY_PRECISION */
 void distributeTest(int lowestTime,
@@ -1881,7 +1877,7 @@ void distributeTest(int lowestTime,
         uint64_t endRange = EB_BUCKET_EXP_TIME(expireRanges[i]);
         for (int j = 0; j < ItemsPerRange[i]; j++) {
             uint64_t randomExpirey = (rand() % (endRange - startRange)) + startRange;
-            randomExpirey = ROUND(randomExpirey);
+            randomExpirey = randomExpirey;
             expItemsHashValue = expItemsHashValue ^ (uint32_t) randomExpirey;
             MyItem *item = zmalloc(sizeof(MyItem));
             getMyItemExpireMeta(item)->next = listOfItems;
@@ -1978,13 +1974,13 @@ int ebucketsTest(int argc, char **argv, int flags) {
 #ifdef EB_TEST_BENCHMARK
     TEST("ebuckets - benchmark 10 million items: alloc + add + activeExpire") {
         /* All mapped to same EB_BUCKET_KEY() */
-        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805092100001)};      // 1 msec distribution
-        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805092101000)};      // 1 sec distribution
-        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805092160000)};      // 1 min distribution
-        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805095700000)};      // 1 hour distribution
-        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805178500000)};      // 1 day distribution
-        //uint64_t expireRanges[] = { 1805092100000, ROUND(1805696900000)};      // 1 week distribution
-        uint64_t expireRanges[]   = { 1805092100000, ROUND(1807684100000)};      // 1 month distribution
+        //uint64_t expireRanges[] = { 1805092100000, 1805092100001};      // 1 msec distribution
+        //uint64_t expireRanges[] = { 1805092100000, 1805092101000};      // 1 sec distribution
+        //uint64_t expireRanges[] = { 1805092100000, 1805092160000};      // 1 min distribution
+        //uint64_t expireRanges[] = { 1805092100000, 1805095700000};      // 1 hour distribution
+        //uint64_t expireRanges[] = { 1805092100000, 1805178500000};      // 1 day distribution
+        //uint64_t expireRanges[] = { 1805092100000, 1805696900000};      // 1 week distribution
+        uint64_t expireRanges[]   = { 1805092100000, 1807684100000};      // 1 month distribution
         int itemsPerRange[] = {  0, 10000000 };
 
         /* expireRanges[] is given as bucket-key values */

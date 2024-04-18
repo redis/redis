@@ -1730,8 +1730,6 @@ struct redisServer {
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
     int lazy_expire_disabled;       /* If > 0, don't trigger lazy expire */
-    int hash_field_expiry_bits;     /* LSB bits to discard from HFE expiration
-                                     * value. Optimize HFE DS by reducing precision. */
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
