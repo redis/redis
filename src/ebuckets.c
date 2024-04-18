@@ -1968,19 +1968,33 @@ int ebucketsTest(int argc, char **argv, int flags) {
 
 #ifdef EB_TEST_BENCHMARK
     TEST("ebuckets - benchmark 10 million items: alloc + add + activeExpire") {
-        /* All mapped to same EB_BUCKET_KEY() */
-        //uint64_t expireRanges[] = { 1805092100000, 1805092100001};      // 1 msec distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805092101000};      // 1 sec distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805092160000};      // 1 min distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805095700000};      // 1 hour distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805178500000};      // 1 day distribution
-        //uint64_t expireRanges[] = { 1805092100000, 1805696900000};      // 1 week distribution
-        uint64_t expireRanges[]   = { 1805092100000, 1807684100000};      // 1 month distribution
-        int itemsPerRange[] = {  0, 10000000 };
 
-        /* expireRanges[] is given as bucket-key values */
-        for (uint32_t i = 0 ; i < ARRAY_SIZE(expireRanges) ; ++i )
-            expireRanges[i] = expireRanges[i] >> EB_BUCKET_KEY_PRECISION;
+        struct TestParams {
+            uint64_t minExpire;
+            uint64_t maxExpire;
+            int items;
+            const char *description;
+        } testCases[] = {
+            { 1805092100000, 1805092100000 + (uint64_t) 1,                10000000, "1 msec distribution"  },
+            { 1805092100000, 1805092100000 + (uint64_t) 1000,             10000000, "1 sec distribution"   },
+            { 1805092100000, 1805092100000 + (uint64_t) 1000*60,          10000000, "1 min distribution"   },
+            { 1805092100000, 1805092100000 + (uint64_t) 1000*60*60,       10000000, "1 hour distribution"  },
+            { 1805092100000, 1805092100000 + (uint64_t) 1000*60*60*24,    10000000, "1 day distribution"   },
+            { 1805092100000, 1805092100000 + (uint64_t) 1000*60*60*24*7,  10000000, "1 week distribution"  },
+            { 1805092100000, 1805092100000 + (uint64_t) 1000*60*60*24*30, 10000000, "1 month distribution" }
+        };
+
+        /* selected test */
+        uint32_t tid = 3;
+
+        printf("\n------ TEST EBUCKETS: %s ------\n", testCases[tid].description);
+        uint64_t expireRanges[] = { testCases[tid].minExpire, testCases[tid].maxExpire };
+        int itemsPerRange[] = { 0, testCases[tid].items };
+
+        /* expireRanges[] is provided to distributeTest() as bucket-key values */
+        for (uint32_t j = 0; j < ARRAY_SIZE(expireRanges); ++j) {
+            expireRanges[j] = expireRanges[j] >> EB_BUCKET_KEY_PRECISION;
+        }
 
         distributeTest(0, expireRanges, itemsPerRange, ARRAY_SIZE(expireRanges), 1, 1);
         return 0;
@@ -2233,10 +2247,6 @@ int ebucketsTest(int argc, char **argv, int flags) {
             ebDestroy(&eb, &myEbucketsType2, NULL);
         }
     }
-
-//    TEST("segment - Add smaller item to full segment that all share same ebucket-key")
-//    TEST("segment - Add item to full segment and make it extended-segment (all share same ebucket-key)")
-//    TEST("ebuckets - Create rax tree with extended-segment and add item before")
 
     return 0;
 }
