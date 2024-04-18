@@ -1612,20 +1612,29 @@ void hrandfieldCommand(client *c) {
 /*-----------------------------------------------------------------------------
  * Hash Field with optional expiry (based on mstr)
  *----------------------------------------------------------------------------*/
-
-/* if expireAt is 0, then expireAt is ignored and no metadata is attached */
-hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta) {
+static hfield _hfieldNew(const void *field, size_t fieldlen, int withExpireMeta,
+                         int trymalloc)
+{
     if (!withExpireMeta)
-        return mstrNew(field, fieldlen);
+        return mstrNew(field, fieldlen, trymalloc);
 
     hfield hf = mstrNewWithMeta(&mstrFieldKind, field, fieldlen,
-                                (mstrFlags) 1 << HFIELD_META_EXPIRE);
+                                (mstrFlags) 1 << HFIELD_META_EXPIRE, trymalloc);
 
     ExpireMeta *expireMeta = mstrMetaRef(hf, &mstrFieldKind, HFIELD_META_EXPIRE);
 
     /* as long as it is not inside ebuckets, it is considered trash */
     expireMeta->trash = 1;
     return hf;
+}
+
+/* if expireAt is 0, then expireAt is ignored and no metadata is attached */
+hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta) {
+    return _hfieldNew(field, fieldlen, withExpireMeta, 0);
+}
+
+hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta) {
+    return _hfieldNew(field, fieldlen, withExpireMeta, 1);
 }
 
 int hfieldIsExpireAttached(hfield field) {

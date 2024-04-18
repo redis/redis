@@ -3181,6 +3181,7 @@ int64_t hashTypeGetMinExpire(robj *keyObj);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
+hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta);
 int hfieldIsExpireAttached(hfield field);
 int hfieldIsExpired(hfield field);
 static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }

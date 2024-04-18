@@ -397,7 +397,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     } else if (sdsFlag || robjFlag) {
         val = sdstrynewlen(SDS_NOINIT,len);
     } else { /* hfldFlag */
-        val = hfieldNew(NULL, len, 0);
+        val = hfieldTryNew(NULL, len, 0);
     }
 
     if (!val) {
@@ -554,7 +554,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     } else if (sdsFlag) {
         buf = sdstrynewlen(SDS_NOINIT,len);
     }  else { /* hfldFlag */
-        buf = hfieldNew(NULL, len, 0);
+        buf = hfieldTryNew(NULL, len, 0);
     }
     if (!buf) {
         serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);

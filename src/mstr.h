@@ -187,9 +187,9 @@ struct __attribute__ ((__packed__)) mstrhdr64 {
     int metaSize[NUM_MSTR_FLAGS];
 } mstrKind;
 
-mstr mstrNew(const char *initStr, size_t lenStr);
+mstr mstrNew(const char *initStr, size_t lenStr, int trymalloc);
 
-mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, mstrFlags flags);
+mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, mstrFlags flags, int trymalloc);
 
 mstr mstrNewCopy(struct mstrKind *kind, mstr src, mstrFlags newFlags);
 
