@@ -45,6 +45,8 @@ typedef long long ustime_t; /* microsecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
+#include "mstr.h"    /* Immutable strings with optional metadata attached */
+#include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */
 #include "kvstore.h" /* Slot-based hash table */
 #include "adlist.h"  /* Linked lists */
@@ -960,6 +962,7 @@ typedef struct replBufBlock {
 typedef struct redisDb {
     kvstore *keys;              /* The keyspace for this DB */
     kvstore *expires;           /* Timeout of keys with a timeout set */
+    ebuckets hexpires;          /* Hash expiration DS. Single TTL per hash (of next min field to expire) */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
@@ -1642,6 +1645,7 @@ struct redisServer {
     long long stat_numcommands;     /* Number of processed commands */
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */
+    long long stat_expired_hash_fields; /* Number of expired hash-fields */
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
@@ -2444,6 +2448,10 @@ typedef struct {
 #define IO_THREADS_OP_WRITE 2
 extern int io_threads_op;
 
+/* Hash-field data type (of t_hash.c) */
+typedef mstr hfield;
+extern  mstrKind mstrFieldKind;
+
 /*-----------------------------------------------------------------------------
  * Extern declarations
  *----------------------------------------------------------------------------*/
@@ -2458,6 +2466,8 @@ extern dictType zsetDictType;
 extern dictType dbDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
+extern dictType mstrHashDictType;
+extern dictType mstrHashDictTypeWithHFE;
 extern dictType stringSetDictType;
 extern dictType externalStringType;
 extern dictType sdsHashDictType;
@@ -2468,6 +2478,9 @@ extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
 extern dictType keylistDictType;
 extern dict *modules;
+
+extern EbucketsType hashExpireBucketsType;  /* global expires */
+extern EbucketsType hashFieldExpiresBucketType; /* local per hash */
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -2611,6 +2624,7 @@ void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);
 size_t sdsZmallocSize(sds s);
+size_t hfieldZmallocSize(hfield s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
 void *dupClientReplyValue(void *o);
@@ -3144,21 +3158,35 @@ void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 int hashTypeExists(robj *o, sds key);
 int hashTypeDelete(robj *o, sds key);
-unsigned long hashTypeLength(const robj *o);
+unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
-int hashTypeNext(hashTypeIterator *hi);
+int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields);
 void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
                                  unsigned char **vstr,
                                  unsigned int *vlen,
                                  long long *vll);
-sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what);
-void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll);
+void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, char **str,
+                                  size_t *len, uint64_t *expireTime);
+void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
+                           unsigned int *vlen, long long *vll, uint64_t *expireTime);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
+hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi);
 robj *hashTypeGetValueObject(robj *o, sds field);
-int hashTypeSet(robj *o, sds field, sds value, int flags);
-robj *hashTypeDup(robj *o);
+int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags);
+robj *hashTypeDup(robj *o, sds newkey, uint64_t *minHashExpire);
+uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
+void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime);
+int64_t hashTypeGetMinExpire(robj *keyObj);
+
+/* Hash-Field data type (of t_hash.c) */
+hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
+hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta);
+int hfieldIsExpireAttached(hfield field);
+int hfieldIsExpired(hfield field);
+static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }
+static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
+static inline size_t hfieldlen(hfield field) { return mstrlen(field);}
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -3177,7 +3205,7 @@ dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
 
 /* Keyspace events notification */
-void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
+void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
@@ -3261,6 +3289,7 @@ int keyIsExpired(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
 int checkAlreadyExpired(long long when);
+int parseExtendedExpireArgumentsOrReply(client *c, int *flags);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
@@ -3279,7 +3308,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_NOEXPIRE (1<<4) /* Avoid deleting lazy expired keys. */
 #define LOOKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
 
-void dbAdd(redisDb *db, robj *key, robj *val);
+dictEntry *dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbReplaceValue(redisDb *db, robj *key, robj *val);
 
@@ -3434,6 +3463,7 @@ void expireSlaveKeys(void);
 void rememberSlaveKeyWithExpire(redisDb *db, robj *key);
 void flushSlaveKeysWithExpireList(void);
 size_t getSlaveKeyWithExpireCount(void);
+uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);
@@ -3451,6 +3481,7 @@ void startEvictionTimeProc(void);
 uint64_t dictSdsHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
+int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored);
 int dictSdsKeyCaseCompare(dict *d, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
 void dictListDestructor(dict *d, void *val);
@@ -3606,6 +3637,15 @@ void strlenCommand(client *c);
 void zrankCommand(client *c);
 void zrevrankCommand(client *c);
 void hsetCommand(client *c);
+void hpexpireCommand(client *c);
+void hexpireCommand(client *c);
+void hpexpireatCommand(client *c);
+void hexpireatCommand(client *c);
+void httlCommand(client *c);
+void hpttlCommand(client *c);
+void hexpiretimeCommand(client *c);
+void hpexpiretimeCommand(client *c);
+void hpersistCommand(client *c);
 void hsetnxCommand(client *c);
 void hgetCommand(client *c);
 void hmgetCommand(client *c);

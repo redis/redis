@@ -200,7 +200,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
     } else if (o->type == OBJ_HASH) {
         hashTypeIterator *hi = hashTypeInitIterator(o);
-        while (hashTypeNext(hi) != C_ERR) {
+        while (hashTypeNext(hi, 0) != C_ERR) {
             unsigned char eledigest[20];
             sds sdsele;
 
@@ -445,9 +445,9 @@ void debugCommand(client *c) {
 "SEGFAULT",
 "    Crash the server with sigsegv.",
 "SET-ACTIVE-EXPIRE <0|1>",
-"    Setting it to 0 disables expiring keys in background when they are not",
-"    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
-"    default.",
+"    Setting it to 0 disables expiring keys (and hash-fields) in background ",
+"    when they are not accessed (otherwise the Redis behavior). Setting it",
+"    to 1 reenables back the default.",
 "QUICKLIST-PACKED-THRESHOLD <size>",
 "    Sets the threshold for elements to be inserted as plain vs packed nodes",
 "    Default value is 1GB, allows values up to 4GB. Setting to 0 restores to default.",
@@ -1081,7 +1081,7 @@ void serverLogObjectDebugInfo(const robj *o) {
     } else if (o->type == OBJ_SET) {
         serverLog(LL_WARNING,"Set size: %d", (int) setTypeSize(o));
     } else if (o->type == OBJ_HASH) {
-        serverLog(LL_WARNING,"Hash size: %d", (int) hashTypeLength(o));
+        serverLog(LL_WARNING,"Hash size: %d", (int) hashTypeLength(o, 0));
     } else if (o->type == OBJ_ZSET) {
         serverLog(LL_WARNING,"Sorted set size: %d", (int) zsetLength(o));
         if (o->encoding == OBJ_ENCODING_SKIPLIST)

@@ -19,6 +19,8 @@
 #include "syscheck.h"
 #include "threads_mngr.h"
 #include "fmtargs.h"
+#include "mstr.h"
+#include "ebuckets.h"
 
 #include <time.h>
 #include <signal.h>
@@ -280,6 +282,18 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
+
+int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored)
+{
+    int l1,l2;
+    UNUSED(d);
+
+    l1 = sdslen((sds)sdsLookup);
+    l2 = hfieldlen((hfield)mstrStored);
+    if (l1 != l2) return 0;
+    return memcmp(sdsLookup, mstrStored, l1) == 0;
+}
+
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
@@ -2500,6 +2514,7 @@ void resetServerStats(void) {
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
+    server.stat_expired_hash_fields = 0;
     server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
@@ -2648,6 +2663,7 @@ void initServer(void) {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
         server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].hexpires = ebCreate();
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -5849,6 +5865,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "sync_full:%lld\r\n", server.stat_sync_full,
             "sync_partial_ok:%lld\r\n", server.stat_sync_partial_ok,
             "sync_partial_err:%lld\r\n", server.stat_sync_partial_err,
+            "expired_hash_fields:%lld\r\n", server.stat_expired_hash_fields,
             "expired_keys:%lld\r\n", server.stat_expiredkeys,
             "expired_stale_perc:%.2f\r\n", server.stat_expired_stale_perc*100,
             "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
@@ -6862,9 +6879,11 @@ struct redisTest {
     {"crc64", crc64Test},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
+    {"mstr", mstrTest},
     {"dict", dictTest},
     {"listpack", listpackTest},
     {"kvstore", kvstoreTest},
+    {"ebuckets", ebucketsTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -6891,6 +6910,7 @@ int main(int argc, char **argv) {
             if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
             else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
             else if (!strcasecmp(arg, "--valgrind")) flags |= REDIS_TEST_VALGRIND;
+            else if (!strcasecmp(arg, "--verbose")) flags |= REDIS_TEST_VERBOSE;
         }
 
         if (!strcasecmp(argv[2], "all")) {
