@@ -83,7 +83,7 @@ proc hrandfieldTest {activeExpireConfig} {
 
 ############################### TESTS #########################################
 
-start_server {tags {"hash expire"}} {
+start_server {tags {"external:skip needs:debug"}} {
 
     # Currently listpack doesn't support HFE
     r config set hash-max-listpack-entries 0
@@ -612,4 +612,5 @@ start_server {tags {"hash expire"}} {
         assert_equal [r hget myhash f2] "v2"
         assert_equal [r HTTL myhash 2 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
     }
+    r config set hash-max-listpack-entries 1
 }
