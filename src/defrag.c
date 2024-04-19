@@ -70,6 +70,22 @@ sds activeDefragSds(sds sdsptr) {
     return NULL;
 }
 
+/* Defrag helper for hfield strings
+ *
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
+hfield activeDefragHfield(hfield hfieldptr) {
+    void *ptr = hfieldGetAllocPtr(hfieldptr);
+    void *newptr = activeDefragAlloc(ptr);
+    if (newptr) {
+        size_t offset = hfieldptr - (char*)ptr;
+        hfieldptr = (char*)newptr + offset;
+        return hfieldptr;
+    }
+    return NULL;
+}
+
 /* Defrag helper for robj and/or string objects with expected refcount.
  *
  * Like activeDefragStringOb, but it requires the caller to pass in the expected
@@ -250,12 +266,24 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
     UNUSED(de);
 }
 
-/* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
+eItem activeDefragEbucketsCallback(void *privdata, const eItem item) {
+    dict *d = (dict*)privdata;
+    eItem newitem;
+    if ((newitem = activeDefragHfield(item))) {
+        uint64_t hash = dictGetHash(d, sdsnewlen(newitem, hfieldlen(newitem)));
+        dictEntry *de = dictFindEntryByPtrAndHash(d, item, hash);
+        serverAssert(de);
+        dictSetKey(d, de, newitem);
+    }
+    return newitem;
+}
+
+/* Defrag a dict with string key (sds or hfield) and optional value (either ptr, sds or robj string) */
 void activeDefragSdsDict(dict* d, int val_type) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragKey = !isDictWithMetaHFE(d) ? (dictDefragAllocFunction *)activeDefragSds : NULL,
         .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
                       val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
                       val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
@@ -266,6 +294,13 @@ void activeDefragSdsDict(dict* d, int val_type) {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
                                 &defragfns, NULL);
     } while (cursor != 0);
+
+    if (isDictWithMetaHFE(d)) {
+        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
+        do {
+            ebScanDefrag(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, cursor, activeDefragEbucketsCallback, d);
+        } while (cursor != 0);
+    }
 }
 
 /* Defrag a list of ptr, sds or robj string values */
@@ -693,9 +728,17 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
 
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
+    if (ob->type == OBJ_HASH && hashTypeHasMetaHFE(ob))
+        ebRemove(&db->hexpires, &hashExpireBucketsType, ob);
     if ((newob = activeDefragStringOb(ob))) {
         kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
+    }
+    if (ob->type == OBJ_HASH && hashTypeHasMetaHFE(ob)) {
+        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)ob->ptr);
+        uint64_t newMinExpire = ebGetMetaExpTime(&dictExpireMeta->expireMeta);
+        if (newMinExpire != EB_EXPIRE_TIME_INVALID)
+            ebAdd(&db->hexpires, &hashExpireBucketsType, ob, newMinExpire);
     }
 
     if (ob->type == OBJ_STRING) {
@@ -736,6 +779,11 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
                 ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragHash(db, de);
+            if (newsds && isDictWithMetaHFE(ob->ptr)) {
+                dict *d = (dict*)ob->ptr;
+                dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
+                dictExpireMeta->key = newsds;
+            }
         } else {
             serverPanic("Unknown hash encoding");
         }

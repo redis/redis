@@ -277,6 +277,8 @@ run_solo {defrag} {
             r config set list-max-ziplist-size 5 ;# list of 10k items will have 2000 quicklist nodes
             r config set stream-node-max-entries 5
             r hmset hash h1 v1 h2 v2 h3 v3
+            r hmset hash_listpack h1 v1 h2 v2 h3 v3
+            # r hexpire hash_listpack 100 3 h1 h2 h3 ;# Not support now
             r lpush list a b c d
             r zadd zset 0 a 1 b 2 c 3 d
             r sadd set a b c d
@@ -289,10 +291,14 @@ run_solo {defrag} {
             set rd [redis_deferring_client]
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
+                $rd hset bighash_hfe $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
                 $rd zadd bigzset $j [concat "asdfasdfasdf" $j]
                 $rd sadd bigset [concat "asdfasdfasdf" $j]
                 $rd xadd bigstream * item 1 value a
+            }
+            for {set j 0} {$j < 10000} {incr j} {
+                $rd hexpire bighash_hfe 9999999 1 $j
             }
             for {set j 0} {$j < 50000} {incr j} {
                 $rd read ; # Discard replies
@@ -326,7 +332,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 500015
+            assert_equal [r dbsize] 500017
 
             # create some fragmentation
             for {set j 0} {$j < 500000} {incr j 2} {
@@ -335,7 +341,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 250015
+            assert_equal [r dbsize] 250017
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms

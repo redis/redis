@@ -96,20 +96,6 @@ EbucketsType hashFieldExpireBucketsType = {
     .itemsAddrAreOdd = 1,                 /* Addresses of hfield (mstr) are odd!! */
 };
 
-/* Each dict of hash object that has fields with time-Expiration will have the
- * following metadata attached to dict header */
-typedef struct dictExpireMetadata {
-    ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
-                                To be used in order to register the hash in the
-                                global ebuckets (i.e db->hexpires) with next,
-                                minimum, hash-field to expire */
-    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
-    sds key;                 /* reference to the key, same one that stored in
-                               db->dict. Will be used from active-expiration flow
-                               for notification and deletion of the object, if
-                               needed. */
-} dictExpireMetadata;
-
 /* ActiveExpireCtx passed to hashTypeActiveExpire() */
 typedef struct ActiveExpireCtx {
     uint32_t fieldsToExpireQuota;
@@ -162,7 +148,7 @@ typedef enum GetExpireTimeRes {
 #define HFE_GT (1<<2)
 #define HFE_LT (1<<3)
 
-static inline int isDictWithMetaHFE(dict *d) {
+int isDictWithMetaHFE(dict *d) {
     return d->type == &mstrHashDictTypeWithHFE;
 }
 
@@ -212,6 +198,11 @@ static void hashDictWithExpireOnRelease(dict *d) {
 /*-----------------------------------------------------------------------------
  * Hash type API
  *----------------------------------------------------------------------------*/
+
+int hashTypeHasMetaHFE(robj *o) {
+    serverAssert(o->type == OBJ_HASH);
+    return (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr));
+}
 
 /* Check the length of a number of objects to see if we need to convert a
  * listpack to a real hash. Note that we only check string encoded objects

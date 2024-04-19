@@ -1773,6 +1773,84 @@ void ebValidate(ebuckets eb, EbucketsType *type) {
         ebValidateRax(ebGetRaxPtr(eb), type);
 }
 
+unsigned long ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long cursor, ebScanFunction *fn, void *privdata) {
+    UNUSED(cursor);
+    if (ebIsEmpty(*eb)) return 0;
+    if (ebIsList(*eb)) {
+        ExpireMeta *prev = NULL;
+        eItem item = ebGetListPtr(type, *eb);
+        while (item != NULL) {
+            eItem newitem;
+            if ((newitem = fn(privdata, item))) {
+                /* If 'prev' is not NULL, update 'prev->next'. Otherwise,
+                 * it implies that 'item' is at the head. */
+                if (prev)
+                    prev->next = newitem;
+                else
+                    *eb = ebMarkAsList(newitem);
+                item = newitem;
+            }
+
+            /* Move to the next item in the list. */
+            prev = type->getExpireMeta(item);
+            item = prev->next;
+        }
+        return 0;
+    } else {
+        rax *rax = ebGetRaxPtr(*eb);
+        raxIterator raxIter;
+        raxStart(&raxIter, rax);
+        raxSeek(&raxIter, "^", NULL, 0);
+        while (raxNext(&raxIter)) {
+            FirstSegHdr *firstSegHdr = raxIter.data;
+            eItem iter;
+            ExpireMeta *mIter, *mHead;
+            iter = firstSegHdr->head;
+            mHead = type->getExpireMeta(iter);
+
+            mIter = type->getExpireMeta(iter);
+            NextSegHdr *nextSegHdr = NULL;
+            while (1) {
+                ExpireMeta *prev = NULL;
+                unsigned int num = mHead->numItems;
+                while (num--) {
+                    assert(iter != NULL);
+                    eItem newitem;
+                    if ((newitem = fn(privdata, iter))) {
+                        /* If 'prev' is not NULL, update 'prev->next'. Otherwise,
+                         * item is at the head. Depending on whether 'nextSegHdr' is NULL,
+                         * item is in the first segment or not. */
+                        if (prev)
+                            prev->next = newitem;
+                        else {
+                            if (nextSegHdr == NULL)
+                                firstSegHdr->head = newitem;
+                            else
+                                nextSegHdr->head = newitem;
+                        }
+                        iter = newitem;
+                    }
+
+                    /* Move to the next item in the segment. */
+                    mIter = type->getExpireMeta(iter);
+                    prev = mIter;
+                    iter = mIter->next;
+                }
+
+                if (mIter->lastItemBucket)
+                    break;
+
+                /* Move to the next segment. */
+                nextSegHdr = mIter->next;
+                iter = nextSegHdr->head;
+                mHead = type->getExpireMeta(iter);
+            }
+        }
+        raxStop(&raxIter);
+    }
+    return 0;
+}
+
 /* Retrieves the expiration time associated with the given item. If associated
  * ExpireMeta is marked as trash, then return EB_EXPIRE_TIME_INVALID */
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
@@ -1787,6 +1865,7 @@ uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
 #include <stddef.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <string.h>
 #include "testhelp.h"
 
 #define TEST(name) printf("[TEST] >>> %s\n", name);
@@ -1957,6 +2036,14 @@ void distributeTest(int lowestTime,
 
 #define UNUSED(x) (void)(x)
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+eItem defragCallback(void *privdata, eItem item) {
+    size_t size = zmalloc_size(item);
+    eItem newitem = zmalloc(size);
+    memcpy(newitem, item, size);
+    zfree(item);
+    return newitem;
+}
 
 int ebucketsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
@@ -2246,6 +2333,22 @@ int ebucketsTest(int argc, char **argv, int flags) {
             }
             ebDestroy(&eb, &myEbucketsType2, NULL);
         }
+    }
+
+    TEST("list - defragmentation") {
+        ebuckets eb = NULL;
+        for (int i = 0 ; i < 5; i++)
+            ebAdd(&eb, &myEbucketsType, zmalloc(sizeof(MyItem)), i);
+        ebScanDefrag(&eb, &myEbucketsType, 0, defragCallback, NULL);
+        ebDestroy(&eb, &myEbucketsType, NULL);
+    }
+
+    TEST("ebuckets - defragmentation") {
+        ebuckets eb = NULL;
+        for (int i = 0 ; i < 20; i++)
+            ebAdd(&eb, &myEbucketsType, zmalloc(sizeof(MyItem)), i);
+        ebScanDefrag(&eb, &myEbucketsType, 0, defragCallback, NULL);
+        ebDestroy(&eb, &myEbucketsType, NULL);
     }
 
     return 0;
