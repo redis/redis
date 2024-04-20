@@ -1802,48 +1802,44 @@ unsigned long ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long curso
         raxStart(&raxIter, rax);
         raxSeek(&raxIter, "^", NULL, 0);
         while (raxNext(&raxIter)) {
-            FirstSegHdr *firstSegHdr = raxIter.data;
-            eItem iter;
-            ExpireMeta *mIter, *mHead;
-            iter = firstSegHdr->head;
-            mHead = type->getExpireMeta(iter);
+            FirstSegHdr *curSegHdr = raxIter.data;
 
-            mIter = type->getExpireMeta(iter);
-            NextSegHdr *nextSegHdr = NULL;
+            /* Iterate over each item in these segments. */
             while (1) {
-                ExpireMeta *prev = NULL;
-                unsigned int num = mHead->numItems;
+                ExpireMeta *prevem = NULL; /* Used to update the 'next' of the previous node after defragmentation.
+                                            * If it's NULL, it means the current item is at the head of the segment. */
+                eItem item = curSegHdr->head; /* Currnet ebucket item. */
+                ExpireMeta *em = type->getExpireMeta(item); /* Expire meta data of current ebucket item. */
+
+                /* Iterate over each item in this segment. */
+                unsigned int num = em->numItems;
                 while (num--) {
-                    assert(iter != NULL);
+                    assert(item != NULL);
                     eItem newitem;
-                    if ((newitem = fn(privdata, iter))) {
+                    if ((newitem = fn(privdata, item))) {
                         /* If 'prev' is not NULL, update 'prev->next'. Otherwise,
                          * item is at the head. Depending on whether 'nextSegHdr' is NULL,
                          * item is in the first segment or not. */
-                        if (prev)
-                            prev->next = newitem;
-                        else {
-                            if (nextSegHdr == NULL)
-                                firstSegHdr->head = newitem;
-                            else
-                                nextSegHdr->head = newitem;
-                        }
-                        iter = newitem;
+                        if (prevem)
+                            prevem->next = newitem;
+                        else
+                            curSegHdr->head = newitem;
+                        item = newitem;
                     }
 
-                    /* Move to the next item in the segment. */
-                    mIter = type->getExpireMeta(iter);
-                    prev = mIter;
-                    iter = mIter->next;
+                    /* Move to the next item in this segment. */
+                    em = type->getExpireMeta(item);
+                    prevem = em;
+                    item = em->next;
                 }
 
-                if (mIter->lastItemBucket)
+                /* If this is the last item in these segments, break the loop. */
+                if (em->lastItemBucket)
                     break;
 
                 /* Move to the next segment. */
-                nextSegHdr = mIter->next;
-                iter = nextSegHdr->head;
-                mHead = type->getExpireMeta(iter);
+                curSegHdr = em->next;
+                item = curSegHdr->head;
             }
         }
         raxStop(&raxIter);
@@ -2038,6 +2034,7 @@ void distributeTest(int lowestTime,
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 eItem defragCallback(void *privdata, eItem item) {
+    UNUSED(privdata);
     size_t size = zmalloc_size(item);
     eItem newitem = zmalloc(size);
     memcpy(newitem, item, size);
