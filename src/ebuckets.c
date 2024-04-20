@@ -1808,7 +1808,7 @@ unsigned long ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long curso
             while (1) {
                 ExpireMeta *prevem = NULL; /* Used to update the 'next' of the previous node after defragmentation.
                                             * If it's NULL, it means the current item is at the head of the segment. */
-                eItem item = curSegHdr->head; /* Currnet ebucket item. */
+                eItem item = curSegHdr->head; /* Current ebucket item. */
                 ExpireMeta *em = type->getExpireMeta(item); /* Expire meta data of current ebucket item. */
 
                 /* Iterate over each item in this segment. */
