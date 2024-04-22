@@ -871,23 +871,18 @@ void freeTestCallback(dict *d, void *val) {
 }
 
 void* defragAllocTest(void *ptr) {
-    size_t size;
-    void *newptr;
-    size = zmalloc_size(ptr);
-    newptr = zmalloc(size);
+    size_t size = zmalloc_size(ptr);
+    void *newptr = zmalloc(size);
     memcpy(newptr, ptr, size);
     zfree(ptr);
     return newptr;
 }
 
 dict *defragLUTTestCallback(dict *d) {
-    dictEntry **newtable;
     /* handle the dict struct */
     d = defragAllocTest(d);
     /* handle the first hash table */
-    newtable = defragAllocTest(d->ht_table[0]);
-    if (newtable)
-        d->ht_table[0] = newtable;
+    d->ht_table[0] = defragAllocTest(d->ht_table[0]);
     /* handle the second hash table */
     if (d->ht_table[1])
         d->ht_table[1] = defragAllocTest(d->ht_table[1]);
