@@ -784,9 +784,8 @@ void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) 
             /* After defragmenting the dict, update its corresponding
              * rehashing node in the kvstore's rehashing list. */
             kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(*d);
-            if (metadata->rehashing_node) {
+            if (metadata->rehashing_node)
                 metadata->rehashing_node->value = *d;
-            }
         }
     }
 }
@@ -1021,6 +1020,7 @@ int kvstoreTest(int argc, char **argv, int flags) {
             de = kvstoreDictAddRaw(kvs, 0, stringFromInt(i), NULL);
             if (listLength(kvs->rehashing)) break;
         }
+        assert(listLength(kvs->rehashing));
         kvstoreDictLUTDefrag(kvs, defragLUTTestCallback);
         while (kvstoreIncrementallyRehash(kvs, 1000)) {}
         kvstoreRelease(kvs);
