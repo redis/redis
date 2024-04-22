@@ -224,7 +224,7 @@ typedef struct HashTypeSetEx {
     dictExpireMetadata *dictExpireMeta; /* keep ref to dict's metadata */
     uint64_t minExpire;                 /* if uninit EB_EXPIRE_TIME_INVALID */
     redisDb *db;
-    robj *hashObj;
+    robj *key, *hashObj;
     uint64_t minExpireFields;           /* Trace updated fields and their previous/new
                                          * minimum expiration time. If minimum recorded
                                          * is above minExpire of the hash, then we don't
@@ -270,19 +270,19 @@ static uint64_t dictMstrHash(const void *key) {
 
 static void dictHfieldDestructor(dict *d, void *field) {
 
-    /* If attached TTL to the field, then remove it from hash's private ebuckets.
-     *
-     * Even if it is a field with minimum expiration time in the hash, it is better
-     * not to update global HFE DS from here. Too much logic and overhead for a
-     * non-crucial operation. At the worst case it will be eventually updated by
-     * active-expire operation, or get deleted by dbGenericDelete() of the hash.
-     */
+    /* If attached TTL to the field, then remove it from hash's private ebuckets. */
     if (hfieldGetExpireTime(field) != EB_EXPIRE_TIME_INVALID) {
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
         ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, field);
     }
 
     hfieldFree(field);
+
+    /* Don't have to update global HFE DS. It's unnecessary. Implementing this
+     * would introduce significant complexity and overhead for an operation that
+     * isn't critical. In the worst case scenario, the hash will be efficiently
+     * updated later by an active-expire operation, or it will be removed by the
+     * hash's dbGenericDelete() function. */
 }
 
 static size_t hashDictWithExpireMetadataBytes(dict *d) {
@@ -627,7 +627,7 @@ SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
             hfield oldField = dictGetKey(existing);
             hfieldPersist(db, o, oldField);
 
-            sdsfree(oldField);
+            hfieldFree(oldField);
             sdsfree(dictGetVal(existing));
             dictSetKey(ht, existing, newField);
             res = HSET_UPDATE;
@@ -673,6 +673,7 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
     ex->c = c;
     ex->cmd = cmd;
     ex->db = db;
+    ex->key = key;
     ex->hashObj = o;
     ex->fieldDeleted = 0;
     ex->fieldUpdated = 0;
@@ -715,13 +716,12 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
 
         if (ex->c) {
             server.dirty += ex->fieldDeleted + ex->fieldUpdated;
-            signalModifiedKey(ex->c, ex->db, ex->hashObj);
-            notifyKeyspaceEvent(NOTIFY_HASH, ex->cmd, ex->hashObj, ex->db->id);
+            signalModifiedKey(ex->c, ex->db, ex->key);
+            notifyKeyspaceEvent(NOTIFY_HASH, ex->cmd, ex->key, ex->db->id);
         }
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
-            dbDelete(ex->db,ex->hashObj);
-            if (ex->c)
-                notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->hashObj, ex->db->id);
+            dbDelete(ex->db,ex->key);
+            if (ex->c) notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->key, ex->db->id);
         } else {
 
             /* If minimum HFE of the hash is smaller than expiration time of the
@@ -2013,29 +2013,11 @@ static void hfieldPersist(redisDb *db, robj *hashObj, hfield field) {
     /* Remove field from private HFE DS */
     ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, field);
 
-    /* If the removed field was not the minimal to expire, then no need to update
-     * the hash at global HFE DS. Take into account precision loss in case
-     * EB_BUCKET_KEY_PRECISION>0 by assisting EB_BUCKET_KEY() */
-    if (EB_BUCKET_KEY(minExpire) != EB_BUCKET_KEY(fieldExpireTime)) return;
-
-    uint64_t newMinExpire = ebGetNextTimeToExpire(dictExpireMeta->hfe, &hashFieldExpireBucketsType);
-
-    /* Calculate the diff between minExpire and newMinExpire. If it is
-    * only few seconds, then don't have to update global HFE DS. At the worst
-    * case fields of hash will be active-expired up to few seconds later.
-    *
-    * In any case, active-expire operation will know to update global
-    * HFE DS more efficiently than here for a single item.
-    */
-    uint64_t diff = (minExpire > newMinExpire) ?
-                    (minExpire - newMinExpire) : (newMinExpire - minExpire);
-    if (diff < HASH_NEW_EXPIRE_DIFF_THRESHOLD) return;
-
-    ebRemove(&db->hexpires, &hashExpireBucketsType, hashObj);
-
-    /* If it was not last field to expire */
-    if (newMinExpire != EB_EXPIRE_TIME_INVALID)
-        ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, newMinExpire);
+    /* Don't have to update global HFE DS. It's unnecessary. Implementing this
+     * would introduce significant complexity and overhead for an operation that
+     * isn't critical. In the worst case scenario, the hash will be efficiently
+     * updated later by an active-expire operation, or it will be removed by the
+     * hash's dbGenericDelete() function. */
 }
 
 int hfieldIsExpired(hfield field) {
