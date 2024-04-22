@@ -1997,6 +1997,7 @@ static uint64_t hfieldGetExpireTime(hfield field) {
 
 /* Remove TTL from the field. Assumed ExpireMeta is attached and has valid value */
 static void hfieldPersist(redisDb *db, robj *hashObj, hfield field) {
+    UNUSED(db);
     uint64_t fieldExpireTime = hfieldGetExpireTime(field);
     if (fieldExpireTime == EB_EXPIRE_TIME_INVALID)
         return;
@@ -2007,8 +2008,6 @@ static void hfieldPersist(redisDb *db, robj *hashObj, hfield field) {
 
     /* If field has valid expiry then dict must have valid metadata as well */
     serverAssert(dictExpireMeta->expireMeta.trash == 0);
-
-    uint64_t minExpire = ebGetMetaExpTime(&dictExpireMeta->expireMeta);
 
     /* Remove field from private HFE DS */
     ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, field);
