@@ -76,10 +76,6 @@ sds activeDefragSds(sds sdsptr) {
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 hfield activeDefragHfield(hfield hfieldptr) {
-    /* Skip the fields with TTL. */
-    if (hfieldGetExpireTime(hfieldptr) != EB_EXPIRE_TIME_INVALID)
-        return NULL;
-
     void *ptr = hfieldGetAllocPtr(hfieldptr);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
@@ -88,6 +84,13 @@ hfield activeDefragHfield(hfield hfieldptr) {
         return hfieldptr;
     }
     return NULL;
+}
+
+hfield activeDefragHfieldSkipTTL(hfield hfieldptr) {
+    /* Skip the fields with TTL. */
+    if (hfieldGetExpireTime(hfieldptr) != EB_EXPIRE_TIME_INVALID)
+        return NULL;
+    return activeDefragHfield(hfieldptr);
 }
 
 /* Defrag helper for robj and/or string objects with expected refcount.
@@ -293,7 +296,7 @@ void activeDefragStrDict(dict* d, int key_type, int val_type) {
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
         .defragKey = (key_type == DEFRAG_DICT_KEY_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
-                      (dictDefragAllocFunction *)activeDefragHfield),
+                      (dictDefragAllocFunction *)activeDefragHfieldSkipTTL),
         .defragVal = (val_type == DEFRAG_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
                       val_type == DEFRAG_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
                       val_type == DEFRAG_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
