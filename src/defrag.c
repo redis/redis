@@ -732,10 +732,17 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     /* Try to defrag robj and / or string value. */
     ob = dictGetVal(de);
     /* TODO: defrag the remain hash objects in db->hexpire. */
-    int skip = (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(ob->ptr));
-    if (!skip && (newob = activeDefragStringOb(ob))) {
+    if (ob->type == OBJ_HASH && isDictWithMetaHFE(ob->ptr))
+        ebRemove(&db->hexpires, &hashExpireBucketsType, ob);
+    if ((newob = activeDefragStringOb(ob))) {
         kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
+    }
+    if (ob->type == OBJ_HASH && isDictWithMetaHFE(ob->ptr)) {
+        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)ob->ptr);
+        uint64_t newMinExpire = ebGetMetaExpTime(&dictExpireMeta->expireMeta);
+        if (newMinExpire != EB_EXPIRE_TIME_INVALID)
+            ebAdd(&db->hexpires, &hashExpireBucketsType, ob, newMinExpire);
     }
 
     if (ob->type == OBJ_STRING) {
