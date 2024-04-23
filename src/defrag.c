@@ -277,7 +277,9 @@ eItem activeDefragEbucketsCallback(void *privdata, const eItem item) {
     dict *d = (dict*)privdata;
     eItem newitem;
     if ((newitem = activeDefragHfield(item))) {
-        uint64_t hash = dictGetHash(d, sdsnewlen(newitem, hfieldlen(newitem)));
+        dictUseStoredKeyApi(d, 1);
+        uint64_t hash = dictGetHash(d, newitem);
+        dictUseStoredKeyApi(d, 0);
         dictEntry *de = dictFindEntryByPtrAndHash(d, item, hash);
         serverAssert(de);
         dictSetKey(d, de, newitem);
