@@ -3192,7 +3192,6 @@ robj *hashTypeDup(robj *o, sds newkey, uint64_t *minHashExpire);
 uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
 void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime);
 int64_t hashTypeGetMinExpire(robj *keyObj);
-int hashTypeHasMetaHFE(robj *o);
 int isDictWithMetaHFE(dict *d);
 
 /* Hash-Field data type (of t_hash.c) */
@@ -3200,6 +3199,7 @@ hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
 hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta);
 int hfieldIsExpireAttached(hfield field);
 int hfieldIsExpired(hfield field);
+uint64_t hfieldGetExpireTime(hfield field);
 static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }
 static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
 static inline size_t hfieldlen(hfield field) { return mstrlen(field);}

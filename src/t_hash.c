@@ -21,7 +21,6 @@ static ExpireMeta *hashGetExpireMeta(const eItem item);
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit);
 static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(redisDb *db, robj *hashObj, hfield field);
-static uint64_t hfieldGetExpireTime(hfield field);
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
@@ -198,11 +197,6 @@ static void hashDictWithExpireOnRelease(dict *d) {
 /*-----------------------------------------------------------------------------
  * Hash type API
  *----------------------------------------------------------------------------*/
-
-int hashTypeHasMetaHFE(robj *o) {
-    serverAssert(o->type == OBJ_HASH);
-    return (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr));
-}
 
 /* Check the length of a number of objects to see if we need to convert a
  * listpack to a real hash. Note that we only check string encoded objects
@@ -1637,7 +1631,7 @@ static ExpireMeta* hfieldGetExpireMeta(const eItem field) {
     return mstrMetaRef(field, &mstrFieldKind, (int) HFIELD_META_EXPIRE);
 }
 
-static uint64_t hfieldGetExpireTime(hfield field) {
+uint64_t hfieldGetExpireTime(hfield field) {
     if (!hfieldIsExpireAttached(field))
         return EB_EXPIRE_TIME_INVALID;
 
