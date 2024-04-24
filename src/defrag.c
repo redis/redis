@@ -46,7 +46,7 @@ void* activeDefragAlloc(void *ptr) {
     /* move this allocation to a new allocation.
      * make sure not to use the thread cache. so that we don't get back the same
      * pointers we try to free */
-    size = zmalloc_size(ptr);
+    size = zmalloc_usable_size(ptr);
     newptr = zmalloc_no_tcache(size);
     memcpy(newptr, ptr, size);
     zfree_no_tcache(ptr);
