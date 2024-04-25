@@ -86,13 +86,6 @@ hfield activeDefragHfield(hfield hf) {
     return NULL;
 }
 
-hfield activeDefragHfieldSkipTTL(hfield hfieldptr) {
-    /* Skip the fields with TTL. */
-    if (hfieldGetExpireTime(hfieldptr) != EB_EXPIRE_TIME_INVALID)
-        return NULL;
-    return activeDefragHfield(hfieldptr);
-}
-
 /* Defrag helper for robj and/or string objects with expected refcount.
  *
  * Like activeDefragStringOb, but it requires the caller to pass in the expected
@@ -276,12 +269,19 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
     dict *d = (dict*)privdata;
     hfield newhf, hf = dictGetKey(de);
-    if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID)
-        return;
 
-    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
-    newhf = ebDefragItem(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, hf, (ebDefragFunction *)activeDefragHfield);
+    if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID) {
+        /* If the hfield does not have TTL, we directly defrag it. */
+        newhf = activeDefragHfield(hf);
+    } else {
+        /* Update its reference in the ebucket while defragging it. */
+        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+        newhf = ebDefragItem(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, hf, (ebDefragFunction *)activeDefragHfield);
+    }
     if (newhf) {
+        /* We can't search in dict for that key after we've released
+         * the pointer it holds, since it won't be able to do the string
+         * compare, but we can find the entry using key hash and pointer. */
         dictUseStoredKeyApi(d, 1);
         uint64_t hash = dictGetHash(d, newhf);
         dictUseStoredKeyApi(d, 0);
@@ -314,7 +314,7 @@ void activeDefragHfieldDict(dict* d) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragHfieldSkipTTL,
+        .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
         .defragVal = (dictDefragAllocFunction *)activeDefragSds
     };
     do {
@@ -477,7 +477,7 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragHfieldSkipTTL,
+        .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
         .defragVal = (dictDefragAllocFunction *)activeDefragSds
     };
     *cursor = dictScanDefrag(d, *cursor, activeDefragHfieldDictCallback, &defragfns, d);
