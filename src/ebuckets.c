@@ -1170,6 +1170,7 @@ static void ebValidateRax(rax *rax, EbucketsType *type) {
     raxStart(&raxIter, rax);
     raxSeek(&raxIter, "^", NULL, 0);
     while (raxNext(&raxIter)) {
+        int expectFirstItemBucket = 1;
         FirstSegHdr *firstSegHdr = raxIter.data;
         eItem iter;
         ExpireMeta *mIter, *mHead;
@@ -1181,7 +1182,6 @@ static void ebValidateRax(rax *rax, EbucketsType *type) {
         void *segHdr = firstSegHdr;
 
         mIter = type->getExpireMeta(iter);
-        assert(mIter->firstItemBucket == 1);
         while (1) {
             uint64_t curBktKey, prevBktKey;
             for (int i = 0; i < mHead->numItems ; ++i) {
@@ -1191,6 +1191,8 @@ static void ebValidateRax(rax *rax, EbucketsType *type) {
 
                 if (i == 0) {
                     assert(mIter->numItems > 0 && mIter->numItems <= EB_SEG_MAX_ITEMS);
+                    assert(mIter->firstItemBucket == expectFirstItemBucket);
+                    expectFirstItemBucket = 0;
                     prevBktKey = curBktKey;
                 } else  {
                     assert( (extendedSeg && prevBktKey == curBktKey) ||

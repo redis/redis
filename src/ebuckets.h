@@ -251,7 +251,10 @@ typedef struct ExpireInfo {
     void *ctx;                    /* [INPUT ] context to pass to onExpireItem */
     uint64_t now;                 /* [INPUT ] Current time in msec. */
     uint64_t nextExpireTime;      /* [OUTPUT] Next expiration time. Return 0, if none left. */
-    uint64_t itemsExpired;        /* [OUTPUT] Returns the number of expired items. */
+
+	/* TODO: Distinct between expired & updated */
+	uint64_t itemsExpired;        /* [OUTPUT] Returns the number of expired or updated items. */
+
 } ExpireInfo;
 
 /* ebuckets API */
