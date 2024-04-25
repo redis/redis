@@ -16,6 +16,7 @@
 
 #define UNUSED(x) (void)(x)
 
+#define EB_VALIDATE_DEBUG 1
 
 /*** DEBUGGING & VALIDATION
  *
@@ -1786,6 +1787,9 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
                     else
                         *eb = ebMarkAsList(curitem);
                 }
+                    #if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
+        ebValidate(*eb, type);
+    #endif
                 return curitem;
             }
 
@@ -1821,6 +1825,9 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
                             else
                                 curSegHdr->head = curitem;
                         }
+    #if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
+        ebValidate(*eb, type);
+    #endif
                         return curitem;
                     }
 
@@ -1841,8 +1848,65 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
         }
         raxStop(&raxIter);
     }
+
     redis_unreachable();
 }
+
+// int ebExist(ebuckets *eb, EbucketsType *type, eItem item) {
+//     assert(!ebIsEmpty(*eb));
+//     if (ebIsList(*eb)) {
+//         ExpireMeta *prevem = NULL;
+//         eItem curitem = ebGetListPtr(type, *eb);
+//         while (curitem != NULL) {
+//             if (curitem == item) {
+//                 return 1;
+//             }
+
+//             /* Move to the next item in the list. */
+//             prevem = type->getExpireMeta(curitem);
+//             curitem = prevem->next;
+//         }
+//     } else {
+//         rax *rax = ebGetRaxPtr(*eb);
+//         raxIterator raxIter;
+//         raxStart(&raxIter, rax);
+//         raxSeek(&raxIter, "^", NULL, 0);
+//         while (raxNext(&raxIter)) {
+//             FirstSegHdr *curSegHdr = raxIter.data;
+
+//             /* Iterate over each item in these segments. */
+//             while (1) {
+//                 ExpireMeta *prevem = NULL; /* Used to update the 'next' of the previous node after defragmentation.
+//                                             * If it's NULL, it means the current item is at the head of the segment. */
+//                 eItem curitem = curSegHdr->head; /* Current ebucket item. */
+//                 ExpireMeta *em = type->getExpireMeta(curitem); /* Expire meta data of current ebucket item. */
+
+//                 /* Iterate over each item in this segment. */
+//                 unsigned int num = em->numItems;
+//                 while (num--) {
+//                     if (curitem == item) {
+//                         return 1;
+//                     }
+
+//                     /* Move to the next item in this segment. */
+//                     em = type->getExpireMeta(curitem);
+//                     prevem = em;
+//                     curitem = em->next;
+//                 }
+
+//                 /* If this is the last item in these segments, break the loop. */
+//                 if (em->lastItemBucket)
+//                     break;
+
+//                 /* Move to the next segment. */
+//                 curSegHdr = em->next;
+//                 curitem = curSegHdr->head;
+//             }
+//         }
+//         raxStop(&raxIter);
+//     } 
+//     return 0;
+// }
 
 /* Retrieves the expiration time associated with the given item. If associated
  * ExpireMeta is marked as trash, then return EB_EXPIRE_TIME_INVALID */
@@ -2032,7 +2096,7 @@ void distributeTest(int lowestTime,
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 eItem defragCallback(const eItem item) {
-    size_t size = zmalloc_size(item);
+    size_t size = zmalloc_usable_size(item);
     eItem newitem = zmalloc(size);
     memcpy(newitem, item, size);
     zfree(item);
