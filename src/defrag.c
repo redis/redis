@@ -746,6 +746,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
             if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
 
+        /* Update the key's reference in the dict's metadata. */
         if (is_hfe) {
             dict *d = (dict*)ob->ptr;
             dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
@@ -755,8 +756,10 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
 
     /* Try to defrag robj and / or string value. */
     if (is_hfe) {
+        /* Update its reference in the ebucket while defragging it. */
         newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, (ebDefragFunction *)activeDefragStringOb);
     } else {
+        /* If the dict doesn't have metadata, we directly defrag it. */
         newob = activeDefragStringOb(ob);
     }
     if (newob) {
