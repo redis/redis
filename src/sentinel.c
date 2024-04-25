@@ -201,6 +201,18 @@ typedef struct sentinelRedisInstance {
                                    Sentinel will use the alternative commands
                                    mapped on this table to send things like
                                    SLAVEOF, CONFING, INFO, ... */
+    /* If allow a replica in master-in-sync state to be promoted as master.
+     * For default 'yes', when a master down and the chosen replica is still 
+     * in master sync, the promoted replica will lose all data, so it will
+     * treat Redis as a volatile cache that can afford data loss.
+     * For 'no', the replica in master sync cannot be promoted as master, when 
+     * there is no available replica to be promoted, the failover process is  
+     * stopped, the client has to wait the down master to recover. It is useful
+     * when there is data in redis with 'TTL=0'.
+     */
+    int allow_promote_in_sync_replica; 
+    long long max_allowed_data_loss; /* Max data loss affordable in failover. */
+
 
     /* Role and the first time we observed it.
      * This is useful in order to delay replacing what the instance reports
@@ -218,6 +230,7 @@ typedef struct sentinelRedisInstance {
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & replica. */
     char *auth_user;    /* Username for ACLs AUTH against master & replica. */
+    long long master_repl_offset; /* Master replication offset. */
 
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
@@ -228,7 +241,8 @@ typedef struct sentinelRedisInstance {
     char *slave_master_host;    /* Master host as reported by INFO */
     int slave_master_port;      /* Master port as reported by INFO */
     int slave_master_link_status; /* Master link status as reported by INFO */
-    unsigned long long slave_repl_offset; /* Slave replication offset. */
+    int slave_master_sync_in_progress; /* Master sync in progress as reported by INFO */
+    long long slave_repl_offset; /* Slave replication offset. */
     /* Failover */
     char *leader;       /* If this is a master instance, this is the runid of
                            the Sentinel that should perform the failover. If
@@ -1340,6 +1354,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->slave_master_host = NULL;
     ri->slave_master_port = 0;
     ri->slave_master_link_status = SENTINEL_MASTER_LINK_STATUS_DOWN;
+    ri->slave_master_sync_in_progress = 0;
     ri->slave_repl_offset = 0;
     ri->sentinels = dictCreate(&instancesDictType);
     ri->quorum = quorum;
@@ -1359,6 +1374,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->failover_timeout = sentinel_default_failover_timeout;
     ri->failover_delay_logged = 0;
     ri->promoted_slave = NULL;
+    ri->allow_promote_in_sync_replica = 1;
     ri->notification_script = NULL;
     ri->client_reconfig_script = NULL;
     ri->info = NULL;
@@ -2014,6 +2030,18 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->master_reboot_down_after_period = atoi(argv[2]);
         if (ri->master_reboot_down_after_period < 0)
             return "negative time parameter.";
+    } else if (!strcasecmp(argv[0],"allow-promote-in-sync-replica") && argc == 3) {
+        /* allow-promote-in-sync-replica <name> <yes|no> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        if((ri->allow_promote_in_sync_replica = yesnotoi(argv[2])) == -1) {
+            return "Please specify yes or no for the allow-promote-in-sync-replica option";
+        }
+    } else if (!strcasecmp(argv[0],"max-allowed-data-loss") && argc == 3) {
+        /* max-allowed-data-loss <name> <bytes> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->max_allowed_data_loss = strtoll(argv[2], NULL, 10);
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -2142,6 +2170,24 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
 
+        /* sentinel allow-promote-in-sync-replica */
+        if (master->allow_promote_in_sync_replica != 1) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel allow-promote-in-sync-replica %s %s",
+                master->name, master->allow_promote_in_sync_replica ? "yes" : "no");
+            rewriteConfigRewriteLine(state,"sentinel allow-promote-in-sync-replica",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+        }
+
+        /* sentinel max-allowed-data-loss */
+        if (master->max_allowed_data_loss != 0) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel max-allowed-data-loss %s %ld",
+                master->name, (long) master->max_allowed_data_loss);
+            rewriteConfigRewriteLine(state,"sentinel max-allowed-data-loss",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+        }
+
         /* sentinel config-epoch */
         line = sdscatprintf(sdsempty(),
             "sentinel config-epoch %s %llu",
@@ -2267,6 +2313,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"sentinel known-sentinel");
     rewriteConfigMarkAsProcessed(state,"sentinel rename-command");
     rewriteConfigMarkAsProcessed(state,"sentinel master-reboot-down-after-period");
+    rewriteConfigMarkAsProcessed(state,"sentinel allow-promote-in-sync-replica");
 }
 
 /* This function uses the config rewriting Redis engine in order to persist
@@ -2599,6 +2646,13 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (sdslen(l) >= 11 && !memcmp(l,"role:master",11)) role = SRI_MASTER;
         else if (sdslen(l) >= 10 && !memcmp(l,"role:slave",10)) role = SRI_SLAVE;
 
+        if (role == SRI_MASTER) {
+            /* master_repl_offset */
+            if (sdslen(l) >= 19 && !memcmp(l, "master_repl_offset:", 19)) {
+                ri->master_repl_offset = strtoll(l+19,NULL,10);
+            }
+        }
+
         if (role == SRI_SLAVE) {
             /* master_host:<host> */
             if (sdslen(l) >= 12 && !memcmp(l,"master_host:",12)) {
@@ -2629,13 +2683,18 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                     SENTINEL_MASTER_LINK_STATUS_DOWN;
             }
 
+            /* master_sync_in_progress:<bool> */
+            if (sdslen(l) >= 24 && !memcmp(l,"master_sync_in_progress:",24)) {
+                ri->slave_master_sync_in_progress = atoi(l+24);
+            }
+
             /* slave_priority:<priority> */
             if (sdslen(l) >= 15 && !memcmp(l,"slave_priority:",15))
                 ri->slave_priority = atoi(l+15);
 
             /* slave_repl_offset:<offset> */
             if (sdslen(l) >= 18 && !memcmp(l,"slave_repl_offset:",18))
-                ri->slave_repl_offset = strtoull(l+18,NULL,10);
+                ri->slave_repl_offset = strtoll(l+18,NULL,10);
 
             /* replica_announced:<announcement> */
             if (sdslen(l) >= 18 && !memcmp(l,"replica_announced:",18))
@@ -3418,6 +3477,22 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkLongLong(c,ri->parallel_syncs);
         fields++;
 
+        addReplyBulkCString(c, "master-reboot-down-after-period");
+        addReplyBulkLongLong(c, ri->master_reboot_down_after_period);
+        fields++;
+
+        addReplyBulkCString(c, "allow-promote-in-sync-replica");
+        addReplyBulkCString(c, ri->allow_promote_in_sync_replica ? "yes" : "no");
+        fields++;
+
+        addReplyBulkCString(c, "master-repl-offset");
+        addReplyBulkLongLong(c, ri->master_repl_offset);
+        fields++;
+
+        addReplyBulkCString(c, "max-allowed-data-loss");
+        addReplyBulkLongLong(c, ri->max_allowed_data_loss);
+        fields++;
+
         if (ri->notification_script) {
             addReplyBulkCString(c,"notification-script");
             addReplyBulkCString(c,ri->notification_script);
@@ -3441,6 +3516,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkCString(c,
             (ri->slave_master_link_status == SENTINEL_MASTER_LINK_STATUS_UP) ?
             "ok" : "err");
+        fields++;
+
+        addReplyBulkCString(c,"master-sync-in-progress");
+        addReplyBulkLongLong(c,ri->slave_master_sync_in_progress);
         fields++;
 
         addReplyBulkCString(c,"master-host");
@@ -4367,6 +4446,31 @@ void sentinelSetCommand(client *c) {
             }
             ri->master_reboot_down_after_period = ll;
             changes++;
+        } else if (!strcasecmp(option,"allow-promote-in-sync-replica") && moreargs > 0) {
+            /* allow-promote-in-sync-replica <yes|no> */
+            char *value = c->argv[++j]->ptr;
+            if (sdslen(value) == 0) {
+                badarg = j;
+                goto badfmt;
+            }
+
+            int flag = yesnotoi(value);
+            if (flag == -1) {
+                badarg = j;
+                goto badfmt;
+            }
+
+            ri->allow_promote_in_sync_replica = flag;
+            changes++;
+        } else if (!strcasecmp(option,"max-allowed-data-loss") && moreargs > 0) {
+            /* max-allowed-data-loss <bytes> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll < 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            ri->max_allowed_data_loss = ll;
+            changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
                                   "SENTINEL SET '%s'", option);
@@ -4978,6 +5082,50 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
             info_validity_time = sentinel_info_period*3;
         if (mstime() - slave->info_refresh > info_validity_time) continue;
         if (slave->master_link_down_time > max_master_down_time) continue;
+        if (slave->slave_master_sync_in_progress && !master->allow_promote_in_sync_replica) continue;
+
+        /* Cases for failover data loss:
+        * 1. Master has an abrupt DOWN, the reasons are process crash, kill -9, or a hardware failure. 
+        * The master ping INFO may be older than slave ping INFO at most for a PING-PERIOD, so it is
+        * possible to get a data_loss < 0, but in fact some data in master repl buffer is not synced and lost. 
+        * 2. Master has a slow & long path before entering DOWN state, slave has a large lag with master, 
+        * then data_loss > 0 and we get data loss after the failover. It happens when redis suffers from
+        * OOM or network partition.
+        * 3. Master & Slaves are all alive, then start a failover by 'sentinel failover mymaster',  
+        * possibly data_loss > 0 but we still have chance to get data_loss <= 0 due to ping INFO drift.
+        * Like case 1, a small portion of data would be lost.
+        * 4. Master DOWN for any reasons, slave is alive but failed in RDB fullsync, and  
+        * slave->slave_master_sync_in_progress == 0, all data is lost after the failover. It happens when
+        * the RDB is large and a failure comes up in the long fullsync process.
+        * 
+        * How max-allowed-data-loss affects the failover:
+        * 1. When set to 0, it takes no effect, the failover process behaves as before.
+        * 2. When set to >0, the failover process checks the offset lag(data to lose) from ping INFO, 
+        * if the lag >= max-allowed-data-loss, then slave is skipped and won't be promoted. Finally, sentinel
+        * choose a slave with lag < max-allowed-data-loss and promote it as master.
+        * 
+        * Consequences:
+        * If all slaves have lag >= max-allowed-data-loss, sentinel has no slave to be promoted, it waits for:
+        * 1. The DOWN master reboots, gets back and zero data loss, sentinel rebuilds the master-slave relation
+        * 2. The DOWN master is gone forever, no master exists and data is lost forever, one can set the 
+        * max-allowed-data-loss to 0 and failover to the slave manually. Anyway, if you are sensitive to a large 
+        * amount data loss, a human intervention in failover is must to have. 
+        * 
+        * Suggestions:
+        * 1. For cases that not sensitive to data loss, like cache, it prefers RTO to RPO, set it to 0
+        * 2. For cases that try your best to avoid data loss, like persistent store with TTL=0, it can be set to
+        * 10KB~100MB, the smaller the safer to guard the data, it depends how much data affordable to lose.
+        *  */
+        long long data_loss = master->master_repl_offset - slave->slave_repl_offset;
+        if (master->max_allowed_data_loss > 0 && data_loss > master->max_allowed_data_loss) {
+            serverLog(LL_NOTICE, 
+            "Skip slave %s with repl_offset %lld, master repl_offset %lld, data loss %lld > allowed %lld",
+            slave->name, slave->slave_repl_offset, master->master_repl_offset, data_loss, master->max_allowed_data_loss);
+            continue;
+        }
+
+        if (slave->slave_master_sync_in_progress && !master->allow_promote_in_sync_replica) continue;
+
         instance[instances++] = slave;
     }
     dictReleaseIterator(di);
