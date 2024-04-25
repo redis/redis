@@ -267,14 +267,11 @@ void activeDefragZsetEntry(zset *zs, dictEntry *de) {
     }
 }
 
-#define DEFRAG_DICT_KEY_IS_SDS 1
-#define DEFRAG_DICT_KEY_IS_HFIELD 2
-
-#define DEFRAG_DICT_NO_VAL 0
-#define DEFRAG_DICT_VAL_IS_SDS 1
-#define DEFRAG_DICT_VAL_IS_STROB 2
-#define DEFRAG_DICT_VAL_VOID_PTR 3
-#define DEFRAG_DICT_VAL_LUA_SCRIPT 4
+#define DEFRAG_SDS_DICT_NO_VAL 0
+#define DEFRAG_SDS_DICT_VAL_IS_SDS 1
+#define DEFRAG_SDS_DICT_VAL_IS_STROB 2
+#define DEFRAG_SDS_DICT_VAL_VOID_PTR 3
+#define DEFRAG_SDS_DICT_VAL_LUA_SCRIPT 4
 
 void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
     UNUSED(privdata);
@@ -299,17 +296,16 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
     }
 }
 
-/* Defrag a dict with string key and optional value (either ptr, sds or robj string) */
-void activeDefragStrDict(dict* d, int key_type, int val_type) {
+/* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
+void activeDefragSdsDict(dict* d, int val_type) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (key_type == DEFRAG_DICT_KEY_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
-                      (dictDefragAllocFunction *)activeDefragHfieldSkipTTL),
-        .defragVal = (val_type == DEFRAG_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
-                      val_type == DEFRAG_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
-                      val_type == DEFRAG_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
-                      val_type == DEFRAG_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
+                      val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
+                      val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
+                      val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
                       NULL)
     };
     do {
@@ -346,15 +342,15 @@ void activeDefragList(list *l, int val_type) {
                 l->tail = newln;
             ln = newln;
         }
-        if (val_type == DEFRAG_DICT_VAL_IS_SDS) {
+        if (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS) {
             sds newsds, sdsele = ln->value;
             if ((newsds = activeDefragSds(sdsele)))
                 ln->value = newsds;
-        } else if (val_type == DEFRAG_DICT_VAL_IS_STROB) {
+        } else if (val_type == DEFRAG_SDS_DICT_VAL_IS_STROB) {
             robj *newele, *ele = ln->value;
             if ((newele = activeDefragStringOb(ele)))
                 ln->value = newele;
-        } else if (val_type == DEFRAG_DICT_VAL_VOID_PTR) {
+        } else if (val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR) {
             void *newptr, *ptr = ln->value;
             if ((newptr = activeDefragAlloc(ptr)))
                 ln->value = newptr;
@@ -540,7 +536,7 @@ void defragHash(redisDb *db, dictEntry *kde) {
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
-        activeDefragStrDict(d, DEFRAG_DICT_KEY_IS_HFIELD, DEFRAG_DICT_VAL_IS_SDS);
+        activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
     /* defrag the dict struct and tables */
     if ((newd = dictDefragTables(ob->ptr)))
         ob->ptr = newd;
@@ -554,7 +550,7 @@ void defragSet(redisDb *db, dictEntry *kde) {
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
-        activeDefragStrDict(d, DEFRAG_DICT_KEY_IS_SDS, DEFRAG_DICT_NO_VAL);
+        activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
     /* defrag the dict struct and tables */
     if ((newd = dictDefragTables(ob->ptr)))
         ob->ptr = newd;
@@ -901,7 +897,7 @@ void defragOtherGlobals(void) {
     /* there are many more pointers to defrag (e.g. client argv, output / aof buffers, etc.
      * but we assume most of these are short lived, we only need to defrag allocations
      * that remain static for a long time */
-    activeDefragStrDict(evalScriptsDict(), DEFRAG_DICT_KEY_IS_SDS, DEFRAG_DICT_VAL_LUA_SCRIPT);
+    activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     moduleDefragGlobals();
     kvstoreDictLUTDefrag(server.pubsub_channels, dictDefragTables);
     kvstoreDictLUTDefrag(server.pubsubshard_channels, dictDefragTables);
