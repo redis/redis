@@ -1787,9 +1787,6 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
                     else
                         *eb = ebMarkAsList(curitem);
                 }
-                    #if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
-        ebValidate(*eb, type);
-    #endif
                 return curitem;
             }
 
@@ -1825,9 +1822,6 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
                             else
                                 curSegHdr->head = curitem;
                         }
-    #if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
-        ebValidate(*eb, type);
-    #endif
                         return curitem;
                     }
 
@@ -1848,7 +1842,6 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
         }
         raxStop(&raxIter);
     }
-
     redis_unreachable();
 }
 
