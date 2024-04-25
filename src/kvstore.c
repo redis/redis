@@ -869,8 +869,8 @@ void freeTestCallback(dict *d, void *val) {
     zfree(val);
 }
 
-void* defragAllocTest(void *ptr) {
-    size_t size = zmalloc_size(ptr);
+void *defragAllocTest(void *ptr) {
+    size_t size = zmalloc_usable_size(ptr);
     void *newptr = zmalloc(size);
     memcpy(newptr, ptr, size);
     zfree(ptr);
