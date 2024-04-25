@@ -17,7 +17,7 @@
 /* hash field expiration (HFE) funcs */
 static ExpireAction onFieldExpire(eItem item, void *ctx);
 static ExpireMeta* hfieldGetExpireMeta(const eItem field);
-static ExpireMeta *hashGetExpireMeta(const eItem item);
+static ExpireMeta *hashGetExpireMeta(const eItem hash);
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit);
 static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(redisDb *db, robj *hashObj, hfield field);
@@ -831,7 +831,7 @@ int hashTypeDelete(robj *o, sds field) {
 
 /* Return the number of elements in a hash.
  *
- * Note: Might be pricy in case there are many HFEs
+ * Note, subtractExpiredFields=1 might be pricy in case there are many HFEs
  */
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
     unsigned long length = ULONG_MAX;
@@ -2041,8 +2041,8 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
 
 /* Retrieve the ExpireMeta associated with the hash.
  * The caller is responsible for ensuring that it is indeed attached. */
-static ExpireMeta *hashGetExpireMeta(const eItem item) {
-    robj *hashObj = (robj *)item;
+static ExpireMeta *hashGetExpireMeta(const eItem hash) {
+    robj *hashObj = (robj *)hash;
     dict *d = hashObj->ptr;
     dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
     return &dictExpireMeta->expireMeta;
@@ -2092,7 +2092,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
             continue;
         }
 
-        if ( (long long) expire <= commandTimeSnapshot()) {
+        if ( (long long) expire < commandTimeSnapshot()) {
             addReplyLongLong(c, HFE_GET_NO_FIELD);
             continue;
         }
@@ -2284,7 +2284,7 @@ void hpersistCommand(client *c) {
         }
 
         /* Already expired. Pretend there is no such field */
-        if ( (long long) expire <= commandTimeSnapshot()) {
+        if ( (long long) expire < commandTimeSnapshot()) {
             addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
             continue;
         }
