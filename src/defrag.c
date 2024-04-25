@@ -732,11 +732,11 @@ void defragModule(redisDb *db, dictEntry *kde) {
 void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob = dictGetVal(de);
+    int is_hfe = (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(ob->ptr));
     unsigned char *newzl;
     sds newsds;
     redisDb *db = ctx->privdata;
     int slot = ctx->slot;
-    int is_hfe = (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(ob->ptr));
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
@@ -760,11 +760,10 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     /* Try to defrag robj and / or string value. */
     if (is_hfe) {
         newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, activeDefragEbucket);
-        if (newob) {
-            kvstoreDictSetVal(db->keys, slot, de, newob);
-            ob = newob;
-        }
-    } if ((newob = activeDefragStringOb(ob))) {
+    } else {
+        newob = activeDefragStringOb(ob);
+    }
+    if (newob) {
         kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
     }
