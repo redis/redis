@@ -75,14 +75,13 @@ sds activeDefragSds(sds sdsptr) {
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-eItem activeDefragHfield(eItem item) {
-    hfield hfieldptr = (hfield)item;
-    void *ptr = hfieldGetAllocPtr(hfieldptr);
+hfield activeDefragHfield(hfield hf) {
+    void *ptr = hfieldGetAllocPtr(hf);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
-        size_t offset = hfieldptr - (char*)ptr;
-        hfieldptr = (char*)newptr + offset;
-        return hfieldptr;
+        size_t offset = hf - (char*)ptr;
+        hf = (char*)newptr + offset;
+        return hf;
     }
     return NULL;
 }
@@ -141,10 +140,6 @@ robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
  * and should NOT be accessed. */
 robj *activeDefragStringOb(robj* ob) {
     return activeDefragStringObEx(ob, 1);
-}
-
-eItem activeDefragEbucket(eItem item) {
-    return (eItem)activeDefragStringOb((robj*)item);
 }
 
 /* Defrag helper for lua scripts
@@ -285,7 +280,7 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
         return;
 
     dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
-    newhf = ebDefragItem(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, hf, activeDefragHfield);
+    newhf = ebDefragItem(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, hf, (ebDefragFunction *)activeDefragHfield);
     if (newhf) {
         dictUseStoredKeyApi(d, 1);
         uint64_t hash = dictGetHash(d, newhf);
@@ -314,6 +309,7 @@ void activeDefragSdsDict(dict* d, int val_type) {
     } while (cursor != 0);
 }
 
+/* Defrag a dict with hfield key and sds value. */
 void activeDefragHfieldDict(dict* d) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
@@ -481,10 +477,10 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragHfield,
+        .defragKey = (dictDefragAllocFunction *)activeDefragHfieldSkipTTL,
         .defragVal = (dictDefragAllocFunction *)activeDefragSds
     };
-    *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
+    *cursor = dictScanDefrag(d, *cursor, activeDefragHfieldDictCallback, &defragfns, d);
 }
 
 void defragQuicklist(redisDb *db, dictEntry *kde) {
@@ -536,7 +532,7 @@ void defragHash(redisDb *db, dictEntry *kde) {
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
-        activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
+        activeDefragHfieldDict(d);
     /* defrag the dict struct and tables */
     if ((newd = dictDefragTables(ob->ptr)))
         ob->ptr = newd;
@@ -759,7 +755,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
 
     /* Try to defrag robj and / or string value. */
     if (is_hfe) {
-        newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, activeDefragEbucket);
+        newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, (ebDefragFunction *)activeDefragStringOb);
     } else {
         newob = activeDefragStringOb(ob);
     }
