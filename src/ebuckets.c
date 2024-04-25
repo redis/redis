@@ -1773,29 +1773,26 @@ void ebValidate(ebuckets eb, EbucketsType *type) {
         ebValidateRax(ebGetRaxPtr(eb), type);
 }
 
-unsigned long ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long cursor, ebScanFunction *fn, void *privdata) {
-    UNUSED(cursor);
-    if (ebIsEmpty(*eb)) return 0;
+eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *fn) {
+    assert(!ebIsEmpty(*eb));
     if (ebIsList(*eb)) {
-        ExpireMeta *prev = NULL;
-        eItem item = ebGetListPtr(type, *eb);
-        while (item != NULL) {
-            eItem newitem;
-            if ((newitem = fn(privdata, item))) {
-                /* If 'prev' is not NULL, update 'prev->next'. Otherwise,
-                 * it implies that 'item' is at the head. */
-                if (prev)
-                    prev->next = newitem;
-                else
-                    *eb = ebMarkAsList(newitem);
-                item = newitem;
+        ExpireMeta *prevem = NULL;
+        eItem curitem = ebGetListPtr(type, *eb);
+        while (curitem != NULL) {
+            if (curitem == item) {
+                if ((curitem = fn(curitem))) {
+                    if (prevem)
+                        prevem->next = curitem;
+                    else
+                        *eb = ebMarkAsList(curitem);
+                }
+                return curitem;
             }
 
             /* Move to the next item in the list. */
-            prev = type->getExpireMeta(item);
-            item = prev->next;
+            prevem = type->getExpireMeta(curitem);
+            curitem = prevem->next;
         }
-        return 0;
     } else {
         rax *rax = ebGetRaxPtr(*eb);
         raxIterator raxIter;
@@ -1808,29 +1805,29 @@ unsigned long ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long curso
             while (1) {
                 ExpireMeta *prevem = NULL; /* Used to update the 'next' of the previous node after defragmentation.
                                             * If it's NULL, it means the current item is at the head of the segment. */
-                eItem item = curSegHdr->head; /* Current ebucket item. */
-                ExpireMeta *em = type->getExpireMeta(item); /* Expire meta data of current ebucket item. */
+                eItem curitem = curSegHdr->head; /* Current ebucket item. */
+                ExpireMeta *em = type->getExpireMeta(curitem); /* Expire meta data of current ebucket item. */
 
                 /* Iterate over each item in this segment. */
                 unsigned int num = em->numItems;
                 while (num--) {
-                    assert(item != NULL);
-                    eItem newitem;
-                    if ((newitem = fn(privdata, item))) {
-                        /* If 'prev' is not NULL, update 'prev->next'. Otherwise,
-                         * item is at the head. Depending on whether 'nextSegHdr' is NULL,
-                         * item is in the first segment or not. */
-                        if (prevem)
-                            prevem->next = newitem;
-                        else
-                            curSegHdr->head = newitem;
-                        item = newitem;
+                    if (curitem == item) {
+                        if ((curitem = fn(curitem))) {
+                            /* If 'prev' is not NULL, update 'prev->next'. Otherwise,
+                            * item is at the head. Depending on whether 'nextSegHdr' is NULL,
+                            * item is in the first segment or not. */
+                            if (prevem)
+                                prevem->next = curitem;
+                            else
+                                curSegHdr->head = curitem;
+                        }
+                        return curitem;
                     }
 
                     /* Move to the next item in this segment. */
-                    em = type->getExpireMeta(item);
+                    em = type->getExpireMeta(curitem);
                     prevem = em;
-                    item = em->next;
+                    curitem = em->next;
                 }
 
                 /* If this is the last item in these segments, break the loop. */
@@ -1839,12 +1836,12 @@ unsigned long ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long curso
 
                 /* Move to the next segment. */
                 curSegHdr = em->next;
-                item = curSegHdr->head;
+                curitem = curSegHdr->head;
             }
         }
         raxStop(&raxIter);
     }
-    return 0;
+    redis_unreachable();
 }
 
 /* Retrieves the expiration time associated with the given item. If associated
@@ -1868,6 +1865,7 @@ uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
 #define TEST_COND(name, cond) printf("[%s] >>> %s\n", (cond) ? "TEST" : "BYPS", name);  if (cond)
 
 typedef struct MyItem {
+    int index;
     ExpireMeta mexpire;
 } MyItem;
 
@@ -2034,11 +2032,12 @@ void distributeTest(int lowestTime,
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 eItem defragCallback(void *privdata, eItem item) {
-    UNUSED(privdata);
+    MyItem **items = (MyItem **)privdata;
     size_t size = zmalloc_size(item);
     eItem newitem = zmalloc(size);
     memcpy(newitem, item, size);
     zfree(item);
+    items[((MyItem*)newitem)->index] = newitem;
     return newitem;
 }
 
@@ -2332,19 +2331,39 @@ int ebucketsTest(int argc, char **argv, int flags) {
         }
     }
 
-    TEST("list - defragmentation") {
+    TEST("list - item defragmentation") {
         ebuckets eb = NULL;
+        MyItem *items[5];
+        for (int i = 0 ; i < 5; i++) {
+            items[i] = zmalloc(sizeof(MyItem));
+            items[i]->index = i;
+            ebAdd(&eb, &myEbucketsType, items[i], i);
+        }
+        for (int i = 0 ; i < 5; i++) {
+            MyItem *newitem = ebDefragItem(&eb, &myEbucketsType, items[i], defragCallback);
+            if (newitem) items[i] = newitem;
+        }
         for (int i = 0 ; i < 5; i++)
-            ebAdd(&eb, &myEbucketsType, zmalloc(sizeof(MyItem)), i);
-        ebScanDefrag(&eb, &myEbucketsType, 0, defragCallback, NULL);
+            assert(items[i]->index == i);
+        assert(ebIsList(eb));
         ebDestroy(&eb, &myEbucketsType, NULL);
     }
 
-    TEST("ebuckets - defragmentation") {
+    TEST("rax - item defragmentation") {
         ebuckets eb = NULL;
-        for (int i = 0 ; i < 20; i++)
-            ebAdd(&eb, &myEbucketsType, zmalloc(sizeof(MyItem)), i);
-        ebScanDefrag(&eb, &myEbucketsType, 0, defragCallback, NULL);
+        MyItem *items[EB_LIST_MAX_ITEMS*2];
+        for (int i = 0 ; i < EB_LIST_MAX_ITEMS*2; i++) {
+            items[i] = zmalloc(sizeof(MyItem));
+            items[i]->index = i;
+            ebAdd(&eb, &myEbucketsType, items[i], i);
+        }
+        for (int i = 0 ; i < EB_LIST_MAX_ITEMS*2; i++) {
+            MyItem *newitem = ebDefragItem(&eb, &myEbucketsType, items[i], defragCallback);
+            if (newitem) items[i] = newitem;
+        }
+        for (int i = 0 ; i < EB_LIST_MAX_ITEMS*2; i++)
+            assert(items[i]->index == i);
+        assert(!ebIsList(eb));
         ebDestroy(&eb, &myEbucketsType, NULL);
     }
 

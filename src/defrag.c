@@ -75,7 +75,8 @@ sds activeDefragSds(sds sdsptr) {
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-hfield activeDefragHfield(hfield hfieldptr) {
+eItem activeDefragHfield(eItem item) {
+    hfield hfieldptr = (hfield)item;
     void *ptr = hfieldGetAllocPtr(hfieldptr);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
@@ -140,6 +141,10 @@ robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
  * and should NOT be accessed. */
 robj *activeDefragStringOb(robj* ob) {
     return activeDefragStringObEx(ob, 1);
+}
+
+eItem activeDefragEbucket(eItem item) {
+    return (eItem)activeDefragStringOb((robj*)item);
 }
 
 /* Defrag helper for lua scripts
@@ -276,18 +281,22 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
     UNUSED(de);
 }
 
-eItem activeDefragEbucketsCallback(void *privdata, const eItem item) {
+void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
     dict *d = (dict*)privdata;
-    eItem newitem;
-    if ((newitem = activeDefragHfield(item))) {
+    hfield newhf, hf = dictGetKey(de);
+    if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID)
+        return;
+
+    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+    newhf = ebDefragItem(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, hf, activeDefragHfield);
+    if (newhf) {
         dictUseStoredKeyApi(d, 1);
-        uint64_t hash = dictGetHash(d, newitem);
+        uint64_t hash = dictGetHash(d, newhf);
         dictUseStoredKeyApi(d, 0);
-        dictEntry *de = dictFindEntryByPtrAndHash(d, item, hash);
+        dictEntry *de = dictFindEntryByPtrAndHash(d, hf, hash);
         serverAssert(de);
-        dictSetKey(d, de, newitem);
+        dictSetKey(d, de, newhf);
     }
-    return newitem;
 }
 
 /* Defrag a dict with string key and optional value (either ptr, sds or robj string) */
@@ -306,6 +315,19 @@ void activeDefragStrDict(dict* d, int key_type, int val_type) {
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
                                 &defragfns, NULL);
+    } while (cursor != 0);
+}
+
+void activeDefragHfieldDict(dict* d) {
+    unsigned long cursor = 0;
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = (dictDefragAllocFunction *)activeDefragHfieldSkipTTL,
+        .defragVal = (dictDefragAllocFunction *)activeDefragSds
+    };
+    do {
+        cursor = dictScanDefrag(d, cursor, activeDefragHfieldDictCallback,
+                                &defragfns, d);
     } while (cursor != 0);
 }
 
@@ -713,11 +735,12 @@ void defragModule(redisDb *db, dictEntry *kde) {
  * all the various pointers it has. */
 void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
-    robj *newob, *ob;
+    robj *newob, *ob = dictGetVal(de);
     unsigned char *newzl;
     sds newsds;
     redisDb *db = ctx->privdata;
     int slot = ctx->slot;
+    int is_hfe = (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(ob->ptr));
     /* Try to defrag the key name. */
     newsds = activeDefragSds(keysds);
     if (newsds) {
@@ -730,22 +753,24 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
             dictEntry *expire_de = kvstoreDictFindEntryByPtrAndHash(db->expires, slot, keysds, hash);
             if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
+
+        if (is_hfe) {
+            dict *d = (dict*)ob->ptr;
+            dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
+            dictExpireMeta->key = newsds;
+        }
     }
 
     /* Try to defrag robj and / or string value. */
-    ob = dictGetVal(de);
-    /* TODO: defrag the remain hash objects in db->hexpire. */
-    if (ob->type == OBJ_HASH && isDictWithMetaHFE(ob->ptr))
-        ebRemove(&db->hexpires, &hashExpireBucketsType, ob);
-    if ((newob = activeDefragStringOb(ob))) {
+    if (is_hfe) {
+        newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, activeDefragEbucket);
+        if (newob) {
+            kvstoreDictSetVal(db->keys, slot, de, newob);
+            ob = newob;
+        }
+    } if ((newob = activeDefragStringOb(ob))) {
         kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
-    }
-    if (ob->type == OBJ_HASH && isDictWithMetaHFE(ob->ptr)) {
-        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)ob->ptr);
-        uint64_t newMinExpire = ebGetMetaExpTime(&dictExpireMeta->expireMeta);
-        if (newMinExpire != EB_EXPIRE_TIME_INVALID)
-            ebAdd(&db->hexpires, &hashExpireBucketsType, ob, newMinExpire);
     }
 
     if (ob->type == OBJ_STRING) {
@@ -786,18 +811,6 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
                 ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragHash(db, de);
-
-            if (isDictWithMetaHFE(ob->ptr)) {
-                dict *d = (dict*)ob->ptr;
-                dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
-                if (newsds)
-                dictExpireMeta->key = newsds;
-
-                unsigned long long cursor = 0;
-                do {
-                    ebScanDefrag(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, cursor, activeDefragEbucketsCallback, d);
-                } while (cursor != 0);
-            }
         } else {
             serverPanic("Unknown hash encoding");
         }

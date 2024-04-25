@@ -272,6 +272,9 @@ uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate);
 
 uint64_t ebGetTotalItems(ebuckets eb, EbucketsType *type);
 
+typedef eItem (ebDefragFunction)(const eItem item);
+eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *fn);
+
 /* Item related API */
 
 int ebRemove(ebuckets *eb, EbucketsType *type, eItem item);
@@ -280,8 +283,7 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime);
 
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item);
 
-typedef eItem (ebScanFunction)(void *privdata, const eItem item);
-unsigned long ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long cursor, ebScanFunction *fn, void *privdata);
+
 
 static inline uint64_t ebGetMetaExpTime(ExpireMeta *expMeta) {
     return (((uint64_t)(expMeta)->expireTimeHi << 32) | (expMeta)->expireTimeLo);
