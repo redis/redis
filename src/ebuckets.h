@@ -283,8 +283,6 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime);
 
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item);
 
-
-
 static inline uint64_t ebGetMetaExpTime(ExpireMeta *expMeta) {
     return (((uint64_t)(expMeta)->expireTimeHi << 32) | (expMeta)->expireTimeLo);
 }

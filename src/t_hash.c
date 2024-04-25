@@ -2047,7 +2047,7 @@ void hpexpiretimeCommand(client *c) {
 void hpersistCommand(client *c) {
     robj *hashObj;
     long numFields = 0, numFieldsAt = 2;
-    int changed = 0; /* Used to determine whether to send a notification after modified. */
+    int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
     if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
