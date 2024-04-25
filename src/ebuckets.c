@@ -2031,13 +2031,11 @@ void distributeTest(int lowestTime,
 #define UNUSED(x) (void)(x)
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-eItem defragCallback(void *privdata, eItem item) {
-    MyItem **items = (MyItem **)privdata;
+eItem defragCallback(const eItem item) {
     size_t size = zmalloc_size(item);
     eItem newitem = zmalloc(size);
     memcpy(newitem, item, size);
     zfree(item);
-    items[((MyItem*)newitem)->index] = newitem;
     return newitem;
 }
 
