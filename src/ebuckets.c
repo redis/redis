@@ -1822,6 +1822,7 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
                             else
                                 curSegHdr->head = curitem;
                         }
+                        raxStop(&raxIter);
                         return curitem;
                     }
 
