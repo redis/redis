@@ -5295,7 +5295,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
             low_flags |= HASH_SET_TAKE_FIELD;
 
         robj *argv[2] = {field,value};
-        hashTypeTryConversion(key->value,argv,0,1);
+        hashTypeTryConversion(key->db,key->value,argv,0,1);
         int updated = hashTypeSet(key->db, key->value, field->ptr, value->ptr, low_flags);
         count += (flags & REDISMODULE_HASH_COUNT_ALL) ? 1 : updated;
 
