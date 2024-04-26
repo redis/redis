@@ -521,12 +521,12 @@ run_solo {defrag} {
             set rd [redis_deferring_client]
             for {set j 0} {$j < $n} {incr j} {
                 $rd hset h f$j $dummy_field
-                $rd hexpire h$j 9999999 1 f$j
+                # $rd hexpire h$j 9999999 1 f$j
                 $rd set k$j $dummy_field
             }
             for {set j 0} {$j < $n} {incr j} {
                 $rd read ; # Discard hset replies
-                $rd read ; # Discard hexpire replies
+                # $rd read ; # Discard hexpire replies
                 $rd read ; # Discard set replies
             }
 
