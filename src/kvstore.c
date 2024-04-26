@@ -778,8 +778,15 @@ void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) 
         dict **d = kvstoreGetDictRef(kvs, didx), *newd;
         if (!*d)
             continue;
-        if ((newd = defragfn(*d)))
+        if ((newd = defragfn(*d))) {
             *d = newd;
+
+            /* After defragmenting the dict, update its corresponding
+             * rehashing node in the kvstore's rehashing list. */
+            kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(*d);
+            if (metadata->rehashing_node)
+                metadata->rehashing_node->value = *d;
+        }
     }
 }
 
@@ -860,6 +867,25 @@ uint64_t hashTestCallback(const void *key) {
 void freeTestCallback(dict *d, void *val) {
     UNUSED(d);
     zfree(val);
+}
+
+void* defragAllocTest(void *ptr) {
+    size_t size = zmalloc_size(ptr);
+    void *newptr = zmalloc(size);
+    memcpy(newptr, ptr, size);
+    zfree(ptr);
+    return newptr;
+}
+
+dict *defragLUTTestCallback(dict *d) {
+    /* handle the dict struct */
+    d = defragAllocTest(d);
+    /* handle the first hash table */
+    d->ht_table[0] = defragAllocTest(d->ht_table[0]);
+    /* handle the second hash table */
+    if (d->ht_table[1])
+        d->ht_table[1] = defragAllocTest(d->ht_table[1]);
+    return d; 
 }
 
 dictType KvstoreDictTestType = {
@@ -986,6 +1012,18 @@ int kvstoreTest(int argc, char **argv, int flags) {
         assert(d == NULL);
         assert(kvstoreDictSize(kvs2, didx) == 0);
         assert(kvstoreSize(kvs2) == 0);
+    }
+
+    TEST("Verify that a rehashing dict's node in the rehashing list is correctly updated after defragmentation") {
+        kvstore *kvs = kvstoreCreate(&KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        for (i = 0; i < 256; i++) {
+            de = kvstoreDictAddRaw(kvs, 0, stringFromInt(i), NULL);
+            if (listLength(kvs->rehashing)) break;
+        }
+        assert(listLength(kvs->rehashing));
+        kvstoreDictLUTDefrag(kvs, defragLUTTestCallback);
+        while (kvstoreIncrementallyRehash(kvs, 1000)) {}
+        kvstoreRelease(kvs);
     }
 
     kvstoreRelease(kvs1);
