@@ -629,6 +629,161 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hpersist myhash 1 field1] $P_NO_EXPIRY
             assert_equal [r hpersist myhash 1 fieldnonexist] $P_NO_FIELD
         }
+
+        test "HGETF - input validation ($type)" {
+            assert_error {*wrong number of arguments*} {r hgetf myhash}
+            assert_error {*wrong number of arguments*} {r hgetf myhash fields}
+            assert_error {*wrong number of arguments*} {r hgetf myhash fields 1}
+            assert_error {*wrong number of arguments*} {r hgetf myhash fields 2 a}
+            assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
+            assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
+            assert_error {*unknown argument*} {r hgetf myhash fields 1 a unknown}
+            assert_error {*missing FIELDS argument*} {r hgetf myhash nx xx lt gt}
+
+            r hset myhash f1 v1 f2 v2 f3 v3
+            # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
+            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash nx fields 1 a}
+            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash xx fields 1 a}
+            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash gt fields 1 a}
+            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash lt fields 1 a}
+
+            # missing expire time
+            assert_error {*not an integer or out of range*} {r hgetf myhash ex fields 1 a}
+            assert_error {*not an integer or out of range*} {r hgetf myhash px fields 1 a}
+            assert_error {*not an integer or out of range*} {r hgetf myhash exat fields 1 a}
+            assert_error {*not an integer or out of range*} {r hgetf myhash pxat fields 1 a}
+
+            # expire time more than 2 ^ 48
+            assert_error {*invalid expire time*} {r hgetf myhash EXAT [expr (1<<48)] 1 f1}
+            assert_error {*invalid expire time*} {r hgetf myhash PXAT [expr (1<<48)] 1 f1}
+            assert_error {*invalid expire time*} {r hgetf myhash EX [expr (1<<48) - [clock seconds] + 1000 ] 1 f1}
+            assert_error {*invalid expire time*} {r hgetf myhash PX [expr (1<<48) - [clock milliseconds] + 1000 ] 1 f1}
+        }
+
+        test "HGETF - Test 'NX' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
+            assert_equal [r hgetf myhash EX 10000 NX FIELDS 2 field1 field2] [list  "value1" "value2"]
+            assert_lessthan_equal [r httl myhash 1 field1] 1000
+            assert_morethan_equal [r httl myhash 1 field2] 5000
+        }
+
+        test "HGETF - Test 'XX' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
+            assert_equal [r hgetf myhash EX 10000 XX FIELDS 2 field1 field2] [list  "value1" "value2"]
+            assert_morethan_equal [r httl myhash 1 field1] 5000
+            assert_equal [r httl myhash 1 field2] "$T_NO_EXPIRY"
+        }
+
+        test "HGETF - Test 'GT' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
+            assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
+            assert_equal [r hgetf myhash EX 1500 GT FIELDS 2 field1 field2] [list  "value1" "value2"]
+            assert_morethan [r httl myhash 1 field1] 1000
+            assert_morethan [r httl myhash 1 field2] 1500
+        }
+
+        test "HGETF - Test 'LT' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
+            assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
+            assert_equal [r hgetf myhash EX 1500 LT FIELDS 2 field1 field2] [list  "value1" "value2"]
+            assert_lessthan_equal [r httl myhash 1 field1] 1000
+            assert_lessthan_equal [r httl myhash 1 field2] 1500
+        }
+
+        test "HGETF - Test 'EX' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash EX 1000 FIELDS 1 field3] [list "value3"]
+            assert_lessthan_equal [r httl myhash 1 field3] 1000
+        }
+
+        test "HGETF - Test 'EXAT' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash EXAT 4000000000 FIELDS 1 field3] [list "value3"]
+            assert_lessthan_equal [expr [r httl myhash 1 field3] + [clock seconds]] 4000000000
+        }
+
+        test "HGETF - Test 'PX' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash PX 1000000 FIELDS 1 field3] [list "value3"]
+            assert_lessthan_equal [r httl myhash 1 field3] 1000
+        }
+
+        test "HGETF - Test 'PXAT' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetf myhash PXAT 4000000000000 FIELDS 1 field3] [list "value3"]
+            assert_lessthan_equal [expr [r httl myhash 1 field3] + [clock seconds]] 4000000000
+        }
+
+        test "HGETF - Test 'PERSIST' flag ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hgetf myhash PX 5000 FIELDS 2 f2 f3
+            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash 1 f3] "$T_NO_EXPIRY"
+
+            assert_equal [r hgetf myhash PERSIST FIELDS 1 f2] "v2"
+            assert_equal [r hgetf myhash PX 100 FIELDS 1 f3] "v3"
+
+            wait_for_condition 50 20 {
+                [r httl myhash 3 f1 f2 f3] == "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_FIELD"
+            } else {
+                fail "'f3 should expire, f1 and f2' should not be expired"
+            }
+        }
+
+        test "HGETF - Test setting expired ttl deletes key ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            # hgetf without setting ttl
+            assert_equal [lsort [r hgetf myhash fields 3 f1 f2 f3]] [lsort "v1 v2 v3"]
+            assert_equal [r httl myhash 3 f1 f2 f3] "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # set expired ttl and verify key is deleted
+            r hgetf myhash PXAT 1 fields 3 f1 f2 f3
+            assert_equal [r exists myhash] 0
+        }
+
+        test "HGETF - Test active expiry ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+            r hgetf myhash PXAT 1 FIELDS 5 f1 f2 f3 f4 f5
+
+            r debug set-active-expire 1
+            wait_for_condition 50 20 { [r EXISTS myhash] == 0 } else { fail "'myhash' should be expired" }
+        }
+
+        test "HGETF - A field with TTL overridden with another value (TTL discarded) ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            r hgetf myhash PX 10000 NX FIELDS 1 field1
+            r hgetf myhash EX 100 NX FIELDS 1 field2
+
+            # field2 TTL will be discarded
+            r hset myhash field2 value4
+            after 5
+            # Expected TTL will be discarded
+            assert_equal [r hget myhash field2] "value4"
+            assert_equal [r httl myhash 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_not_equal [r httl myhash 1 field1] "$T_NO_EXPIRY"
+        }
     }
 
     r config set hash-max-listpack-entries 512

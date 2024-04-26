@@ -3452,6 +3452,52 @@ struct COMMAND_ARG HGETALL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** HGETF ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HGETF history */
+#define HGETF_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HGETF tips */
+#define HGETF_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HGETF key specs */
+keySpec HGETF_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HGETF condition argument table */
+struct COMMAND_ARG HGETF_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* HGETF expiration argument table */
+struct COMMAND_ARG HGETF_expiration_Subargs[] = {
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* HGETF argument table */
+struct COMMAND_ARG HGETF_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=HGETF_condition_Subargs},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=HGETF_expiration_Subargs},
+{MAKE_ARG("fields",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
 /********** HINCRBY ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10989,6 +11035,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hexpiretime","Returns the expiration time of a hash field as a Unix timestamp, in seconds.","O(N) where N is the number of arguments to the command","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HEXPIRETIME_History,0,HEXPIRETIME_Tips,0,hexpiretimeCommand,-4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HEXPIRETIME_Keyspecs,1,NULL,3),.args=HEXPIRETIME_Args},
 {MAKE_CMD("hget","Returns the value of a field in a hash.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGET_History,0,HGET_Tips,0,hgetCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HGET_Keyspecs,1,NULL,2),.args=HGET_Args},
 {MAKE_CMD("hgetall","Returns all fields and values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETALL_History,0,HGETALL_Tips,1,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HGETALL_Keyspecs,1,NULL,1),.args=HGETALL_Args},
+{MAKE_CMD("hgetf","For each specified field, returns its value and optionally set the field's remaining expiration time in seconds / milliseconds","O(N) where N is the number of arguments to the command","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETF_History,0,HGETF_Tips,0,hgetfCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HGETF_Keyspecs,1,NULL,6),.args=HGETF_Args},
 {MAKE_CMD("hincrby","Increments the integer value of a field in a hash by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBY_History,0,HINCRBY_Tips,0,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBY_Keyspecs,1,NULL,3),.args=HINCRBY_Args},
 {MAKE_CMD("hincrbyfloat","Increments the floating point value of a field by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBYFLOAT_History,0,HINCRBYFLOAT_Tips,0,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBYFLOAT_Keyspecs,1,NULL,3),.args=HINCRBYFLOAT_Args},
 {MAKE_CMD("hkeys","Returns all fields in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HKEYS_History,0,HKEYS_Tips,1,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HKEYS_Keyspecs,1,NULL,1),.args=HKEYS_Args},

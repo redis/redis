@@ -3656,6 +3656,7 @@ void hpexpiretimeCommand(client *c);
 void hpersistCommand(client *c);
 void hsetnxCommand(client *c);
 void hgetCommand(client *c);
+void hgetfCommand(client *c);
 void hmgetCommand(client *c);
 void hdelCommand(client *c);
 void hlenCommand(client *c);
