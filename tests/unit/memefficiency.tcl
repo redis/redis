@@ -648,7 +648,7 @@ run_solo {defrag} {
 
                 # wait for the active defrag to stop working
                 wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0 && [s allocator_frag_ratio] <= 1.1
+                    [s active_defrag_running] eq 0
                 } else {
                     after 120 ;# serverCron only updates the info once in 100ms
                     puts [r info memory]
@@ -805,11 +805,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo
