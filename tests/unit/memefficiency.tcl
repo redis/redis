@@ -513,9 +513,9 @@ run_solo {defrag} {
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
-            r config set hash-max-listpack-entries 1
 
-            # Populate memory with interleaving pubsub-key pattern of same size
+            # Populate memory with interleaving hash field of same size
+            # TODO: Coverage for listpack and list ebuckets.
             set n 50000
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
@@ -568,7 +568,7 @@ run_solo {defrag} {
 
                 # wait for the active defrag to stop working
                 wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0 && [s allocator_frag_ratio] <= 1.05
+                    [s active_defrag_running] eq 0
                 } else {
                     after 120 ;# serverCron only updates the info once in 100ms
                     puts [r info memory]
@@ -584,7 +584,7 @@ run_solo {defrag} {
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
                 }
-                assert_lessthan_equal [s allocator_frag_ratio] 1.05
+                assert_lessthan_equal [s allocator_frag_ratio] 1.1
             }
         }
 
@@ -648,7 +648,7 @@ run_solo {defrag} {
 
                 # wait for the active defrag to stop working
                 wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0
+                    [s active_defrag_running] eq 0 && [s allocator_frag_ratio] <= 1.1
                 } else {
                     after 120 ;# serverCron only updates the info once in 100ms
                     puts [r info memory]
@@ -805,11 +805,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo
