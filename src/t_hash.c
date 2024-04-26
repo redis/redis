@@ -604,24 +604,12 @@ append:
 }
 
 /* Update field expire time. */
-SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field, uint64_t expireAt) {
+SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
+                                   unsigned char *fptr, unsigned char *vptr,
+                                   unsigned char *tptr, uint64_t expireAt)
+{
     long long expireTime;
     uint64_t prevExpire = EB_EXPIRE_TIME_INVALID;
-    unsigned char *fptr = NULL, *vptr = NULL, *tptr = NULL;
-    listpackTTL *lpt = NULL;
-
-    lpt = ex->hashObj->ptr;
-    fptr = lpFirst(lpt->lp);
-    if (fptr != NULL)
-        fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
-
-    if (!fptr)
-        return HSETEX_NO_FIELD;
-
-    vptr = lpNext(lpt->lp, fptr);
-    serverAssert(vptr);
-    tptr = lpNext(lpt->lp, vptr);
-    serverAssert(tptr);
 
     lpGetValue(tptr, NULL, &expireTime);
 
@@ -1214,11 +1202,6 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
         listpackTTL *lpt = o->ptr;
         long long expireTime = HASH_LP_NO_TTL;
 
-        /* TODO: Get rid of these if checks */
-        if (!s) {
-            return hashTypeSetExpiryListpack(ex, field, expireAt);
-        }
-
         fptr = lpFirst(lpt->lp);
         if (fptr != NULL) {
             fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
@@ -1227,13 +1210,16 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
                 /* Grab pointer to the value (fptr points to the field) */
                 vptr = lpNext(lpt->lp, fptr);
                 serverAssert(vptr != NULL);
-                res = HSET_UPDATE;
 
                 if (s) {
                     /* Replace value */
-                    lpt->lp = lpReplace(lpt->lp, &vptr, (unsigned char *) s->value, sdslen(s->value));
+                    lpt->lp = lpReplace(lpt->lp, &vptr,
+                                        (unsigned char *) s->value,
+                                        sdslen(s->value));
+
                     fptr = lpPrev(lpt->lp, vptr);
                     serverAssert(fptr != NULL);
+                    res = HSET_UPDATE;
                 }
                 tptr = lpNext(lpt->lp, vptr);
                 serverAssert(tptr != NULL);
@@ -1241,17 +1227,21 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
                 serverAssert(!p);
 
                 if (ex) {
-                    hashTypeSetExpiryListpack(ex, field, expireAt);
-                } else if (expireTime != HASH_LP_NO_TTL) {
+                    res = hashTypeSetExpiryListpack(ex, field, fptr, vptr, tptr,
+                                                    expireAt);
+                    if (res != HSETEX_OK)
+                        goto out;
+                } else if (res == HSET_UPDATE && expireTime != HASH_LP_NO_TTL) {
                     /* Clear TTL */
                     listpackTTLPersist(o, field, fptr, vptr);
                 }
             }
         }
 
-        if (res != HSET_UPDATE) {
+        if (!fptr) {
             if (s) {
                 listpackTTLAddNew(o, field, s->value, ex ? expireAt : HASH_LP_NO_TTL);
+                res = ex ? HSETEX_OK : HSET_UPDATE;
             } else {
                 res = HSETEX_NO_FIELD;
             }
