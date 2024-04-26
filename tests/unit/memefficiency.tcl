@@ -277,8 +277,6 @@ run_solo {defrag} {
             r config set list-max-ziplist-size 5 ;# list of 10k items will have 2000 quicklist nodes
             r config set stream-node-max-entries 5
             r hmset hash h1 v1 h2 v2 h3 v3
-            r hmset hash_listpack h1 v1 h2 v2 h3 v3
-            # r hexpire hash_listpack 100 3 h1 h2 h3 ;# Not support now
             r lpush list a b c d
             r zadd zset 0 a 1 b 2 c 3 d
             r sadd set a b c d
@@ -291,14 +289,10 @@ run_solo {defrag} {
             set rd [redis_deferring_client]
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
-                $rd hset bighash_hfe $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
                 $rd zadd bigzset $j [concat "asdfasdfasdf" $j]
                 $rd sadd bigset [concat "asdfasdfasdf" $j]
                 $rd xadd bigstream * item 1 value a
-            }
-            for {set j 0} {$j < 10000} {incr j} {
-                $rd hexpire bighash_hfe 9999999 1 $j
             }
             for {set j 0} {$j < 50000} {incr j} {
                 $rd read ; # Discard replies
@@ -332,7 +326,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 500017
+            assert_equal [r dbsize] 500015
 
             # create some fragmentation
             for {set j 0} {$j < 500000} {incr j 2} {
@@ -341,7 +335,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 250017
+            assert_equal [r dbsize] 250015
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms
@@ -507,6 +501,91 @@ run_solo {defrag} {
                 $rd_pubsub read
             }
             $rd_pubsub close
+        }
+
+        test "Active defrag HFE: $type" {
+            r flushdb
+            r config resetstat
+            r config set hz 100
+            r config set activedefrag no
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1500kb
+            r config set maxmemory 0
+            r config set hash-max-listpack-entries 1
+
+            # Populate memory with interleaving pubsub-key pattern of same size
+            set n 50000
+            set dummy_field "[string repeat x 400]"
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < $n} {incr j} {
+                $rd hset h f$j $dummy_field
+                $rd hexpire h$j 9999999 1 f$j
+                $rd set k$j $dummy_field
+            }
+            for {set j 0} {$j < $n} {incr j} {
+                $rd read ; # Discard hset replies
+                $rd read ; # Discard hexpire replies
+                $rd read ; # Discard set replies
+            }
+
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_lessthan [s allocator_frag_ratio] 1.05
+
+            # Delete all the keys to create fragmentation
+            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
+            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            $rd close
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_morethan [s allocator_frag_ratio] 1.35
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+            
+                # wait for the active defrag to start working (decision once a second)
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # wait for the active defrag to stop working
+                wait_for_condition 500 100 {
+                    [s active_defrag_running] eq 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r memory malloc-stats]
+                    fail "defrag didn't stop."
+                }
+
+                # test the fragmentation is lower
+                after 120 ;# serverCron only updates the info once in 100ms
+                if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag [s allocator_frag_ratio]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
+                }
+                assert_lessthan_equal [s allocator_frag_ratio] 1.05
+            }
         }
 
         if {$type eq "standalone"} { ;# skip in cluster mode
