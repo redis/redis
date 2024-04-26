@@ -83,7 +83,7 @@ proc hrandfieldTest {activeExpireConfig} {
 
 ############################### TESTS #########################################
 
-start_server {tags {"needs:debug"}} {
+start_server {tags {"external:skip needs:debug"}} {
     foreach type {listpack ht} {
         if {$type eq "ht"} {
             r config set hash-max-listpack-entries 0
@@ -634,7 +634,7 @@ start_server {tags {"needs:debug"}} {
     r config set hash-max-listpack-entries 512
 }
 
-start_server {tags {"needs:debug"}} {
+start_server {tags {"external:skip needs:debug"}} {
 
     # Tests that only applies to listpack
 
