@@ -3269,7 +3269,7 @@ static int replyValueAndSetExpiry(client *c, robj *o, sds field, int flag,
 {
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
-    unsigned char *fptr, *vptr = NULL, *tptr, *h, *vstr = NULL;
+    unsigned char *fptr = NULL, *vptr = NULL, *tptr, *h, *vstr = NULL;
     listpackTTL *lpt = NULL;
     hfield hf = NULL;
     dict *d = NULL;
