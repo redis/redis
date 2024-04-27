@@ -16,8 +16,6 @@
 
 #define UNUSED(x) (void)(x)
 
-#define EB_VALIDATE_DEBUG 1
-
 /*** DEBUGGING & VALIDATION
  *
  * To validate DS on add(), remove() and ebExpire()
@@ -1797,53 +1795,34 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
             curitem = prevem->next;
         }
     } else {
-        rax *rax = ebGetRaxPtr(*eb);
-        raxIterator raxIter;
-        raxStart(&raxIter, rax);
-        raxSeek(&raxIter, "^", NULL, 0);
-        while (raxNext(&raxIter)) {
-            FirstSegHdr *curSegHdr = raxIter.data;
+        ExpireMeta *mIter = type->getExpireMeta(item);
+        CommonSegHdr *currHdr;
+        while (mIter->lastInSegment == 0)
+            mIter = type->getExpireMeta(mIter->next);
 
-            /* Iterate over each item in these segments. */
-            while (1) {
-                ExpireMeta *prevem = NULL; /* Used to update the 'next' of the previous node after defragmentation.
-                                            * If it's NULL, it means the current item is at the head of the segment. */
-                eItem curitem = curSegHdr->head; /* Current ebucket item. */
-                ExpireMeta *em = type->getExpireMeta(curitem); /* Expire meta data of current ebucket item. */
-
-                /* Iterate over each item in this segment. */
-                unsigned int num = em->numItems;
-                while (num--) {
-                    if (curitem == item) {
-                        if ((curitem = fn(curitem))) {
-                            /* If 'prev' is not NULL, update 'prev->next'. Otherwise,
-                            * item is at the head. Depending on whether 'nextSegHdr' is NULL,
-                            * item is in the first segment or not. */
-                            if (prevem)
-                                prevem->next = curitem;
-                            else
-                                curSegHdr->head = curitem;
-                        }
-                        raxStop(&raxIter);
-                        return curitem;
-                    }
-
-                    /* Move to the next item in this segment. */
-                    em = type->getExpireMeta(curitem);
-                    prevem = em;
-                    curitem = em->next;
-                }
-
-                /* If this is the last item in these segments, break the loop. */
-                if (em->lastItemBucket)
-                    break;
-
-                /* Move to the next segment. */
-                curSegHdr = em->next;
-                curitem = curSegHdr->head;
+        if (mIter->lastItemBucket)
+            currHdr = (CommonSegHdr *) mIter->next;
+        else  
+            currHdr = (CommonSegHdr *) ((NextSegHdr *) mIter->next)->prevSeg;
+        /* If the item is the first in the segment, then update the segment header */  
+        if (currHdr->head == item) {
+            if ((item = fn(item))) {
+                currHdr->head = item;
             }
+            return item;
         }
-        raxStop(&raxIter);
+
+        /* Iterate over all items in the segment until the next is 'item' */
+        ExpireMeta *mHead = type->getExpireMeta(currHdr->head);
+        mIter = mHead;
+        while (mIter->next != item)
+            mIter = type->getExpireMeta(mIter->next);
+        assert(mIter->next == item);
+
+        if ((item = fn(item))) {
+            mIter->next = item;
+        }
+        return item;
     }
     redis_unreachable();
 }
