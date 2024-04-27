@@ -2312,40 +2312,26 @@ int ebucketsTest(int argc, char **argv, int flags) {
         }
     }
 
-    TEST("list - item defragmentation") {
-        ebuckets eb = NULL;
-        MyItem *items[5];
-        for (int i = 0 ; i < 5; i++) {
-            items[i] = zmalloc(sizeof(MyItem));
-            items[i]->index = i;
-            ebAdd(&eb, &myEbucketsType, items[i], i);
+    TEST("item defragmentation") {
+        for (int s = 1; s <= EB_LIST_MAX_ITEMS * 3; s++) {
+            ebuckets eb = NULL;
+            MyItem *items[s];
+            for (int i = 0; i < s; i++) {
+                items[i] = zmalloc(sizeof(MyItem));
+                items[i]->index = i;
+                ebAdd(&eb, &myEbucketsType, items[i], i);
+            }
+            assert((s <= EB_LIST_MAX_ITEMS) ? ebIsList(eb) : !ebIsList(eb));
+            /* Defrag all the items. */
+            for (int i = 0; i < s; i++) {
+                MyItem *newitem = ebDefragItem(&eb, &myEbucketsType, items[i], defragCallback);
+                if (newitem) items[i] = newitem;
+            }
+            /* Verify that the data is not corrupted. */
+            for (int i = 0; i < s; i++)
+                assert(items[i]->index == i);
+            ebDestroy(&eb, &myEbucketsType, NULL);
         }
-        for (int i = 0 ; i < 5; i++) {
-            MyItem *newitem = ebDefragItem(&eb, &myEbucketsType, items[i], defragCallback);
-            if (newitem) items[i] = newitem;
-        }
-        for (int i = 0 ; i < 5; i++)
-            assert(items[i]->index == i);
-        assert(ebIsList(eb));
-        ebDestroy(&eb, &myEbucketsType, NULL);
-    }
-
-    TEST("rax - item defragmentation") {
-        ebuckets eb = NULL;
-        MyItem *items[EB_LIST_MAX_ITEMS*2];
-        for (int i = 0 ; i < EB_LIST_MAX_ITEMS*2; i++) {
-            items[i] = zmalloc(sizeof(MyItem));
-            items[i]->index = i;
-            ebAdd(&eb, &myEbucketsType, items[i], i);
-        }
-        for (int i = 0 ; i < EB_LIST_MAX_ITEMS*2; i++) {
-            MyItem *newitem = ebDefragItem(&eb, &myEbucketsType, items[i], defragCallback);
-            if (newitem) items[i] = newitem;
-        }
-        for (int i = 0 ; i < EB_LIST_MAX_ITEMS*2; i++)
-            assert(items[i]->index == i);
-        assert(!ebIsList(eb));
-        ebDestroy(&eb, &myEbucketsType, NULL);
     }
 
     return 0;
