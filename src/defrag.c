@@ -747,8 +747,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
 
         /* Update the key's reference in the dict's metadata. */
         if (unlikely(ob->type == OBJ_HASH && hashTypeIsDictWithMetaHFE(ob))) {
-            dict *d = (dict*)ob->ptr;
-            dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
+            dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)ob->ptr);
             dictExpireMeta->key = newsds;
         }
     }

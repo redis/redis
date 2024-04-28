@@ -128,7 +128,7 @@ typedef enum SetPersistRes {
     HFE_PERSIST_OK =            1
 } SetPersistRes;
 
-int isDictWithMetaHFE(dict *d) {
+static inline int isDictWithMetaHFE(dict *d) {
     return d->type == &mstrHashDictTypeWithHFE;
 }
 

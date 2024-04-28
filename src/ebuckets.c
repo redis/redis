@@ -1804,7 +1804,7 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
             currHdr = (CommonSegHdr *) mIter->next;
         else  
             currHdr = (CommonSegHdr *) ((NextSegHdr *) mIter->next)->prevSeg;
-        /* If the item is the first in the segment, then update the segment header */  
+        /* If the item is the first in the segment, then update the segment header */
         if (currHdr->head == item) {
             if ((item = fn(item))) {
                 currHdr->head = item;
