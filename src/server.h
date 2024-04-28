@@ -3192,7 +3192,7 @@ robj *hashTypeDup(robj *o, sds newkey, uint64_t *minHashExpire);
 uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
 void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime);
 int64_t hashTypeGetMinExpire(robj *keyObj);
-int isDictWithMetaHFE(dict *d);
+int hashTypeIsDictWithMetaHFE(robj *o);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);

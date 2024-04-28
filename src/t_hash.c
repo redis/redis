@@ -1343,6 +1343,11 @@ uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire) {
     return maxFieldsToExpire - ctx.fieldsToExpireQuota;
 }
 
+int hashTypeIsDictWithMetaHFE(robj *o) {
+    serverAssert(o->type == OBJ_HASH);
+    return o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr);
+}
+
 /*-----------------------------------------------------------------------------
  * Hash type commands
  *----------------------------------------------------------------------------*/

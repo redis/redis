@@ -728,7 +728,6 @@ void defragModule(redisDb *db, dictEntry *kde) {
 void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob = dictGetVal(de);
-    int is_hfe = (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(ob->ptr));
     unsigned char *newzl;
     sds newsds;
     redisDb *db = ctx->privdata;
@@ -747,7 +746,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
         }
 
         /* Update the key's reference in the dict's metadata. */
-        if (is_hfe) {
+        if (unlikely(ob->type == OBJ_HASH && hashTypeIsDictWithMetaHFE(ob))) {
             dict *d = (dict*)ob->ptr;
             dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
             dictExpireMeta->key = newsds;
@@ -755,7 +754,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     }
 
     /* Try to defrag robj and / or string value. */
-    if (is_hfe) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeIsDictWithMetaHFE(ob))) {
         /* Update its reference in the ebucket while defragging it. */
         newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, (ebDefragFunction *)activeDefragStringOb);
     } else {
