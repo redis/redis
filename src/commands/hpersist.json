@@ -45,20 +45,22 @@
             "type": "array",
             "minItems": 1,
             "maxItems": 4294967295,
-            "items": [
-              {
-                "description": "The field does not exist.",
-                "const": -2
-              },
-              {
-                "description": "The field exists but has no associated expire.",
-                "const": -1
-              },
-              {
-                "description": "Expiration time was removed",
-                "const": 1
-              }
-            ]
+            "items": {
+              "oneOf": [
+                {
+                  "description": "The field does not exist.",
+                  "const": -2
+                },
+                {
+                  "description": "The field exists but has no associated expire.",
+                  "const": -1
+                },
+                {
+                  "description": "Expiration time was removed",
+                  "const": 1
+                }
+              ]
+            }
           }
         ]
       },
