@@ -49,20 +49,20 @@
                     "items": {
                         "oneOf": [
                             {
-                                "description": "he field does not exist.",
-                                "type": "string"
+                                "description": "The field does not exist.",
+                                "const": -2
                             },
                             {
                                 "description": "Specified NX | XX | GT | LT condition not met",
-                                "type": "string"
+                                "const": 0
                             },
                             {
                                 "description": "Expiration time was set or updated.",
-                                "type": "string"
+                                "const": 1
                             },
                             {
                                 "description": "Field deleted because the specified expiration time is in the past.",
-                                "type": "string"
+                                "const": 2
                             }
                         ]
                     }
