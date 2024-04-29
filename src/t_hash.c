@@ -95,6 +95,20 @@ EbucketsType hashFieldExpireBucketsType = {
     .itemsAddrAreOdd = 1,                 /* Addresses of hfield (mstr) are odd!! */
 };
 
+/* Each dict of hash object that has fields with time-Expiration will have the
+ * following metadata attached to dict header */
+typedef struct dictExpireMetadata {
+    ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
+                                To be used in order to register the hash in the
+                                global ebuckets (i.e db->hexpires) with next,
+                                minimum, hash-field to expire */
+    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
+    sds key;                 /* reference to the key, same one that stored in
+                               db->dict. Will be used from active-expiration flow
+                               for notification and deletion of the object, if
+                               needed. */
+} dictExpireMetadata;
+
 /* ActiveExpireCtx passed to hashTypeActiveExpire() */
 typedef struct ActiveExpireCtx {
     uint32_t fieldsToExpireQuota;
@@ -1343,9 +1357,25 @@ uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire) {
     return maxFieldsToExpire - ctx.fieldsToExpireQuota;
 }
 
-int hashTypeIsDictWithMetaHFE(robj *o) {
-    serverAssert(o->type == OBJ_HASH);
-    return o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr);
+int hashTypeHasMetaHFE(robj *o) {
+    return (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) ||
+        o->encoding == OBJ_ENCODING_LISTPACK_TTL;
+}
+
+void hashTypeUpdateMetaKey(robj *o, sds newkey) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK_TTL) {
+        /* TODO */
+    } if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) {
+        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
+        dictExpireMeta->key = newkey;
+    } else {
+        /* nothing to do. */
+    }
+}
+
+ebuckets *hashTypeGetDictMetaHFE(dict *d) {
+    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+    return &dictExpireMeta->hfe;
 }
 
 /*-----------------------------------------------------------------------------

@@ -886,6 +886,7 @@ struct RedisModuleDigest {
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of listpacks */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
+#define OBJ_ENCODING_LISTPACK_TTL 12 /* Encoded as a listpack with TTL metadata */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -3154,20 +3155,6 @@ robj *setTypeDup(robj *o);
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
 
-/* Each dict of hash object that has fields with time-Expiration will have the
- * following metadata attached to dict header */
-typedef struct dictExpireMetadata {
-    ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
-                                To be used in order to register the hash in the
-                                global ebuckets (i.e db->hexpires) with next,
-                                minimum, hash-field to expire */
-    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
-    sds key;                 /* reference to the key, same one that stored in
-                               db->dict. Will be used from active-expiration flow
-                               for notification and deletion of the object, if
-                               needed. */
-} dictExpireMetadata;
-
 void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 int hashTypeExists(robj *o, sds key);
@@ -3192,7 +3179,9 @@ robj *hashTypeDup(robj *o, sds newkey, uint64_t *minHashExpire);
 uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
 void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime);
 int64_t hashTypeGetMinExpire(robj *keyObj);
-int hashTypeIsDictWithMetaHFE(robj *o);
+int hashTypeHasMetaHFE(robj *o);
+void hashTypeUpdateMetaKey(robj *o, sds newkey);
+ebuckets *hashTypeGetDictMetaHFE(dict *d);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);

@@ -275,8 +275,8 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
         newhf = activeDefragHfield(hf);
     } else {
         /* Update its reference in the ebucket while defragging it. */
-        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
-        newhf = ebDefragItem(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, hf, (ebDefragFunction *)activeDefragHfield);
+        ebuckets *eb = hashTypeGetDictMetaHFE(d);
+        newhf = ebDefragItem(eb, &hashFieldExpireBucketsType, hf, (ebDefragFunction *)activeDefragHfield);
     }
     if (newhf) {
         /* We can't search in dict for that key after we've released
@@ -746,14 +746,12 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
         }
 
         /* Update the key's reference in the dict's metadata. */
-        if (unlikely(ob->type == OBJ_HASH && hashTypeIsDictWithMetaHFE(ob))) {
-            dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)ob->ptr);
-            dictExpireMeta->key = newsds;
-        }
+        if (unlikely(ob->type == OBJ_HASH))
+            hashTypeUpdateMetaKey(ob, newsds);
     }
 
     /* Try to defrag robj and / or string value. */
-    if (unlikely(ob->type == OBJ_HASH && hashTypeIsDictWithMetaHFE(ob))) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeHasMetaHFE(ob))) {
         /* Update its reference in the ebucket while defragging it. */
         newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, (ebDefragFunction *)activeDefragStringOb);
     } else {
