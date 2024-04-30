@@ -219,7 +219,6 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
  * */
 unsigned char *lpNew(size_t capacity) {
     unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1);
-    if (lp == NULL) return NULL;
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
     lpSetNumElements(lp,0);
     lp[LP_HDR_SIZE] = LP_EOF;
@@ -245,51 +244,61 @@ unsigned char* lpShrinkToFit(unsigned char *lp) {
 static inline void lpEncodeIntegerGetType(int64_t v, unsigned char *intenc, uint64_t *enclen) {
     if (v >= 0 && v <= 127) {
         /* Single byte 0-127 integer. */
-        intenc[0] = v;
-        *enclen = 1;
+        if (intenc != NULL) intenc[0] = v;
+        if (enclen != NULL) *enclen = 1;
     } else if (v >= -4096 && v <= 4095) {
         /* 13 bit integer. */
         if (v < 0) v = ((int64_t)1<<13)+v;
-        intenc[0] = (v>>8)|LP_ENCODING_13BIT_INT;
-        intenc[1] = v&0xff;
-        *enclen = 2;
+        if (intenc != NULL) {
+            intenc[0] = (v>>8)|LP_ENCODING_13BIT_INT;
+            intenc[1] = v&0xff;
+        }
+        if (enclen != NULL) *enclen = 2;
     } else if (v >= -32768 && v <= 32767) {
         /* 16 bit integer. */
         if (v < 0) v = ((int64_t)1<<16)+v;
-        intenc[0] = LP_ENCODING_16BIT_INT;
-        intenc[1] = v&0xff;
-        intenc[2] = v>>8;
-        *enclen = 3;
+        if (intenc != NULL) {
+            intenc[0] = LP_ENCODING_16BIT_INT;
+            intenc[1] = v&0xff;
+            intenc[2] = v>>8;
+        }
+        if (enclen != NULL) *enclen = 3;
     } else if (v >= -8388608 && v <= 8388607) {
         /* 24 bit integer. */
         if (v < 0) v = ((int64_t)1<<24)+v;
-        intenc[0] = LP_ENCODING_24BIT_INT;
-        intenc[1] = v&0xff;
-        intenc[2] = (v>>8)&0xff;
-        intenc[3] = v>>16;
-        *enclen = 4;
+        if (intenc != NULL) {
+            intenc[0] = LP_ENCODING_24BIT_INT;
+            intenc[1] = v&0xff;
+            intenc[2] = (v>>8)&0xff;
+            intenc[3] = v>>16;
+        }
+        if (enclen != NULL) *enclen = 4;
     } else if (v >= -2147483648 && v <= 2147483647) {
         /* 32 bit integer. */
         if (v < 0) v = ((int64_t)1<<32)+v;
-        intenc[0] = LP_ENCODING_32BIT_INT;
-        intenc[1] = v&0xff;
-        intenc[2] = (v>>8)&0xff;
-        intenc[3] = (v>>16)&0xff;
-        intenc[4] = v>>24;
-        *enclen = 5;
+        if (intenc != NULL) {
+            intenc[0] = LP_ENCODING_32BIT_INT;
+            intenc[1] = v&0xff;
+            intenc[2] = (v>>8)&0xff;
+            intenc[3] = (v>>16)&0xff;
+            intenc[4] = v>>24;
+        }
+        if (enclen != NULL) *enclen = 5;
     } else {
         /* 64 bit integer. */
         uint64_t uv = v;
-        intenc[0] = LP_ENCODING_64BIT_INT;
-        intenc[1] = uv&0xff;
-        intenc[2] = (uv>>8)&0xff;
-        intenc[3] = (uv>>16)&0xff;
-        intenc[4] = (uv>>24)&0xff;
-        intenc[5] = (uv>>32)&0xff;
-        intenc[6] = (uv>>40)&0xff;
-        intenc[7] = (uv>>48)&0xff;
-        intenc[8] = uv>>56;
-        *enclen = 9;
+        if (intenc != NULL) {
+            intenc[0] = LP_ENCODING_64BIT_INT;
+            intenc[1] = uv&0xff;
+            intenc[2] = (uv>>8)&0xff;
+            intenc[3] = (uv>>16)&0xff;
+            intenc[4] = (uv>>24)&0xff;
+            intenc[5] = (uv>>32)&0xff;
+            intenc[6] = (uv>>40)&0xff;
+            intenc[7] = (uv>>48)&0xff;
+            intenc[8] = uv>>56;
+        }
+        if (enclen != NULL) *enclen = 9;
     }
 }
 
@@ -1199,13 +1208,16 @@ size_t lpBytes(unsigned char *lp) {
     return lpGetTotalBytes(lp);
 }
 
+size_t lpEstimateBytesInteger(long long lval) {
+    uint64_t enclen;
+    lpEncodeIntegerGetType(lval, NULL, &enclen);
+    unsigned long backlen = lpEncodeBacklen(NULL, enclen);
+    return enclen + backlen;
+}
+
 /* Returns the size of a listpack consisting of an integer repeated 'rep' times. */
 size_t lpEstimateBytesRepeatedInteger(long long lval, unsigned long rep) {
-    uint64_t enclen;
-    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
-    lpEncodeIntegerGetType(lval, intenc, &enclen);
-    unsigned long backlen = lpEncodeBacklen(NULL, enclen);
-    return LP_HDR_SIZE + (enclen + backlen) * rep + 1;
+    return LP_HDR_SIZE + lpEstimateBytesInteger(lval) * rep + 1;
 }
 
 /* Seek the specified element and returns the pointer to the seeked element.

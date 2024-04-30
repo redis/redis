@@ -23,7 +23,6 @@ static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(robj *hashObj, hfield field);
 static void updateGlobalHfeDs(redisDb *db, robj *o, uint64_t minExpire, uint64_t minExpireFields);
 static uint64_t hashTypeGetNextTimeToExpire(robj *o);
-static uint64_t hashTypeGetMinExpire(robj *keyObj);
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
@@ -326,6 +325,24 @@ static struct listpackEx *listpackExCreate(void) {
     return lpt;
 }
 
+void *listpackExCreateFromListpack(void *lp) {
+    listpackEx *lpt = zcalloc(sizeof(*lpt));
+    lpt->lp = lp;
+    lpt->meta.trash = 1;
+    lpt->key = NULL;
+    return lpt;
+}
+
+void *listpackExGetListpack(const robj *o) {
+    listpackEx *lpt = o->ptr;
+    return lpt->lp;
+}
+
+void listpackExUpdateListpack(const robj *o, void *lp) {
+    listpackEx *lpt = o->ptr;
+    lpt->lp = lp;
+}
+
 static void listpackExFree(listpackEx *lpt) {
     lpFree(lpt->lp);
     zfree(lpt);
@@ -385,7 +402,7 @@ static uint64_t listpackExGetMinExpire(robj *o) {
 }
 
 /* Walk over fields and delete the expired ones. */
-static void listpackExExpire(robj *o, ExpireInfo *info) {
+void listpackExExpire(robj *o, ExpireInfo *info, long long *expire_stat) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
     uint64_t min = EB_EXPIRE_TIME_INVALID;
     unsigned char *ptr, *field, *s;
@@ -409,7 +426,7 @@ static void listpackExExpire(robj *o, ExpireInfo *info) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
-        server.stat_expired_hash_fields++;
+        (*expire_stat)++;
         lpt->lp = lpDeleteRangeWithEntry(lpt->lp, &field, 3);
         ptr = field;
         info->itemsExpired++;
@@ -1816,8 +1833,7 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
                 .now = commandTimeSnapshot(),
                 .itemsExpired = 0};
 
-        listpackExExpire(hashObj, &info);
-        keystr = ((listpackEx*)hashObj->ptr)->key;
+        listpackExExpire(hashObj, &info, &server.stat_expired_hash_fields);
     } else {
         serverAssert(hashObj->encoding == OBJ_ENCODING_HT);
 

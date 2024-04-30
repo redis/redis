@@ -416,65 +416,151 @@ start_server {} {
     } {OK}
 }
 
+set server_path [tmpdir "server.partial-hfield-exp-test"]
+
 # verifies writing and reading hash key with expiring and persistent fields 
-test {hash field expiration save and load rdb} {
-    start_server{overrides {hash-max-listpack-entries 0}} {
-        r FLUSHALL
+start_server [list overrides [list "dir" $server_path]] {
+    test {hash field expiration save and load rdb one expired field} {
+        foreach type {listpack ht} {
+            if {$type eq "ht"} {
+                r config set hash-max-listpack-entries 0
+            } else {
+                r config set hash-max-listpack-entries 512
+            }
 
-        r HMSET key a 1 b 2 c 3 d 4
-        r HEXPIREAT key 2524600800 2 a b
-        r HPEXPIRE key 100 d
+            puts "before saving key for type $type"
+            gets stdin
 
-        # sleep 100 ms to make sure d will expire after restart
-        after 100
+            r FLUSHALL
 
-        r save
-        restart_server 0 true false
-        wait_done_loading r
+            r HMSET key a 1 b 2 c 3 d 4
+            r HEXPIREAT key 2524600800 2 a b
+            r HPEXPIRE key 100 1 d
 
-        assert_equal [r hget key a] 1
-        assert_equal [r hget key b] 2
-        assert_equal [r hget key c] 3
-        assert_equal [r hget key d] nil
-        assert_equal [r hexpiretime key 3 a b c] {2524600800, 2524600800, -1}
+            r save
+            # sleep 100 ms to make sure d will expire after restart
+            after 100
+            restart_server 0 true false
+            wait_done_loading r
+
+            puts "before verifying key for type $type"
+            gets stdin
+
+            assert_equal [r hget key a] 1
+            assert_equal [r hget key b] 2
+            assert_equal [r hget key c] 3
+            assert_equal [r hget key d] {}
+            assert_equal [r hexpiretime key 3 a b c] {2524600800 2524600800 -1}
+        }
     }
 }
 
+set server_path [tmpdir "server.all-hfield-exp-test"]
+
 # verifies writing hash with several expired keys, and active-expiring it on load
-test {hash field expiration save and load rdb} {
-    start_server{overrides {hash-max-listpack-entries 0}} {
-        r FLUSHALL
+test {hash field expiration save and load rdb all fields expired} {
+    start_server {} {
+        foreach type {listpack ht} {
+            if {$type eq "ht"} {
+                r config set hash-max-listpack-entries 0
+            } else {
+                r config set hash-max-listpack-entries 512
+            }
 
-        r HMSET key a 1 b 2 c 3 d 4
-        r HPEXPIRE key 100 4 a b c d
+            r FLUSHALL
 
-        # sleep 100 ms to make sure all fields will expire after restart
-        after 100
+            r HMSET key a 1 b 2 c 3 d 4
+            r HPEXPIRE key 100 4 a b c d
 
-        r save
-        restart_server 0 true false
-        wait_done_loading r
+            r save
+            # sleep 100 ms to make sure all fields will expire after restart
+            after 100
 
-        assert_equal [r hgetall key] {}
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal [r hgetall key] {}
+        }
     }
 }
 
 # verifies a long TTL value (6 bytes) is saved and loaded correctly
-test {hash field expiration save and load rdb} {
-    start_server{overrides {hash-max-listpack-entries 0}} {
-        r FLUSHALL
+test {hash field expiration save and load rdb long TTL} {
+    start_server {} {
+        foreach type {listpack ht} {
+            if {$type eq "ht"} {
+                r config set hash-max-listpack-entries 0
+            } else {
+                r config set hash-max-listpack-entries 512
+            }
 
-        r HSET key a 1 
-        # set expiry to 0xabcdef987654 (6 bytes)
-        r HPEXPIREAT key 188900976391764 1 a
+            r FLUSHALL
 
-        r save
-        restart_server 0 true false
-        wait_done_loading r
+            r HSET key a 1
+            # set expiry to 0xabcdef987654 (6 bytes)
+            r HPEXPIREAT key 188900976391764 1 a
 
-        assert_equal [r hget key a ] 1
-        assert_equal [r hexpiretime key 1 a] {188900976391764}
+            r save
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal [r hget key a ] 1
+            assert_equal [r hpexpiretime key 1 a] {188900976391764}
+        }
     }
 }
+
+set server_path [tmpdir "server.listpack-to-dict-test"]
+
+test {save listpack, load dict} {
+    start_server {overrides {hash-max-listpack-entries 512}} {
+
+        r FLUSHALL
+
+        r HMSET key a 1 b 2 c 3 d 4
+        r HPEXPIRE key 100 1 d
+
+        r save
+        # sleep 100 ms to make sure all fields will expire after restart
+        after 100
+    }
+
+    start_server {overrides {hash-max-listpack-entries 0}} {
+
+        assert_equal [r hget key a] 1
+        assert_equal [r hget key b] 2
+        assert_equal [r hget key c] 3
+        assert_equal [r hget key d] {}
+    }
+}
+
+set server_path [tmpdir "server.dict-to-listpack-test"]
+
+test {save dict, load listpack} {
+    start_server {overrides {hash-max-listpack-entries 0}} {
+        r FLUSHALL
+
+        r HMSET key a 1 b 2 c 3 d 4
+        r HPEXPIRE key 100 1 d
+
+        r save
+        # sleep 100 ms to make sure all fields will expire after restart
+        after 100
+    }
+
+    start_server {overrides {hash-max-listpack-entries 512}} {
+
+        assert_equal [r hget key a] 1
+        assert_equal [r hget key b] 2
+        assert_equal [r hget key c] 3
+        assert_equal [r hget key d] {}
+    }
+}
+
+
+#Also:
+#2. try listpack verification during load
+#3. think about listpack with duplicated fields when one of them is already expired: decision: Need to fail! verify
+
 
 } ;# tags
