@@ -88,11 +88,16 @@ start_server {tags {"external:skip needs:debug"}} {
     # Currently listpack doesn't support HFE
     r config set hash-max-listpack-entries 0
 
-    test {HPEXPIRE - Test 'NX' flag} {
+    test {HPEXPIRE(AT) - Test 'NX' flag} {
         r del myhash
         r hset myhash field1 value1 field2 value2 field3 value3
         assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
         assert_equal [r hpexpire myhash 1000 NX 2 field1 field2] [list  $E_FAIL  $E_OK]
+
+        r del myhash
+        r hset myhash field1 value1 field2 value2 field3 value3
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 1 field1] [list  $E_OK]
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 2 field1 field2] [list  $E_FAIL  $E_OK]
     }
 
     test {HPEXPIRE - Test 'XX' flag} {
