@@ -39,10 +39,10 @@ int je_get_defrag_hint(void* ptr);
 void* activeDefragAlloc(void *ptr) {
     size_t size;
     void *newptr;
-    if(!je_get_defrag_hint(ptr)) {
-        server.stat_active_defrag_misses++;
-        return NULL;
-    }
+    // if(!je_get_defrag_hint(ptr)) {
+    //     server.stat_active_defrag_misses++;
+    //     return NULL;
+    // }
     /* move this allocation to a new allocation.
      * make sure not to use the thread cache. so that we don't get back the same
      * pointers we try to free */
@@ -66,6 +66,22 @@ sds activeDefragSds(sds sdsptr) {
         size_t offset = sdsptr - (char*)ptr;
         sdsptr = (char*)newptr + offset;
         return sdsptr;
+    }
+    return NULL;
+}
+
+/* Defrag helper for hfield strings
+ *
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
+hfield activeDefragHfield(hfield hf) {
+    void *ptr = hfieldGetAllocPtr(hf);
+    void *newptr = activeDefragAlloc(ptr);
+    if (newptr) {
+        size_t offset = hf - (char*)ptr;
+        hf = (char*)newptr + offset;
+        return hf;
     }
     return NULL;
 }
@@ -250,6 +266,31 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
     UNUSED(de);
 }
 
+void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
+    dict *d = (dict*)privdata;
+    hfield newhf, hf = dictGetKey(de);
+
+    if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID) {
+        /* If the hfield does not have TTL, we directly defrag it. */
+        newhf = activeDefragHfield(hf);
+    } else {
+        /* Update its reference in the ebucket while defragging it. */
+        ebuckets *eb = hashTypeGetDictMetaHFE(d);
+        newhf = ebDefragItem(eb, &hashFieldExpireBucketsType, hf, (ebDefragFunction *)activeDefragHfield);
+    }
+    if (newhf) {
+        /* We can't search in dict for that key after we've released
+         * the pointer it holds, since it won't be able to do the string
+         * compare, but we can find the entry using key hash and pointer. */
+        dictUseStoredKeyApi(d, 1);
+        uint64_t hash = dictGetHash(d, newhf);
+        dictUseStoredKeyApi(d, 0);
+        dictEntry *de = dictFindEntryByPtrAndHash(d, hf, hash);
+        serverAssert(de);
+        dictSetKey(d, de, newhf);
+    }
+}
+
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
 void activeDefragSdsDict(dict* d, int val_type) {
     unsigned long cursor = 0;
@@ -265,6 +306,20 @@ void activeDefragSdsDict(dict* d, int val_type) {
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
                                 &defragfns, NULL);
+    } while (cursor != 0);
+}
+
+/* Defrag a dict with hfield key and sds value. */
+void activeDefragHfieldDict(dict* d) {
+    unsigned long cursor = 0;
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
+        .defragVal = (dictDefragAllocFunction *)activeDefragSds
+    };
+    do {
+        cursor = dictScanDefrag(d, cursor, activeDefragHfieldDictCallback,
+                                &defragfns, d);
     } while (cursor != 0);
 }
 
@@ -422,10 +477,10 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
         .defragVal = (dictDefragAllocFunction *)activeDefragSds
     };
-    *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
+    *cursor = dictScanDefrag(d, *cursor, activeDefragHfieldDictCallback, &defragfns, d);
 }
 
 void defragQuicklist(redisDb *db, dictEntry *kde) {
@@ -477,7 +532,7 @@ void defragHash(redisDb *db, dictEntry *kde) {
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
-        activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
+        activeDefragHfieldDict(d);
     /* defrag the dict struct and tables */
     if ((newd = dictDefragTables(ob->ptr)))
         ob->ptr = newd;
@@ -672,7 +727,7 @@ void defragModule(redisDb *db, dictEntry *kde) {
  * all the various pointers it has. */
 void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
-    robj *newob, *ob;
+    robj *newob, *ob = dictGetVal(de);
     unsigned char *newzl;
     sds newsds;
     redisDb *db = ctx->privdata;
@@ -689,11 +744,21 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
             dictEntry *expire_de = kvstoreDictFindEntryByPtrAndHash(db->expires, slot, keysds, hash);
             if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
+
+        /* Update the key's reference in the dict's metadata. */
+        if (unlikely(ob->type == OBJ_HASH))
+            hashTypeUpdateMetaKey(ob, newsds);
     }
 
     /* Try to defrag robj and / or string value. */
-    ob = dictGetVal(de);
-    if ((newob = activeDefragStringOb(ob))) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeHasMetaHFE(ob))) {
+        /* Update its reference in the ebucket while defragging it. */
+        newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, (ebDefragFunction *)activeDefragStringOb);
+    } else {
+        /* If the dict doesn't have metadata, we directly defrag it. */
+        newob = activeDefragStringOb(ob);
+    }
+    if (newob) {
         kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
     }
@@ -734,6 +799,12 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
         if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 ob->ptr = newzl;
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK_TTL) {
+            listpackTTL *newlpt, *lpt = (listpackTTL*)ob->ptr;
+            if ((newlpt = activeDefragAlloc(lpt)))
+                lpt = newlpt;
+            if ((newzl = activeDefragAlloc(lpt->lp)))
+                lpt->lp = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragHash(db, de);
         } else {

@@ -21,7 +21,6 @@ static ExpireMeta *hashGetExpireMeta(const eItem hash);
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit);
 static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(robj *hashObj, hfield field);
-static uint64_t hfieldGetExpireTime(hfield field);
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
@@ -313,21 +312,6 @@ static void hashDictWithExpireOnRelease(dict *d) {
  */
 
 #define HASH_LP_NO_TTL 0
-
-/* Data structure for OBJ_ENCODING_LISTPACK_TTL. It contains listpack and
- * metadata fields for hash field expiration.*/
-typedef struct listpackTTL {
-    ExpireMeta meta;  /* To be used in order to register the hash in the
-                         global ebuckets (i.e. db->hexpires) with next,
-                         minimum, hash-field to expire. */
-    sds key;          /* reference to the key, same one that stored in
-                         db->dict. Will be used from active-expiration flow
-                         for notification and deletion of the object, if
-                         needed. */
-    void *lp;         /* listpack that contains 'key-value-ttl' tuples which
-                         are ordered by ttl. */
-} listpackTTL;
-
 
 static struct listpackTTL *listpackTTLCreate(void) {
     listpackTTL *lpt = zcalloc(sizeof(*lpt));
@@ -2035,6 +2019,28 @@ void hashTypeFree(robj *o) {
     }
 }
 
+int hashTypeHasMetaHFE(robj *o) {
+    return (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) ||
+        o->encoding == OBJ_ENCODING_LISTPACK_TTL;
+}
+
+void hashTypeUpdateMetaKey(robj *o, sds newkey) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK_TTL) {
+        listpackTTL *lpt = o->ptr;
+        lpt->key = newkey;
+    } if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) {
+        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
+        dictExpireMeta->key = newkey;
+    } else {
+        /* nothing to do. */
+    }
+}
+
+ebuckets *hashTypeGetDictMetaHFE(dict *d) {
+    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+    return &dictExpireMeta->hfe;
+}
+
 /*-----------------------------------------------------------------------------
  * Hash type commands
  *----------------------------------------------------------------------------*/
@@ -2671,7 +2677,7 @@ static ExpireMeta* hfieldGetExpireMeta(const eItem field) {
     return mstrMetaRef(field, &mstrFieldKind, (int) HFIELD_META_EXPIRE);
 }
 
-static uint64_t hfieldGetExpireTime(hfield field) {
+uint64_t hfieldGetExpireTime(hfield field) {
     if (!hfieldIsExpireAttached(field))
         return EB_EXPIRE_TIME_INVALID;
 
@@ -2983,6 +2989,7 @@ void hpexpiretimeCommand(client *c) {
 void hpersistCommand(client *c) {
     robj *hashObj;
     long numFields = 0, numFieldsAt = 2;
+    int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
     if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
@@ -3082,10 +3089,13 @@ void hpersistCommand(client *c) {
 
             hfieldPersist(hashObj, hf);
             addReplyLongLong(c, HFE_PERSIST_OK);
+            changed = 1;
         }
     } else {
         serverPanic("Unknown encoding: %d", hashObj->encoding);
     }
+
+    if (changed) notifyKeyspaceEvent(NOTIFY_HASH,"hpersist",c->argv[1],c->db->id);
 }
 
 /**
