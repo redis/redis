@@ -802,7 +802,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
         } else if (ob->encoding == OBJ_ENCODING_LISTPACK_TTL) {
             listpackTTL *newlpt, *lpt = (listpackTTL*)ob->ptr;
             if ((newlpt = activeDefragAlloc(lpt)))
-                lpt = newlpt;
+                ob->ptr = lpt = newlpt;
             if ((newzl = activeDefragAlloc(lpt->lp)))
                 lpt->lp = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
