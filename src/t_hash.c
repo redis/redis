@@ -2243,6 +2243,7 @@ void hpexpiretimeCommand(client *c) {
 void hpersistCommand(client *c) {
     robj *hashObj;
     long numFields = 0, numFieldsAt = 2;
+    int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
     if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
@@ -2291,5 +2292,8 @@ void hpersistCommand(client *c) {
 
         hfieldPersist(c->db, hashObj, hf);
         addReplyLongLong(c, HFE_PERSIST_OK);
+        changed = 1;
     }
+    
+    if (changed) notifyKeyspaceEvent(NOTIFY_HASH,"hpersist",c->argv[1],c->db->id);
 }
