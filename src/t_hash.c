@@ -3581,7 +3581,9 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
             return 0;
         }
 
+        /* Field value will be updated. */
         ret = HSETF_FIELD;
+
         /* Decide if we are going to set TTL */
         if (hsetfCheckTTLCondition(flag, prevExpire, expireAt))
             ret = HSETF_FIELD_AND_TTL;
@@ -3652,7 +3654,9 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
             return 0;
         }
 
+        /* Field value will be updated. */
         ret = HSETF_FIELD;
+
         /* Decide if we are going to set/discard TTL */
         if (hsetfCheckTTLCondition(flag, prevExpire, expireAt))
             ret = HSETF_FIELD_AND_TTL;
