@@ -20,7 +20,7 @@ set P_OK           1
 ######## HSETF
 set S_FAIL          0
 set S_FIELD         1
-set S_FIELD_AND_TTL 2
+set S_FIELD_AND_TTL 3
 
 ############################### AUX FUNCS ######################################
 
@@ -678,6 +678,13 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hgetf myhash EX 10000 NX FIELDS 2 field1 field2] [list  "value1" "value2"]
             assert_lessthan_equal [r httl myhash 1 field1] 1000
             assert_morethan_equal [r httl myhash 1 field2] 5000
+
+            # A field with no expiration is treated as an infinite expiration.
+            # LT should set the expire time if field has no TTL.
+            r del myhash
+            r hset myhash field1 value1
+            assert_equal [r hgetf myhash EX 1500 LT FIELDS 1 field1]  [list  "value1"]
+            assert_not_equal [r httl myhash 1 field1] "$T_NO_EXPIRY"
         }
 
         test "HGETF - Test 'XX' flag ($type)" {
@@ -877,12 +884,18 @@ start_server {tags {"external:skip needs:debug"}} {
 
         test "HSETF - Test 'LT' flag ($type)" {
             r del myhash
-            r hset myhash f1 value1 f2 value2 field3 value3
+            r hset myhash f1 v1 f2 v2 f3 v3
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 v1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 2000 NX FVS 1 f2 v2] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 1500 LT FVS 2 f1 v1 f2 v2] "$S_FIELD $S_FIELD_AND_TTL"
             assert_lessthan_equal [r httl myhash 1 f1] 1000
             assert_lessthan_equal [r httl myhash 1 f2] 1500
+
+            # A field with no expiration is treated as an infinite expiration.
+            # LT should set the expire time if field has no TTL.
+            r del myhash
+            r hset myhash f1 v1
+            assert_equal [r hsetf myhash EX 1500 LT FVS 1 f1 v1]  "$S_FIELD_AND_TTL"
         }
 
         test "HSETF - Test 'EX' flag ($type)" {
@@ -945,6 +958,12 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetf myhash GETNEW DOF fvs 2 f1 n1 f2 n2] "n1 n2"
             assert_equal [r hsetf myhash GETNEW DCF fvs 2 f1 x1 f2 x2] "x1 x2"
             assert_equal [r hsetf myhash GETNEW DCF fvs 2 f4 x4 f5 x5] "{} {}"
+
+            r del myhash
+            assert_equal [r hsetf myhash GETOLD fvs 2 f1 v1 f2 v2] "{} {}"
+            # DOF check will prevent override and GETNEW should return old value
+            assert_equal [r hsetf myhash DOF GETNEW fvs 2 f1 v12 f2 v22] "v1 v2"
+
         }
 
         test "HSETF - Test with active expiry" {

@@ -3114,7 +3114,7 @@ void hpersistCommand(client *c) {
 
 #define HSETF_FAIL           0       /* Failed to set value (DCF/DOF not met) */
 #define HSETF_FIELD          1       /* Field value is set without TTL */
-#define HSETF_FIELD_AND_TTL  2       /* Both field value and TTL is set */
+#define HSETF_FIELD_AND_TTL  3       /* Both field value and TTL is set */
 
 /* Validate expire time is not more than EB_EXPIRE_TIME_MAX,
  * or it does not overflow */
@@ -3339,23 +3339,17 @@ static int hgetfReplyValueAndSetExpiry(client *c, robj *o, sds field, int flag,
         serverPanic("Unknown encoding: %d", o->encoding);
     }
 
-    /* Check if any of EX, EXAT, PX, PXAT, PERSIST flags is set */
-    if (!(flag & (HFE_CMD_EXPIRY_MASK))) {
+    if (!(flag & HFE_CMD_EXPIRY_MASK) || /* Check if any of EX, EXAT, PX, PXAT, PERSIST flags is set */
+        ((flag & HFE_CMD_GT) && (expireAt <= prevExpire)) ||
+        ((flag & HFE_CMD_LT) && (expireAt >= prevExpire)) ||
+        ((flag & HFE_CMD_XX) && (prevExpire == EB_EXPIRE_TIME_INVALID)) ||
+        ((flag & HFE_CMD_NX) && (prevExpire != EB_EXPIRE_TIME_INVALID)) ||
+        ((flag & HFE_CMD_PERSIST) && (prevExpire == EB_EXPIRE_TIME_INVALID))) {
         return 0;
     }
 
-    if (prevExpire == EB_EXPIRE_TIME_INVALID) {
-        if (flag & (HFE_CMD_XX | HFE_CMD_LT | HFE_CMD_GT | HFE_CMD_PERSIST))
-            return 0;
-    } else {
-        if (((flag & HFE_CMD_GT) && (prevExpire >= expireAt)) ||
-            ((flag & HFE_CMD_LT) && (prevExpire <= expireAt)) ||
-            (flag & HFE_CMD_NX))
-            return 0;
-
-        if (*minPrevExp > prevExpire)
-            *minPrevExp = prevExpire;
-    }
+    if (*minPrevExp > prevExpire)
+        *minPrevExp = prevExpire;
 
     /* if expiration time is in the past */
     if (checkAlreadyExpired(expireAt)) {
@@ -3513,18 +3507,69 @@ void hgetfCommand(client *c) {
     }
 }
 
-/* Set fields and  expire time according to 'flag'.
+/* Check hsetf command args and return 1 if TTL will be updated/discarded. */
+int hsetfCheckTTLCondition(int flag, uint64_t prevExpire, uint64_t expireAt) {
+    /* When none of EX, PX, EXAT, PXAT, KEEPTTL are specified:
+     * any previous expiration time associated with field is discarded. */
+    if (!(flag & HFE_CMD_EXPIRY_MASK) && prevExpire != EB_EXPIRE_TIME_INVALID)
+        return 1;
+
+    if ((flag & (HFE_CMD_PX | HFE_CMD_PXAT | HFE_CMD_EX | HFE_CMD_EXAT))) {
+        if (((flag & HFE_CMD_COND_MASK) == 0) || /* None of NX, PX, GT, LT is set */
+            ((flag & HFE_CMD_GT) && (expireAt > prevExpire)) ||
+            ((flag & HFE_CMD_LT) && (expireAt < prevExpire)) ||
+            (flag & HFE_CMD_XX && prevExpire != EB_EXPIRE_TIME_INVALID) ||
+            (flag & HFE_CMD_NX && prevExpire == EB_EXPIRE_TIME_INVALID)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* For hsetf command, add reply from listpack item */
+static void hsetfListpackAddReplyFrom(client *c, unsigned char *vptr) {
+    unsigned int vlen = UINT_MAX;
+    long long vll = LLONG_MAX;
+    unsigned char *vstr = NULL;
+
+    if (!vptr) {
+        addReplyNull(c);
+    } else {
+        vstr = lpGetValue(vptr, &vlen, &vll);
+        if (vstr)
+            addReplyBulkCBuffer(c, vstr, vlen);
+        else
+            addReplyLongLong(c, vll);
+    }
+}
+
+/* For hsetf command, add reply to client according to flag argument. */
+void hsetfDictAddReplyFrom(client *c, int flag, sds prevval, sds newval, int ret) {
+    if (flag & HFE_CMD_GETOLD)
+        if (!prevval)
+            addReplyNull(c);
+        else
+            addReplyBulkCBuffer(c, prevval, sdslen(prevval));
+    else if (flag & HFE_CMD_GETNEW)
+        if (!newval)
+            addReplyNull(c);
+        else
+            addReplyBulkCBuffer(c, newval, sdslen(newval));
+    else
+        addReplyLongLong(c, ret);
+}
+
+/* Set field and expire time according to 'flag'.
  * Return 1 if field and/or expire time is updated. */
 static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
                                  int flag, uint64_t expireAt, uint64_t *minPrevExp)
 {
+    int ret = HSETF_FAIL;
     uint64_t prevExpire = EB_EXPIRE_TIME_INVALID;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK_TTL) {
-        unsigned int vlen = UINT_MAX;
-        long long vll = LLONG_MAX;
         long long expire;
-        unsigned char *fptr, *vptr = NULL, *tptr, *h, *vstr;
+        unsigned char *fptr, *vptr = NULL, *tptr, *h;
         listpackTTL *lpt = o->ptr;
 
         fptr = lpFirst(lpt->lp);
@@ -3541,106 +3586,50 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
             }
         }
 
-        if (fptr == NULL) { /* Field does not exist */
-            int ret = HSETF_FAIL;
-
-            /* Check if "don't create field" is set */
-            if (flag & HFE_CMD_DCF) {
-                if (flag & (HFE_CMD_GETNEW | HFE_CMD_GETOLD))
-                    addReplyNull(c);
-                else
-                    addReplyLongLong(c, ret);
-
-                return 0;
-            }
-
-            ret = HSETF_FIELD;
-            /* Decide if we are going to set TTL */
-            if (flag & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT)) {
-                /* As the field does not exist, add expiry time if there is none
-                 * of NX/XX/LT/GT flags exist or NX flag is set. */
-                if (flag & HFE_CMD_NX || (flag & HFE_CMD_COND_MASK) == 0)
-                    ret = HSETF_FIELD_AND_TTL; /* Both value and ttl will be set */
-            }
-
-            if (flag & HFE_CMD_GETOLD)
-                addReplyNull(c);
-            else if (flag & HFE_CMD_GETNEW)
-                addReplyBulkCBuffer(c, value, sdslen(value));
+        /* Check DCF (don't create fields) and DOF (don't override fields) arg. */
+        if ((!fptr && (flag & HFE_CMD_DCF)) || (fptr && (flag & HFE_CMD_DOF))) {
+            if (flag & (HFE_CMD_GETNEW | HFE_CMD_GETOLD))
+                hsetfListpackAddReplyFrom(c, vptr);
             else
                 addReplyLongLong(c, ret);
 
+            return 0;
+        }
+
+        ret = HSETF_FIELD;
+        /* Decide if we are going to set TTL */
+        if (hsetfCheckTTLCondition(flag, prevExpire, expireAt))
+            ret = HSETF_FIELD_AND_TTL;
+
+        if (flag & HFE_CMD_GETOLD)
+            hsetfListpackAddReplyFrom(c, vptr);
+        else if (flag & HFE_CMD_GETNEW)
+            addReplyBulkCBuffer(c, (char*)value, sdslen(value));
+        else
+            addReplyLongLong(c, ret);
+
+        if (!fptr) {
             if (ret != HSETF_FIELD_AND_TTL) {
                 listpackTTLAddNew(o, field, value, HASH_LP_NO_TTL);
             } else {
                 /* If expiration time is in the past, no need to create the field */
-                if (checkAlreadyExpired(expireAt))
-                    return 1;
+                if (!checkAlreadyExpired(expireAt)) {
+                    if (*minPrevExp > expireAt)
+                        *minPrevExp = expireAt;
 
-                listpackTTLAddNew(o, field, value, expireAt);
+                    listpackTTLAddNew(o, field, value, expireAt);
+                }
             }
 
             return 1;
         } else {
-            int ret = HSETF_FAIL;
-
-            /* Check if "don't override field" flag is set. */
-            if (flag & HFE_CMD_DOF) {
-                if (flag & (HFE_CMD_GETOLD | HFE_CMD_GETNEW)) {
-                    vstr = lpGetValue(vptr, &vlen, &vll);
-                    if (vstr)
-                        addReplyBulkCBuffer(c, vstr, vlen);
-                    else
-                        addReplyLongLong(c, vll);
-                } else {
-                    addReplyLongLong(c, ret);
-                }
-
-                return 0;
-            }
-
-            /* If requested, reply with old value before overriding it. */
-            if (flag & HFE_CMD_GETOLD) {
-                vstr = lpGetValue(vptr, &vlen, &vll);
-                if (vstr)
-                    addReplyBulkCBuffer(c, vstr, vlen);
-                else
-                    addReplyLongLong(c, vll);
-            }
-
-            ret = HSETF_FIELD;
-            /* Replace value */
             lpt->lp = lpReplace(lpt->lp, &vptr, (unsigned char *) value, sdslen(value));
             fptr = lpPrev(lpt->lp, vptr); /* Update fptr as above line invalidates it. */
             serverAssert(fptr != NULL);
 
-            /* Decide if we are going to set/discard TTL. */
-            if (prevExpire == EB_EXPIRE_TIME_INVALID) {
-                if (flag & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT))
-                    /* Update expiry time if none of NX/XX/LT/GT flags exist or
-                     * NX flag is set. TODO: LT should be here. */
-                    if (flag & (HFE_CMD_NX) || (flag & HFE_CMD_COND_MASK) == 0)
-                        ret = HSETF_FIELD_AND_TTL;
-            } else {
-                /* If none of EX,EXAT,PX,PXAT,KEEPTTL is specified, TTL is
-                 * discarded. In that case, return value should be
-                 * HSETF_FIELD_AND_TTL as well*/
-                if ((!(flag & HFE_CMD_EXPIRY_MASK)) ||
-                      ((flag & HFE_CMD_GT) && (expireAt > prevExpire)) ||
-                      ((flag & HFE_CMD_LT) && (expireAt < prevExpire)) ||
-                      (flag & HFE_CMD_XX))
-                        ret = HSETF_FIELD_AND_TTL;
-            }
-
-            if (flag & HFE_CMD_GETOLD)
-                ; /* If GETOLD flag is used, replied above */
-            else if (flag & HFE_CMD_GETNEW)
-                addReplyBulkCBuffer(c, value, sdslen(value));
-            else
-                addReplyLongLong(c, ret);
-
             if (ret == HSETF_FIELD_AND_TTL) {
-                *minPrevExp = min(*minPrevExp, prevExpire);
+                if (*minPrevExp > prevExpire)
+                    *minPrevExp = prevExpire;
 
                 if (!(flag & HFE_CMD_EXPIRY_MASK)) {
                     /* If none of EX,EXAT,PX,PXAT,KEEPTTL is specified, TTL is
@@ -3649,11 +3638,12 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
                 } else if (checkAlreadyExpired(expireAt)) {
                     hashTypeDelete(o, field);
                 } else {
-                    *minPrevExp = min(*minPrevExp, expireAt);
+                    if (*minPrevExp > expireAt)
+                        *minPrevExp = expireAt;
+
                     listpackTTLUpdateExpiry(o, field, fptr, vptr, expireAt);
                 }
             }
-
             return 1;
         }
     } else if (o->encoding == OBJ_ENCODING_HT) {
@@ -3661,135 +3651,65 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
         dictEntry *de = NULL;
         dict *d  = o->ptr;
         dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
+        sds prevVal = NULL;
 
         /* First retrieve the field to check if it exists */
         de = dictFind(d, field);
-        if (de == NULL) {
-            int ret = HSETF_FAIL;
-
-            /* Check if "don't create field" flag is set. */
-            if (flag & HFE_CMD_DCF) {
-                if (flag & (HFE_CMD_GETNEW | HFE_CMD_GETOLD))
-                    addReplyNull(c);
-                else
-                    addReplyLongLong(c, ret);
-
-                return 0;
-            }
-
-            ret = HSETF_FIELD;
-            /* Decide if we are going to update TTL */
-            if (flag & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT)) {
-                /* As the field does not exist, add expiry time if there is none
-                 * of NX/XX/LT/GT flags exist or NX flag is set.
-                 * TODO: LT should be here. */
-                if (flag & HFE_CMD_NX || (flag & HFE_CMD_COND_MASK) == 0) {
-                    ret = HSETF_FIELD_AND_TTL;
-                }
-            }
-
-            if (flag & HFE_CMD_GETOLD)
-                addReplyNull(c);
-            else if (flag & HFE_CMD_GETNEW)
-                addReplyBulkCBuffer(c, value, sdslen(value));
-            else
-                addReplyLongLong(c, ret);
-
-            /* If expiration time is in the past, no need to create field */
-            if (ret == HSETF_FIELD_AND_TTL && checkAlreadyExpired(expireAt))
-                return 1;
-
-            int withExpireMeta = (ret == HSETF_FIELD_AND_TTL) ? 1 : 0;
-            hfield hfNew = hfieldNew(field, sdslen(field), withExpireMeta);
-
-            dictUseStoredKeyApi(d, 1);
-            de = dictAddRaw(d, hfNew, NULL);
-            dictUseStoredKeyApi(d, 0);
-
-            dictSetVal(d, de, sdsdup(value));
-
-            if (ret == HSETF_FIELD_AND_TTL) {
-                *minPrevExp = min(*minPrevExp, expireAt);
-                ebAdd(&meta->hfe, &hashFieldExpireBucketsType, hfNew, expireAt);
-            }
-
-            return 1;
-        } else {
-            int ret = HSETF_FAIL;
-
+        if (de) {
             hf = dictGetKey(de);
             prevExpire = hfieldGetExpireTime(hf);
-            sds prevVal = dictGetVal(de);
+            prevVal = dictGetVal(de);
+        }
 
-            /* Check if "don't overwrite field" flag is set. */
-            if (flag & HFE_CMD_DOF) {
-                if (flag & (HFE_CMD_GETNEW | HFE_CMD_GETOLD))
-                    addReplyBulkCBuffer(c, prevVal, sdslen(prevVal));
-                else
-                    addReplyLongLong(c, ret);
+        /* Check DCF (don't create fields) and DOF (don't override fields) arg. */
+        if ((!de && (flag & HFE_CMD_DCF)) || (de && (flag & HFE_CMD_DOF))) {
+            hsetfDictAddReplyFrom(c, flag, prevVal, prevVal, ret);
+            return 0;
+        }
 
-                return 0;
+        ret = HSETF_FIELD;
+        if (hsetfCheckTTLCondition(flag, prevExpire, expireAt))
+            ret = HSETF_FIELD_AND_TTL;
+
+        hsetfDictAddReplyFrom(c, flag, prevVal, value, ret);
+
+        if (!hf || !hfieldIsExpireAttached(hf)) {
+            hfieldFree(hf);
+
+            int withExpireMeta = (ret == HSETF_FIELD_AND_TTL) ? 1 : 0;
+            hf = hfieldNew(field, sdslen(field), withExpireMeta);
+
+            if (!de) {
+                dictUseStoredKeyApi(d, 1);
+                de = dictAddRaw(d, hf, NULL);
+                dictUseStoredKeyApi(d, 0);
             }
+            dictSetKey(d, de, hf);
+        }
 
-            dictSetVal(d, de, sdsdup(value));
-            ret = HSETF_FIELD;
+        dictSetVal(d, de, sdsdup(value));
+        sdsfree(prevVal);
 
-            /* Decide if we are going to update TTL */
-            if (prevExpire == EB_EXPIRE_TIME_INVALID) {
-                if (flag & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT)) {
-                    /* Update expiry time if there is none of NX/XX/LT/GT flags
-                     * exist or NX flag is set. */
-                    if (flag & (HFE_CMD_NX) || (flag & HFE_CMD_COND_MASK) == 0)
-                        ret = HSETF_FIELD_AND_TTL;
-                }
-            } else {
+        if (ret == HSETF_FIELD_AND_TTL) {
+            if (*minPrevExp > prevExpire)
+                *minPrevExp = prevExpire;
+
+            if (!(flag & HFE_CMD_EXPIRY_MASK)) {
                 /* If none of EX,EXAT,PX,PXAT,KEEPTTL is specified, TTL is
-                 * discarded. In that case, return value should be
-                 * HSETF_FIELD_AND_TTL as well*/
-                if ((!(flag & HFE_CMD_EXPIRY_MASK)) ||
-                    ((flag & HFE_CMD_GT) && (expireAt > prevExpire)) ||
-                    ((flag & HFE_CMD_LT) && (expireAt < prevExpire)) ||
-                    (flag & HFE_CMD_XX)) {
-                    ret = HSETF_FIELD_AND_TTL;
-                }
+                 * discarded. */
+                hfieldPersist(o, hf);
+            } else if (checkAlreadyExpired(expireAt)) {
+                /* if expiration time is in the past */
+                hashTypeDelete(o, field);
+            } else {
+                if (*minPrevExp > expireAt)
+                    *minPrevExp = expireAt;
+
+                if (prevExpire != EB_EXPIRE_TIME_INVALID)
+                    ebRemove(&meta->hfe, &hashFieldExpireBucketsType, hf);
+
+                ebAdd(&meta->hfe, &hashFieldExpireBucketsType, hf, expireAt);
             }
-
-            if (flag & HFE_CMD_GETOLD)
-                addReplyBulkCBuffer(c, prevVal, sdslen(prevVal));
-            else if (flag & HFE_CMD_GETNEW)
-                addReplyBulkCBuffer(c, value, sdslen(value));
-            else
-                addReplyLongLong(c, ret);
-
-            sdsfree(prevVal);
-
-            if (ret == HSETF_FIELD_AND_TTL) {
-                *minPrevExp = min(*minPrevExp, prevExpire);
-
-                if (!(flag & HFE_CMD_EXPIRY_MASK)) {
-                    hfieldPersist(o, hf);
-                } else if (checkAlreadyExpired(expireAt)) {
-                    /* if expiration time is in the past */
-                    hashTypeDelete(o, field);
-                    return 1;
-                } else {
-                    if (!hfieldIsExpireAttached(hf)) {
-                        /* allocate new field with expire metadata */
-                        hfield hfNew = hfieldNew(hf, hfieldlen(hf), 1);
-                        /* Replace the old field with the new one with metadata */
-                        dictSetKey(d, de, hfNew);
-                        hfieldFree(hf);
-                        hf = hfNew;
-                    }
-
-                    if (prevExpire != EB_EXPIRE_TIME_INVALID)
-                        ebRemove(&meta->hfe, &hashFieldExpireBucketsType, hf);
-
-                    *minPrevExp = min(*minPrevExp, expireAt);
-                    ebAdd(&meta->hfe, &hashFieldExpireBucketsType, hf, expireAt);
-                }
-            }
-            return 1;
         }
     }
 
