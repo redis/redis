@@ -3512,7 +3512,7 @@ int hsetfCheckTTLCondition(int flag, uint64_t prevExpire, uint64_t expireAt) {
 }
 
 /* For hsetf command, add reply from listpack item */
-static void hsetfListpackAddReplyFrom(client *c, unsigned char *vptr) {
+static void hsetfReplyFromListpack(client *c, unsigned char *vptr) {
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
     unsigned char *vstr = NULL;
@@ -3529,7 +3529,7 @@ static void hsetfListpackAddReplyFrom(client *c, unsigned char *vptr) {
 }
 
 /* For hsetf command, add reply to client according to flag argument. */
-void hsetfDictAddReplyFrom(client *c, int flag, sds prevval, sds newval, int ret) {
+void hsetfAddReply(client *c, int flag, sds prevval, sds newval, int ret) {
     if (flag & HFE_CMD_GETOLD)
         if (!prevval)
             addReplyNull(c);
@@ -3574,7 +3574,7 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
         /* Check DCF (don't create fields) and DOF (don't override fields) arg. */
         if ((!fptr && (flag & HFE_CMD_DCF)) || (fptr && (flag & HFE_CMD_DOF))) {
             if (flag & (HFE_CMD_GETNEW | HFE_CMD_GETOLD))
-                hsetfListpackAddReplyFrom(c, vptr);
+                hsetfReplyFromListpack(c, vptr);
             else
                 addReplyLongLong(c, ret);
 
@@ -3587,7 +3587,7 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
             ret = HSETF_FIELD_AND_TTL;
 
         if (flag & HFE_CMD_GETOLD)
-            hsetfListpackAddReplyFrom(c, vptr);
+            hsetfReplyFromListpack(c, vptr);
         else if (flag & HFE_CMD_GETNEW)
             addReplyBulkCBuffer(c, (char*)value, sdslen(value));
         else
@@ -3648,15 +3648,16 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
 
         /* Check DCF (don't create fields) and DOF (don't override fields) arg. */
         if ((!de && (flag & HFE_CMD_DCF)) || (de && (flag & HFE_CMD_DOF))) {
-            hsetfDictAddReplyFrom(c, flag, prevVal, prevVal, ret);
+            hsetfAddReply(c, flag, prevVal, prevVal, ret);
             return 0;
         }
 
         ret = HSETF_FIELD;
+        /* Decide if we are going to set/discard TTL */
         if (hsetfCheckTTLCondition(flag, prevExpire, expireAt))
             ret = HSETF_FIELD_AND_TTL;
 
-        hsetfDictAddReplyFrom(c, flag, prevVal, value, ret);
+        hsetfAddReply(c, flag, prevVal, value, ret);
 
         if (!hf || !hfieldIsExpireAttached(hf)) {
             hfieldFree(hf);
