@@ -3151,6 +3151,20 @@ void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
 
+/* Data structure for OBJ_ENCODING_LISTPACK_TTL. It contains listpack and
+ * metadata fields for hash field expiration.*/
+typedef struct listpackTTL {
+    ExpireMeta meta;  /* To be used in order to register the hash in the
+                         global ebuckets (i.e. db->hexpires) with next,
+                         minimum, hash-field to expire. */
+    sds key;          /* reference to the key, same one that stored in
+                         db->dict. Will be used from active-expiration flow
+                         for notification and deletion of the object, if
+                         needed. */
+    void *lp;         /* listpack that contains 'key-value-ttl' tuples which
+                         are ordered by ttl. */
+} listpackTTL;
+
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
