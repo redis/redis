@@ -242,7 +242,7 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
 
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd,
                       FieldSetCond fieldSetCond, FieldGet fieldGet,
-                      ExpireSetCond expireSetCond, HashTypeSetEx *ex);
+                      ExpireSetCond expireSetCond, HashTypeSetEx *ex, int fromRDB);
 
 SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
                        uint64_t expireAt, HashTypeSetEx *exInfo);
@@ -1067,14 +1067,64 @@ SetExDone:
 }
 
 /*
+ * These 3 functions are a simplification of hashTypeSetExInit,
+ * hashTypeSetEx and hashTypeSetExDone. They provide a simpler API
+ * for adding new entries, w/o exposing all the types required for the
+ * original flavor.
+ * They are currently used for RDB reading
+ */
+void *HashTypeGroupSetInit(sds key, robj *o, redisDb *db) {
+    HashTypeSetEx *set = zmalloc(sizeof(HashTypeSetEx));
+    int res;
+    robj keyobj;
+    initStaticStringObject(keyobj, key);
+    res = hashTypeSetExInit(&keyobj, o, NULL, db, NULL, FIELD_DONT_OVRWRT,
+                            FIELD_GET_NONE, HFE_NX, set, 1);
+    if (res != C_OK) {
+        zfree(set);
+        return NULL;
+    }
+
+    return set;
+}
+
+int hashTypeGroupSet(void* ctx, redisDb *db, robj *o, sds field, sds value, uint64_t expire_at) {
+    HashTypeSet setKeyVal = {.value = value, .flags = 0};
+    SetExRes res;
+    if (expire_at == 0)
+        res = hashTypeSetEx(db, o, field, &setKeyVal, expire_at, NULL);
+    else
+        res = hashTypeSetEx(db, o, field, &setKeyVal, expire_at, ctx);
+    if (res != HSETEX_OK) {
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+void hashTypeGroupSetDone(void *ctx) {
+    hashTypeSetExDone(ctx);
+    zfree(ctx);
+}
+
+/*
  * Init HashTypeSetEx struct before calling hashTypeSetEx()
  *
  * Don't have to provide client and "cmd". If provided, then notification once
  * done by function hashTypeSetExDone().
+ *
+ * NOTE: when calling from RDB reading process, the key is not yet available
+ * in the DB. Thereofre, it is not possible to retrieve a pointer to the key to
+ * be used in the expire meta struct.
+ * The expireMeta struct needs to hold a pointer to the key string that is
+ * persistent for the key lifetime. When reading RDB, the key was laready read
+ * and the string it was read into will be later used in the DB. However,
+ * if calling this function from any place else and using this flag, need to
+ * provide a key string in the key robj that will remain persistent for as long
+ * as the key itself is.
  */
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd, FieldSetCond fieldSetCond,
                       FieldGet fieldGet, ExpireSetCond expireSetCond,
-                      HashTypeSetEx *ex)
+                      HashTypeSetEx *ex, int fromRDB)
 {
     dict *ht = o->ptr;
 
@@ -1108,11 +1158,15 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
 
             /* Find the key in the keyspace. Need to keep reference to the key for
              * notifications or even removal of the hash */
-            dictEntry *de = dbFind(db, key->ptr);
-            serverAssert(de != NULL);
+            if (!fromRDB) {
+                dictEntry *de = dbFind(db, key->ptr);
+                serverAssert(de != NULL);
 
-            /* Fillup dict HFE metadata */
-            m->key = dictGetKey(de); /* reference key in keyspace */
+                /* Fillup dict HFE metadata */
+                m->key = dictGetKey(de); /* reference key in keyspace */
+            } else {
+                m->key = key->ptr;
+            }
             m->hfe = ebCreate();     /* Allocate HFE DS */
             m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
         }
@@ -2924,7 +2978,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
                       FIELD_DONT_CREATE2,
                       FIELD_GET_NONE,
                       expireSetCond,
-                      &exCtx);
+                      &exCtx, 0);
 
     addReplyArrayLen(c, numFields);
     for (int i = 0 ; i < numFields ; i++) {

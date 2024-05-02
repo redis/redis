@@ -3206,6 +3206,9 @@ void *listpackExCreateFromListpack(void *lp);
 void *listpackExGetListpack(const robj *o);
 void listpackExUpdateListpack(const robj *o, void *lp);
 void listpackExExpire(robj *o, ExpireInfo *info, long long *expire_stat);
+void *HashTypeGroupSetInit(sds key, robj *o, redisDb *db);
+int hashTypeGroupSet(void* ctx, redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
+void hashTypeGroupSetDone(void *ctx);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);

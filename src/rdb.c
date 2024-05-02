@@ -2247,15 +2247,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
 
-        hfield field;
-        char *hkey;
-        size_t keyLen;
+        size_t fieldLen;
         int hashEntryType;
-        sds value;
+        sds value, field;
         uint64_t ttl, minExpire = UINT64_MAX;
-        int ret;
         mstime_t now = mstime();
         dict *dupSearchDict = NULL;
+        void *hashAddCtx = NULL;
 
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
@@ -2267,6 +2265,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries) {
             hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+            hashAddCtx = HashTypeGroupSetInit(key, o, db);
+            if (hashAddCtx == NULL) {
+                decrRefCount(o);
+                return NULL;
+            }
 
             redisDebug("using dict encoding, hash keys %lu, max listpack keys %lu", len, server.hash_max_listpack_entries);
 
@@ -2287,19 +2290,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             len--;
 
             /* read the key */
-            if ((hkey = rdbGenericLoadStringObject(rdb, RDB_LOAD_PLAIN, &keyLen)) == NULL) {
+            if ((field = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &fieldLen)) == NULL) {
                 decrRefCount(o);
+                if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 return NULL;
             }
 
-            redisDebug("read key %s", hkey);
+            redisDebug("read key %s", field);
 
             /* read the type */
             if ((hashEntryType = rdbLoadType(rdb)) == -1) {
                 decrRefCount(o);
+                if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                zfree(hkey);
+                sdsfree(field);
                 return NULL;
             }
 
@@ -2309,8 +2314,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             if ((unsigned char)hashEntryType & RDB_HASH_ENTRY_VALUE) {
                 if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                     decrRefCount(o);
+                    if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                     if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                    zfree(hkey);
+                    sdsfree(field);
                     return NULL;
                 }
 
@@ -2321,9 +2327,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             if ((unsigned char)hashEntryType & RDB_HASH_ENTRY_TTL) {
                 if (rdbLoadLenByRef(rdb, NULL, &ttl) == -1) {
                     decrRefCount(o);
+                    if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                     if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                    sds_free(value);
-                    zfree(hkey);
+                    sdsfree(value);
+                    sdsfree(field);
                     return NULL;
                 }
 
@@ -2351,10 +2358,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             if (ttl != 0 && iAmMaster() && ((mstime_t)ttl < now)) { /* note: TTL was saved to RDB as unix-time in milliseconds */
                 /* TODO: consider replication (like in rdbLoadAddKeyToDb) */
                 server.rdb_last_load_hash_fields_expired++;
-                zfree(hkey);
+                sdsfree(field);
                 sdsfree(value);
 
-                redisDebug("key %s is expired (ttl %lu < now %lld), discarding", hkey, ttl, now);
+                redisDebug("key %s is expired (ttl %lu < now %lld), discarding", field, ttl, now);
 
                 continue;
             }
@@ -2366,37 +2373,47 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
                 /* integrity - check for key duplication (if required) */
                 if (dupSearchDict) {
-                    sds field_dup = sdsnewlen(field, hfieldlen(field));
+                    sds field_dup = sdsnewlen(field, sdslen(field));
 
                     if (dictAdd(dupSearchDict, field_dup, NULL) != DICT_OK) {
                         rdbReportCorruptRDB("Hash with dup elements");
                         dictRelease(dupSearchDict);
+                        if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                         decrRefCount(o);
                         sdsfree(field_dup);
                         sdsfree(value);
-                        zfree(hkey);
+                        sdsfree(field);
                         return NULL;
                     }
                 }
 
                 /* check if the values can be saved to listpack (or should convert to dict encoding) */
-                if (keyLen > server.hash_max_listpack_value ||
+                if (sdslen(field) > server.hash_max_listpack_value ||
                     sdslen(value) > server.hash_max_listpack_value ||
                     lpEstimateBytesInteger(ttl) > server.hash_max_listpack_value ||
-                    !lpSafeToAdd(listpackExGetListpack(o), keyLen + sdslen(value) + lpEstimateBytesInteger(ttl)))
+                    !lpSafeToAdd(listpackExGetListpack(o), sdslen(field) + sdslen(value) + lpEstimateBytesInteger(ttl)))
                 {
                     /* convert to hash */
                     hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+                    hashAddCtx = HashTypeGroupSetInit(key, o, db);
+                    if (hashAddCtx == NULL) {
+                        decrRefCount(o);
+                        if (dupSearchDict != NULL) dictRelease(dupSearchDict);
+                        sdsfree(value);
+                        sdsfree(field);
+                        return NULL;
+                    }
 
                     redisDebug("converting to dict encoding %d", 0);
 
-                    if (len > DICT_HT_INITIAL_SIZE) { /* TODO: this is NOT the originla len, but this is also the case for simple hash, is this a bug? */
+                    if (len > DICT_HT_INITIAL_SIZE) { /* TODO: this is NOT the original len, but this is also the case for simple hash, is this a bug? */
                         if (dictTryExpand(o->ptr, len) != DICT_OK) {
                             rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
                             decrRefCount(o);
+                            hashTypeGroupSetDone(hashAddCtx);
                             if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                             sdsfree(value);
-                            zfree(hkey);
+                            sdsfree(field);
                             return NULL;
                         }
                     }
@@ -2405,41 +2422,25 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                 } else {
                     void *lp = listpackExGetListpack(o);
 
-                    redisDebug("savin key %s, value %s, TTL %lu to listpack at %p", hkey, value, ttl, lp);
+                    redisDebug("savin key %s, value %s, TTL %lu to listpack at %p", field, value, ttl, lp);
 
-                    lp = lpAppend(lp, (unsigned char *)hkey, keyLen);
-                    lp = lpAppend(lp, (unsigned char*)value, sdslen(value)); /* TODO: what if there is no value? */
+                    lp = lpAppend(lp, (unsigned char *)field, sdslen(field));
+                    lp = lpAppend(lp, (unsigned char *)value, sdslen(value)); /* TODO: what if there is no value? */
                     lp = lpAppendInteger(lp, ttl);
                     listpackExUpdateListpack(o, lp);
-                    zfree(hkey);
+                    sdsfree(field);
                     sdsfree(value);
                 }
             }
 
             if (o->encoding == OBJ_ENCODING_HT) {
-                /* compose the key and TTL (if exists) to a hash field */
-                if ((field = hfieldNew(hkey, keyLen, ttl != 0)) == NULL) {
+                if (hashTypeGroupSet(hashAddCtx, db, o, field, value, ttl) != C_OK) {
                         decrRefCount(o);
                         if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                        sds_free(value);
-                        zfree(hkey);
+                        hashTypeGroupSetDone(hashAddCtx);
+                        sdsfree(value);
+                        sdsfree(field);
                         return NULL;
-                } else
-                    zfree(hkey); /* was copied into the new mstr hash field */
-
-                /* TODO: add the TTL to hfield, possibly after inserting the hfiled to the table */
-
-                /* Add pair to dict */
-                dictUseStoredKeyApi((dict *)o->ptr, 1);
-                ret = dictAdd((dict *)o->ptr, field, value);
-                dictUseStoredKeyApi((dict *)o->ptr, 0);
-                if (ret == DICT_ERR) {
-                    rdbReportCorruptRDB("Duplicate hash fields detected");
-                    decrRefCount(o);
-                    if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                    sdsfree(value);
-                    hfieldFree(field);
-                    return NULL;
                 }
             }
         }
@@ -2448,6 +2449,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
         serverAssert(len == 0);
 
         if (dupSearchDict != NULL) dictRelease(dupSearchDict);
+        if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
 
         /* check for empty key (if all fields were expired) */
         if (hashTypeLength(o, 0) == 0) {
