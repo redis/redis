@@ -886,7 +886,7 @@ struct RedisModuleDigest {
 #define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of listpacks */
 #define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
-#define OBJ_ENCODING_LISTPACK_TTL 12 /* Encoded as a listpack with TTL metadata */
+#define OBJ_ENCODING_LISTPACK_EX 12 /* Encoded as listpack, extended with metadata */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -3151,9 +3151,9 @@ void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
 
-/* Data structure for OBJ_ENCODING_LISTPACK_TTL. It contains listpack and
- * metadata fields for hash field expiration.*/
-typedef struct listpackTTL {
+/* Data structure for OBJ_ENCODING_LISTPACK_EX for hash. It contains listpack
+ * and metadata fields for hash field expiration.*/
+typedef struct listpackEx {
     ExpireMeta meta;  /* To be used in order to register the hash in the
                          global ebuckets (i.e. db->hexpires) with next,
                          minimum, hash-field to expire. */
@@ -3163,7 +3163,7 @@ typedef struct listpackTTL {
                          needed. */
     void *lp;         /* listpack that contains 'key-value-ttl' tuples which
                          are ordered by ttl. */
-} listpackTTL;
+} listpackEx;
 
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)

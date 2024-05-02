@@ -1233,7 +1233,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             p = lpNext(o->ptr, p);
         }
         cursor = 0;
-    } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_TTL) {
+    } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         int64_t len;
         long long expireAt;
         unsigned char *lp = hashTypeListpackGetLp(o);

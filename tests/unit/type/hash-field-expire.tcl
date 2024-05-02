@@ -1006,8 +1006,8 @@ start_server {tags {"external:skip needs:debug"}} {
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         r hpexpire myhash 5 2 f2 f4
 
-        # Just to have code coverage for the new listpack encoding
-        assert_equal [r object encoding myhash] "listpack_ttl"
+        # Just to have code coverage for the listpackex encoding
+        assert_equal [r object encoding myhash] "listpackex"
     }
 
     test "Test listpack converts to ht and passive expiry works" {
