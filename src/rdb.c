@@ -954,7 +954,6 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
             int withTtl = 0; /* whether there is at least one field with a valid TTL */
-            unsigned char hashEntryType;
             uint64_t ttl = 0;
 
             /* save number of fileds in hash */
@@ -991,38 +990,25 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                  * metadata types, and than the types themselves (note that the
                  * order is fixed, i.e. future extensions may only add new
                  * metadata types at the end) */
-                if (withTtl) {
-                    hashEntryType = 0;
-                    if (value != NULL) hashEntryType |= RDB_HASH_ENTRY_VALUE;
-                    if (hfieldIsExpireAttached(field)) {
-                        ttl = hfieldGetExpireTime(field);
-                        hashEntryType |= RDB_HASH_ENTRY_TTL;
-                    } else
-                        ttl = 0;
-                    if ((n = rdbSaveType(rdb, hashEntryType)) == -1) {
-                        dictReleaseIterator(di);
-                        return -1;
-                    }
-                    nwritten += n;
-
-                    redisDebug("saved hash type 0x%x", hashEntryType);
+                if (withTtl && hfieldIsExpireAttached(field)) {
+                    ttl = hfieldGetExpireTime(field);
+                } else {
+                    ttl = 0;
                 }
 
                 /* save the value */
-                if (value != NULL) {
-                    if ((n = rdbSaveRawString(rdb,(unsigned char*)value,
-                            sdslen(value))) == -1)
-                    {
-                        dictReleaseIterator(di);
-                        return -1;
-                    }
-                    nwritten += n;
-
-                    redisDebug("saved hash value %s", (char *)value);
+                if ((n = rdbSaveRawString(rdb,(unsigned char*)value,
+                        sdslen(value))) == -1)
+                {
+                    dictReleaseIterator(di);
+                    return -1;
                 }
+                nwritten += n;
+
+                redisDebug("saved hash value %s", (char *)value);
 
                 /* save the TTL */
-                if (withTtl && (ttl != 0)) {
+                if (withTtl) {
                     if ((n = rdbSaveLen(rdb, ttl)) == -1) {
                         dictReleaseIterator(di);
                         return -1;
@@ -2248,7 +2234,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
     } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
 
         size_t fieldLen;
-        int hashEntryType;
         sds value, field;
         uint64_t ttl, minExpire = UINT64_MAX;
         mstime_t now = mstime();
@@ -2289,7 +2274,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
         while (len > 0) {
             len--;
 
-            /* read the key */
+            /* read the field name */
             if ((field = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &fieldLen)) == NULL) {
                 decrRefCount(o);
                 if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
@@ -2297,10 +2282,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                 return NULL;
             }
 
-            redisDebug("read key %s", field);
+            redisDebug("read hash field name %s", field);
 
-            /* read the type */
-            if ((hashEntryType = rdbLoadType(rdb)) == -1) {
+            /* read the value */
+            if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                 decrRefCount(o);
                 if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
@@ -2308,40 +2293,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                 return NULL;
             }
 
-            redisDebug("read hash type 0x%x", hashEntryType);
+            redisDebug("read hash value %s", (char *)value);
 
-            /* if the type indicated value exists, read it */
-            if ((unsigned char)hashEntryType & RDB_HASH_ENTRY_VALUE) {
-                if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-                    decrRefCount(o);
-                    if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
-                    if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                    sdsfree(field);
-                    return NULL;
-                }
-
-                redisDebug("read hash value %s", (char *)value);
+            /* read the TTL */
+            if (rdbLoadLenByRef(rdb, NULL, &ttl) == -1) {
+                decrRefCount(o);
+                if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
+                if (dupSearchDict != NULL) dictRelease(dupSearchDict);
+                sdsfree(value);
+                sdsfree(field);
+                return NULL;
             }
 
-            /* if the type indicated TTL exists, read it */
-            if ((unsigned char)hashEntryType & RDB_HASH_ENTRY_TTL) {
-                if (rdbLoadLenByRef(rdb, NULL, &ttl) == -1) {
-                    decrRefCount(o);
-                    if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
-                    if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                    sdsfree(value);
-                    sdsfree(field);
-                    return NULL;
-                }
-
-                redisDebug("read hash TTL %lu", ttl);
-
-            } else {
-                ttl = 0;
-
-                redisDebug("no ttl value, using default %d", 0);
-
-            }
+            redisDebug("read hash TTL %lu", ttl);
 
             /* Check if the hash field already expired. This function is used when
             * loading an RDB file from disk, either at startup, or when an RDB was

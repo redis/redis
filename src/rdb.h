@@ -122,10 +122,6 @@
 #define RDB_LOAD_ERR_EMPTY_KEY  1   /* Error of empty key */
 #define RDB_LOAD_ERR_OTHER      2   /* Any other errors */
 
-/* Flags for hash entry content when reading/writing a RDB_TYPE_HASH_METADATA */
-#define RDB_HASH_ENTRY_VALUE (1<<0) /* this hash entry contains a value */
-#define RDB_HASH_ENTRY_TTL   (1<<1) /* this hash entry contains a TTL */
-
 ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);

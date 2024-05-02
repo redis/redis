@@ -80,6 +80,8 @@ char *rdb_type_string[] = {
     "stream-v2",
     "set-listpack",
     "stream-v3",
+    "hash-md-hashtable",
+    "hash-md-listpack",
 };
 
 /* Show a few stats collected into 'rdbstate' */
