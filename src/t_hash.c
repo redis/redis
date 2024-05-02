@@ -242,7 +242,7 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
 
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd,
                       FieldSetCond fieldSetCond, FieldGet fieldGet,
-                      ExpireSetCond expireSetCond, HashTypeSetEx *ex, int fromRDB);
+                      ExpireSetCond expireSetCond, HashTypeSetEx *ex, int keyInDB);
 
 SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
                        uint64_t expireAt, HashTypeSetEx *exInfo);
@@ -1079,7 +1079,7 @@ void *HashTypeGroupSetInit(sds key, robj *o, redisDb *db) {
     robj keyobj;
     initStaticStringObject(keyobj, key);
     res = hashTypeSetExInit(&keyobj, o, NULL, db, NULL, FIELD_DONT_OVRWRT,
-                            FIELD_GET_NONE, HFE_NX, set, 1);
+                            FIELD_GET_NONE, HFE_NX, set, 0);
     if (res != C_OK) {
         zfree(set);
         return NULL;
@@ -1116,15 +1116,15 @@ void hashTypeGroupSetDone(void *ctx) {
  * in the DB. Thereofre, it is not possible to retrieve a pointer to the key to
  * be used in the expire meta struct.
  * The expireMeta struct needs to hold a pointer to the key string that is
- * persistent for the key lifetime. When reading RDB, the key was laready read
+ * persistent for the key lifetime. When reading RDB, the key was already read
  * and the string it was read into will be later used in the DB. However,
- * if calling this function from any place else and using this flag, need to
- * provide a key string in the key robj that will remain persistent for as long
- * as the key itself is.
+ * if calling this function from any place else and using this flag, you'll need
+ * to provide a key string in the key robj that will remain persistent for as
+ * long as the key itself is.
  */
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd, FieldSetCond fieldSetCond,
                       FieldGet fieldGet, ExpireSetCond expireSetCond,
-                      HashTypeSetEx *ex, int fromRDB)
+                      HashTypeSetEx *ex, int keyInDB)
 {
     dict *ht = o->ptr;
 
@@ -1158,7 +1158,7 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
 
             /* Find the key in the keyspace. Need to keep reference to the key for
              * notifications or even removal of the hash */
-            if (!fromRDB) {
+            if (keyInDB) {
                 dictEntry *de = dbFind(db, key->ptr);
                 serverAssert(de != NULL);
 
@@ -2978,7 +2978,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
                       FIELD_DONT_CREATE2,
                       FIELD_GET_NONE,
                       expireSetCond,
-                      &exCtx, 0);
+                      &exCtx, 1);
 
     addReplyArrayLen(c, numFields);
     for (int i = 0 ; i < numFields ; i++) {
