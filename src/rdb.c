@@ -956,7 +956,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             int withTtl = 0; /* whether there is at least one field with a valid TTL */
             uint64_t ttl = 0;
 
-            /* save number of fileds in hash */
+            /* save number of fields in hash */
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) {
                 dictReleaseIterator(di);
                 return -1;
@@ -1862,11 +1862,11 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
 /* Validate the integrity of the listpack structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one.
- * uniqness_factor indicates which elemnts should be verified for uniquness.
- * when it's 1, each elemnt should be unique (set)
+ * uniqueness_factor indicates which elements should be verified for uniqueness.
+ * when it's 1, each element should be unique (set)
  * when it's 2, each second element should be unique (key-value map)
  * when it's 3, each third element should be unique (key-value-ttl map) */
-int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int uniqeness_factor) {
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int uniqueness_factor) {
     if (!deep)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
@@ -1875,12 +1875,12 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int uni
         int uniqeness_factor;
         long count;
         dict *fields; /* Initialisation at the first callback. */
-    } data = {uniqeness_factor, 0, NULL};
+    } data = {uniqueness_factor, 0, NULL};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
-    /* the number of redorcds should be a multiple of the uniqueness factor */
-    if (data.count % uniqeness_factor != 0)
+    /* the number of records should be a multiple of the uniqueness factor */
+    if (data.count % uniqueness_factor != 0)
         ret = 0;
 
     if (data.fields) dictRelease(data.fields);
@@ -2310,13 +2310,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             /* Check if the hash field already expired. This function is used when
             * loading an RDB file from disk, either at startup, or when an RDB was
             * received from the master. In the latter case, the master is
-            * responsible for hash field expiry. If we would expire hash fiedls here,
+            * responsible for hash field expiry. If we would expire hash fields here,
             * the snapshot taken by the master may not be reflected on the slave.
             * Similarly, if the base AOF is RDB format, we want to load all
             * the hash fields there are, since the log of operations in the incr AOF
             * is assumed to work in the exact keyspace state.
-            * Expired hash fields on the master are silenlty discarded.
-            * Note that if all fileds in a hash has expired, the hash would not be
+            * Expired hash fields on the master are silently discarded.
+            * Note that if all fields in a hash has expired, the hash would not be
             * created in memory (because it is created on the first valid field), and
             * thus the key would be discarded as an "empty key" */
             if (ttl != 0 && iAmMaster() && ((mstime_t)ttl < now)) { /* note: TTL was saved to RDB as unix-time in milliseconds */
