@@ -1888,6 +1888,7 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
                 .itemsExpired = 0};
 
         listpackExExpire(hashObj, &info, &server.stat_expired_hash_fields);
+        keystr = ((listpackEx*)hashObj->ptr)->key;
     } else {
         serverAssert(hashObj->encoding == OBJ_ENCODING_HT);
 
