@@ -643,7 +643,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
             assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
             assert_error {*unknown argument*} {r hgetf myhash fields 1 a unknown}
-            assert_error {*missing FIELDS argument*} {r hgetf myhash nx xx lt gt}
+            assert_error {*missing FIELDS argument*} {r hgetf myhash nx ex 100}
 
             r hset myhash f1 v1 f2 v2 f3 v3
             # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
@@ -651,6 +651,26 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash xx fields 1 a}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash gt fields 1 a}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash lt fields 1 a}
+
+            # Only one of NX, XX, GT, and LT can be specified
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash nx xx EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash xx nx EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash gt nx EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash gt lt EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash xx gt EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash lt gt EX 100 fields 1 a}
+
+            # Only one of EX, PX, EXAT, PXAT or PERSIST can be specified
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 PX 1000 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 EXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EXAT 100 EX 1000 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EXAT 100 PX 1000 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PX 100 EXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PX 100 PXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PXAT 100 EX 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PXAT 100 EXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 PERSIST fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PERSIST EX 100 fields 1 a}
 
             # missing expire time
             assert_error {*not an integer or out of range*} {r hgetf myhash ex fields 1 a}
@@ -806,7 +826,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hsetf myhash fvs 3 a b c d}
             assert_error {*wrong number of arguments*} {r hsetf myhash fvs 3 a b}
             assert_error {*unknown argument*} {r hsetf myhash fvs 1 a b unknown}
-            assert_error {*missing FVS argument*} {r hsetf myhash nx xx lt gt}
+            assert_error {*missing FVS argument*} {r hsetf myhash nx nx ex 100}
+            assert_error {*multiple FVS argument*} {r hsetf myhash DC fvs 1 a b fvs 1 a b}
 
             r hset myhash f1 v1 f2 v2 f3 v3
             # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
@@ -814,6 +835,34 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash xx fvs 1 a b}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash gt fvs 1 a b}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash lt fvs 1 a b}
+
+            # Only one of NX, XX, GT, and LT can be specified
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash nx xx EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash xx nx EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash gt nx EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash gt lt EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash xx gt EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash lt gt EX 100 fvs 1 a b}
+
+            # Only one of EX, PX, EXAT, PXAT or KEEPTTL can be specified
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 PX 1000 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 EXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EXAT 100 EX 1000 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EXAT 100 PX 1000 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PX 100 EXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PX 100 PXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PXAT 100 EX 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PXAT 100 EXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 KEEPTTL fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash KEEPTTL EX 100 fvs 1 a b}
+
+            # Only one of DCF, DOF can be specified
+            assert_error {*Only one of DCF or DOF arguments can be specified*} {r hsetf myhash DCF DOF fvs 1 a b}
+            assert_error {*Only one of DCF or DOF arguments can be specified*} {r hsetf myhash DOF DCF fvs 1 a b}
+
+            # Only one of GETNEW, GETOLD can be specified
+            assert_error {*Only one of GETOLD or GETNEW arguments can be specified*} {r hsetf myhash GETNEW GETOLD fvs 1 a b}
+            assert_error {*Only one of GETOLD or GETNEW arguments can be specified*} {r hsetf myhash GETOLD GETNEW fvs 1 a b}
 
             # missing expire time
             assert_error {*not an integer or out of range*} {r hsetf myhash ex fvs 1 a b}

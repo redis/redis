@@ -1249,7 +1249,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             p = lpNext(lp, p);
             serverAssert(!lpGetValue(p, NULL, &expireAt));
 
-            if (hashTypeListpackIsExpired(expireAt) ||
+            if (hashTypeIsExpired(o, expireAt) ||
                (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)))
             {
                 /* jump to the next key/val pair */
