@@ -3200,9 +3200,7 @@ static void updateGlobalHfeDs(redisDb *db, robj *o,uint64_t minExpire, uint64_t 
         ebAdd(&db->hexpires, &hashExpireBucketsType, o, newMinExpire);
 }
 
-/* Parse hgetf command arguments. An argument can occur more than once and only
- * the last occurrence is taken  into account.
- * e.g. hgetf key PX 1000 EX 100 FIELDS 1 a  <-- EX 100 overrides PX 1000 */
+/* Parse hgetf command arguments. */
 static int hgetfParseArgs(client *c, int *flags, uint64_t *expireAt,
                           int *firstFieldPos, int *fieldCount)
 {
@@ -3733,9 +3731,7 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
     return 1;
 }
 
-/* Parse hsetf command arguments. An argument can occur more than once and only
- * the last occurrence is taken into account.
- * e.g. hsetf key PX 1000 EX 100 FVS 1 a b  <-- EX 100 overrides PX 1000 */
+/* Parse hsetf command arguments. */
 static int hsetfParseArgs(client *c, int *flags, uint64_t *expireAt,
                           int *firstFieldPos, int *fieldCount)
 {
