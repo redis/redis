@@ -799,8 +799,8 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
         if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 ob->ptr = newzl;
-        } else if (ob->encoding == OBJ_ENCODING_LISTPACK_TTL) {
-            listpackTTL *newlpt, *lpt = (listpackTTL*)ob->ptr;
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            listpackEx *newlpt, *lpt = (listpackEx*)ob->ptr;
             if ((newlpt = activeDefragAlloc(lpt)))
                 ob->ptr = lpt = newlpt;
             if ((newzl = activeDefragAlloc(lpt->lp)))

@@ -2022,12 +2022,12 @@ void hashTypeFree(robj *o) {
 
 int hashTypeHasMetaHFE(robj *o) {
     return (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) ||
-        o->encoding == OBJ_ENCODING_LISTPACK_TTL;
+        o->encoding == OBJ_ENCODING_LISTPACK_EX;
 }
 
 void hashTypeUpdateMetaKey(robj *o, sds newkey) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK_TTL) {
-        listpackTTL *lpt = o->ptr;
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        listpackEx *lpt = o->ptr;
         lpt->key = newkey;
     } if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) {
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
