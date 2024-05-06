@@ -306,8 +306,8 @@ static void hashDictWithExpireOnRelease(dict *d) {
 /*
  * If any of hash field expiration command is called on a listpack hash object
  * for the first time, we convert it to OBJ_ENCODING_LISTPACK_EX encoding.
- * We allocate "struct listpackEx" which holds metadata to register key to the
- * global DS and listpack pointer. In the listpack, we append another TTL entry
+ * We allocate "struct listpackEx" which holds listpack pointer and metadata to
+ * register key to the global DS. In the listpack, we append another TTL entry
  * for each field-value pair. From now on, listpack will have triplets in it:
  * field-value-ttl. If TTL is not set for a field, we store 'zero' as the TTL
  * value. 'zero' is encoded as two bytes in the listpack. Memory overhead of a
@@ -427,13 +427,12 @@ static void listpackExPersist(robj *o, sds field, unsigned char *fptr,
 {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
 
-    unsigned char *s;
-    listpackEx *lpt = o->ptr;
-
+    unsigned char tmp[512];
     unsigned int slen;
     long long val;
-    unsigned char tmp[512];
+    unsigned char *s;
     sds p = NULL;
+    listpackEx *lpt = o->ptr;
 
     /* To persist a field, we have to delete it first and append to the end as
      * we want to maintain order by expiry time. Before deleting it, copy the
@@ -550,7 +549,7 @@ static void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
     unsigned char *fptr, *s, *elem;
     listpackEx *lpt = o->ptr;
 
-    /* Shortcut, just append at the end. */
+    /* Shortcut, just append at the end if this is a non-volatile field. */
     if (expireAt == HASH_LP_NO_TTL) {
         goto append;
     }
@@ -600,8 +599,10 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
 {
     long long expireTime;
     uint64_t prevExpire = EB_EXPIRE_TIME_INVALID;
+    unsigned char *s;
 
-    lpGetValue(tptr, NULL, &expireTime);
+    s = lpGetValue(tptr, NULL, &expireTime);
+    serverAssert(!s);
 
     if (expireTime != HASH_LP_NO_TTL) {
         prevExpire = (uint64_t) expireTime;
@@ -636,8 +637,7 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
     return HSETEX_OK;
 }
 
-/* Returns 1 if expired.
- * Precondition: 'expireAt' was acquired from the listpackEx structure. */
+/* Returns 1 if expired */
 int hashTypeIsExpired(const robj *o, uint64_t expireAt) {
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         if (expireAt == HASH_LP_NO_TTL)
@@ -1259,7 +1259,7 @@ int hashTypeDelete(robj *o, sds field) {
             fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
             if (fptr != NULL) {
                 /* Delete field, value and ttl */
-                lpt->lp = lpDeleteRangeWithEntry(lpt->lp,&fptr,3);
+                lpt->lp = lpDeleteRangeWithEntry(lpt->lp, &fptr, 3);
                 deleted = 1;
             }
         }
@@ -1392,11 +1392,9 @@ int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
             serverAssert(tptr != NULL);
 
             lpGetValue(tptr, NULL, &expire_time);
-            if (!skipExpiredFields ||
-                !hashTypeIsExpired(hi->subject, expire_time))
-            {
+
+            if (!skipExpiredFields || !hashTypeIsExpired(hi->subject, expire_time))
                 break;
-            }
 
             fptr = lpNext(zl, tptr);
         }
@@ -1699,10 +1697,11 @@ robj *hashTypeDup(robj *o, sds newkey, uint64_t *minHashExpire) {
         if (lpt->meta.trash == 0)
             *minHashExpire = ebGetMetaExpTime(&lpt->meta);
 
-        size_t sz = lpBytes(lpt->lp);
         listpackEx *dup = listpackExCreate();
-        dup->lp = lpNew(sz);
         dup->key = newkey;
+
+        size_t sz = lpBytes(lpt->lp);
+        dup->lp = lpNew(sz);
         memcpy(dup->lp, lpt->lp, sz);
 
         hobj = createObject(OBJ_HASH, dup);
@@ -3215,6 +3214,11 @@ static int hgetfParseArgs(client *c, int *flags, uint64_t *expireAt,
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
             long long val;
 
+            if (*firstFieldPos != -1) {
+                addReplyErrorFormat(c, "multiple FIELDS argument");
+                return C_ERR;
+            }
+
             if (i >= c->argc - 2) {
                 addReplyErrorArity(c);
                 return C_ERR;
@@ -3238,29 +3242,28 @@ static int hgetfParseArgs(client *c, int *flags, uint64_t *expireAt,
             i = *firstFieldPos + *fieldCount - 1;
         } else if (!strcasecmp(c->argv[i]->ptr, "NX")) {
             if (*flags & (HFE_CMD_XX | HFE_CMD_GT | HFE_CMD_LT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_NX;
         } else if (!strcasecmp(c->argv[i]->ptr, "XX")) {
             if (*flags & (HFE_CMD_NX | HFE_CMD_GT | HFE_CMD_LT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_XX;
         } else if (!strcasecmp(c->argv[i]->ptr, "GT")) {
             if (*flags & (HFE_CMD_NX | HFE_CMD_XX | HFE_CMD_LT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_GT;
         } else if (!strcasecmp(c->argv[i]->ptr, "LT")) {
             if (*flags & (HFE_CMD_NX | HFE_CMD_XX | HFE_CMD_GT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_LT;
         } else if (!strcasecmp(c->argv[i]->ptr, "EX")) {
             if (*flags & (HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT | HFE_CMD_PERSIST))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_EX;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_SECONDS, c->argv[i],
                                commandTimeSnapshot(), expireAt) != C_OK)
@@ -3268,44 +3271,41 @@ static int hgetfParseArgs(client *c, int *flags, uint64_t *expireAt,
 
         } else if (!strcasecmp(c->argv[i]->ptr, "PX")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PXAT | HFE_CMD_PERSIST))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_PX;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_MILLISECONDS, c->argv[i],
                                commandTimeSnapshot(), expireAt) != C_OK)
                 return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "EXAT")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_PX | HFE_CMD_PXAT | HFE_CMD_PERSIST))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_EXAT;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_SECONDS, c->argv[i], 0, expireAt) != C_OK)
                 return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "PXAT")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PERSIST))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_PXAT;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_MILLISECONDS, c->argv[i], 0, expireAt) != C_OK)
                 return C_ERR;
         }  else if (!strcasecmp(c->argv[i]->ptr, "PERSIST")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT))
-                goto err_ttl;
+                goto err_expiration;
             *flags |= HFE_CMD_PERSIST;
         } else {
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
@@ -3328,11 +3328,13 @@ static int hgetfParseArgs(client *c, int *flags, uint64_t *expireAt,
 
     return C_OK;
 
-err_comparison:
+err_missing_expire:
+    addReplyError(c, "missing expire time");
+    return C_ERR;
+err_condition:
     addReplyError(c, "Only one of NX, XX, GT, and LT arguments can be specified");
     return C_ERR;
-
-err_ttl:
+err_expiration:
     addReplyError(c, "Only one of EX, PX, EXAT, PXAT or PERSIST arguments can be specified");
     return C_ERR;
 }
@@ -3773,29 +3775,28 @@ static int hsetfParseArgs(client *c, int *flags, uint64_t *expireAt,
             i = *firstFieldPos + (*fieldCount) * 2 - 1;
         } else if (!strcasecmp(c->argv[i]->ptr, "NX")) {
             if (*flags & (HFE_CMD_XX | HFE_CMD_GT | HFE_CMD_LT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_NX;
         } else if (!strcasecmp(c->argv[i]->ptr, "XX")) {
             if (*flags & (HFE_CMD_NX | HFE_CMD_GT | HFE_CMD_LT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_XX;
         } else if (!strcasecmp(c->argv[i]->ptr, "GT")) {
             if (*flags & (HFE_CMD_NX | HFE_CMD_XX | HFE_CMD_LT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_GT;
         } else if (!strcasecmp(c->argv[i]->ptr, "LT")) {
             if (*flags & (HFE_CMD_NX | HFE_CMD_XX | HFE_CMD_GT))
-                goto err_comparison;
+                goto err_condition;
             *flags |= HFE_CMD_LT;
         } else if (!strcasecmp(c->argv[i]->ptr, "EX")) {
             if (*flags & (HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT | HFE_CMD_KEEPTTL))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_EX;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_SECONDS, c->argv[i],
                                commandTimeSnapshot(), expireAt) != C_OK)
@@ -3803,70 +3804,59 @@ static int hsetfParseArgs(client *c, int *flags, uint64_t *expireAt,
 
         } else if (!strcasecmp(c->argv[i]->ptr, "PX")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PXAT | HFE_CMD_KEEPTTL))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_PX;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_MILLISECONDS, c->argv[i],
                                commandTimeSnapshot(), expireAt) != C_OK)
                 return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "EXAT")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_PX | HFE_CMD_PXAT | HFE_CMD_KEEPTTL))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_EXAT;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_SECONDS, c->argv[i], 0, expireAt) != C_OK)
                 return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "PXAT")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_KEEPTTL))
-                goto err_ttl;
+                goto err_expiration;
+
+            if (i >= c->argc - 1)
+                goto err_missing_expire;
 
             *flags |= HFE_CMD_PXAT;
-            if (i >= c->argc - 1) {
-                addReplyError(c, "missing expire time");
-                return C_ERR;
-            }
             i++;
             if (validateExpire(c, UNIT_MILLISECONDS, c->argv[i], 0, expireAt) != C_OK)
                 return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
             if (*flags & (HFE_CMD_EX | HFE_CMD_EXAT | HFE_CMD_PX | HFE_CMD_PXAT))
-                goto err_ttl;
+                goto err_expiration;
             *flags |= HFE_CMD_KEEPTTL;
         } else if (!strcasecmp(c->argv[i]->ptr, "DC")) {
             *flags |= HFE_CMD_DC;
         } else if (!strcasecmp(c->argv[i]->ptr, "DCF")) {
-            if (*flags & HFE_CMD_DOF) {
-                addReplyError(c, "Only one of DCF or DOF arguments can be specified");
-                return C_ERR;
-            }
+            if (*flags & HFE_CMD_DOF)
+                goto err_field_condition;
             *flags |= HFE_CMD_DCF;
         } else if (!strcasecmp(c->argv[i]->ptr, "DOF")) {
-            if (*flags & HFE_CMD_DCF) {
-                addReplyError(c, "Only one of DCF or DOF arguments can be specified");
-                return C_ERR;
-            }
+            if (*flags & HFE_CMD_DCF)
+                goto err_field_condition;
             *flags |= HFE_CMD_DOF;
         } else if (!strcasecmp(c->argv[i]->ptr, "GETNEW")) {
-            if (*flags & HFE_CMD_GETOLD) {
-                addReplyError(c, "Only one of GETOLD or GETNEW arguments can be specified");
-                return C_ERR;
-            }
+            if (*flags & HFE_CMD_GETOLD)
+                goto err_return_condition;
             *flags |= HFE_CMD_GETNEW;
         } else if (!strcasecmp(c->argv[i]->ptr, "GETOLD")) {
-            if (*flags & HFE_CMD_GETNEW) {
-                addReplyError(c, "Only one of GETOLD or GETNEW arguments can be specified");
-                return C_ERR;
-            }
+            if (*flags & HFE_CMD_GETNEW)
+                goto err_return_condition;
             *flags |= HFE_CMD_GETOLD;
         } else {
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
@@ -3889,12 +3879,21 @@ static int hsetfParseArgs(client *c, int *flags, uint64_t *expireAt,
 
     return C_OK;
 
-err_comparison:
+
+err_missing_expire:
+    addReplyError(c, "missing expire time");
+    return C_ERR;
+err_condition:
     addReplyError(c, "Only one of NX, XX, GT, and LT arguments can be specified");
     return C_ERR;
-
-err_ttl:
+err_expiration:
     addReplyError(c, "Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments can be specified");
+    return C_ERR;
+err_field_condition:
+    addReplyError(c, "Only one of DCF or DOF arguments can be specified");
+    return C_ERR;
+err_return_condition:
+    addReplyError(c, "Only one of GETOLD or GETNEW arguments can be specified");
     return C_ERR;
 }
 

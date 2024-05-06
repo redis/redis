@@ -666,6 +666,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
             assert_error {*unknown argument*} {r hgetf myhash fields 1 a unknown}
             assert_error {*missing FIELDS argument*} {r hgetf myhash nx ex 100}
+            assert_error {*multiple FIELDS argument*} {r hgetf myhash fields 1 a fields 1 b}
 
             r hset myhash f1 v1 f2 v2 f3 v3
             # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
