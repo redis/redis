@@ -929,7 +929,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_HT: return "hashtable";
     case OBJ_ENCODING_QUICKLIST: return "quicklist";
     case OBJ_ENCODING_LISTPACK: return "listpack";
-    case OBJ_ENCODING_LISTPACK_TTL: return "listpack_ttl";
+    case OBJ_ENCODING_LISTPACK_EX: return "listpackex";
     case OBJ_ENCODING_INTSET: return "intset";
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
     case OBJ_ENCODING_EMBSTR: return "embstr";
@@ -1041,7 +1041,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
         }
     } else if (o->type == OBJ_HASH) {
         if (o->encoding == OBJ_ENCODING_LISTPACK ||
-            o->encoding == OBJ_ENCODING_LISTPACK_TTL)
+            o->encoding == OBJ_ENCODING_LISTPACK_EX)
         {
             asize = hashTypeListpackMemUsage(o);
         } else if (o->encoding == OBJ_ENCODING_HT) {
