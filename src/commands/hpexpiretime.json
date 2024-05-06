@@ -1,83 +1,85 @@
 {
     "HPEXPIRETIME": {
-      "summary": "Returns the expiration time of a hash field as a Unix timestamp, in msec.",
-      "complexity": "O(N) where N is the number of arguments to the command",
-      "group": "hash",
-      "since": "8.0.0",
-      "arity": -4,
-      "function": "hpexpiretimeCommand",
-      "history": [],
-      "command_flags": [
-        "READONLY",
-        "FAST"
-      ],
-      "acl_categories": [
-        "HASH"
-      ],
-      "key_specs": [
-        {
-          "flags": [
-            "RO",
-            "ACCESS"
-          ],
-          "begin_search": {
-            "index": {
-              "pos": 1
+        "summary": "Returns the expiration time of a hash field as a Unix timestamp, in msec.",
+        "complexity": "O(N) where N is the number of arguments to the command",
+        "group": "hash",
+        "since": "8.0.0",
+        "arity": -4,
+        "function": "hpexpiretimeCommand",
+        "history": [],
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
             }
-          },
-          "find_keys": {
-            "range": {
-              "lastkey": 0,
-              "step": 1,
-              "limit": 0
-            }
-          }
-        }
-      ],
-      "reply_schema": {
-        "oneOf": [
-          {
-            "description": "Key does not exist.",
-            "type": "null"
-          },
-          {
-            "description": "The keyname, popped member, and its score.",
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 4294967295,
-            "items": [
-              {
-                "description": "The field does not exist.",
-                "const": -2
-              },
-              {
-                "description": "The field exists but has no associated expire.",
-                "const": -1
-              },
-              {
-                "description": "Expiration Unix timestamp in milliseconds.",
-                "type": "integer",
-                "minimum": 1
-              }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Key does not exist.",
+                    "type": "null"
+                },
+                {
+                    "description": "The keyname, popped member, and its score.",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 4294967295,
+                    "items": {
+                        "oneOf": [
+                            {
+                                "description": "The field does not exist.",
+                                "const": -2
+                            },
+                            {
+                                "description": "The field exists but has no associated expire.",
+                                "const": -1
+                            },
+                            {
+                                "description": "Expiration Unix timestamp in milliseconds.",
+                                "type": "integer",
+                                "minimum": 1
+                            }
+                        ]
+                    }
+                }
             ]
-          }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "numfields",
+                "type": "integer"
+            },
+            {
+                "name": "field",
+                "type": "string",
+                "multiple": true
+            }
         ]
-      },
-      "arguments": [
-         {
-           "name": "key",
-           "type": "key",
-           "key_spec_index": 0
-         },
-         {
-           "name": "numfields",
-           "type": "integer"
-         },
-         {
-           "name": "field",
-           "type": "string",
-           "multiple": true
-         }
-      ]
     }
 }
