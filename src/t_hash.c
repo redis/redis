@@ -22,8 +22,10 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
 static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(robj *hashObj, hfield field);
 static uint64_t hfieldGetExpireTime(hfield field);
-uint64_t hashTypeGetNextTimeToExpire(robj *o);
-uint64_t hashTypeGetMinExpire(robj *keyObj);
+static void updateGlobalHfeDs(redisDb *db, robj *o, uint64_t minExpire, uint64_t minExpireFields);
+static uint64_t hashTypeGetNextTimeToExpire(robj *o);
+static uint64_t hashTypeGetMinExpire(robj *keyObj);
+
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
@@ -1134,32 +1136,7 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
             dbDelete(ex->db,ex->key);
             if (ex->c) notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->key, ex->db->id);
         } else {
-
-            /* If minimum HFE of the hash is smaller than expiration time of the
-             * specified fields in the command as well as it is smaller or equal
-             * than expiration time provided in the command, then the minimum
-             * HFE of the hash won't change following this command. */
-            if (ex->minExpire < ex->minExpireFields)
-                return;
-
-            /* retrieve new expired time. It might have changed. */
-            uint64_t newMinExpire = hashTypeGetNextTimeToExpire(ex->hashObj);
-
-            /* Calculate the diff between old minExpire and newMinExpire. If it is
-             * only few seconds, then don't have to update global HFE DS. At the worst
-             * case fields of hash will be active-expired up to few seconds later.
-             *
-             * In any case, active-expire operation will know to update global
-             * HFE DS more efficiently than here for a single item.
-             */
-            uint64_t diff = (ex->minExpire > newMinExpire) ?
-                            (ex->minExpire - newMinExpire) : (newMinExpire - ex->minExpire);
-            if (diff < HASH_NEW_EXPIRE_DIFF_THRESHOLD) return;
-
-            if (ex->minExpire != EB_EXPIRE_TIME_INVALID)
-                ebRemove(&ex->db->hexpires, &hashExpireBucketsType, ex->hashObj);
-            if (newMinExpire != EB_EXPIRE_TIME_INVALID)
-                ebAdd(&ex->db->hexpires, &hashExpireBucketsType, ex->hashObj, newMinExpire);
+            updateGlobalHfeDs(ex->db, ex->hashObj, ex->minExpire, ex->minExpireFields);
         }
     }
 }
@@ -3192,18 +3169,16 @@ static void attachHfeMeta(redisDb *db, robj *o, robj *keyArg) {
 /*
  * Called after modifying fields to update global hfe DS if necessary
  *
- * expireAt: new expire time
  * minExpire: minimum expiry time of the key before modification
  * minExpireFields: minimum expiry time of the modified fields
  */
-static void updateGlobalHfeDs(redisDb *db, robj *o, uint64_t expireAt,
-                              uint64_t minExpire, uint64_t minExpireFields)
+static void updateGlobalHfeDs(redisDb *db, robj *o,uint64_t minExpire, uint64_t minExpireFields)
 {
     /* If minimum HFE of the hash is smaller than expiration time of the
      * specified fields in the command as well as it is smaller or equal
      * than expiration time provided in the command, then the minimum
      * HFE of the hash won't change following this command. */
-    if ((minExpire < minExpireFields) && (minExpire <= expireAt) )
+    if ((minExpire < minExpireFields))
         return;
 
     /* retrieve new expired time. It might have changed. */
@@ -3528,8 +3503,7 @@ void hgetfCommand(client *c) {
             dbDelete(c->db,keyArg);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArg, c->db->id);
         } else {
-            updateGlobalHfeDs(c->db, hashObj, expireAt, minExpire,
-                              minExpireFields);
+            updateGlobalHfeDs(c->db, hashObj, minExpire, minExpireFields);
         }
     }
 }
@@ -3986,8 +3960,7 @@ void hsetfCommand(client *c) {
             dbDelete(c->db,keyArg);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArg, c->db->id);
         } else {
-            updateGlobalHfeDs(c->db, hashObj, expireAt, minExpire,
-                              minExpireFields);
+            updateGlobalHfeDs(c->db, hashObj, minExpire, minExpireFields);
         }
     }
 }
