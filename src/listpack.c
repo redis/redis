@@ -1411,7 +1411,9 @@ static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lva
  * 'val' can be NULL if the value is not needed.
  * 'tuple_len' indicates entry count of a single logical item. It should be 2
  * if listpack was saved as key-value pair or more for key-value-...(n_entries). */
-void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val, int tuple_len) {
+void lpRandomPair(unsigned char *lp, unsigned long total_count,
+                  listpackEntry *key, listpackEntry *val, int tuple_len)
+{
     unsigned char *p;
 
     assert(tuple_len >= 2);
@@ -1419,7 +1421,8 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *k
     /* Avoid div by zero on corrupt listpack */
     assert(total_count);
 
-    /* Generate index that keys exist at, because listpack saved as tuples that contain entries K-V-... */
+    /* Generate index that keys exist at, because listpack saved as tuples that
+     * contain entries K-V-... */
     int r = (rand() % total_count) * tuple_len;
     assert((p = lpSeek(lp, r)));
     key->sval = lpGetValue(p, &(key->slen), &(key->lval));
@@ -1493,7 +1496,8 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
 
     /* create a pool of random indexes (some may be duplicate). */
     for (unsigned int i = 0; i < count; i++) {
-        picks[i].index = (rand() % total_size) * tuple_len; /* Generate indexes that key exist at */
+        /* Generate indexes that key exist at */
+        picks[i].index = (rand() % total_size) * tuple_len;
         /* keep track of the order we picked them */
         picks[i].order = i;
     }
@@ -1533,7 +1537,10 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
  * if listpack was saved as key-value pair or more for key-value-...(n_entries).
  * The return value is the number of items picked which can be lower than the
  * requested count if the listpack doesn't hold enough pairs. */
-unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals, int tuple_len) {
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count,
+                                 listpackEntry *keys, listpackEntry *vals,
+                                 int tuple_len)
+{
     assert(tuple_len >= 2);
 
     unsigned char *p, *key;

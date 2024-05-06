@@ -96,14 +96,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r config set hash-max-listpack-entries 512
         }
 
-        test "HPEXPIRE - Test 'NX' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
-            assert_equal [r hpexpire myhash 1000 NX 2 field1 field2] [list  $E_FAIL  $E_OK]
-        }
-
-        test "HPEXPIRE(AT) - Test 'XX' flag ($type)" {
+        test "HPEXPIRE(AT) - Test 'NX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
@@ -672,7 +665,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
             assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
             assert_error {*unknown argument*} {r hgetf myhash fields 1 a unknown}
-            assert_error {*missing FIELDS argument*} {r hgetf myhash nx xx lt gt}
+            assert_error {*missing FIELDS argument*} {r hgetf myhash nx ex 100}
+            assert_error {*multiple FIELDS argument*} {r hgetf myhash fields 1 a fields 1 b}
 
             r hset myhash f1 v1 f2 v2 f3 v3
             # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
@@ -680,6 +674,26 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash xx fields 1 a}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash gt fields 1 a}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash lt fields 1 a}
+
+            # Only one of NX, XX, GT, and LT can be specified
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash nx xx EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash xx nx EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash gt nx EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash gt lt EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash xx gt EX 100 fields 1 a}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash lt gt EX 100 fields 1 a}
+
+            # Only one of EX, PX, EXAT, PXAT or PERSIST can be specified
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 PX 1000 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 EXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EXAT 100 EX 1000 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EXAT 100 PX 1000 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PX 100 EXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PX 100 PXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PXAT 100 EX 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PXAT 100 EXAT 100 fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 PERSIST fields 1 a}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PERSIST EX 100 fields 1 a}
 
             # missing expire time
             assert_error {*not an integer or out of range*} {r hgetf myhash ex fields 1 a}
@@ -778,14 +792,16 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 0
 
             r hset myhash f1 v1 f2 v2 f3 v3
-            r hgetf myhash PX 5000 FIELDS 2 f2 f3
-            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
+            r hgetf myhash PX 5000 FIELDS 3 f1 f2 f3
+            assert_not_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
             assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
             assert_not_equal [r httl myhash 1 f3] "$T_NO_EXPIRY"
 
-            assert_equal [r hgetf myhash PERSIST FIELDS 1 f2] "v2"
-            assert_equal [r hgetf myhash PX 100 FIELDS 1 f3] "v3"
-            assert_equal [r httl myhash 2 f1 f2]  "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_equal [r hgetf myhash PERSIST FIELDS 1 f1] "v1"
+            assert_equal [r httl myhash 1 f1]  "$T_NO_EXPIRY"
+
+            assert_equal [r hgetf myhash PERSIST FIELDS 2 f2 f3] "v2 v3"
+            assert_equal [r httl myhash 2 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY"
         }
 
         test "HGETF - Test setting expired ttl deletes key ($type)" {
@@ -820,10 +836,12 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # field2 TTL will be discarded
             r hset myhash field2 value4
-            after 5
+
             # Expected TTL will be discarded
             assert_equal [r hget myhash field2] "value4"
             assert_equal [r httl myhash 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # Other field is not affected.
             assert_not_equal [r httl myhash 1 field1] "$T_NO_EXPIRY"
         }
 
@@ -835,7 +853,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hsetf myhash fvs 3 a b c d}
             assert_error {*wrong number of arguments*} {r hsetf myhash fvs 3 a b}
             assert_error {*unknown argument*} {r hsetf myhash fvs 1 a b unknown}
-            assert_error {*missing FVS argument*} {r hsetf myhash nx xx lt gt}
+            assert_error {*missing FVS argument*} {r hsetf myhash nx nx ex 100}
+            assert_error {*multiple FVS argument*} {r hsetf myhash DC fvs 1 a b fvs 1 a b}
 
             r hset myhash f1 v1 f2 v2 f3 v3
             # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
@@ -843,6 +862,34 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash xx fvs 1 a b}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash gt fvs 1 a b}
             assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash lt fvs 1 a b}
+
+            # Only one of NX, XX, GT, and LT can be specified
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash nx xx EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash xx nx EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash gt nx EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash gt lt EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash xx gt EX 100 fvs 1 a b}
+            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash lt gt EX 100 fvs 1 a b}
+
+            # Only one of EX, PX, EXAT, PXAT or KEEPTTL can be specified
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 PX 1000 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 EXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EXAT 100 EX 1000 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EXAT 100 PX 1000 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PX 100 EXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PX 100 PXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PXAT 100 EX 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PXAT 100 EXAT 100 fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 KEEPTTL fvs 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash KEEPTTL EX 100 fvs 1 a b}
+
+            # Only one of DCF, DOF can be specified
+            assert_error {*Only one of DCF or DOF arguments can be specified*} {r hsetf myhash DCF DOF fvs 1 a b}
+            assert_error {*Only one of DCF or DOF arguments can be specified*} {r hsetf myhash DOF DCF fvs 1 a b}
+
+            # Only one of GETNEW, GETOLD can be specified
+            assert_error {*Only one of GETOLD or GETNEW arguments can be specified*} {r hsetf myhash GETNEW GETOLD fvs 1 a b}
+            assert_error {*Only one of GETOLD or GETNEW arguments can be specified*} {r hsetf myhash GETOLD GETNEW fvs 1 a b}
 
             # missing expire time
             assert_error {*not an integer or out of range*} {r hsetf myhash ex fvs 1 a b}
@@ -957,14 +1004,19 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HSETF - Test 'KEEPTTL' flag ($type)" {
             r del myhash
 
-            r hsetf myhash fvs 3 f1 v1 f2 v2 f3 v3
-            r hsetf myhash PX 5000 FVS 2 f2 v2 f3 v3
-            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash 1 f3] "$T_NO_EXPIRY"
+            r hsetf myhash FVS 2 f1 v1 f2 v2
+            r hsetf myhash PX 5000 FVS 1 f2 v2
 
+            # f1 does not have ttl
+            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
+
+            # f2 has ttl
+            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+
+            # Validate KEEPTTL preserve TTL
             assert_equal [r hsetf myhash KEEPTTL FVS 1 f2 n2] "$S_FIELD"
             assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+            assert_equal [r hget myhash f2] "n2"
         }
 
         test "HSETF - Test no expiry flag discards TTL ($type)" {
@@ -990,9 +1042,9 @@ start_server {tags {"external:skip needs:debug"}} {
 
             r del myhash
             assert_equal [r hsetf myhash GETOLD fvs 2 f1 v1 f2 v2] "{} {}"
+
             # DOF check will prevent override and GETNEW should return old value
             assert_equal [r hsetf myhash DOF GETNEW fvs 2 f1 v12 f2 v22] "v1 v2"
-
         }
 
         test "HSETF - Test with active expiry" {
@@ -1050,7 +1102,6 @@ start_server {tags {"external:skip needs:debug"}} {
         for {set i 6} {$i < 11} {incr i} {
             r hset myhash f$i v$i
         }
-
         after 50
         assert_equal [lsort [r hgetall myhash]] [lsort "f1 f3 f5 f6 f7 f8 f9 f10 v1 v3 v5 v6 v7 v8 v9 v10"]
         r config set hash-max-listpack-entries $prev

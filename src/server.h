@@ -3170,7 +3170,7 @@ typedef struct listpackEx {
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
 
-void hashTypeConvert(redisDb *db, robj *o, int enc);
+void hashTypeConvert(robj *o, int enc, ebuckets *hexpires);
 void hashTypeTryConversion(redisDb *db, robj *subject, robj **argv, int start, int end);
 int hashTypeExists(robj *o, sds key);
 int hashTypeDelete(robj *o, sds key);
@@ -3194,9 +3194,8 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags);
 robj *hashTypeDup(robj *o, sds newkey, uint64_t *minHashExpire);
 uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
 void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime);
-uint64_t hashTypeGetNextTimeToExpire(robj *o);
-uint64_t hashTypeGetMinExpire(robj *keyObj);
 void hashTypeFree(robj *o);
+int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
 size_t hashTypeListpackMemUsage(robj *o);
 int hashTypeListpackIsExpired(uint64_t expireTime);
