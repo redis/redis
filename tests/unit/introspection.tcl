@@ -1,3 +1,16 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 start_server {tags {"introspection"}} {
     test "PING" {
         assert_equal {PONG} [r ping]
@@ -8,9 +21,9 @@ start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         set client_list [r client list]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client_list
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*} $client_list
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client_list
         }
     }
 
@@ -23,11 +36,80 @@ start_server {tags {"introspection"}} {
     test {CLIENT INFO} {
         set client [r client info]
         if {[lindex [r config get io-threads] 1] == 1} {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client
         } else {
-            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*} $client
+            assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client
         }
     } 
+
+    proc get_field_in_client_info {info field} {
+        set info [string trim $info]
+        foreach item [split $info " "] {
+            set kv [split $item "="]
+            set k [lindex $kv 0]
+            if {[string match $field $k]} {
+                return [lindex $kv 1]   
+            }
+        }
+        return ""
+    }
+
+    proc get_field_in_client_list {id client_list filed} {
+        set list [split $client_list "\r\n"]
+        foreach info $list {
+            if {[string match "id=$id *" $info] } {
+                return [get_field_in_client_info $info $filed]
+            }
+        }
+        return ""
+    }
+
+    test {client input output and command process statistics} {
+        set info1 [r client info]
+        set input1 [get_field_in_client_info $info1 "tot-net-in"]
+        set output1 [get_field_in_client_info $info1 "tot-net-out"]
+        set cmd1 [get_field_in_client_info $info1 "tot-cmds"]
+        set info2 [r client info]
+        set input2 [get_field_in_client_info $info2 "tot-net-in"]
+        set output2 [get_field_in_client_info $info2 "tot-net-out"]
+        set cmd2 [get_field_in_client_info $info2 "tot-cmds"]
+        assert_equal [expr $input1+26] $input2
+        assert {[expr $output1+300] < $output2}
+        assert_equal [expr $cmd1+1] $cmd2
+        # test blocking command
+        r del mylist
+        set rd [redis_deferring_client]
+        $rd client id
+        set rd_id [$rd read]
+        set info_list [r client list]
+        set input3 [get_field_in_client_list $rd_id $info_list "tot-net-in"]
+        set output3 [get_field_in_client_list $rd_id $info_list "tot-net-out"]
+        set cmd3 [get_field_in_client_list $rd_id $info_list "tot-cmds"]
+        $rd blpop mylist 0
+        set info_list [r client list]
+        set input4 [get_field_in_client_list $rd_id $info_list "tot-net-in"]
+        set output4 [get_field_in_client_list $rd_id $info_list "tot-net-out"]
+        set cmd4 [get_field_in_client_list $rd_id $info_list "tot-cmds"]
+        assert_equal [expr $input3+34] $input4
+        assert_equal $output3 $output4
+        assert_equal $cmd3 $cmd4
+        r lpush mylist a
+        set info_list [r client list]
+        set input5 [get_field_in_client_list $rd_id $info_list "tot-net-in"]
+        set output5 [get_field_in_client_list $rd_id $info_list "tot-net-out"]
+        set cmd5 [get_field_in_client_list $rd_id $info_list "tot-cmds"]
+        assert_equal $input4 $input5
+        assert_equal [expr $output4+23] $output5
+        assert_equal [expr $cmd4+1] $cmd5
+        $rd close
+        # test recursive command
+        set info [r client info]
+        set cmd6 [get_field_in_client_info $info "tot-cmds"]
+        r eval "redis.call('ping')" 0
+        set info [r client info]
+        set cmd7 [get_field_in_client_info $info "tot-cmds"]
+        assert_equal [expr $cmd6+3] $cmd7
+    }
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
