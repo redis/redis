@@ -64,20 +64,22 @@
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 4294967295,
-                    "items": [
-                        {
-                            "description": "Cannot set field value. DOC/DOF condition not met.",
-                            "const": 0
-                        },
-                        {
-                            "description": "Set field value without updating TTL",
-                            "const": 1
-                        },
-                        {
-                            "description": "Set field value and updated TTL",
-                            "const": 2
-                        }
-                    ]
+                    "items": {
+                        "oneOf": [
+                            {
+                                "description": "Cannot set field value. DOC/DOF condition not met.",
+                                "const": 0
+                            },
+                            {
+                                "description": "Set field value without updating TTL",
+                                "const": 1
+                            },
+                            {
+                                "description": "Set field value and updated TTL",
+                                "const": 3
+                            }
+                        ]
+                    }
                 }
             ]
         },
