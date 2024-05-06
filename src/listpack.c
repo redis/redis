@@ -1421,7 +1421,8 @@ void lpRandomPair(unsigned char *lp, unsigned long total_count,
     /* Avoid div by zero on corrupt listpack */
     assert(total_count);
 
-    /* Generate index that keys exist at, because listpack saved as tuples that contain entries K-V-... */
+    /* Generate index that keys exist at, because listpack saved as tuples that
+     * contain entries K-V-... */
     int r = (rand() % total_count) * tuple_len;
     assert((p = lpSeek(lp, r)));
     key->sval = lpGetValue(p, &(key->slen), &(key->lval));
@@ -1495,7 +1496,8 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
 
     /* create a pool of random indexes (some may be duplicate). */
     for (unsigned int i = 0; i < count; i++) {
-        picks[i].index = (rand() % total_size) * tuple_len; /* Generate indexes that key exist at */
+        /* Generate indexes that key exist at */
+        picks[i].index = (rand() % total_size) * tuple_len;
         /* keep track of the order we picked them */
         picks[i].order = i;
     }

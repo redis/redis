@@ -791,14 +791,16 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 0
 
             r hset myhash f1 v1 f2 v2 f3 v3
-            r hgetf myhash PX 5000 FIELDS 2 f2 f3
-            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
+            r hgetf myhash PX 5000 FIELDS 3 f1 f2 f3
+            assert_not_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
             assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
             assert_not_equal [r httl myhash 1 f3] "$T_NO_EXPIRY"
 
-            assert_equal [r hgetf myhash PERSIST FIELDS 1 f2] "v2"
-            assert_equal [r hgetf myhash PX 100 FIELDS 1 f3] "v3"
-            assert_equal [r httl myhash 2 f1 f2]  "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_equal [r hgetf myhash PERSIST FIELDS 1 f1] "v1"
+            assert_equal [r httl myhash 1 f1]  "$T_NO_EXPIRY"
+
+            assert_equal [r hgetf myhash PERSIST FIELDS 2 f2 f3] "v2 v3"
+            assert_equal [r httl myhash 2 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY"
         }
 
         test "HGETF - Test setting expired ttl deletes key ($type)" {
@@ -833,10 +835,12 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # field2 TTL will be discarded
             r hset myhash field2 value4
-            after 5
+
             # Expected TTL will be discarded
             assert_equal [r hget myhash field2] "value4"
             assert_equal [r httl myhash 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # Other field is not affected.
             assert_not_equal [r httl myhash 1 field1] "$T_NO_EXPIRY"
         }
 
@@ -999,14 +1003,19 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HSETF - Test 'KEEPTTL' flag ($type)" {
             r del myhash
 
-            r hsetf myhash fvs 3 f1 v1 f2 v2 f3 v3
-            r hsetf myhash PX 5000 FVS 2 f2 v2 f3 v3
-            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash 1 f3] "$T_NO_EXPIRY"
+            r hsetf myhash FVS 2 f1 v1 f2 v2
+            r hsetf myhash PX 5000 FVS 1 f2 v2
 
+            # f1 does not have ttl
+            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
+
+            # f2 has ttl
+            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+
+            # Validate KEEPTTL preserve TTL
             assert_equal [r hsetf myhash KEEPTTL FVS 1 f2 n2] "$S_FIELD"
             assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+            assert_equal [r hget myhash f2] "n2"
         }
 
         test "HSETF - Test no expiry flag discards TTL ($type)" {
@@ -1032,9 +1041,9 @@ start_server {tags {"external:skip needs:debug"}} {
 
             r del myhash
             assert_equal [r hsetf myhash GETOLD fvs 2 f1 v1 f2 v2] "{} {}"
+
             # DOF check will prevent override and GETNEW should return old value
             assert_equal [r hsetf myhash DOF GETNEW fvs 2 f1 v12 f2 v22] "v1 v2"
-
         }
 
         test "HSETF - Test with active expiry" {
@@ -1092,7 +1101,6 @@ start_server {tags {"external:skip needs:debug"}} {
         for {set i 6} {$i < 11} {incr i} {
             r hset myhash f$i v$i
         }
-
         after 50
         assert_equal [lsort [r hgetall myhash]] [lsort "f1 f3 f5 f6 f7 f8 f9 f10 v1 v3 v5 v6 v7 v8 v9 v10"]
         r config set hash-max-listpack-entries $prev
