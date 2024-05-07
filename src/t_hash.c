@@ -967,6 +967,9 @@ SetExRes hashTypeSetExpiry(HashTypeSetEx *ex, sds field, uint64_t expireAt, dict
  *
  * Take care to call first hashTypeSetExInit() and then call this function.
  * Finally, call hashTypeSetExDone() to notify and update global HFE DS.
+ *
+ * NOTE: this functions is also called during RDB load to set dict-encoded
+ *       fields with and without expiration.
  */
 SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
                        uint64_t expireAt, HashTypeSetEx *exInfo)
