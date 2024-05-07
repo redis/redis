@@ -219,6 +219,7 @@ int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
  * */
 unsigned char *lpNew(size_t capacity) {
     unsigned char *lp = lp_malloc(capacity > LP_HDR_SIZE+1 ? capacity : LP_HDR_SIZE+1);
+    if (lp == NULL) return NULL;
     lpSetTotalBytes(lp,LP_HDR_SIZE+1);
     lpSetNumElements(lp,0);
     lp[LP_HDR_SIZE] = LP_EOF;
@@ -1208,7 +1209,7 @@ size_t lpBytes(unsigned char *lp) {
     return lpGetTotalBytes(lp);
 }
 
-size_t lpEstimateBytesInteger(long long lval) {
+size_t lpEntrySizeInteger(long long lval) {
     uint64_t enclen;
     lpEncodeIntegerGetType(lval, NULL, &enclen);
     unsigned long backlen = lpEncodeBacklen(NULL, enclen);
@@ -1217,7 +1218,7 @@ size_t lpEstimateBytesInteger(long long lval) {
 
 /* Returns the size of a listpack consisting of an integer repeated 'rep' times. */
 size_t lpEstimateBytesRepeatedInteger(long long lval, unsigned long rep) {
-    return LP_HDR_SIZE + lpEstimateBytesInteger(lval) * rep + 1;
+    return LP_HDR_SIZE + lpEntrySizeInteger(lval) * rep + 1;
 }
 
 /* Seek the specified element and returns the pointer to the seeked element.

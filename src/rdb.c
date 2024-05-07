@@ -944,7 +944,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
     } else if (o->type == OBJ_HASH) {
         /* Save a hash value */
         if ((o->encoding == OBJ_ENCODING_LISTPACK) ||
-            (o->encoding == OBJ_ENCODING_LISTPACK_EX)) {
+            (o->encoding == OBJ_ENCODING_LISTPACK_EX))
+        {
             unsigned char *lp_ptr = hashTypeListpackGetLp(o);
             size_t l = lpBytes(lp_ptr);
 
@@ -953,7 +954,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         } else if (o->encoding == OBJ_ENCODING_HT) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
-            int withTtl = 0; /* whether there is at least one field with a valid TTL */
+            int with_ttl = 0; /* whether there is at least one field with a valid TTL */
             uint64_t ttl = 0;
 
             /* save number of fields in hash */
@@ -965,7 +966,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
             /* use standard hash format if no TTL was set for any field */
             if (hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID)
-                withTtl = 1;
+                with_ttl = 1;
 
             /* save all hash fields */
             while((de = dictNext(di)) != NULL) {
@@ -986,7 +987,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                  * metadata types, and than the types themselves (note that the
                  * order is fixed, i.e. future extensions may only add new
                  * metadata types at the end) */
-                if (withTtl && hfieldIsExpireAttached(field)) {
+                if (with_ttl && hfieldIsExpireAttached(field)) {
                     ttl = hfieldGetExpireTime(field);
                 } else {
                     ttl = 0;
@@ -1002,7 +1003,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
 
                 /* save the TTL */
-                if (withTtl) {
+                if (with_ttl) {
                     if ((n = rdbSaveLen(rdb, ttl)) == -1) {
                         dictReleaseIterator(di);
                         return -1;
@@ -1821,19 +1822,19 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
 /* callback for to check the listpack doesn't have duplicate records */
 static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
     struct {
-        int uniqeness_factor;
+        int tuple_len;
         long count;
         dict *fields;
     } *data = userdata;
 
     if (data->fields == NULL) {
         data->fields = dictCreate(&hashDictType);
-        dictExpand(data->fields, head_count/data->uniqeness_factor);
+        dictExpand(data->fields, head_count/data->tuple_len);
     }
 
     /* If we're checking pairs, then even records are field names. Otherwise
      * we're checking all elements. Add to dict and check that's not a dup */
-    if (data->count % data->uniqeness_factor == 0) {
+    if (data->count % data->tuple_len == 0) {
         unsigned char *str;
         int64_t slen;
         unsigned char buf[LP_INTBUF_SIZE];
@@ -1854,25 +1855,25 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
 /* Validate the integrity of the listpack structure.
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one.
- * uniqueness_factor indicates which elements should be verified for uniqueness.
+ * tuple_len indicates what is a logical entry tuple size.
  * when it's 1, each element should be unique (set)
  * when it's 2, each second element should be unique (key-value map)
  * when it's 3, each third element should be unique (key-value-ttl map) */
-int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int uniqueness_factor) {
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
     if (!deep)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
     /* Keep track of the field names to locate duplicate ones */
     struct {
-        int uniqeness_factor;
+        int tuple_len;
         long count;
         dict *fields; /* Initialisation at the first callback. */
-    } data = {uniqueness_factor, 0, NULL};
+    } data = {tuple_len, 0, NULL};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
-    /* the number of records should be a multiple of the uniqueness factor */
-    if (data.count % uniqueness_factor != 0)
+    /* the number of records should be a multiple of the tuple length */
+    if (data.count % tuple_len != 0)
         ret = 0;
 
     if (data.fields) dictRelease(data.fields);
@@ -2329,8 +2330,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                 /* check if the values can be saved to listpack (or should convert to dict encoding) */
                 if (sdslen(field) > server.hash_max_listpack_value ||
                     sdslen(value) > server.hash_max_listpack_value ||
-                    lpEstimateBytesInteger(ttl) > server.hash_max_listpack_value ||
-                    !lpSafeToAdd(listpackExGetListpack(o), sdslen(field) + sdslen(value) + lpEstimateBytesInteger(ttl)))
+                    lpEntrySizeInteger(ttl) > server.hash_max_listpack_value ||
+                    !lpSafeToAdd(((listpackEx*)o->ptr)->lp, sdslen(field) + sdslen(value) + lpEntrySizeInteger(ttl)))
                 {
                     /* convert to hash */
                     hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
@@ -2357,11 +2358,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
 
                     /* don't add the values to the new hash: the next if will catch and the values will be added there */
                 } else {
-                    void *lp = listpackExGetListpack(o);
+                    void *lp = ((listpackEx*)o->ptr)->lp;
                     lp = lpAppend(lp, (unsigned char *)field, sdslen(field));
                     lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
                     lp = lpAppendInteger(lp, ttl);
-                    listpackExUpdateListpack(o, lp);
+                    ((listpackEx*)o->ptr)->lp = lp;
                     sdsfree(field);
                     sdsfree(value);
                 }
@@ -2692,12 +2693,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                 }
             case RDB_TYPE_HASH_LISTPACK:
             case RDB_TYPE_HASH_LISTPACK_TTL:
-
-
                 /* listpack-encoded hash with TTL requires its own struct
                  * pointed to by o->ptr */
                 if (rdbtype == RDB_TYPE_HASH_LISTPACK_TTL) {
-                    o->ptr = listpackExCreateFromListpack(encoded);
+                    listpackEx *lpt = zcalloc(sizeof(*lpt));
+                    lpt->lp = encoded;
+                    lpt->meta.trash = 1;
+                    lpt->key = NULL;
+                    o->ptr = lpt;
                 }
 
                 /* set type and encoding (required for correct free function to be called on error) */
@@ -2705,13 +2708,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                 o->encoding =
                     (rdbtype == RDB_TYPE_HASH_LISTPACK ? OBJ_ENCODING_LISTPACK : OBJ_ENCODING_LISTPACK_EX);
 
-                /* uniqueness_factor is the number of elements for each key:
+                /* tuple_len is the number of elements for each key:
                  * key + value for simple hash, key + value + tll for hash with TTL*/
-                int uniquness_factor = (rdbtype == RDB_TYPE_HASH_LISTPACK ? 2 : 3);
+                int tuple_len = (rdbtype == RDB_TYPE_HASH_LISTPACK ? 2 : 3);
                 /* validate read data */
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
                 if (!lpValidateIntegrityAndDups(encoded, encoded_len,
-                                                deep_integrity_validation, uniquness_factor)) {
+                                                deep_integrity_validation, tuple_len)) {
                     rdbReportCorruptRDB("Hash listpack integrity check failed.");
                     decrRefCount(o);
                     return NULL;
@@ -2726,7 +2729,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                         .maxToExpire = UINT64_MAX,
                         .now = mstime()
                     };
-                    listpackExExpire(o, &info, &server.rdb_last_load_hash_fields_expired);
+                    listpackExExpire(o, &info);
+                    server.rdb_last_load_hash_fields_expired += info.itemsExpired;
                     minExpire = info.nextExpireTime;
                 }
 

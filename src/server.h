@@ -3198,14 +3198,10 @@ void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTi
 void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
-
 uint64_t hashTypeGetMinExpire(robj *o);
 void hashTypeUpdateKeyRef(robj *o, sds newkey);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
-void *listpackExCreateFromListpack(void *lp);
-void *listpackExGetListpack(const robj *o);
-void listpackExUpdateListpack(const robj *o, void *lp);
-void listpackExExpire(robj *o, ExpireInfo *info, long long *expire_stat);
+void listpackExExpire(robj *o, ExpireInfo *info);
 void *HashTypeGroupSetInit(sds key, robj *o, redisDb *db);
 int hashTypeGroupSet(void* ctx, redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
 void hashTypeGroupSetDone(void *ctx);

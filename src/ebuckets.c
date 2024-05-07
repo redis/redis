@@ -1403,7 +1403,8 @@ int ebRemove(ebuckets *eb, EbucketsType *type, eItem item) {
  * @param item - The eItem to be added to the ebucket.
  * @param expireTime - The expiration time of the item.
  *
- * @return 0 if the item was successfully added; Otherwise, return 1 on failure.
+ * @return 0 (C_OK) if the item was successfully added;
+ *         Otherwise, return -1 (C_ERR) on failure.
  */
 int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
     int res;
