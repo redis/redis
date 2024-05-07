@@ -2292,7 +2292,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
         assert(info.itemsExpired == (uint64_t) numItems);
         assert(ebGetTotalItems(eb, &myEbucketsType2) == 1);
 
-        /* active-expire. Expected that all but one will be expired */
+        /* active-expire. Expected that all will be expired */
         ExpireInfo info2 = {
                 .maxToExpire = 0xFFFFFFFF,
                 .onExpireItem = expireUpdateThirdItemCb,
