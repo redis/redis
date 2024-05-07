@@ -39,10 +39,10 @@ int je_get_defrag_hint(void* ptr);
 void* activeDefragAlloc(void *ptr) {
     size_t size;
     void *newptr;
-    // if(!je_get_defrag_hint(ptr)) {
-    //     server.stat_active_defrag_misses++;
-    //     return NULL;
-    // }
+    if(!je_get_defrag_hint(ptr)) {
+        server.stat_active_defrag_misses++;
+        return NULL;
+    }
     /* move this allocation to a new allocation.
      * make sure not to use the thread cache. so that we don't get back the same
      * pointers we try to free */
