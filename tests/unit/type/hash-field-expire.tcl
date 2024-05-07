@@ -517,11 +517,11 @@ start_server {tags {"external:skip needs:debug"}} {
         test "Modify TTL of a field ($type)" {
             r del myhash
             r hset myhash field1 value1
-            r hpexpire myhash 200 NX 1 field1
-            r hpexpire myhash 1000 XX 1 field1
+            r hpexpire myhash 200000 NX 1 field1
+            r hpexpire myhash 1000000 XX 1 field1
             after 15
             assert_equal [r hget myhash field1] "value1"
-            assert_range [r hpttl myhash 1 field1] 900 1000
+            assert_range [r hpttl myhash 1 field1] 900000 1000000
         }
 
         test "Test HGETALL not return expired fields ($type)" {
