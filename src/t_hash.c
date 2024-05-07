@@ -3210,7 +3210,7 @@ static int hgetfParseArgs(client *c, int *flags, uint64_t *expireAt,
 
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
-            long long val;
+            long val;
 
             if (*firstFieldPos != -1) {
                 addReplyErrorFormat(c, "multiple FIELDS argument");
@@ -3222,13 +3222,9 @@ static int hgetfParseArgs(client *c, int *flags, uint64_t *expireAt,
                 return C_ERR;
             }
 
-            if (getLongLongFromObjectOrReply(c, c->argv[i + 1], &val, NULL) != C_OK)
+            if (getRangeLongFromObjectOrReply(c, c->argv[i + 1], 1, INT_MAX, &val,
+                                              "invalid number of fields") != C_OK)
                 return C_ERR;
-
-            if (val <= 0 || val > INT_MAX) {
-                addReplyError(c, "invalid number of fields");
-                return C_ERR;
-            }
 
             if (val > c->argc - i  - 2) {
                 addReplyErrorArity(c);
@@ -3735,7 +3731,7 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
 static int hsetfParseArgs(client *c, int *flags, uint64_t *expireAt,
                           int *firstFieldPos, int *fieldCount)
 {
-    long long val;
+    long val;
 
     *flags = 0;
     *firstFieldPos = -1;
@@ -3753,13 +3749,9 @@ static int hsetfParseArgs(client *c, int *flags, uint64_t *expireAt,
                 return C_ERR;
             }
 
-            if (getLongLongFromObjectOrReply(c, c->argv[i + 1], &val, NULL) != C_OK)
+            if (getRangeLongFromObjectOrReply(c, c->argv[i + 1], 1, INT_MAX, &val,
+                                              "invalid number of fvs count") != C_OK)
                 return C_ERR;
-
-            if (val <= 0 || val > INT_MAX) {
-                addReplyErrorFormat(c, "invalid number of fvs count");
-                return C_ERR;
-            }
 
             if (val > ((c->argc - i  - 2) / 2)) {
                 addReplyErrorArity(c);
@@ -3874,7 +3866,6 @@ static int hsetfParseArgs(client *c, int *flags, uint64_t *expireAt,
     }
 
     return C_OK;
-
 
 err_missing_expire:
     addReplyError(c, "missing expire time");
