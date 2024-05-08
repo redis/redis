@@ -1846,7 +1846,7 @@ ExpireAction expireItemCb(eItem item, void *ctx) {
 }
 
 ExpireAction expireUpdateThirdItemCb(eItem item, void *ctx) {
-    uint64_t expTime = (uint64_t) ctx;
+    uint64_t expTime = (uint64_t) (uintptr_t) ctx;
     static int calls = 0;
     if ((calls++) == 3) {
         ebSetMetaExpTime(&(((MyItem *)item)->mexpire), expTime );
