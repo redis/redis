@@ -719,8 +719,8 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 10000 NX FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_lessthan_equal [r httl myhash 1 field1] 1000
-            assert_morethan_equal [r httl myhash 1 field2] 5000
+            assert_range [r httl myhash 1 field1] 1 1000
+            assert_range [r httl myhash 1 field2] 5000 10000
 
             # A field with no expiration is treated as an infinite expiration.
             # LT should set the expire time if field has no TTL.
@@ -735,7 +735,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 10000 XX FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_morethan_equal [r httl myhash 1 field1] 5000
+            assert_range [r httl myhash 1 field1] 9900 10000
             assert_equal [r httl myhash 1 field2] "$T_NO_EXPIRY"
         }
 
@@ -745,8 +745,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
             assert_equal [r hgetf myhash EX 1500 GT FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_morethan [r httl myhash 1 field1] 1000
-            assert_morethan [r httl myhash 1 field2] 1500
+            assert_range [r httl myhash 1 field1] 1400 1500
+            assert_range [r httl myhash 1 field2] 1900 2000
         }
 
         test "HGETF - Test 'LT' flag ($type)" {
@@ -755,36 +755,36 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
             assert_equal [r hgetf myhash EX 1500 LT FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_lessthan_equal [r httl myhash 1 field1] 1000
-            assert_lessthan_equal [r httl myhash 1 field2] 1500
+            assert_range [r httl myhash 1 field1] 1 1000
+            assert_range [r httl myhash 1 field2] 1000 1500
         }
 
         test "HGETF - Test 'EX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EX 1000 FIELDS 1 field3] [list "value3"]
-            assert_lessthan_equal [r httl myhash 1 field3] 1000
+            assert_range [r httl myhash 1 field3] 1 1000
         }
 
         test "HGETF - Test 'EXAT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EXAT 4000000000 FIELDS 1 field3] [list "value3"]
-            assert_lessthan_equal [expr [r httl myhash 1 field3] + [clock seconds]] 4000000000
+            assert_range [expr [r httl myhash 1 field3] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HGETF - Test 'PX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash PX 1000000 FIELDS 1 field3] [list "value3"]
-            assert_lessthan_equal [r httl myhash 1 field3] 1000
+            assert_range [r httl myhash 1 field3] 900 1000
         }
 
         test "HGETF - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash PXAT 4000000000000 FIELDS 1 field3] [list "value3"]
-            assert_lessthan_equal [expr [r httl myhash 1 field3] + [clock seconds]] 4000000000
+            assert_range [expr [r httl myhash 1 field3] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HGETF - Test 'PERSIST' flag ($type)" {
@@ -935,8 +935,8 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1 f2 v2 f3 v3
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 10000 NX FVS 2 f1 n1 f2 n2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_lessthan_equal [r httl myhash 1 f1] 1000
-            assert_morethan_equal [r httl myhash 1 f2] 5000
+            assert_range [r httl myhash 1 f1] 990 1000
+            assert_range [r httl myhash 1 f2] 9990 10000
         }
 
         test "HSETF - Test 'XX' flag ($type)" {
@@ -944,7 +944,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1 f2 v2 f3 v3
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 10000 XX FVS 2 f1 n1 f2 n2] "$S_FIELD_AND_TTL $S_FIELD"
-            assert_morethan_equal [r httl myhash 1 f1] 5000
+            assert_range [r httl myhash 1 f1] 9900 10000
             assert_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
         }
 
@@ -954,8 +954,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 2000 NX FVS 1 f2 n2] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 1500 GT FVS 2 f1 n1 f2 n2] "$S_FIELD_AND_TTL $S_FIELD"
-            assert_morethan [r httl myhash 1 f1] 1000
-            assert_morethan [r httl myhash 1 f2] 1500
+            assert_range [r httl myhash 1 f1] 1400 1500
+            assert_range [r httl myhash 1 f2] 1600 2000
         }
 
         test "HSETF - Test 'LT' flag ($type)" {
@@ -964,8 +964,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 v1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 2000 NX FVS 1 f2 v2] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 1500 LT FVS 2 f1 v1 f2 v2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_lessthan_equal [r httl myhash 1 f1] 1000
-            assert_lessthan_equal [r httl myhash 1 f2] 1500
+            assert_range [r httl myhash 1 f1] 900 1000
+            assert_range [r httl myhash 1 f2] 1400 1500
 
             # A field with no expiration is treated as an infinite expiration.
             # LT should set the expire time if field has no TTL.
@@ -978,27 +978,27 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash f1 v1 f2 v2
             assert_equal [r hsetf myhash EX 1000 FVS 1 f3 v3 ] "$S_FIELD_AND_TTL"
-            assert_lessthan_equal [r httl myhash 1 field3] 1000
+            assert_range [r httl myhash 1 f3] 900 1000
         }
 
         test "HSETF - Test 'EXAT' flag ($type)" {
             r del myhash
             r hset myhash f1 v1 f2 v2
             assert_equal [r hsetf myhash EXAT 4000000000 FVS 1 f3 v3] "$S_FIELD_AND_TTL"
-            assert_lessthan_equal [expr [r httl myhash 1 f3] + [clock seconds]] 4000000000
+            assert_range [expr [r httl myhash 1 f3] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HSETF - Test 'PX' flag ($type)" {
             r del myhash
             assert_equal [r hsetf myhash PX 1000000 FVS 1 f3 v3] "$S_FIELD_AND_TTL"
-            assert_lessthan_equal [r httl myhash 1 f3] 1000
+            assert_range [r httl myhash 1 f3] 990 1000
         }
 
         test "HSETF - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash f1 v2 f2 v2 f3 v3
             assert_equal [r hsetf myhash PXAT 4000000000000 FVS 1 f2 v2] "$S_FIELD_AND_TTL"
-            assert_lessthan_equal [expr [r httl myhash 1 f2] + [clock seconds]] 4000000000
+            assert_range [expr [r httl myhash 1 f2] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HSETF - Test 'KEEPTTL' flag ($type)" {
