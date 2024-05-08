@@ -3616,8 +3616,6 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
                     listpackExAddNew(o, field, value, expireAt);
                 }
             }
-
-            return 1;
         } else {
             lpt->lp = lpReplace(lpt->lp, &vptr, (unsigned char *) value, sdslen(value));
             fptr = lpPrev(lpt->lp, vptr); /* Update fptr as above line invalidates it. */
@@ -3640,8 +3638,9 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
                     listpackExUpdateExpiry(o, field, fptr, vptr, expireAt);
                 }
             }
-            return 1;
         }
+
+        return 1;
     } else if (o->encoding == OBJ_ENCODING_HT) {
         hfield hf = NULL;
         dictEntry *de = NULL;
@@ -3710,9 +3709,11 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
                 ebAdd(&meta->hfe, &hashFieldExpireBucketsType, hf, expireAt);
             }
         }
-    }
 
-    return 1;
+        return 1;
+    } else {
+        serverPanic("Unknown encoding: %d", o->encoding);
+    }
 }
 
 /* Parse hsetf command arguments. */

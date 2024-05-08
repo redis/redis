@@ -69,9 +69,12 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 unsigned char *lpValidateFirst(unsigned char *lp);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen);
-void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val, int tuple_len);
-void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals, int tuple_len);
-unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals, int tuple_len);
+void lpRandomPair(unsigned char *lp, unsigned long total_count,
+                  listpackEntry *key, listpackEntry *val, int tuple_len);
+void lpRandomPairs(unsigned char *lp, unsigned int count,
+                   listpackEntry *keys, listpackEntry *vals, int tuple_len);
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count,
+                                 listpackEntry *keys, listpackEntry *vals, int tuple_len);
 void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entries);
 unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *index,
                             unsigned int remaining, int tuple_len);
