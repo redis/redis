@@ -2295,5 +2295,7 @@ void hpersistCommand(client *c) {
         changed = 1;
     }
     
+    /* Generates a hpersist event if the expiry time associated with any field
+     * has been successfully deleted. */
     if (changed) notifyKeyspaceEvent(NOTIFY_HASH,"hpersist",c->argv[1],c->db->id);
 }
