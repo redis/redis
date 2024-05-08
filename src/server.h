@@ -2434,7 +2434,7 @@ typedef struct {
     int encoding;
 
     unsigned char *fptr, *vptr, *tptr;
-    uint64_t expire_time; /* Only used with OBJ_ENCODING_LISTPACK_TTL */
+    uint64_t expire_time; /* Only used with OBJ_ENCODING_LISTPACK_EX */
 
     dictIterator *di;
     dictEntry *de;

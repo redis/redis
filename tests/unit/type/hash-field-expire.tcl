@@ -1084,6 +1084,12 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # Key should not exist
             assert_equal [r exists myhash] 0
+
+            # Try with GETNEW/GETOLD
+            assert_equal [r hsetf myhash GETNEW DCF FVS 1 a b] "{}"
+            assert_equal [r exists myhash] 0
+            assert_equal [r hsetf myhash GETOLD DCF FVS 1 a b] "{}"
+            assert_equal [r exists myhash] 0
         }
     }
 
@@ -1172,13 +1178,19 @@ start_server {tags {"external:skip needs:debug"}} {
         # Test with larger values to verify we successfully move fields in
         # listpack when we are ordering according to TTL. This config change
         # will make code to use temporary heap allocation when moving fields.
-        # See listpackTTLUpdateExpiry() for details.
+        # See listpackExUpdateExpiry() for details.
         r config set hash-max-listpack-value 2048
 
         set payload1 [string repeat v3 1024]
         set payload2 [string repeat v1 1024]
-        r hset myhash f1 $payload2 f2 v2 f3 $payload1 f4 v4
 
+        # Test with single item list
+        r hset myhash f1 $payload1
+        assert_equal [r hgetf myhash EX 2000 FIELDS 1 f1] $payload1
+        r del myhash
+
+        # Test with multiple items
+        r hset myhash f1 $payload2 f2 v2 f3 $payload1 f4 v4
         r hexpire myhash 100000 1 f3
         r hpersist myhash 1 f3
         assert_equal [r hpersist myhash 1 f3] $P_NO_EXPIRY

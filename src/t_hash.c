@@ -534,7 +534,7 @@ static void listpackExUpdateExpiry(robj *o, sds field,
     /* Listpack is empty, append new item */
     lpt->lp = lpAppend(lpt->lp, (unsigned char*)field, sdslen(field));
     if (valstr)
-        lpt->lp = lpAppend(lpt->lp, tmp, slen);
+        lpt->lp = lpAppend(lpt->lp, tmpval ? (unsigned char*) tmpval : tmp, slen);
     else
         lpt->lp = lpAppendInteger(lpt->lp, val);
 
@@ -3901,6 +3901,20 @@ void hsetfCommand(client *c) {
             addReplyOrErrorObject(c, shared.null[c->resp]);
             return;
         }
+
+        /* If object does not exist and DCF flag is given, no need to create
+         * the object as we won't create any field. */
+        if (flags & HFE_CMD_DCF) {
+            addReplyArrayLen(c, numFields);
+            for (int i = 0; i < numFields ; i++) {
+                if (flags & (HFE_CMD_GETOLD | HFE_CMD_GETNEW))
+                    addReplyNull(c);
+                else
+                    addReplyLongLong(c, HSETF_FAIL);
+            }
+            return;
+        }
+
         hashObj = createHashObject();
         dbAdd(c->db,c->argv[1],hashObj);
     }
@@ -3925,16 +3939,14 @@ void hsetfCommand(client *c) {
                                          expireAt, &minExpireFields);
     }
 
-    /* TODO: Verify this logic. If we create the hash object above and don't
-     * set any field (due to DCF flag was given), we delete the empty object.
-     * In this case, we'll sending unnecessary(?) notifications. */
-    if (updated == 0 && hashTypeLength(hashObj, 0) == 0) {
-        dbDelete(c->db,keyArg);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArg, c->db->id);
-    }
-
-    /* Notify keyspace event, update dirty count and update global HFE DS */
-    if (updated > 0) {
+    if (updated == 0) {
+        /* If we didn't update anything and object is empty, it means we just
+         * created the object above and leaving it empty. If this is the case,
+         * we should avoid creating the object in the first place.
+         * See above DCF check when object does not exist. */
+        serverAssert(hashTypeLength(hashObj, 0) != 0);
+    } else {
+        /* Notify keyspace event, update dirty count and update global HFE DS */
         server.dirty += updated;
         signalModifiedKey(c,c->db,keyArg);
         notifyKeyspaceEvent(NOTIFY_HASH,"hsetf",keyArg,c->db->id);
