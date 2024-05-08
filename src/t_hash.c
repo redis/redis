@@ -662,16 +662,6 @@ unsigned char *hashTypeListpackGetLp(robj *o) {
     serverPanic("Unknown encoding: %d", o->encoding);
 }
 
-size_t hashTypeListpackMemUsage(robj *o) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        return sizeof(*o) + zmalloc_size(o->ptr);
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        listpackEx *lpt = o->ptr;
-        return sizeof(*o) + zmalloc_size(lpt) + zmalloc_size(lpt->lp);
-    }
-    serverPanic("Unknown encoding: %d", o->encoding);
-}
-
 /*-----------------------------------------------------------------------------
  * Hash type API
  *----------------------------------------------------------------------------*/
@@ -683,8 +673,7 @@ void hashTypeTryConversion(redisDb *db, robj *o, robj **argv, int start, int end
     int i;
     size_t sum = 0;
 
-    if (o->encoding != OBJ_ENCODING_LISTPACK &&
-        o->encoding != OBJ_ENCODING_LISTPACK_EX)
+    if (o->encoding != OBJ_ENCODING_LISTPACK && o->encoding != OBJ_ENCODING_LISTPACK_EX)
         return;
 
     /* We guess that most of the values in the input are unique, so
@@ -720,9 +709,6 @@ int hashTypeGetFromListpack(robj *o, sds field,
 {
     unsigned char *zl, *fptr = NULL, *vptr = NULL;
 
-    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK ||
-                 o->encoding == OBJ_ENCODING_LISTPACK_EX);
-
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         zl = o->ptr;
         fptr = lpFirst(zl);
@@ -756,6 +742,8 @@ int hashTypeGetFromListpack(robj *o, sds field,
                     return -1;
             }
         }
+    } else {
+        serverPanic("Unknown hash encoding: %d", o->encoding);
     }
 
     if (vptr != NULL) {

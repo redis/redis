@@ -1040,10 +1040,11 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
-        if (o->encoding == OBJ_ENCODING_LISTPACK ||
-            o->encoding == OBJ_ENCODING_LISTPACK_EX)
-        {
-            asize = hashTypeListpackMemUsage(o);
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            asize = sizeof(*o)+zmalloc_size(o->ptr);
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            listpackEx *lpt = o->ptr;
+            asize = sizeof(*o) + zmalloc_size(lpt) + zmalloc_size(lpt->lp);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);

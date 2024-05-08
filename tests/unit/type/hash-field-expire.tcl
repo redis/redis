@@ -1091,6 +1091,13 @@ start_server {tags {"external:skip needs:debug"}} {
         assert_equal [r object encoding myhash] "listpackex"
     }
 
+    test "Test listpack debug listpack" {
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+
+        # Just to have code coverage for the listpackex encoding
+        r debug listpack myhash
+    }
+
     test "Test listpack converts to ht and passive expiry works" {
         set prev [lindex [r config get hash-max-listpack-entries] 1]
         r config set hash-max-listpack-entries 10

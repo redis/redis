@@ -664,10 +664,14 @@ NULL
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
 
-        if (o->encoding != OBJ_ENCODING_LISTPACK) {
+        if (o->encoding != OBJ_ENCODING_LISTPACK && o->encoding != OBJ_ENCODING_LISTPACK_EX) {
             addReplyError(c,"Not a listpack encoded object.");
         } else {
-            lpRepr(o->ptr);
+            if (o->encoding == OBJ_ENCODING_LISTPACK)
+                lpRepr(o->ptr);
+            else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+                lpRepr(((listpackEx*)o->ptr)->lp);
+
             addReplyStatus(c,"Listpack structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
