@@ -100,34 +100,51 @@ start_server {tags {"external:skip needs:debug"}} {
         assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 2 field1 field2] [list  $E_FAIL  $E_OK]
     }
 
-    test {HPEXPIRE - Test 'XX' flag} {
+    test {HPEXPIRE(AT) - Test 'XX' flag} {
         r del myhash
         r hset myhash field1 value1 field2 value2 field3 value3
         assert_equal [r hpexpire myhash 1000 NX 2 field1 field2] [list  $E_OK  $E_OK]
         assert_equal [r hpexpire myhash 1000 XX 2 field1 field3] [list  $E_OK  $E_FAIL]
+
+        r del myhash
+        r hset myhash field1 value1 field2 value2 field3 value3
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 2 field1 field2] [list  $E_OK  $E_OK]
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] XX 2 field1 field3] [list  $E_OK  $E_FAIL]
     }
 
-    test {HPEXPIRE - Test 'GT' flag} {
+    test {HPEXPIRE(AT) - Test 'GT' flag} {
         r del myhash
         r hset myhash field1 value1 field2 value2
         assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
         assert_equal [r hpexpire myhash 2000 NX 1 field2] [list  $E_OK]
         assert_equal [r hpexpire myhash 1500 GT 2 field1 field2] [list  $E_OK  $E_FAIL]
+
+        r del myhash
+        r hset myhash field1 value1 field2 value2
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 1 field1] [list  $E_OK]
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+2000)*1000}] NX 1 field2] [list  $E_OK]
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] GT 2 field1 field2] [list  $E_OK  $E_FAIL]
     }
 
-    test {HPEXPIRE - Test 'LT' flag} {
+    test {HPEXPIRE(AT) - Test 'LT' flag} {
         r del myhash
         r hset myhash field1 value1 field2 value2
         assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
         assert_equal [r hpexpire myhash 2000 NX 1 field2] [list  $E_OK]
         assert_equal [r hpexpire myhash 1500 LT 2 field1 field2] [list  $E_FAIL  $E_OK]
+
+        r del myhash
+        r hset myhash field1 value1 field2 value2
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 1 field1] [list  $E_OK]
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+2000)*1000}] NX 1 field2] [list  $E_OK]
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] LT 2 field1 field2] [list  $E_FAIL  $E_OK]
     }
 
     test {HPEXPIREAT - field not exists or TTL is in the past} {
         r del myhash
         r hset myhash f1 v1 f2 v2 f4 v4
         r hexpire myhash 1000 NX 1 f4
-        assert_equal [r hexpireat myhash [expr {[clock seconds] - 1}] NX 4 f1 f2 f3 f4] "$E_DELETED $E_DELETED $E_NO_FIELD $E_FAIL"
+        assert_equal [r hpexpireat myhash [expr {([clock seconds]-1)*1000}] NX 4 f1 f2 f3 f4] "$E_DELETED $E_DELETED $E_NO_FIELD $E_FAIL"
         assert_equal [r hexists myhash field1] 0
     }
 
