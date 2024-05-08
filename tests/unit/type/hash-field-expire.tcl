@@ -235,6 +235,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # Wait for active expire
             wait_for_condition 50 20 { [r EXISTS same40] == 0 } else { fail "hash `same40` should be expired" }
+            after 100
 
             # Verify that all fields got expired and keys got deleted
             foreach h $hash_sizes {
