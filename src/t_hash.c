@@ -1237,8 +1237,7 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
         .maxToExpire = activeExpireCtx->fieldsToExpireQuota,
         .onExpireItem = onFieldExpire,
         .ctx = hashObj,
-        .now = commandTimeSnapshot(),
-        .itemsExpired = 0
+        .now = commandTimeSnapshot()
     };
 
     ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
