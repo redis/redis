@@ -2333,25 +2333,28 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpAppend(lp, (unsigned char*)"456", 3);
         lp = lpAppend(lp, (unsigned char*)"def", 3);
         lp = lpAppend(lp, (unsigned char*)"xxx", 3);
-        lp = lpAppend(lp, (unsigned char*)"fgh", 3);
+        lp = lpAppend(lp, (unsigned char*)"281474976710655", 15);
         lp = lpAppend(lp, (unsigned char*)"789", 3);
         lp = lpAppend(lp, (unsigned char*)"xxx", 3);
 
-        lpRandomPair(lp, 3, &key, &val, 3);
-        if (key.sval) {
-            if (!memcmp(key.sval, "abc", key.slen)) {
-                assert(key.slen == 3);
-                assert(val.lval == 123);
-            } else if (!memcmp(key.sval, "fgh", key.slen)) {
-                assert(key.slen == 3);
-                assert(val.lval == 789);
-            } else {
-                assert(0);
-            };
-        }
-        if (!key.sval) {
-            assert(key.lval == 456);
-            assert(!memcmp(val.sval, "def", val.slen));
+        for (int i = 0; i < 5; i++) {
+            lpRandomPair(lp, 3, &key, &val, 3);
+            if (key.sval) {
+                if (!memcmp(key.sval, "abc", key.slen)) {
+                    assert(key.slen == 3);
+                    assert(val.lval == 123);
+                } else {
+                    assert(0);
+                };
+            }
+            if (!key.sval) {
+                if (key.lval == 456)
+                    assert(!memcmp(val.sval, "def", val.slen));
+                else if (key.lval == 281474976710655LL)
+                    assert(val.lval == 789);
+                else
+                    assert(0);
+            }
         }
 
         lpFree(lp);
@@ -2412,7 +2415,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpAppend(lp, (unsigned char*)"456", 3);
         lp = lpAppend(lp, (unsigned char*)"def", 3);
         lp = lpAppend(lp, (unsigned char*)"xxx", 3);
-        lp = lpAppend(lp, (unsigned char*)"fgh", 3);
+        lp = lpAppend(lp, (unsigned char*)"281474976710655", 15);
         lp = lpAppend(lp, (unsigned char*)"789", 3);
         lp = lpAppend(lp, (unsigned char*)"xxx", 3);
 
@@ -2422,16 +2425,17 @@ int listpackTest(int argc, char *argv[], int flags) {
                 if (!memcmp(keys[i].sval, "abc", keys[i].slen)) {
                     assert(keys[i].slen == 3);
                     assert(vals[i].lval == 123);
-                } else if (!memcmp(keys[i].sval, "fgh", keys[i].slen)) {
-                    assert(keys[i].slen == 3);
-                    assert(vals[i].lval == 789);
                 } else {
                     assert(0);
                 };
             }
             if (!keys[i].sval) {
-                assert(keys[i].lval == 456);
-                assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+                if (keys[i].lval == 456)
+                    assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+                else if (keys[i].lval == 281474976710655LL)
+                    assert(vals[i].lval == 789);
+                else
+                    assert(0);
             }
         }
 
@@ -2500,7 +2504,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpAppend(lp, (unsigned char*)"456", 3);
         lp = lpAppend(lp, (unsigned char*)"def", 3);
         lp = lpAppend(lp, (unsigned char*)"xxx", 3);
-        lp = lpAppend(lp, (unsigned char*)"fgh", 3);
+        lp = lpAppend(lp, (unsigned char*)"281474976710655", 15);
         lp = lpAppend(lp, (unsigned char*)"789", 3);
         lp = lpAppend(lp, (unsigned char*)"xxx", 3);
         picked = lpRandomPairsUnique(lp, count, keys, vals, 3);
@@ -2510,16 +2514,17 @@ int listpackTest(int argc, char *argv[], int flags) {
                 if (!memcmp(keys[i].sval, "abc", keys[i].slen)) {
                     assert(keys[i].slen == 3);
                     assert(vals[i].lval == 123);
-                } else if (!memcmp(keys[i].sval, "fgh", keys[i].slen)) {
-                    assert(keys[i].slen == 3);
-                    assert(vals[i].lval == 789);
                 } else {
                     assert(0);
                 };
             }
             if (!keys[i].sval) {
-                assert(keys[i].lval == 456);
-                assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+                if (keys[i].lval == 456)
+                    assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+                else if (keys[i].lval == 281474976710655LL)
+                    assert(vals[i].lval == 789);
+                else
+                    assert(0);
             }
         }
         zfree(keys);
