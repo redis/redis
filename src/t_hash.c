@@ -3896,22 +3896,9 @@ void hsetfCommand(client *c) {
 
     hashObj = lookupKeyWrite(c->db, c->argv[1]);
     if (!hashObj) {
-        /* Don't create object if command has DC argument */
-        if (flags & HFE_CMD_DC) {
+        /* Don't create the object if command has DC or DCF arguments */
+        if (flags & HFE_CMD_DC || flags & HFE_CMD_DCF) {
             addReplyOrErrorObject(c, shared.null[c->resp]);
-            return;
-        }
-
-        /* If object does not exist and DCF flag is given, no need to create
-         * the object as we won't create any field. */
-        if (flags & HFE_CMD_DCF) {
-            addReplyArrayLen(c, numFields);
-            for (int i = 0; i < numFields ; i++) {
-                if (flags & (HFE_CMD_GETOLD | HFE_CMD_GETNEW))
-                    addReplyNull(c);
-                else
-                    addReplyLongLong(c, HSETF_FAIL);
-            }
             return;
         }
 
@@ -3943,7 +3930,7 @@ void hsetfCommand(client *c) {
         /* If we didn't update anything and object is empty, it means we just
          * created the object above and leaving it empty. If this is the case,
          * we should avoid creating the object in the first place.
-         * See above DCF check when object does not exist. */
+         * See above DC / DCF flags check when object does not exist. */
         serverAssert(hashTypeLength(hashObj, 0) != 0);
     } else {
         /* Notify keyspace event, update dirty count and update global HFE DS */

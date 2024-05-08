@@ -1080,15 +1080,15 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HSETF - Test failed hsetf call should not leave empty key ($type)" {
             r del myhash
             # This should not create the field as DCF flag is given
-            assert_equal [r hsetf myhash DCF FVS 1 a b] 0
+            assert_equal [r hsetf myhash DCF FVS 1 a b] ""
 
             # Key should not exist
             assert_equal [r exists myhash] 0
 
             # Try with GETNEW/GETOLD
-            assert_equal [r hsetf myhash GETNEW DCF FVS 1 a b] "{}"
+            assert_equal [r hsetf myhash GETNEW DCF FVS 1 a b] ""
             assert_equal [r exists myhash] 0
-            assert_equal [r hsetf myhash GETOLD DCF FVS 1 a b] "{}"
+            assert_equal [r hsetf myhash GETOLD DCF FVS 1 a b] ""
             assert_equal [r exists myhash] 0
         }
     }
