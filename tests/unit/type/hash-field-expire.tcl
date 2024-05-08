@@ -524,6 +524,16 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r hpttl myhash 1 field1] 900000 1000000
         }
 
+        test "Test return value of set operation ($type)" {
+             r del myhash
+             r hset myhash f1 v1 f2 v2
+             r hexpire myhash 100000 1 f1
+             assert_equal [r hset myhash f2 v2] 0
+             assert_equal [r hset myhash f3 v3] 1
+             assert_equal [r hset myhash f3 v3 f4 v4] 1
+             assert_equal [r hset myhash f3 v3 f5 v5 f6 v6] 2
+        }
+
         test "Test HGETALL not return expired fields ($type)" {
             # Test with small hash
             r debug set-active-expire 0
@@ -1065,6 +1075,15 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash fvs 2 f1 v1 f2 v2
             assert_equal [r hsetf myhash EXAT [expr {[clock seconds] - 1}] FVS 2 f1 v1 f2 v2] "$S_FIELD_AND_TTL $S_FIELD_AND_TTL"
             assert_equal [r hexists myhash field1] 0
+        }
+
+        test "HSETF - Test failed hsetf call should not leave empty key ($type)" {
+            r del myhash
+            # This should not create the field as DCF flag is given
+            assert_equal [r hsetf myhash DCF FVS 1 a b] 0
+
+            # Key should not exist
+            assert_equal [r exists myhash] 0
         }
     }
 

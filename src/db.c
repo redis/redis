@@ -1235,7 +1235,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         cursor = 0;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         int64_t len;
-        long long expireAt;
+        long long expire_at;
         unsigned char *lp = hashTypeListpackGetLp(o);
         unsigned char *p = lpFirst(lp);
         unsigned char *str, *val;
@@ -1247,9 +1247,9 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             val = p; /* Keep pointer to value */
 
             p = lpNext(lp, p);
-            serverAssert(!lpGetValue(p, NULL, &expireAt));
+            serverAssert(!lpGetValue(p, NULL, &expire_at));
 
-            if (hashTypeIsExpired(o, expireAt) ||
+            if (hashTypeIsExpired(o, expire_at) ||
                (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)))
             {
                 /* jump to the next key/val pair */

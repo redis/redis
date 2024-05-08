@@ -1205,7 +1205,6 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
             if (s) {
                 listpackExAddNew(o, field, s->value,
                                  ex ? expireAt : HASH_LP_NO_TTL);
-                res = ex ? HSETEX_OK : HSET_UPDATE;
             } else {
                 res = HSETEX_NO_FIELD;
             }
@@ -3924,6 +3923,14 @@ void hsetfCommand(client *c) {
         sds value = c->argv[firstFieldPos + (i * 2) + 1]->ptr;
         updated += hsetfSetFieldAndReply(c, hashObj, field, value, flags,
                                          expireAt, &minExpireFields);
+    }
+
+    /* TODO: Verify this logic. If we create the hash object above and don't
+     * set any field (due to DCF flag was given), we delete the empty object.
+     * In this case, we'll sending unnecessary(?) notifications. */
+    if (updated == 0 && hashTypeLength(hashObj, 0) == 0) {
+        dbDelete(c->db,keyArg);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArg, c->db->id);
     }
 
     /* Notify keyspace event, update dirty count and update global HFE DS */
