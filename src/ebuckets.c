@@ -2328,6 +2328,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 if (newitem) items[i] = newitem;
             }
             /* Verify that the data is not corrupted. */
+            ebValidate(eb, &myEbucketsType);
             for (int i = 0; i < s; i++)
                 assert(items[i]->index == i);
             ebDestroy(&eb, &myEbucketsType, NULL);
