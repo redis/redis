@@ -235,16 +235,20 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # Wait for active expire
             wait_for_condition 50 20 { [r EXISTS same40] == 0 } else { fail "hash `same40` should be expired" }
-            after 100
 
             # Verify that all fields got expired and keys got deleted
             foreach h $hash_sizes {
+                wait_for_condition 50 20 {
+                    [r HLEN mix$h] == $h
+                } else {
+                    fail "volatile fields of hash `mix$h` should be expired"
+                }
+
                 for {set i 1} {$i <= $h} {incr i} {
                     assert_equal 0 [r HEXISTS mix$h f$i]
                 }
                 assert_equal 0 [r EXISTS hrand$h]
                 assert_equal 0 [r EXISTS same$h]
-                assert_equal $h [r HLEN mix$h]
             }
         }
 
