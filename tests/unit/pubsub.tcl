@@ -368,8 +368,8 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hincrby" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
-        assert_equal "pmessage * __keyspace@${db}__:myhash hexpireat" [$rd1 read]
-        assert_equal "pmessage * __keyspace@${db}__:myhash hpexpire" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
         $rd1 close
     }

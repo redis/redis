@@ -717,7 +717,7 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
         if (ex->c) {
             server.dirty += ex->fieldDeleted + ex->fieldUpdated;
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, ex->cmd, ex->key, ex->db->id);
+            notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", ex->key, ex->db->id);
         }
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
             dbDelete(ex->db,ex->key);
