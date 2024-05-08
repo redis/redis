@@ -297,12 +297,12 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HTTL/HPTTL - Verify TTL progress until expiration ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 200 NX 1 field1
-            assert_range [r HPTTL myhash 1 field1] 100 200
+            r hpexpire myhash 1000 NX 1 field1
+            assert_range [r HPTTL myhash 1 field1] 100 1000
             assert_range [r HTTL myhash 1 field1] 0 1
             after 100
-            assert_range [r HPTTL myhash 1 field1] 1 101
-            after 110
+            assert_range [r HPTTL myhash 1 field1] 1 901
+            after 910
             assert_equal [r HPTTL myhash 1 field1] $T_NO_FIELD
             assert_equal [r HTTL myhash 1 field1] $T_NO_FIELD
         }
