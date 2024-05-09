@@ -2003,7 +2003,8 @@ int hashTypeHasMetaHFE(robj *o) {
 
 void hashTypeUpdateMetaKey(robj *o, sds newkey) {
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        /* TODO */
+        listpackEx *lpt = o->ptr;
+        lpt->key = newkey;
     } if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) {
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
         dictExpireMeta->key = newkey;

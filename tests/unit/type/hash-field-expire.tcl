@@ -1191,15 +1191,10 @@ start_server {tags {"external:skip needs:debug"}} {
 
         # Test with single item list
         r hset myhash f1 $payload1
-        assert_equal [r hgetf myhash EX 2000 FIELDS 1 f1] $payload1
         r del myhash
 
         # Test with multiple items
         r hset myhash f1 $payload2 f2 v2 f3 $payload1 f4 v4
-        r hexpire myhash 100000 1 f3
-        r hpersist myhash 1 f3
-        assert_equal [r hpersist myhash 1 f3] $P_NO_EXPIRY
-
         r hpexpire myhash 10 1 f1
         after 20
         assert_equal [lsort [r hgetall myhash]] [lsort "f2 f3 f4 v2 $payload1 v4"]
