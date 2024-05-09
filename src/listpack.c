@@ -1408,15 +1408,20 @@ static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lva
 /* Randomly select a pair of key and value.
  * total_count is a pre-computed length/2 of the listpack (to avoid calls to lpLength)
  * 'key' and 'val' are used to store the result key value pair.
- * 'val' can be NULL if the value is not needed. */
-void lpRandomPair(unsigned char *lp, unsigned long total_count, listpackEntry *key, listpackEntry *val) {
+ * 'val' can be NULL if the value is not needed.
+ * 'tuple_len' indicates entry count of a single logical item. It should be 2
+ * if listpack was saved as key-value pair or more for key-value-...(n_entries). */
+void lpRandomPair(unsigned char *lp, unsigned long total_count,
+                  listpackEntry *key, listpackEntry *val, int tuple_len)
+{
     unsigned char *p;
+
+    assert(tuple_len >= 2);
 
     /* Avoid div by zero on corrupt listpack */
     assert(total_count);
 
-    /* Generate even numbers, because listpack saved K-V pair */
-    int r = (rand() % total_count) * 2;
+    int r = (rand() % total_count) * tuple_len;
     assert((p = lpSeek(lp, r)));
     key->sval = lpGetValue(p, &(key->slen), &(key->lval));
 
@@ -1466,11 +1471,15 @@ void lpRandomEntries(unsigned char *lp, unsigned int count, listpackEntry *entri
 /* Randomly select count of key value pairs and store into 'keys' and
  * 'vals' args. The order of the picked entries is random, and the selections
  * are non-unique (repetitions are possible).
- * The 'vals' arg can be NULL in which case we skip these. */
-void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+ * The 'vals' arg can be NULL in which case we skip these.
+ * 'tuple_len' indicates entry count of a single logical item. It should be 2
+ * if listpack was saved as key-value pair or more for key-value-...(n_entries). */
+void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals, int tuple_len) {
     unsigned char *p, *key, *value;
     unsigned int klen = 0, vlen = 0;
     long long klval = 0, vlval = 0;
+
+    assert(tuple_len >= 2);
 
     /* Notice: the index member must be first due to the use in uintCompare */
     typedef struct {
@@ -1478,14 +1487,15 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
         unsigned int order;
     } rand_pick;
     rand_pick *picks = lp_malloc(sizeof(rand_pick)*count);
-    unsigned int total_size = lpLength(lp)/2;
+    unsigned int total_size = lpLength(lp)/tuple_len;
 
     /* Avoid div by zero on corrupt listpack */
     assert(total_size);
 
     /* create a pool of random indexes (some may be duplicate). */
     for (unsigned int i = 0; i < count; i++) {
-        picks[i].index = (rand() % total_size) * 2; /* Generate even indexes */
+        /* Generate indexes that key exist at */
+        picks[i].index = (rand() % total_size) * tuple_len;
         /* keep track of the order we picked them */
         picks[i].order = i;
     }
@@ -1507,8 +1517,11 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
                 lpSaveValue(value, vlen, vlval, &vals[storeorder]);
              pickindex++;
         }
-        lpindex += 2;
-        p = lpNext(lp, p);
+        lpindex += tuple_len;
+
+        for (int i = 0; i < tuple_len - 1; i++) {
+            p = lpNext(lp, p);
+        }
     }
 
     lp_free(picks);
@@ -1518,13 +1531,20 @@ void lpRandomPairs(unsigned char *lp, unsigned int count, listpackEntry *keys, l
  * 'vals' args. The selections are unique (no repetitions), and the order of
  * the picked entries is NOT-random.
  * The 'vals' arg can be NULL in which case we skip these.
+ * 'tuple_len' indicates entry count of a single logical item. It should be 2
+ * if listpack was saved as key-value pair or more for key-value-...(n_entries).
  * The return value is the number of items picked which can be lower than the
  * requested count if the listpack doesn't hold enough pairs. */
-unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
+unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count,
+                                 listpackEntry *keys, listpackEntry *vals,
+                                 int tuple_len)
+{
+    assert(tuple_len >= 2);
+
     unsigned char *p, *key;
     unsigned int klen = 0;
     long long klval = 0;
-    unsigned int total_size = lpLength(lp)/2;
+    unsigned int total_size = lpLength(lp)/tuple_len;
     unsigned int index = 0;
     if (count > total_size)
         count = total_size;
@@ -1532,7 +1552,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
     p = lpFirst(lp);
     unsigned int picked = 0, remaining = count;
     while (picked < count && p) {
-        assert((p = lpNextRandom(lp, p, &index, remaining, 1)));
+        assert((p = lpNextRandom(lp, p, &index, remaining, tuple_len)));
         key = lpGetValue(p, &klen, &klval);
         lpSaveValue(key, klen, klval, &keys[picked]);
         assert((p = lpNext(lp, p)));
@@ -1554,8 +1574,9 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
  * the end of the list. The 'index' needs to be initialized according to the
  * current zero-based index matching the position of the starting element 'p'
  * and is updated to match the returned element's zero-based index. If
- * 'even_only' is nonzero, an element with an even index is picked, which is
- * useful if the listpack represents a key-value pair sequence.
+ * 'tuple_len' indicates entry count of a single logical item. e.g. This is
+ * useful if listpack represents key-value pairs. In this case, tuple_len should
+ * be two and even indexes will be picked.
  *
  * Note that this function can return p. In order to skip the previously
  * returned element, you need to call lpNext() or lpDelete() after each call to
@@ -1565,7 +1586,7 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
  *     p = lpFirst(lp);
  *     i = 0;
  *     while (remaining > 0) {
- *         p = lpNextRandom(lp, p, &i, remaining--, 0);
+ *         p = lpNextRandom(lp, p, &i, remaining--, 1);
  *
  *         // ... Do stuff with p ...
  *
@@ -1574,8 +1595,9 @@ unsigned int lpRandomPairsUnique(unsigned char *lp, unsigned int count, listpack
  *     }
  */
 unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *index,
-                            unsigned int remaining, int even_only)
+                            unsigned int remaining, int tuple_len)
 {
+    assert(tuple_len > 0);
     /* To only iterate once, every time we try to pick a member, the probability
      * we pick it is the quotient of the count left we want to pick and the
      * count still we haven't visited. This way, we could make every member be
@@ -1583,15 +1605,14 @@ unsigned char *lpNextRandom(unsigned char *lp, unsigned char *p, unsigned int *i
     unsigned int i = *index;
     unsigned int total_size = lpLength(lp);
     while (i < total_size && p != NULL) {
-        if (even_only && i % 2 != 0) {
+        if (i % tuple_len != 0) {
             p = lpNext(lp, p);
             i++;
             continue;
         }
 
         /* Do we pick this element? */
-        unsigned int available = total_size - i;
-        if (even_only) available /= 2;
+        unsigned int available = (total_size - i) / tuple_len;
         double randomDouble = ((double)rand()) / RAND_MAX;
         double threshold = ((double)remaining) / available;
         if (randomDouble <= threshold) {
@@ -2210,7 +2231,7 @@ int listpackTest(int argc, char *argv[], int flags) {
             unsigned index = 0;
             while (remaining > 0) {
                 assert(p != NULL);
-                p = lpNextRandom(lp, p, &index, remaining--, 0);
+                p = lpNextRandom(lp, p, &index, remaining--, 1);
                 assert(p != NULL);
                 assert(p != prev);
                 prev = p;
@@ -2226,7 +2247,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         unsigned i = 0;
 
         /* Pick from empty listpack returns NULL. */
-        assert(lpNextRandom(lp, NULL, &i, 2, 0) == NULL);
+        assert(lpNextRandom(lp, NULL, &i, 2, 1) == NULL);
 
         /* Add some elements and find their pointers within the listpack. */
         lp = lpAppend(lp, (unsigned char *)"abc", 3);
@@ -2239,19 +2260,19 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpNext(lp, p2) == NULL);
 
         /* Pick zero elements returns NULL. */
-        i = 0; assert(lpNextRandom(lp, lpFirst(lp), &i, 0, 0) == NULL);
+        i = 0; assert(lpNextRandom(lp, lpFirst(lp), &i, 0, 1) == NULL);
 
         /* Pick all returns all. */
-        i = 0; assert(lpNextRandom(lp, p0, &i, 3, 0) == p0 && i == 0);
-        i = 1; assert(lpNextRandom(lp, p1, &i, 2, 0) == p1 && i == 1);
-        i = 2; assert(lpNextRandom(lp, p2, &i, 1, 0) == p2 && i == 2);
+        i = 0; assert(lpNextRandom(lp, p0, &i, 3, 1) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 2, 1) == p1 && i == 1);
+        i = 2; assert(lpNextRandom(lp, p2, &i, 1, 1) == p2 && i == 2);
 
         /* Pick more than one when there's only one left returns the last one. */
-        i = 2; assert(lpNextRandom(lp, p2, &i, 42, 0) == p2 && i == 2);
+        i = 2; assert(lpNextRandom(lp, p2, &i, 42, 1) == p2 && i == 2);
 
         /* Pick all even elements returns p0 and p2. */
-        i = 0; assert(lpNextRandom(lp, p0, &i, 10, 1) == p0 && i == 0);
-        i = 1; assert(lpNextRandom(lp, p1, &i, 10, 1) == p2 && i == 2);
+        i = 0; assert(lpNextRandom(lp, p0, &i, 10, 2) == p0 && i == 0);
+        i = 1; assert(lpNextRandom(lp, p1, &i, 10, 2) == p2 && i == 2);
 
         /* Don't crash even for bad index. */
         for (int j = 0; j < 100; j++) {
@@ -2264,7 +2285,7 @@ int listpackTest(int argc, char *argv[], int flags) {
             }
             i = j % 7;
             unsigned int remaining = j % 5;
-            p = lpNextRandom(lp, p, &i, remaining, 0);
+            p = lpNextRandom(lp, p, &i, remaining, 1);
             assert(p == p0 || p == p1 || p == p2 || p == NULL);
         }
         lpFree(lp);
@@ -2275,7 +2296,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         unsigned char *lp = lpNew(0);
         lp = lpAppend(lp, (unsigned char*)"abc", 3);
         lp = lpAppend(lp, (unsigned char*)"123", 3);
-        lpRandomPair(lp, 1, &key, &val);
+        lpRandomPair(lp, 1, &key, &val, 2);
         assert(memcmp(key.sval, "abc", key.slen) == 0);
         assert(val.lval == 123);
         lpFree(lp);
@@ -2288,7 +2309,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpAppend(lp, (unsigned char*)"123", 3);
         lp = lpAppend(lp, (unsigned char*)"456", 3);
         lp = lpAppend(lp, (unsigned char*)"def", 3);
-        lpRandomPair(lp, 2, &key, &val);
+        lpRandomPair(lp, 2, &key, &val, 2);
         if (key.sval) {
             assert(!memcmp(key.sval, "abc", key.slen));
             assert(key.slen == 3);
@@ -2301,6 +2322,42 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpFree(lp);
     }
 
+    TEST("Random pair with tuple_len 3") {
+        listpackEntry key, val;
+        unsigned char *lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+        lp = lpAppend(lp, (unsigned char*)"456", 3);
+        lp = lpAppend(lp, (unsigned char*)"def", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+        lp = lpAppend(lp, (unsigned char*)"281474976710655", 15);
+        lp = lpAppend(lp, (unsigned char*)"789", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+
+        for (int i = 0; i < 5; i++) {
+            lpRandomPair(lp, 3, &key, &val, 3);
+            if (key.sval) {
+                if (!memcmp(key.sval, "abc", key.slen)) {
+                    assert(key.slen == 3);
+                    assert(val.lval == 123);
+                } else {
+                    assert(0);
+                };
+            }
+            if (!key.sval) {
+                if (key.lval == 456)
+                    assert(!memcmp(val.sval, "def", val.slen));
+                else if (key.lval == 281474976710655LL)
+                    assert(val.lval == 789);
+                else
+                    assert(0);
+            }
+        }
+
+        lpFree(lp);
+    }
+
     TEST("Random pairs with one element") {
         int count = 5;
         unsigned char *lp = lpNew(0);
@@ -2309,7 +2366,7 @@ int listpackTest(int argc, char *argv[], int flags) {
 
         lp = lpAppend(lp, (unsigned char*)"abc", 3);
         lp = lpAppend(lp, (unsigned char*)"123", 3);
-        lpRandomPairs(lp, count, keys, vals);
+        lpRandomPairs(lp, count, keys, vals, 2);
         assert(memcmp(keys[4].sval, "abc", keys[4].slen) == 0);
         assert(vals[4].lval == 123);
         zfree(keys);
@@ -2327,7 +2384,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpAppend(lp, (unsigned char*)"123", 3);
         lp = lpAppend(lp, (unsigned char*)"456", 3);
         lp = lpAppend(lp, (unsigned char*)"def", 3);
-        lpRandomPairs(lp, count, keys, vals);
+        lpRandomPairs(lp, count, keys, vals, 2);
         for (int i = 0; i < count; i++) {
             if (keys[i].sval) {
                 assert(!memcmp(keys[i].sval, "abc", keys[i].slen));
@@ -2344,6 +2401,47 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpFree(lp);
     }
 
+    TEST("Random pairs with many elements and tuple_len 3") {
+        int count = 5;
+        lp = lpNew(0);
+        listpackEntry *keys = zcalloc(sizeof(listpackEntry) * count);
+        listpackEntry *vals = zcalloc(sizeof(listpackEntry) * count);
+
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+        lp = lpAppend(lp, (unsigned char*)"456", 3);
+        lp = lpAppend(lp, (unsigned char*)"def", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+        lp = lpAppend(lp, (unsigned char*)"281474976710655", 15);
+        lp = lpAppend(lp, (unsigned char*)"789", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+
+        lpRandomPairs(lp, count, keys, vals, 3);
+        for (int i = 0; i < count; i++) {
+            if (keys[i].sval) {
+                if (!memcmp(keys[i].sval, "abc", keys[i].slen)) {
+                    assert(keys[i].slen == 3);
+                    assert(vals[i].lval == 123);
+                } else {
+                    assert(0);
+                };
+            }
+            if (!keys[i].sval) {
+                if (keys[i].lval == 456)
+                    assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+                else if (keys[i].lval == 281474976710655LL)
+                    assert(vals[i].lval == 789);
+                else
+                    assert(0);
+            }
+        }
+
+        zfree(keys);
+        zfree(vals);
+        lpFree(lp);
+    }
+
     TEST("Random pairs unique with one element") {
         unsigned picked;
         int count = 5;
@@ -2353,7 +2451,7 @@ int listpackTest(int argc, char *argv[], int flags) {
 
         lp = lpAppend(lp, (unsigned char*)"abc", 3);
         lp = lpAppend(lp, (unsigned char*)"123", 3);
-        picked = lpRandomPairsUnique(lp, count, keys, vals);
+        picked = lpRandomPairsUnique(lp, count, keys, vals, 2);
         assert(picked == 1);
         assert(memcmp(keys[0].sval, "abc", keys[0].slen) == 0);
         assert(vals[0].lval == 123);
@@ -2373,7 +2471,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpAppend(lp, (unsigned char*)"123", 3);
         lp = lpAppend(lp, (unsigned char*)"456", 3);
         lp = lpAppend(lp, (unsigned char*)"def", 3);
-        picked = lpRandomPairsUnique(lp, count, keys, vals);
+        picked = lpRandomPairsUnique(lp, count, keys, vals, 2);
         assert(picked == 2);
         for (int i = 0; i < 2; i++) {
             if (keys[i].sval) {
@@ -2384,6 +2482,47 @@ int listpackTest(int argc, char *argv[], int flags) {
             if (!keys[i].sval) {
                 assert(keys[i].lval == 456);
                 assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+            }
+        }
+        zfree(keys);
+        zfree(vals);
+        lpFree(lp);
+    }
+
+    TEST("Random pairs unique with many elements and tuple_len 3") {
+        unsigned picked;
+        int count = 5;
+        lp = lpNew(0);
+        listpackEntry *keys = zmalloc(sizeof(listpackEntry) * count);
+        listpackEntry *vals = zmalloc(sizeof(listpackEntry) * count);
+
+        lp = lpAppend(lp, (unsigned char*)"abc", 3);
+        lp = lpAppend(lp, (unsigned char*)"123", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+        lp = lpAppend(lp, (unsigned char*)"456", 3);
+        lp = lpAppend(lp, (unsigned char*)"def", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+        lp = lpAppend(lp, (unsigned char*)"281474976710655", 15);
+        lp = lpAppend(lp, (unsigned char*)"789", 3);
+        lp = lpAppend(lp, (unsigned char*)"xxx", 3);
+        picked = lpRandomPairsUnique(lp, count, keys, vals, 3);
+        assert(picked == 3);
+        for (int i = 0; i < 3; i++) {
+            if (keys[i].sval) {
+                if (!memcmp(keys[i].sval, "abc", keys[i].slen)) {
+                    assert(keys[i].slen == 3);
+                    assert(vals[i].lval == 123);
+                } else {
+                    assert(0);
+                };
+            }
+            if (!keys[i].sval) {
+                if (keys[i].lval == 456)
+                    assert(!memcmp(vals[i].sval, "def", vals[i].slen));
+                else if (keys[i].lval == 281474976710655LL)
+                    assert(vals[i].lval == 789);
+                else
+                    assert(0);
             }
         }
         zfree(keys);

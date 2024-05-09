@@ -694,6 +694,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_HASH:
         if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_HASH_LISTPACK);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+            return -1;
         else if (o->encoding == OBJ_ENCODING_HT)
             return rdbSaveType(rdb,RDB_TYPE_HASH);
         else
@@ -2070,7 +2072,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
 
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT);
+            hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
         else if (deep_integrity_validation) {
             /* In this mode, we need to guarantee that the server won't crash
              * later when the ziplist is converted to a dict.
@@ -2115,7 +2117,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 sdslen(value) > server.hash_max_listpack_value ||
                 !lpSafeToAdd(o->ptr, hfieldlen(field) + sdslen(value)))
             {
-                hashTypeConvert(o, OBJ_ENCODING_HT);
+                hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
                 dictUseStoredKeyApi((dict *)o->ptr, 1);
                 ret = dictAdd((dict*)o->ptr, field, value);
                 dictUseStoredKeyApi((dict *)o->ptr, 0);
@@ -2331,7 +2333,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     if (hashTypeLength(o, 0) > server.hash_max_listpack_entries ||
                         maxlen > server.hash_max_listpack_value)
                     {
-                        hashTypeConvert(o, OBJ_ENCODING_HT);
+                        hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
                     }
                 }
                 break;
@@ -2468,7 +2470,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                     }
 
                     if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-                        hashTypeConvert(o, OBJ_ENCODING_HT);
+                        hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
                     else
                         o->ptr = lpShrinkToFit(o->ptr);
                     break;
@@ -2490,7 +2492,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error) {
                 }
 
                 if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-                    hashTypeConvert(o, OBJ_ENCODING_HT);
+                    hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
                 break;
             default:
                 /* totally unreachable */

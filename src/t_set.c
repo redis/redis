@@ -432,7 +432,7 @@ robj *setTypePopRandom(robj *set) {
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         /* Find random and delete it without re-seeking the listpack. */
         unsigned int i = 0;
-        unsigned char *p = lpNextRandom(set->ptr, lpFirst(set->ptr), &i, 1, 0);
+        unsigned char *p = lpNextRandom(set->ptr, lpFirst(set->ptr), &i, 1, 1);
         unsigned int len = 0; /* initialize to silence warning */
         long long llele = 0; /* initialize to silence warning */
         char *str = (char *)lpGetValue(p, &len, &llele);
@@ -815,7 +815,7 @@ void spopWithCountCommand(client *c) {
         unsigned int index = 0;
         unsigned char **ps = zmalloc(sizeof(char *) * count);
         for (unsigned long i = 0; i < count; i++) {
-            p = lpNextRandom(lp, p, &index, count - i, 0);
+            p = lpNextRandom(lp, p, &index, count - i, 1);
             unsigned int len;
             str = (char *)lpGetValue(p, &len, (long long *)&llele);
 
@@ -877,7 +877,7 @@ void spopWithCountCommand(client *c) {
             unsigned int index = 0;
             unsigned char **ps = zmalloc(sizeof(char *) * remaining);
             for (unsigned long i = 0; i < remaining; i++) {
-                p = lpNextRandom(lp, p, &index, remaining - i, 0);
+                p = lpNextRandom(lp, p, &index, remaining - i, 1);
                 unsigned int len;
                 str = (char *)lpGetValue(p, &len, (long long *)&llele);
                 setTypeAddAux(newset, str, len, llele, 0);
@@ -1103,7 +1103,7 @@ void srandmemberWithCountCommand(client *c) {
         unsigned int i = 0;
         addReplyArrayLen(c, count);
         while (count) {
-            p = lpNextRandom(lp, p, &i, count--, 0);
+            p = lpNextRandom(lp, p, &i, count--, 1);
             unsigned int len;
             str = (char *)lpGetValue(p, &len, (long long *)&llele);
             if (str == NULL) {
