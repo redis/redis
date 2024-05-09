@@ -441,10 +441,7 @@ start_server [list overrides [list "dir" $server_path]] {
             restart_server 0 true false
             wait_done_loading r
 
-            assert_equal [r hget key a] 1
-            assert_equal [r hget key b] 2
-            assert_equal [r hget key c] 3
-            assert_equal [r hget key d] {}
+            assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
             assert_equal [r hexpiretime key 3 a b c] {2524600800 2524600800 -1}
         }
     }
@@ -527,10 +524,7 @@ test "save listpack, load dict" {
         r config set hash-max-listpack-entries 0
         r debug reload
 
-        assert_equal [r hget key a] 1
-        assert_equal [r hget key b] 2
-        assert_equal [r hget key c] 3
-        assert_equal [r hget key d] {}
+        assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
         assert_match "*encoding:hashtable*" [r debug object key]
     }
 }
@@ -555,10 +549,7 @@ test "save dict, load listpack" {
         r config set hash-max-listpack-entries 512
         r debug reload
 
-        assert_equal [r hget key a] 1
-        assert_equal [r hget key b] 2
-        assert_equal [r hget key c] 3
-        assert_equal [r hget key d] {}
+        assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
         assert_match "*encoding:listpack*" [r debug object key]
     }
 }
