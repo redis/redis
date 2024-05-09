@@ -1996,12 +1996,14 @@ void hashTypeFree(robj *o) {
     }
 }
 
-int hashTypeHasMetaHFE(robj *o) {
+/* Checks if a hash object has an expire field. */
+int hashTypeHasExpireField(robj *o) {
     return (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) ||
         o->encoding == OBJ_ENCODING_LISTPACK_EX;
 }
 
-void hashTypeUpdateMetaKey(robj *o, sds newkey) {
+/* Attempts to update the reference to the new key. Now it's only used in defrag. */
+void hashTypeUpdateKeyRef(robj *o, sds newkey) {
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = o->ptr;
         lpt->key = newkey;
@@ -2009,7 +2011,7 @@ void hashTypeUpdateMetaKey(robj *o, sds newkey) {
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
         dictExpireMeta->key = newkey;
     } else {
-        /* nothing to do. */
+        /* Nothing to do. */
     }
 }
 

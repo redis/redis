@@ -3198,8 +3198,8 @@ void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *keyObj);
-int hashTypeHasMetaHFE(robj *o);
-void hashTypeUpdateMetaKey(robj *o, sds newkey);
+int hashTypeHasExpireField(robj *o);
+void hashTypeUpdateKeyRef(robj *o, sds newkey);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
 
 /* Hash-Field data type (of t_hash.c) */

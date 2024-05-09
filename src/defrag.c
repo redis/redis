@@ -747,11 +747,11 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
 
         /* Update the key's reference in the dict's metadata. */
         if (unlikely(ob->type == OBJ_HASH))
-            hashTypeUpdateMetaKey(ob, newsds);
+            hashTypeUpdateKeyRef(ob, newsds);
     }
 
     /* Try to defrag robj and / or string value. */
-    if (unlikely(ob->type == OBJ_HASH && hashTypeHasMetaHFE(ob))) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeHasExpireField(ob))) {
         /* Update its reference in the ebucket while defragging it. */
         newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, (ebDefragFunction *)activeDefragStringOb);
     } else {
