@@ -310,7 +310,7 @@ void activeDefragSdsDict(dict* d, int val_type) {
 }
 
 /* Defrag a dict with hfield key and sds value. */
-void activeDefragHfieldDict(dict* d) {
+void activeDefragHfieldDict(dict *d) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
@@ -745,7 +745,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
             if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
 
-        /* Update the key's reference in the dict's metadata. */
+        /* Update the key's reference in the dict's metadata or the listpackEx. */
         if (unlikely(ob->type == OBJ_HASH))
             hashTypeUpdateKeyRef(ob, newsds);
     }
