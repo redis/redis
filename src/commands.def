@@ -3671,7 +3671,7 @@ struct COMMAND_ARG HMSET_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* HPERSIST key specs */
 keySpec HPERSIST_Keyspecs[1] = {
-{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 
@@ -11109,7 +11109,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hlen","Returns the number of fields in a hash.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HLEN_History,0,HLEN_Tips,0,hlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HLEN_Keyspecs,1,NULL,1),.args=HLEN_Args},
 {MAKE_CMD("hmget","Returns the values of all fields in a hash.","O(N) where N is the number of fields being requested.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HMGET_History,0,HMGET_Tips,0,hmgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HMGET_Keyspecs,1,NULL,2),.args=HMGET_Args},
 {MAKE_CMD("hmset","Sets the values of multiple fields.","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0","hash",COMMAND_GROUP_HASH,HMSET_History,0,HMSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HMSET_Keyspecs,1,NULL,2),.args=HMSET_Args},
-{MAKE_CMD("hpersist","Removes the expiration time for each specified field","O(N) where N is the number of arguments to the command","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPERSIST_History,0,HPERSIST_Tips,0,hpersistCommand,-4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HPERSIST_Keyspecs,1,NULL,3),.args=HPERSIST_Args},
+{MAKE_CMD("hpersist","Removes the expiration time for each specified field","O(N) where N is the number of arguments to the command","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPERSIST_History,0,HPERSIST_Tips,0,hpersistCommand,-4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HPERSIST_Keyspecs,1,NULL,3),.args=HPERSIST_Args},
 {MAKE_CMD("hpexpire","Set expiry for hash field using relative time to expire (milliseconds)","O(N) where N is the number of arguments to the command","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPEXPIRE_History,0,HPEXPIRE_Tips,0,hpexpireCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HPEXPIRE_Keyspecs,1,NULL,5),.args=HPEXPIRE_Args},
 {MAKE_CMD("hpexpireat","Set expiry for hash field using an absolute Unix timestamp (milliseconds)","O(N) where N is the number of arguments to the command","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPEXPIREAT_History,0,HPEXPIREAT_Tips,0,hpexpireatCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HPEXPIREAT_Keyspecs,1,NULL,5),.args=HPEXPIREAT_Args},
 {MAKE_CMD("hpexpiretime","Returns the expiration time of a hash field as a Unix timestamp, in msec.","O(N) where N is the number of arguments to the command","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPEXPIRETIME_History,0,HPEXPIRETIME_Tips,0,hpexpiretimeCommand,-4,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HPEXPIRETIME_Keyspecs,1,NULL,3),.args=HPEXPIRETIME_Args},
