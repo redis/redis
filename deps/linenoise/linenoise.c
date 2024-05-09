@@ -168,10 +168,10 @@ struct linenoiseState {
 };
 
 typedef struct {
-    int len;             /* Length of the result string. */
-    char *result;        /* Search result string. */
-    int searchTermIndex; /* Position of the search term in the history record. */
-    int searchTermLen;   /* Length of the search term. */
+    int len;                /* Length of the result string. */
+    char *result;           /* Search result string. */
+    int search_term_index;  /* Position of the search term in the history record. */
+    int search_term_len;    /* Length of the search term. */
 } linenoiseHistorySearchResult;
 
 enum KEY_ACTION{
@@ -1380,27 +1380,27 @@ static int setNextSearchIndex(int *i) {
     return 1;
 }
 
-linenoiseHistorySearchResult searchInHistory(char *searchTerm) {
+linenoiseHistorySearchResult searchInHistory(char *search_term) {
     linenoiseHistorySearchResult result = {0};
 
-    if (!history_len || !strlen(searchTerm)) return result;
+    if (!history_len || !strlen(search_term)) return result;
 
     int i = cycle_to_next_search ? search_result_history_index :
         (reverse_search_direction == -1 ? history_len-1 : 0);
     
     while (1) {
-        char *found = strstr(history[i], searchTerm);
+        char *found = strstr(history[i], search_term);
         
         /* check if we found the same string at another index when cycling, this would be annoying to cycle through
          * as it might appear that cycling isn't working */
         int strings_are_the_same = cycle_to_next_search && strcmp(history[i], history[search_result_history_index]) == 0; 
 
         if (found && !strings_are_the_same) {
-            int haystackIndex = found - history[i];
+            int haystack_index = found - history[i];
             result.result = history[i];
             result.len = strlen(history[i]);
-            result.searchTermIndex = haystackIndex;
-            result.searchTermLen = strlen(searchTerm);
+            result.search_term_index = haystack_index;
+            result.search_term_len = strlen(search_term);
             search_result_history_index = i;
             break;
         }
@@ -1430,19 +1430,21 @@ static void refreshSearchResult(struct linenoiseState *ls) {
         char *bold = "\x1B[1m";
         char *normal = "\x1B[0m";
 
-        int size_needed = sr.searchTermIndex + sr.searchTermLen + sr.len - (sr.searchTermIndex+sr.searchTermLen) + sizeof(normal) + sizeof(bold) + sizeof(normal);
+        int size_needed = sr.search_term_index + sr.search_term_len + sr.len -
+            (sr.search_term_index+sr.search_term_len) + sizeof(normal) + sizeof(bold) + sizeof(normal);
         if (size_needed > sizeof(search_result_friendly) - 1) {
             return;
         }
 
         /* Allocate memory for the prefix, match, and suffix strings, one extra byte for `\0`. */
-        char *prefix = calloc(sizeof(char), sr.searchTermIndex + 1);
-        char *match = calloc(sizeof(char), sr.searchTermLen + 1);
-        char *suffix = calloc(sizeof(char), sr.len - (sr.searchTermIndex+sr.searchTermLen) + 1);
+        char *prefix = calloc(sizeof(char), sr.search_term_index + 1);
+        char *match = calloc(sizeof(char), sr.search_term_len + 1);
+        char *suffix = calloc(sizeof(char), sr.len - (sr.search_term_index+sr.search_term_len) + 1);
 
-        memcpy(prefix, sr.result, sr.searchTermIndex);
-        memcpy(match, sr.result + sr.searchTermIndex, sr.searchTermLen);
-        memcpy(suffix, sr.result + sr.searchTermIndex + sr.searchTermLen, sr.len - (sr.searchTermIndex+sr.searchTermLen));
+        memcpy(prefix, sr.result, sr.search_term_index);
+        memcpy(match, sr.result + sr.search_term_index, sr.search_term_len);
+        memcpy(suffix, sr.result + sr.search_term_index + sr.search_term_len,
+               sr.len - (sr.search_term_index+sr.search_term_len));
         sprintf(search_result, "%s%s%s", prefix, match, suffix);
         sprintf(search_result_friendly, "%s%s%s%s%s%s", normal, prefix, bold, match, normal, suffix);
 
@@ -1450,6 +1452,6 @@ static void refreshSearchResult(struct linenoiseState *ls) {
         free(match);
         free(suffix);
 
-        search_result_start_offset = sr.searchTermIndex;
+        search_result_start_offset = sr.search_term_index;
     }
 }
