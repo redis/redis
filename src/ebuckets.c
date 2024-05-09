@@ -1785,8 +1785,7 @@ void ebValidate(ebuckets eb, EbucketsType *type) {
  *
  * The 'defragfn' callbacks are called with a pointer to memory that callback
  * can reallocate. The callbacks should return a new memory address or NULL,
- * where NULL means that no reallocation happened and the old memory is still
- * valid. 
+ * where NULL means that no reallocation happened and the old memory is still valid.
  * 
  * Note: It is the caller's responsibility to ensure that the item has a valid expire time. */
 eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *defragfn) {
