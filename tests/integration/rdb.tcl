@@ -419,7 +419,6 @@ start_server {} {
 set server_path [tmpdir "server.partial-hfield-exp-test"]
 
 # verifies writing and reading hash key with expiring and persistent fields
-# TODO: re-visit when removing active expiration on load for listpack
 start_server [list overrides [list "dir" $server_path]] {
     foreach type {listpack dict} {
         test "hash field expiration save and load rdb one expired field, ($type)" {
@@ -450,7 +449,6 @@ start_server [list overrides [list "dir" $server_path]] {
 set server_path [tmpdir "server.all-hfield-exp-test"]
 
 # verifies writing hash with several expired keys, and active-expiring it on load
-# TODO: re-visit when removing active expiration on load for listpack
 start_server [list overrides [list "dir" $server_path]] {
     foreach type {listpack dict} {
         test "hash field expiration save and load rdb all fields expired, ($type)" {
@@ -477,7 +475,7 @@ start_server [list overrides [list "dir" $server_path]] {
     }
 }
 
-set server_path [tmpdir "server.all-hfield-exp-test"]
+set server_path [tmpdir "server.long-ttl-test"]
 
 # verifies a long TTL value (6 bytes) is saved and loaded correctly
 start_server [list overrides [list "dir" $server_path]] {
@@ -524,14 +522,13 @@ test "save listpack, load dict" {
         r config set hash-max-listpack-entries 0
         r debug reload
 
-        assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
+        assert_equal [lsort [r hgetall key]] "1 2 3 4 a b c d"
         assert_match "*encoding:hashtable*" [r debug object key]
     }
 }
 
 set server_path [tmpdir "server.dict-to-listpack-test"]
 
-# TODO: re-visit when removing active expiration on load for listpack
 test "save dict, load listpack" {
     start_server [list overrides [list "dir" $server_path  enable-debug-command yes]] {
         r config set hash-max-listpack-entries 0

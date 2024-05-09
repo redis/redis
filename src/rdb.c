@@ -2692,25 +2692,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                     return NULL;
                 }
 
-                /* for TTL listpack, look for and delete expired fields*/
-                uint64_t minExpire = 0;
-                if (rdbtype == RDB_TYPE_HASH_LISTPACK_TTL) {
-                    ExpireInfo info = {
-                        .onExpireItem = NULL,
-                        .ctx = NULL,
-                        .maxToExpire = UINT64_MAX,
-                        .now = mstime()
-                    };
-                    listpackExExpire(o, &info);
-                    server.rdb_last_load_hash_fields_expired += info.itemsExpired;
-                    minExpire = info.nextExpireTime;
-                }
-
-                /* if all keys expired and the listpack is empty, delete it */
+                /* if listpack is empty, delete it */
                 if (hashTypeLength(o, 0) == 0) {
                     decrRefCount(o);
                     goto emptykey;
                 }
+
+                /* for TTL listpack, find the minimum expiry */
+                uint64_t minExpire = hashTypeGetNextTimeToExpire(o);
 
                 /* check if need to convert to dict encoding */
                 if ((hashTypeLength(o, 0) > server.hash_max_listpack_entries)) { /* TODO: each field length is not verified against server.hash_max_listpack_value */
@@ -2720,12 +2709,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
 
                 } else if (rdbtype == RDB_TYPE_HASH_LISTPACK_TTL) {
                     /* connect the listpack to the DB-global expiry data structure */
-                    if ((minExpire != 0) && (db != NULL)) { /* DB can be NULL when checking rdb */
-                        if (ebAdd(&db->hexpires, &hashExpireBucketsType, o, minExpire) != 0) {
-                            rdbReportError(0, __LINE__, "failed linking listpack to db expiration");
-                            decrRefCount(o);
-                            return NULL;
-                        }
+                    if ((minExpire != EB_EXPIRE_TIME_INVALID) && (db != NULL)) { /* DB can be NULL when checking rdb */
+                        hashTypeAddToExpires(db, key, o, minExpire);
                     }
                 }
                 break;
