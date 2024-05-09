@@ -1780,14 +1780,23 @@ void ebValidate(ebuckets eb, EbucketsType *type) {
         ebValidateRax(ebGetRaxPtr(eb), type);
 }
 
-eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *fn) {
+/* Reallocates the memory used by the item using the provided allocation function.
+ * This feature was added for the active defrag feature.
+ *
+ * The 'defragfn' callbacks are called with a pointer to memory that callback
+ * can reallocate. The callbacks should return a new memory address or NULL,
+ * where NULL means that no reallocation happened and the old memory is still
+ * valid. 
+ * 
+ * Note: It is the caller's responsibility to ensure that the item has a valid expire time. */
+eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *defragfn) {
     assert(!ebIsEmpty(*eb));
     if (ebIsList(*eb)) {
         ExpireMeta *prevem = NULL;
         eItem curitem = ebGetListPtr(type, *eb);
         while (curitem != NULL) {
             if (curitem == item) {
-                if ((curitem = fn(curitem))) {
+                if ((curitem = defragfn(curitem))) {
                     if (prevem)
                         prevem->next = curitem;
                     else
@@ -1812,7 +1821,7 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
             currHdr = (CommonSegHdr *) ((NextSegHdr *) mIter->next)->prevSeg;
         /* If the item is the first in the segment, then update the segment header */
         if (currHdr->head == item) {
-            if ((item = fn(item))) {
+            if ((item = defragfn(item))) {
                 currHdr->head = item;
             }
             return item;
@@ -1825,7 +1834,7 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
             mIter = type->getExpireMeta(mIter->next);
         assert(mIter->next == item);
 
-        if ((item = fn(item))) {
+        if ((item = defragfn(item))) {
             mIter->next = item;
         }
         return item;

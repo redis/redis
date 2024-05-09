@@ -23,7 +23,6 @@ static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(robj *hashObj, hfield field);
 static void updateGlobalHfeDs(redisDb *db, robj *o, uint64_t minExpire, uint64_t minExpireFields);
 static uint64_t hashTypeGetNextTimeToExpire(robj *o);
-static uint64_t hashTypeGetMinExpire(robj *keyObj);
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
@@ -1995,12 +1994,6 @@ void hashTypeFree(robj *o) {
             serverPanic("Unknown hash encoding type");
             break;
     }
-}
-
-/* Checks if a hash object has an expire field. */
-int hashTypeHasExpireField(robj *o) {
-    return (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) ||
-        o->encoding == OBJ_ENCODING_LISTPACK_EX;
 }
 
 /* Attempts to update the reference to the new key. Now it's only used in defrag. */

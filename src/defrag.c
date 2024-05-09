@@ -751,9 +751,10 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     }
 
     /* Try to defrag robj and / or string value. */
-    if (unlikely(ob->type == OBJ_HASH && hashTypeHasExpireField(ob))) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob) != EB_EXPIRE_TIME_INVALID)) {
         /* Update its reference in the ebucket while defragging it. */
-        newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob, (ebDefragFunction *)activeDefragStringOb);
+        newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob,
+                             (ebDefragFunction *)activeDefragStringOb);
     } else {
         /* If the dict doesn't have metadata, we directly defrag it. */
         newob = activeDefragStringOb(ob);
