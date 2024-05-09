@@ -25,7 +25,12 @@
 
 /*** BENCHMARK
  *
- *   > make REDIS_CFLAGS='-DREDIS_TEST -DEB_TEST_BENCHMARK' && ./src/redis-server test ebuckets
+ * To benchmark ebuckets creation and active-expire with 10 million items, apply
+ * the following command such that `EB_TEST_BENCHMARK` gets desired distribution
+ * of expiration times:
+ *
+ *   # 0=1msec, 1=1sec, 2=1min, 3=1hour, 4=1day, 5=1week, 6=1month
+ *   make REDIS_CFLAGS='-DREDIS_TEST -DEB_TEST_BENCHMARK=3' && ./src/redis-server test ebuckets
  */
 
 /*
@@ -1807,11 +1812,11 @@ ExpireMeta *getMyItemExpireMeta(const eItem item) {
     return &((MyItem *)item)->mexpire;
 }
 
-ExpireAction toExpireItemCb(void *ctx, eItem item);
-void toDeleteItemCb(eItem item, void *ctx);
+ExpireAction expireItemCb(void *item, eItem ctx);
+void deleteItemCb(eItem item, void *ctx);
 EbucketsType myEbucketsType = {
     .getExpireMeta = getMyItemExpireMeta,
-    .onDeleteItem = toDeleteItemCb,
+    .onDeleteItem = deleteItemCb,
     .itemsAddrAreOdd = 0,
 };
 
@@ -1824,7 +1829,7 @@ EbucketsType myEbucketsType2 = {
 /* XOR over all items time-expiration. Must be 0 after all addition/removal */
 uint64_t expItemsHashValue = 0;
 
-ExpireAction toExpireItemCb(eItem item, void *ctx) {
+ExpireAction expireItemCb(eItem item, void *ctx) {
     ExpireMeta *meta = myEbucketsType.getExpireMeta(item);
     uint64_t expTime = ebGetMetaExpTime(meta);
     expItemsHashValue = expItemsHashValue ^ expTime;
@@ -1840,7 +1845,18 @@ ExpireAction toExpireItemCb(eItem item, void *ctx) {
     return ACT_REMOVE_EXP_ITEM;
 }
 
-void toDeleteItemCb(eItem item, void *ctx) {
+ExpireAction expireUpdateThirdItemCb(eItem item, void *ctx) {
+    uint64_t expTime = (uint64_t) (uintptr_t) ctx;
+    static int calls = 0;
+    if ((calls++) == 3) {
+        ebSetMetaExpTime(&(((MyItem *)item)->mexpire), expTime );
+        return ACT_UPDATE_EXP_ITEM;
+    }
+
+    return ACT_REMOVE_EXP_ITEM;
+}
+
+void deleteItemCb(eItem item, void *ctx) {
     UNUSED(ctx);
     zfree(item);
 }
@@ -1928,7 +1944,7 @@ void distributeTest(int lowestTime,
             TimeRange range = {EB_BUCKET_EXP_TIME(startRange), EB_BUCKET_EXP_TIME(expireRanges[i]) };
             ExpireInfo info = {
                     .maxToExpire = 0xFFFFFFFF,
-                    .onExpireItem = toExpireItemCb,
+                    .onExpireItem = expireItemCb,
                     .ctx = &range,
                     .now = now,
                     .itemsExpired = 0};
@@ -1987,7 +2003,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
         };
 
         /* selected test */
-        uint32_t tid = 3;
+        uint32_t tid = EB_TEST_BENCHMARK;
 
         printf("\n------ TEST EBUCKETS: %s ------\n", testCases[tid].description);
         uint64_t expireRanges[] = { testCases[tid].minExpire, testCases[tid].maxExpire };
@@ -2072,7 +2088,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                     TimeRange range = {EB_BUCKET_EXP_TIME(i - 1), EB_BUCKET_EXP_TIME(i)};
                     ExpireInfo info = {
                             .maxToExpire = 1,
-                            .onExpireItem = toExpireItemCb,
+                            .onExpireItem = expireItemCb,
                             .ctx = &range,
                             .now = EB_BUCKET_EXP_TIME(i),
                             .itemsExpired = 0};
@@ -2103,7 +2119,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
             for (uint32_t i = 1; i <= numIterations; i++) {
                 ExpireInfo info = {
                         .maxToExpire = expirePerIter,
-                        .onExpireItem = toExpireItemCb,
+                        .onExpireItem = expireItemCb,
                         .ctx = NULL,
                         .now = (2 << EB_BUCKET_KEY_PRECISION),
                         .itemsExpired = 0};
@@ -2249,6 +2265,51 @@ int ebucketsTest(int argc, char **argv, int flags) {
             ebDestroy(&eb, &myEbucketsType2, NULL);
         }
     }
+
+    TEST("ebuckets - active expire callback returns ACT_UPDATE_EXP_ITEM") {
+        ebuckets eb = NULL;
+        MyItem items[2*EB_SEG_MAX_ITEMS];
+        int numItems = 2*EB_SEG_MAX_ITEMS;
+
+        /* timeline */
+        int expiredAt           = 2,
+            applyActiveExpireAt = 3,
+            updateItemTo        = 5,
+            expectedExpiredAt   = 6;
+
+        /* Allocate numItems and add to ebuckets */
+        for (int i = 0; i < numItems; i++)
+            ebAdd(&eb, &myEbucketsType2, items + i, expiredAt << EB_BUCKET_KEY_PRECISION);
+
+        /* active-expire. Expected that all but one will be expired */
+        ExpireInfo info = {
+                .maxToExpire = 0xFFFFFFFF,
+                .onExpireItem = expireUpdateThirdItemCb,
+                .ctx = (void *) (uintptr_t) (updateItemTo << EB_BUCKET_KEY_PRECISION),
+                .now = applyActiveExpireAt << EB_BUCKET_KEY_PRECISION,
+                .itemsExpired = 0};
+        ebExpire(&eb, &myEbucketsType2, &info);
+        assert(info.itemsExpired == (uint64_t) numItems);
+        assert(ebGetTotalItems(eb, &myEbucketsType2) == 1);
+
+        /* active-expire. Expected that all will be expired */
+        ExpireInfo info2 = {
+                .maxToExpire = 0xFFFFFFFF,
+                .onExpireItem = expireUpdateThirdItemCb,
+                .ctx = (void *) (uintptr_t) (updateItemTo << EB_BUCKET_KEY_PRECISION),
+                .now = expectedExpiredAt << EB_BUCKET_KEY_PRECISION,
+                .itemsExpired = 0};
+        ebExpire(&eb, &myEbucketsType2, &info2);
+        assert(info2.itemsExpired == (uint64_t) 1);
+        assert(ebGetTotalItems(eb, &myEbucketsType2) == 0);
+
+        ebDestroy(&eb, &myEbucketsType2, NULL);
+
+    }
+
+//    TEST("segment - Add smaller item to full segment that all share same ebucket-key")
+//    TEST("segment - Add item to full segment and make it extended-segment (all share same ebucket-key)")
+//    TEST("ebuckets - Create rax tree with extended-segment and add item before")
 
     return 0;
 }
