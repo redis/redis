@@ -3205,6 +3205,7 @@ void listpackExExpire(robj *o, ExpireInfo *info);
 void *HashTypeGroupSetInit(sds key, robj *o, redisDb *db);
 int hashTypeGroupSet(void* ctx, redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
 void hashTypeGroupSetDone(void *ctx);
+uint64_t hashTypeGetMinExpire(robj *keyObj);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
