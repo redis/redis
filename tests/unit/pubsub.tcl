@@ -353,8 +353,9 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
-    test "Keyspace notifications: hash events test" {
-        r config set hash-max-listpack-entries 1 ;# TODO: removed after hfe listpack is merged
+    foreach {type max_lp_entries} {listpackex 512 hashtable 0} {
+    test "Keyspace notifications: hash events test ($type)" {
+        r config set hash-max-listpack-entries $max_lp_entries
         r config set notify-keyspace-events Kh
         r del myhash
         set rd1 [redis_deferring_client]
@@ -365,6 +366,7 @@ start_server {tags {"pubsub network"}} {
         r hexpireat myhash [expr {[clock seconds] + 999999}] NX 1 no
         r hpexpire myhash 5 1 yes
         r hpersist myhash 1 yes
+        assert_encoding $type myhash
         assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hincrby" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
@@ -373,6 +375,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
         $rd1 close
     }
+    } ;# foreach
 
     test "Keyspace notifications: stream events test" {
         r config set notify-keyspace-events Kt
