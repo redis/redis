@@ -3202,9 +3202,7 @@ uint64_t hashTypeGetMinExpire(robj *o);
 void hashTypeUpdateKeyRef(robj *o, sds newkey);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
 void listpackExExpire(robj *o, ExpireInfo *info);
-void *HashTypeGroupSetInit(sds key, robj *o, redisDb *db);
-int hashTypeGroupSet(void* ctx, redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
-void hashTypeGroupSetDone(void *ctx);
+int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
 uint64_t hashTypeGetMinExpire(robj *keyObj);
 
 /* Hash-Field data type (of t_hash.c) */

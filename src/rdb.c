@@ -2231,7 +2231,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
         uint64_t ttl, minExpire = UINT64_MAX;
         mstime_t now = mstime();
         dict *dupSearchDict = NULL;
-        void *hashAddCtx = NULL;
 
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
@@ -2240,11 +2239,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries) {
             hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-            hashAddCtx = HashTypeGroupSetInit(key, o, db);
-            if (hashAddCtx == NULL) {
-                decrRefCount(o);
-                return NULL;
-            }
         } else {
             hashTypeConvert(o, OBJ_ENCODING_LISTPACK_EX, &db->hexpires);
             if (deep_integrity_validation) {
@@ -2262,7 +2256,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             /* read the field name */
             if ((field = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &fieldLen)) == NULL) {
                 decrRefCount(o);
-                if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 return NULL;
             }
@@ -2270,7 +2263,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             /* read the value */
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                 decrRefCount(o);
-                if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 sdsfree(field);
                 return NULL;
@@ -2279,7 +2271,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             /* read the TTL */
             if (rdbLoadLenByRef(rdb, NULL, &ttl) == -1) {
                 decrRefCount(o);
-                if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 sdsfree(value);
                 sdsfree(field);
@@ -2318,7 +2309,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                     if (dictAdd(dupSearchDict, field_dup, NULL) != DICT_OK) {
                         rdbReportCorruptRDB("Hash with dup elements");
                         dictRelease(dupSearchDict);
-                        if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
                         decrRefCount(o);
                         sdsfree(field_dup);
                         sdsfree(value);
@@ -2335,20 +2325,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
                 {
                     /* convert to hash */
                     hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-                    hashAddCtx = HashTypeGroupSetInit(key, o, db);
-                    if (hashAddCtx == NULL) {
-                        decrRefCount(o);
-                        if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                        sdsfree(value);
-                        sdsfree(field);
-                        return NULL;
-                    }
 
                     if (len > DICT_HT_INITIAL_SIZE) { /* TODO: this is NOT the original len, but this is also the case for simple hash, is this a bug? */
                         if (dictTryExpand(o->ptr, len) != DICT_OK) {
                             rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
                             decrRefCount(o);
-                            hashTypeGroupSetDone(hashAddCtx);
                             if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                             sdsfree(value);
                             sdsfree(field);
@@ -2369,10 +2350,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
             }
 
             if (o->encoding == OBJ_ENCODING_HT) {
-                if (hashTypeGroupSet(hashAddCtx, db, o, field, value, ttl) != C_OK) {
+                if (hashTypeSetExRdb(db, o, field, value, ttl) != C_OK) {
                         decrRefCount(o);
                         if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                        hashTypeGroupSetDone(hashAddCtx);
                         sdsfree(value);
                         sdsfree(field);
                         return NULL;
@@ -2384,22 +2364,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int dbid, int *
         serverAssert(len == 0);
 
         if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-        if (hashAddCtx != NULL) hashTypeGroupSetDone(hashAddCtx);
 
         /* check for empty key (if all fields were expired) */
         if (hashTypeLength(o, 0) == 0) {
             decrRefCount(o);
             goto emptykey;
         }
-
-        /* if the resulting object is a listpack, need to add the minimum TTL to the DB ebuckets */
-        if ((o->encoding == OBJ_ENCODING_LISTPACK_EX) && (minExpire != 0) && (db != NULL)) { /* DB can be NULL when checking rdb */
-            if (ebAdd(&db->hexpires, &hashExpireBucketsType, o, minExpire) != 0) {
-                rdbReportError(0, __LINE__, "failed linking listpack to db expiration");
-                decrRefCount(o);
-                return NULL;
-            }
-        }
+        if (db != NULL)
+            hashTypeAddToExpires(db, key, o, minExpire);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;

@@ -1051,44 +1051,30 @@ SetExDone:
 }
 
 /*
- * These 3 functions are a simplification of hashTypeSetExInit,
- * hashTypeSetEx and hashTypeSetExDone. They provide a simpler API
- * for adding new entries, w/o exposing all the types required for the
- * original flavor.
- * They are currently used for RDB reading
+ * hashTypeSetExRdb provide a simplified API for setting fields & expiry by RDB load
+ *
+ * It is the duty of RDB reading process to track minimal expiration time of the
+ * fields and eventually call hashTypeAddToExpires() to update global HFE DS with
+ * next expiration time.
  */
-void *HashTypeGroupSetInit(sds key, robj *o, redisDb *db) {
-    HashTypeSetEx *set = zmalloc(sizeof(HashTypeSetEx));
-    int res;
-    robj keyobj;
-    initStaticStringObject(keyobj, key);
-    res = hashTypeSetExInit(&keyobj, o, NULL, db, NULL, FIELD_DONT_OVRWRT,
-                            FIELD_GET_NONE, HFE_NX, set, 0);
-    if (res != C_OK) {
-        zfree(set);
-        return NULL;
-    }
+int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire_at) {
+    /* Dummy struct to be used in hashTypeSetEx() */
+    HashTypeSetEx setEx = {
+            .fieldSetCond = FIELD_DONT_OVRWRT,         /* Shouldn't be any duplication */
+            .expireSetCond = HFE_NX,                   /* Should set expiry once each field */
+            .minExpire = EB_EXPIRE_TIME_INVALID,       /* Won't be used. Accounting made by RDB already */
+            .key = NULL,                               /* Not going to call hashTypeSetExDone() */
+            .hashObj = o,
+            .minExpireFields = EB_EXPIRE_TIME_INVALID, /* Not needed by RDB */
+            .c = NULL,                                 /* No notification required */
+            .cmd = NULL,                               /* No notification required */
+    };
 
-    return set;
-}
-
-int hashTypeGroupSet(void* ctx, redisDb *db, robj *o, sds field, sds value, uint64_t expire_at) {
     HashTypeSet setKeyVal = {.value = value, .flags = 0};
-    SetExRes res;
-    if (expire_at == 0)
-        res = hashTypeSetEx(db, o, field, &setKeyVal, expire_at, NULL);
-    else
-        res = hashTypeSetEx(db, o, field, &setKeyVal, expire_at, ctx);
-    if (res != HSETEX_OK) {
-        return C_ERR;
-    }
-    return C_OK;
+    SetExRes res = hashTypeSetEx(db, o, field, &setKeyVal, expire_at, (expire_at) ? &setEx : NULL);
+    return (res == HSETEX_OK || res == HSET_UPDATE) ? C_OK : C_ERR;
 }
 
-void hashTypeGroupSetDone(void *ctx) {
-    hashTypeSetExDone(ctx);
-    zfree(ctx);
-}
 
 /*
  * Init HashTypeSetEx struct before calling hashTypeSetEx()
