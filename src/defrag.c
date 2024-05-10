@@ -267,7 +267,7 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
 }
 
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
-    dict *d = (dict*)privdata;
+    dict *d = privdata;
     hfield newhf, hf = dictGetKey(de);
 
     if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID) {
