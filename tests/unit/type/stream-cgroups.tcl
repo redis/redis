@@ -1395,6 +1395,7 @@ start_server {
         test {XREADGROUP from PEL inside MULTI} {
             # This scenario used to cause propagation of EXEC without MULTI in 6.2
             $replica config set propagation-error-behavior panic
+            $master hello 3
             $master del mystream
             $master xadd mystream 1-0 a b c d e f
             $master xgroup create mystream mygroup 0
@@ -1402,7 +1403,8 @@ start_server {
             $master multi
             $master xreadgroup group mygroup ryan count 1 streams mystream 0
             set reply [$master exec]
-            assert_equal $reply {{{mystream {{1-0 {a b c d e f}}}}}}
+            assert_equal $reply {{mystream {{1-0 {a b c d e f}}}}}
+            $master hello 2
         }
     }
 
