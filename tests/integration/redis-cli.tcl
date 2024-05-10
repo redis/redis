@@ -257,7 +257,7 @@ start_server {tags {"cli"}} {
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
-        puts $fd "\x1B\x5B\x41"
+        puts $fd "\x1B\x5B\x41" ;# up arrow
         set result2 [read_cli $fd]
         assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
     }
