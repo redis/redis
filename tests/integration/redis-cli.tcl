@@ -157,7 +157,7 @@ start_server {tags {"cli"}} {
         run_command $fd "keys one\x0D"
         run_command $fd "keys two\x0D"
 
-        puts $fd "\x12"
+        puts $fd "\x12" ;# CTRL+R
         read_cli $fd
 
         puts -nonewline $fd "ey"
@@ -170,23 +170,23 @@ start_server {tags {"cli"}} {
         run_command $fd "SET blah \"myvalue\"\x0D"
         run_command $fd "GET blah\x0D"
 
-        puts $fd "\x12"
+        puts $fd "\x12" ;# CTRL+R
         read_cli $fd
 
         puts -nonewline $fd "ET b"
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
 
-        puts $fd "\x0D"
+        puts $fd "\x0D" ;# ENTER
         set result2 [read_cli $fd]
         assert_equal 1 [regexp {.*"myvalue"\n} $result2]
     }
 
     test_interactive_cli_with_prompt "should be ok if there is no result" {
-        puts $fd "\x12"
+        puts $fd "\x12" ;# CTRL+R
 
         set now [clock seconds]
-        puts $fd "\x12"
+        puts $fd "\x12" ;# CTRL+R
         set result [read_cli $fd]
         assert_equal 1 [regexp {\(reverse-i-search\):} $result]
 
@@ -195,7 +195,7 @@ start_server {tags {"cli"}} {
     }
 
     test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
-        puts $fd "\x12"
+        puts $fd "\x12" ;# CTRL+R
 
         set now [clock seconds]
         set result [read_cli $fd]
