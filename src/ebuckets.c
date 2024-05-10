@@ -1809,8 +1809,9 @@ eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunctio
             curitem = prevem->next;
         }
     } else {
-        ExpireMeta *mIter = type->getExpireMeta(item);
         CommonSegHdr *currHdr;
+        ExpireMeta *mIter = type->getExpireMeta(item);
+        assert(mIter->trash != 1);
         while (mIter->lastInSegment == 0)
             mIter = type->getExpireMeta(mIter->next);
 
