@@ -2001,7 +2001,7 @@ void hashTypeUpdateKeyRef(robj *o, sds newkey) {
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = o->ptr;
         lpt->key = newkey;
-    } if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) {
+    } else if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) {
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
         dictExpireMeta->key = newkey;
     } else {
