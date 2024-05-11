@@ -5978,6 +5978,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(n, reply, NULL)) {
                     fixed = -1;
                     if (reply) freeReplyObject(reply);
+                    if (slot_nodes) listRelease(slot_nodes);
                     goto cleanup;
                 }
                 assert(reply->type == REDIS_REPLY_ARRAY);
