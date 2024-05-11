@@ -9482,12 +9482,10 @@ static void findHotKeys(void) {
         for(i=0;i<keys->elements;i++) {
             sampled++;
 
-            /* Only show the original progress output when writing to a file */
-            if (!IS_TTY_OR_FAKETTY()) {
-                /* Update overall progress */
-                if (sampled % 1000000 == 0) {
-                    printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
-                }
+            /* Update overall progress.
+             * Only show the original progress output when writing to a file */
+            if (sampled % 1000000 == 0 && !IS_TTY_OR_FAKETTY()) {
+                printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
             }
 
             /* Use eviction pool here */
@@ -9520,7 +9518,7 @@ static void findHotKeys(void) {
             line_count = displayKeyStatsProgressbar(sampled, total_keys);
             line_count += cleanPrintfln("");
 
-            for (k = HOTKEYS_SAMPLE - 1; k >= 0 ; k--) {
+            for (k = HOTKEYS_SAMPLE - 1; k >= 0; k--) {
                 if (counters[k] > 0) {
                     line_count += cleanPrintfln("hot key found with counter: %llu\tkeyname: %s", 
                         counters[k], hotkeys[k]);
@@ -9544,7 +9542,7 @@ static void findHotKeys(void) {
 
         /* clean the types info shown during the progress bar */
         int line_count = 0;
-        for (k = 0; k <= HOTKEYS_SAMPLE ; k++)
+        for (k = 0; k <= HOTKEYS_SAMPLE; k++)
             line_count += cleanPrintfln("");
         printf("\033[%dA\r", line_count);
     }
@@ -9560,7 +9558,7 @@ static void findHotKeys(void) {
         printf("Sampled %llu keys in the keyspace!\n", sampled);
     }
 
-    for (k = HOTKEYS_SAMPLE - 1; k >= 0 ; k--) {
+    for (k = HOTKEYS_SAMPLE - 1; k >= 0; k--) {
         if (counters[k] > 0) {
             printf("hot key found with counter: %llu\tkeyname: %s\n", counters[k], hotkeys[k]);
             sdsfree(hotkeys[k]);
@@ -9607,7 +9605,7 @@ static long getLongInfoField(char *info, char *field) {
 
 /* Convert number of bytes into a human readable string of the form:
  * 1003B, 4.03K, 100.00M, 2.32G, 3.01T */
-char* bytesToHuman(char *s, size_t size, long long n) {
+char *bytesToHuman(char *s, size_t size, long long n) {
     double d;
     char *r = s;
 
