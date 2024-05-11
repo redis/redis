@@ -392,30 +392,15 @@ void dictListDestructor(dict *d, void *val)
 }
 
 /* Erase the lines before printing, and returns the number of lines printed */
-int cleanPrintln(char *string) {
-    int line_length;
-    char *position = strchr(string, '\n');
+int cleanPrintfln(char *fmt, ...) {
+    va_list args;
+    char buf[1024]; /* limitation */
+    int char_count, line_count = 0;
 
     /* Clear the line if in TTY */
     if (IS_TTY_OR_FAKETTY()) {
         printf("\033[2K\r");
     }
-
-    if (position) {
-        line_length = (int)(position - string);
-        printf("%.*s\n", line_length, string);
-        return cleanPrintln(++position) + 1;
-    } else {
-        printf("%s\n", string);
-        return 1;
-    }
-}
-
-/* Erase the lines before printing, and returns the number of lines printed */
-int cleanPrintfln(char *fmt, ...) {
-    va_list args;
-    char buf[1024]; /* limitation */
-    int char_count;
 
     va_start(args, fmt);
     char_count = vsnprintf(buf, sizeof(buf), fmt, args);
@@ -425,7 +410,16 @@ int cleanPrintfln(char *fmt, ...) {
         fprintf(stderr, "Warning: String was trimmed in cleanPrintln\n");
     }
 
-    return cleanPrintln(buf);
+    char *position, *string = buf;
+    while ((position = strchr(string, '\n')) != NULL) {
+        int line_length = (int)(position - string);
+        printf("%.*s\n", line_length, string);
+        string = position + 1;
+        line_count++;
+    }
+
+    printf("%s\n", string);
+    return line_count + 1;
 }
 
 /*------------------------------------------------------------------------------
