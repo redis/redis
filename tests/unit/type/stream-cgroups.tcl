@@ -1395,16 +1395,26 @@ start_server {
         test {XREADGROUP from PEL inside MULTI} {
             # This scenario used to cause propagation of EXEC without MULTI in 6.2
             $replica config set propagation-error-behavior panic
-            $master hello 3
             $master del mystream
             $master xadd mystream 1-0 a b c d e f
             $master xgroup create mystream mygroup 0
             $master xreadgroup group mygroup ryan count 1 streams mystream >
             $master multi
             $master xreadgroup group mygroup ryan count 1 streams mystream 0
-            set reply [$master exec]
+            set reply [lindex [$master exec] 0]
+            # If using RESP3, we transform a map response into array of tuples
+            # to ensure consistency with RESP2 response.
+            if {[is_dict $reply]} {
+                set tuparray {}
+                foreach {key val} $reply {
+                    set tmp {}
+                    lappend tmp $key
+                    lappend tmp $val
+                    lappend tuparray $tmp
+                }
+                set reply $tuparray
+            }
             assert_equal $reply {{mystream {{1-0 {a b c d e f}}}}}
-            $master hello 2
         }
     }
 

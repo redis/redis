@@ -1150,3 +1150,12 @@ proc system_backtrace_supported {} {
     }
     return 0
 }
+
+# Check if something is a dict.
+# From https://wiki.tcl-lang.org/page/isDict.
+proc is_dict {d} {
+    expr {[string is list $d]
+        && !([llength $d] % 2)
+        && ((2 * [llength [dict keys $d]]) == [llength $d])
+    }
+}
