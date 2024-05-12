@@ -484,7 +484,7 @@ start_server [list overrides [list "dir" $server_path]] {
                 assert_equal [s rdb_last_load_hash_fields_expired] 0
             }
 
-            # in listpack encoding, the fileds (and key) will be expired by
+            # in listpack encoding, the fields (and key) will be expired by
             # lazy expiry
             assert_equal [r hgetall key] {}
         }
@@ -571,7 +571,7 @@ set server_path [tmpdir "server.active-expiry-after-load"]
 
 # verifies a field is correctly expired by active expiry AFTER loading from RDB
 start_server [list overrides [list "dir" $server_path]] {
-    foreach type {listapck dict} {
+    foreach type {listpack dict} {
         test "active field expiry after load, ($type)" {
             if {$type eq "dict"} {
                 r config set hash-max-listpack-entries 0
