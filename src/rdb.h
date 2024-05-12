@@ -74,7 +74,7 @@
 #define RDB_TYPE_SET_LISTPACK  20
 #define RDB_TYPE_STREAM_LISTPACKS_3 21
 #define RDB_TYPE_HASH_METADATA 22
-#define RDB_TYPE_HASH_LISTPACK_TTL 23
+#define RDB_TYPE_HASH_LISTPACK_EX 23
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
@@ -141,7 +141,7 @@ int rdbSaveToFile(const char *filename);
 int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags);
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
 size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb *db, int dbid, int *error);
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb *db, int *error, int rdbflags);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);

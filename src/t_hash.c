@@ -1686,6 +1686,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
     }
 }
 
+/* NOTE: hexpires might be NULL */
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);

@@ -442,6 +442,12 @@ start_server [list overrides [list "dir" $server_path]] {
 
             assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
             assert_equal [r hexpiretime key 3 a b c] {2524600800 2524600800 -1}
+            assert_equal [s rdb_last_load_keys_loaded] 1
+            if {$type eq "dict"} {
+                assert_equal [s rdb_last_load_hash_fields_expired] 1
+            } else {
+                assert_equal [s rdb_last_load_hash_fields_expired] 0
+            }
         }
     }
 }
@@ -470,6 +476,16 @@ start_server [list overrides [list "dir" $server_path]] {
             restart_server 0 true false
             wait_done_loading r
 
+            if {$type eq "dict"} {
+                assert_equal [s rdb_last_load_keys_loaded] 0
+                assert_equal [s rdb_last_load_hash_fields_expired] 4
+            } else {
+                assert_equal [s rdb_last_load_keys_loaded] 1
+                assert_equal [s rdb_last_load_hash_fields_expired] 0
+            }
+
+            # in listpack encoding, the fileds (and key) will be expired by
+            # lazy expiry
             assert_equal [r hgetall key] {}
         }
     }
@@ -551,10 +567,40 @@ test "save dict, load listpack" {
     }
 }
 
+set server_path [tmpdir "server.active-expiry-after-load"]
 
-#Also:
-#2. try listpack verification during load
-#3. think about listpack with duplicated fields when one of them is already expired: decision: Need to fail! verify
+# verifies a field is correctly expired by active expiry AFTER loading from RDB
+start_server [list overrides [list "dir" $server_path]] {
+    foreach type {listapck dict} {
+        test "active field expiry after load, ($type)" {
+            if {$type eq "dict"} {
+                r config set hash-max-listpack-entries 0
+            } else {
+                r config set hash-max-listpack-entries 512
+            }
 
+            r FLUSHALL
+
+            r HMSET key a 1 b 2 c 3 d 4
+            r HEXPIREAT key 2524600800 2 a b
+            r HPEXPIRE key 200 2 c d
+
+            r save
+            restart_server 0 true false
+            wait_done_loading r
+
+            # sleep 1 sec to make sure 'c' and 'd' will active-expire
+            after 1000
+
+            assert_equal [s rdb_last_load_keys_loaded] 1
+            assert_equal [s rdb_last_load_hash_fields_expired] 0
+            assert_equal [s expired_hash_fields] 2
+
+            # hgetall might lazy expire fields, so it's only called after the stat asserts
+            assert_equal [lsort [r hgetall key]] "1 2 a b"
+            assert_equal [r hexpiretime key 4 a b c d] {2524600800 2524600800 -2 -2}
+        }
+    }
+}
 
 } ;# tags
