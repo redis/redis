@@ -13,6 +13,65 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.2.5    Released Sun 12 Jan 2024 15:00:00 IST
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security fixes
+==============
+
+* (CVE-2023-41053) Users may grant access to keys that are not explicitly authorized by the ACL configuration (#12522)
+
+Bug fixes
+=========
+
+* Fix race condition issues between the main thread and module threads (#12817)
+* Make RM_Yield thread-safe (#12905)
+* When one shard, sole primary node marks potentially failed replica as FAIL instead of PFAIL (#12824)
+* Allow SPUBLISH command within multi/exec on replica (#12944)
+* Prevent LSET command from causing quicklist plain node size to exceed 4GB (#12955)
+* Fix redis-check-aof incorrectly considering data in manifest format as MP-AOF (#12958)
+* Fix blocking commands timeout is reset due to re-processing command (#13004)
+* Fix timeout not being set in module blockClient case (#13011)
+* Fix crash due to merge of quicklist node introduced by #12955 (#13040)
+* Fix conversion of numbers in lua args to redis args (#13115)
+* Fix wrong data type conversion in zrangeResultBeginStore (#13148)
+* Use shard-id of the master if the replica does not support shard-id (#12805)
+* Un-register notification and server event when RedisModule_OnLoad fails (#12809)
+* Fix an issue where slot ownership was not being properly handled when deleting a slot from a node (#12564)
+* Before evicted and before expired, server events are not executed inside an execution unit (#12733)
+* Fix fd leak causing deleted files to remain open and eat disk space (#12693)
+* Fix overflow calculation for next timer event (#12474)
+* WAITAOF could timeout in absence of write traffic in case a new AOF is created and an AOFRW cannot immediately start (#12620)
+* Check shard_id pointer validity in updateShardId (#12538)
+* Fix a race condition where a slot migration might get reverted when another failover happened or a node was added (#12344)
+* Align CONFIG RESETSTAT/REWRITE tips with CONFIG SET (#12530)
+* Update command tips on more admin / configuration commands (#12545)
+
+Redis cluster
+=============
+
+* Fix Cluster crash when adding a forgotten node to blacklist twice (#12702)
+* Fix CLUSTER SHARDS crash mixed clusters where shard ids are not sync (#12832)
+* Fix crash when running rebalance command in a mixed cluster of 7.0 and 7.2 (#12604)
+* Use server.current_client to decide whether cluster commands should return TLS info (#12569)
+* Fix that slot return in CLUSTER SHARDS should be integer (#12561)
+
+Performance and resource utilization improvements
+=================================================
+
+* Optimize dict expand check, move allow check after the thresholds check (#12789)
+* Use CLZ in _dictNextExp to get the next power of two (#12815)
+
+Changes in CLI tools
+====================
+
+* Fix redis-cli --count (for --scan, --bigkeys, etc) was ignored unless --pattern was also used (#13092)
+* Fix redis-cli pubsub_mode and connect minor prompt / crash issue (#12571)
+
+
+================================================================================
 Redis 7.2.4    Released Tue 09 Jan 2024 10:45:52 IST
 ================================================================================
 
