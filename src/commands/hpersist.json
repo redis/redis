@@ -8,7 +8,7 @@
         "function": "hpersistCommand",
         "history": [],
         "command_flags": [
-            "READONLY",
+            "WRITE",
             "FAST"
         ],
         "acl_categories": [
@@ -17,8 +17,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "RO",
-                    "ACCESS"
+                    "RW",
+                    "UPDATE"
                 ],
                 "begin_search": {
                     "index": {

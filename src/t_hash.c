@@ -1115,7 +1115,7 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
         if (ex->c) {
             server.dirty += ex->fieldDeleted + ex->fieldUpdated;
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, ex->cmd, ex->key, ex->db->id);
+            notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", ex->key, ex->db->id);
         }
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
             dbDelete(ex->db,ex->key);
@@ -2962,6 +2962,7 @@ void hpexpiretimeCommand(client *c) {
 void hpersistCommand(client *c) {
     robj *hashObj;
     long numFields = 0, numFieldsAt = 2;
+    int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
     if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
@@ -3032,8 +3033,8 @@ void hpersistCommand(client *c) {
 
             listpackExPersist(hashObj, field, fptr, vptr);
             addReplyLongLong(c, HFE_PERSIST_OK);
+            changed = 1;
         }
-        return;
     } else if (hashObj->encoding == OBJ_ENCODING_HT) {
         dict *d = hashObj->ptr;
 
@@ -3061,10 +3062,15 @@ void hpersistCommand(client *c) {
 
             hfieldPersist(hashObj, hf);
             addReplyLongLong(c, HFE_PERSIST_OK);
+            changed = 1;
         }
     } else {
         serverPanic("Unknown encoding: %d", hashObj->encoding);
     }
+
+    /* Generates a hpersist event if the expiry time associated with any field
+     * has been successfully deleted. */
+    if (changed) notifyKeyspaceEvent(NOTIFY_HASH,"hpersist",c->argv[1],c->db->id);
 }
 
 /**
@@ -3400,7 +3406,7 @@ static int hgetfReplyValueAndSetExpiry(client *c, robj *o, sds field, int flag,
         if (vstr)
             addReplyBulkCBuffer(c, vstr, vlen);
         else
-            addReplyLongLong(c, vll);
+            addReplyBulkLongLong(c, vll);
     } else {
         serverPanic("Unknown encoding: %d", o->encoding);
     }
@@ -3537,7 +3543,7 @@ static void hsetfReplyFromListpack(client *c, unsigned char *vptr) {
         if (vstr)
             addReplyBulkCBuffer(c, vstr, vlen);
         else
-            addReplyLongLong(c, vll);
+            addReplyBulkLongLong(c, vll);
     }
 }
 
