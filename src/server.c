@@ -1794,7 +1794,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             mstime_t latency;
             latencyStartMonitor(latency);
 
+            atomicSet(server.module_gil_acquring, 1);
             moduleAcquireGIL();
+            atomicSet(server.module_gil_acquring, 0);
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
