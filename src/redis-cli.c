@@ -9299,12 +9299,10 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                 type->biggest = sizes[i];
             }
 
-            /* We only show the original progress output when writing to a file */
-            if (!IS_TTY_OR_FAKETTY()) {
-                /* Update overall progress */
-                if (sampled % 1000000 == 0) {
-                    printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
-                }
+            /* Update overall progress
+             * We only show the original progress output when writing to a file */
+            if (sampled % 1000000 == 0 && !IS_TTY_OR_FAKETTY()) {
+                printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
             }
 
             /* Show the progress bar in TTY */
