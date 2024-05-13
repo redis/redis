@@ -729,6 +729,17 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*invalid number of fields*} {r hgetf myhash fields -1 a}
         }
 
+        test "HGETF - Verify field value reply type is string ($type)" {
+            r del myhash
+            r hsetf myhash FVS 1 f1 1
+
+            r readraw 1
+            assert_equal [r hgetf myhash FIELDS 1 f1] {*1}
+            assert_equal [r read] {$1}
+            assert_equal [r read] {1}
+            r readraw 0
+        }
+
         test "HGETF - Test 'NX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
@@ -923,6 +934,24 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # negative field value count
             assert_error {*invalid number of fvs count*} {r hsetf myhash fvs -1 a b}
+        }
+
+        test "HSETF - Verify field value reply type is string ($type)" {
+            r del myhash
+            r hsetf myhash FVS 1 field 1
+            r readraw 1
+
+            # Test with GETOLD
+            assert_equal [r hsetf myhash GETOLD FVS 1 field 200] {*1}
+            assert_equal [r read] {$1}
+            assert_equal [r read] {1}
+
+            # Test with GETNEW.
+            assert_equal [r hsetf myhash DOF GETNEW FVS 1 field 300] {*1}
+            assert_equal [r read] {$3}
+            assert_equal [r read] {200}
+
+            r readraw 0
         }
 
         test "HSETF - Test DC flag ($type)" {
