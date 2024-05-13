@@ -1,6 +1,6 @@
 {
     "HSETF": {
-        "summary": "For each specified field, returns its value and optionally set the field's remaining expiration time in seconds / milliseconds",
+        "summary": "For each specified field value pair: set field to value and optionally set the field's remaining time to live / UNIX expiration timestamp in seconds / milliseconds",
         "complexity": "O(N) where N is the number of arguments to the command",
         "group": "hash",
         "since": "8.0.0",
