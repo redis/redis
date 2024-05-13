@@ -3391,7 +3391,7 @@ static int hgetfReplyValueAndSetExpiry(client *c, robj *o, sds field, int flag,
         if (vstr)
             addReplyBulkCBuffer(c, vstr, vlen);
         else
-            addReplyLongLong(c, vll);
+            addReplyBulkLongLong(c, vll);
     } else {
         serverPanic("Unknown encoding: %d", o->encoding);
     }
@@ -3528,7 +3528,7 @@ static void hsetfReplyFromListpack(client *c, unsigned char *vptr) {
         if (vstr)
             addReplyBulkCBuffer(c, vstr, vlen);
         else
-            addReplyLongLong(c, vll);
+            addReplyBulkLongLong(c, vll);
     }
 }
 
