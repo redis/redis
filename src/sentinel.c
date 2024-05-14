@@ -3109,7 +3109,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
         /* Update scaled slave info if received scale epoch is newer. */
         if (master->scale_epoch < scale_epoch) {
             serverLog(LL_NOTICE, "Current scale epoch:%llu, received scale epoch:%llu", 
-                master->scale_epoch, scale_epoch);
+                (unsigned long long)master->scale_epoch, (unsigned long long)scale_epoch);
             /* Release scale_addr for previous scaling operation. */
             if (master->scale_addr)
                 releaseSentinelAddr(master->scale_addr);
