@@ -2704,15 +2704,20 @@ static ExpireMeta *hashGetExpireMeta(const eItem hash) {
         serverPanic("Unknown encoding: %d", hashObj->encoding);
     }
 }
-
+/* HTTL key <FIELDS count field [field ...]>  */
 static void httlGenericCommand(client *c, const char *cmd, long long basetime, int unit) {
     UNUSED(cmd);
     robj *hashObj;
-    long numFields = 0, numFieldsAt = 2;
+    long numFields = 0, numFieldsAt = 3;
 
     /* Read the hash object */
     if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
         checkType(c, hashObj, OBJ_HASH)) return;
+
+    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
+        addReplyError(c, "Constant argument FIELDS is missing or not at the right position");
+        return;
+    }
 
     /* Read number of fields */
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
@@ -2730,7 +2735,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[3+i]->ptr;
+            sds field = c->argv[numFieldsAt+1+i]->ptr;
             void *fptr = lpFirst(lp);
             if (fptr != NULL)
                 fptr = lpFind(lp, fptr, (unsigned char *) field, sdslen(field), 1);
@@ -2747,7 +2752,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
             long long expire;
-            sds field = c->argv[3+i]->ptr;
+            sds field = c->argv[numFieldsAt+1+i]->ptr;
             void *fptr = lpFirst(lpt->lp);
             if (fptr != NULL)
                 fptr = lpFind(lpt->lp, fptr, (unsigned char *) field, sdslen(field), 2);
@@ -2785,7 +2790,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[3+i]->ptr;
+            sds field = c->argv[numFieldsAt+1+i]->ptr;
             dictEntry *de = dictFind(d, field);
             if (de == NULL) {
                 addReplyLongLong(c, HFE_GET_NO_FIELD);
@@ -2825,7 +2830,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  *
  * Additional flags are supported and parsed via parseExtendedExpireArguments */
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit) {
-    long numFields = 0, numFieldsAt = 3;
+    long numFields = 0, numFieldsAt = 4;
     long long expire; /* unix time in msec */
     int expireSetCond = 0;
     robj *hashObj, *keyArg = c->argv[1], *expireArg = c->argv[2];
@@ -2873,6 +2878,11 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
         expireSetCond = HFE_GT; ++numFieldsAt;
     } else if (!strcasecmp(optArg, "lt")) {
         expireSetCond = HFE_LT; ++numFieldsAt;
+    }
+
+    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
+        addReplyError(c, "Constant argument FIELDS is missing or not at the right position");
+        return;
     }
 
     /* Read number of fields */
@@ -2946,7 +2956,7 @@ void hpexpiretimeCommand(client *c) {
 /* HPERSIST key <FIELDS count field [field ...]> */
 void hpersistCommand(client *c) {
     robj *hashObj;
-    long numFields = 0, numFieldsAt = 2;
+    long numFields = 0, numFieldsAt = 3;
     int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
@@ -2967,7 +2977,7 @@ void hpersistCommand(client *c) {
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK) {
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[3 + i]->ptr;
+            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
             unsigned char *fptr, *zl = hashObj->ptr;
 
             fptr = lpFirst(zl);
@@ -2987,7 +2997,7 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[3 + i]->ptr;
+            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
 
             fptr = lpFirst(lpt->lp);
             if (fptr != NULL)
@@ -3025,7 +3035,7 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[3+i]->ptr;
+            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
             dictEntry *de = dictFind(d, field);
             if (de == NULL) {
                 addReplyLongLong(c, HFE_PERSIST_NO_FIELD);

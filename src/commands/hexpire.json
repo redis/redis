@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of arguments to the command",
         "group": "hash",
         "since": "8.0.0",
-        "arity": -5,
+        "arity": -6,
         "function": "hexpireCommand",
         "history": [],
         "command_flags": [
@@ -105,6 +105,10 @@
                         "token": "LT"
                     }
                 ]
+            },
+            {
+                "name": "FIELDS",
+                "type": "string"
             },
             {
                 "name": "numfields",
