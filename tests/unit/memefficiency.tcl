@@ -508,27 +508,33 @@ run_solo {defrag} {
             r config resetstat
             r config set hz 100
             r config set activedefrag no
-            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-threshold-lower 10 ;# TODO: Lower the threshold after defraging the ebuckets
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
+            r config set hash-max-listpack-value 512
 
             # Populate memory with interleaving hash field of same size
-            # TODO: Coverage for listpack and list ebuckets.
             set n 50000
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set j 0} {$j < $n} {incr j} {
                 $rd hset h f$j $dummy_field
-                $rd hexpire h$j 9999999 1 f$j
+                $rd hexpire h 9999999 1 f$j
                 $rd set k$j $dummy_field
             }
+            assert_encoding hashtable h
             for {set j 0} {$j < $n} {incr j} {
                 $rd read ; # Discard hset replies
                 $rd read ; # Discard hexpire replies
                 $rd read ; # Discard set replies
             }
+
+            # Coverage for listpackex and eblist.
+            r hset h_lpex f0 $dummy_field
+            r hexpire h_lpex 9999999 1 f0
+            assert_encoding listpackex h_lpex
 
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
