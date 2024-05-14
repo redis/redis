@@ -10057,8 +10057,8 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
     unsigned long long total_keys = 0, size;
     char buf[2][256];
 
-    line_count += cleanPrintfln("Key length     Percentile Total keys");
-    line_count += cleanPrintfln("-------------- ---------- -----------");
+    line_count += cleanPrintfln("Key name length Percentile Total keys");
+    line_count += cleanPrintfln("--------------- ---------- -----------");
 
     for (int i=0; dist->size_dist[i].size; i++) {
         if (dist->size_dist[i].count) {
@@ -10068,7 +10068,7 @@ static int displayKeyStatsLengthDist(size_dist *dist) {
                 size = dist->size_dist[i].size;
             }
             total_keys += dist->size_dist[i].count;
-            line_count += cleanPrintfln("%14s %9.4f%% %11llu",
+            line_count += cleanPrintfln("%15s %9.4f%% %11llu",
                 bytesToHuman(buf[1], sizeof(buf[1]), size),
                 (double)100 * total_keys / dist->total_count,
                 total_keys);
