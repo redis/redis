@@ -2482,7 +2482,7 @@ extern dictType keylistDictType;
 extern dict *modules;
 
 extern EbucketsType hashExpireBucketsType;  /* global expires */
-extern EbucketsType hashFieldExpiresBucketType; /* local per hash */
+extern EbucketsType hashFieldExpireBucketsType; /* local per hash */
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -3197,12 +3197,16 @@ void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTi
 void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
+uint64_t hashTypeGetMinExpire(robj *o);
+void hashTypeUpdateKeyRef(robj *o, sds newkey);
+ebuckets *hashTypeGetDictMetaHFE(dict *d);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
 hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta);
 int hfieldIsExpireAttached(hfield field);
 int hfieldIsExpired(hfield field);
+uint64_t hfieldGetExpireTime(hfield field);
 static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }
 static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
 static inline size_t hfieldlen(hfield field) { return mstrlen(field);}
