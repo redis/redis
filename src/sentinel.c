@@ -77,6 +77,11 @@ typedef struct sentinelAddr {
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
 #define SRI_MASTER_REBOOT  (1<<13)   /* Master was detected as rebooting */
+#define SRI_SCALE_IN_PROGRESS  (1<<14)   /* Scale in/out in progress for
+                                            this master. */
+#define SRI_SLAVE_JOIN  (1<<15)   /* Slave will join the master. */
+#define SRI_SLAVE_LEAVE (1<<16)   /* Slave will leave the master. */
+#define SRI_FORCE_SCALE (1<<17)   /* User requested scale. */
 
 /* Note: times are in milliseconds. */
 #define SENTINEL_PING_PERIOD 1000
@@ -116,6 +121,17 @@ static mstime_t sentinel_default_failover_timeout = 60*3*1000;
 
 #define SENTINEL_MASTER_LINK_STATUS_UP 0
 #define SENTINEL_MASTER_LINK_STATUS_DOWN 1
+
+/* Scale machine different states */
+#define SENTINEL_SCALE_STATE_NONE 0 /* No scale in progress */
+#define SENTINEL_SCALE_STATE_WAIT_START 1 /* Wait for scale_start_time */
+#define SENTINEL_SCALE_STATE_SEND_SLAVEOF_NOONE 2 /* Make leaving slave as an orphan */
+#define SENTINEL_SCALE_STATE_UPDATE_CONFIG 3 /* Update master's slave table */
+
+/* Scale types */
+#define SENTINEL_SCALE_TYPE_NONE 0 /* For init state */
+#define SENTINEL_SCALE_TYPE_JOIN 1 /* Slave join */
+#define SENTINEL_SCALE_TYPE_LEAVE 2 /* Slave leave */
 
 /* Generic flags that can be used with different functions.
  * They use higher bits to avoid colliding with the function specific
@@ -201,6 +217,18 @@ typedef struct sentinelRedisInstance {
                                    Sentinel will use the alternative commands
                                    mapped on this table to send things like
                                    SLAVEOF, CONFING, INFO, ... */
+    /* If allow a replica in master-in-sync state to be promoted as master.
+     * For default 'yes', when a master down and the chosen replica is still 
+     * in master sync, the promoted replica will lose all data, so it will
+     * treat Redis as a volatile cache that can afford data loss.
+     * For 'no', the replica in master sync cannot be promoted as master, when 
+     * there is no available replica to be promoted, the failover process is  
+     * stopped, the client has to wait the down master to recover. It is useful
+     * when there is data in redis with 'TTL=0'.
+     */
+    int allow_promote_in_sync_replica; 
+    long long max_allowed_data_loss; /* Max data loss affordable in failover. */
+
 
     /* Role and the first time we observed it.
      * This is useful in order to delay replacing what the instance reports
@@ -218,6 +246,7 @@ typedef struct sentinelRedisInstance {
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & replica. */
     char *auth_user;    /* Username for ACLs AUTH against master & replica. */
+    long long master_repl_offset; /* Master replication offset. */
 
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
@@ -228,7 +257,8 @@ typedef struct sentinelRedisInstance {
     char *slave_master_host;    /* Master host as reported by INFO */
     int slave_master_port;      /* Master port as reported by INFO */
     int slave_master_link_status; /* Master link status as reported by INFO */
-    unsigned long long slave_repl_offset; /* Slave replication offset. */
+    int slave_master_sync_in_progress; /* Master sync in progress as reported by INFO */
+    long long slave_repl_offset; /* Slave replication offset. */
     /* Failover */
     char *leader;       /* If this is a master instance, this is the runid of
                            the Sentinel that should perform the failover. If
@@ -248,6 +278,14 @@ typedef struct sentinelRedisInstance {
     char *notification_script;
     char *client_reconfig_script;
     sds info; /* cached INFO output */
+    /* Scale in,out */
+    int scale_state; /* See SENTINEL_SCALE_STATE_* defines. */
+    int scale_type; /* Scale type . */
+    sentinelAddr* scale_addr; /* Scale slave host. */
+    uint64_t scale_epoch; /* Epoch of current scale operation. */
+    mstime_t scale_start_time; /* Last scale start time. */
+    mstime_t scale_state_change_time; /* State change time. */
+    struct sentinelRedisInstance *scale_slave; /* Slave to leave. */
 } sentinelRedisInstance;
 
 /* Main state. */
@@ -407,6 +445,15 @@ int sentinelSendPing(sentinelRedisInstance *ri);
 int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master);
 sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, char *ip, int port, char *runid);
 void sentinelSimFailureCrash(void);
+void sentinelHandleRedisInstance(sentinelRedisInstance *ri);
+void sentinelStartScale(sentinelRedisInstance *master, int scale_type);
+void sentinelScaleWaitStart(sentinelRedisInstance *ri);
+void sentinelScaleSendSlaveOfNoOne(sentinelRedisInstance *ri);
+void sentinelScaleUpdateSlaves(sentinelRedisInstance *ri);
+void sentinelAbortScale(sentinelRedisInstance *ri);
+void sentinelScaleStateMachine(sentinelRedisInstance *ri);
+const char *sentinelScaleTypeStr(int scale_type);
+const char *sentinelScaleStateStr(int state);
 
 /* ========================= Dictionary types =============================== */
 
@@ -1340,7 +1387,9 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->slave_master_host = NULL;
     ri->slave_master_port = 0;
     ri->slave_master_link_status = SENTINEL_MASTER_LINK_STATUS_DOWN;
+    ri->slave_master_sync_in_progress = 0;
     ri->slave_repl_offset = 0;
+    ri->master_repl_offset = 0;
     ri->sentinels = dictCreate(&instancesDictType);
     ri->quorum = quorum;
     ri->parallel_syncs = SENTINEL_DEFAULT_PARALLEL_SYNCS;
@@ -1359,6 +1408,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->failover_timeout = sentinel_default_failover_timeout;
     ri->failover_delay_logged = 0;
     ri->promoted_slave = NULL;
+    ri->allow_promote_in_sync_replica = 1;
     ri->notification_script = NULL;
     ri->client_reconfig_script = NULL;
     ri->info = NULL;
@@ -1367,6 +1417,15 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->role_reported = ri->flags & (SRI_MASTER|SRI_SLAVE);
     ri->role_reported_time = mstime();
     ri->slave_conf_change_time = mstime();
+
+    /* Scale in,out */
+    ri->scale_type = SENTINEL_SCALE_TYPE_NONE;
+    ri->scale_addr = NULL;
+    ri->scale_epoch = 0;
+    ri->scale_start_time = 0;
+    ri->scale_state_change_time = 0;
+    ri->scale_state = SENTINEL_SCALE_STATE_NONE;
+    ri->scale_slave = NULL;
 
     /* Add into the right table. */
     dictAdd(table, ri->name, ri);
@@ -1396,6 +1455,8 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->auth_user);
     sdsfree(ri->info);
     releaseSentinelAddr(ri->addr);
+    if (ri->scale_addr)
+        releaseSentinelAddr(ri->scale_addr);
     dictRelease(ri->renamed_commands);
 
     /* Clear state into the master if needed. */
@@ -1931,6 +1992,18 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
          * we leave this check here for redundancy. */
         if (ri->config_epoch > sentinel.current_epoch)
             sentinel.current_epoch = ri->config_epoch;
+    } else if (!strcasecmp(argv[0],"scale-epoch") && argc == 3) {
+        /* scale-epoch <name> <epoch> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->scale_epoch = strtoull(argv[2],NULL,10);
+        if (ri->scale_epoch > sentinel.current_epoch)
+            sentinel.current_epoch = ri->scale_epoch;
+    } else if (!strcasecmp(argv[0],"scale-replica") && argc == 5) {
+        /* scale-replica <name> <type> <ip> <port> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->scale_addr = createSentinelAddr(argv[3], atoi(argv[4]), 0);
     } else if (!strcasecmp(argv[0],"leader-epoch") && argc == 3) {
         /* leader-epoch <name> <epoch> */
         ri = sentinelGetMasterByName(argv[1]);
@@ -2014,6 +2087,18 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->master_reboot_down_after_period = atoi(argv[2]);
         if (ri->master_reboot_down_after_period < 0)
             return "negative time parameter.";
+    } else if (!strcasecmp(argv[0],"allow-promote-in-sync-replica") && argc == 3) {
+        /* allow-promote-in-sync-replica <name> <yes|no> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        if((ri->allow_promote_in_sync_replica = yesnotoi(argv[2])) == -1) {
+            return "Please specify yes or no for the allow-promote-in-sync-replica option";
+        }
+    } else if (!strcasecmp(argv[0],"max-allowed-data-loss") && argc == 3) {
+        /* max-allowed-data-loss <name> <bytes> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->max_allowed_data_loss = strtoll(argv[2], NULL, 10);
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -2142,6 +2227,24 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
 
+        /* sentinel allow-promote-in-sync-replica */
+        if (master->allow_promote_in_sync_replica != 1) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel allow-promote-in-sync-replica %s %s",
+                master->name, master->allow_promote_in_sync_replica ? "yes" : "no");
+            rewriteConfigRewriteLine(state,"sentinel allow-promote-in-sync-replica",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+        }
+
+        /* sentinel max-allowed-data-loss */
+        if (master->max_allowed_data_loss != 0) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel max-allowed-data-loss %s %ld",
+                master->name, (long) master->max_allowed_data_loss);
+            rewriteConfigRewriteLine(state,"sentinel max-allowed-data-loss",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+        }
+
         /* sentinel config-epoch */
         line = sdscatprintf(sdsempty(),
             "sentinel config-epoch %s %llu",
@@ -2149,6 +2252,22 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         rewriteConfigRewriteLine(state,"sentinel config-epoch",line,1);
         /* rewriteConfigMarkAsProcessed is handled after the loop */
 
+        /* sentinel scale-replica */
+        if (master->scale_addr) {
+            /* sentinel scale-epoch */
+            line = sdscatprintf(sdsempty(),
+                "sentinel scale-epoch %s %llu",
+                master->name, (unsigned long long) master->scale_epoch);
+            rewriteConfigRewriteLine(state,"sentinel scale-epoch",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+
+            line = sdscatprintf(sdsempty(),
+                "sentinel scale-replica %s %s %s %d",
+                master->name, sentinelScaleTypeStr(master->scale_type),
+                announceSentinelAddr(master->scale_addr), master->scale_addr->port);
+            rewriteConfigRewriteLine(state,"sentinel scale-replica",line,1);
+            /* rewriteConfigMarkAsProcessed is handled after the loop */
+        }
 
         /* sentinel leader-epoch */
         line = sdscatprintf(sdsempty(),
@@ -2262,11 +2381,14 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"sentinel auth-pass");
     rewriteConfigMarkAsProcessed(state,"sentinel auth-user");
     rewriteConfigMarkAsProcessed(state,"sentinel config-epoch");
+    rewriteConfigMarkAsProcessed(state,"sentinel scale-epoch");
+    rewriteConfigMarkAsProcessed(state,"sentinel scale-replica");
     rewriteConfigMarkAsProcessed(state,"sentinel leader-epoch");
     rewriteConfigMarkAsProcessed(state,"sentinel known-replica");
     rewriteConfigMarkAsProcessed(state,"sentinel known-sentinel");
     rewriteConfigMarkAsProcessed(state,"sentinel rename-command");
     rewriteConfigMarkAsProcessed(state,"sentinel master-reboot-down-after-period");
+    rewriteConfigMarkAsProcessed(state,"sentinel allow-promote-in-sync-replica");
 }
 
 /* This function uses the config rewriting Redis engine in order to persist
@@ -2599,6 +2721,13 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (sdslen(l) >= 11 && !memcmp(l,"role:master",11)) role = SRI_MASTER;
         else if (sdslen(l) >= 10 && !memcmp(l,"role:slave",10)) role = SRI_SLAVE;
 
+        if (role == SRI_MASTER) {
+            /* master_repl_offset */
+            if (sdslen(l) >= 19 && !memcmp(l, "master_repl_offset:", 19)) {
+                ri->master_repl_offset = strtoll(l+19,NULL,10);
+            }
+        }
+
         if (role == SRI_SLAVE) {
             /* master_host:<host> */
             if (sdslen(l) >= 12 && !memcmp(l,"master_host:",12)) {
@@ -2629,13 +2758,18 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                     SENTINEL_MASTER_LINK_STATUS_DOWN;
             }
 
+            /* master_sync_in_progress:<bool> */
+            if (sdslen(l) >= 24 && !memcmp(l,"master_sync_in_progress:",24)) {
+                ri->slave_master_sync_in_progress = atoi(l+24);
+            }
+
             /* slave_priority:<priority> */
             if (sdslen(l) >= 15 && !memcmp(l,"slave_priority:",15))
                 ri->slave_priority = atoi(l+15);
 
             /* slave_repl_offset:<offset> */
             if (sdslen(l) >= 18 && !memcmp(l,"slave_repl_offset:",18))
-                ri->slave_repl_offset = strtoull(l+18,NULL,10);
+                ri->slave_repl_offset = strtoll(l+18,NULL,10);
 
             /* replica_announced:<announcement> */
             if (sdslen(l) >= 18 && !memcmp(l,"replica_announced:",18))
@@ -2676,6 +2810,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Handle slave -> master role switch. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
+        serverLog(LL_NOTICE, "Found slave %s with master role", ri->name);
         /* If this is a promoted slave we can change state to the
          * failover state machine. */
         if ((ri->flags & SRI_PROMOTED) &&
@@ -2708,6 +2843,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             mstime_t wait_time = sentinel_publish_period*4;
 
             if (!(ri->flags & SRI_PROMOTED) &&
+                !(ri->flags & SRI_SLAVE_LEAVE) &&
                  sentinelMasterLooksSane(ri->master) &&
                  sentinelRedisInstanceNoDownFor(ri,wait_time) &&
                  mstime() - ri->role_reported_time > wait_time)
@@ -2859,13 +2995,15 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
 void sentinelProcessHelloMessage(char *hello, int hello_len) {
     /* Format is composed of 8 tokens:
      * 0=ip,1=port,2=runid,3=current_epoch,4=master_name,
-     * 5=master_ip,6=master_port,7=master_config_epoch. */
-    int numtokens, port, removed, master_port;
-    uint64_t current_epoch, master_config_epoch;
+     * 5=master_ip,6=master_port,7=master_config_epoch,
+     * 8=scale_type,9=slave_addr,10=slave_port,11=scale_epoch. */
+    int numtokens, port, removed, master_port, slave_port;
+    uint64_t current_epoch, master_config_epoch, scale_epoch;
     char **token = sdssplitlen(hello, hello_len, ",", 1, &numtokens);
-    sentinelRedisInstance *si, *master;
+    sentinelRedisInstance *si, *master, *slave;
+    char *scale_type, *slave_addr;
 
-    if (numtokens == 8) {
+    if (numtokens == 12) {
         /* Obtain a reference to the master this hello message is about */
         master = sentinelGetMasterByName(token[4]);
         if (!master) goto cleanup; /* Unknown master, skip the message. */
@@ -2877,6 +3015,12 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                         master->sentinels,token[0],port,token[2]);
         current_epoch = strtoull(token[3],NULL,10);
         master_config_epoch = strtoull(token[7],NULL,10);
+
+        /* Obtain a reference to the scale slave. */
+        scale_type = token[8];
+        slave_addr = token[9];
+        slave_port = atoi(token[10]);
+        scale_epoch = strtoull(token[11],NULL,10);
 
         if (!si) {
             /* If not, remove all the sentinels that have the same runid
@@ -2962,6 +3106,60 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
             }
         }
 
+        /* Update scaled slave info if received scale epoch is newer. */
+        if (master->scale_epoch < scale_epoch) {
+            serverLog(LL_NOTICE, "Current scale epoch:%llu, received scale epoch:%llu", 
+                (unsigned long long)master->scale_epoch, (unsigned long long)scale_epoch);
+            /* Release scale_addr for previous scaling operation. */
+            if (master->scale_addr)
+                releaseSentinelAddr(master->scale_addr);
+            /* Set current scale info. */
+            master->scale_addr = createSentinelAddr(slave_addr, slave_port, 0);
+            master->scale_epoch = scale_epoch;
+            master->scale_start_time = mstime();
+
+            sentinelEvent(LL_WARNING, "+scale-update-from",si,"%@");
+            sentinelEvent(LL_WARNING, "+scale",master,"%s:%d %s %s",
+                slave_addr, slave_port, scale_type, master->name);
+
+            slave = sentinelRedisInstanceLookupSlave(master, slave_addr, slave_port);
+            if (!strcasecmp(scale_type, "join")) {
+                master->scale_type = SENTINEL_SCALE_TYPE_JOIN;
+                if (!slave) {
+                    slave = createSentinelRedisInstance(NULL,SRI_SLAVE,slave_addr,
+                    slave_port,master->quorum,master);
+                    if (!slave) {
+                        serverLog(LL_WARNING, "Create slave instance %s:%d for %s failed",
+                            slave_addr, slave_port, master->name);
+                    } else {
+                        sentinelEvent(LL_WARNING,"+slave",slave,"%@");
+                        sentinelFlushConfig();
+                    }
+                } else {
+                    serverLog(LL_WARNING, "Join slave %s:%d has been in %s.",
+                        slave_addr, slave_port, master->name);
+                }
+            } else if (!strcasecmp(scale_type, "leave")) {
+                master->scale_type = SENTINEL_SCALE_TYPE_LEAVE;
+                if (!slave) {
+                    serverLog(LL_WARNING, "Leave slave %s:%d is not in %s.",
+                        slave_addr, slave_port, master->name);
+                } else {
+                    /* We only delete the slave from table. */
+                    sentinelEvent(LL_WARNING,"-slave",slave,"%@");
+                    dictDelete(master->slaves, slave->name);
+                    sentinelFlushConfig();
+                }
+            } else if (!strcasecmp(scale_type, "none")){
+                /* The init state. Just ignore it. */
+                master->scale_type = SENTINEL_SCALE_TYPE_NONE;
+            } else {
+                /* Never goes here. */
+                serverLog(LL_WARNING, "Unknown scale type %s slave %s:%d for %s.",
+                    scale_type, slave_addr, slave_port, master->name);
+            }
+        }
+
         /* Update the state of the Sentinel. */
         if (si) si->last_hello_time = mstime();
     }
@@ -3014,10 +3212,13 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
  * C_ERR is returned. */
 int sentinelSendHello(sentinelRedisInstance *ri) {
     char ip[NET_IP_STR_LEN];
+    const char *nil_addr = "no one";
     char payload[NET_IP_STR_LEN+1024];
     int retval;
     char *announce_ip;
     int announce_port;
+    const char *scale_addr;
+    int scale_port;
     sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ? ri : ri->master;
     sentinelAddr *master_addr = sentinelGetCurrentMasterAddress(master);
 
@@ -3036,15 +3237,22 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     else if (server.tls_replication && server.tls_port) announce_port = server.tls_port;
     else announce_port = server.port;
 
+    scale_addr = (master->scale_addr)?announceSentinelAddr(master->scale_addr):nil_addr;
+    scale_port = (master->scale_addr)?master->scale_addr->port:0;
+
     /* Format and send the Hello message. */
     snprintf(payload,sizeof(payload),
         "%s,%d,%s,%llu," /* Info about this sentinel. */
-        "%s,%s,%d,%llu", /* Info about current master. */
+        "%s,%s,%d,%llu," /* Info about current master. */
+        "%s,%s,%d,%llu", /* Info about current scale operation. */
         announce_ip, announce_port, sentinel.myid,
         (unsigned long long) sentinel.current_epoch,
         /* --- */
         master->name,announceSentinelAddr(master_addr),master_addr->port,
-        (unsigned long long) master->config_epoch);
+        (unsigned long long) master->config_epoch,
+        /* --- */
+        sentinelScaleTypeStr(master->scale_type),scale_addr,
+        scale_port, (unsigned long long)master->scale_epoch);
     retval = redisAsyncCommand(ri->link->cc,
         sentinelPublishReplyCallback, ri, "%s %s %s",
         sentinelInstanceMapCommand(ri,"PUBLISH"),
@@ -3286,6 +3494,25 @@ const char *sentinelFailoverStateStr(int state) {
     }
 }
 
+const char *sentinelScaleTypeStr(int scale_type) {
+    switch(scale_type) {
+    case SENTINEL_SCALE_TYPE_NONE: return "none";
+    case SENTINEL_SCALE_TYPE_JOIN: return "join";
+    case SENTINEL_SCALE_TYPE_LEAVE: return "leave";
+    default: return "unknown";
+    }
+}
+
+const char *sentinelScaleStateStr(int state) {
+    switch(state) {
+    case SENTINEL_SCALE_STATE_NONE: return "none";
+    case SENTINEL_SCALE_STATE_WAIT_START: return "wait_start";
+    case SENTINEL_SCALE_STATE_SEND_SLAVEOF_NOONE: return "send_slaveof_noone";
+    case SENTINEL_SCALE_STATE_UPDATE_CONFIG: return "update_config";
+    default: return "unknown";
+    }
+}
+
 /* Redis instance to Redis protocol representation. */
 void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
     char *flags = sdsempty();
@@ -3398,6 +3625,19 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkLongLong(c,ri->config_epoch);
         fields++;
 
+        addReplyBulkCString(c,"scale-epoch");
+        addReplyBulkLongLong(c,ri->scale_epoch);
+        fields++;
+
+        addReplyBulkCString(c,"scale-type");
+        addReplyBulkCString(c,sentinelScaleTypeStr(ri->scale_type));
+        fields++;
+
+        addReplyBulkCString(c,"scale-replica");
+        addReplyBulkCString(c, (ri->scale_addr)?
+            announceSentinelAddrAndPort(ri->scale_addr):"no one");
+        fields++;
+
         addReplyBulkCString(c,"num-slaves");
         addReplyBulkLongLong(c,dictSize(ri->slaves));
         fields++;
@@ -3416,6 +3656,22 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 
         addReplyBulkCString(c,"parallel-syncs");
         addReplyBulkLongLong(c,ri->parallel_syncs);
+        fields++;
+
+        addReplyBulkCString(c, "master-reboot-down-after-period");
+        addReplyBulkLongLong(c, ri->master_reboot_down_after_period);
+        fields++;
+
+        addReplyBulkCString(c, "allow-promote-in-sync-replica");
+        addReplyBulkCString(c, ri->allow_promote_in_sync_replica ? "yes" : "no");
+        fields++;
+
+        addReplyBulkCString(c, "master-repl-offset");
+        addReplyBulkLongLong(c, ri->master_repl_offset);
+        fields++;
+
+        addReplyBulkCString(c, "max-allowed-data-loss");
+        addReplyBulkLongLong(c, ri->max_allowed_data_loss);
         fields++;
 
         if (ri->notification_script) {
@@ -3441,6 +3697,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkCString(c,
             (ri->slave_master_link_status == SENTINEL_MASTER_LINK_STATUS_UP) ?
             "ok" : "err");
+        fields++;
+
+        addReplyBulkCString(c,"master-sync-in-progress");
+        addReplyBulkLongLong(c,ri->slave_master_sync_in_progress);
         fields++;
 
         addReplyBulkCString(c,"master-host");
@@ -3788,6 +4048,10 @@ void sentinelCommand(client *c) {
 "    Return the ID of the Sentinel instance.",
 "PENDING-SCRIPTS",
 "    Get pending scripts information.",
+"JOIN <master-name> <ip> <port> ",
+"    Join slave to an existed master.",
+"LEAVE <master-name> <ip> <port> ",
+"    Slave leaves from master.",
 "REMOVE <master-name>",
 "    Remove master from Sentinel's monitor list.",
 "REPLICAS <master-name>",
@@ -3973,6 +4237,83 @@ NULL
         if (c->argc != 2) goto numargserr;
         sentinelFlushConfigAndReply(c);
         return;
+    } else if (!strcasecmp(c->argv[1]->ptr,"join")) {
+        /* SENTINEL JOIN <mater-name> <ip> <port> */
+        sentinelRedisInstance *master;
+        long port;
+
+        if (c->argc != 5) goto numargserr;
+        if (getLongFromObjectOrReply(c,c->argv[4],&port,"Invalid port")
+            != C_OK) return;
+
+        master = sentinelGetMasterByName(c->argv[2]->ptr);
+        if (!master) {
+            addReplyError(c, "No such master with specified name.");
+            return;
+        }
+
+        if (getSentinelRedisInstanceByAddrAndRunID(sentinel.masters,
+            c->argv[3]->ptr,port,NULL) != NULL) {
+            addReplyError(c, "The master replica cannot be scaled.");
+            return;
+        }
+
+        if (sentinelRedisInstanceLookupSlave(master,c->argv[3]->ptr,port) == NULL) {
+            master->scale_addr = createSentinelAddr(c->argv[3]->ptr, port, 0);
+            sentinelStartScale(master, SENTINEL_SCALE_TYPE_JOIN);
+            master->flags |= SRI_FORCE_SCALE;
+            addReply(c, shared.ok);
+        } else {
+            addReplyError(c, "Slave has been in master.");
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"leave")) {
+        /* SENTINEL LEAVE <master-name> <ip> <port> */
+        sentinelRedisInstance *master = NULL;
+        long port;
+
+        if (c->argc != 5) goto numargserr;
+        if (getLongFromObjectOrReply(c,c->argv[4],&port,"Invalid port")
+            != C_OK) return;
+
+        master = sentinelGetMasterByName(c->argv[2]->ptr);
+        if (!master) {
+            addReplyError(c, "No such master with specified name.");
+            return;
+        }
+
+        if (getSentinelRedisInstanceByAddrAndRunID(sentinel.masters,
+            c->argv[3]->ptr,port,NULL) != NULL) {
+            addReplyError(c, "The master replica cannot be scaled.");
+            return;
+        }
+
+        /* Like 'failover', slave leaves the master in an async way. 
+         * It leaves in two steps:
+         *  - first, send 'slaveof no one' to make slave as an orphan
+         *  - second, remove slave from the master's table and flushconfig
+         * 
+         * If the slave's master is in failover progress, the slave may be promoted, 
+         * so reject the 'leave' operation for safe.
+         * Like failover, 'leave' is a long operation, so the returned 'ok' only means
+         * the operation is submitted to sentinel, it does not promise a successful 
+         * result. One can check the result of 'sentinel slaves mymaster' to make sure
+         * the slave is finally removed.
+         * */
+        sentinelRedisInstance *slave = NULL;
+        if ((slave = sentinelRedisInstanceLookupSlave(master,c->argv[3]->ptr,port)) != NULL) {
+            if ((slave->master->flags & SRI_FAILOVER_IN_PROGRESS) ||
+                (slave->master->flags & SRI_SCALE_IN_PROGRESS)) {
+                addReplyError(c, "Master is in failover or scale, please wait to finish.");
+                return;
+            }
+            slave->master->scale_addr = createSentinelAddr(c->argv[3]->ptr, port, 0);
+            master->scale_slave = slave;
+            sentinelStartScale(master, SENTINEL_SCALE_TYPE_LEAVE);
+            master->flags |= SRI_FORCE_SCALE;
+            addReply(c, shared.ok);
+        } else {
+            addReplyError(c, "No such slave in master.");
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"remove")) {
         /* SENTINEL REMOVE <name> */
         sentinelRedisInstance *ri;
@@ -4367,6 +4708,31 @@ void sentinelSetCommand(client *c) {
             }
             ri->master_reboot_down_after_period = ll;
             changes++;
+        } else if (!strcasecmp(option,"allow-promote-in-sync-replica") && moreargs > 0) {
+            /* allow-promote-in-sync-replica <yes|no> */
+            char *value = c->argv[++j]->ptr;
+            if (sdslen(value) == 0) {
+                badarg = j;
+                goto badfmt;
+            }
+
+            int flag = yesnotoi(value);
+            if (flag == -1) {
+                badarg = j;
+                goto badfmt;
+            }
+
+            ri->allow_promote_in_sync_replica = flag;
+            changes++;
+        } else if (!strcasecmp(option,"max-allowed-data-loss") && moreargs > 0) {
+            /* max-allowed-data-loss <bytes> */
+            robj *o = c->argv[++j];
+            if (getLongLongFromObject(o,&ll) == C_ERR || ll < 0) {
+                badarg = j;
+                goto badfmt;
+            }
+            ri->max_allowed_data_loss = ll;
+            changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
                                   "SENTINEL SET '%s'", option);
@@ -4651,8 +5017,12 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
         /* If we did not voted for ourselves, set the master failover start
          * time to now, in order to force a delay before we can start a
          * failover for the same master. */
-        if (strcasecmp(master->leader,sentinel.myid))
-            master->failover_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
+        if (strcasecmp(master->leader,sentinel.myid)) {
+            if (master->flags & SRI_FAILOVER_IN_PROGRESS)
+                master->failover_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
+            if (master->flags & SRI_SCALE_IN_PROGRESS)
+                master->scale_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
+        }
     }
 
     *leader_epoch = master->leader_epoch;
@@ -4698,7 +5068,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     uint64_t leader_epoch;
     uint64_t max_votes = 0;
 
-    serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
+    serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS|SRI_SCALE_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType);
 
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
@@ -4964,7 +5334,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         sentinelRedisInstance *slave = dictGetVal(de);
         mstime_t info_validity_time;
 
-        if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN)) continue;
+        if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_SLAVE_LEAVE)) continue;
         if (slave->link->disconnected) continue;
         if (mstime() - slave->link->last_avail_time > sentinel_ping_period*5) continue;
         if (slave->slave_priority == 0) continue;
@@ -4978,6 +5348,50 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
             info_validity_time = sentinel_info_period*3;
         if (mstime() - slave->info_refresh > info_validity_time) continue;
         if (slave->master_link_down_time > max_master_down_time) continue;
+        if (slave->slave_master_sync_in_progress && !master->allow_promote_in_sync_replica) continue;
+
+        /* Cases for failover data loss:
+        * 1. Master has an abrupt DOWN, the reasons are process crash, kill -9, or a hardware failure. 
+        * The master ping INFO may be older than slave ping INFO at most for a PING-PERIOD, so it is
+        * possible to get a data_loss < 0, but in fact some data in master repl buffer is not synced and lost. 
+        * 2. Master has a slow & long path before entering DOWN state, slave has a large lag with master, 
+        * then data_loss > 0 and we get data loss after the failover. It happens when redis suffers from
+        * OOM or network partition.
+        * 3. Master & Slaves are all alive, then start a failover by 'sentinel failover mymaster',  
+        * possibly data_loss > 0 but we still have chance to get data_loss <= 0 due to ping INFO drift.
+        * Like case 1, a small portion of data would be lost.
+        * 4. Master DOWN for any reasons, slave is alive but failed in RDB fullsync, and  
+        * slave->slave_master_sync_in_progress == 0, all data is lost after the failover. It happens when
+        * the RDB is large and a failure comes up in the long fullsync process.
+        * 
+        * How max-allowed-data-loss affects the failover:
+        * 1. When set to 0, it takes no effect, the failover process behaves as before.
+        * 2. When set to >0, the failover process checks the offset lag(data to lose) from ping INFO, 
+        * if the lag >= max-allowed-data-loss, then slave is skipped and won't be promoted. Finally, sentinel
+        * choose a slave with lag < max-allowed-data-loss and promote it as master.
+        * 
+        * Consequences:
+        * If all slaves have lag >= max-allowed-data-loss, sentinel has no slave to be promoted, it waits for:
+        * 1. The DOWN master reboots, gets back and zero data loss, sentinel rebuilds the master-slave relation
+        * 2. The DOWN master is gone forever, no master exists and data is lost forever, one can set the 
+        * max-allowed-data-loss to 0 and failover to the slave manually. Anyway, if you are sensitive to a large 
+        * amount data loss, a human intervention in failover is must to have. 
+        * 
+        * Suggestions:
+        * 1. For cases that not sensitive to data loss, like cache, it prefers RTO to RPO, set it to 0
+        * 2. For cases that try your best to avoid data loss, like persistent store with TTL=0, it can be set to
+        * 10KB~100MB, the smaller the safer to guard the data, it depends how much data affordable to lose.
+        *  */
+        long long data_loss = master->master_repl_offset - slave->slave_repl_offset;
+        if (master->max_allowed_data_loss > 0 && data_loss > master->max_allowed_data_loss) {
+            serverLog(LL_NOTICE, 
+            "Skip slave %s with repl_offset %lld, master repl_offset %lld, data loss %lld > allowed %lld",
+            slave->name, slave->slave_repl_offset, master->master_repl_offset, data_loss, master->max_allowed_data_loss);
+            continue;
+        }
+
+        if (slave->slave_master_sync_in_progress && !master->allow_promote_in_sync_replica) continue;
+
         instance[instances++] = slave;
     }
     dictReleaseIterator(di);
@@ -5256,6 +5670,151 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
     }
 }
 
+/* ---------------- Failover state machine implementation ------------------- */
+void sentinelScaleWaitStart(sentinelRedisInstance *ri) {
+    char *leader;
+    int isleader;
+
+    /* Check if we are the leader for the scale epoch. */
+    leader = sentinelGetLeader(ri, ri->scale_epoch);
+    isleader = leader && strcasecmp(leader,sentinel.myid) == 0;
+    sdsfree(leader);
+
+    /* If I'm not the leader, then I can't continue with the scale. */
+    if (!isleader && !(ri->flags & SRI_FORCE_SCALE)) {
+        mstime_t election_timeout = sentinel_election_timeout;
+
+        /* Abort the scale if I'm not the leader after some time. */
+        if (mstime() - ri->scale_start_time > election_timeout) {
+            sentinelEvent(LL_WARNING,"-scale-abort-not-elected",ri,"%@");
+            sentinelAbortScale(ri);
+        }
+        return;
+    }
+    sentinelEvent(LL_WARNING,"+elected-leader",ri,"%@");
+    if (ri->flags & SRI_SLAVE_LEAVE) {
+        ri->scale_state = SENTINEL_SCALE_STATE_SEND_SLAVEOF_NOONE;
+        sentinelEvent(LL_WARNING,"+scale-send-slaveofnoone",ri->scale_slave,"%@");
+    } else {
+        ri->scale_state = SENTINEL_SCALE_STATE_UPDATE_CONFIG;
+        sentinelEvent(LL_WARNING,"+scale-update-config",ri,"%s:%d in %s",
+            ri->scale_addr->ip, ri->scale_addr->port, ri->name);
+    }
+    ri->scale_state_change_time = mstime();
+}
+
+/* Setup the master state to start a scale in or out. */
+void sentinelStartScale(sentinelRedisInstance *master, int scale_type) {
+    serverAssert(master->flags & SRI_MASTER);
+
+    int scale_flag = 0;
+    if (scale_type == SENTINEL_SCALE_TYPE_JOIN)
+        scale_flag |= SRI_SLAVE_JOIN;
+    if (scale_type == SENTINEL_SCALE_TYPE_LEAVE)
+        scale_flag |= SRI_SLAVE_LEAVE;
+    
+    master->scale_type = scale_type;
+    master->flags |= (SRI_SCALE_IN_PROGRESS | scale_flag);
+    master->scale_epoch = ++sentinel.current_epoch;
+    sentinelEvent(LL_WARNING,"+new-epoch",master,"%llu",
+        (unsigned long long) sentinel.current_epoch);
+    if (scale_flag & SRI_SLAVE_JOIN) {
+        sentinelEvent(LL_WARNING,"+try-join",master,"%s to %s", 
+            announceSentinelAddr(master->scale_addr), master->name);
+    } else {
+        sentinelEvent(LL_WARNING,"+try-leave",master,"%s from %s",
+            announceSentinelAddr(master->scale_addr), master->name);
+    }
+    
+    master->scale_state = SENTINEL_SCALE_STATE_WAIT_START;
+    master->scale_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
+}
+
+void sentinelScaleSendSlaveOfNoOne(sentinelRedisInstance *ri) {
+    int retval;
+
+    /* If a leaving slave is disconnected, remove it from table. */
+    if (ri->scale_slave->link->disconnected) {
+        serverLog(LL_WARNING, "Remove disconnected slave %s from %s", 
+            ri->scale_slave->name, ri->name);
+        sentinelEvent(LL_WARNING,"-slave",ri->scale_slave,"%@");
+        ri->scale_state = SENTINEL_SCALE_STATE_UPDATE_CONFIG;
+        return;
+    }
+
+    /* Send SLAVEOF NO ONE command to turn the slave into an orphan.
+     * We actually register a generic callback for this command as we don't
+     * really care about the reply. We check if it worked indirectly observing
+     * if INFO returns a different role (master instead of slave). */
+    retval = sentinelSendSlaveOf(ri->scale_slave,NULL);
+    if (retval != C_OK) return;
+    sentinelEvent(LL_NOTICE, "+scale-update-config",
+        ri->scale_slave,"%@");
+    ri->scale_state = SENTINEL_SCALE_STATE_UPDATE_CONFIG;
+    ri->scale_state_change_time = mstime();
+}
+
+/* This function is called when the slave is in
+ * SENTINEL_SCALE_STATE_UPDATE_CONFIG state. 
+ * For 'join', we create an instance and insert it into master's slaves.
+ * For 'leave', we delete it from master's slaves table. */
+void sentinelScaleUpdateSlaves(sentinelRedisInstance *master) {
+    if (master->flags & SRI_SLAVE_JOIN) {
+        sentinelRedisInstance *slave = createSentinelRedisInstance(
+            NULL, SRI_SLAVE, (char *)announceSentinelAddr(master->scale_addr),
+            master->scale_addr->port, master->quorum, master);
+        if (slave) {
+            sentinelEvent(LL_NOTICE,"+slave",slave,"%@");
+        } else {
+            serverLog(LL_WARNING, "Fail to join slave %s", 
+                announceSentinelAddr(master->scale_addr));                
+        }
+    }
+
+    if (master->flags & SRI_SLAVE_LEAVE) {
+        sentinelEvent(LL_NOTICE,"-slave",master->scale_slave,"%@");
+        dictDelete(master->slaves, master->scale_slave->name);
+    }
+
+    /* Reset scale flags and states, but keep scale_epoch & scale_addr
+     * for gossiping the config change to other sentinels. */
+    master->flags &= ~(SRI_SCALE_IN_PROGRESS|SRI_SLAVE_JOIN|SRI_SLAVE_LEAVE|SRI_FORCE_SCALE);
+    master->scale_state = SENTINEL_SCALE_STATE_NONE;
+    master->scale_state_change_time = mstime();
+    master->scale_slave = NULL;
+
+    sentinelFlushConfig();
+}
+
+void sentinelAbortScale(sentinelRedisInstance *ri) {
+    serverAssert(ri->flags & SRI_SCALE_IN_PROGRESS);
+    serverAssert(ri->failover_state <= SENTINEL_SCALE_STATE_SEND_SLAVEOF_NOONE);
+
+    ri->flags &= ~(SRI_SCALE_IN_PROGRESS|SRI_SLAVE_JOIN|SRI_SLAVE_LEAVE|SRI_FORCE_SCALE);
+    ri->scale_state = SENTINEL_SCALE_STATE_NONE;
+    ri->scale_state_change_time = mstime();
+    ri->scale_slave = NULL;
+}
+
+void sentinelScaleStateMachine(sentinelRedisInstance *ri) {
+    serverAssert(ri->flags & SRI_MASTER);
+
+    if (!(ri->flags & SRI_SCALE_IN_PROGRESS)) return;
+    
+    switch(ri->scale_state) {
+        case SENTINEL_SCALE_STATE_WAIT_START:
+            sentinelScaleWaitStart(ri);
+            break;
+        case SENTINEL_SCALE_STATE_SEND_SLAVEOF_NOONE:
+            sentinelScaleSendSlaveOfNoOne(ri);
+            break;
+        case SENTINEL_SCALE_STATE_UPDATE_CONFIG:
+            sentinelScaleUpdateSlaves(ri);
+            break;
+    }
+}
+
+
 /* ======================== SENTINEL timer handler ==========================
  * This is the "main" our Sentinel, being sentinel completely non blocking
  * in design.
@@ -5292,6 +5851,7 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
         if (sentinelStartFailoverIfNeeded(ri))
             sentinelAskMasterStateToOtherSentinels(ri,SENTINEL_ASK_FORCED);
         sentinelFailoverStateMachine(ri);
+        sentinelScaleStateMachine(ri);
         sentinelAskMasterStateToOtherSentinels(ri,SENTINEL_NO_FLAGS);
     }
 }

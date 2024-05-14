@@ -3853,6 +3853,38 @@ struct redisCommandArg SENTINEL_REMOVE_Args[] = {
 {0}
 };
 
+/********** SENTINEL JOIN ********************/
+
+/* SENTINEL JOIN history */
+#define SENTINEL_JOIN_History NULL
+
+/* SENTINEL JOIN tips */
+#define SENTINEL_JOIN_tips NULL
+
+/* SENTINEL JOIN argument table */
+struct redisCommandArg SENTINEL_JOIN_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
+/********** SENTINEL LEAVE ********************/
+
+/* SENTINEL LEAVE history */
+#define SENTINEL_LEAVE_History NULL
+
+/* SENTINEL LEAVE tips */
+#define SENTINEL_LEAVE_tips NULL
+
+/* SENTINEL LEAVE argument table */
+struct redisCommandArg SENTINEL_LEAVE_Args[] = {
+{"master-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"ip",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{"port",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE},
+{0}
+};
+
 /********** SENTINEL REPLICAS ********************/
 
 /* SENTINEL REPLICAS history */
@@ -3969,6 +4001,8 @@ struct redisCommand SENTINEL_Subcommands[] = {
 {"monitor","Start monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MONITOR_History,SENTINEL_MONITOR_tips,sentinelCommand,6,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_MONITOR_Args},
 {"myid","Get the Sentinel instance ID","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_MYID_History,SENTINEL_MYID_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
 {"pending-scripts","Get information about pending scripts",NULL,"2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_PENDING_SCRIPTS_History,SENTINEL_PENDING_SCRIPTS_tips,sentinelCommand,2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0},
+{"join","Join to master","O(1)","7.0.15",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_JOIN_History,SENTINEL_JOIN_tips,sentinelCommand,5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_JOIN_Args},
+{"leave","Leave master","O(1)","7.0.15",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_LEAVE_History,SENTINEL_LEAVE_tips,sentinelCommand,5,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_LEAVE_Args},
 {"remove","Stop monitoring","O(1)","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REMOVE_History,SENTINEL_REMOVE_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REMOVE_Args},
 {"replicas","List the monitored replicas","O(N) where N is the number of replicas","5.0.0",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_REPLICAS_History,SENTINEL_REPLICAS_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_REPLICAS_Args},
 {"reset","Reset masters by name pattern","O(N) where N is the number of monitored masters","2.8.4",CMD_DOC_NONE,NULL,NULL,COMMAND_GROUP_SENTINEL,SENTINEL_RESET_History,SENTINEL_RESET_tips,sentinelCommand,3,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,.args=SENTINEL_RESET_Args},
