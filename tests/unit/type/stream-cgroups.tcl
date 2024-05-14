@@ -1398,11 +1398,10 @@ start_server {
             $master del mystream
             $master xadd mystream 1-0 a b c d e f
             $master xgroup create mystream mygroup 0
-            $master xreadgroup group mygroup ryan count 1 streams mystream >
+            assert_equal [$master xreadgroup group mygroup ryan count 1 streams mystream >] {{mystream {{1-0 {a b c d e f}}}}}
             $master multi
             $master xreadgroup group mygroup ryan count 1 streams mystream 0
-            set reply [$master exec]
-            assert_equal $reply {{{mystream {{1-0 {a b c d e f}}}}}}
+            $master exec
         }
     }
 
