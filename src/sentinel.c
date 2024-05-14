@@ -3217,7 +3217,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     int retval;
     char *announce_ip;
     int announce_port;
-    char *scale_addr;
+    const char *scale_addr;
     int scale_port;
     sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ? ri : ri->master;
     sentinelAddr *master_addr = sentinelGetCurrentMasterAddress(master);
@@ -4241,7 +4241,6 @@ NULL
         /* SENTINEL JOIN <mater-name> <ip> <port> */
         sentinelRedisInstance *master;
         long port;
-        char ip[NET_IP_STR_LEN];
 
         if (c->argc != 5) goto numargserr;
         if (getLongFromObjectOrReply(c,c->argv[4],&port,"Invalid port")
@@ -4259,7 +4258,6 @@ NULL
             return;
         }
 
-        sentinelRedisInstance *slave;
         if (sentinelRedisInstanceLookupSlave(master,c->argv[3]->ptr,port) == NULL) {
             master->scale_addr = createSentinelAddr(c->argv[3]->ptr, port, 0);
             sentinelStartScale(master, SENTINEL_SCALE_TYPE_JOIN);
@@ -4272,7 +4270,6 @@ NULL
         /* SENTINEL LEAVE <master-name> <ip> <port> */
         sentinelRedisInstance *master = NULL;
         long port;
-        char ip[NET_IP_STR_LEN];
 
         if (c->argc != 5) goto numargserr;
         if (getLongFromObjectOrReply(c,c->argv[4],&port,"Invalid port")
@@ -5415,7 +5412,6 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* Check if we are the leader for the failover epoch. */
     leader = sentinelGetLeader(ri, ri->failover_epoch);
     isleader = leader && strcasecmp(leader,sentinel.myid) == 0;
-    serverLog(LL_NOTICE, "leader：%ld isLeader:%d", leader, isleader);
     sdsfree(leader);
 
     /* If I'm not the leader, and it is not a forced failover via
@@ -5765,7 +5761,7 @@ void sentinelScaleSendSlaveOfNoOne(sentinelRedisInstance *ri) {
 void sentinelScaleUpdateSlaves(sentinelRedisInstance *master) {
     if (master->flags & SRI_SLAVE_JOIN) {
         sentinelRedisInstance *slave = createSentinelRedisInstance(
-            NULL, SRI_SLAVE, announceSentinelAddr(master->scale_addr),
+            NULL, SRI_SLAVE, (char *)announceSentinelAddr(master->scale_addr),
             master->scale_addr->port, master->quorum, master);
         if (slave) {
             sentinelEvent(LL_NOTICE,"+slave",slave,"%@");
