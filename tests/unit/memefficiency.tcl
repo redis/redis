@@ -516,24 +516,27 @@ run_solo {defrag} {
             r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
             r config set hash-max-listpack-value 512
+            r config set hash-max-listpack-entries 10
 
             # Populate memory with interleaving hash field of same size
-            set n 50000
+            set n 3000
+            set fields 16 ;# make all the fields in an eblist.
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
-            for {set j 0} {$j < $n} {incr j} {
-                $rd hset h f$j $dummy_field
-                $rd hexpire h 9999999 1 f$j
-                $rd set k$j $dummy_field
+            for {set i 0} {$i < $n} {incr i} {
+                for {set j 0} {$j < $fields} {incr j} {
+                    $rd hset h$i f$j $dummy_field
+                    $rd hexpire h$i 9999999 1 f$j
+                    $rd set "k$i$j" $dummy_field
+                }
             }
-            assert_encoding hashtable h
-            for {set j 0} {$j < $n} {incr j} {
+            for {set j 0} {$j < [expr $n*$fields]} {incr j} {
                 $rd read ; # Discard hset replies
                 $rd read ; # Discard hexpire replies
                 $rd read ; # Discard set replies
             }
 
-            # Coverage for listpackex and eblist.
+            # Coverage for listpackex.
             r hset h_lpex f0 $dummy_field
             r hexpire h_lpex 9999999 1 f0
             assert_encoding listpackex h_lpex
@@ -548,8 +551,11 @@ run_solo {defrag} {
             assert_lessthan [s allocator_frag_ratio] 1.05
 
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            for {set i 0} {$i < $n} {incr i} {
+                for {set j 0} {$j < $fields} {incr j} {
+                    r del "k$i$j"
+                }
+            }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
