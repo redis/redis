@@ -2254,8 +2254,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                 serverLog(LL_WARNING, "failed reading hash TTL");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                sdsfree(value);
-                sdsfree(field);
                 return NULL;
             }
 
