@@ -431,14 +431,16 @@ start_server [list overrides [list "dir" $server_path]] {
             r HPEXPIRE key 100 1 d
 
             r save
-            # sleep 100 ms to make sure d will expire after restart
-            after 100
+            # sleep 101 ms to make sure d will expire after restart
+            after 101
             restart_server 0 true false
             wait_done_loading r
 
             assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
             assert_equal [r hexpiretime key 3 a b c] {2524600800 2524600800 -1}
             assert_equal [s rdb_last_load_keys_loaded] 1
+            # hash keys saved in listpack encoding are loaded as a blob,
+            # so individual field expiry is not verified on load
             if {$type eq "dict"} {
                 assert_equal [s rdb_last_load_hash_fields_expired] 1
             } else {
@@ -462,12 +464,20 @@ start_server [list overrides [list "dir" $server_path]] {
             r HPEXPIRE key 100 4 a b c d
 
             r save
-            # sleep 100 ms to make sure all fields will expire after restart
-            after 100
+            # sleep 101 ms to make sure all fields will expire after restart
+            after 101
 
             restart_server 0 true false
             wait_done_loading r
 
+            # hash keys saved as listpack-encoded are saved and loaded as a blob
+            # so individual field validation is not checked during load.
+            # Therefore, if the key was saved as dict it is expected that
+            # all 4 fields were expired during load, and thus the key was
+            # "declared" an empty key.
+            # On the other hand, if the key was saved as listpack, it is
+            # expected that no field was expired on load and the key was loaded,
+            # even though all its fields are actually expired.
             if {$type eq "dict"} {
                 assert_equal [s rdb_last_load_keys_loaded] 0
                 assert_equal [s rdb_last_load_hash_fields_expired] 4
@@ -519,8 +529,8 @@ test "save listpack, load dict" {
         assert_match "*encoding:listpack*" [r debug object key]
         r HPEXPIRE key 100 1 d
 
-        # sleep 100 ms to make sure all fields will expire after restart
-        after 100
+        # sleep 101 ms to make sure all fields will expire after restart
+        after 101
 
         # change configuration and reload - result should be dict-encoded key
         r config set hash-max-listpack-entries 0
@@ -543,8 +553,8 @@ test "save dict, load listpack" {
         assert_match "*encoding:hashtable*" [r debug object key]
         r HPEXPIRE key 100 1 d
 
-        # sleep 100 ms to make sure all fields will expire after restart
-        after 100
+        # sleep 101 ms to make sure all fields will expire after restart
+        after 101
 
         # change configuration and reload - result should be LP-encoded key
         r config set hash-max-listpack-entries 512
@@ -572,12 +582,15 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             r save
             r debug reload
 
-            # sleep 1 sec to make sure 'c' and 'd' will active-expire
-            after 1000
+            # wait at most 2 secs to make sure 'c' and 'd' will active-expire
+            wait_for_condition 20 100 {
+                [s expired_hash_fields] == 2
+            } else {
+                fail "expired hash fields is [s expired_hash_fields] != 2"
+            }
 
             assert_equal [s rdb_last_load_keys_loaded] 1
             assert_equal [s rdb_last_load_hash_fields_expired] 0
-            assert_equal [s expired_hash_fields] 2
 
             # hgetall might lazy expire fields, so it's only called after the stat asserts
             assert_equal [lsort [r hgetall key]] "1 2 5 6 a b e f"
@@ -603,8 +616,8 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             r save
             r debug reload
 
-            # sleep 1 sec to make sure 'c' and 'd' will lazy-expire when calling hgetall
-            after 1000
+            # sleep 500 msec to make sure 'c' and 'd' will lazy-expire when calling hgetall
+            after 500
 
             assert_equal [s rdb_last_load_keys_loaded] 1
             assert_equal [s rdb_last_load_hash_fields_expired] 0

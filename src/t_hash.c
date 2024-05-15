@@ -1033,7 +1033,6 @@ SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
 
     /* If need to set value */
     if (isSetKeyValue) {
-        redisDebug("going to set value %s for field %s", setKeyVal->value, field);
         if (flags & HASH_SET_TAKE_VALUE) {
             dictSetVal(ht, de, setKeyVal->value);
             flags &= ~HASH_SET_TAKE_VALUE;
@@ -1091,16 +1090,6 @@ void initDictExpireMetadata(sds key, robj *o) {
  *
  * Don't have to provide client and "cmd". If provided, then notification once
  * done by function hashTypeSetExDone().
- *
- * NOTE: when calling from RDB reading process, the key is not yet available
- * in the DB. Therefore, it is not possible to retrieve a pointer to the key to
- * be used in the expire meta struct.
- * The expireMeta struct needs to hold a pointer to the key string that is
- * persistent for the key lifetime. When reading RDB, the key was already read
- * and the string it was read into will be later used in the DB. However,
- * if calling this function from any place else and using this flag, you'll need
- * to provide a key string in the key robj that will remain persistent for as
- * long as the key itself is.
  */
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd, FieldSetCond fieldSetCond,
                       FieldGet fieldGet, ExpireSetCond expireSetCond,
@@ -1693,7 +1682,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
     }
 }
 
-/* NOTE: hexpires might be NULL */
+/* NOTE: hexpires can be NULL (Won't attept to register in global HFE DS) */
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);
