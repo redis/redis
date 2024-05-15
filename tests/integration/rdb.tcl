@@ -581,7 +581,7 @@ foreach type {listpack dict} {
 
             r FLUSHALL
 
-            r HMSET key a 1 b 2 c 3 d 4
+            r HMSET key a 1 b 2 c 3 d 4 e 5 f 6
             r HEXPIREAT key 2524600800 2 a b
             r HPEXPIRE key 200 2 c d
 
@@ -596,8 +596,8 @@ foreach type {listpack dict} {
             assert_equal [s expired_hash_fields] 2
 
             # hgetall might lazy expire fields, so it's only called after the stat asserts
-            assert_equal [lsort [r hgetall key]] "1 2 a b"
-            assert_equal [r hexpiretime key 4 a b c d] {2524600800 2524600800 -2 -2}
+            assert_equal [lsort [r hgetall key]] "1 2 5 6 a b e f"
+            assert_equal [r hexpiretime key 6 a b c d e f] {2524600800 2524600800 -2 -2 -1 -1}
         }
     }
 }
