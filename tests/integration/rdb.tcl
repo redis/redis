@@ -570,8 +570,8 @@ test "save dict, load listpack" {
 set server_path [tmpdir "server.active-expiry-after-load"]
 
 # verifies a field is correctly expired by active expiry AFTER loading from RDB
-start_server [list overrides [list "dir" $server_path]] {
-    foreach type {listpack dict} {
+foreach type {listpack dict} {
+    start_server [list overrides [list "dir" $server_path enable-debug-command yes]] {
         test "active field expiry after load, ($type)" {
             if {$type eq "dict"} {
                 r config set hash-max-listpack-entries 0
@@ -586,8 +586,7 @@ start_server [list overrides [list "dir" $server_path]] {
             r HPEXPIRE key 200 2 c d
 
             r save
-            restart_server 0 true false
-            wait_done_loading r
+            r debug reload
 
             # sleep 1 sec to make sure 'c' and 'd' will active-expire
             after 1000

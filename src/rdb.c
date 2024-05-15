@@ -2233,6 +2233,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries) {
             hashTypeConvert(o, OBJ_ENCODING_HT, hexpires);
+            dictTypeAddMeta((dict**)&o->ptr, &mstrHashDictTypeWithHFE);
+            initDictExpireMetadata(key, o);
         } else {
             hashTypeConvert(o, OBJ_ENCODING_LISTPACK_EX, hexpires);
             if (deep_integrity_validation) {
@@ -2293,7 +2295,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
             }
 
             /* keep the nearest expiration to connect listpack object to db expiry */
-            if (expire < minExpire) minExpire = expire;
+            if ((expire != 0) && (expire < minExpire)) minExpire = expire;
 
             /* store the values read - either to listpack or dict */
             if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
@@ -2344,8 +2346,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
             }
 
             if (o->encoding == OBJ_ENCODING_HT) {
-                /* WA for check-rdb mode, when there's no DB so can't attach expired items to ebuckets */
-                if (db == NULL) {
+                /* WA for check-rdb mode, when there's no DB so can't attach expired items to ebuckets,
+                 * or when no expiry was not set for this field */
+                if ((db == NULL) || (expire == 0)) {
                     hashTypeSet(db, o, field, value, 0);
                 } else {
                     if (hashTypeSetExRdb(db, o, field, value, expire) != C_OK) {
@@ -2366,7 +2369,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
             decrRefCount(o);
             goto emptykey;
         }
-        if ((db != NULL) && (o->encoding == OBJ_ENCODING_LISTPACK_EX))
+        if ((db != NULL) && (minExpire != EB_EXPIRE_TIME_INVALID))
             hashTypeAddToExpires(db, key, o, minExpire);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -2700,9 +2703,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
                     (hashTypeLength(o, 0) > server.hash_max_listpack_entries))  /* TODO: each field length is not verified against server.hash_max_listpack_value */
                 {
                     hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-
-                    /* TODO: should dict try expand be done here as well? */
-
                 } else if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
                     /* connect the listpack to the DB-global expiry data structure */
                     if ((minExpire != EB_EXPIRE_TIME_INVALID) && (db != NULL)) { /* DB can be NULL when checking rdb */

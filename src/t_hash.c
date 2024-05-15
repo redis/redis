@@ -1033,6 +1033,7 @@ SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
 
     /* If need to set value */
     if (isSetKeyValue) {
+        redisDebug("going to set value %s for field %s", setKeyVal->value, field);
         if (flags & HASH_SET_TAKE_VALUE) {
             dictSetVal(ht, de, setKeyVal->value);
             flags &= ~HASH_SET_TAKE_VALUE;
@@ -1055,6 +1056,8 @@ SetExDone:
  * It is the duty of RDB reading process to track minimal expiration time of the
  * fields and eventually call hashTypeAddToExpires() to update global HFE DS with
  * next expiration time.
+ *
+ * To just add a field with no expiry, use hashTypeSet instead.
  */
 int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire_at) {
     /* Dummy struct to be used in hashTypeSetEx() */
@@ -1074,6 +1077,15 @@ int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire
     return (res == HSETEX_OK || res == HSET_UPDATE) ? C_OK : C_ERR;
 }
 
+void initDictExpireMetadata(sds key, robj *o)
+{
+    dict *ht = o->ptr;
+
+    dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(ht);
+    m->key = key;
+    m->hfe = ebCreate();     /* Allocate HFE DS */
+    m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
+}
 
 /*
  * Init HashTypeSetEx struct before calling hashTypeSetEx()
@@ -1082,7 +1094,7 @@ int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire
  * done by function hashTypeSetExDone().
  *
  * NOTE: when calling from RDB reading process, the key is not yet available
- * in the DB. Thereofre, it is not possible to retrieve a pointer to the key to
+ * in the DB. Therefore, it is not possible to retrieve a pointer to the key to
  * be used in the expire meta struct.
  * The expireMeta struct needs to hold a pointer to the key string that is
  * persistent for the key lifetime. When reading RDB, the key was already read
