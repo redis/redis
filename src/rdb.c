@@ -973,6 +973,18 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 hfield field = dictGetKey(de);
                 sds value = dictGetVal(de);
 
+                /* save the TTL */
+                if (with_ttl) {
+                    uint64_t ttl = hfieldGetExpireTime(field);
+                    /* 0 is used to indicate no TTL is set for this field */
+                    if (ttl == EB_EXPIRE_TIME_INVALID) ttl = 0;
+                    if ((n = rdbSaveLen(rdb, ttl)) == -1) {
+                        dictReleaseIterator(di);
+                        return -1;
+                    }
+                    nwritten += n;
+                }
+
                 /* save the key */
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)field,
                         hfieldlen(field))) == -1)
@@ -990,18 +1002,6 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
-
-                /* save the TTL */
-                if (with_ttl) {
-                    uint64_t ttl = hfieldGetExpireTime(field);
-                    /* 0 is used to indicate no TTL is set for this field */
-                    if (ttl == EB_EXPIRE_TIME_INVALID) ttl = 0;
-                    if ((n = rdbSaveLen(rdb, ttl)) == -1) {
-                        dictReleaseIterator(di);
-                        return -1;
-                    }
-                    nwritten += n;
-                }
             }
             dictReleaseIterator(di);
         } else {
@@ -2249,6 +2249,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
         while (len > 0) {
             len--;
 
+            /* read the TTL */
+            if (rdbLoadLenByRef(rdb, NULL, &expire) == -1) {
+                serverLog(LL_WARNING, "failed reading hash TTL");
+                decrRefCount(o);
+                if (dupSearchDict != NULL) dictRelease(dupSearchDict);
+                sdsfree(value);
+                sdsfree(field);
+                return NULL;
+            }
+
             /* read the field name */
             if ((field = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &fieldLen)) == NULL) {
                 serverLog(LL_WARNING, "failed reading hash field");
@@ -2262,16 +2272,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                 serverLog(LL_WARNING, "failed reading hash value");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                sdsfree(field);
-                return NULL;
-            }
-
-            /* read the TTL */
-            if (rdbLoadLenByRef(rdb, NULL, &expire) == -1) {
-                serverLog(LL_WARNING, "failed reading hash TTL");
-                decrRefCount(o);
-                if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                sdsfree(value);
                 sdsfree(field);
                 return NULL;
             }
