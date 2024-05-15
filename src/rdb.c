@@ -2359,6 +2359,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
                         return NULL;
                     }
                 }
+                sdsfree(field);
+                sdsfree(value);
             }
         }
 
