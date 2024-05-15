@@ -241,7 +241,7 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
 
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd,
                       FieldSetCond fieldSetCond, FieldGet fieldGet,
-                      ExpireSetCond expireSetCond, HashTypeSetEx *ex, int keyInDB);
+                      ExpireSetCond expireSetCond, HashTypeSetEx *ex);
 
 SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
                        uint64_t expireAt, HashTypeSetEx *exInfo);
@@ -316,7 +316,7 @@ static void hashDictWithExpireOnRelease(dict *d) {
 
 #define HASH_LP_NO_TTL 0
 
-static struct listpackEx *listpackExCreate(void) {
+struct listpackEx *listpackExCreate(void) {
     listpackEx *lpt = zcalloc(sizeof(*lpt));
     lpt->meta.trash = 1;
     lpt->lp = NULL;
@@ -540,7 +540,7 @@ out:
 }
 
 /* Add new field ordered by expire time. */
-static void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
+void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
     unsigned char *fptr, *s, *elem;
     listpackEx *lpt = o->ptr;
 
@@ -1077,8 +1077,7 @@ int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire
     return (res == HSETEX_OK || res == HSET_UPDATE) ? C_OK : C_ERR;
 }
 
-void initDictExpireMetadata(sds key, robj *o)
-{
+void initDictExpireMetadata(sds key, robj *o) {
     dict *ht = o->ptr;
 
     dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(ht);
@@ -1105,7 +1104,7 @@ void initDictExpireMetadata(sds key, robj *o)
  */
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd, FieldSetCond fieldSetCond,
                       FieldGet fieldGet, ExpireSetCond expireSetCond,
-                      HashTypeSetEx *ex, int keyInDB)
+                      HashTypeSetEx *ex)
 {
     dict *ht = o->ptr;
 
@@ -1139,15 +1138,11 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
 
             /* Find the key in the keyspace. Need to keep reference to the key for
              * notifications or even removal of the hash */
-            if (keyInDB) {
-                dictEntry *de = dbFind(db, key->ptr);
-                serverAssert(de != NULL);
+            dictEntry *de = dbFind(db, key->ptr);
+            serverAssert(de != NULL);
 
-                /* Fillup dict HFE metadata */
-                m->key = dictGetKey(de); /* reference key in keyspace */
-            } else {
-                m->key = key->ptr;
-            }
+            /* Fillup dict HFE metadata */
+            m->key = dictGetKey(de); /* reference key in keyspace */
             m->hfe = ebCreate();     /* Allocate HFE DS */
             m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
         }
@@ -2962,7 +2957,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
                       FIELD_DONT_CREATE2,
                       FIELD_GET_NONE,
                       expireSetCond,
-                      &exCtx, 1);
+                      &exCtx);
 
     addReplyArrayLen(c, numFields);
     for (int i = 0 ; i < numFields ; i++) {

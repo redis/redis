@@ -420,13 +420,9 @@ set server_path [tmpdir "server.partial-hfield-exp-test"]
 
 # verifies writing and reading hash key with expiring and persistent fields
 start_server [list overrides [list "dir" $server_path]] {
-    foreach type {listpack dict} {
+    foreach {type lp_entries} {listpack 512 dict 0} {
         test "hash field expiration save and load rdb one expired field, ($type)" {
-            if {$type eq "dict"} {
-                r config set hash-max-listpack-entries 0
-            } else {
-                r config set hash-max-listpack-entries 512
-            }
+            r config set hash-max-listpack-entries $lp_entries
 
             r FLUSHALL
 
@@ -456,13 +452,9 @@ set server_path [tmpdir "server.all-hfield-exp-test"]
 
 # verifies writing hash with several expired keys, and active-expiring it on load
 start_server [list overrides [list "dir" $server_path]] {
-    foreach type {listpack dict} {
+    foreach {type lp_entries} {listpack 512 dict 0} {
         test "hash field expiration save and load rdb all fields expired, ($type)" {
-            if {$type eq "dict"} {
-                r config set hash-max-listpack-entries 0
-            } else {
-                r config set hash-max-listpack-entries 512
-            }
+            r config set hash-max-listpack-entries $lp_entries
 
             r FLUSHALL
 
@@ -495,13 +487,9 @@ set server_path [tmpdir "server.long-ttl-test"]
 
 # verifies a long TTL value (6 bytes) is saved and loaded correctly
 start_server [list overrides [list "dir" $server_path]] {
-    foreach type {listpack dict} {
+    foreach {type lp_entries} {listpack 512 dict 0} {
         test "hash field expiration save and load rdb long TTL, ($type)" {
-            if {$type eq "dict"} {
-                r config set hash-max-listpack-entries 0
-            } else {
-                r config set hash-max-listpack-entries 512
-            }
+            r config set hash-max-listpack-entries $lp_entries
 
             r FLUSHALL
 
@@ -570,14 +558,10 @@ test "save dict, load listpack" {
 set server_path [tmpdir "server.active-expiry-after-load"]
 
 # verifies a field is correctly expired by active expiry AFTER loading from RDB
-foreach type {listpack dict} {
+foreach {type lp_entries} {listpack 512 dict 0} {
     start_server [list overrides [list "dir" $server_path enable-debug-command yes]] {
         test "active field expiry after load, ($type)" {
-            if {$type eq "dict"} {
-                r config set hash-max-listpack-entries 0
-            } else {
-                r config set hash-max-listpack-entries 512
-            }
+            r config set hash-max-listpack-entries $lp_entries
 
             r FLUSHALL
 
@@ -604,14 +588,10 @@ foreach type {listpack dict} {
 
 set server_path [tmpdir "server.lazy-expiry-after-load"]
 
-foreach type {listpack dict} {
+foreach {type lp_entries} {listpack 512 dict 0} {
     start_server [list overrides [list "dir" $server_path enable-debug-command yes]] {
         test "lazy field expiry after load, ($type)" {
-            if {$type eq "dict"} {
-                r config set hash-max-listpack-entries 0
-            } else {
-                r config set hash-max-listpack-entries 512
-            }
+            r config set hash-max-listpack-entries $lp_entries
             r debug set-active-expire 0
 
             r FLUSHALL
@@ -639,9 +619,10 @@ foreach type {listpack dict} {
 
 set server_path [tmpdir "server.unexpired-items-rax-list-boundary"]
 
-foreach type {listpack dict} {
+foreach {type lp_entries} {listpack 512 dict 0} {
     start_server [list overrides [list "dir" $server_path enable-debug-command yes]] {
         test "load un-expired items below and above rax-list boundary, ($type)" {
+            r config set hash-max-listpack-entries $lp_entries
 
             r flushall
 

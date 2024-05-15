@@ -3206,6 +3206,8 @@ int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire
 uint64_t hashTypeGetMinExpire(robj *keyObj);
 uint64_t hashTypeGetNextTimeToExpire(robj *o);
 void initDictExpireMetadata(sds key, robj *o);
+struct listpackEx *listpackExCreate(void);
+void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);

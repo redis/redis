@@ -80,8 +80,8 @@ char *rdb_type_string[] = {
     "stream-v2",
     "set-listpack",
     "stream-v3",
-    "hash-md-hashtable",
-    "hash-md-listpack",
+    "hash-hashtable-md",
+    "hash-listpack-md",
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -331,7 +331,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,NULL,NULL,0)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,NULL,0,NULL)) == NULL) goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;

@@ -1875,8 +1875,8 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
  * On success a newly allocated object is returned, otherwise NULL.
  * When the function returns NULL and if 'error' is not NULL, the
  * integer pointed by 'error' is set to the type of error that occurred */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
-                    int rdbflags) {
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
+                    int *error) {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2251,6 +2251,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
             /* read the field name */
             if ((field = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &fieldLen)) == NULL) {
+                serverLog(LL_WARNING, "failed reading hash field");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 return NULL;
@@ -2258,6 +2259,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
             /* read the value */
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
+                serverLog(LL_WARNING, "failed reading hash value");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 sdsfree(field);
@@ -2266,6 +2268,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
             /* read the TTL */
             if (rdbLoadLenByRef(rdb, NULL, &expire) == -1) {
+                serverLog(LL_WARNING, "failed reading hash TTL");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 sdsfree(value);
@@ -2335,11 +2338,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
                     /* don't add the values to the new hash: the next if will catch and the values will be added there */
                 } else {
-                    void *lp = ((listpackEx*)o->ptr)->lp;
-                    lp = lpAppend(lp, (unsigned char *)field, sdslen(field));
-                    lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
-                    lp = lpAppendInteger(lp, expire);
-                    ((listpackEx*)o->ptr)->lp = lp;
+                    listpackExAddNew(o, field, value, expire);
                     sdsfree(field);
                     sdsfree(value);
                 }
@@ -2352,6 +2351,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
                     hashTypeSet(db, o, field, value, 0);
                 } else {
                     if (hashTypeSetExRdb(db, o, field, value, expire) != C_OK) {
+                        serverLog(LL_WARNING, "failed adding hash field %s to key %s", field, key);
                         decrRefCount(o);
                         if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                         sdsfree(value);
@@ -2670,9 +2670,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
                  * pointed to by o->ptr */
                 o->type = OBJ_HASH;
                 if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
-                    listpackEx *lpt = zcalloc(sizeof(*lpt));
+                    listpackEx *lpt = listpackExCreate();
                     lpt->lp = encoded;
-                    lpt->meta.trash = 1;
                     lpt->key = key;
                     o->ptr = lpt;
                     o->encoding = OBJ_ENCODING_LISTPACK_EX;
@@ -3511,7 +3510,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db,&error,rdbflags);
+        val = rdbLoadObject(type,rdb,key,db,rdbflags,&error);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
