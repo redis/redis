@@ -602,4 +602,72 @@ foreach type {listpack dict} {
     }
 }
 
+set server_path [tmpdir "server.lazy-expiry-after-load"]
+
+foreach type {listpack dict} {
+    start_server [list overrides [list "dir" $server_path enable-debug-command yes]] {
+        test "lazy field expiry after load, ($type)" {
+            if {$type eq "dict"} {
+                r config set hash-max-listpack-entries 0
+            } else {
+                r config set hash-max-listpack-entries 512
+            }
+            r debug set-active-expire 0
+
+            r FLUSHALL
+
+            r HMSET key a 1 b 2 c 3 d 4 e 5 f 6
+            r HEXPIREAT key 2524600800 2 a b
+            r HPEXPIRE key 200 2 c d
+
+            r save
+            r debug reload
+
+            # sleep 1 sec to make sure 'c' and 'd' will lazy-expire when calling hgetall
+            after 1000
+
+            assert_equal [s rdb_last_load_keys_loaded] 1
+            assert_equal [s rdb_last_load_hash_fields_expired] 0
+            assert_equal [s expired_hash_fields] 0
+
+            # hgetall will lazy expire fields, so it's only called after the stat asserts
+            assert_equal [lsort [r hgetall key]] "1 2 5 6 a b e f"
+            assert_equal [r hexpiretime key 6 a b c d e f] {2524600800 2524600800 -2 -2 -1 -1}
+        }
+    }
+}
+
+set server_path [tmpdir "server.unexpired-items-rax-list-boundary"]
+
+foreach type {listpack dict} {
+    start_server [list overrides [list "dir" $server_path enable-debug-command yes]] {
+        test "load un-expired items below and above rax-list boundary, ($type)" {
+
+            r flushall
+
+            set hash_sizes {15 16 17 31 32 33}
+            foreach h $hash_sizes {
+                for {set i 1} {$i <= $h} {incr i} {
+                    r hset key$h f$i v$i
+                    r hexpireat key$h 2524600800 1 f$i
+                }
+            }
+
+            r save
+
+            restart_server 0 true false
+            wait_done_loading r
+
+            set hash_sizes {15 16 17 31 32 33}
+            foreach h $hash_sizes {
+                for {set i 1} {$i <= $h} {incr i} {
+                    # random expiration time
+                    assert_equal [r hget key$h f$i] v$i
+                    assert_equal [r hexpiretime key$h 1 f$i] 2524600800
+                }
+            }
+        }
+    }
+}
+
 } ;# tags
