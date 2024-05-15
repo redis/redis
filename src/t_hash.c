@@ -1682,7 +1682,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
     }
 }
 
-/* NOTE: hexpires can be NULL (Won't attept to register in global HFE DS) */
+/* NOTE: hexpires can be NULL (Won't attempt to register in global HFE DS) */
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);
