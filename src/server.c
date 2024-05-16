@@ -6104,14 +6104,16 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys;
+            long long keys, vkeys, hexpires;
 
             keys = kvstoreSize(server.db[j].keys);
             vkeys = kvstoreSize(server.db[j].expires);
+            hexpires = ebGetTotalItems(server.db[j].hexpires, &hashExpireBucketsType);
+
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld,hashes_with_expiry_fields=%lld\r\n",
+                    j, keys, vkeys, server.db[j].avg_ttl, hexpires);
             }
         }
     }
