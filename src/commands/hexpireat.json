@@ -1,9 +1,9 @@
 {
     "HEXPIREAT": {
         "summary": "Set expiry for hash field using an absolute Unix timestamp (seconds)",
-        "complexity": "O(N) where N is the number of arguments to the command",
+        "complexity": "O(N) where N is the number of specified fields",
         "group": "hash",
-        "since": "8.0.0",
+        "since": "7.4.0",
         "arity": -6,
         "function": "hexpireatCommand",
         "history": [],
