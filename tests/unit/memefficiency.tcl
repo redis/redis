@@ -503,7 +503,7 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
-        test "Active defrag HFE: $type" {
+        test "Active Defrag HFE: $type" {
             r flushdb
             r config resetstat
             r config set hz 100
