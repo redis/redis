@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of specified fields",
         "group": "hash",
         "since": "7.4.0",
-        "arity": -4,
+        "arity": -5,
         "function": "hpersistCommand",
         "history": [],
         "command_flags": [
@@ -69,6 +69,10 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0
+            },
+            {
+                "name": "FIELDS",
+                "type": "string"
             },
             {
                 "name": "numfields",

@@ -2956,12 +2956,17 @@ void hpexpiretimeCommand(client *c) {
 /* HPERSIST key <FIELDS count field [field ...]> */
 void hpersistCommand(client *c) {
     robj *hashObj;
-    long numFields = 0, numFieldsAt = 3;
+    long numFields = 0, numFieldsAt = 4;
     int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
     if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
         checkType(c, hashObj, OBJ_HASH)) return;
+
+    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
+        addReplyError(c, "Constant argument FIELDS is missing or not at the right position");
+        return;
+    }
 
     /* Read number of fields */
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
