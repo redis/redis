@@ -2703,6 +2703,20 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                     (hashTypeLength(o, 0) > server.hash_max_listpack_entries))  /* TODO: each field length is not verified against server.hash_max_listpack_value */
                 {
                     hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+                    /*
+                     * hashTypeAddToExpires is presumably called from within
+                     * the convert function (from listpackEx to dict), BUT,
+                     * this call depends on the lpt->meta field to be updated,
+                     * which is not the case here as hashTypeAddToExpires was
+                     * not yet called for the listpack (which is what updating
+                     * its meta).
+                     * Instead, this "manual" call is added here.
+                     * Another approach would be to have the conversion function
+                     * find the minExpire by itself when iterating on the listpack
+                     * instead of relying on the meta and use this value for the
+                     * final ebAdd call.
+                     */
+                    hashTypeAddToExpires(db, key, o, minExpire);
                 } else if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
                     /* connect the listpack to the DB-global expiry data structure */
                     if ((minExpire != EB_EXPIRE_TIME_INVALID) && (db != NULL)) { /* DB can be NULL when checking rdb */

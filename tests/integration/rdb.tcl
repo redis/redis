@@ -535,13 +535,14 @@ test "save listpack, load dict" {
 
         # change configuration and reload - result should be dict-encoded key
         r config set hash-max-listpack-entries 0
-        r debug reload
+        r debug reload nosave
 
         # first verify d was not expired during load (no expiry when loading
         # a hash that was saved listpack-encoded)
         assert_equal [s rdb_last_load_keys_loaded] 1
         assert_equal [s rdb_last_load_hash_fields_expired] 0
 
+        # d should be lazy expired in hgetall
         assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
         assert_match "*encoding:hashtable*" [r debug object key]
     }
@@ -557,15 +558,15 @@ test "save dict, load listpack" {
 
         r HMSET key a 1 b 2 c 3 d 4
         assert_match "*encoding:hashtable*" [r debug object key]
-        r HPEXPIRE key 2000 1 d
+        r HPEXPIRE key 200 1 d
         r save
 
-        # sleep 2001 ms to make sure 'd' will expire during reload
-        after 2001
+        # sleep 201 ms to make sure 'd' will expire during reload
+        after 201
 
         # change configuration and reload - result should be LP-encoded key
         r config set hash-max-listpack-entries 512
-        r debug reload
+        r debug reload nosave
 
         # verify d was expired during load
         assert_equal [s rdb_last_load_keys_loaded] 1
@@ -591,7 +592,7 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             r HPEXPIRE key 200 2 c d
 
             r save
-            r debug reload
+            r debug reload nosave
 
             # wait at most 2 secs to make sure 'c' and 'd' will active-expire
             wait_for_condition 20 100 {
@@ -625,7 +626,7 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             r HPEXPIRE key 200 2 c d
 
             r save
-            r debug reload
+            r debug reload nosave
 
             # sleep 500 msec to make sure 'c' and 'd' will lazy-expire when calling hgetall
             after 500
