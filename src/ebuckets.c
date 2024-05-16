@@ -1780,6 +1780,68 @@ void ebValidate(ebuckets eb, EbucketsType *type) {
         ebValidateRax(ebGetRaxPtr(eb), type);
 }
 
+/* Reallocates the memory used by the item using the provided allocation function.
+ * This feature was added for the active defrag feature.
+ *
+ * The 'defragfn' callbacks are called with a pointer to memory that callback
+ * can reallocate. The callbacks should return a new memory address or NULL,
+ * where NULL means that no reallocation happened and the old memory is still valid.
+ * 
+ * Note: It is the caller's responsibility to ensure that the item has a valid expire time. */
+eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *defragfn) {
+    assert(!ebIsEmpty(*eb));
+    if (ebIsList(*eb)) {
+        ExpireMeta *prevem = NULL;
+        eItem curitem = ebGetListPtr(type, *eb);
+        while (curitem != NULL) {
+            if (curitem == item) {
+                if ((curitem = defragfn(curitem))) {
+                    if (prevem)
+                        prevem->next = curitem;
+                    else
+                        *eb = ebMarkAsList(curitem);
+                }
+                return curitem;
+            }
+
+            /* Move to the next item in the list. */
+            prevem = type->getExpireMeta(curitem);
+            curitem = prevem->next;
+        }
+    } else {
+        CommonSegHdr *currHdr;
+        ExpireMeta *mIter = type->getExpireMeta(item);
+        assert(mIter->trash != 1);
+        while (mIter->lastInSegment == 0)
+            mIter = type->getExpireMeta(mIter->next);
+
+        if (mIter->lastItemBucket)
+            currHdr = (CommonSegHdr *) mIter->next;
+        else  
+            currHdr = (CommonSegHdr *) ((NextSegHdr *) mIter->next)->prevSeg;
+        /* If the item is the first in the segment, then update the segment header */
+        if (currHdr->head == item) {
+            if ((item = defragfn(item))) {
+                currHdr->head = item;
+            }
+            return item;
+        }
+
+        /* Iterate over all items in the segment until the next is 'item' */
+        ExpireMeta *mHead = type->getExpireMeta(currHdr->head);
+        mIter = mHead;
+        while (mIter->next != item)
+            mIter = type->getExpireMeta(mIter->next);
+        assert(mIter->next == item);
+
+        if ((item = defragfn(item))) {
+            mIter->next = item;
+        }
+        return item;
+    }
+    redis_unreachable();
+}
+
 /* Retrieves the expiration time associated with the given item. If associated
  * ExpireMeta is marked as trash, then return EB_EXPIRE_TIME_INVALID */
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
@@ -1794,12 +1856,14 @@ uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
 #include <stddef.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <string.h>
 #include "testhelp.h"
 
 #define TEST(name) printf("[TEST] >>> %s\n", name);
 #define TEST_COND(name, cond) printf("[%s] >>> %s\n", (cond) ? "TEST" : "BYPS", name);  if (cond)
 
 typedef struct MyItem {
+    int index;
     ExpireMeta mexpire;
 } MyItem;
 
@@ -1975,6 +2039,14 @@ void distributeTest(int lowestTime,
 
 #define UNUSED(x) (void)(x)
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+eItem defragCallback(const eItem item) {
+    size_t size = zmalloc_usable_size(item);
+    eItem newitem = zmalloc(size);
+    memcpy(newitem, item, size);
+    zfree(item);
+    return newitem;
+}
 
 int ebucketsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
@@ -2305,6 +2377,29 @@ int ebucketsTest(int argc, char **argv, int flags) {
 
         ebDestroy(&eb, &myEbucketsType2, NULL);
 
+    }
+
+    TEST("item defragmentation") {
+        for (int s = 1; s <= EB_LIST_MAX_ITEMS * 3; s++) {
+            ebuckets eb = NULL;
+            MyItem *items[s];
+            for (int i = 0; i < s; i++) {
+                items[i] = zmalloc(sizeof(MyItem));
+                items[i]->index = i;
+                ebAdd(&eb, &myEbucketsType, items[i], i);
+            }
+            assert((s <= EB_LIST_MAX_ITEMS) ? ebIsList(eb) : !ebIsList(eb));
+            /* Defrag all the items. */
+            for (int i = 0; i < s; i++) {
+                MyItem *newitem = ebDefragItem(&eb, &myEbucketsType, items[i], defragCallback);
+                if (newitem) items[i] = newitem;
+            }
+            /* Verify that the data is not corrupted. */
+            ebValidate(eb, &myEbucketsType);
+            for (int i = 0; i < s; i++)
+                assert(items[i]->index == i);
+            ebDestroy(&eb, &myEbucketsType, NULL);
+        }
     }
 
 //    TEST("segment - Add smaller item to full segment that all share same ebucket-key")

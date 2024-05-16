@@ -21,11 +21,8 @@ static ExpireMeta *hashGetExpireMeta(const eItem hash);
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit);
 static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(robj *hashObj, hfield field);
-static uint64_t hfieldGetExpireTime(hfield field);
 static void updateGlobalHfeDs(redisDb *db, robj *o, uint64_t minExpire, uint64_t minExpireFields);
 static uint64_t hashTypeGetNextTimeToExpire(robj *o);
-static uint64_t hashTypeGetMinExpire(robj *keyObj);
-
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
@@ -1999,6 +1996,24 @@ void hashTypeFree(robj *o) {
     }
 }
 
+/* Attempts to update the reference to the new key. Now it's only used in defrag. */
+void hashTypeUpdateKeyRef(robj *o, sds newkey) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        listpackEx *lpt = o->ptr;
+        lpt->key = newkey;
+    } else if (o->encoding == OBJ_ENCODING_HT && isDictWithMetaHFE(o->ptr)) {
+        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
+        dictExpireMeta->key = newkey;
+    } else {
+        /* Nothing to do. */
+    }
+}
+
+ebuckets *hashTypeGetDictMetaHFE(dict *d) {
+    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+    return &dictExpireMeta->hfe;
+}
+
 /*-----------------------------------------------------------------------------
  * Hash type commands
  *----------------------------------------------------------------------------*/
@@ -2635,7 +2650,7 @@ static ExpireMeta* hfieldGetExpireMeta(const eItem field) {
     return mstrMetaRef(field, &mstrFieldKind, (int) HFIELD_META_EXPIRE);
 }
 
-static uint64_t hfieldGetExpireTime(hfield field) {
+uint64_t hfieldGetExpireTime(hfield field) {
     if (!hfieldIsExpireAttached(field))
         return EB_EXPIRE_TIME_INVALID;
 
