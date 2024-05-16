@@ -528,15 +528,21 @@ test "save listpack, load dict" {
         r HMSET key a 1 b 2 c 3 d 4
         assert_match "*encoding:listpack*" [r debug object key]
         r HPEXPIRE key 100 1 d
+        r save
 
-        # sleep 101 ms to make sure all fields will expire after restart
-        after 101
+        # sleep 200 ms to make sure 'd' will expire after when reloading
+        after 200
 
         # change configuration and reload - result should be dict-encoded key
         r config set hash-max-listpack-entries 0
         r debug reload
 
-        assert_equal [lsort [r hgetall key]] "1 2 3 4 a b c d"
+        # first verify d was not expired during load (no expiry when loading
+        # a hash that was saved listpack-encoded)
+        assert_equal [s rdb_last_load_keys_loaded] 1
+        assert_equal [s rdb_last_load_hash_fields_expired] 0
+
+        assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
         assert_match "*encoding:hashtable*" [r debug object key]
     }
 }
@@ -551,14 +557,19 @@ test "save dict, load listpack" {
 
         r HMSET key a 1 b 2 c 3 d 4
         assert_match "*encoding:hashtable*" [r debug object key]
-        r HPEXPIRE key 100 1 d
+        r HPEXPIRE key 2000 1 d
+        r save
 
-        # sleep 101 ms to make sure all fields will expire after restart
-        after 101
+        # sleep 2001 ms to make sure 'd' will expire during reload
+        after 2001
 
         # change configuration and reload - result should be LP-encoded key
         r config set hash-max-listpack-entries 512
         r debug reload
+
+        # verify d was expired during load
+        assert_equal [s rdb_last_load_keys_loaded] 1
+        assert_equal [s rdb_last_load_hash_fields_expired] 1
 
         assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
         assert_match "*encoding:listpack*" [r debug object key]

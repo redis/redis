@@ -2287,7 +2287,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
             * created in memory (because it is created on the first valid field), and
             * thus the key would be discarded as an "empty key" */
             if (expire != 0 && iAmMaster() && ((mstime_t)expire < now) &&  /* note: expire was saved to RDB as unix-time in milliseconds */
-                !(rdbflags & RDBFLAGS_AOF_PREAMBLE)) {
+                !(rdbflags & RDBFLAGS_AOF_PREAMBLE))
+            {
                 /* TODO: consider replication (like in rdbLoadAddKeyToDb) */
                 server.rdb_last_load_hash_fields_expired++;
                 sdsfree(field);
