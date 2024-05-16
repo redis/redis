@@ -13,6 +13,27 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.2.5    Released Thu 16 May 2024 12:00:00 IST
+================================================================================
+
+Upgrade urgency MODERATE: Program an upgrade of the server, but it's not urgent.
+
+Bug fixes
+=========
+
+* A single shard cluster leaves failed replicas in CLUSTER SLOTS instead of removing them (#12824)
+* Crash in LSET command when replacing small items and exceeding 4GB (#12955)
+* Blocking commands timeout is reset due to re-processing command (#13004)
+* Conversion of numbers in Lua args to redis args can fail. Bug introduced in 7.2.0 (#13115)
+
+Bug fixes in CLI tools
+======================
+
+* redis-cli: --count (for --scan, --bigkeys, etc) was ignored unless --pattern was also used (#13092)
+* redis-check-aof: incorrectly considering data in manifest format as MP-AOF (#12958)
+
+
+================================================================================
 Redis 7.2.4    Released Tue 09 Jan 2024 10:45:52 IST
 ================================================================================
 
