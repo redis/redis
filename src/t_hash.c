@@ -2730,13 +2730,13 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
         checkType(c, hashObj, OBJ_HASH)) return;
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
-        addReplyError(c, "Constant argument FIELDS is missing or not at the right position");
+        addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
         return;
     }
 
     /* Read number of fields */
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
-                                      &numFields, "Invalid number of fields parameter") != C_OK)
+                                      &numFields, "Number of fields must be a positive integer") != C_OK)
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
@@ -2896,7 +2896,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     }
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
-        addReplyError(c, "Constant argument FIELDS is missing or not at the right position");
+        addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
         return;
     }
 
@@ -2979,13 +2979,13 @@ void hpersistCommand(client *c) {
         checkType(c, hashObj, OBJ_HASH)) return;
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
-        addReplyError(c, "Constant argument FIELDS is missing or not at the right position");
+        addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
         return;
     }
 
     /* Read number of fields */
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
-                                      &numFields, "Invalid number of fields parameter") != C_OK)
+                                      &numFields, "Number of fields must be a positive integer") != C_OK)
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
