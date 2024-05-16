@@ -2971,7 +2971,7 @@ void hpexpiretimeCommand(client *c) {
 /* HPERSIST key <FIELDS count field [field ...]> */
 void hpersistCommand(client *c) {
     robj *hashObj;
-    long numFields = 0, numFieldsAt = 4;
+    long numFields = 0, numFieldsAt = 3;
     int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */

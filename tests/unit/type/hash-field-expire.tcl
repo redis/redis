@@ -645,7 +645,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1 f2 v2
             r hexpire myhash 1000 NX FIELDS 1 f1
             assert_error {*wrong number of arguments*} {r hpersist myhash}
-            assert_error {*is more than number of arguments*} {r hpersist myhash FIELDS 1}
+            assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 1}
             assert_equal [r hpersist not-exists-key FIELDS 1 f1] {}
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
