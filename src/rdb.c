@@ -956,7 +956,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             dictEntry *de;
             /* Determine the hash layout to use based on the presence of at least
              * one field with a valid TTL. If such a field exists, employ the
-             * RDB_TYPE_HASH_METADATA layout, including tuples of [field][value][ttl].
+             * RDB_TYPE_HASH_METADATA layout, including tuples of [ttl][field][value].
              * Otherwise, use the standard RDB_TYPE_HASH layout containing only
              * the tuples [field][value]. */
             int with_ttl = (hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID);
@@ -2229,6 +2229,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
+        /* TODO: create listpackEx or HT directly*/
         o = createHashObject();
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries) {

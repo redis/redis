@@ -1209,6 +1209,7 @@ size_t lpBytes(unsigned char *lp) {
     return lpGetTotalBytes(lp);
 }
 
+/* Returns the size 'lval' will require when encoded, in bytes */
 size_t lpEntrySizeInteger(long long lval) {
     uint64_t enclen;
     lpEncodeIntegerGetType(lval, NULL, &enclen);
