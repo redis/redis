@@ -2721,7 +2721,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
     /* Read number of fields */
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
-                                      &numFields, "Parameter `numFileds` should be greater than 0") != C_OK)
+                                      &numFields, "Invalid number of fields parameter") != C_OK)
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
@@ -2965,7 +2965,7 @@ void hpersistCommand(client *c) {
 
     /* Read number of fields */
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
-                                      &numFields, "Parameter `numFileds` should be greater than 0") != C_OK)
+                                      &numFields, "Invalid number of fields parameter") != C_OK)
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
