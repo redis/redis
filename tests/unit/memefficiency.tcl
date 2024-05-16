@@ -526,7 +526,7 @@ run_solo {defrag} {
             for {set i 0} {$i < $n} {incr i} {
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd hset h$i f$j $dummy_field
-                    $rd hexpire h$i 9999999 1 f$j
+                    $rd hexpire h$i 9999999 FIELDS 1 f$j
                     $rd set "k$i$j" $dummy_field
                 }
             }
@@ -538,7 +538,7 @@ run_solo {defrag} {
 
             # Coverage for listpackex.
             r hset h_lpex f0 $dummy_field
-            r hexpire h_lpex 9999999 1 f0
+            r hexpire h_lpex 9999999 FIELDS 1 f0
             assert_encoding listpackex h_lpex
 
             after 120 ;# serverCron only updates the info once in 100ms
