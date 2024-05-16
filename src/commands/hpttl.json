@@ -1,10 +1,10 @@
 {
     "HPTTL": {
         "summary": "Returns the TTL in milliseconds of a hash field.",
-        "complexity": "O(N) where N is the number of arguments to the command",
+        "complexity": "O(N) where N is the number of specified fields",
         "group": "hash",
-        "since": "8.0.0",
-        "arity": -4,
+        "since": "7.4.0",
+        "arity": -5,
         "function": "hpttlCommand",
         "history": [],
         "command_flags": [
@@ -41,7 +41,7 @@
                     "type": "null"
                 },
                 {
-                    "description": "The keyname, popped member, and its score.",
+                    "description": "Array of results",
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 4294967295,
@@ -70,6 +70,10 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0
+            },
+            {
+                "name": "FIELDS",
+                "type": "string"
             },
             {
                 "name": "numfields",

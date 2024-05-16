@@ -1,10 +1,10 @@
 {
     "HTTL": {
         "summary": "Returns the TTL in seconds of a hash field.",
-        "complexity": "O(N) where N is the number of arguments to the command",
+        "complexity": "O(N) where N is the number of specified fields",
         "group": "hash",
-        "since": "8.0.0",
-        "arity": -4,
+        "since": "7.4.0",
+        "arity": -5,
         "function": "httlCommand",
         "history": [],
         "command_flags": [
@@ -70,6 +70,10 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0
+            },
+            {
+                "name": "FIELDS",
+                "type": "string"
             },
             {
                 "name": "numfields",

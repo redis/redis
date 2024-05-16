@@ -65,8 +65,8 @@ proc hrandfieldTest {activeExpireConfig} {
     set factorValgrind [expr {$::valgrind ? 2 : 1}]
 
     # Set expiration time for field1 and field2 such that field1 expires first
-    r hpexpire myhash 1 NX 1 field1
-    r hpexpire myhash 100 NX 1 field2
+    r hpexpire myhash 1 NX FIELDS 1 field1
+    r hpexpire myhash 100 NX FIELDS 1 field2
 
     # On call hrandfield command lazy expire deletes field1 first
     wait_for_condition 8 10 {
@@ -99,76 +99,76 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HPEXPIRE(AT) - Test 'NX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
-            assert_equal [r hpexpire myhash 1000 NX 2 field1 field2] [list  $E_FAIL  $E_OK]
+            assert_equal [r hpexpire myhash 1000 NX FIELDS 1 field1] [list  $E_OK]
+            assert_equal [r hpexpire myhash 1000 NX FIELDS 2 field1 field2] [list  $E_FAIL  $E_OK]
 
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 1 field1] [list  $E_OK]
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 2 field1 field2] [list  $E_FAIL  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX FIELDS 1 field1] [list  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX FIELDS 2 field1 field2] [list  $E_FAIL  $E_OK]
         }
 
         test "HPEXPIRE(AT) - Test 'XX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hpexpire myhash 1000 NX 2 field1 field2] [list  $E_OK  $E_OK]
-            assert_equal [r hpexpire myhash 1000 XX 2 field1 field3] [list  $E_OK  $E_FAIL]
+            assert_equal [r hpexpire myhash 1000 NX FIELDS 2 field1 field2] [list  $E_OK  $E_OK]
+            assert_equal [r hpexpire myhash 1000 XX FIELDS 2 field1 field3] [list  $E_OK  $E_FAIL]
 
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 2 field1 field2] [list  $E_OK  $E_OK]
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] XX 2 field1 field3] [list  $E_OK  $E_FAIL]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX FIELDS 2 field1 field2] [list  $E_OK  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] XX FIELDS 2 field1 field3] [list  $E_OK  $E_FAIL]
         }
 
         test "HPEXPIRE(AT) - Test 'GT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
-            assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
-            assert_equal [r hpexpire myhash 2000 NX 1 field2] [list  $E_OK]
-            assert_equal [r hpexpire myhash 1500 GT 2 field1 field2] [list  $E_OK  $E_FAIL]
+            assert_equal [r hpexpire myhash 1000 NX FIELDS 1 field1] [list  $E_OK]
+            assert_equal [r hpexpire myhash 2000 NX FIELDS 1 field2] [list  $E_OK]
+            assert_equal [r hpexpire myhash 1500 GT FIELDS 2 field1 field2] [list  $E_OK  $E_FAIL]
 
             r del myhash
             r hset myhash field1 value1 field2 value2
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 1 field1] [list  $E_OK]
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+2000)*1000}] NX 1 field2] [list  $E_OK]
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] GT 2 field1 field2] [list  $E_OK  $E_FAIL]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX FIELDS 1 field1] [list  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+2000)*1000}] NX FIELDS 1 field2] [list  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] GT FIELDS 2 field1 field2] [list  $E_OK  $E_FAIL]
         }
 
         test "HPEXPIRE(AT) - Test 'LT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
-            assert_equal [r hpexpire myhash 1000 NX 1 field1] [list  $E_OK]
-            assert_equal [r hpexpire myhash 2000 NX 1 field2] [list  $E_OK]
-            assert_equal [r hpexpire myhash 1500 LT 2 field1 field2] [list  $E_FAIL  $E_OK]
+            assert_equal [r hpexpire myhash 1000 NX FIELDS 1 field1] [list  $E_OK]
+            assert_equal [r hpexpire myhash 2000 NX FIELDS 1 field2] [list  $E_OK]
+            assert_equal [r hpexpire myhash 1500 LT FIELDS 2 field1 field2] [list  $E_FAIL  $E_OK]
 
             r del myhash
             r hset myhash field1 value1 field2 value2
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX 1 field1] [list  $E_OK]
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+2000)*1000}] NX 1 field2] [list  $E_OK]
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] LT 2 field1 field2] [list  $E_FAIL  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX FIELDS 1 field1] [list  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+2000)*1000}] NX FIELDS 1 field2] [list  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] LT FIELDS 2 field1 field2] [list  $E_FAIL  $E_OK]
         }
 
         test "HPEXPIREAT - field not exists or TTL is in the past ($type)" {
             r del myhash
             r hset myhash f1 v1 f2 v2 f4 v4
-            r hexpire myhash 1000 NX 1 f4
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]-1)*1000}] NX 4 f1 f2 f3 f4] "$E_DELETED $E_DELETED $E_NO_FIELD $E_FAIL"
+            r hexpire myhash 1000 NX FIELDS 1 f4
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]-1)*1000}] NX FIELDS 4 f1 f2 f3 f4] "$E_DELETED $E_DELETED $E_NO_FIELD $E_FAIL"
             assert_equal [r hexists myhash field1] 0
         }
 
         test "HPEXPIRE - wrong number of arguments ($type)" {
             r del myhash
             r hset myhash f1 v1
-            assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX 0 f1 f2 f3}
-            assert_error {*Parameter `numFileds` is more than number of arguments} {r hpexpire myhash 1000 NX 4 f1 f2 f3}
+            assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
+            assert_error {*Parameter `numFileds` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^48 ($type)" {
             r del myhash
             r hset myhash f1 v1
             # below & above
-            assert_equal [r hpexpire myhash [expr (1<<48) - [clock milliseconds] - 1000 ] 1 f1] [list  $E_OK]
-            assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<48) - [clock milliseconds] + 100 ] 1 f1}
+            assert_equal [r hpexpire myhash [expr (1<<48) - [clock milliseconds] - 1000 ] FIELDS 1 f1] [list  $E_OK]
+            assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<48) - [clock milliseconds] + 100 ] FIELDS 1 f1}
         }
 
         test "Lazy - doesn't delete hash that all its fields got expired ($type)" {
@@ -180,17 +180,17 @@ start_server {tags {"external:skip needs:debug"}} {
                 for {set i 1} {$i <= $h} {incr i} {
                     # random expiration time
                     r hset hrand$h f$i v$i
-                    r hpexpire hrand$h [expr {50 + int(rand() * 50)}] 1 f$i
+                    r hpexpire hrand$h [expr {50 + int(rand() * 50)}] FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS hrand$h f$i]
 
                     # same expiration time
                     r hset same$h f$i v$i
-                    r hpexpire same$h 100 1 f$i
+                    r hpexpire same$h 100 FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS same$h f$i]
 
                     # same expiration time
                     r hset mix$h f$i v$i fieldWithoutExpire$i v$i
-                    r hpexpire mix$h 100 1 f$i
+                    r hpexpire mix$h 100 FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS mix$h f$i]
                 }
             }
@@ -218,17 +218,17 @@ start_server {tags {"external:skip needs:debug"}} {
                 for {set i 1} {$i <= $h} {incr i} {
                     # random expiration time
                     r hset hrand$h f$i v$i
-                    r hpexpire hrand$h [expr {50 + int(rand() * 50)}] 1 f$i
+                    r hpexpire hrand$h [expr {50 + int(rand() * 50)}] FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS hrand$h f$i]
 
                     # same expiration time
                     r hset same$h f$i v$i
-                    r hpexpire same$h 100 1 f$i
+                    r hpexpire same$h 100 FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS same$h f$i]
 
                     # same expiration time
                     r hset mix$h f$i v$i fieldWithoutExpire$i v$i
-                    r hpexpire mix$h 100 1 f$i
+                    r hpexpire mix$h 100 FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS mix$h f$i]
                 }
             }
@@ -255,74 +255,74 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HPEXPIRE - Flushall deletes all pending expired fields ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 10000 NX 1 field1
-            r hpexpire myhash 10000 NX 1 field2
+            r hpexpire myhash 10000 NX FIELDS 1 field1
+            r hpexpire myhash 10000 NX FIELDS 1 field2
             r flushall
             r del myhash
             r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 10000 NX 1 field1
-            r hpexpire myhash 10000 NX 1 field2
+            r hpexpire myhash 10000 NX FIELDS 1 field1
+            r hpexpire myhash 10000 NX FIELDS 1 field2
             r flushall async
         }
 
         test "HTTL/HPTTL - Input validation gets failed on nonexists field or field without expire ($type)" {
             r del myhash
             r HSET myhash field1 value1 field2 value2
-            r HPEXPIRE myhash 1000 NX 1 field1
+            r HPEXPIRE myhash 1000 NX FIELDS 1 field1
 
             foreach cmd {HTTL HPTTL} {
-                assert_equal [r $cmd non_exists_key 1 f] {}
-                assert_equal [r $cmd myhash 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
+                assert_equal [r $cmd non_exists_key FIELDS 1 f] {}
+                assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
                 # Set numFields less than actual number of fields. Fine.
-                assert_equal [r $cmd myhash 1 non_exists_field1 non_exists_field2] "$T_NO_FIELD"
+                assert_equal [r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2] "$T_NO_FIELD"
             }
         }
 
         test "HTTL/HPTTL - returns time to live in seconds/msillisec ($type)" {
             r del myhash
             r HSET myhash field1 value1 field2 value2
-            r HPEXPIRE myhash 2000 NX 2 field1 field2
-            set ttlArray [r HTTL myhash 2 field1 field2]
+            r HPEXPIRE myhash 2000 NX FIELDS 2 field1 field2
+            set ttlArray [r HTTL myhash FIELDS 2 field1 field2]
             assert_range [lindex $ttlArray 0] 1 2
-            set ttl [r HPTTL myhash 1 field1]
+            set ttl [r HPTTL myhash FIELDS 1 field1]
             assert_range $ttl 1000 2000
         }
 
         test "HEXPIRETIME - returns TTL in Unix timestamp ($type)" {
             r del myhash
             r HSET myhash field1 value1
-            r HPEXPIRE myhash 1000 NX 1 field1
+            r HPEXPIRE myhash 1000 NX FIELDS 1 field1
 
             set lo [expr {[clock seconds] + 1}]
             set hi [expr {[clock seconds] + 2}]
-            assert_range [r HEXPIRETIME myhash 1 field1] $lo $hi
-            assert_range [r HPEXPIRETIME myhash 1 field1] [expr $lo*1000] [expr $hi*1000]
+            assert_range [r HEXPIRETIME myhash FIELDS 1 field1] $lo $hi
+            assert_range [r HPEXPIRETIME myhash FIELDS 1 field1] [expr $lo*1000] [expr $hi*1000]
         }
 
         test "HTTL/HPTTL - Verify TTL progress until expiration ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 1000 NX 1 field1
-            assert_range [r HPTTL myhash 1 field1] 100 1000
-            assert_range [r HTTL myhash 1 field1] 0 1
+            r hpexpire myhash 1000 NX FIELDS 1 field1
+            assert_range [r HPTTL myhash FIELDS 1 field1] 100 1000
+            assert_range [r HTTL myhash FIELDS 1 field1] 0 1
             after 100
-            assert_range [r HPTTL myhash 1 field1] 1 901
+            assert_range [r HPTTL myhash FIELDS 1 field1] 1 901
             after 910
-            assert_equal [r HPTTL myhash 1 field1] $T_NO_FIELD
-            assert_equal [r HTTL myhash 1 field1] $T_NO_FIELD
+            assert_equal [r HPTTL myhash FIELDS 1 field1] $T_NO_FIELD
+            assert_equal [r HTTL myhash FIELDS 1 field1] $T_NO_FIELD
         }
 
         test "HPEXPIRE - DEL hash with non expired fields (valgrind test) ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 10000 NX 1 field1
+            r hpexpire myhash 10000 NX FIELDS 1 field1
             r del myhash
         }
 
         test "HEXPIREAT - Set time in the past ($type)" {
             r del myhash
             r hset myhash field1 value1
-            assert_equal [r hexpireat myhash [expr {[clock seconds] - 1}] NX 1 field1] $E_DELETED
+            assert_equal [r hexpireat myhash [expr {[clock seconds] - 1}] NX FIELDS 1 field1] $E_DELETED
             assert_equal [r hexists myhash field1] 0
         }
 
@@ -330,19 +330,19 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash field1 value1
 
-            r hexpireat myhash [expr {[clock seconds] + 2}] NX 1 field1
-            assert_range [r hpttl myhash 1 field1] 1000 2000
-            assert_range [r httl myhash 1 field1] 1 2
+            r hexpireat myhash [expr {[clock seconds] + 2}] NX FIELDS 1 field1
+            assert_range [r hpttl myhash FIELDS 1 field1] 1000 2000
+            assert_range [r httl myhash FIELDS 1 field1] 1 2
 
-            r hexpireat myhash [expr {[clock seconds] + 5}] XX 1 field1
-            assert_range [r httl myhash 1 field1] 4 5
+            r hexpireat myhash [expr {[clock seconds] + 5}] XX FIELDS 1 field1
+            assert_range [r httl myhash FIELDS 1 field1] 4 5
         }
 
         test "Lazy expire - delete hash with expired fields ($type)" {
             r del myhash
             r debug set-active-expire 0
             r hset myhash k v
-            r hpexpire myhash 1 NX 1 k
+            r hpexpire myhash 1 NX FIELDS 1 k
             after 5
             r del myhash
             r debug set-active-expire 1
@@ -358,7 +358,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 0
             r del myhash
             r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-            r hpexpire myhash 1 NX 4 f1 f2 f3 f4
+            r hpexpire myhash 1 NX FIELDS 4 f1 f2 f3 f4
             after 5
             set res [cmp_hrandfield_result myhash "f1 f2 f3 f4 f5"]
             assert {$res == 1}
@@ -372,18 +372,18 @@ start_server {tags {"external:skip needs:debug"}} {
 
             r del h1 h4 h18 h20
             r hset h1 k1 v1
-            r hpexpire h1 1 NX 1 k1
+            r hpexpire h1 1 NX FIELDS 1 k1
 
             r hset h4 k1 v1 k2 v2 k3 v3 k4 v4
-            r hpexpire h4 1 NX 3 k1 k3 k4
+            r hpexpire h4 1 NX FIELDS 3 k1 k3 k4
 
             # beyond 16 fields: HFE DS (ebuckets) converts from list to rax
 
             r hset h18 k1 v1 k2 v2 k3 v3 k4 v4 k5 v5 k6 v6 k7 v7 k8 v8 k9 v9 k10 v10 k11 v11 k12 v12 k13 v13 k14 v14 k15 v15 k16 v16 k17 v17 k18 v18
-            r hpexpire h18 1 NX 18 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 k15 k16 k17 k18
+            r hpexpire h18 1 NX FIELDS 18 k1 k2 k3 k4 k5 k6 k7 k8 k9 k10 k11 k12 k13 k14 k15 k16 k17 k18
 
             r hset h20 k1 v1 k2 v2 k3 v3 k4 v4 k5 v5 k6 v6 k7 v7 k8 v8 k9 v9 k10 v10 k11 v11 k12 v12 k13 v13 k14 v14 k15 v15 k16 v16 k17 v17 k18 v18 k19 v19 k20 v20
-            r hpexpire h20 1 NX 2 k1 k2
+            r hpexpire h20 1 NX FIELDS 2 k1 k2
 
             after 10
 
@@ -401,18 +401,18 @@ start_server {tags {"external:skip needs:debug"}} {
 
             r del h1 h20 h4 h18 h20
             r hset h1 01 01
-            r hpexpire h1 1 NX 1 01
+            r hpexpire h1 1 NX FIELDS 1 01
 
             r hset h4 01 01 02 02 03 03 04 04
-            r hpexpire h4 1 NX 3 01 03 04
+            r hpexpire h4 1 NX FIELDS 3 01 03 04
 
             # beyond 16 fields hash-field expiration DS (ebuckets) converts from list to rax
 
             r hset h18 01 01 02 02 03 03 04 04 05 05 06 06 07 07 08 08 09 09 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18
-            r hpexpire h18 1 NX 18 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18
+            r hpexpire h18 1 NX FIELDS 18 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18
 
             r hset h20 01 01 02 02 03 03 04 04 05 05 06 06 07 07 08 08 09 09 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18 19 19 20 20
-            r hpexpire h20 1 NX 2 01 02
+            r hpexpire h20 1 NX FIELDS 2 01 02
 
             after 10
 
@@ -433,7 +433,7 @@ start_server {tags {"external:skip needs:debug"}} {
             for {set i 1} {$i <= 1000} {incr i} {
                 r hset myhash field$i value$i
                 if {$i > 1} {
-                    r hpexpire myhash 1 NX 1 field$i
+                    r hpexpire myhash 1 NX FIELDS 1 field$i
                 }
             }
             after 3
@@ -467,14 +467,14 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset h5 1 1 2 22 3 333 4 4444 5 55555
             r hset h6 01 01 02 02 03 03 04 04 05 05 06 06
             r hset h18 01 01 02 02 03 03 04 04 05 05 06 06 07 07 08 08 09 09 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18
-            r hpexpire h1 100 NX 1 01
-            r hpexpire h2 100 NX 1 01
-            r hpexpire h2 100 NX 1 02
-            r hpexpire h3 100 NX 1 01
-            r hpexpire h4 100 NX 1 2
-            r hpexpire h5 100 NX 1 3
-            r hpexpire h6 100 NX 1 05
-            r hpexpire h18 100 NX 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
+            r hpexpire h1 100 NX FIELDS 1 01
+            r hpexpire h2 100 NX FIELDS 1 01
+            r hpexpire h2 100 NX FIELDS 1 02
+            r hpexpire h3 100 NX FIELDS 1 01
+            r hpexpire h4 100 NX FIELDS 1 2
+            r hpexpire h5 100 NX FIELDS 1 3
+            r hpexpire h6 100 NX FIELDS 1 05
+            r hpexpire h18 100 NX FIELDS 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
 
             after 150
 
@@ -507,32 +507,32 @@ start_server {tags {"external:skip needs:debug"}} {
         test "A field with TTL overridden with another value (TTL discarded) ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            r hpexpire myhash 10000 NX 1 field1
-            r hpexpire myhash 1 NX 1 field2
+            r hpexpire myhash 10000 NX FIELDS 1 field1
+            r hpexpire myhash 1 NX FIELDS 1 field2
 
             # field2 TTL will be discarded
             r hset myhash field2 value4
             after 5
             # Expected TTL will be discarded
             assert_equal [r hget myhash field2] "value4"
-            assert_equal [r httl myhash 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
-            assert_not_equal [r httl myhash 1 field1] "$T_NO_EXPIRY"
+            assert_equal [r httl myhash FIELDS 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 field1] "$T_NO_EXPIRY"
         }
 
         test "Modify TTL of a field ($type)" {
             r del myhash
             r hset myhash field1 value1
-            r hpexpire myhash 200000 NX 1 field1
-            r hpexpire myhash 1000000 XX 1 field1
+            r hpexpire myhash 200000 NX FIELDS 1 field1
+            r hpexpire myhash 1000000 XX FIELDS 1 field1
             after 15
             assert_equal [r hget myhash field1] "value1"
-            assert_range [r hpttl myhash 1 field1] 900000 1000000
+            assert_range [r hpttl myhash FIELDS 1 field1] 900000 1000000
         }
 
         test "Test return value of set operation ($type)" {
              r del myhash
              r hset myhash f1 v1 f2 v2
-             r hexpire myhash 100000 1 f1
+             r hexpire myhash 100000 FIELDS 1 f1
              assert_equal [r hset myhash f2 v2] 0
              assert_equal [r hset myhash f3 v3] 1
              assert_equal [r hset myhash f3 v3 f4 v4] 1
@@ -544,7 +544,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 0
             r del myhash
             r hset myhash1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6
-            r hpexpire myhash1 1 NX 3 f2 f4 f6
+            r hpexpire myhash1 1 NX FIELDS 3 f2 f4 f6
             after 10
             assert_equal [lsort [r hgetall myhash1]] "f1 f3 f5 v1 v3 v5"
 
@@ -552,7 +552,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             for {set i 1} {$i <= 600} {incr i} {
                 r hset myhash f$i v$i
-                if {$i > 3} { r hpexpire myhash 1 NX 1 f$i }
+                if {$i > 3} { r hpexpire myhash 1 NX FIELDS 1 f$i }
             }
             after 10
             assert_equal [lsort [r hgetall myhash]] [lsort "f1 f2 f3 v1 v2 v3"]
@@ -563,10 +563,10 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 0
             r del myhash
             r hset myhash field1 value1
-            r hpexpire myhash 20 NX 1 field1
+            r hpexpire myhash 20 NX FIELDS 1 field1
             r rename myhash myhash2
             assert_equal [r exists myhash] 0
-            assert_range [r hpttl myhash2 1 field1] 1 20
+            assert_range [r hpttl myhash2 FIELDS 1 field1] 1 20
             after 25
             # Verify the renamed key exists
             assert_equal [r exists myhash2] 1
@@ -579,7 +579,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r select 9
             r flushall
             r hset myhash field1 value1
-            r hpexpire myhash 100 NX 1 field1
+            r hpexpire myhash 100 NX FIELDS 1 field1
             r move myhash 10
             assert_equal [r exists myhash] 0
             assert_equal [r dbsize] 0
@@ -598,8 +598,8 @@ start_server {tags {"external:skip needs:debug"}} {
             r flushall
             r hset h1 f1 v1 f2 v2
             r hset h2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6 f7 v7 f8 v8 f9 v9 f10 v10 f11 v11 f12 v12 f13 v13 f14 v14 f15 v15 f16 v16 f17 v17 f18 v18
-            r hpexpire h1 100 NX 1 f1
-            r hpexpire h2 100 NX 18 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18
+            r hpexpire h1 100 NX FIELDS 1 f1
+            r hpexpire h2 100 NX FIELDS 18 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18
             r COPY h1 h1copy
             r COPY h2 h2copy
             assert_equal [r hget h1 f1] "v1"
@@ -622,7 +622,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r select 9
             r flushall
             r hset myhash field1 value1
-            r hpexpire myhash 50 NX 1 field1
+            r hpexpire myhash 50 NX FIELDS 1 field1
 
             r swapdb 9 10
 
@@ -643,33 +643,33 @@ start_server {tags {"external:skip needs:debug"}} {
             # HPERSIST key <num-fields> <field [field ...]>
             r del myhash
             r hset myhash f1 v1 f2 v2
-            r hexpire myhash 1000 NX 1 f1
+            r hexpire myhash 1000 NX FIELDS 1 f1
             assert_error {*wrong number of arguments*} {r hpersist myhash}
-            assert_error {*wrong number of arguments*} {r hpersist myhash 1}
-            assert_equal [r hpersist not-exists-key 1 f1] {}
-            assert_equal [r hpersist myhash 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
-            assert_equal [r hpersist myhash 1 f2] "$P_NO_EXPIRY"
+            assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 1}
+            assert_equal [r hpersist not-exists-key FIELDS 1 f1] {}
+            assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
+            assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
             r del myhash
             r hset myhash f1 v1 f2 v2
-            r hexpire myhash 20 NX 2 f1 f2
-            r hpersist myhash 2 f1 f2
+            r hexpire myhash 20 NX FIELDS 2 f1 f2
+            r hpersist myhash FIELDS 2 f1 f2
             after 25
             assert_equal [r hget myhash f1] "v1"
             assert_equal [r hget myhash f2] "v2"
-            assert_equal [r HTTL myhash 2 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_equal [r HTTL myhash FIELDS 2 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
         }
 
         test "HTTL/HPERSIST - Test expiry commands with non-volatile hash ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r httl myhash 1 field1] $T_NO_EXPIRY
-            assert_equal [r httl myhash 1 fieldnonexist] $E_NO_FIELD
+            assert_equal [r httl myhash FIELDS 1 field1] $T_NO_EXPIRY
+            assert_equal [r httl myhash FIELDS 1 fieldnonexist] $E_NO_FIELD
 
-            assert_equal [r hpersist myhash 1 field1] $P_NO_EXPIRY
-            assert_equal [r hpersist myhash 1 fieldnonexist] $P_NO_FIELD
+            assert_equal [r hpersist myhash FIELDS 1 field1] $P_NO_EXPIRY
+            assert_equal [r hpersist myhash FIELDS 1 fieldnonexist] $P_NO_FIELD
         }
 
         test "HGETF - input validation ($type)" {
@@ -745,15 +745,15 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 10000 NX FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash 1 field1] 1 1000
-            assert_range [r httl myhash 1 field2] 5000 10000
+            assert_range [r httl myhash FIELDS 1 field1] 1 1000
+            assert_range [r httl myhash FIELDS 1 field2] 5000 10000
 
             # A field with no expiration is treated as an infinite expiration.
             # LT should set the expire time if field has no TTL.
             r del myhash
             r hset myhash field1 value1
             assert_equal [r hgetf myhash EX 1500 LT FIELDS 1 field1]  [list  "value1"]
-            assert_not_equal [r httl myhash 1 field1] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 field1] "$T_NO_EXPIRY"
         }
 
         test "HGETF - Test 'XX' flag ($type)" {
@@ -761,8 +761,8 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 10000 XX FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash 1 field1] 9900 10000
-            assert_equal [r httl myhash 1 field2] "$T_NO_EXPIRY"
+            assert_range [r httl myhash FIELDS 1 field1] 9900 10000
+            assert_equal [r httl myhash FIELDS 1 field2] "$T_NO_EXPIRY"
         }
 
         test "HGETF - Test 'GT' flag ($type)" {
@@ -771,8 +771,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
             assert_equal [r hgetf myhash EX 1500 GT FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash 1 field1] 1400 1500
-            assert_range [r httl myhash 1 field2] 1900 2000
+            assert_range [r httl myhash FIELDS 1 field1] 1400 1500
+            assert_range [r httl myhash FIELDS 1 field2] 1900 2000
         }
 
         test "HGETF - Test 'LT' flag ($type)" {
@@ -781,36 +781,36 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
             assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
             assert_equal [r hgetf myhash EX 1500 LT FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash 1 field1] 1 1000
-            assert_range [r httl myhash 1 field2] 1000 1500
+            assert_range [r httl myhash FIELDS 1 field1] 1 1000
+            assert_range [r httl myhash FIELDS 1 field2] 1000 1500
         }
 
         test "HGETF - Test 'EX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EX 1000 FIELDS 1 field3] [list "value3"]
-            assert_range [r httl myhash 1 field3] 1 1000
+            assert_range [r httl myhash FIELDS 1 field3] 1 1000
         }
 
         test "HGETF - Test 'EXAT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash EXAT 4000000000 FIELDS 1 field3] [list "value3"]
-            assert_range [expr [r httl myhash 1 field3] + [clock seconds]] 3900000000 4000000000
+            assert_range [expr [r httl myhash FIELDS 1 field3] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HGETF - Test 'PX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash PX 1000000 FIELDS 1 field3] [list "value3"]
-            assert_range [r httl myhash 1 field3] 900 1000
+            assert_range [r httl myhash FIELDS 1 field3] 900 1000
         }
 
         test "HGETF - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hgetf myhash PXAT 4000000000000 FIELDS 1 field3] [list "value3"]
-            assert_range [expr [r httl myhash 1 field3] + [clock seconds]] 3900000000 4000000000
+            assert_range [expr [r httl myhash FIELDS 1 field3] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HGETF - Test 'PERSIST' flag ($type)" {
@@ -819,15 +819,15 @@ start_server {tags {"external:skip needs:debug"}} {
 
             r hset myhash f1 v1 f2 v2 f3 v3
             r hgetf myhash PX 5000 FIELDS 3 f1 f2 f3
-            assert_not_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash 1 f3] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f3] "$T_NO_EXPIRY"
 
             assert_equal [r hgetf myhash PERSIST FIELDS 1 f1] "v1"
-            assert_equal [r httl myhash 1 f1]  "$T_NO_EXPIRY"
+            assert_equal [r httl myhash FIELDS 1 f1]  "$T_NO_EXPIRY"
 
             assert_equal [r hgetf myhash PERSIST FIELDS 2 f2 f3] "v2 v3"
-            assert_equal [r httl myhash 2 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_equal [r httl myhash FIELDS 2 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY"
         }
 
         test "HGETF - Test setting expired ttl deletes key ($type)" {
@@ -836,7 +836,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # hgetf without setting ttl
             assert_equal [lsort [r hgetf myhash fields 3 f1 f2 f3]] [lsort "v1 v2 v3"]
-            assert_equal [r httl myhash 3 f1 f2 f3] "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_equal [r httl myhash FIELDS 3 f1 f2 f3] "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
 
             # set expired ttl and verify key is deleted
             r hgetf myhash PXAT 1 fields 3 f1 f2 f3
@@ -865,10 +865,10 @@ start_server {tags {"external:skip needs:debug"}} {
 
             # Expected TTL will be discarded
             assert_equal [r hget myhash field2] "value4"
-            assert_equal [r httl myhash 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_equal [r httl myhash FIELDS 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
 
             # Other field is not affected.
-            assert_not_equal [r httl myhash 1 field1] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 field1] "$T_NO_EXPIRY"
         }
 
         test "HSETF - input validation ($type)" {
@@ -979,8 +979,8 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1 f2 v2 f3 v3
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 10000 NX FVS 2 f1 n1 f2 n2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_range [r httl myhash 1 f1] 990 1000
-            assert_range [r httl myhash 1 f2] 9990 10000
+            assert_range [r httl myhash FIELDS 1 f1] 990 1000
+            assert_range [r httl myhash FIELDS 1 f2] 9990 10000
         }
 
         test "HSETF - Test 'XX' flag ($type)" {
@@ -988,8 +988,8 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1 f2 v2 f3 v3
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 10000 XX FVS 2 f1 n1 f2 n2] "$S_FIELD_AND_TTL $S_FIELD"
-            assert_range [r httl myhash 1 f1] 9900 10000
-            assert_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+            assert_range [r httl myhash FIELDS 1 f1] 9900 10000
+            assert_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
         }
 
         test "HSETF - Test 'GT' flag ($type)" {
@@ -998,8 +998,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 2000 NX FVS 1 f2 n2] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 1500 GT FVS 2 f1 n1 f2 n2] "$S_FIELD_AND_TTL $S_FIELD"
-            assert_range [r httl myhash 1 f1] 1400 1500
-            assert_range [r httl myhash 1 f2] 1600 2000
+            assert_range [r httl myhash FIELDS 1 f1] 1400 1500
+            assert_range [r httl myhash FIELDS 1 f2] 1600 2000
         }
 
         test "HSETF - Test 'LT' flag ($type)" {
@@ -1008,8 +1008,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 v1] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 2000 NX FVS 1 f2 v2] "$S_FIELD_AND_TTL"
             assert_equal [r hsetf myhash EX 1500 LT FVS 2 f1 v1 f2 v2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_range [r httl myhash 1 f1] 900 1000
-            assert_range [r httl myhash 1 f2] 1400 1500
+            assert_range [r httl myhash FIELDS 1 f1] 900 1000
+            assert_range [r httl myhash FIELDS 1 f2] 1400 1500
 
             # A field with no expiration is treated as an infinite expiration.
             # LT should set the expire time if field has no TTL.
@@ -1022,27 +1022,27 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash f1 v1 f2 v2
             assert_equal [r hsetf myhash EX 1000 FVS 1 f3 v3 ] "$S_FIELD_AND_TTL"
-            assert_range [r httl myhash 1 f3] 900 1000
+            assert_range [r httl myhash FIELDS 1 f3] 900 1000
         }
 
         test "HSETF - Test 'EXAT' flag ($type)" {
             r del myhash
             r hset myhash f1 v1 f2 v2
             assert_equal [r hsetf myhash EXAT 4000000000 FVS 1 f3 v3] "$S_FIELD_AND_TTL"
-            assert_range [expr [r httl myhash 1 f3] + [clock seconds]] 3900000000 4000000000
+            assert_range [expr [r httl myhash FIELDS 1 f3] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HSETF - Test 'PX' flag ($type)" {
             r del myhash
             assert_equal [r hsetf myhash PX 1000000 FVS 1 f3 v3] "$S_FIELD_AND_TTL"
-            assert_range [r httl myhash 1 f3] 990 1000
+            assert_range [r httl myhash FIELDS 1 f3] 990 1000
         }
 
         test "HSETF - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash f1 v2 f2 v2 f3 v3
             assert_equal [r hsetf myhash PXAT 4000000000000 FVS 1 f2 v2] "$S_FIELD_AND_TTL"
-            assert_range [expr [r httl myhash 1 f2] + [clock seconds]] 3900000000 4000000000
+            assert_range [expr [r httl myhash FIELDS 1 f2] + [clock seconds]] 3900000000 4000000000
         }
 
         test "HSETF - Test 'KEEPTTL' flag ($type)" {
@@ -1052,14 +1052,14 @@ start_server {tags {"external:skip needs:debug"}} {
             r hsetf myhash PX 5000 FVS 1 f2 v2
 
             # f1 does not have ttl
-            assert_equal [r httl myhash 1 f1] "$T_NO_EXPIRY"
+            assert_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
 
             # f2 has ttl
-            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
 
             # Validate KEEPTTL preserve TTL
             assert_equal [r hsetf myhash KEEPTTL FVS 1 f2 n2] "$S_FIELD"
-            assert_not_equal [r httl myhash 1 f2] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
             assert_equal [r hget myhash f2] "n2"
         }
 
@@ -1070,7 +1070,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hsetf myhash PX 5000 FVS 1 f2 v2
 
             assert_equal [r hsetf myhash FVS 2 f1 v1 f2 v2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_not_equal [r httl myhash 1 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
         }
 
         test "HSETF - Test 'GETNEW/GETOLD' flag ($type)" {
@@ -1136,7 +1136,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
     test "Test listpack memory usage" {
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 5 2 f2 f4
+        r hpexpire myhash 5 FIELDS 2 f2 f4
 
         # Just to have code coverage for the new listpack encoding
         r memory usage myhash
@@ -1144,7 +1144,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
     test "Test listpack object encoding" {
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 5 2 f2 f4
+        r hpexpire myhash 5 FIELDS 2 f2 f4
 
         # Just to have code coverage for the listpackex encoding
         assert_equal [r object encoding myhash] "listpackex"
@@ -1163,7 +1163,7 @@ start_server {tags {"external:skip needs:debug"}} {
         r debug set-active-expire 0
 
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 5 2 f2 f4
+        r hpexpire myhash 5 FIELDS 2 f2 f4
 
         for {set i 6} {$i < 11} {incr i} {
             r hset myhash f$i v$i
@@ -1179,14 +1179,14 @@ start_server {tags {"external:skip needs:debug"}} {
         r debug set-active-expire 0
 
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 10 1 f1
+        r hpexpire myhash 10 FIELDS 1 f1
 
         for {set i 0} {$i < 2048} {incr i} {
             r hset myhash f$i v$i
         }
 
         for {set i 0} {$i < 2048} {incr i} {
-            r hpexpire myhash 10 1 f$i
+            r hpexpire myhash 10 FIELDS 1 f$i
         }
 
         r debug set-active-expire 1
@@ -1225,11 +1225,11 @@ start_server {tags {"external:skip needs:debug"}} {
 
         # Test with multiple items
         r hset myhash f1 $payload2 f2 v2 f3 $payload1 f4 v4
-        r hexpire myhash 100000 1 f3
-        r hpersist myhash 1 f3
-        assert_equal [r hpersist myhash 1 f3] $P_NO_EXPIRY
+        r hexpire myhash 100000 FIELDS 1 f3
+        r hpersist myhash FIELDS 1 f3
+        assert_equal [r hpersist myhash FIELDS 1 f3] $P_NO_EXPIRY
 
-        r hpexpire myhash 10 1 f1
+        r hpexpire myhash 10 FIELDS 1 f1
         after 20
         assert_equal [lsort [r hgetall myhash]] [lsort "f2 f3 f4 v2 $payload1 v4"]
 

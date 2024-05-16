@@ -1,10 +1,10 @@
 {
     "HEXPIRETIME": {
         "summary": "Returns the expiration time of a hash field as a Unix timestamp, in seconds.",
-        "complexity": "O(N) where N is the number of arguments to the command",
+        "complexity": "O(N) where N is the number of specified fields",
         "group": "hash",
-        "since": "8.0.0",
-        "arity": -4,
+        "since": "7.4.0",
+        "arity": -5,
         "function": "hexpiretimeCommand",
         "history": [],
         "command_flags": [
@@ -74,6 +74,10 @@
             {
                 "name": "numfields",
                 "type": "integer"
+            },
+            {
+                "name": "FIELDS",
+                "type": "string"
             },
             {
                 "name": "field",

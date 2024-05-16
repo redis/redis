@@ -362,10 +362,10 @@ start_server {tags {"pubsub network"}} {
         assert_equal {1} [psubscribe $rd1 *]
         r hmset myhash yes 1 no 0
         r hincrby myhash yes 10
-        r hexpire myhash 999999 1 yes
-        r hexpireat myhash [expr {[clock seconds] + 999999}] NX 1 no
-        r hpexpire myhash 5 1 yes
-        r hpersist myhash 1 yes
+        r hexpire myhash 999999 FIELDS 1 yes
+        r hexpireat myhash [expr {[clock seconds] + 999999}] NX FIELDS 1 no
+        r hpexpire myhash 5 FIELDS 1 yes
+        r hpersist myhash FIELDS 1 yes
         assert_encoding $type myhash
         assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hincrby" [$rd1 read]
