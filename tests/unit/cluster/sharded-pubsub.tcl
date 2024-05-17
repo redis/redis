@@ -9,11 +9,11 @@
 #
 
 start_cluster 1 1 {tags {external:skip cluster}} {
-        set primary_id 0
-        set replica1_id 1
+    set primary_id 0
+    set replica1_id 1
 
-        set primary [Rn $primary_id]
-        set replica [Rn $replica1_id]
+    set primary [Rn $primary_id]
+    set replica [Rn $replica1_id]
 
     test "Sharded pubsub publish behavior within multi/exec" {
         foreach {node} {primary replica} {
