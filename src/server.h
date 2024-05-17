@@ -1802,6 +1802,7 @@ struct redisServer {
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     long long rdb_last_load_keys_expired;  /* number of expired keys when loading RDB */
     long long rdb_last_load_keys_loaded;   /* number of loaded keys when loading RDB */
+    long long rdb_last_load_hash_fields_expired; /* number of expired hash fields when loading RDB */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
@@ -3200,6 +3201,13 @@ unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o);
 void hashTypeUpdateKeyRef(robj *o, sds newkey);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
+void listpackExExpire(robj *o, ExpireInfo *info);
+int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
+uint64_t hashTypeGetMinExpire(robj *keyObj);
+uint64_t hashTypeGetNextTimeToExpire(robj *o);
+void initDictExpireMetadata(sds key, robj *o);
+struct listpackEx *listpackExCreate(void);
+void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
@@ -3210,6 +3218,7 @@ uint64_t hfieldGetExpireTime(hfield field);
 static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }
 static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
 static inline size_t hfieldlen(hfield field) { return mstrlen(field);}
+uint64_t hfieldGetExpireTime(hfield field);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
