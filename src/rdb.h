@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #ifndef __RDB_H
@@ -81,9 +60,6 @@
 #define RDB_TYPE_MODULE_PRE_GA 6 /* Used in 4.0 release candidates */
 #define RDB_TYPE_MODULE_2 7 /* Module value with annotations for parsing without
                                the generating module being loaded. */
-/* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
-
-/* Object types for encoded objects. */
 #define RDB_TYPE_HASH_ZIPMAP    9
 #define RDB_TYPE_LIST_ZIPLIST  10
 #define RDB_TYPE_SET_INTSET    11
@@ -97,7 +73,7 @@
 #define RDB_TYPE_STREAM_LISTPACKS_2 19
 #define RDB_TYPE_SET_LISTPACK  20
 #define RDB_TYPE_STREAM_LISTPACKS_3 21
-/* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
+/* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
 #define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 21))
@@ -131,7 +107,7 @@
 #define RDB_LOAD_SDS    (1<<2)
 
 /* flags on the purpose of rdb save or load */
-#define RDBFLAGS_NONE 0                 /* No special RDB loading. */
+#define RDBFLAGS_NONE 0                 /* No special RDB loading or saving. */
 #define RDBFLAGS_AOF_PREAMBLE (1<<0)    /* Load/save the RDB as AOF preamble. */
 #define RDBFLAGS_REPLICATION (1<<1)     /* Load/save for SYNC. */
 #define RDBFLAGS_ALLOW_DUP (1<<2)       /* Allow duplicated keys when loading.*/

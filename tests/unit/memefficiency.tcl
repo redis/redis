@@ -80,6 +80,15 @@ run_solo {defrag} {
                     fail "defrag not started."
                 }
 
+                # This test usually runs for a while, during this interval, we test the range.
+                assert_range [s active_defrag_running] 65 75
+                r config set active-defrag-cycle-min 1
+                r config set active-defrag-cycle-max 1
+                after 120 ;# serverCron only updates the info once in 100ms
+                assert_range [s active_defrag_running] 1 1
+                r config set active-defrag-cycle-min 65
+                r config set active-defrag-cycle-max 75
+
                 # Wait for the active defrag to stop working.
                 wait_for_condition 2000 100 {
                     [s active_defrag_running] eq 0
@@ -395,6 +404,105 @@ run_solo {defrag} {
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
 
+        test "Active defrag pubsub: $type" {
+            r flushdb
+            r config resetstat
+            r config set hz 100
+            r config set activedefrag no
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1500kb
+            r config set maxmemory 0
+
+            # Populate memory with interleaving pubsub-key pattern of same size
+            set n 50000
+            set dummy_channel "[string repeat x 400]"
+            set rd [redis_deferring_client]
+            set rd_pubsub [redis_deferring_client]
+            for {set j 0} {$j < $n} {incr j} {
+                set channel_name "$dummy_channel[format "%06d" $j]"
+                $rd_pubsub subscribe $channel_name
+                $rd_pubsub read ; # Discard subscribe replies
+                $rd_pubsub ssubscribe $channel_name
+                $rd_pubsub read ; # Discard ssubscribe replies
+                $rd set k$j $channel_name
+                $rd read ; # Discard set replies
+            }
+
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_lessthan [s allocator_frag_ratio] 1.05
+
+            # Delete all the keys to create fragmentation
+            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
+            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            $rd close
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_morethan [s allocator_frag_ratio] 1.35
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+            
+                # wait for the active defrag to start working (decision once a second)
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # wait for the active defrag to stop working
+                wait_for_condition 500 100 {
+                    [s active_defrag_running] eq 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r memory malloc-stats]
+                    fail "defrag didn't stop."
+                }
+
+                # test the fragmentation is lower
+                after 120 ;# serverCron only updates the info once in 100ms
+                if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag [s allocator_frag_ratio]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
+                }
+                assert_lessthan_equal [s allocator_frag_ratio] 1.05
+            }
+
+            # Publishes some message to all the pubsub clients to make sure that
+            # we didn't break the data structure.
+            for {set j 0} {$j < $n} {incr j} {
+                set channel "$dummy_channel[format "%06d" $j]"
+                r publish $channel "hello"
+                assert_equal "message $channel hello" [$rd_pubsub read] 
+                $rd_pubsub unsubscribe $channel
+                $rd_pubsub read
+                r spublish $channel "hello"
+                assert_equal "smessage $channel hello" [$rd_pubsub read] 
+                $rd_pubsub sunsubscribe $channel
+                $rd_pubsub read
+            }
+            $rd_pubsub close
+        }
+
         if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag big list: $type" {
             r flushdb
@@ -477,12 +585,16 @@ run_solo {defrag} {
                     }
                 }
                 if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
                     puts "frag $frag"
                     puts "misses: $misses"
                     puts "hits: $hits"
                     puts "max latency $max_latency"
                     puts [r latency latest]
                     puts [r latency history active-defrag-cycle]
+                    puts [r memory malloc-stats]
                 }
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
@@ -612,11 +724,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo

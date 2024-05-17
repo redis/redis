@@ -155,9 +155,9 @@ typedef struct quicklistEntry {
 /* Prototypes */
 quicklist *quicklistCreate(void);
 quicklist *quicklistNew(int fill, int compress);
-void quicklistSetCompressDepth(quicklist *quicklist, int depth);
+void quicklistSetCompressDepth(quicklist *quicklist, int compress);
 void quicklistSetFill(quicklist *quicklist, int fill);
-void quicklistSetOptions(quicklist *quicklist, int fill, int depth);
+void quicklistSetOptions(quicklist *quicklist, int fill, int compress);
 void quicklistRelease(quicklist *quicklist);
 int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz);
 int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
@@ -202,7 +202,7 @@ int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode 
 int quicklistBookmarkDelete(quicklist *ql, const char *name);
 quicklistNode *quicklistBookmarkFind(quicklist *ql, const char *name);
 void quicklistBookmarksClear(quicklist *ql);
-int quicklistisSetPackedThreshold(size_t sz);
+int quicklistSetPackedThreshold(size_t sz);
 
 #ifdef REDIS_TEST
 int quicklistTest(int argc, char *argv[], int flags);

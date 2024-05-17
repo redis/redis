@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2021, Redis Ltd.
+ * Copyright (c) 2021-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #ifndef __FUNCTIONS_H_
@@ -32,11 +11,16 @@
 
 /*
  * functions.c unit provides the Redis Functions API:
- * * FUNCTION CREATE
- * * FUNCTION CALL
+ * * FUNCTION LOAD
+ * * FUNCTION LIST
+ * * FUNCTION CALL (FCALL and FCALL_RO)
  * * FUNCTION DELETE
+ * * FUNCTION STATS
  * * FUNCTION KILL
- * * FUNCTION INFO
+ * * FUNCTION FLUSH
+ * * FUNCTION DUMP
+ * * FUNCTION RESTORE
+ * * FUNCTION HELP
  *
  * Also contains implementation for:
  * * Save/Load function from rdb
@@ -59,7 +43,7 @@ typedef struct engine {
      * code - the library code
      * timeout - timeout for the library creation (0 for no timeout)
      * err - description of error (if occurred)
-     * returns NULL on error and set sds to be the error message */
+     * returns C_ERR on error and set err to be the error message */
     int (*create)(void *engine_ctx, functionLibInfo *li, sds code, size_t timeout, sds *err);
 
     /* Invoking a function, r_ctx is an opaque object (from engine POV).
@@ -120,7 +104,7 @@ unsigned long functionsMemoryOverhead(void);
 unsigned long functionsNum(void);
 unsigned long functionsLibNum(void);
 dict* functionsLibGet(void);
-size_t functionsLibCtxfunctionsLen(functionsLibCtx *functions_ctx);
+size_t functionsLibCtxFunctionsLen(functionsLibCtx *functions_ctx);
 functionsLibCtx* functionsLibCtxGetCurrent(void);
 functionsLibCtx* functionsLibCtxCreate(void);
 void functionsLibCtxClearCurrent(int async);

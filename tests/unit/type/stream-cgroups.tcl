@@ -475,7 +475,7 @@ start_server {
         $rd close 
     }
 
-    test {Blocking XREADGROUP for stream key that has clients blocked on list - avoid endless loop} {
+    test {Blocking XREADGROUP for stream key that has clients blocked on stream - avoid endless loop} {
         r DEL mystream
         r XGROUP CREATE mystream mygroup $ MKSTREAM
 
@@ -496,6 +496,34 @@ start_server {
         $rd3 close
 
         assert_equal [r ping] {PONG}
+    }
+
+    test {Blocking XREADGROUP for stream key that has clients blocked on stream - reprocessing command} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $rd1 xreadgroup GROUP mygroup myuser BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+
+        set start [clock milliseconds]
+        $rd2 xreadgroup GROUP mygroup myuser BLOCK 1000 STREAMS mystream >
+        wait_for_blocked_clients_count 2
+
+        # After a while call xadd and let rd2 re-process the command.
+        after 200
+        r xadd mystream * field value
+        assert_equal {} [$rd2 read]
+        set end [clock milliseconds]
+
+        # Before the fix in #13004, this time would have been 1200+ (i.e. more than 1200ms),
+        # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
+        assert_range [expr $end-$start] 1000 1150
+
+        $rd1 close
+        $rd2 close
     }
 
     test {XGROUP DESTROY should unblock XREADGROUP with -NOGROUP} {
@@ -981,6 +1009,68 @@ start_server {
         assert_error "*NOGROUP*" {r XGROUP CREATECONSUMER mystream mygroup consumer}
     }
 
+    test {XREADGROUP of multiple entries changes dirty by one} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATECONSUMER x g1 Alice
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice NOACK COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{3-0 {data c}} {4-0 {data d}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+    }
+
+    test {XREADGROUP from PEL does not change dirty} {
+        # Techinally speaking, XREADGROUP from PEL should cause propagation
+        # because it change the delivery count/time
+        # It was decided that this metadata changes are too insiginificant
+        # to justify propagation
+        # This test covers that.
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATECONSUMER x g1 Alice
+
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 0]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 9000]
+        assert_equal $res {{x {}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty}
+
+        # The current behavior is that we create the consumer (causes dirty++) even
+        # if we onlyneed to read from PEL.
+        # It feels like we shouldn't create the consumer in that case, but I added
+        # this test just for coverage of current behavior
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 noconsumer COUNT 2 STREAMS x 0]
+        assert_equal $res {{x {}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+    }
+
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
         test {XREADGROUP with NOACK creates consumer} {
             r del mystream
@@ -1249,7 +1339,7 @@ start_server {
         set replica [srv 0 client]
 
         foreach autoclaim {0 1} {
-            test "Replication tests of XCLAIM with deleted entries (autclaim=$autoclaim)" {
+            test "Replication tests of XCLAIM with deleted entries (autoclaim=$autoclaim)" {
                 $replica replicaof $master_host $master_port
                 wait_for_condition 50 100 {
                     [s 0 master_link_status] eq {up}
@@ -1279,6 +1369,39 @@ start_server {
                     assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 1
                 }
             }
+        }
+
+        test {XREADGROUP ACK would propagate entries-read} {
+            $master del mystream
+            $master xadd mystream * a b c d e f
+            $master xgroup create mystream mygroup $
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+            $master xadd mystream * a1 b1 a1 b2
+            $master xadd mystream * name v1 name v1
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+
+            set reply [$master XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+            assert_equal [dict get $group entries-read] 3
+            assert_equal [dict get $group lag] 0
+
+            set reply [$replica XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+            assert_equal [dict get $group entries-read] 3
+            assert_equal [dict get $group lag] 0
+        }
+
+        test {XREADGROUP from PEL inside MULTI} {
+            # This scenario used to cause propagation of EXEC without MULTI in 6.2
+            $replica config set propagation-error-behavior panic
+            $master del mystream
+            $master xadd mystream 1-0 a b c d e f
+            $master xgroup create mystream mygroup 0
+            assert_equal [$master xreadgroup group mygroup ryan count 1 streams mystream >] {{mystream {{1-0 {a b c d e f}}}}}
+            $master multi
+            $master xreadgroup group mygroup ryan count 1 streams mystream 0
+            $master exec
         }
     }
 

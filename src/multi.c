@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -303,6 +282,8 @@ void watchForKey(client *c, robj *key) {
     listNode *ln;
     watchedKey *wk;
 
+    if (listLength(c->watched_keys) == 0) server.watching_clients++;
+
     /* Check if we are already watching for this key */
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
@@ -353,6 +334,7 @@ void unwatchAllKeys(client *c) {
         decrRefCount(wk->key);
         zfree(wk);
     }
+    server.watching_clients--;
 }
 
 /* Iterates over the watched_keys list and looks for an expired key. Keys which
@@ -394,7 +376,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
             /* The key was already expired when WATCH was called. */
             if (db == wk->db &&
                 equalStringObjects(key, wk->key) &&
-                dictFind(db->dict[calculateKeySlot(key->ptr)], key->ptr) == NULL)
+                dbFind(db, key->ptr) == NULL)
             {
                 /* Already expired key is deleted, so logically no change. Clear
                  * the flag. Deleted keys are not flagged as expired. */
@@ -432,9 +414,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        int exists_in_emptied = dictFind(emptied->dict[calculateKeySlot(key->ptr)], key->ptr) != NULL;
+        int exists_in_emptied = dbFind(emptied, key->ptr) != NULL;
         if (exists_in_emptied ||
-            (replaced_with && dictFind(replaced_with->dict[calculateKeySlot(key->ptr)], key->ptr)))
+            (replaced_with && dbFind(replaced_with, key->ptr) != NULL))
         {
             list *clients = dictGetVal(de);
             if (!clients) continue;
@@ -442,7 +424,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
             while((ln = listNext(&li))) {
                 watchedKey *wk = redis_member2struct(watchedKey, node, ln);
                 if (wk->expired) {
-                    if (!replaced_with || !dictFind(replaced_with->dict[calculateKeySlot(key->ptr)], key->ptr)) {
+                    if (!replaced_with || !dbFind(replaced_with, key->ptr)) {
                         /* Expired key now deleted. No logical change. Clear the
                          * flag. Deleted keys are not flagged as expired. */
                         wk->expired = 0;

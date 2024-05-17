@@ -959,8 +959,10 @@ typedef struct RedisModuleTypeMethods {
 REDISMODULE_API void * (*RedisModule_Alloc)(size_t bytes) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_TryAlloc)(size_t bytes) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_Realloc)(void *ptr, size_t bytes) REDISMODULE_ATTR;
+REDISMODULE_API void * (*RedisModule_TryRealloc)(void *ptr, size_t bytes) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_Free)(void *ptr) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_Calloc)(size_t nmemb, size_t size) REDISMODULE_ATTR;
+REDISMODULE_API void * (*RedisModule_TryCalloc)(size_t nmemb, size_t size) REDISMODULE_ATTR;
 REDISMODULE_API char * (*RedisModule_Strdup)(const char *str) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetApi)(const char *, void *) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
@@ -1251,6 +1253,8 @@ REDISMODULE_API void (*RedisModule_GetRandomBytes)(unsigned char *dst, size_t le
 REDISMODULE_API void (*RedisModule_GetRandomHexChars)(char *dst, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetDisconnectCallback)(RedisModuleBlockedClient *bc, RedisModuleDisconnectFunc callback) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetClusterFlags)(RedisModuleCtx *ctx, uint64_t flags) REDISMODULE_ATTR;
+REDISMODULE_API unsigned int (*RedisModule_ClusterKeySlot)(RedisModuleString *key) REDISMODULE_ATTR;
+REDISMODULE_API const char *(*RedisModule_ClusterCanonicalKeyNameInSlot)(unsigned int slot) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExportSharedAPI)(RedisModuleCtx *ctx, const char *apiname, void *func) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_GetSharedAPI)(RedisModuleCtx *ctx, const char *apiname) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCommandFilter * (*RedisModule_RegisterCommandFilter)(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc cb, int flags) REDISMODULE_ATTR;
@@ -1322,8 +1326,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(Alloc);
     REDISMODULE_GET_API(TryAlloc);
     REDISMODULE_GET_API(Calloc);
+    REDISMODULE_GET_API(TryCalloc);
     REDISMODULE_GET_API(Free);
     REDISMODULE_GET_API(Realloc);
+    REDISMODULE_GET_API(TryRealloc);
     REDISMODULE_GET_API(Strdup);
     REDISMODULE_GET_API(CreateCommand);
     REDISMODULE_GET_API(GetCommand);
@@ -1613,6 +1619,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetRandomBytes);
     REDISMODULE_GET_API(GetRandomHexChars);
     REDISMODULE_GET_API(SetClusterFlags);
+    REDISMODULE_GET_API(ClusterKeySlot);
+    REDISMODULE_GET_API(ClusterCanonicalKeyNameInSlot);
     REDISMODULE_GET_API(ExportSharedAPI);
     REDISMODULE_GET_API(GetSharedAPI);
     REDISMODULE_GET_API(RegisterCommandFilter);

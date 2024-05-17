@@ -1,31 +1,10 @@
 /* Redis CLI (command line interface)
  *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "fmacros.h"
@@ -211,6 +190,7 @@ static int createClusterManagerCommand(char *cmdname, int argc, char **argv);
 static redisContext *context;
 static struct config {
     cliConnInfo conn_info;
+    struct timeval connect_timeout;
     char *hostsocket;
     int tls;
     cliSSLconfig sslconfig;
@@ -744,8 +724,13 @@ static int versionIsSupported(sds version, sds since) {
         }
         versionPos = strchr(versionPos, '.');
         sincePos = strchr(sincePos, '.');
-        if (!versionPos || !sincePos)
-            return 0;
+
+        /* If we finished to parse both `version` and `since`, it means they are equal */
+        if (!versionPos && !sincePos) return 1;
+
+        /* Different number of digits considered as not supported */
+        if (!versionPos || !sincePos) return 0;
+
         versionPos++;
         sincePos++;
     }
@@ -762,7 +747,7 @@ static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds 
             i++;
             continue;
         }
-        for (j = i; j != *numargs; j++) {
+        for (j = i; j != *numargs - 1; j++) {
             args[j] = args[j + 1];
         }
         (*numargs)--;
@@ -1246,7 +1231,7 @@ static int matchNoTokenArg(char **nextword, int numwords, cliCommandArg *arg) {
     case ARG_TYPE_INTEGER:
     case ARG_TYPE_UNIX_TIME: {
         long long value;
-        if (sscanf(*nextword, "%lld", &value)) {
+        if (sscanf(*nextword, "%lld", &value) == 1) {
             arg->matched += 1;
             arg->matched_name = 1;
             arg->matched_all = 1;
@@ -1260,7 +1245,7 @@ static int matchNoTokenArg(char **nextword, int numwords, cliCommandArg *arg) {
 
     case ARG_TYPE_DOUBLE: {
         double value;
-        if (sscanf(*nextword, "%lf", &value)) {
+        if (sscanf(*nextword, "%lf", &value) == 1) {
             arg->matched += 1;
             arg->matched_name = 1;
             arg->matched_all = 1;
@@ -1648,9 +1633,10 @@ static int cliConnect(int flags) {
         /* Do not use hostsocket when we got redirected in cluster mode */
         if (config.hostsocket == NULL ||
             (config.cluster_mode && config.cluster_reissue_command)) {
-            context = redisConnect(config.conn_info.hostip,config.conn_info.hostport);
+            context = redisConnectWrapper(config.conn_info.hostip, config.conn_info.hostport,
+                                          config.connect_timeout);
         } else {
-            context = redisConnectUnix(config.hostsocket);
+            context = redisConnectUnixWrapper(config.hostsocket, config.connect_timeout);
         }
 
         if (!context->err && config.tls) {
@@ -2593,7 +2579,8 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
             fflush(stdout);
 
             redisFree(c);
-            c = redisConnect(config.conn_info.hostip,config.conn_info.hostport);
+            c = redisConnectWrapper(config.conn_info.hostip, config.conn_info.hostport,
+                                    config.connect_timeout);
             if (!c->err && config.tls) {
                 const char *err = NULL;
                 if (cliSecureConnection(c, config.sslconfig, &err) == REDIS_ERR && err) {
@@ -2648,6 +2635,15 @@ static int parseOptions(int argc, char **argv) {
                 fprintf(stderr, "Invalid server port.\n");
                 exit(1);
             }
+        } else if (!strcmp(argv[i],"-t") && !lastarg) {
+            char *eptr;
+            double seconds = strtod(argv[++i], &eptr);
+            if (eptr[0] != '\0' || isnan(seconds) || seconds < 0.0) {
+                fprintf(stderr, "Invalid connection timeout for -t.\n");
+                exit(1);
+            }
+            config.connect_timeout.tv_sec = (long long)seconds;
+            config.connect_timeout.tv_usec = ((long long)(seconds * 1000000)) % 1000000;
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -3011,6 +3007,8 @@ static void usage(int err) {
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
 "  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
 "  -p <port>          Server port (default: 6379).\n"
+"  -t <timeout>       Server connection timeout in seconds (decimals allowed).\n"
+"                     Default timeout is 0, meaning no limit, depending on the OS.\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
 "                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
@@ -3359,7 +3357,7 @@ static void repl(void) {
     linenoiseSetFreeHintsCallback(freeHintsCallback);
 
     /* Only use history and load the rc file when stdin is a tty. */
-    if (isatty(fileno(stdin))) {
+    if (getenv("FAKETTY_WITH_PROMPT") != NULL || isatty(fileno(stdin))) {
         historyfile = getDotfilePath(REDIS_CLI_HISTFILE_ENV,REDIS_CLI_HISTFILE_DEFAULT);
         //keep in-memory history always regardless if history file can be determined
         history = 1;
@@ -4072,7 +4070,7 @@ cleanup:
 
 static int clusterManagerNodeConnect(clusterManagerNode *node) {
     if (node->context) redisFree(node->context);
-    node->context = redisConnect(node->ip, node->port);
+    node->context = redisConnectWrapper(node->ip, node->port, config.connect_timeout);
     if (!node->context->err && config.tls) {
         const char *err = NULL;
         if (cliSecureConnection(node->context, config.sslconfig, &err) == REDIS_ERR && err) {
@@ -7897,7 +7895,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     char *reply_err = NULL;
     redisReply *src_reply = NULL;
     // Connect to the source node.
-    redisContext *src_ctx = redisConnect(src_ip, src_port);
+    redisContext *src_ctx = redisConnectWrapper(src_ip, src_port, config.connect_timeout);
     if (src_ctx->err) {
         success = 0;
         fprintf(stderr,"Could not connect to Redis at %s:%d: %s.\n", src_ip,
@@ -8869,7 +8867,8 @@ static redisReply *sendScan(unsigned long long *it) {
         reply = redisCommand(context, "SCAN %llu MATCH %b COUNT %d",
             *it, config.pattern, sdslen(config.pattern), config.count);
     else
-        reply = redisCommand(context,"SCAN %llu",*it);
+        reply = redisCommand(context, "SCAN %llu COUNT %d",
+            *it, config.count);
 
     /* Handle any error conditions */
     if(reply == NULL) {
@@ -9100,7 +9099,9 @@ static void sendReadOnly(void) {
     if (read_reply == NULL){
         fprintf(stderr, "\nI/O error\n");
         exit(1);
-    } else if (read_reply->type == REDIS_REPLY_ERROR && strcmp(read_reply->str, "ERR This instance has cluster support disabled") != 0) {
+    } else if (read_reply->type == REDIS_REPLY_ERROR && 
+               strcmp(read_reply->str, "ERR This instance has cluster support disabled") != 0 &&
+               strncmp(read_reply->str, "ERR unknown command", 19) != 0) {
         fprintf(stderr, "Error: %s\n", read_reply->str);
         exit(1);
     }
@@ -9832,6 +9833,8 @@ int main(int argc, char **argv) {
     memset(&config.sslconfig, 0, sizeof(config.sslconfig));
     config.conn_info.hostip = sdsnew("127.0.0.1");
     config.conn_info.hostport = 6379;
+    config.connect_timeout.tv_sec = 0;
+    config.connect_timeout.tv_usec = 0;
     config.hostsocket = NULL;
     config.repeat = 1;
     config.interval = 0;
