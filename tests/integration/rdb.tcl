@@ -427,8 +427,8 @@ start_server [list overrides [list "dir" $server_path]] {
             r FLUSHALL
 
             r HMSET key a 1 b 2 c 3 d 4
-            r HEXPIREAT key 2524600800 2 a b
-            r HPEXPIRE key 100 1 d
+            r HEXPIREAT key 2524600800 FIELDS 2 a b
+            r HPEXPIRE key 100 FIELDS 1 d
 
             r save
             # sleep 101 ms to make sure d will expire after restart
@@ -437,7 +437,7 @@ start_server [list overrides [list "dir" $server_path]] {
             wait_done_loading r
 
             assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
-            assert_equal [r hexpiretime key 3 a b c] {2524600800 2524600800 -1}
+            assert_equal [r hexpiretime key FIELDS 3 a b c] {2524600800 2524600800 -1}
             assert_equal [s rdb_last_load_keys_loaded] 1
             # hash keys saved in listpack encoding are loaded as a blob,
             # so individual field expiry is not verified on load
@@ -461,7 +461,7 @@ start_server [list overrides [list "dir" $server_path]] {
             r FLUSHALL
 
             r HMSET key a 1 b 2 c 3 d 4
-            r HPEXPIRE key 100 4 a b c d
+            r HPEXPIRE key 100 FIELDS 4 a b c d
 
             r save
             # sleep 101 ms to make sure all fields will expire after restart
@@ -505,14 +505,14 @@ start_server [list overrides [list "dir" $server_path]] {
 
             r HSET key a 1
             # set expiry to 0xabcdef987654 (6 bytes)
-            r HPEXPIREAT key 188900976391764 1 a
+            r HPEXPIREAT key 188900976391764 FIELDS 1 a
 
             r save
             restart_server 0 true false
             wait_done_loading r
 
             assert_equal [r hget key a ] 1
-            assert_equal [r hpexpiretime key 1 a] {188900976391764}
+            assert_equal [r hpexpiretime key FIELDS 1 a] {188900976391764}
         }
     }
 }
@@ -527,7 +527,7 @@ test "save listpack, load dict" {
 
         r HMSET key a 1 b 2 c 3 d 4
         assert_match "*encoding:listpack*" [r debug object key]
-        r HPEXPIRE key 100 1 d
+        r HPEXPIRE key 100 FIELDS 1 d
         r save
 
         # sleep 200 ms to make sure 'd' will expire after when reloading
@@ -558,7 +558,7 @@ test "save dict, load listpack" {
 
         r HMSET key a 1 b 2 c 3 d 4
         assert_match "*encoding:hashtable*" [r debug object key]
-        r HPEXPIRE key 200 1 d
+        r HPEXPIRE key 200 FIELDS 1 d
         r save
 
         # sleep 201 ms to make sure 'd' will expire during reload
@@ -588,8 +588,8 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             r FLUSHALL
 
             r HMSET key a 1 b 2 c 3 d 4 e 5 f 6
-            r HEXPIREAT key 2524600800 2 a b
-            r HPEXPIRE key 200 2 c d
+            r HEXPIREAT key 2524600800 FIELDS 2 a b
+            r HPEXPIRE key 200 FIELDS 2 c d
 
             r save
             r debug reload nosave
@@ -606,7 +606,7 @@ foreach {type lp_entries} {listpack 512 dict 0} {
 
             # hgetall might lazy expire fields, so it's only called after the stat asserts
             assert_equal [lsort [r hgetall key]] "1 2 5 6 a b e f"
-            assert_equal [r hexpiretime key 6 a b c d e f] {2524600800 2524600800 -2 -2 -1 -1}
+            assert_equal [r hexpiretime key FIELDS 6 a b c d e f] {2524600800 2524600800 -2 -2 -1 -1}
         }
     }
 }
@@ -622,8 +622,8 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             r FLUSHALL
 
             r HMSET key a 1 b 2 c 3 d 4 e 5 f 6
-            r HEXPIREAT key 2524600800 2 a b
-            r HPEXPIRE key 200 2 c d
+            r HEXPIREAT key 2524600800 FIELDS 2 a b
+            r HPEXPIRE key 200 FIELDS 2 c d
 
             r save
             r debug reload nosave
@@ -637,7 +637,7 @@ foreach {type lp_entries} {listpack 512 dict 0} {
 
             # hgetall will lazy expire fields, so it's only called after the stat asserts
             assert_equal [lsort [r hgetall key]] "1 2 5 6 a b e f"
-            assert_equal [r hexpiretime key 6 a b c d e f] {2524600800 2524600800 -2 -2 -1 -1}
+            assert_equal [r hexpiretime key FIELDS 6 a b c d e f] {2524600800 2524600800 -2 -2 -1 -1}
         }
     }
 }
@@ -655,7 +655,7 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             foreach h $hash_sizes {
                 for {set i 1} {$i <= $h} {incr i} {
                     r hset key$h f$i v$i
-                    r hexpireat key$h 2524600800 1 f$i
+                    r hexpireat key$h 2524600800 FIELDS 1 f$i
                 }
             }
 
@@ -669,7 +669,7 @@ foreach {type lp_entries} {listpack 512 dict 0} {
                 for {set i 1} {$i <= $h} {incr i} {
                     # random expiration time
                     assert_equal [r hget key$h f$i] v$i
-                    assert_equal [r hexpiretime key$h 1 f$i] 2524600800
+                    assert_equal [r hexpiretime key$h FIELDS 1 f$i] 2524600800
                 }
             }
         }

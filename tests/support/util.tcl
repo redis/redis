@@ -439,7 +439,7 @@ proc csvdump r {
                     set fields [{*}$r hgetall $k]
                     set newfields {}
                     foreach {f v} $fields {
-                        set expirylist [{*}$r hexpiretime $k 1 $f]
+                        set expirylist [{*}$r hexpiretime $k FIELDS 1 $f]
                         if {$expirylist eq (-1)} {
                             lappend newfields [list $f $v]
                         } else {
