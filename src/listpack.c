@@ -938,7 +938,6 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
 
     /* Update header. */
     if (n_added != n_deleted) {
-        assert(len < INT64_MAX);
         int64_t diff = (int64_t) n_added - (int64_t) n_deleted;
 
         uint32_t num_elements = lpGetNumElements(lp);
