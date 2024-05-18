@@ -59,6 +59,15 @@ test {corrupt payload: valid zipped hash header, dup records} {
     }
 }
 
+test {corrupt payload: hash listpackex with invalid string TTL} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {r restore key 0 "\x17--\x00\x00\x00\t\x00\x81a\x02\x01\x01\xf4\xa6\x96\x18\xb8\x8f\x01\x00\x00\t\x82f1\x03\x82v1\x03\x83foo\x04\x82f2\x03\x82v2\x03\x00\x01\xff\x0c\x00\xde@\xe57Q\x1c\x12V" replace} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: quicklist big ziplist prev len} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
