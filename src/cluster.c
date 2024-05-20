@@ -980,6 +980,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     multiCmd mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0,
             existing_keys = 0;
+    int pubsubshard_included = 0; /* Flag to indicate if a pubsub shard cmd is included. */
 
     /* Allow any key to be set if a module disabled cluster redirections. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
@@ -1011,12 +1012,6 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.cmd = cmd;
     }
 
-    uint64_t cmd_flags = getCommandFlags(c);
-    
-    /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
-    int pubsubshard_included = (cmd_flags & CMD_PUBSUB) ||
-                           (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_PUBSUB));
-
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
     for (i = 0; i < ms->count; i++) {
@@ -1028,6 +1023,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mcmd = ms->commands[i].cmd;
         margc = ms->commands[i].argc;
         margv = ms->commands[i].argv;
+
+        /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
+        if (doesCommandHaveChannelsWithFlags(mcmd, CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE))
+            pubsubshard_included = 1;
 
         getKeysResult result = GETKEYS_RESULT_INIT;
         numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
@@ -1105,6 +1104,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
 
+    uint64_t cmd_flags = getCommandFlags(c);
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (!isClusterHealthy()) {
