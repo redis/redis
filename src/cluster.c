@@ -1025,8 +1025,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         margv = ms->commands[i].argv;
 
         /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
-        if (doesCommandHaveChannelsWithFlags(mcmd, CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE))
+        if (!pubsubshard_included &&
+            doesCommandHaveChannelsWithFlags(mcmd, CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE))
+        {
             pubsubshard_included = 1;
+        }
 
         getKeysResult result = GETKEYS_RESULT_INIT;
         numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
