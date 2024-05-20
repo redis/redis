@@ -62,7 +62,43 @@ test {corrupt payload: valid zipped hash header, dup records} {
 test {corrupt payload: hash listpackex with invalid string TTL} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
-        catch {r restore key 0 "\x17--\x00\x00\x00\t\x00\x81a\x02\x01\x01\xf4\xa6\x96\x18\xb8\x8f\x01\x00\x00\t\x82f1\x03\x82v1\x03\x83foo\x04\x82f2\x03\x82v2\x03\x00\x01\xff\x0c\x00\xde@\xe57Q\x1c\x12V" replace} err
+        catch {
+            r restore key 0 "\x17\x2d\x2d\x00\x00\x00\x09\x00\x81\x61\x02\x01\x01\xf4\xa6\x96\x18\xb8\x8f\x01\x00\x00\x09\x82\x66\x31\x03\x82\x76\x31\x03\x83\x66\x6f\x6f\x04\x82\x66\x32\x03\x82\x76\x32\x03\x00\x01\xff\x0c\x00\xde\x40\xe5\x37\x51\x1c\x12\x56" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: hash listpackex with TTL large than EB_EXPIRE_TIME_MAX} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x17\x33\x33\x00\x00\x00\x09\x00\x00\x01\x00\x01\xf4\x01\xc5\x89\x95\x8f\x01\x00\x00\x09\x01\x01\x82\x5f\x31\x03\xf4\x29\x94\x97\x95\x8f\x01\x00\x00\x09\x02\x01\x02\x01\xf4\x01\x5e\xaf\x95\x8f\x01\x33\x00\x09\xff\x0c\x00\x7e\x4f\xf4\x33\xe9\xc5\x3e\x56" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: hash listpackex with unordered fields} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x17\xc3\x2d\x35\x14\x35\x00\x00\x00\x09\x00\x82\x66\x32\x03\x82\x76\x32\x03\xf4\x80\x73\x16\xd1\x8f\x01\x20\x12\x02\x82\x66\x31\x20\x11\x00\x31\xe0\x04\x11\x00\x33\x20\x11\x04\x33\x03\x00\x01\xff\x0c\x00\x97\x79\x8b\x84\xf3\xcf\xe4\x46" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: hash hashtable with TTL large than EB_EXPIRE_TIME_MAX} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set hash-max-listpack-entries 0
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x16\x02\x81\x00\x01\x00\x00\x00\x00\x00\x00\x02\x66\x31\x02\x76\x31\x81\x00\x01\x00\x00\x00\x00\x00\x00\x02\x66\x32\x02\x76\x32\x0c\x00\xb9\x3c\x65\x28\x40\x94\x58\x36" replace
+        } err
         assert_match "*Bad data format*" $err
         r ping
     }
