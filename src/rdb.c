@@ -2717,6 +2717,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
 
                 /* for TTL listpack, find the minimum expiry */
                 uint64_t minExpire = hashTypeGetNextTimeToExpire(o);
+                if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX && minExpire == EB_EXPIRE_TIME_INVALID) {
+                    decrRefCount(o);
+                    return NULL;
+                }
 
                 /* check if need to convert to dict encoding */
                 if ((db != NULL) &&
