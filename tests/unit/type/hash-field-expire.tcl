@@ -56,6 +56,19 @@ proc cmp_hrandfield_result {hash_name expected_result} {
      }
 }
 
+proc getKeyFieldsExpiry {redis} {
+    set keyAndFields1(0,0) 0
+    unset keyAndFields1
+    # keep keys sorted for comparison
+    foreach key [lsort [$redis keys *]] {
+        set fields [$redis hgetall $key]
+        foreach f $fields {
+            set keyAndFields1($key,$f) [$redis hpexpiretime $key FIELDS 1 $f]
+        }
+    }
+    return [array get keyAndFields1]
+}
+
 proc hrandfieldTest {activeExpireConfig} {
     r debug set-active-expire $activeExpireConfig
     r del myhash
@@ -136,16 +149,16 @@ start_server {tags {"external:skip needs:debug"}} {
 
         test "HPEXPIRE(AT) - Test 'LT' flag ($type)" {
             r del myhash
-            r hset myhash field1 value1 field2 value2
+            r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hpexpire myhash 1000 NX FIELDS 1 field1] [list  $E_OK]
             assert_equal [r hpexpire myhash 2000 NX FIELDS 1 field2] [list  $E_OK]
-            assert_equal [r hpexpire myhash 1500 LT FIELDS 2 field1 field2] [list  $E_FAIL  $E_OK]
+            assert_equal [r hpexpire myhash 1500 LT FIELDS 3 field1 field2 field3] [list  $E_FAIL $E_OK $E_OK]
 
             r del myhash
-            r hset myhash field1 value1 field2 value2
+            r hset myhash field1 value1 field2 value2 field3 value3
             assert_equal [r hpexpireat myhash [expr {([clock seconds]+1000)*1000}] NX FIELDS 1 field1] [list  $E_OK]
             assert_equal [r hpexpireat myhash [expr {([clock seconds]+2000)*1000}] NX FIELDS 1 field2] [list  $E_OK]
-            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] LT FIELDS 2 field1 field2] [list  $E_FAIL  $E_OK]
+            assert_equal [r hpexpireat myhash [expr {([clock seconds]+1500)*1000}] LT FIELDS 3 field1 field2 field3] [list  $E_FAIL $E_OK $E_OK]
         }
 
         test "HPEXPIREAT - field not exists or TTL is in the past ($type)" {
@@ -171,46 +184,41 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<48) - [clock milliseconds] + 100 ] FIELDS 1 f1}
         }
 
-        test "Lazy - doesn't delete hash that all its fields got expired ($type)" {
+        test "Lazy Expire - fields are lazy deleted ($type)" {
+
+            # TODO remove the SELECT once dbid will be embedded inside dict/listpack
+            r select 0
             r debug set-active-expire 0
-            r flushall
+            r del myhash
 
-            set hash_sizes {1 15 16 17 31 32 33 40}
-            foreach h $hash_sizes {
-                for {set i 1} {$i <= $h} {incr i} {
-                    # random expiration time
-                    r hset hrand$h f$i v$i
-                    r hpexpire hrand$h [expr {50 + int(rand() * 50)}] FIELDS 1 f$i
-                    assert_equal 1 [r HEXISTS hrand$h f$i]
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hpexpire myhash 1 NX FIELDS 3 f1 f2 f3
+            after 5
 
-                    # same expiration time
-                    r hset same$h f$i v$i
-                    r hpexpire same$h 100 FIELDS 1 f$i
-                    assert_equal 1 [r HEXISTS same$h f$i]
+            # Verify that still exists even if all fields are expired
+            assert_equal 1 [r EXISTS myhash]
 
-                    # same expiration time
-                    r hset mix$h f$i v$i fieldWithoutExpire$i v$i
-                    r hpexpire mix$h 100 FIELDS 1 f$i
-                    assert_equal 1 [r HEXISTS mix$h f$i]
-                }
-            }
+            # Verify that len counts also expired fields
+            assert_equal 3 [r HLEN myhash]
 
-            after 150
+            # Trying access to expired field should delete it. Len should be updated
+            assert_equal 0 [r hexists myhash f1]
+            assert_equal 2 [r HLEN myhash]
 
-            # Verify that all fields got expired but keys wasn't lazy deleted
-            foreach h $hash_sizes {
-                for {set i 1} {$i <= $h} {incr i} {
-                    assert_equal 0 [r HEXISTS mix$h f$i]
-                }
-                assert_equal 1 [r EXISTS hrand$h]
-                assert_equal 1 [r EXISTS same$h]
-                assert_equal [expr $h * 2] [r HLEN mix$h]
-            }
+            # Trying access another expired field should delete it. Len should be updated
+            assert_equal "" [r hget myhash f2]
+            assert_equal 1 [r HLEN myhash]
+
+            # Trying access last expired field should delete it. hash shouldn't exists afterward.
+            assert_equal 0 [r hstrlen myhash f3]
+            assert_equal 0 [r HLEN myhash]
+            assert_equal 0 [r EXISTS myhash]
+
             # Restore default
             r debug set-active-expire 1
         }
 
-        test "Active - deletes hash that all its fields got expired ($type)" {
+        test "Active Expire - deletes hash that all its fields got expired ($type)" {
             r flushall
 
             set hash_sizes {1 15 16 17 31 32 33 40}
@@ -1236,3 +1244,237 @@ start_server {tags {"external:skip needs:debug"}} {
         r config set hash-max-listpack-value 64
     }
 }
+
+start_server {tags {"external:skip needs:debug"}} {
+    foreach type {listpack ht} {
+        if {$type eq "ht"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "Command rewrite and expired hash fields are propagated to replica ($type)" {
+            start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
+
+                set aof [get_last_incr_aof_path r]
+                r hset h1 f1 v1 f2 v2
+
+                assert_equal [r hpexpire h1 10 FIELDS 1 f1] [list  $E_OK]
+
+                r hpexpire h1 11 FIELDS 1 f2
+                r hpexpire h1 12 FIELDS 1 non_exists_field
+                r hset h2 f1 v1 f2 v2 f3 v3 f4 v4
+                r hpexpire h2 12 FIELDS 2 f1 non_exists_field
+                r hpexpire h2 13 FIELDS 1 f2
+                r hpexpireat h2 [expr [clock seconds]*1000+100000] LT FIELDS 1 f3
+                r hexpireat h2 [expr [clock seconds]+10] NX FIELDS 1 f4
+                r hsetf h3 PX 14 NX FVS 1 f1 v1
+                r hsetf h4 PX 10000 FVS 1 f1 v1
+                r hgetf h4 EX 10000 FIELDS 1 f1
+                r hgetf h4 PX 15 FIELDS 1 f1
+
+                wait_for_condition 50 100 {
+                    [r exists h1] eq 0
+                } else {
+                    fail "hash h1 wasn't deleted"
+                }
+
+                # Assert that each TTL-related command are persisted with absolute timestamps in AOF
+                assert_aof_content $aof {
+                    {select *}
+                    {hset h1 f1 v1 f2 v2}
+                    {hpexpireat h1 * FIELDS 1 f1}
+                    {hpexpireat h1 * FIELDS 1 f2}
+                    {hset h2 f1 v1 f2 v2 f3 v3 f4 v4}
+                    {hpexpireat h2 * FIELDS 2 f1 non_exists_field}
+                    {hpexpireat h2 * FIELDS 1 f2}
+                    {hpexpireat h2 * FIELDS 1 f3}
+                    {hpexpireat h2 * FIELDS 1 f4}
+                    {hsetf h3 PXAT * FVS 1 f1 v1}
+                    {hsetf h4 PXAT * FVS 1 f1 v1}
+                    {hgetf h4 PXAT * FIELDS 1 f1}
+                    {hgetf h4 PXAT * FIELDS 1 f1}
+                    {hdel h1 f1}
+                    {hdel h1 f2}
+                    {hdel h2 f1}
+                    {hdel h2 f2}
+                    {hdel h3 f1}
+                    {hdel h4 f1}
+                }
+            }
+        }
+
+        test "Lazy Expire - fields are lazy deleted and propagated to replicas ($type)" {
+            start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
+                # TODO remove the SELECT once dbid will be embedded inside dict/listpack
+                r select 0
+
+                r debug set-active-expire 0
+                set aof [get_last_incr_aof_path r]
+
+                r select 0
+                r debug set-active-expire 0
+                r del myhash
+
+                r hset myhash f1 v1 f2 v2 f3 v3
+                r hpexpire myhash 1 NX FIELDS 3 f1 f2 f3
+                after 5
+
+                # Verify that still exists even if all fields are expired
+                assert_equal 1 [r EXISTS myhash]
+
+                # Verify that len counts also expired fields
+                assert_equal 3 [r HLEN myhash]
+
+                # Trying access to expired field should delete it. Len should be updated
+                assert_equal 0 [r hexists myhash f1]
+                assert_equal 2 [r HLEN myhash]
+
+                # Trying access another expired field should delete it. Len should be updated
+                assert_equal "" [r hget myhash f2]
+                assert_equal 1 [r HLEN myhash]
+
+                # Trying access last expired field should delete it. hash shouldn't exists afterward.
+                assert_equal 0 [r hstrlen myhash f3]
+                assert_equal 0 [r HLEN myhash]
+                assert_equal 0 [r EXISTS myhash]
+
+                wait_for_condition 50 100 { [r exists h1] == 0 } else { fail "hash h1 wasn't deleted" }
+
+                # HDEL are propagated as expected
+                assert_aof_content $aof {
+                    {select *}
+                    {hset myhash f1 v1 f2 v2 f3 v3}
+                    {hpexpireat myhash * NX FIELDS 3 f1 f2 f3}
+                    {hdel myhash f1}
+                    {hdel myhash f2}
+                    {hdel myhash f3}
+                }
+                r debug set-active-expire 1
+            }
+        }
+
+        # Start a new server with empty data and AOF file.
+        start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
+
+            # Based on test at expire.tcl: " All time-to-live(TTL) in commands are propagated as absolute ..."
+            test {All TTLs in commands are propagated as absolute timestamp in milliseconds in AOF} {
+
+                set aof [get_last_incr_aof_path r]
+
+                r hset h1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6
+                r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
+                r hpexpireat h1 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
+                r hpexpire h1 100000 NX FIELDS 3 f3 f4 f5
+                r hexpire h1 100000 FIELDS 1 f6
+                r hsetf h2 GETNEW EX 100 LT FVS 1 f1 v1
+                r hsetf h3 GETOLD DOF PX 100000 NX FVS 2 f1 v1 f2 v2
+                r hsetf h3 KEEPTTL FVS 2 f1 v3 f2 v4
+                r hsetf h4 EX 10000 FVS 1 f1 v1
+                r hsetf h4 EX 100 LT FVS 1 f1 v1
+                r hset h5 f1 v1
+                r hgetf h5 EX 100 LT FIELDS 1 f1
+
+                assert_aof_content $aof {
+                    {select *}
+                    {hset h1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6}
+                    {hpexpireat h1 * FIELDS 1 f1}
+                    {hpexpireat h1 * FIELDS 1 f2}
+                    {hpexpireat h1 * NX FIELDS 3 f3 f4 f5}
+                    {hpexpireat h1 * FIELDS 1 f6}
+                    {hsetf h2 GETNEW PXAT * LT FVS 1 f1 v1}
+                    {hsetf h3 GETOLD DOF PXAT * NX FVS 2 f1 v1 f2 v2}
+                    {hsetf h3 KEEPTTL FVS 2 f1 v3 f2 v4}
+                    {hsetf h4 PXAT * FVS 1 f1 v1}
+                    {hsetf h4 PXAT * LT FVS 1 f1 v1}
+                    {hset h5 f1 v1}
+                    {hgetf h5 PXAT * LT FIELDS 1 f1}
+                }
+
+                array set keyAndFields1 [getKeyFieldsExpiry r]
+                # Let some time pass and reload data from AOF
+                after 2000
+                r debug loadaof
+                array set keyAndFields2 [getKeyFieldsExpiry r]
+
+                # Assert that absolute TTLs are the same
+                assert_equal [array get keyAndFields1] [array get keyAndFields2]
+
+            } {} {needs:debug}
+        }
+
+        # Based on test, with same name, at expire.tcl:
+        test {All TTL in commands are propagated as absolute timestamp in replication stream} {
+            # Make sure that both relative and absolute expire commands are propagated
+            # Consider also comment of the test, with same name, at expire.tcl
+
+            r flushall ; # Clean up keyspace to avoid interference by keys from other tests
+            set repl [attach_to_replication_stream]
+
+            r hset h1 f1 v1
+            r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
+            r hset h2 f2 v2
+            r hpexpireat h2 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
+            r hset h3 f3 v3 f4 v4
+            r hexpire h3 100 FIELDS 3 f3 f4 non_exists_field
+
+            assert_replication_stream $repl {
+                {select *}
+                {hset h1 f1 v1}
+                {hpexpireat h1 * NX FIELDS 1 f1}
+                {hset h2 f2 v2}
+                {hpexpireat h2 * NX FIELDS 1 f2}
+                {hset h3 f3 v3 f4 v4}
+                {hpexpireat h3 * FIELDS 3 f3 f4 non_exists_field}
+            }
+            close_replication_stream $repl
+        } {} {needs:repl}
+
+        # Start another server to test replication of TTLs
+        start_server {tags {needs:repl external:skip}} {
+            # Set the outer layer server as primary
+            set primary [srv -1 client]
+            set primary_host [srv -1 host]
+            set primary_port [srv -1 port]
+            # Set this inner layer server as replica
+            set replica [srv 0 client]
+
+            # Server should have role slave
+            $replica replicaof $primary_host $primary_port
+            wait_for_condition 50 100 {
+                [s 0 role] eq {slave}
+            } else {
+                fail "Replication not started."
+            }
+
+            # Based on test, with same name, at expire.tcl
+            test {For all replicated TTL-related commands, absolute expire times are identical on primary and replica} {
+                # Apply each TTL-related command to a unique key on primary
+                $primary flushall
+                $primary hset h1 f v
+                $primary hexpireat h1 [expr [clock seconds]+10000] FIELDS 1 f
+                $primary hset h2 f v
+                $primary hpexpireat h2 [expr [clock milliseconds]+100000] FIELDS 1 f
+                $primary hset h3 f v
+                $primary hexpire h3 100 NX FIELDS 1 f
+                $primary hset h4 f v
+                $primary hpexpire h4 100000 NX FIELDS 1 f
+                $primary hset h5 f v
+                $primary hpexpireat h5 [expr [clock milliseconds]-100000] FIELDS 1 f
+                $primary hsetf h6 EX 100 LT FVS 1 f1 v1
+                $primary hsetf h7 PXAT [expr [clock seconds]*1000+100000] LT FVS 1 f1 v1
+                $primary hsetf h8 EXAT [expr [clock seconds]+100] FVS 1 f1 v1
+                $primary hset h9 f v
+                $primary hgetf h9 EX 100 LT FIELDS 1 f
+
+                # Wait for replica to get the keys and TTLs
+                assert {[$primary wait 1 0] == 1}
+
+                # Verify absolute TTLs are identical on primary and replica for all keys
+                # This is because TTLs are always replicated as absolute values
+                assert_equal [getKeyFieldsExpiry $primary] [getKeyFieldsExpiry $replica]
+            }
+        }
+    }
+}
+

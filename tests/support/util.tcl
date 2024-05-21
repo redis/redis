@@ -293,6 +293,8 @@ proc findKeyWithType {r type} {
 
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
+    set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
+
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
     } else {
@@ -386,6 +388,10 @@ proc createComplexDataset {r ops {opt {}}} {
             {hash} {
                 randpath {{*}$r hset $k $f $v} \
                         {{*}$r hdel $k $f}
+
+                if { [{*}$r hexists $k $f] && $usehexpire && rand() < 0.5} {
+                    {*}$r hexpire $k 1000 FIELDS 1 $f
+                }
             }
         }
     }

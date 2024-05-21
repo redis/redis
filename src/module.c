@@ -5282,7 +5282,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle deletion if value is REDISMODULE_HASH_DELETE. */
         if (value == REDISMODULE_HASH_DELETE) {
-            count += hashTypeDelete(key->value, field->ptr);
+            count += hashTypeDelete(key->value, field->ptr, 1);
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
             continue;
         }

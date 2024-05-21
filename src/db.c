@@ -1764,11 +1764,13 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
+        activedb->hexpires = newdb->hexpires;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
+        newdb->hexpires = aux.hexpires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
 

@@ -1317,7 +1317,8 @@ struct sharedObjectsStruct {
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *lmove, *blmove, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim,
-    *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire, 
+    *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
+    *hdel, *hpexpireat, *hsetfpxat,  *hgetfpxat,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer,
     *getack, *special_asterick, *special_equals, *default_username, *redacted,
@@ -3174,7 +3175,7 @@ typedef struct listpackEx {
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires);
 void hashTypeTryConversion(redisDb *db, robj *subject, robj **argv, int start, int end);
 int hashTypeExists(robj *o, sds key);
-int hashTypeDelete(robj *o, sds key);
+int hashTypeDelete(robj *o, void *key, int isSdsField /*0=hfield, 1=sds*/);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
@@ -3197,11 +3198,11 @@ uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
 void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime);
 void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
+uint64_t hashTypeGetMinExpire(robj *o);
 unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o);
 void hashTypeUpdateKeyRef(robj *o, sds newkey);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
-void listpackExExpire(robj *o, ExpireInfo *info);
 int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
 uint64_t hashTypeGetMinExpire(robj *keyObj);
 uint64_t hashTypeGetNextTimeToExpire(robj *o);

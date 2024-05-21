@@ -1939,7 +1939,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
  *
  * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
-    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
+    if ((hi->encoding == OBJ_ENCODING_LISTPACK) || (hi->encoding == OBJ_ENCODING_LISTPACK_EX)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
@@ -1963,37 +1963,64 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
 /* Emit the commands needed to rebuild a hash object.
  * The function returns 0 on error, 1 on success. */
 int rewriteHashObject(rio *r, robj *key, robj *o) {
+    int res = 0; /*fail*/
+
     hashTypeIterator *hi;
     long long count = 0, items = hashTypeLength(o, 0);
 
+    /* Is expected also hash-fields with expiration (HFE) ? */
+    int isHFE = hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID;
     hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi, 0) != C_ERR) {
-        if (count == 0) {
-            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
-                !rioWriteBulkString(r,"HMSET",5) ||
-                !rioWriteBulkObject(r,key)) 
-            {
-                hashTypeReleaseIterator(hi);
-                return 0;
+    if (!isHFE) {
+        while (hashTypeNext(hi, 0) != C_ERR) {
+            if (count == 0) {
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                                AOF_REWRITE_ITEMS_PER_CMD : items;
+                if (!rioWriteBulkCount(r, '*', 2 + cmd_items * 2) ||
+                    !rioWriteBulkString(r, "HMSET", 5) ||
+                    !rioWriteBulkObject(r, key))
+                    goto reHashEnd;
             }
-        }
 
-        if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
-            !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
-        {
-            hashTypeReleaseIterator(hi);
-            return 0;           
+            if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
+                !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+                goto reHashEnd;
+
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
         }
-        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-        items--;
+    } else {
+        while (hashTypeNext(hi, 0) != C_ERR) {
+            if (hi->expire_time == EB_EXPIRE_TIME_INVALID)
+            {
+                if (!rioWriteBulkCount(r, '*', 4) ||
+                    !rioWriteBulkString(r, "HMSET", 5) ||
+                    !rioWriteBulkObject(r, key))
+                    goto reHashEnd;
+            } else {
+                /* HSETF key PXAT msec FVS 1 field value */
+                char cmd[] = "*8\r\n$5\r\nHSETF\r\n";
+                if ((!rioWrite(r, cmd, sizeof(cmd) - 1)) ||
+                    (!rioWriteBulkObject(r, key)) ||
+                    (!rioWriteBulkString(r, "PXAT", 4)) ||
+                    (!rioWriteBulkLongLong(r, hi->expire_time)) ||
+                    (!rioWriteBulkString(r, "FVS", 3)) ||
+                    (!rioWriteBulkString(r, "1", 1)))
+                    goto reHashEnd;
+            }
+
+            if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
+                !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+                goto reHashEnd;
+        }
     }
 
-    hashTypeReleaseIterator(hi);
+    res = 1; /* success */
 
-    return 1;
+reHashEnd:
+    hashTypeReleaseIterator(hi);
+    return res;
 }
 
 /* Helper for rewriteStreamObject() that generates a bulk string into the

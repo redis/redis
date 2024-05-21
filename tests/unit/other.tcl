@@ -124,7 +124,7 @@ start_server {tags {"other"}} {
         if {$::accurate} {set numops 10000} else {set numops 1000}
         test {Check consistency of different data types after a reload} {
             r flushdb
-            createComplexDataset r $numops usetag
+            createComplexDataset r $numops {usetag usehexpire}
             if {$::ignoredigest} {
                 set _ 1
             } else {
