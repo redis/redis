@@ -25,6 +25,8 @@
 
 #define LP_HDR_SIZE 6       /* 32 bit total len + 16 bit number of elements. */
 #define LP_HDR_NUMELE_UNKNOWN UINT16_MAX
+#define LP_MAX_INT_ENCODING_LEN 9
+#define LP_MAX_BACKLEN_SIZE 5
 #define LP_ENCODING_INT 0
 #define LP_ENCODING_STRING 1
 
@@ -667,7 +669,7 @@ unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval)
     return vstr;
 }
 
-/* Find pointer to the entry according to comparator callback.
+/* Find pointer to the entry with a comparator callback.
  *
  * 'cmp' is a comparator callback. If it returns zero, current entry pointer
  * will be returned. 'user' is passed to this callback.
@@ -767,7 +769,8 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
-                      uint32_t slen, unsigned int skip) {
+                      uint32_t slen, unsigned int skip)
+{
     struct lpFindArg arg = {
         .s = s,
         .slen = slen
@@ -775,18 +778,21 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCb(lp, p, &arg, lpFindCmp, skip);
 }
 
-/* Insert, delete or replace the specified elements with 'entries' and 'len'
- * at the specified position 'p', with 'p' being a listpack element pointer
- * obtained with lpFirst(), lpLast(), lpNext(), lpPrev() or lpSeek().
+/* Insert, delete or replace the specified string element 'elestr' of length
+ * 'size' or integer element 'eleint' at the specified position 'p', with 'p'
+ * being a listpack element pointer obtained with lpFirst(), lpLast(), lpNext(),
+ * lpPrev() or lpSeek().
  *
- * The elements are inserted before, after, or replaces the elements pointed
+ * The element is inserted before, after, or replaces the element pointed
  * by 'p' depending on the 'where' argument, that can be LP_BEFORE, LP_AFTER
  * or LP_REPLACE.
- * 
- * If 'entries' is NULL and 'where' is LP_REPLACE, the function removes 'len'
- * elements starting from 'p' instead of inserting one.
- * In a listpackEntry, if 'sval' is not NULL, it is assumed this is a string
- * entry. Otherwise, 'lval' value of the listpackEntry will be inserted.
+ *
+ * If both 'elestr' and `eleint` are NULL, the function removes the element
+ * pointed by 'p' instead of inserting one.
+ * If `eleint` is non-NULL, 'size' is the length of 'eleint', the function insert
+ * or replace with a 64 bit integer, which is stored in the 'eleint' buffer.
+ * If 'elestr` is non-NULL, 'size' is the length of 'elestr', the function insert
+ * or replace with a string, which is stored in the 'elestr' buffer.
  * 
  * Returns NULL on out of memory or when the listpack total length would exceed
  * the max allowed size of 2^32-1, otherwise the new pointer to the listpack
@@ -800,17 +806,14 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * For deletion operations (both 'elestr' and 'eleint' set to NULL) 'newp' is
  * set to the next element, on the right of the deleted one, or to NULL if the
  * deleted element was the last one. */
-unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
-                             listpackEntry *entries, unsigned long len,
-                             unsigned char **newp)
+unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char *eleint,
+                        uint32_t size, unsigned char *p, int where, unsigned char **newp)
 {
-    unsigned long n_added = 0;   /* Number of added elements */
-    unsigned long n_deleted = 0; /* Number of deleted elements */
-    uint64_t addedlen = 0;       /* The encoded length of the added elements. */
-    uint64_t deletedlen = 0;     /* The encoded length of the deleted elements. */
-    uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+    unsigned char backlen[LP_MAX_BACKLEN_SIZE];
 
-    int delete = (entries == NULL);
+    uint64_t enclen; /* The length of the encoded element. */
+    int delete = (elestr == NULL && eleint == NULL);
 
     /* when deletion, it is conceptually replacing the element with a
      * zero-length element. So whatever we get passed as 'where', set
@@ -831,54 +834,40 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
      * address again after a reallocation. */
     unsigned long poff = p-lp;
 
-    unsigned char *rep = p; /* Replaced element in case where == LP_REPLACE */
-    for (unsigned long i = 0; i < len; i++) {
-        if (entries) {
-            listpackEntry *e = &entries[i];
-            if (e->sval) {
-                /* Calling lpEncodeGetType() results into the encoded version of the
-                * element to be stored into 'intenc' in case it is representable as
-                * an integer: in that case, the function returns LP_ENCODING_INT.
-                * Otherwise if LP_ENCODING_STR is returned, we'll have to call
-                * lpEncodeString() to actually write the encoded string on place later.
-                *
-                * Whatever the returned encoding is, 'enclen' is populated with the
-                * length of the encoded element. */
-                e->enctype = lpEncodeGetType(e->sval, e->slen, e->intenc, &e->enclen);
-            } else {
-                e->enctype = LP_ENCODING_INT;
-                lpEncodeIntegerGetType(e->lval, e->intenc, &e->enclen);
-            }
-            addedlen += e->enclen;
-            e->backlen_size = lpEncodeBacklen(e->backlen, e->enclen);
-            addedlen += e->backlen_size;
-            n_added++;
-        }
-
-        if (where == LP_REPLACE) {
-            assert(rep[0] != LP_EOF);
-            n_deleted++;
-
-            uint64_t entry_len = lpCurrentEncodedSizeUnsafe(rep);
-            entry_len += lpEncodeBacklen(NULL,entry_len);
-            ASSERT_INTEGRITY_LEN(lp, rep, entry_len);
-
-            deletedlen += entry_len;
-            rep = rep + entry_len;
-
-            /* To avoid performance hit, validate next entry if we are going to
-             * delete it */
-            if (i != len - 1)
-                lpAssertValidEntry(lp, old_listpack_bytes, rep);
-        }
+    int enctype;
+    if (elestr) {
+        /* Calling lpEncodeGetType() results into the encoded version of the
+        * element to be stored into 'intenc' in case it is representable as
+        * an integer: in that case, the function returns LP_ENCODING_INT.
+        * Otherwise if LP_ENCODING_STR is returned, we'll have to call
+        * lpEncodeString() to actually write the encoded string on place later.
+        *
+        * Whatever the returned encoding is, 'enclen' is populated with the
+        * length of the encoded element. */
+        enctype = lpEncodeGetType(elestr,size,intenc,&enclen);
+        if (enctype == LP_ENCODING_INT) eleint = intenc;
+    } else if (eleint) {
+        enctype = LP_ENCODING_INT;
+        enclen = size; /* 'size' is the length of the encoded integer element. */
+    } else {
+        enctype = -1;
+        enclen = 0;
     }
-
 
     /* We need to also encode the backward-parsable length of the element
      * and append it to the end: this allows to traverse the listpack from
      * the end to the start. */
+    unsigned long backlen_size = (!delete) ? lpEncodeBacklen(backlen,enclen) : 0;
+    uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
+    uint32_t replaced_len  = 0;
+    if (where == LP_REPLACE) {
+        replaced_len = lpCurrentEncodedSizeUnsafe(p);
+        replaced_len += lpEncodeBacklen(NULL,replaced_len);
+        ASSERT_INTEGRITY_LEN(lp, p, replaced_len);
+    }
 
-    uint64_t new_listpack_bytes = old_listpack_bytes + addedlen - deletedlen;
+    uint64_t new_listpack_bytes = old_listpack_bytes + enclen + backlen_size
+                                  - replaced_len;
     if (new_listpack_bytes > UINT32_MAX) return NULL;
 
     /* We now need to reallocate in order to make space or shrink the
@@ -899,11 +888,11 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
     /* Setup the listpack relocating the elements to make the exact room
      * we need to store the new one. */
     if (where == LP_BEFORE) {
-        memmove(dst+addedlen,dst,old_listpack_bytes-poff);
+        memmove(dst+enclen+backlen_size,dst,old_listpack_bytes-poff);
     } else { /* LP_REPLACE. */
-        memmove(dst+addedlen,
-                dst+deletedlen,
-                old_listpack_bytes-poff-deletedlen);
+        memmove(dst+enclen+backlen_size,
+                dst+replaced_len,
+                old_listpack_bytes-poff-replaced_len);
     }
 
     /* Realloc after: we need to free space. */
@@ -912,40 +901,34 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
         dst = lp + poff;
     }
 
-    unsigned char *last = dst; /* Keep pointer to the last added entry */
-    if (!delete) {
-        for (unsigned long i = 0; i < len; i++) {
-            last = dst;
-            listpackEntry *ent = &entries[i];
-
-            if (ent->enctype == LP_ENCODING_INT)
-                memcpy(dst, ent->intenc, ent->enclen);
-            else
-                lpEncodeString(dst, ent->sval, ent->slen);
-
-            dst += ent->enclen;
-            memcpy(dst, ent->backlen, ent->backlen_size);
-            dst += ent->backlen_size;
-        }
-    }
-
+    /* Store the entry. */
     if (newp) {
-        *newp = last;
+        *newp = dst;
         /* In case of deletion, set 'newp' to NULL if the next element is
          * the EOF element. */
-        if (delete && last[0] == LP_EOF) *newp = NULL;
+        if (delete && dst[0] == LP_EOF) *newp = NULL;
+    }
+    if (!delete) {
+        if (enctype == LP_ENCODING_INT) {
+            memcpy(dst,eleint,enclen);
+        } else if (elestr) {
+            lpEncodeString(dst,elestr,size);
+        } else {
+            redis_unreachable();
+        }
+        dst += enclen;
+        memcpy(dst,backlen,backlen_size);
+        dst += backlen_size;
     }
 
     /* Update header. */
-    if (n_added != n_deleted) {
-        int64_t diff = (int64_t) n_added - (int64_t) n_deleted;
-
+    if (where != LP_REPLACE || delete) {
         uint32_t num_elements = lpGetNumElements(lp);
         if (num_elements != LP_HDR_NUMELE_UNKNOWN) {
-            if (diff > (int64_t) LP_HDR_NUMELE_UNKNOWN - (int64_t) num_elements)
-                lpSetNumElements(lp, LP_HDR_NUMELE_UNKNOWN);
+            if (!delete)
+                lpSetNumElements(lp,num_elements+1);
             else
-                lpSetNumElements(lp,num_elements + (n_added - n_deleted));
+                lpSetNumElements(lp,num_elements-1);
         }
     }
     lpSetTotalBytes(lp,new_listpack_bytes);
@@ -972,27 +955,161 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
     return lp;
 }
 
+/* Insert the specified elements with 'entries' and 'len' at the specified
+ * position 'p', with 'p' being a listpack element pointer obtained with
+ * lpFirst(), lpLast(), lpNext(), lpPrev() or lpSeek().
+ *
+ * This is similar to lpInsert() but allows you to insert batch of entries in
+ * one call. This function is more efficient than inserting entries one by one
+ * as it does single realloc()/memmove() calls for all the entries.
+ *
+ * In each listpackEntry, if 'sval' is  not null, it is assumed entry is string
+ * and 'sval' and 'slen' will be used. Otherwise, 'lval' will be used to append
+ * the integer entry.
+ *
+ * The elements are inserted before or after the element pointed by 'p'
+ * depending on the 'where' argument, that can be LP_BEFORE or LP_AFTER.
+ *
+ * If 'newp' is not NULL, at the end of a successful call '*newp' will be set
+ * to the address of the element just added, so that it will be possible to
+ * continue an interaction with lpNext() and lpPrev().
+ *
+ * Returns NULL on out of memory or when the listpack total length would exceed
+ * the max allowed size of 2^32-1, otherwise the new pointer to the listpack
+ * holding the new element is returned (and the old pointer passed is no longer
+ * considered valid). */
+unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
+                             listpackEntry *entries, unsigned int len,
+                             unsigned char **newp)
+{
+    assert(where == LP_BEFORE || where == LP_AFTER);
+    assert(entries != NULL && len > 0);
+
+    struct listpackInsertEntry {
+        int enctype;
+        uint64_t enclen;
+        unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+        unsigned char backlen[LP_MAX_BACKLEN_SIZE];
+        unsigned long backlen_size;
+    };
+
+    uint64_t addedlen = 0;       /* The encoded length of the added elements. */
+    struct listpackInsertEntry tmp[3];  /* Encoded entries */
+    struct listpackInsertEntry *enc = tmp;
+
+    if (len > sizeof(tmp) / sizeof(struct listpackInsertEntry)) {
+        /* If 'len' is larger than local buffer size, allocate on heap. */
+        enc = zmalloc(len * sizeof(struct listpackInsertEntry));
+    }
+
+    /* If we need to insert after the current element, we just jump to the
+     * next element (that could be the EOF one) and handle the case of
+     * inserting before. So the function will actually deal with just one
+     * case: LP_BEFORE. */
+    if (where == LP_AFTER) {
+        p = lpSkip(p);
+        where = LP_BEFORE;
+        ASSERT_INTEGRITY(lp, p);
+    }
+
+    for (unsigned int i = 0; i < len; i++) {
+        listpackEntry *e = &entries[i];
+        if (e->sval) {
+           /* Calling lpEncodeGetType() results into the encoded version of the
+            * element to be stored into 'intenc' in case it is representable as
+            * an integer: in that case, the function returns LP_ENCODING_INT.
+            * Otherwise, if LP_ENCODING_STR is returned, we'll have to call
+            * lpEncodeString() to actually write the encoded string on place
+            * later.
+            *
+            * Whatever the returned encoding is, 'enclen' is populated with the
+            * length of the encoded element. */
+            enc[i].enctype = lpEncodeGetType(e->sval, e->slen,
+                                             enc[i].intenc, &enc[i].enclen);
+        } else {
+            enc[i].enctype = LP_ENCODING_INT;
+            lpEncodeIntegerGetType(e->lval, enc[i].intenc, &enc[i].enclen);
+        }
+        addedlen += enc[i].enclen;
+        enc[i].backlen_size = lpEncodeBacklen(enc[i].backlen, enc[i].enclen);
+        addedlen += enc[i].backlen_size;
+    }
+
+    /* We need to also encode the backward-parsable length of the element
+     * and append it to the end: this allows to traverse the listpack from
+     * the end to the start. */
+    uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
+    uint64_t new_listpack_bytes = old_listpack_bytes + addedlen;
+    if (new_listpack_bytes > UINT32_MAX) return NULL;
+
+    /* Store the offset of the element 'p', so that we can obtain its
+     * address again after a reallocation. */
+    unsigned long poff = p-lp;
+    unsigned char *dst = lp + poff; /* May be updated after reallocation. */
+
+    /* Realloc before: we need more room. */
+    if (new_listpack_bytes > old_listpack_bytes &&
+        new_listpack_bytes > lp_malloc_size(lp)) {
+        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+        dst = lp + poff;
+    }
+
+    /* Setup the listpack relocating the elements to make the exact room
+     * we need to store the new ones. */
+    memmove(dst+addedlen,dst,old_listpack_bytes-poff);
+
+    for (unsigned int i = 0; i < len; i++) {
+        listpackEntry *ent = &entries[i];
+
+        if (newp)
+            *newp = dst;
+
+        if (enc[i].enctype == LP_ENCODING_INT)
+            memcpy(dst, enc[i].intenc, enc[i].enclen);
+        else
+            lpEncodeString(dst, ent->sval, ent->slen);
+
+        dst += enc[i].enclen;
+        memcpy(dst, enc[i].backlen, enc[i].backlen_size);
+        dst += enc[i].backlen_size;
+    }
+
+    /* Update header. */
+    uint32_t num_elements = lpGetNumElements(lp);
+    if (num_elements != LP_HDR_NUMELE_UNKNOWN) {
+        if ((int64_t) len > (int64_t) LP_HDR_NUMELE_UNKNOWN - (int64_t) num_elements)
+            lpSetNumElements(lp, LP_HDR_NUMELE_UNKNOWN);
+        else
+            lpSetNumElements(lp,num_elements + len);
+    }
+    lpSetTotalBytes(lp,new_listpack_bytes);
+    if (enc != tmp) lp_free(enc);
+
+    return lp;
+}
+
 /* This is just a wrapper for lpInsert() to directly use a string. */
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
                               unsigned char *p, int where, unsigned char **newp)
 {
-    listpackEntry e = {.sval = s, .slen = slen};
-    return lpBatchInsert(lp, p, where, &e, 1, newp);
+    return lpInsert(lp, s, NULL, slen, p, where, newp);
 }
 
 /* This is just a wrapper for lpInsert() to directly use a 64 bit integer
  * instead of a string. */
 unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char *p, int where, unsigned char **newp) {
-    listpackEntry e = {.lval = lval};
-    return lpBatchInsert(lp, p, where, &e, 1, newp);
+    uint64_t enclen; /* The length of the encoded element. */
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+
+    lpEncodeIntegerGetType(lval, intenc, &enclen);
+    return lpInsert(lp, NULL, intenc, enclen, p, where, newp);
 }
 
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
     unsigned char *p = lpFirst(lp);
     if (!p) return lpAppend(lp, s, slen);
-    listpackEntry e = {.sval = s, .slen = slen};
-    return lpBatchInsert(lp, p, LP_BEFORE, &e, 1, NULL);
+    return lpInsert(lp, s, NULL, slen, p, LP_BEFORE, NULL);
 }
 
 /* Append the specified integer element 'lval' at the head of the listpack. */
@@ -1008,8 +1125,7 @@ unsigned char *lpPrependInteger(unsigned char *lp, long long lval) {
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
-    listpackEntry e = {.sval = ele, .slen = size};
-    return lpBatchInsert(lp, eofptr, LP_BEFORE, &e, 1, NULL);
+    return lpInsert(lp,ele,NULL,size,eofptr,LP_BEFORE,NULL);
 }
 
 /* Append the specified integer element 'lval' at the end of the listpack. */
@@ -1024,8 +1140,9 @@ unsigned char *lpAppendInteger(unsigned char *lp, long long lval) {
  * This call is more efficient than multiple lpAppend() calls as it only does
  * a single realloc() for all the given entries.
  *
- * In each listpackEntry, if 'sval' is  not null, it is assumed entry is string.
- * Otherwise, 'lval' is used to append integer entry. */
+ * In each listpackEntry, if 'sval' is  not null, it is assumed entry is string
+ * and 'sval' and 'slen' will be used. Otherwise, 'lval' will be used to append
+ * the integer entry. */
 unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
@@ -1036,8 +1153,7 @@ unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned
  * the current element. The function returns the new listpack as return
  * value, and also updates the current cursor by updating '*p'. */
 unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s, uint32_t slen) {
-    listpackEntry e = {.sval = s, .slen = slen};
-    return lpBatchInsert(lp, *p, LP_REPLACE, &e, 1, p);
+    return lpInsert(lp, s, NULL, slen, *p, LP_REPLACE, p);
 }
 
 /* This is just a wrapper for lpInsertInteger() to directly use a 64 bit integer
@@ -1053,7 +1169,7 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
  * deleted one) is returned by reference. If the deleted element was the
  * last one, '*newp' is set to NULL. */
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp) {
-    return lpBatchInsert(lp,p,LP_REPLACE,NULL,1,newp);
+    return lpInsert(lp,NULL,NULL,0,p,LP_REPLACE,newp);
 }
 
 /* Delete a range of entries from the listpack start with the element pointed by 'p'. */
@@ -2229,40 +2345,34 @@ int listpackTest(int argc, char *argv[], int flags) {
         verifyEntry(lpSeek(lp, 4), (unsigned char*)"-100", 4);
         verifyEntry(lpSeek(lp, 5), (unsigned char*)"4294967296", 10);
 
-        /* Insert with LP_REPLACE */
-        p = lpSeek(lp, 3);
-        lp = lpBatchInsert(lp, p, LP_REPLACE, &ent[3], 3, &p);
-        verifyEntry(p, (unsigned char*)"-100", 4);
+        lp = lpDeleteRange(lp, 1, 2);
+        assert(lpLength(lp) == 4);
+        verifyEntry(lpSeek(lp, 0), ent[0].sval, ent[0].slen);
+        verifyEntry(lpSeek(lp, 1), ent[4].sval, ent[4].slen);
+        verifyEntry(lpSeek(lp, 2), (unsigned char*)"-100", 4);
+        verifyEntry(lpSeek(lp, 3), (unsigned char*)"4294967296", 10);
+
+        /* Insert with LP_AFTER */
+        p = lpSeek(lp, 0);
+        lp = lpBatchInsert(lp, p, LP_AFTER, &ent[1], 2, &p);
+        verifyEntry(p, ent[2].sval, ent[2].slen);
         assert(lpLength(lp) == 6);
         verifyEntry(lpSeek(lp, 0), ent[0].sval, ent[0].slen);
         verifyEntry(lpSeek(lp, 1), ent[1].sval, ent[1].slen);
         verifyEntry(lpSeek(lp, 2), ent[2].sval, ent[2].slen);
-        verifyEntry(lpSeek(lp, 3), (unsigned char*)"4294967296", 10);
-        verifyEntry(lpSeek(lp, 4), ent[4].sval, ent[4].slen);
-        verifyEntry(lpSeek(lp, 5), (unsigned char*)"-100", 4);
+        verifyEntry(lpSeek(lp, 3), ent[4].sval, ent[4].slen);
+        verifyEntry(lpSeek(lp, 4), (unsigned char*)"-100", 4);
+        verifyEntry(lpSeek(lp, 5), (unsigned char*)"4294967296", 10);
 
-        lp = lpDeleteRange(lp, 0, 3);
-        assert(lpLength(lp) == 3);
-        verifyEntry(lpSeek(lp, 0), (unsigned char*)"4294967296", 10);
-        verifyEntry(lpSeek(lp, 1), ent[4].sval, ent[4].slen);
-        verifyEntry(lpSeek(lp, 2), (unsigned char*)"-100", 4);
-
-        /* Insert with LP_AFTER */
+        lp = lpDeleteRange(lp, 2, 4);
+        assert(lpLength(lp) == 2);
         p = lpSeek(lp, 1);
-        lp = lpBatchInsert(lp, p, LP_AFTER, &ent[0], 3, &p);
+        lp = lpBatchInsert(lp, p, LP_AFTER, &ent[2], 1, &p);
         verifyEntry(p, ent[2].sval, ent[2].slen);
-        assert(lpLength(lp) == 6);
-        verifyEntry(lpSeek(lp, 0), (unsigned char*)"4294967296", 10);
-        verifyEntry(lpSeek(lp, 1), ent[4].sval, ent[4].slen);
-        verifyEntry(lpSeek(lp, 2), ent[0].sval, ent[0].slen);
-        verifyEntry(lpSeek(lp, 3), ent[1].sval, ent[1].slen);
-        verifyEntry(lpSeek(lp, 4), ent[2].sval, ent[2].slen);
-        verifyEntry(lpSeek(lp, 5), (unsigned char*)"-100", 4);
-
-        p = lpSeek(lp, 0);
-        lp = lpBatchInsert(lp, p, LP_REPLACE, NULL, 6, &p);
-        assert(lpLength(lp) == 0);
-        assert(p == 0);
+        assert(lpLength(lp) == 3);
+        verifyEntry(lpSeek(lp, 0), ent[0].sval, ent[0].slen);
+        verifyEntry(lpSeek(lp, 1), ent[1].sval, ent[1].slen);
+        verifyEntry(lpSeek(lp, 2), ent[2].sval, ent[2].slen);
 
         lpFree(lp);
     }

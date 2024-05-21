@@ -18,8 +18,6 @@
 #include <stdint.h>
 
 #define LP_INTBUF_SIZE 21 /* 20 digits of -2^63 + 1 null term = 21. */
-#define LP_MAX_BACKLEN_SIZE 5
-#define LP_MAX_INT_ENCODING_LEN 9
 
 /* lpInsert() where argument possible values: */
 #define LP_BEFORE 0
@@ -33,13 +31,6 @@ typedef struct {
     uint32_t slen;
     /* When integer is used, 'sval' is NULL, and lval holds the value. */
     long long lval;
-
-    /* These variables are used internally by lpInsert() */
-    int enctype;
-    uint64_t enclen;
-    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
-    unsigned long backlen_size;
-    unsigned char backlen[LP_MAX_BACKLEN_SIZE];
 } listpackEntry;
 
 unsigned char *lpNew(size_t capacity);
@@ -60,7 +51,7 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
 unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len);
 unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
-                             listpackEntry *entries, unsigned long len, unsigned char **newp);
+                             listpackEntry *entries, unsigned int len, unsigned char **newp);
 unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
 unsigned char *lpDup(unsigned char *lp);
