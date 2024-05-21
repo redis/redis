@@ -786,7 +786,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * The element is inserted before, after, or replaces the element pointed
  * by 'p' depending on the 'where' argument, that can be LP_BEFORE, LP_AFTER
  * or LP_REPLACE.
- *
+ * 
  * If both 'elestr' and `eleint` are NULL, the function removes the element
  * pointed by 'p' instead of inserting one.
  * If `eleint` is non-NULL, 'size' is the length of 'eleint', the function insert
