@@ -1817,7 +1817,7 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
         int tuple_len;
         long count;
         dict *fields;
-        uint64_t last_expireat;
+        long long last_expireat;
     } *data = userdata;
 
     if (data->fields == NULL) {
@@ -1847,9 +1847,10 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
         /* Must be an integer. */
         if (!lpGetIntegerValue(p, &expire_at)) return 0;
         /* Must be less than EB_EXPIRE_TIME_MAX. */
-        if (expire_at < 0 || (uint64_t)expire_at > EB_EXPIRE_TIME_MAX) return 0;
-        /* The current TTL should not be less than the last one. */
-        if ((uint64_t)expire_at < data->last_expireat) return 0;
+        if (expire_at < 0 || (unsigned long long)expire_at > EB_EXPIRE_TIME_MAX) return 0;
+        /* TTL fields are ordered. If the current field has TTL, the previous field must
+         * also have one, and the current TTL must be greater than the previous one. */
+        if (expire_at != 0 && (data->last_expireat == 0 || expire_at < data->last_expireat)) return 0;
         data->last_expireat = expire_at;
     }
 
@@ -1872,8 +1873,8 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
         int tuple_len;
         long count;
         dict *fields; /* Initialisation at the first callback. */
-        uint64_t last_expireat; /* Last field's expiry time to ensure order in TTL fields. */
-    } data = {tuple_len, 0, NULL, 0};
+        long long last_expireat; /* Last field's expiry time to ensure order in TTL fields. */
+    } data = {tuple_len, 0, NULL, -1};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
