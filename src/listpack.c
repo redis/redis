@@ -1031,13 +1031,14 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
             lpEncodeIntegerGetType(e->lval, enc[i].intenc, &enc[i].enclen);
         }
         addedlen += enc[i].enclen;
+
+        /* We need to also encode the backward-parsable length of the element
+         * and append it to the end: this allows to traverse the listpack from
+         * the end to the start. */
         enc[i].backlen_size = lpEncodeBacklen(enc[i].backlen, enc[i].enclen);
         addedlen += enc[i].backlen_size;
     }
 
-    /* We need to also encode the backward-parsable length of the element
-     * and append it to the end: this allows to traverse the listpack from
-     * the end to the start. */
     uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
     uint64_t new_listpack_bytes = old_listpack_bytes + addedlen;
     if (new_listpack_bytes > UINT32_MAX) return NULL;
