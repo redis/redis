@@ -1841,7 +1841,7 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
         }
     }
 
-    /* Validate TTL field. */
+    /* Validate TTL field, only for listpackex. */
     if (data->count % data->tuple_len == 2) {
         long long expire_at;
         /* Must be an integer. */
