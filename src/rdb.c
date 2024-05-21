@@ -1872,7 +1872,7 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
         int tuple_len;
         long count;
         dict *fields; /* Initialisation at the first callback. */
-        uint64_t last_expireat;  /* Last field's expiry time to ensure order in TTL fields. */
+        uint64_t last_expireat; /* Last field's expiry time to ensure order in TTL fields. */
     } data = {tuple_len, 0, NULL, 0};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
