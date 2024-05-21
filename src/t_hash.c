@@ -350,7 +350,7 @@ static int cbFindInListpack(const unsigned char *lp, unsigned char *p,
     r->index++;
 
     if (r->max_to_search == 0)
-        return 1;
+        return 0; /* Break the loop and return */
 
     if (r->index % 3 == 1) {
         r->fptr = p;  /* First item of the tuple. */
@@ -358,15 +358,15 @@ static int cbFindInListpack(const unsigned char *lp, unsigned char *p,
         serverAssert(!s);
 
         /* Third item of a tuple is expiry time */
-        if (slen == HASH_LP_NO_TTL || (uint64_t) slen >= r->expire_time ) {
+        if (slen == HASH_LP_NO_TTL || (uint64_t) slen >= r->expire_time) {
             r->p = r->fptr;
-            return 1;
+            return 0; /* Break the loop and return */
         }
         r->expired++;
         r->max_to_search--;
     }
 
-    return 0;
+    return 1;
 }
 
 /* Returns number of expired fields. */

@@ -669,7 +669,7 @@ unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval)
 
 /* Find pointer to the entry according to comparator callback.
  *
- * 'cmp' is a comparator callback. If it returns non-zero, current entry pointer
+ * 'cmp' is a comparator callback. If it returns zero, current entry pointer
  * will be returned. 'user' is passed to this callback.
  * Skip 'skip' entries between every comparison.
  * Returns NULL when the field could not be found. */
@@ -693,7 +693,7 @@ unsigned char *lpFindCb(unsigned char *lp, unsigned char *p,
                 assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
             }
 
-            if (cmp(lp, p, user, value, ll) != 0)
+            if (cmp(lp, p, user, value, ll) == 0)
                 return p;
 
             /* Reset skip count */
@@ -736,7 +736,7 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
 
     if (s) {
         if (slen == arg->slen && memcmp(arg->s, s, slen) == 0) {
-            return 1;
+            return 0;
         }
     } else {
         /* Find out if the searched field can be encoded. Note that
@@ -757,11 +757,11 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
          * if vencoding != UCHAR_MAX because if there is no encoding
          * possible for the field it can't be a valid integer. */
         if (arg->vencoding != UCHAR_MAX && slen == arg->vll) {
-            return 1;
+            return 0;
         }
     }
 
-    return 0;
+    return 1;
 }
 
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
@@ -769,8 +769,8 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
                       uint32_t slen, unsigned int skip) {
     struct lpFindArg arg = {
-            .s = s,
-            .slen = slen
+        .s = s,
+        .slen = slen
     };
     return lpFindCb(lp, p, &arg, lpFindCmp, skip);
 }
@@ -1025,10 +1025,8 @@ unsigned char *lpAppendInteger(unsigned char *lp, long long lval) {
  * a single realloc() for all the given entries.
  *
  * In each listpackEntry, if 'sval' is  not null, it is assumed entry is string.
- * Otherwise, 'lval' is used to append integer entry.
- */
-unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len)
-{
+ * Otherwise, 'lval' is used to append integer entry. */
+unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len) {
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
     return lpBatchInsert(lp, eofptr, LP_BEFORE, entries, len, NULL);
@@ -1905,13 +1903,13 @@ static int lpFindCbCmp(const unsigned char *lp, unsigned char *p, void *user, un
     if (!s) {
         int64_t sval;
         if (lpStringToInt64((const char*)n, strlen(n), &sval))
-            return slen == sval;
+            return slen == sval ? 0 : 1;
     } else {
         if (strlen(n) == (size_t) slen && memcmp(n, s, slen) == 0)
-            return 1;
+            return 0;
     }
 
-    return 0;
+    return 1;
 }
 
 int listpackTest(int argc, char *argv[], int flags) {
