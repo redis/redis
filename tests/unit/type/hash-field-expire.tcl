@@ -1274,7 +1274,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hgetf h4 PX 15 FIELDS 1 f1
 
                 wait_for_condition 50 100 {
-                    [r exists h1] eq 0
+                    [r exists h4] eq 0
                 } else {
                     fail "hash h1 wasn't deleted"
                 }
