@@ -342,7 +342,7 @@ struct lpFingArgs {
  * active expiry or when trying to find the position for the new field according
  * to its expiry time.*/
 static int cbFindInListpack(const unsigned char *lp, unsigned char *p,
-                              void *user, unsigned char *s, long long slen)
+                            void *user, unsigned char *s, long long slen)
 {
     (void) lp;
     struct lpFingArgs *r = user;
@@ -376,8 +376,8 @@ static uint64_t listpackExExpireDryRun(const robj *o) {
     listpackEx *lpt = o->ptr;
 
     struct lpFingArgs r = {
-            .max_to_search = UINT64_MAX,
-            .expire_time = commandTimeSnapshot(),
+        .max_to_search = UINT64_MAX,
+        .expire_time = commandTimeSnapshot(),
     };
 
     lpFindCb(lpt->lp, NULL, &r, cbFindInListpack, 0);
@@ -414,8 +414,8 @@ void listpackExExpire(robj *o, ExpireInfo *info) {
     listpackEx *lpt = o->ptr;
 
     struct lpFingArgs r = {
-            .max_to_search = info->maxToExpire,
-            .expire_time = info->now
+        .max_to_search = info->maxToExpire,
+        .expire_time = info->now
     };
 
     lpFindCb(lpt->lp, NULL, &r, cbFindInListpack, 0);
@@ -457,9 +457,9 @@ static void listpackExAddInternal(robj *o, listpackEntry ent[3]) {
 /* Add new field ordered by expire time. */
 void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
     listpackEntry ent[3] = {
-            {.sval = (unsigned char*) field, .slen = sdslen(field)},
-            {.sval = (unsigned char*) value, .slen = sdslen(value)},
-            {.lval = expireAt}
+        {.sval = (unsigned char*) field, .slen = sdslen(field)},
+        {.sval = (unsigned char*) value, .slen = sdslen(value)},
+        {.lval = expireAt}
     };
 
     listpackExAddInternal(o, ent);
