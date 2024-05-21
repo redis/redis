@@ -92,6 +92,17 @@ test {corrupt payload: hash listpackex with unordered TTL fields} {
     }
 }
 
+test {corrupt payload: hash listpackex field without TTL should not be followed by field with TTL} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x17\x2d\x2d\x00\x00\x00\x09\x00\x82\x66\x31\x03\x82\x76\x31\x03\x00\x01\x82\x66\x32\x03\x82\x76\x32\x03\xf4\xe0\x59\x7a\x96\x00\x00\x00\x00\x09\x82\x66\x33\x03\x82\x76\x33\x03\x00\x01\xff\x0c\x00\x42\x66\xd4\xbe\x17\xc3\x96\x72" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: hash hashtable with TTL large than EB_EXPIRE_TIME_MAX} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set hash-max-listpack-entries 0
