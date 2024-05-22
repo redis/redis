@@ -19,12 +19,14 @@ proc generate_collections {suffix elements} {
         # add both string values and integers
         if {$j % 2 == 0} {set val $j} else {set val "_$j"}
         $rd hset hash$suffix $j $val
+        $rd hset hashmd$suffix $j $val
+        $rd hexpire hashmd$suffix [expr {int(rand() * 10000)}] FIELDS 1 $j
         $rd lpush list$suffix $val
         $rd zadd zset$suffix $j $val
         $rd sadd set$suffix $val
         $rd xadd stream$suffix * item 1 value $val
     }
-    for {set j 0} {$j < $elements * 5} {incr j} {
+    for {set j 0} {$j < $elements * 7} {incr j} {
         $rd read ; # Discard replies
     }
     $rd close

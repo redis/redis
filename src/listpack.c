@@ -669,6 +669,18 @@ unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval)
     return vstr;
 }
 
+/* This is just a wrapper to lpGet() that is able to get an integer from an entry directly.
+ * Returns 1 and stores the integer in 'lval' if the entry is an integer.
+ * Returns 0 if the entry is a string. */
+int lpGetIntegerValue(unsigned char *p, long long *lval) {
+    int64_t ele_len;
+    if (!lpGet(p, &ele_len, NULL)) {
+        *lval = ele_len;
+        return 1;
+    }
+    return 0;
+}
+
 /* Find pointer to the entry with a comparator callback.
  *
  * 'cmp' is a comparator callback. If it returns zero, current entry pointer
