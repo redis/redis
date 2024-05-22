@@ -1247,7 +1247,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             val = p; /* Keep pointer to value */
 
             p = lpNext(lp, p);
-            serverAssert(!lpGetValue(p, NULL, &expire_at));
+            serverAssert(p && lpGetIntegerValue(p, &expire_at));
 
             if (hashTypeIsExpired(o, expire_at) ||
                (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)))

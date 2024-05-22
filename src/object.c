@@ -490,10 +490,11 @@ void dismissHashObject(robj *o, size_t size_hint) {
         /* Dismiss hash table memory. */
         dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
         dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK ||
-               o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        unsigned char *lp = hashTypeListpackGetLp(o);
-        dismissMemory(lp, lpBytes(lp));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        listpackEx *lpt = o->ptr;
+        dismissMemory(lpt->lp, lpBytes((unsigned char*)lpt->lp));
     } else {
         serverPanic("Unknown hash encoding type");
     }

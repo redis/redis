@@ -1817,6 +1817,7 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
         int tuple_len;
         long count;
         dict *fields;
+        long long last_expireat;
     } *data = userdata;
 
     if (data->fields == NULL) {
@@ -1840,6 +1841,19 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
         }
     }
 
+    /* Validate TTL field, only for listpackex. */
+    if (data->count % data->tuple_len == 2) {
+        long long expire_at;
+        /* Must be an integer. */
+        if (!lpGetIntegerValue(p, &expire_at)) return 0;
+        /* Must be less than EB_EXPIRE_TIME_MAX. */
+        if (expire_at < 0 || (unsigned long long)expire_at > EB_EXPIRE_TIME_MAX) return 0;
+        /* TTL fields are ordered. If the current field has TTL, the previous field must
+         * also have one, and the current TTL must be greater than the previous one. */
+        if (expire_at != 0 && (data->last_expireat == 0 || expire_at < data->last_expireat)) return 0;
+        data->last_expireat = expire_at;
+    }
+
     (data->count)++;
     return 1;
 }
@@ -1859,7 +1873,8 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
         int tuple_len;
         long count;
         dict *fields; /* Initialisation at the first callback. */
-    } data = {tuple_len, 0, NULL};
+        long long last_expireat; /* Last field's expiry time to ensure order in TTL fields. */
+    } data = {tuple_len, 0, NULL, -1};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
@@ -2255,6 +2270,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                 serverLog(LL_WARNING, "failed reading hash TTL");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
+                return NULL;
+            }
+            if (expire > EB_EXPIRE_TIME_MAX) {
+                rdbReportCorruptRDB("invalid expire time: %llu", (unsigned long long)expire);
+                decrRefCount(o);
                 return NULL;
             }
 

@@ -102,8 +102,8 @@ proc hrandfieldTest {activeExpireConfig} {
 ############################### TESTS #########################################
 
 start_server {tags {"external:skip needs:debug"}} {
-    foreach type {listpack ht} {
-        if {$type eq "ht"} {
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
             r config set hash-max-listpack-entries 0
         } else {
             r config set hash-max-listpack-entries 512
@@ -1132,6 +1132,31 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r exists myhash] 0
             assert_equal [r hsetf myhash GETOLD DCF FVS 1 a b] ""
             assert_equal [r exists myhash] 0
+        }
+
+        test {DUMP / RESTORE are able to serialize / unserialize a hash} {
+            r config set sanitize-dump-payload yes
+            r hmset myhash a 1 b 2 c 3
+            r hexpireat myhash 2524600800 fields 1 a
+            r hexpireat myhash 2524600801 fields 1 b
+            set encoded [r dump myhash]
+            r del myhash
+            r restore myhash 0 $encoded
+            assert_equal [lsort [r hgetall myhash]] "1 2 3 a b c"
+            assert_equal [r hexpiretime myhash FIELDS 3 a b c] {2524600800 2524600801 -1}
+        }
+
+        test {DUMP / RESTORE are able to serialize / unserialize a hash with TTL 0 for all fields} {
+            r config set sanitize-dump-payload yes
+            r hmset myhash a 1 b 2 c 3
+            r hexpire myhash 9999999 fields 1 a ;# make all TTLs of fields to 0
+            r hpersist myhash fields 1 a
+            assert_encoding $type myhash
+            set encoded [r dump myhash]
+            r del myhash
+            r restore myhash 0 $encoded
+            assert_equal [lsort [r hgetall myhash]] "1 2 3 a b c"
+            assert_equal [r hexpiretime myhash FIELDS 3 a b c] {-1 -1 -1}
         }
     }
 
