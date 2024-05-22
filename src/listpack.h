@@ -49,6 +49,9 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
+unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len);
+unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
+                             listpackEntry *entries, unsigned int len, unsigned char **newp);
 unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
 unsigned char *lpDup(unsigned char *lp);
@@ -57,6 +60,8 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);
 unsigned char *lpGetValue(unsigned char *p, unsigned int *slen, long long *lval);
 int lpGetIntegerValue(unsigned char *p, long long *lval);
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s, uint32_t slen, unsigned int skip);
+typedef int (*lpCmp)(const unsigned char *lp, unsigned char *p, void *user, unsigned char *s, long long slen);
+unsigned char *lpFindCb(unsigned char *lp, unsigned char *p, void *user, lpCmp cmp, unsigned int skip);
 unsigned char *lpFirst(unsigned char *lp);
 unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
