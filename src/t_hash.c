@@ -334,7 +334,7 @@ static uint64_t listpackExExpireDryRun(const robj *o) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
 
     uint64_t expired = 0;
-    unsigned char *fptr, *s;
+    unsigned char *fptr;
     listpackEx *lpt = o->ptr;
 
     fptr = lpFirst(lpt->lp);
@@ -344,10 +344,7 @@ static uint64_t listpackExExpireDryRun(const robj *o) {
         fptr = lpNext(lpt->lp, fptr);
         serverAssert(fptr);
         fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr);
-
-        s = lpGetValue(fptr, NULL, &val);
-        serverAssert(!s);
+        serverAssert(fptr && lpGetIntegerValue(fptr, &val));
 
         if (!hashTypeIsExpired(o, val))
             break;
@@ -364,15 +361,14 @@ static uint64_t listpackExGetMinExpire(robj *o) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
 
     long long expireAt;
-    unsigned char *fptr, *s;
+    unsigned char *fptr;
     listpackEx *lpt = o->ptr;
 
     /* As fields are ordered by expire time, first field will have the smallest
      * expiry time. Third element is the expiry time of the first field */
     fptr = lpSeek(lpt->lp, 2);
     if (fptr != NULL) {
-        s = lpGetValue(fptr, NULL, &expireAt);
-        serverAssert(!s);
+        serverAssert(lpGetIntegerValue(fptr, &expireAt));
 
         /* Check if this is a non-volatile field. */
         if (expireAt != HASH_LP_NO_TTL)
@@ -386,7 +382,7 @@ static uint64_t listpackExGetMinExpire(robj *o) {
 void listpackExExpire(robj *o, ExpireInfo *info) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
     uint64_t min = EB_EXPIRE_TIME_INVALID;
-    unsigned char *ptr, *field, *s;
+    unsigned char *ptr, *field;
     listpackEx *lpt = o->ptr;
 
     ptr = lpFirst(lpt->lp);
@@ -397,10 +393,7 @@ void listpackExExpire(robj *o, ExpireInfo *info) {
         ptr = lpNext(lpt->lp, ptr);
         serverAssert(ptr);
         ptr = lpNext(lpt->lp, ptr);
-        serverAssert(ptr);
-
-        s = lpGetValue(ptr, NULL, &val);
-        serverAssert(!s);
+        serverAssert(ptr && lpGetIntegerValue(ptr, &val));
 
         /* Fields are ordered by expiry time. If we reached to a non-expired
          * field or a non-volatile field, we know rest is not yet expired. */
@@ -469,7 +462,7 @@ static void listpackExUpdateExpiry(robj *o, sds field,
     unsigned int slen;
     long long val;
     unsigned char tmp[512] = {0};
-    unsigned char *valstr, *s, *elem;
+    unsigned char *valstr, *elem;
     listpackEx *lpt = o->ptr;
     sds tmpval = NULL;
 
@@ -497,10 +490,7 @@ static void listpackExUpdateExpiry(robj *o, sds field,
         fptr = lpNext(lpt->lp, fptr);
         serverAssert(fptr);
         fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr);
-
-        s = lpGetValue(fptr, NULL, &currExpiry);
-        serverAssert(!s);
+        serverAssert(fptr && lpGetIntegerValue(fptr, &currExpiry));
 
         if (currExpiry == HASH_LP_NO_TTL || (uint64_t) currExpiry >= expireAt) {
             /* Found a field with no expiry time or with a higher expiry time.
@@ -541,7 +531,7 @@ out:
 
 /* Add new field ordered by expire time. */
 void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
-    unsigned char *fptr, *s, *elem;
+    unsigned char *fptr, *elem;
     listpackEx *lpt = o->ptr;
 
     /* Shortcut, just append at the end if this is a non-volatile field. */
@@ -557,10 +547,7 @@ void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
         fptr = lpNext(lpt->lp, fptr);
         serverAssert(fptr);
         fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr);
-
-        s = lpGetValue(fptr, NULL, &currExpiry);
-        serverAssert(!s);
+        serverAssert(fptr && lpGetIntegerValue(fptr, &currExpiry));
 
         if (currExpiry == HASH_LP_NO_TTL || (uint64_t) currExpiry >= expireAt) {
             /* Found a field with no expiry time or with a higher expiry time.
@@ -594,10 +581,8 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
 {
     long long expireTime;
     uint64_t prevExpire = EB_EXPIRE_TIME_INVALID;
-    unsigned char *s;
 
-    s = lpGetValue(tptr, NULL, &expireTime);
-    serverAssert(!s);
+    serverAssert(lpGetIntegerValue(tptr, &expireTime));
 
     if (expireTime != HASH_LP_NO_TTL) {
         prevExpire = (uint64_t) expireTime;
@@ -728,10 +713,7 @@ int hashTypeGetFromListpack(robj *o, sds field,
                 serverAssert(vptr != NULL);
 
                 h = lpNext(lpt->lp, vptr);
-                serverAssert(h != NULL);
-
-                h = lpGetValue(h, NULL, &expire);
-                serverAssert(h == NULL);
+                serverAssert(h && lpGetIntegerValue(h, &expire));
 
                 if (hashTypeIsExpired(o, expire))
                     return -1;
@@ -1203,7 +1185,6 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
         if (fptr != NULL) {
             fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
             if (fptr != NULL) {
-                unsigned char *p;
                 /* Grab pointer to the value (fptr points to the field) */
                 vptr = lpNext(lpt->lp, fptr);
                 serverAssert(vptr != NULL);
@@ -1219,9 +1200,7 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
                     res = HSET_UPDATE;
                 }
                 tptr = lpNext(lpt->lp, vptr);
-                serverAssert(tptr != NULL);
-                p = lpGetValue(tptr, NULL, &expireTime);
-                serverAssert(!p);
+                serverAssert(tptr && lpGetIntegerValue(tptr, &expireTime));
 
                 if (ex) {
                     res = hashTypeSetExpiryListpack(ex, field, fptr, vptr, tptr,
@@ -1410,9 +1389,7 @@ int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
             serverAssert(vptr != NULL);
 
             tptr = lpNext(zl, vptr);
-            serverAssert(tptr != NULL);
-
-            lpGetValue(tptr, NULL, &expire_time);
+            serverAssert(tptr && lpGetIntegerValue(tptr, &expire_time));
 
             if (!skipExpiredFields || !hashTypeIsExpired(hi->subject, expire_time))
                 break;
@@ -1662,7 +1639,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
                 hfieldFree(key); sdsfree(value); /* Needed for gcc ASAN */
                 hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
-                                 o->ptr,lpBytes(o->ptr));
+                                 lpt->lp,lpBytes(lpt->lp));
                 serverPanic("Listpack corruption detected");
             }
 
@@ -2820,9 +2797,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
             fptr = lpNext(lpt->lp, fptr);
             serverAssert(fptr);
             fptr = lpNext(lpt->lp, fptr);
-            serverAssert(fptr);
-
-            lpGetValue(fptr, NULL, &expire);
+            serverAssert(fptr && lpGetIntegerValue(fptr, &expire));
 
             if (expire == HASH_LP_NO_TTL) {
                 addReplyLongLong(c, HFE_GET_NO_TTL);
@@ -3052,7 +3027,7 @@ void hpersistCommand(client *c) {
         return;
     } else if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         long long prevExpire;
-        unsigned char *fptr, *vptr, *tptr, *s;
+        unsigned char *fptr, *vptr, *tptr;
         listpackEx *lpt = hashObj->ptr;
 
         addReplyArrayLen(c, numFields);
@@ -3071,10 +3046,7 @@ void hpersistCommand(client *c) {
             vptr = lpNext(lpt->lp, fptr);
             serverAssert(vptr);
             tptr = lpNext(lpt->lp, vptr);
-            serverAssert(tptr);
-
-            s = lpGetValue(tptr, NULL, &prevExpire);
-            serverAssert(!s);
+            serverAssert(tptr && lpGetIntegerValue(tptr, &prevExpire));
 
             if (prevExpire == HASH_LP_NO_TTL) {
                 addReplyLongLong(c, HFE_PERSIST_NO_TTL);
@@ -3400,7 +3372,7 @@ err_expiration:
 static int hgetfReplyValueAndSetExpiry(client *c, robj *o, sds field, int flag,
                                        uint64_t expireAt, uint64_t *minPrevExp)
 {
-    unsigned char *fptr = NULL, *vptr = NULL, *tptr, *h;
+    unsigned char *fptr = NULL, *vptr = NULL, *tptr;
     hfield hf = NULL;
     dict *d = NULL;
     dictEntry *de = NULL;
@@ -3440,10 +3412,7 @@ static int hgetfReplyValueAndSetExpiry(client *c, robj *o, sds field, int flag,
                 serverAssert(vptr != NULL);
 
                 tptr = lpNext(lpt->lp, vptr);
-                serverAssert(tptr != NULL);
-
-                h = lpGetValue(tptr, NULL, &expire);
-                serverAssert(h == NULL);
+                serverAssert(tptr && lpGetIntegerValue(tptr, &expire));
 
                 if (expire != HASH_LP_NO_TTL)
                     prevExpire = expire;
@@ -3631,7 +3600,7 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
 
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         long long expire;
-        unsigned char *fptr, *vptr = NULL, *tptr, *h;
+        unsigned char *fptr, *vptr = NULL, *tptr;
         listpackEx *lpt = o->ptr;
 
         fptr = lpFirst(lpt->lp);
@@ -3640,8 +3609,7 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
             if (fptr != NULL) {
                 vptr = lpNext(lpt->lp, fptr);
                 tptr = lpNext(lpt->lp, vptr);
-                h = lpGetValue(tptr, NULL, &expire);
-                serverAssert(!h);
+                serverAssert(tptr && lpGetIntegerValue(tptr, &expire));
 
                 if (expire != HASH_LP_NO_TTL)
                     prevExpire = expire;
