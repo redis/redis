@@ -72,6 +72,17 @@ typedef struct scriptFlag {
 
 extern scriptFlag scripts_flags_def[];
 
+/* Lua context */
+typedef struct luaCtx {
+    lua_State *lua; /* The Lua interpreter. We use just one for all clients */
+    client *lua_client;   /* The "fake client" to query Redis from Lua */
+    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
+    list *lua_scripts_lru_list; /* A list of SHA1, first in first out LRU eviction. */
+    unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
+} luaCtx;
+
+extern struct luaCtx lctx;
+
 void luaEnvInit(void);
 lua_State *createLuaState(void);
 uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags);

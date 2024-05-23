@@ -53,13 +53,7 @@ dictType shaScriptObjectDictType = {
 };
 
 /* Lua context */
-struct luaCtx {
-    lua_State *lua; /* The Lua interpreter. We use just one for all clients */
-    client *lua_client;   /* The "fake client" to query Redis from Lua */
-    dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
-    list *lua_scripts_lru_list; /* A list of SHA1, first in first out LRU eviction. */
-    unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
-} lctx;
+struct luaCtx lctx;
 
 /* Debugger shared state is stored inside this global structure. */
 #define LDB_BREAKPOINTS_MAX 64  /* Max number of breakpoints. */
