@@ -204,13 +204,18 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             unsigned char eledigest[20];
             sds sdsele;
 
+            /* field */
             memset(eledigest,0,20);
             sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
+            /* val */
             sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
+            /* field expire */
+            if (hi->expire_time != EB_EXPIRE_TIME_INVALID)
+                xorDigest(eledigest,"!!hexpire!!",11);
             xorDigest(digest,eledigest,20);
         }
         hashTypeReleaseIterator(hi);

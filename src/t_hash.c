@@ -29,7 +29,6 @@ static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static void hfieldPersist(robj *hashObj, hfield field);
 static void updateGlobalHfeDs(redisDb *db, robj *o, uint64_t minExpire, uint64_t minExpireFields);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
-static void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info);
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
