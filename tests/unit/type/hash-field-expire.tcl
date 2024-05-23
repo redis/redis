@@ -56,17 +56,17 @@ proc cmp_hrandfield_result {hash_name expected_result} {
      }
 }
 
-proc getKeyFieldsExpiry {redis} {
-    set keyAndFields1(0,0) 0
-    unset keyAndFields1
+proc dumpAllHashes {client} {
+    set keyAndFields(0,0) 0
+    unset keyAndFields
     # keep keys sorted for comparison
-    foreach key [lsort [$redis keys *]] {
-        set fields [$redis hgetall $key]
+    foreach key [lsort [$client keys *]] {
+        set fields [$client hgetall $key]
         foreach f $fields {
-            set keyAndFields1($key,$f) [$redis hpexpiretime $key FIELDS 1 $f]
+            set keyAndFields($key,$f) [$client hpexpiretime $key FIELDS 1 $f]
         }
     }
-    return [array get keyAndFields1]
+    return [array get keyAndFields]
 }
 
 proc hrandfieldTest {activeExpireConfig} {
@@ -1416,11 +1416,11 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hgetf h5 PXAT * LT FIELDS 1 f1}
                 }
 
-                array set keyAndFields1 [getKeyFieldsExpiry r]
+                array set keyAndFields1 [dumpAllHashes r]
                 # Let some time pass and reload data from AOF
                 after 2000
                 r debug loadaof
-                array set keyAndFields2 [getKeyFieldsExpiry r]
+                array set keyAndFields2 [dumpAllHashes r]
 
                 # Assert that absolute TTLs are the same
                 assert_equal [array get keyAndFields1] [array get keyAndFields2]
@@ -1497,7 +1497,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
                 # Verify absolute TTLs are identical on primary and replica for all keys
                 # This is because TTLs are always replicated as absolute values
-                assert_equal [getKeyFieldsExpiry $primary] [getKeyFieldsExpiry $replica]
+                assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
             }
         }
     }

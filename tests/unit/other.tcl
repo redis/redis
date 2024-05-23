@@ -124,6 +124,7 @@ start_server {tags {"other"}} {
         if {$::accurate} {set numops 10000} else {set numops 1000}
         test {Check consistency of different data types after a reload} {
             r flushdb
+            # TODO: integrate usehexpire following next commit that will support replication
             createComplexDataset r $numops {usetag usehexpire}
             if {$::ignoredigest} {
                 set _ 1

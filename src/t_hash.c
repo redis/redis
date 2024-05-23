@@ -392,20 +392,21 @@ static uint64_t listpackExGetMinExpire(robj *o) {
 
 /* Walk over fields and delete the expired ones. */
 void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
-    char buf[LONG_STR_SIZE];
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
     uint64_t min = EB_EXPIRE_TIME_INVALID;
     unsigned char *ptr, *pTuple;
     listpackEx *lpt = o->ptr;
 
     ptr = lpFirst(lpt->lp);
+
     while (ptr != NULL && (info->itemsExpired < info->maxToExpire)) {
         long long val;
+        int64_t flen;
+        unsigned char intbuf[LP_INTBUF_SIZE], *fref;
 
-        pTuple = ptr;
-        unsigned int flen;
-        long long fnum;
-        char *fref = (char *) lpGetValue(ptr, &flen, &fnum);
+        pTuple = ptr; /* keep aside ref to begining of the tuple*/
+
+        fref = lpGet(ptr, &flen, intbuf);
 
         ptr = lpNext(lpt->lp, ptr);
         serverAssert(ptr);
@@ -417,12 +418,7 @@ void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
         if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
             break;
 
-        if (!fref) {
-            flen = ll2string(buf, sizeof(buf), fnum);
-            fref = buf;
-        }
-
-        propagateHashFieldDeletion(db, ((listpackEx *) o->ptr)->key, fref, flen);
+        propagateHashFieldDeletion(db, ((listpackEx *) o->ptr)->key, (char *)((fref) ? fref : intbuf), flen);
 
         lpt->lp = lpDeleteRangeWithEntry(lpt->lp, &pTuple, 3);
         ptr = pTuple;
@@ -783,8 +779,11 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value) {
  *
  * If *vll is populated *vstr is set to NULL, so the caller
  * can always check the function return by checking the return value
- * for C_OK and checking if vll (or vstr) is NULL. */
-int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll) {
+ * for C_OK and checking if vll (or vstr) is NULL.
+ *
+ * If field is expired (GET_FIELD_EXPIRED), then it will be lazy deleted.
+ */
+int hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll) {
     sds key;
     GetFieldRes res;
     if (o->encoding == OBJ_ENCODING_LISTPACK ||
@@ -827,14 +826,6 @@ int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vle
     if ((server.masterhost) && (server.current_client && (server.current_client->flags & CLIENT_MASTER)))
         return C_OK;
 
-    /*  TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
-     * Once dbid will be embedded inside HASH, extract it from there and remove
-     * this hack that is aligned with testing.
-     *
-     * Going to be my next commit.
-     */
-    redisDb *db = server.db+0;
-
     /* delete the field and propagate the deletion */
     serverAssert(hashTypeDelete(o, field, 1) == 1);
     propagateHashFieldDeletion(db, key, field, sdslen(field));
@@ -855,12 +846,12 @@ int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vle
  * interaction with the hash type outside t_hash.c.
  * The function returns NULL if the field is not found in the hash. Otherwise
  * a newly allocated string object with the value is returned. */
-robj *hashTypeGetValueObject(robj *o, sds field) {
+robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field) {
     unsigned char *vstr;
     unsigned int vlen;
     long long vll;
 
-    if (hashTypeGetValue(o,field,&vstr,&vlen,&vll) == C_ERR) return NULL;
+    if (hashTypeGetValue(db, o,field,&vstr,&vlen,&vll) == C_ERR) return NULL;
     if (vstr) return createStringObject((char*)vstr,vlen);
     else return createStringObjectFromLongLong(vll);
 }
@@ -868,26 +859,29 @@ robj *hashTypeGetValueObject(robj *o, sds field) {
 /* Higher level function using hashTypeGet*() to return the length of the
  * object associated with the requested field, or 0 if the field does not
  * exist. */
-size_t hashTypeGetValueLength(robj *o, sds field) {
+size_t hashTypeGetValueLength(redisDb *db, robj *o, sds field) {
     size_t len = 0;
     unsigned char *vstr = NULL;
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK)
+    if (hashTypeGetValue(db, o, field, &vstr, &vlen, &vll) == C_OK)
         len = vstr ? vlen : sdigits10(vll);
 
     return len;
 }
 
-/* Test if the specified field exists in the given hash. Returns 1 if the field
- * exists, and 0 when it doesn't. */
-int hashTypeExists(robj *o, sds field) {
+/* Test if the specified field exists in the given hash. If the field is
+ * expired (HFE), then it will be lazy deleted
+ *
+ * Returns 1 if the field exists, and 0 when it doesn't.
+ */
+int hashTypeExists(redisDb *db, robj *o, sds field) {
     unsigned char *vstr = NULL;
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    return hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK;
+    return hashTypeGetValue(db, o, field, &vstr, &vlen, &vll) == C_OK;
 }
 
 /* Add a new field, overwrite the old with the new value if it already exists.
@@ -1305,8 +1299,10 @@ out:
 }
 
 /* Delete an element from a hash.
- * Return 1 on deleted and 0 on not found. */
-int hashTypeDelete(robj *o, void *field, int isSdsField /*0=hfield, 1=sds*/) {
+ *
+ * Return 1 on deleted and 0 on not found.
+ * isSdsField - 1 if the field is sds, 0 if it is hfield */
+int hashTypeDelete(robj *o, void *field, int isSdsField) {
     int deleted = 0;
     int fieldLen = (isSdsField) ? sdslen((sds)field) : hfieldlen((hfield)field);
 
@@ -1914,15 +1910,15 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
 
         OnFieldExpireCtx onFieldExpireCtx = {
-                .hashObj = hashObj,
-                .db = activeExpireCtx->db
+            .hashObj = hashObj,
+            .db = activeExpireCtx->db
         };
 
         info = (ExpireInfo){
-                .maxToExpire = activeExpireCtx->fieldsToExpireQuota,
-                .onExpireItem = onFieldExpire,
-                .ctx = &onFieldExpireCtx,
-                .now = commandTimeSnapshot()
+            .maxToExpire = activeExpireCtx->fieldsToExpireQuota,
+            .onExpireItem = onFieldExpire,
+            .ctx = &onFieldExpireCtx,
+            .now = commandTimeSnapshot()
         };
 
         ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
@@ -2076,12 +2072,19 @@ uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire) {
 void hashTypeFree(robj *o) {
     switch (o->encoding) {
         case OBJ_ENCODING_HT:
+            /* Verify hash is not registered in global HFE ds */
+            if (isDictWithMetaHFE((dict*)o->ptr)) {
+                dictExpireMetadata *m = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
+                serverAssert(m->expireMeta.trash == 1);
+            }
             dictRelease((dict*) o->ptr);
             break;
         case OBJ_ENCODING_LISTPACK:
             lpFree(o->ptr);
             break;
         case OBJ_ENCODING_LISTPACK_EX:
+            /* Verify hash is not registered in global HFE ds */
+            serverAssert(((listpackEx *) o->ptr)->meta.trash == 1);
             listpackExFree(o->ptr);
             break;
         default:
@@ -2116,7 +2119,7 @@ void hsetnxCommand(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
 
-    if (hashTypeExists(o, c->argv[2]->ptr)) {
+    if (hashTypeExists(c->db, o, c->argv[2]->ptr)) {
         addReply(c, shared.czero);
     } else {
         hashTypeTryConversion(c->db, o,c->argv,2,3);
@@ -2166,7 +2169,7 @@ void hincrbyCommand(client *c) {
 
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&value) == C_OK) {
+    if (hashTypeGetValue(c->db, o,c->argv[2]->ptr,&vstr,&vlen,&value) == C_OK) {
         if (vstr) {
             if (string2ll((char*)vstr,vlen,&value) == 0) {
                 addReplyError(c,"hash value is not an integer");
@@ -2206,7 +2209,7 @@ void hincrbyfloatCommand(client *c) {
         return;
     }
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&ll) == C_OK) {
+    if (hashTypeGetValue(c->db, o,c->argv[2]->ptr,&vstr,&vlen,&ll) == C_OK) {
         if (vstr) {
             if (string2ld((char*)vstr,vlen,&value) == 0) {
                 addReplyError(c,"hash value is not a float");
@@ -2254,7 +2257,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_OK) {
+    if (hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll) == C_OK) {
         if (vstr) {
             addReplyBulkCBuffer(c, vstr, vlen);
         } else {
@@ -2331,7 +2334,7 @@ void hstrlenCommand(client *c) {
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
-    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]->ptr));
+    addReplyLongLong(c,hashTypeGetValueLength(c->db, o,c->argv[2]->ptr));
 }
 
 static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {
@@ -2417,7 +2420,7 @@ void hexistsCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addReply(c, hashTypeExists(o,c->argv[2]->ptr) ? shared.cone : shared.czero);
+    addReply(c, hashTypeExists(c->db, o,c->argv[2]->ptr) ? shared.cone : shared.czero);
 }
 
 void hscanCommand(client *c) {
@@ -2790,9 +2793,9 @@ int hfieldIsExpired(hfield field) {
  *----------------------------------------------------------------------------*/
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen) {
     robj *argv[] = {
-            shared.hdel,
-            createStringObject((char*) key, sdslen(key)),
-            createStringObject(field, fieldLen)
+        shared.hdel,
+        createStringObject((char*) key, sdslen(key)),
+        createStringObject(field, fieldLen)
     };
 
     enterExecutionUnit(1, 0);
