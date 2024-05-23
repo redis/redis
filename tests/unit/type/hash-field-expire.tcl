@@ -24,6 +24,19 @@ set S_FIELD_AND_TTL 3
 
 ############################### AUX FUNCS ######################################
 
+proc get_hashes_with_expiry_fields {r} {
+    set input_string [r info keyspace]
+    set hash_count 0
+
+    foreach line [split $input_string \n] {
+        if {[regexp {hashes_with_expiry_fields=(\d+)} $line -> value]} {
+            return $value
+        }
+    }
+
+    return 0
+}
+
 proc create_hash {key entries} {
     r del $key
     foreach entry $entries {
@@ -1259,5 +1272,24 @@ start_server {tags {"external:skip needs:debug"}} {
         assert_equal [lsort [r hgetall myhash]] [lsort "f2 f3 f4 v2 $payload1 v4"]
 
         r config set hash-max-listpack-value 64
+    }
+
+    test "Statistics - Hashes with HFEs" {
+        r config resetstat
+        r del myhash
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 100 1 f1 f2 f3
+
+        assert_match  [get_hashes_with_expiry_fields r] 1
+        r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        assert_match  [get_hashes_with_expiry_fields r] 1
+        r hpexpire myhash2 100 1 f1 f2 f3
+        assert_match  [get_hashes_with_expiry_fields r] 2
+
+        wait_for_condition 50 50 {
+                [get_hashes_with_expiry_fields r] == 0
+        } else {
+                fail "Hash field expiry statistics failed"
+        }
     }
 }
