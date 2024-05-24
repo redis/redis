@@ -1018,13 +1018,13 @@ NULL
         if (!strcasecmp(c->argv[2]->ptr,"list")){
             dictIterator *di = dictGetIterator(lctx.lua_scripts);
             dictEntry *de;
-            while((de = dictNext(di)) != NULL) {
+            while ((de = dictNext(di)) != NULL) {
                 luaScript *script = dictGetVal(de);
-                sds* sha = dictGetKey(de);
+                sds *sha = dictGetKey(de);
                 serverLog(LL_WARNING,"SCRIPT SHA: %s\n%s", (char*)sha, (char*)script->body->ptr);
             }
-        }
-        else if(sdslen(c->argv[2]->ptr) == 40){
+            dictReleaseIterator(di);
+        } else if (sdslen(c->argv[2]->ptr) == 40){
             char funcname[43];
             funcname[0] = 'f';
             funcname[1] = '_';
@@ -1037,8 +1037,7 @@ NULL
             }
             luaScript *script = dictGetVal(de);
             serverLog(LL_WARNING,"SCRIPT SHA: %s\n%s", (char*)c->argv[2]->ptr, (char*)script->body->ptr);
-        }
-        else {
+        } else {
             addReplySubcommandSyntaxError(c);
             return;
         }
