@@ -17,11 +17,6 @@ set P_NO_FIELD    -2
 set P_NO_EXPIRY   -1
 set P_OK           1
 
-######## HSETF
-set S_FAIL          0
-set S_FIELD         1
-set S_FIELD_AND_TTL 3
-
 ############################### AUX FUNCS ######################################
 
 proc get_hashes_with_expiry_fields {r} {
@@ -107,6 +102,17 @@ start_server {tags {"external:skip needs:debug"}} {
             r config set hash-max-listpack-entries 0
         } else {
             r config set hash-max-listpack-entries 512
+        }
+
+        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Returns empty array if key does not exist" {
+            r del myhash
+            # Make sure we can distinguish between an empty array and a null response
+            r readraw 1
+            assert_equal {*0} [r HEXPIRE myhash 1000 FIELDS 1 a]
+            assert_equal {*0} [r HEXPIREAT myhash 1000 FIELDS 1 a]
+            assert_equal {*0} [r HPEXPIRE myhash 1000 FIELDS 1 a]
+            assert_equal {*0} [r HPEXPIREAT myhash 1000 FIELDS 1 a]
+            r readraw 0
         }
 
         test "HPEXPIRE(AT) - Test 'NX' flag ($type)" {
@@ -278,6 +284,15 @@ start_server {tags {"external:skip needs:debug"}} {
             r flushall async
         }
 
+        test "HTTL/HPTTL - Returns empty array if key does not exist" {
+            r del myhash
+            # Make sure we can distinguish between an empty array and a null response
+            r readraw 1
+            assert_equal {*0} [r HTTL myhash FIELDS 1 a]
+            assert_equal {*0} [r HPTTL myhash FIELDS 1 a]
+            r readraw 0
+        }
+
         test "HTTL/HPTTL - Input validation gets failed on nonexists field or field without expire ($type)" {
             r del myhash
             r HSET myhash field1 value1 field2 value2
@@ -299,6 +314,15 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [lindex $ttlArray 0] 1 2
             set ttl [r HPTTL myhash FIELDS 1 field1]
             assert_range $ttl 1000 2000
+        }
+
+        test "HEXPIRETIME/HPEXPIRETIME - Returns empty array if key does not exist" {
+            r del myhash
+            # Make sure we can distinguish between an empty array and a null response
+            r readraw 1
+            assert_equal {*0} [r HEXPIRETIME myhash FIELDS 1 a]
+            assert_equal {*0} [r HPEXPIRETIME myhash FIELDS 1 a]
+            r readraw 0
         }
 
         test "HEXPIRETIME - returns TTL in Unix timestamp ($type)" {
@@ -652,6 +676,14 @@ start_server {tags {"external:skip needs:debug"}} {
             wait_for_condition 20 10 { [r exists myhash] == 0 } else { fail "'myhash' should be expired" }
         } {} {singledb:skip}
 
+        test "HPERSIST - Returns empty array if key does not exist" {
+            r del myhash
+            # Make sure we can distinguish between an empty array and a null response
+            r readraw 1
+            assert_equal {*0} [r HPERSIST myhash FIELDS 1 a]
+            r readraw 0
+        }
+
         test "HPERSIST - input validation ($type)" {
             # HPERSIST key <num-fields> <field [field ...]>
             r del myhash
@@ -685,462 +717,9 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hpersist myhash FIELDS 1 fieldnonexist] $P_NO_FIELD
         }
 
-        test "HGETF - input validation ($type)" {
-            assert_error {*wrong number of arguments*} {r hgetf myhash}
-            assert_error {*wrong number of arguments*} {r hgetf myhash fields}
-            assert_error {*wrong number of arguments*} {r hgetf myhash fields 1}
-            assert_error {*wrong number of arguments*} {r hgetf myhash fields 2 a}
-            assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
-            assert_error {*wrong number of arguments*} {r hgetf myhash fields 3 a b}
-            assert_error {*unknown argument*} {r hgetf myhash fields 1 a unknown}
-            assert_error {*missing FIELDS argument*} {r hgetf myhash nx ex 100}
-            assert_error {*multiple FIELDS argument*} {r hgetf myhash fields 1 a fields 1 b}
-
-            r hset myhash f1 v1 f2 v2 f3 v3
-            # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash nx fields 1 a}
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash xx fields 1 a}
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash gt fields 1 a}
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hgetf myhash lt fields 1 a}
-
-            # Only one of NX, XX, GT, and LT can be specified
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash nx xx EX 100 fields 1 a}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash xx nx EX 100 fields 1 a}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash gt nx EX 100 fields 1 a}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash gt lt EX 100 fields 1 a}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash xx gt EX 100 fields 1 a}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hgetf myhash lt gt EX 100 fields 1 a}
-
-            # Only one of EX, PX, EXAT, PXAT or PERSIST can be specified
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 PX 1000 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 EXAT 100 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EXAT 100 EX 1000 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EXAT 100 PX 1000 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PX 100 EXAT 100 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PX 100 PXAT 100 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PXAT 100 EX 100 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PXAT 100 EXAT 100 fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash EX 100 PERSIST fields 1 a}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or PERSIST arguments*} {r hgetf myhash PERSIST EX 100 fields 1 a}
-
-            # missing expire time
-            assert_error {*not an integer or out of range*} {r hgetf myhash ex fields 1 a}
-            assert_error {*not an integer or out of range*} {r hgetf myhash px fields 1 a}
-            assert_error {*not an integer or out of range*} {r hgetf myhash exat fields 1 a}
-            assert_error {*not an integer or out of range*} {r hgetf myhash pxat fields 1 a}
-
-            # expire time more than 2 ^ 48
-            assert_error {*invalid expire time*} {r hgetf myhash EXAT [expr (1<<48)] 1 f1}
-            assert_error {*invalid expire time*} {r hgetf myhash PXAT [expr (1<<48)] 1 f1}
-            assert_error {*invalid expire time*} {r hgetf myhash EX [expr (1<<48) - [clock seconds] + 1000 ] 1 f1}
-            assert_error {*invalid expire time*} {r hgetf myhash PX [expr (1<<48) - [clock milliseconds] + 1000 ] 1 f1}
-
-            # negative expire time
-            assert_error {*invalid expire time*} {r hgetf myhash EXAT -10 1 f1}
-
-            # negative field value count
-            assert_error {*invalid number of fields*} {r hgetf myhash fields -1 a}
-        }
-
-        test "HGETF - Verify field value reply type is string ($type)" {
-            r del myhash
-            r hsetf myhash FVS 1 f1 1
-
-            r readraw 1
-            assert_equal [r hgetf myhash FIELDS 1 f1] {*1}
-            assert_equal [r read] {$1}
-            assert_equal [r read] {1}
-            r readraw 0
-        }
-
-        test "HGETF - Test 'NX' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
-            assert_equal [r hgetf myhash EX 10000 NX FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash FIELDS 1 field1] 1 1000
-            assert_range [r httl myhash FIELDS 1 field2] 5000 10000
-
-            # A field with no expiration is treated as an infinite expiration.
-            # LT should set the expire time if field has no TTL.
-            r del myhash
-            r hset myhash field1 value1
-            assert_equal [r hgetf myhash EX 1500 LT FIELDS 1 field1]  [list  "value1"]
-            assert_not_equal [r httl myhash FIELDS 1 field1] "$T_NO_EXPIRY"
-        }
-
-        test "HGETF - Test 'XX' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
-            assert_equal [r hgetf myhash EX 10000 XX FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash FIELDS 1 field1] 9900 10000
-            assert_equal [r httl myhash FIELDS 1 field2] "$T_NO_EXPIRY"
-        }
-
-        test "HGETF - Test 'GT' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
-            assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
-            assert_equal [r hgetf myhash EX 1500 GT FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash FIELDS 1 field1] 1400 1500
-            assert_range [r httl myhash FIELDS 1 field2] 1900 2000
-        }
-
-        test "HGETF - Test 'LT' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash EX 1000 NX FIELDS 1 field1] [list  "value1"]
-            assert_equal [r hgetf myhash EX 2000 NX FIELDS 1 field2] [list  "value2"]
-            assert_equal [r hgetf myhash EX 1500 LT FIELDS 2 field1 field2] [list  "value1" "value2"]
-            assert_range [r httl myhash FIELDS 1 field1] 1 1000
-            assert_range [r httl myhash FIELDS 1 field2] 1000 1500
-        }
-
-        test "HGETF - Test 'EX' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash EX 1000 FIELDS 1 field3] [list "value3"]
-            assert_range [r httl myhash FIELDS 1 field3] 1 1000
-        }
-
-        test "HGETF - Test 'EXAT' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash EXAT 4000000000 FIELDS 1 field3] [list "value3"]
-            assert_range [expr [r httl myhash FIELDS 1 field3] + [clock seconds]] 3900000000 4000000000
-        }
-
-        test "HGETF - Test 'PX' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash PX 1000000 FIELDS 1 field3] [list "value3"]
-            assert_range [r httl myhash FIELDS 1 field3] 900 1000
-        }
-
-        test "HGETF - Test 'PXAT' flag ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetf myhash PXAT 4000000000000 FIELDS 1 field3] [list "value3"]
-            assert_range [expr [r httl myhash FIELDS 1 field3] + [clock seconds]] 3900000000 4000000000
-        }
-
-        test "HGETF - Test 'PERSIST' flag ($type)" {
-            r del myhash
-            r debug set-active-expire 0
-
-            r hset myhash f1 v1 f2 v2 f3 v3
-            r hgetf myhash PX 5000 FIELDS 3 f1 f2 f3
-            assert_not_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
-            assert_not_equal [r httl myhash FIELDS 1 f3] "$T_NO_EXPIRY"
-
-            assert_equal [r hgetf myhash PERSIST FIELDS 1 f1] "v1"
-            assert_equal [r httl myhash FIELDS 1 f1]  "$T_NO_EXPIRY"
-
-            assert_equal [r hgetf myhash PERSIST FIELDS 2 f2 f3] "v2 v3"
-            assert_equal [r httl myhash FIELDS 2 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY"
-        }
-
-        test "HGETF - Test setting expired ttl deletes key ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-
-            # hgetf without setting ttl
-            assert_equal [lsort [r hgetf myhash fields 3 f1 f2 f3]] [lsort "v1 v2 v3"]
-            assert_equal [r httl myhash FIELDS 3 f1 f2 f3] "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
-
-            # set expired ttl and verify key is deleted
-            r hgetf myhash PXAT 1 fields 3 f1 f2 f3
-            assert_equal [r exists myhash] 0
-        }
-
-        test "HGETF - Test active expiry ($type)" {
-            r del myhash
-            r debug set-active-expire 0
-
-            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-            r hgetf myhash PXAT 1 FIELDS 5 f1 f2 f3 f4 f5
-
-            r debug set-active-expire 1
-            wait_for_condition 50 20 { [r EXISTS myhash] == 0 } else { fail "'myhash' should be expired" }
-        }
-
-        test "HGETF - A field with TTL overridden with another value (TTL discarded) ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2 field3 value3
-            r hgetf myhash PX 10000 NX FIELDS 1 field1
-            r hgetf myhash EX 100 NX FIELDS 1 field2
-
-            # field2 TTL will be discarded
-            r hset myhash field2 value4
-
-            # Expected TTL will be discarded
-            assert_equal [r hget myhash field2] "value4"
-            assert_equal [r httl myhash FIELDS 2 field2 field3] "$T_NO_EXPIRY $T_NO_EXPIRY"
-
-            # Other field is not affected.
-            assert_not_equal [r httl myhash FIELDS 1 field1] "$T_NO_EXPIRY"
-        }
-
-        test "HSETF - input validation ($type)" {
-            assert_error {*wrong number of arguments*} {r hsetf myhash}
-            assert_error {*wrong number of arguments*} {r hsetf myhash fvs}
-            assert_error {*wrong number of arguments*} {r hsetf myhash fvs 1}
-            assert_error {*wrong number of arguments*} {r hsetf myhash fvs 2 a b}
-            assert_error {*wrong number of arguments*} {r hsetf myhash fvs 3 a b c d}
-            assert_error {*wrong number of arguments*} {r hsetf myhash fvs 3 a b}
-            assert_error {*unknown argument*} {r hsetf myhash fvs 1 a b unknown}
-            assert_error {*missing FVS argument*} {r hsetf myhash nx nx ex 100}
-            assert_error {*multiple FVS argument*} {r hsetf myhash DC fvs 1 a b fvs 1 a b}
-
-            r hset myhash f1 v1 f2 v2 f3 v3
-            # NX, XX, GT, and LT can be specified only when EX, PX, EXAT, or PXAT is specified
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash nx fvs 1 a b}
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash xx fvs 1 a b}
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash gt fvs 1 a b}
-            assert_error {*only when EX, PX, EXAT, or PXAT is specified*} {r hsetf myhash lt fvs 1 a b}
-
-            # Only one of NX, XX, GT, and LT can be specified
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash nx xx EX 100 fvs 1 a b}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash xx nx EX 100 fvs 1 a b}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash gt nx EX 100 fvs 1 a b}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash gt lt EX 100 fvs 1 a b}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash xx gt EX 100 fvs 1 a b}
-            assert_error {*Only one of NX, XX, GT, and LT arguments*} {r hsetf myhash lt gt EX 100 fvs 1 a b}
-
-            # Only one of EX, PX, EXAT, PXAT or KEEPTTL can be specified
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 PX 1000 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 EXAT 100 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EXAT 100 EX 1000 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EXAT 100 PX 1000 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PX 100 EXAT 100 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PX 100 PXAT 100 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PXAT 100 EX 100 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash PXAT 100 EXAT 100 fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash EX 100 KEEPTTL fvs 1 a b}
-            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetf myhash KEEPTTL EX 100 fvs 1 a b}
-
-            # Only one of DCF, DOF can be specified
-            assert_error {*Only one of DCF or DOF arguments can be specified*} {r hsetf myhash DCF DOF fvs 1 a b}
-            assert_error {*Only one of DCF or DOF arguments can be specified*} {r hsetf myhash DOF DCF fvs 1 a b}
-
-            # Only one of GETNEW, GETOLD can be specified
-            assert_error {*Only one of GETOLD or GETNEW arguments can be specified*} {r hsetf myhash GETNEW GETOLD fvs 1 a b}
-            assert_error {*Only one of GETOLD or GETNEW arguments can be specified*} {r hsetf myhash GETOLD GETNEW fvs 1 a b}
-
-            # missing expire time
-            assert_error {*not an integer or out of range*} {r hsetf myhash ex fvs 1 a b}
-            assert_error {*not an integer or out of range*} {r hsetf myhash px fvs 1 a b}
-            assert_error {*not an integer or out of range*} {r hsetf myhash exat fvs 1 a b}
-            assert_error {*not an integer or out of range*} {r hsetf myhash pxat fvs 1 a b}
-
-            # expire time more than 2 ^ 48
-            assert_error {*invalid expire time*} {r hsetf myhash EXAT [expr (1<<48)] 1 a b}
-            assert_error {*invalid expire time*} {r hsetf myhash PXAT [expr (1<<48)] 1 a b}
-            assert_error {*invalid expire time*} {r hsetf myhash EX [expr (1<<48) - [clock seconds] + 1000 ] 1 a b}
-            assert_error {*invalid expire time*} {r hsetf myhash PX [expr (1<<48) - [clock milliseconds] + 1000 ] 1 a b}
-
-            # negative ttl
-            assert_error {*invalid expire time*} {r hsetf myhash EXAT -1 1 a b}
-
-            # negative field value count
-            assert_error {*invalid number of fvs count*} {r hsetf myhash fvs -1 a b}
-        }
-
-        test "HSETF - Verify field value reply type is string ($type)" {
-            r del myhash
-            r hsetf myhash FVS 1 field 1
-            r readraw 1
-
-            # Test with GETOLD
-            assert_equal [r hsetf myhash GETOLD FVS 1 field 200] {*1}
-            assert_equal [r read] {$1}
-            assert_equal [r read] {1}
-
-            # Test with GETNEW.
-            assert_equal [r hsetf myhash DOF GETNEW FVS 1 field 300] {*1}
-            assert_equal [r read] {$3}
-            assert_equal [r read] {200}
-
-            r readraw 0
-        }
-
-        test "HSETF - Test DC flag ($type)" {
-            r del myhash
-            # don't create key
-            assert_equal "" [r hsetf myhash DC fvs 1 a b]
-        }
-
-        test "HSETF - Test DCF/DOF flag ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-
-            # Don't overwrite fields
-            assert_equal [r hsetf myhash DOF fvs 2 f1 n1 f2 n2] "$S_FAIL $S_FAIL"
-            assert_equal [r hsetf myhash DOF fvs 3 f1 n1 f2 b2 f4 v4] "$S_FAIL $S_FAIL $S_FIELD"
-            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2 f3 v3 f4 v4"]
-
-            # Don't create fields
-            assert_equal [r hsetf myhash DCF fvs 3 f1 n1 f2 b2 f5 v5] "$S_FIELD $S_FIELD $S_FAIL"
-            assert_equal [lsort [r hgetall myhash]] [lsort "f1 n1 f2 b2 f3 v3 f4 v4"]
-        }
-
-        test "HSETF - Test 'NX' flag ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-            assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
-            assert_equal [r hsetf myhash EX 10000 NX FVS 2 f1 n1 f2 n2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_range [r httl myhash FIELDS 1 f1] 990 1000
-            assert_range [r httl myhash FIELDS 1 f2] 9990 10000
-        }
-
-        test "HSETF - Test 'XX' flag ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-            assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
-            assert_equal [r hsetf myhash EX 10000 XX FVS 2 f1 n1 f2 n2] "$S_FIELD_AND_TTL $S_FIELD"
-            assert_range [r httl myhash FIELDS 1 f1] 9900 10000
-            assert_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
-        }
-
-        test "HSETF - Test 'GT' flag ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-            assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 n1] "$S_FIELD_AND_TTL"
-            assert_equal [r hsetf myhash EX 2000 NX FVS 1 f2 n2] "$S_FIELD_AND_TTL"
-            assert_equal [r hsetf myhash EX 1500 GT FVS 2 f1 n1 f2 n2] "$S_FIELD_AND_TTL $S_FIELD"
-            assert_range [r httl myhash FIELDS 1 f1] 1400 1500
-            assert_range [r httl myhash FIELDS 1 f2] 1600 2000
-        }
-
-        test "HSETF - Test 'LT' flag ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-            assert_equal [r hsetf myhash EX 1000 NX FVS 1 f1 v1] "$S_FIELD_AND_TTL"
-            assert_equal [r hsetf myhash EX 2000 NX FVS 1 f2 v2] "$S_FIELD_AND_TTL"
-            assert_equal [r hsetf myhash EX 1500 LT FVS 2 f1 v1 f2 v2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_range [r httl myhash FIELDS 1 f1] 900 1000
-            assert_range [r httl myhash FIELDS 1 f2] 1400 1500
-
-            # A field with no expiration is treated as an infinite expiration.
-            # LT should set the expire time if field has no TTL.
-            r del myhash
-            r hset myhash f1 v1
-            assert_equal [r hsetf myhash EX 1500 LT FVS 1 f1 v1]  "$S_FIELD_AND_TTL"
-        }
-
-        test "HSETF - Test 'EX' flag ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2
-            assert_equal [r hsetf myhash EX 1000 FVS 1 f3 v3 ] "$S_FIELD_AND_TTL"
-            assert_range [r httl myhash FIELDS 1 f3] 900 1000
-        }
-
-        test "HSETF - Test 'EXAT' flag ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2
-            assert_equal [r hsetf myhash EXAT 4000000000 FVS 1 f3 v3] "$S_FIELD_AND_TTL"
-            assert_range [expr [r httl myhash FIELDS 1 f3] + [clock seconds]] 3900000000 4000000000
-        }
-
-        test "HSETF - Test 'PX' flag ($type)" {
-            r del myhash
-            assert_equal [r hsetf myhash PX 1000000 FVS 1 f3 v3] "$S_FIELD_AND_TTL"
-            assert_range [r httl myhash FIELDS 1 f3] 990 1000
-        }
-
-        test "HSETF - Test 'PXAT' flag ($type)" {
-            r del myhash
-            r hset myhash f1 v2 f2 v2 f3 v3
-            assert_equal [r hsetf myhash PXAT 4000000000000 FVS 1 f2 v2] "$S_FIELD_AND_TTL"
-            assert_range [expr [r httl myhash FIELDS 1 f2] + [clock seconds]] 3900000000 4000000000
-        }
-
-        test "HSETF - Test 'KEEPTTL' flag ($type)" {
-            r del myhash
-
-            r hsetf myhash FVS 2 f1 v1 f2 v2
-            r hsetf myhash PX 5000 FVS 1 f2 v2
-
-            # f1 does not have ttl
-            assert_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
-
-            # f2 has ttl
-            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
-
-            # Validate KEEPTTL preserve TTL
-            assert_equal [r hsetf myhash KEEPTTL FVS 1 f2 n2] "$S_FIELD"
-            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
-            assert_equal [r hget myhash f2] "n2"
-        }
-
-        test "HSETF - Test no expiry flag discards TTL ($type)" {
-            r del myhash
-
-            r hsetf myhash FVS 1 f1 v1
-            r hsetf myhash PX 5000 FVS 1 f2 v2
-
-            assert_equal [r hsetf myhash FVS 2 f1 v1 f2 v2] "$S_FIELD $S_FIELD_AND_TTL"
-            assert_not_equal [r httl myhash FIELDS 1 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
-        }
-
-        test "HSETF - Test 'GETNEW/GETOLD' flag ($type)" {
-            r del myhash
-
-            assert_equal [r hsetf myhash GETOLD fvs 2 f1 v1 f2 v2] "{} {}"
-            assert_equal [r hsetf myhash GETNEW fvs 2 f1 v1 f2 v2] "v1 v2"
-            assert_equal [r hsetf myhash GETOLD fvs 2 f1 n1 f2 n2] "v1 v2"
-            assert_equal [r hsetf myhash GETOLD DOF fvs 2 f1 n1 f2 n2] "n1 n2"
-            assert_equal [r hsetf myhash GETNEW DOF fvs 2 f1 n1 f2 n2] "n1 n2"
-            assert_equal [r hsetf myhash GETNEW DCF fvs 2 f1 x1 f2 x2] "x1 x2"
-            assert_equal [r hsetf myhash GETNEW DCF fvs 2 f4 x4 f5 x5] "{} {}"
-
-            r del myhash
-            assert_equal [r hsetf myhash GETOLD fvs 2 f1 v1 f2 v2] "{} {}"
-
-            # DOF check will prevent override and GETNEW should return old value
-            assert_equal [r hsetf myhash DOF GETNEW fvs 2 f1 v12 f2 v22] "v1 v2"
-        }
-
-        test "HSETF - Test with active expiry" {
-            r del myhash
-            r debug set-active-expire 0
-
-            r hsetf myhash PX 10 FVS 5 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-            r debug set-active-expire 1
-            wait_for_condition 50 20 { [r EXISTS myhash] == 0 } else { fail "'myhash' should be expired" }
-        }
-
-        test "HSETF - Set time in the past ($type)" {
-            r del myhash
-            assert_equal [r hsetf myhash EXAT [expr {[clock seconds] - 1}] FVS 2 f1 v1 f2 v2] "$S_FIELD_AND_TTL $S_FIELD_AND_TTL"
-            assert_equal [r hexists myhash field1] 0
-
-            # Try with override
-            r hset myhash fvs 2 f1 v1 f2 v2
-            assert_equal [r hsetf myhash EXAT [expr {[clock seconds] - 1}] FVS 2 f1 v1 f2 v2] "$S_FIELD_AND_TTL $S_FIELD_AND_TTL"
-            assert_equal [r hexists myhash field1] 0
-        }
-
-        test "HSETF - Test failed hsetf call should not leave empty key ($type)" {
-            r del myhash
-            # This should not create the field as DCF flag is given
-            assert_equal [r hsetf myhash DCF FVS 1 a b] ""
-
-            # Key should not exist
-            assert_equal [r exists myhash] 0
-
-            # Try with GETNEW/GETOLD
-            assert_equal [r hsetf myhash GETNEW DCF FVS 1 a b] ""
-            assert_equal [r exists myhash] 0
-            assert_equal [r hsetf myhash GETOLD DCF FVS 1 a b] ""
-            assert_equal [r exists myhash] 0
-        }
-
         test {DUMP / RESTORE are able to serialize / unserialize a hash} {
             r config set sanitize-dump-payload yes
+            r del myhash
             r hmset myhash a 1 b 2 c 3
             r hexpireat myhash 2524600800 fields 1 a
             r hexpireat myhash 2524600801 fields 1 b
@@ -1153,6 +732,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
         test {DUMP / RESTORE are able to serialize / unserialize a hash with TTL 0 for all fields} {
             r config set sanitize-dump-payload yes
+            r del myhash
             r hmset myhash a 1 b 2 c 3
             r hexpire myhash 9999999 fields 1 a ;# make all TTLs of fields to 0
             r hpersist myhash fields 1 a
@@ -1231,14 +811,18 @@ start_server {tags {"external:skip needs:debug"}} {
         wait_for_condition 50 20 { [r EXISTS myhash] == 0 } else { fail "'myhash' should be expired" }
     }
 
-    test "HSETF - Test listpack converts to ht" {
+    test "Test listpack converts to ht and active expiry works" {
         r del myhash
         r debug set-active-expire 0
 
-        # Check expiry works after listpack converts ht by using hsetf
+        # Check expiry works after listpack converts to ht
         for {set i 0} {$i < 1024} {incr i} {
-            r hsetf myhash PX 10 FVS 3 a$i b$i c$i d$i e$i f$i
+            r hset myhash a$i b$i c$i d$i e$i f$i g$i h$i
+            r hpexpire myhash 10 FIELDS 4 a$i c$i e$i g$i
         }
+
+        assert_encoding hashtable myhash
+        assert_equal [r hlen myhash] 4096
 
         r debug set-active-expire 1
         wait_for_condition 50 20 { [r EXISTS myhash] == 0 } else { fail "'myhash' should be expired" }
@@ -1258,7 +842,8 @@ start_server {tags {"external:skip needs:debug"}} {
 
         # Test with single item list
         r hset myhash f1 $payload1
-        assert_equal [r hgetf myhash EX 2000 FIELDS 1 f1] $payload1
+        r hexpire myhash 2000 FIELDS 1 f1
+        assert_equal [r hget myhash f1] $payload1
         r del myhash
 
         # Test with multiple items
@@ -1278,12 +863,12 @@ start_server {tags {"external:skip needs:debug"}} {
         r config resetstat
         r del myhash
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 100 1 f1 f2 f3
+        r hpexpire myhash 100 FIELDS 1 f1 f2 f3
 
         assert_match  [get_hashes_with_expiry_fields r] 1
         r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         assert_match  [get_hashes_with_expiry_fields r] 1
-        r hpexpire myhash2 100 1 f1 f2 f3
+        r hpexpire myhash2 100 FIELDS 1 f1 f2 f3
         assert_match  [get_hashes_with_expiry_fields r] 2
 
         wait_for_condition 50 50 {
