@@ -1016,7 +1016,7 @@ NULL
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr,"list")) {
-            dictIterator *di = dictGetIterator(lctx.lua_scripts);
+            dictIterator *di = dictGetIterator(getLuaScripts());
             dictEntry *de;
             while ((de = dictNext(di)) != NULL) {
                 luaScript *script = dictGetVal(de);
@@ -1031,8 +1031,8 @@ NULL
             memcpy(funcname+2, (char*)c->argv[2]->ptr, 40);
             funcname[42] = '\0';
             dictEntry *de;
-            if ((de = dictFind(lctx.lua_scripts,funcname+2)) == NULL) {
-                addReplyErrorObject(c,shared.noscripterr);
+            if ((de = dictFind(getLuaScripts(), funcname+2)) == NULL) {
+                addReplyErrorObject(c, shared.noscripterr);
                 return;
             }
             luaScript *script = dictGetVal(de);
