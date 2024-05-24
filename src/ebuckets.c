@@ -436,10 +436,11 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
 
         for (i = 0; (i < numItemsInSeg) && (info->itemsExpired < info->maxToExpire) ; ++i) {
             mIter = type->getExpireMeta(iter);
-            eItem toDelete = iter;
-            iter = mIter->next;
+
+            /* keep aside `next` before removing `iter` by onExpireItem */
+            eItem next = mIter->next;
             mIter->trash = 1;
-            ExpireAction act = info->onExpireItem(toDelete, info->ctx);
+            ExpireAction act = info->onExpireItem(iter, info->ctx);
 
             /* if (act == ACT_REMOVE_EXP_ITEM)
              *  then don't touch the item. Assume it got deleted */
@@ -452,9 +453,11 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
 
             if (act == ACT_UPDATE_EXP_ITEM) {
                 mIter->next = *updateList;
-                *updateList = toDelete;
+                *updateList = iter;
             }
 
+            /* Item was REMOVED/UPDATED. Advance to `next` item */
+            iter = next;
             ++info->itemsExpired;
             firstSegHdr->totalItems -= 1;
         }
@@ -672,6 +675,7 @@ static int ebListExpire(ebuckets *eb,
         if (info->itemsExpired == info->maxToExpire)
             break;
 
+        /* keep aside `next` before removing `iter` by onExpireItem */
         eItem *next = metaItem->next;
         metaItem->trash = 1;
         ExpireAction act = info->onExpireItem(item, info->ctx);

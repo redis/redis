@@ -340,31 +340,59 @@ static void listpackExFree(listpackEx *lpt) {
     zfree(lpt);
 }
 
+struct lpFingArgs {
+    uint64_t max_to_search; /* [in] Max number of tuples to search */
+    uint64_t expire_time;   /* [in] Find the tuple that has a TTL larger than expire_time */
+    unsigned char *p;       /* [out] First item of the tuple that has a TTL larger than expire_time */
+    int expired;            /* [out] Number of tuples that have TTLs less than expire_time */
+    int index;              /* Internally used */
+    unsigned char *fptr;    /* Internally used, temp ptr */
+};
+
+/* Callback for lpFindCb(). Used to find number of expired fields as part of
+ * active expiry or when trying to find the position for the new field according
+ * to its expiry time.*/
+static int cbFindInListpack(const unsigned char *lp, unsigned char *p,
+                            void *user, unsigned char *s, long long slen)
+{
+    (void) lp;
+    struct lpFingArgs *r = user;
+
+    r->index++;
+
+    if (r->max_to_search == 0)
+        return 0; /* Break the loop and return */
+
+    if (r->index % 3 == 1) {
+        r->fptr = p;  /* First item of the tuple. */
+    } else if (r->index % 3 == 0) {
+        serverAssert(!s);
+
+        /* Third item of a tuple is expiry time */
+        if (slen == HASH_LP_NO_TTL || (uint64_t) slen >= r->expire_time) {
+            r->p = r->fptr;
+            return 0; /* Break the loop and return */
+        }
+        r->expired++;
+        r->max_to_search--;
+    }
+
+    return 1;
+}
+
 /* Returns number of expired fields. */
 static uint64_t listpackExExpireDryRun(const robj *o) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
 
-    uint64_t expired = 0;
-    unsigned char *fptr;
     listpackEx *lpt = o->ptr;
 
-    fptr = lpFirst(lpt->lp);
-    while (fptr != NULL) {
-        long long val;
+    struct lpFingArgs r = {
+        .max_to_search = UINT64_MAX,
+        .expire_time = commandTimeSnapshot(),
+    };
 
-        fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr);
-        fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr && lpGetIntegerValue(fptr, &val));
-
-        if (!hashTypeIsExpired(o, val))
-            break;
-
-        expired++;
-        fptr = lpNext(lpt->lp, fptr);
-    }
-
-    return expired;
+    lpFindCb(lpt->lp, NULL, &r, cbFindInListpack, 0);
+    return r.expired;
 }
 
 /* Returns the expiration time of the item with the nearest expiration. */
@@ -392,8 +420,8 @@ static uint64_t listpackExGetMinExpire(robj *o) {
 /* Walk over fields and delete the expired ones. */
 void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
-    uint64_t min = EB_EXPIRE_TIME_INVALID;
-    unsigned char *ptr, *pTuple;
+    uint64_t expired = 0, min = EB_EXPIRE_TIME_INVALID;
+    unsigned char *ptr;
     listpackEx *lpt = o->ptr;
 
     ptr = lpFirst(lpt->lp);
@@ -402,8 +430,6 @@ void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
         long long val;
         int64_t flen;
         unsigned char intbuf[LP_INTBUF_SIZE], *fref;
-
-        pTuple = ptr; /* keep aside ref to begining of the tuple*/
 
         fref = lpGet(ptr, &flen, intbuf);
 
@@ -419,56 +445,53 @@ void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
 
         propagateHashFieldDeletion(db, ((listpackEx *) o->ptr)->key, (char *)((fref) ? fref : intbuf), flen);
 
-        lpt->lp = lpDeleteRangeWithEntry(lpt->lp, &pTuple, 3);
-        ptr = pTuple;
+        ptr = lpNext(lpt->lp, ptr);
+
         info->itemsExpired++;
+        expired++;
     }
+
+    if (expired)
+        lpt->lp = lpDeleteRange(lpt->lp, 0, expired * 3);
 
     min = hashTypeGetNextTimeToExpire(o);
     info->nextExpireTime = (min != EB_EXPIRE_TIME_INVALID) ? min : 0;
 }
 
-/* Remove TTL from the field. */
-static void listpackExPersist(robj *o, sds field, unsigned char *fptr,
-                              unsigned char *vptr)
-{
-    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
-
-    unsigned char tmp[512];
-    unsigned int slen;
-    long long val;
-    unsigned char *s;
-    sds p = NULL;
+static void listpackExAddInternal(robj *o, listpackEntry ent[3]) {
     listpackEx *lpt = o->ptr;
 
-    /* To persist a field, we have to delete it first and append to the end as
-     * we want to maintain order by expiry time. Before deleting it, copy the
-     * value if it is stored as string. */
-    s = lpGetValue(vptr, &slen, &val);
-    if (s) {
-        /* Normally, item length in the listpack is limited by
-         * 'hash-max-listpack-value' config. It is unlikely, but it might be
-         * larger than sizeof(tmp). */
-        if (slen > sizeof(tmp))
-            p = sdsnewlen(s, slen);
-        else
-            memcpy(tmp, s, slen);
+    /* Shortcut, just append at the end if this is a non-volatile field. */
+    if (ent[2].lval == HASH_LP_NO_TTL) {
+        lpt->lp = lpBatchAppend(lpt->lp, ent, 3);
+        return;
     }
 
-    /* Delete field name, value and expiry time.  */
-    lpt->lp = lpDeleteRangeWithEntry(lpt->lp, &fptr, 3);
+    struct lpFingArgs r = {
+            .max_to_search = UINT64_MAX,
+            .expire_time = ent[2].lval,
+    };
 
-    /* Append field to the end as it does not have expiry time. */
-    lpt->lp = lpAppend(lpt->lp, (unsigned char*)field, sdslen(field));
+    /* Check if there is a field with a larger TTL. */
+    lpFindCb(lpt->lp, NULL, &r, cbFindInListpack, 0);
 
-    if (s)
-        lpt->lp = lpAppend(lpt->lp, p ? (unsigned char*) p : tmp, slen);
+    /* If list is empty or there is no field with a larger TTL, result will be
+     * NULL. Otherwise, just insert before the found item.*/
+    if (r.p)
+        lpt->lp = lpBatchInsert(lpt->lp, r.p, LP_BEFORE, ent, 3, NULL);
     else
-        lpt->lp = lpAppendInteger(lpt->lp, val);
+        lpt->lp = lpBatchAppend(lpt->lp, ent, 3);
+}
 
-    lpt->lp = lpAppendInteger(lpt->lp, HASH_LP_NO_TTL);
+/* Add new field ordered by expire time. */
+void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
+    listpackEntry ent[3] = {
+        {.sval = (unsigned char*) field, .slen = sdslen(field)},
+        {.sval = (unsigned char*) value, .slen = sdslen(value)},
+        {.lval = expireAt}
+    };
 
-    sdsfree(p);
+    listpackExAddInternal(o, ent);
 }
 
 /* If expiry time is changed, this function will place field into the correct
@@ -477,13 +500,13 @@ static void listpackExPersist(robj *o, sds field, unsigned char *fptr,
 static void listpackExUpdateExpiry(robj *o, sds field,
                                    unsigned char *fptr,
                                    unsigned char *vptr,
-                                   uint64_t expireAt) {
-    unsigned int slen;
-    long long val;
+                                   uint64_t expire_at) {
+    unsigned int slen = 0;
+    long long val = 0;
     unsigned char tmp[512] = {0};
-    unsigned char *valstr, *elem;
-    listpackEx *lpt = o->ptr;
+    unsigned char *valstr;
     sds tmpval = NULL;
+    listpackEx *lpt = o->ptr;
 
     /* Copy value */
     valstr = lpGetValue(vptr, &slen, &val);
@@ -500,97 +523,21 @@ static void listpackExUpdateExpiry(robj *o, sds field,
     /* Delete field name, value and expiry time */
     lpt->lp = lpDeleteRangeWithEntry(lpt->lp, &fptr, 3);
 
-    /* Insert to the listpack */
-    fptr = lpFirst(lpt->lp);
-    while (fptr) {
-        long long currExpiry;
+    listpackEntry ent[3] = {{0}};
 
-        elem = fptr; /* Keep a pointer to field name */
-        fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr);
-        fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr && lpGetIntegerValue(fptr, &currExpiry));
+    ent[0].sval = (unsigned char*) field;
+    ent[0].slen = sdslen(field);
 
-        if (currExpiry == HASH_LP_NO_TTL || (uint64_t) currExpiry >= expireAt) {
-            /* Found a field with no expiry time or with a higher expiry time.
-             * Insert new field just before it. */
-            lpt->lp = lpInsertString(lpt->lp, (unsigned char*) field,
-                                     sdslen(field), elem, LP_BEFORE, &fptr);
-
-            /* Insert value after field name */
-            if (valstr) {
-                lpt->lp = lpInsertString(lpt->lp,
-                                         tmpval ? (unsigned char*) tmpval : tmp,
-                                         slen, fptr, LP_AFTER, &fptr);
-            } else {
-                lpt->lp = lpInsertInteger(lpt->lp, val, fptr, LP_AFTER, &fptr);
-            }
-
-            /* Insert expiry time after value. */
-            lpt->lp = lpInsertInteger(lpt->lp, (long long) expireAt, fptr,
-                                      LP_AFTER, NULL);
-            goto out;
-        }
-
-        fptr = lpNext(lpt->lp, fptr);
+    if (valstr) {
+        ent[1].sval = tmpval ? (unsigned char *) tmpval : tmp;
+        ent[1].slen = slen;
+    } else {
+        ent[1].lval = val;
     }
+    ent[2].lval = expire_at;
 
-    /* Listpack is empty, append new item */
-    lpt->lp = lpAppend(lpt->lp, (unsigned char*)field, sdslen(field));
-    if (valstr)
-        lpt->lp = lpAppend(lpt->lp, tmpval ? (unsigned char*) tmpval : tmp, slen);
-    else
-        lpt->lp = lpAppendInteger(lpt->lp, val);
-
-    lpt->lp = lpAppendInteger(lpt->lp, (long long) expireAt);
-
-out:
+    listpackExAddInternal(o, ent);
     sdsfree(tmpval);
-}
-
-/* Add new field ordered by expire time. */
-void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
-    unsigned char *fptr, *elem;
-    listpackEx *lpt = o->ptr;
-
-    /* Shortcut, just append at the end if this is a non-volatile field. */
-    if (expireAt == HASH_LP_NO_TTL) {
-        goto append;
-    }
-
-    fptr = lpFirst(lpt->lp);
-    while (fptr) {
-        long long currExpiry;
-
-        elem = fptr; /* Keep a pointer to field name */
-        fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr);
-        fptr = lpNext(lpt->lp, fptr);
-        serverAssert(fptr && lpGetIntegerValue(fptr, &currExpiry));
-
-        if (currExpiry == HASH_LP_NO_TTL || (uint64_t) currExpiry >= expireAt) {
-            /* Found a field with no expiry time or with a higher expiry time.
-             * Insert new field just before it. */
-            lpt->lp = lpInsertString(lpt->lp, (unsigned char*) field,
-                                     sdslen(field), elem, LP_BEFORE, &fptr);
-
-            lpt->lp = lpInsertString(lpt->lp,(unsigned char*) value, sdslen(value),
-                                     fptr, LP_AFTER, &fptr);
-
-            /* Insert expiry time after value. */
-            lpt->lp = lpInsertInteger(lpt->lp, (long long) expireAt, fptr,
-                                      LP_AFTER, NULL);
-            return;
-        }
-
-        fptr = lpNext(lpt->lp, fptr);
-    }
-
-    /* Either listpack is empty or field expiry time is HASH_LP_NO_TTL */
-append:
-    lpt->lp = lpAppend(lpt->lp, (unsigned char*)field, sdslen(field));
-    lpt->lp = lpAppend(lpt->lp, (unsigned char*)value, sdslen(value));
-    lpt->lp = lpAppendInteger(lpt->lp, (long long) expireAt);
 }
 
 /* Update field expire time. */
@@ -1275,7 +1222,7 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
                         goto out;
                 } else if (res == HSET_UPDATE && expireTime != HASH_LP_NO_TTL) {
                     /* Clear TTL */
-                    listpackExPersist(o, field, fptr, vptr);
+                    listpackExUpdateExpiry(o, field, fptr, vptr, HASH_LP_NO_TTL);
                 }
             }
         }
@@ -3043,7 +2990,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     }
     hashTypeSetExDone(&exCtx);
 
-    /**** do some more rewrite for the replica sake ****/
+    /* rewrite command for the replica sake */
 
     /* Propagate as HPEXPIREAT millisecond-timestamp. Rewrite only if not already */
     if (c->cmd->proc != hpexpireatCommand) {
@@ -3174,7 +3121,7 @@ void hpersistCommand(client *c) {
                 continue;
             }
 
-            listpackExPersist(hashObj, field, fptr, vptr);
+            listpackExUpdateExpiry(hashObj, field, fptr, vptr, HASH_LP_NO_TTL);
             addReplyLongLong(c, HFE_PERSIST_OK);
             changed = 1;
         }
@@ -3600,10 +3547,8 @@ static int hgetfReplyValueAndSetExpiry(client *c, robj *o, sds field, int flag,
             ebAdd(&meta->hfe, &hashFieldExpireBucketsType, hf, expireAt);
         }
     } else {
-        if (flag & HFE_CMD_PERSIST)
-            listpackExPersist(o, field, fptr, vptr);
-        else
-            listpackExUpdateExpiry(o, field, fptr, vptr, expireAt);
+        uint64_t exp = flag & HFE_CMD_PERSIST ? HASH_LP_NO_TTL : expireAt;
+        listpackExUpdateExpiry(o, field, fptr, vptr, exp);
     }
 
     return 1;
@@ -3787,25 +3732,26 @@ static int hsetfSetFieldAndReply(client *c, robj *o, sds field, sds value,
                 }
             }
         } else {
-            lpt->lp = lpReplace(lpt->lp, &vptr, (unsigned char *) value, sdslen(value));
-            fptr = lpPrev(lpt->lp, vptr); /* Update fptr as above line invalidates it. */
-            serverAssert(fptr != NULL);
+            if (ret != HSETF_FIELD_AND_TTL) {
+                /* We just set the field value without updating the TTL */
+                lpt->lp = lpReplace(lpt->lp, &vptr, (unsigned char *) value, sdslen(value));
+            } else {
+                /* We are going to update TTL. Delete the field first and then
+                 * insert again according to new TTL if necessary. */
+                lpt->lp = lpDeleteRangeWithEntry(lpt->lp, &fptr, 3);
 
-            if (ret == HSETF_FIELD_AND_TTL) {
                 if (*minPrevExp > prevExpire)
                     *minPrevExp = prevExpire;
 
                 if (!(flag & HFE_CMD_EXPIRY_MASK)) {
                     /* If none of EX,EXAT,PX,PXAT,KEEPTTL is specified, TTL is
                      * discarded. */
-                    listpackExPersist(o, field, fptr, vptr);
-                } else if (checkAlreadyExpired(expireAt)) {
-                    hashTypeDelete(o, field, 1);
-                } else {
+                    listpackExAddNew(o, field, value, HASH_LP_NO_TTL);
+                } else if (!checkAlreadyExpired(expireAt)){
                     if (*minPrevExp > expireAt)
                         *minPrevExp = expireAt;
 
-                    listpackExUpdateExpiry(o, field, fptr, vptr, expireAt);
+                    listpackExAddNew(o, field, value, expireAt);
                 }
             }
         }
