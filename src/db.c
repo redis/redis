@@ -1518,20 +1518,26 @@ void copyCommand(client *c) {
 
     /* Duplicate object according to object's type. */
     robj *newobj;
-    switch(o->type) {
-        case OBJ_STRING: newobj = dupStringObject(o); break;
-        case OBJ_LIST: newobj = listTypeDup(o); break;
-        case OBJ_SET: newobj = setTypeDup(o); break;
-        case OBJ_ZSET: newobj = zsetDup(o); break;
-        case OBJ_HASH: newobj = hashTypeDup(o); break;
-        case OBJ_STREAM: newobj = streamDup(o); break;
-        case OBJ_MODULE:
-            newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
-            if (!newobj) return;
-            break;
-        default:
-            addReplyError(c, "unknown type object");
-            return;
+    if (o->refcount == OBJ_SHARED_REFCOUNT && (server.maxmemory == 0 ||
+        !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)))
+    {
+        newobj = o;
+    } else {
+        switch(o->type) {
+            case OBJ_STRING: newobj = dupStringObject(o); break;
+            case OBJ_LIST: newobj = listTypeDup(o); break;
+            case OBJ_SET: newobj = setTypeDup(o); break;
+            case OBJ_ZSET: newobj = zsetDup(o); break;
+            case OBJ_HASH: newobj = hashTypeDup(o); break;
+            case OBJ_STREAM: newobj = streamDup(o); break;
+            case OBJ_MODULE:
+                newobj = moduleTypeDupOrReply(c, key, newkey, dst->id, o);
+                if (!newobj) return;
+                break;
+            default:
+                addReplyError(c, "unknown type object");
+                return;
+        }
     }
 
     if (delete) {
