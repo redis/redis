@@ -199,7 +199,7 @@ start_cluster 3 0 {tags {external:skip cluster}} {
 
         # To manufacture an ever-growing send buffer from primary1 to primary2,
         # make primary2 unresponsive.
-        set primary2_pid [srv [expr -1*$primary2_id] pid]
+        set primary2_pid [srv -$primary2_id pid]
         pause_process $primary2_pid
 
         # On primary1, send 128KB Pubsub messages in a loop until the send buffer of the link from

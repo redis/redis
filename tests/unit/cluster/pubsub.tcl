@@ -1,10 +1,6 @@
 # Test PUBLISH propagation across the cluster.
 
-source "../tests/includes/init-tests.tcl"
-
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 proc test_cluster_publish {instance instances} {
     # Subscribe all the instances but the one we use to send.
@@ -38,3 +34,5 @@ test "Test publishing to master" {
 test "Test publishing to slave" {
     test_cluster_publish 5 10
 }
+
+} ;# start_cluster

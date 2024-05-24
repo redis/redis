@@ -1,24 +1,20 @@
 # Check that replica keys and keys to slots map are right after failing to diskless load using SWAPDB.
 
-source "../tests/includes/init-tests.tcl"
-
-test "Create a primary with a replica" {
-    create_cluster 1 1
-}
+start_cluster 1 1 {tags {external:skip cluster}} {
 
 test "Cluster should start ok" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 test "Main db not affected when fail to diskless load" {
-    set master [Rn 0]
-    set replica [Rn 1]
+    set master [srv 0 "client"]
+    set replica [srv -1 "client"]
     set master_id 0
-    set replica_id 1
+    set replica_id -1
 
     $replica READONLY
     $replica config set repl-diskless-load swapdb
@@ -42,7 +38,7 @@ test "Main db not affected when fail to diskless load" {
 
     # Save an RDB and kill the replica
     $replica save
-    kill_instance redis $replica_id
+    pause_process [srv $replica_id pid]
 
     # Delete the key from master
     $master del $slot0_key
@@ -60,7 +56,9 @@ test "Main db not affected when fail to diskless load" {
     }
 
     # Start the replica again
-    restart_instance redis $replica_id
+    resume_process [srv $replica_id pid]
+    restart_server $replica_id true false
+    set replica [srv -1 "client"]
     $replica READONLY
 
     # Start full sync, wait till after db started loading in background
@@ -71,16 +69,20 @@ test "Main db not affected when fail to diskless load" {
     }
 
     # Kill master, abort full sync
-    kill_instance redis $master_id
+    pause_process [srv $master_id pid]
 
     # Start full sync, wait till the replica detects the disconnection
     wait_for_condition 500 10 {
         [s $replica_id async_loading] eq 0
     } else {
-        fail "Fail to full sync"
+        fail "Fail to stop the full sync"
     }
 
     # Replica keys and keys to slots map still both are right
     assert_equal {1} [$replica get $slot0_key]
     assert_equal $slot0_key [$replica CLUSTER GETKEYSINSLOT 0 1]
+
+    resume_process [srv $master_id pid]
 }
+
+} ;# start_cluster

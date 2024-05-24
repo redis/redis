@@ -99,9 +99,31 @@ set ::all_tests {
     unit/violations
     unit/replybufsize
     unit/cluster/announced-endpoints
+    unit/cluster/base
     unit/cluster/misc
     unit/cluster/cli
+    unit/cluster/cluster-nodes-slots
+    unit/cluster/cluster-slots
+    unit/cluster/consistency-check
+    unit/cluster/diskless-load-swapdb
+    unit/cluster/faildet
+    unit/cluster/failover
+    unit/cluster/half-migrated-slot
+    unit/cluster/info
+    unit/cluster/manual-failover
+    unit/cluster/manual-takeover
+    unit/cluster/many-slot-migration
+    unit/cluster/no-failover-option
+    unit/cluster/pubsub
+    unit/cluster/pubsubshard
+    unit/cluster/pubsubshard-slot-migration
+    unit/cluster/replica-in-sync
     unit/cluster/scripting
+    unit/cluster/slave-selection
+    unit/cluster/slave-stop-cond
+    unit/cluster/slot-migration-response
+    unit/cluster/transactions-on-replica
+    unit/cluster/update-msg
     unit/cluster/hostnames
     unit/cluster/human-announced-nodename
     unit/cluster/multi-slot-operations
@@ -299,6 +321,16 @@ proc redis_client {args} {
     } else {
         $client select 9
     }
+    return $client
+}
+
+proc redis_deferring_client_by_addr {host port} {
+    set client [redis $host $port 1 $::tls]
+    return $client
+}
+
+proc redis_client_by_addr {host port} {
+    set client [redis $host $port 0 $::tls]
     return $client
 }
 
@@ -658,6 +690,7 @@ proc print_help_screen {} {
 for {set j 0} {$j < [llength $argv]} {incr j} {
     set opt [lindex $argv $j]
     set arg [lindex $argv [expr $j+1]]
+
     if {$opt eq {--tags}} {
         foreach tag $arg {
             if {[string index $tag 0] eq "-"} {
