@@ -249,6 +249,74 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
     return update;
 }
 
+/* Similar to hashTypeSet(), but only add a new field if it does not exist. Otherwise, do nothing.
+ * Return 0 if the new field was added.
+ * Return 1 if the field already exists.
+ * Do not call hashTypeTryConversion() before this function. The conversion will be done in this
+ * function if needed.
+ */
+int hashTypeSetnx(robj *o, sds field, sds value, int flags) {
+    int existence = 0;
+    int add = 0;
+
+    if (o->encoding != OBJ_ENCODING_LISTPACK && o->encoding != OBJ_ENCODING_HT)
+        serverPanic("Unknown hash encoding");
+
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl, *fptr;
+
+        zl = o->ptr;
+        fptr = lpFirst(zl);
+        /* Check if the field already exist. */
+        if (fptr != NULL && lpFind(zl, fptr, (unsigned char *)field, sdslen(field), 1)) {
+            existence = 1;
+        } else {
+            /* Check if the field is too long for listpack. */
+            if (sdslen(field) > server.hash_max_listpack_value || sdslen(value) > server.hash_max_listpack_value) {
+                hashTypeConvert(o, OBJ_ENCODING_HT);
+                serverAssert(o->encoding == OBJ_ENCODING_HT); /* encoding should have been changed to hash table at this time */
+            } else {
+                zl = lpAppend(zl, (unsigned char *)field, sdslen(field));
+                zl = lpAppend(zl, (unsigned char *)value, sdslen(value));
+                o->ptr = zl;
+                add = 1;
+                /* Check if the listpack needs to be convert to a hash table */
+                if (hashTypeLength(o) > server.hash_max_listpack_entries)
+                    hashTypeConvert(o, OBJ_ENCODING_HT);
+            }
+        }
+    }
+
+    if (o->encoding == OBJ_ENCODING_HT && !add) {
+        dict *ht = o->ptr;
+        dictEntry *de, *existing;
+        de = dictAddRaw(ht, field, &existing);
+        if (de) {
+            /* Set the field */
+            if (flags & HASH_SET_TAKE_FIELD) {
+                field = NULL;
+            } else {
+                dictSetKey(ht, de, sdsdup(field));
+            }
+            /* Set the value */
+            if (flags & HASH_SET_TAKE_VALUE) {
+                dictSetVal(ht, de, value);
+                value = NULL;
+            } else {
+                dictSetVal(ht, de, sdsdup(value));
+            }
+        } else {
+            existence = 1;
+        }
+    }
+
+    /* Free SDS strings we did not referenced elsewhere if the flags
+     * want this function to be responsible. */
+    if (flags & HASH_SET_TAKE_FIELD && field) sdsfree(field);
+    if (flags & HASH_SET_TAKE_VALUE && value) sdsfree(value);
+    return existence;
+}
+
 /* Delete an element from a hash.
  * Return 1 on deleted and 0 on not found. */
 int hashTypeDelete(robj *o, sds field) {
@@ -567,14 +635,12 @@ void hsetnxCommand(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
 
-    if (hashTypeExists(o, c->argv[2]->ptr)) {
+    if (hashTypeSetnx(o, c->argv[2]->ptr, c->argv[3]->ptr, HASH_SET_COPY)) {
         addReply(c, shared.czero);
     } else {
-        hashTypeTryConversion(o,c->argv,2,3);
-        hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
-        signalModifiedKey(c,c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
         server.dirty++;
     }
 }
