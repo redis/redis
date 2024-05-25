@@ -9603,7 +9603,7 @@ static long getLongInfoField(char *info, char *field) {
 
 /* Convert number of bytes into a human readable string of the form:
  * 1003B, 4.03K, 100.00M, 2.32G, 3.01T 
- * Returns the parameter char *s containing the converted number. */
+ * Returns the parameter `s` containing the converted number. */
 char *bytesToHuman(char *s, size_t size, long long n) {
     double d;
     char *r = s;
@@ -10043,9 +10043,8 @@ static void addSizeDist(size_dist *dist, unsigned long long size) {
     dist->total_count++;
     dist->total_size += size;
 
-    if (size > dist->max_size) {
+    if (size > dist->max_size)
         dist->max_size = size;
-    }
 
     int j;
     for (j=0; dist->size_dist[j].size && size > dist->size_dist[j].size; j++);
@@ -10095,7 +10094,7 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
     char buf[2][128];
 
     /* We can go over 100% if keys are added in the middle of the scans.
-     * Cap at 100% or the progressbar memset will overflow              */
+     * Cap at 100% or the progressbar memset will overflow. */
     double completion_pct = total_keys ? sampled < total_keys ? (double) sampled/total_keys : 1 : 0;
 
     /* If we are not redirecting to a file, build the progress bar */
@@ -10135,8 +10134,7 @@ static int displayKeyStatsSizeType(dict *memkeys_types_dict) {
         typeinfo *type = dictGetVal(de);
         if (type->biggest_key) {
             line_count += cleanPrintfln("%-10s %s is %s",
-                type->name,
-                type->biggest_key,
+                type->name, type->biggest_key,
                 bytesToHuman(buf, sizeof(buf),type->biggest));
         }
     }
@@ -10193,7 +10191,6 @@ static int displayKeyStatsSizeDist(struct hdr_histogram *keysize_histogram) {
          *   2.04G   100.0000%        50014                                   */
 
         if (iter.cumulative_count != last_displayed_cumulative_count) {
-
             if (iter.cumulative_count == iter.h->total_count) {
                 percentile = 100;
             } else {
@@ -10256,13 +10253,9 @@ static int displayKeyStatsType(unsigned long long sampled,
             }
             /* Print the line for the given Redis type */
             line_count += cleanPrintfln("%-10s %11llu %6.2f%% %8s %8s %18s %11s",
-                memkey_type->name,
-                memkey_type->count,
+                memkey_type->name, memkey_type->count,
                 sampled ? 100 * (double)memkey_type->count/sampled : 0,
-                total_size,
-                size_avg,
-                total_length,
-                length_avg);
+                total_size, size_avg, total_length, length_avg);
         }
     }
     dictReleaseIterator(di);
@@ -10285,11 +10278,8 @@ static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_
     listNode *node;
     while ((node = listNext(iter)) != NULL) {
         key_info *key = (key_info*) listNodeValue(node);
-        line_count += cleanPrintfln("%3d %8s %-10s %s",
-                                    ++i,
-                                    bytesToHuman(buffer, sizeof(buffer), key->size),
-                                    key->type_name,
-                                    key->key_name);
+        line_count += cleanPrintfln("%3d %8s %-10s %s", ++i, bytesToHuman(buffer, sizeof(buffer), key->size),
+                                    key->type_name, key->key_name);
     }
     listReleaseIterator(iter);
 
@@ -10297,9 +10287,7 @@ static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_
 }
 
 static key_info *createKeySizeInfo(char *key_name, size_t key_name_len, char *key_type, unsigned long long size) {
-    key_info *key;
-
-    key = zmalloc(sizeof(key_info));
+    key_info *key = zmalloc(sizeof(key_info));
     key->size = size;
     snprintf(key->type_name, sizeof(key->type_name), "%s", key_type);
     key->key_name = sdscatrepr(sdsempty(), key_name, key_name_len);
@@ -10315,7 +10303,8 @@ static key_info *createKeySizeInfo(char *key_name, size_t key_name_len, char *ke
  * key_name and type_name are copied.
  * Return: 0 size was not added (too small), 1 size was inserted.  */
 static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long long key_size,
-                          char *type_name, list *topkeys, unsigned long top_sizes_limit) {
+                          char *type_name, list *topkeys, unsigned long top_sizes_limit)
+{
     listNode *node;
     listIter *iter;
     key_info *new_node;
@@ -10335,7 +10324,6 @@ static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long lon
     listReleaseIterator(iter);
 
     new_node = createKeySizeInfo(key_name, key_name_len, type_name, key_size);
-
     if (node) {
         /* Insert before the node */
         listInsertNode(topkeys, node, new_node, 0);
@@ -10353,14 +10341,11 @@ static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long lon
     return 1;
 }
 
-static void displayKeyStats(unsigned long long sampled,
-                            unsigned long long total_keys,
-                            unsigned long long total_size,
-                            dict *memkeys_types_dict,
-                            dict *bigkeys_types_dict,
-                            list *top_key_sizes,
-                            unsigned long top_sizes_limit,
-                            int move_cursor_up) {
+static void displayKeyStats(unsigned long long sampled, unsigned long long total_keys,
+                            unsigned long long total_size, dict *memkeys_types_dict,
+                            dict *bigkeys_types_dict, list *top_key_sizes,
+                            unsigned long top_sizes_limit, int move_cursor_up)
+{
     int line_count = 0;
     char buf[256];
 
