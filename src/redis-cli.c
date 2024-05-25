@@ -10016,18 +10016,18 @@ void testHintSuite(char *filename) {
  * Keystats
  *--------------------------------------------------------------------------- */
 
-/* key length distribution. */
+/* Key name length distribution. */
 
 typedef struct size_dist_entry {
-    unsigned long long size;
-    unsigned long long count;
+    unsigned long long size;        /* Key name size in bytes. */
+    unsigned long long count;       /* Number of key names that are less or equal to the size. */
 } size_dist_entry;
 
 typedef struct size_dist {
-    unsigned long long total_count;
-    unsigned long long total_size;
-    unsigned long long max_size;
-    size_dist_entry *size_dist;
+    unsigned long long total_count; /* Total number of key names in the distribution. */
+    unsigned long long total_size;  /* Sum of all the key name sizes in bytes. */
+    unsigned long long max_size;    /* Highest key name size in bytes. */
+    size_dist_entry *size_dist;     /* Array of sizes and key names count per size. */
 } size_dist;
 
 /* distribution is an array initialized with last element {0, 0}
@@ -10366,7 +10366,6 @@ static void displayKeyStats(unsigned long long sampled, unsigned long long total
     fflush(stdout);
 }
 
-/* TODO could be used in findBigKeys() */
 static void updateKeyType(redisReply *element, unsigned long long size, typeinfo *type) {
     type->totalsize += size;
     type->count++;
@@ -10539,7 +10538,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     cleanPrintfln("");
     displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
 
-    if (it != 0) { /* or we could use force_cancel_loop == 1 or both? */
+    if (it != 0) {
         printf("\n");
         printf("Scan interrupted:\n");
         printf("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.\n", it);
