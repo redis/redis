@@ -1992,27 +1992,25 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
         }
     } else {
         while (hashTypeNext(hi, 0) != C_ERR) {
-            if (hi->expire_time == EB_EXPIRE_TIME_INVALID)
+
+            char hmsetCmd[] = "*4\r\n$5\r\nHMSET\r\n";
+            if ( (!rioWrite(r, hmsetCmd, sizeof(hmsetCmd) - 1)) ||
+                 (!rioWriteBulkObject(r, key)) ||
+                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) ||
+                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE)) )
+                goto reHashEnd;
+
+            if (hi->expire_time != EB_EXPIRE_TIME_INVALID)
             {
-                if (!rioWriteBulkCount(r, '*', 4) ||
-                    !rioWriteBulkString(r, "HMSET", 5) ||
-                    !rioWriteBulkObject(r, key))
-                    goto reHashEnd;
-            } else {
-                /* HSETF key PXAT msec FVS 1 field value */
-                char cmd[] = "*8\r\n$5\r\nHSETF\r\n";
-                if ((!rioWrite(r, cmd, sizeof(cmd) - 1)) ||
-                    (!rioWriteBulkObject(r, key)) ||
-                    (!rioWriteBulkString(r, "PXAT", 4)) ||
-                    (!rioWriteBulkLongLong(r, hi->expire_time)) ||
-                    (!rioWriteBulkString(r, "FVS", 3)) ||
-                    (!rioWriteBulkString(r, "1", 1)))
+                char cmd[] = "*6\r\n$10\r\nHPEXPIREAT\r\n";
+                if ( (!rioWrite(r, cmd, sizeof(cmd) - 1)) ||
+                     (!rioWriteBulkObject(r, key)) ||
+                     (!rioWriteBulkLongLong(r, hi->expire_time)) ||
+                     (!rioWriteBulkString(r, "FIELDS", 6)) ||
+                     (!rioWriteBulkString(r, "1", 1)) ||
+                     (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) )
                     goto reHashEnd;
             }
-
-            if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
-                !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
-                goto reHashEnd;
         }
     }
 

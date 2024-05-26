@@ -1956,8 +1956,6 @@ void createSharedObjects(void) {
     shared.set = createStringObject("SET",3);
     shared.eval = createStringObject("EVAL",4);
     shared.hpexpireat = createStringObject("HPEXPIREAT",10);
-    shared.hsetfpxat = createStringObject("PXAT",4);
-    shared.hgetfpxat = createStringObject("PXAT",4);
     shared.hdel = createStringObject("HDEL",4);
 
     /* Shared command argument */

@@ -3455,52 +3455,6 @@ struct COMMAND_ARG HGETALL_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/********** HGETF ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* HGETF history */
-#define HGETF_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* HGETF tips */
-#define HGETF_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* HGETF key specs */
-keySpec HGETF_Keyspecs[1] = {
-{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
-};
-#endif
-
-/* HGETF condition argument table */
-struct COMMAND_ARG HGETF_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* HGETF expiration argument table */
-struct COMMAND_ARG HGETF_expiration_Subargs[] = {
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("persist",ARG_TYPE_PURE_TOKEN,-1,"PERSIST",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* HGETF argument table */
-struct COMMAND_ARG HGETF_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=HGETF_condition_Subargs},
-{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=HGETF_expiration_Subargs},
-{MAKE_ARG("fields",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
-};
-
 /********** HINCRBY ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -3908,73 +3862,6 @@ struct COMMAND_ARG HSET_data_Subargs[] = {
 struct COMMAND_ARG HSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSET_data_Subargs},
-};
-
-/********** HSETF ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* HSETF history */
-#define HSETF_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* HSETF tips */
-#define HSETF_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* HSETF key specs */
-keySpec HSETF_Keyspecs[1] = {
-{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
-};
-#endif
-
-/* HSETF create option argument table */
-struct COMMAND_ARG HSETF_create_option_Subargs[] = {
-{MAKE_ARG("dcf",ARG_TYPE_PURE_TOKEN,-1,"DCF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("dof",ARG_TYPE_PURE_TOKEN,-1,"DOF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* HSETF return option argument table */
-struct COMMAND_ARG HSETF_return_option_Subargs[] = {
-{MAKE_ARG("getnew",ARG_TYPE_PURE_TOKEN,-1,"GETNEW",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("getold",ARG_TYPE_PURE_TOKEN,-1,"GETOLD",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* HSETF condition argument table */
-struct COMMAND_ARG HSETF_condition_Subargs[] = {
-{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* HSETF expiration argument table */
-struct COMMAND_ARG HSETF_expiration_Subargs[] = {
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* HSETF data argument table */
-struct COMMAND_ARG HSETF_data_Subargs[] = {
-{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* HSETF argument table */
-struct COMMAND_ARG HSETF_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("create key option",ARG_TYPE_PURE_TOKEN,-1,"DC",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("create option",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HSETF_create_option_Subargs},
-{MAKE_ARG("return option",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HSETF_return_option_Subargs},
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=HSETF_condition_Subargs},
-{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=HSETF_expiration_Subargs},
-{MAKE_ARG("fvs",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSETF_data_Subargs},
 };
 
 /********** HSETNX ********************/
@@ -11111,7 +10998,6 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hexpiretime","Returns the expiration time of a hash field as a Unix timestamp, in seconds.","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HEXPIRETIME_History,0,HEXPIRETIME_Tips,0,hexpiretimeCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HEXPIRETIME_Keyspecs,1,NULL,4),.args=HEXPIRETIME_Args},
 {MAKE_CMD("hget","Returns the value of a field in a hash.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGET_History,0,HGET_Tips,0,hgetCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HGET_Keyspecs,1,NULL,2),.args=HGET_Args},
 {MAKE_CMD("hgetall","Returns all fields and values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETALL_History,0,HGETALL_Tips,1,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HGETALL_Keyspecs,1,NULL,1),.args=HGETALL_Args},
-{MAKE_CMD("hgetf","For each specified field: get its value and optionally set the field's remaining time to live / UNIX expiration timestamp in seconds / milliseconds","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETF_History,0,HGETF_Tips,0,hgetfCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HGETF_Keyspecs,1,NULL,6),.args=HGETF_Args},
 {MAKE_CMD("hincrby","Increments the integer value of a field in a hash by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBY_History,0,HINCRBY_Tips,0,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBY_Keyspecs,1,NULL,3),.args=HINCRBY_Args},
 {MAKE_CMD("hincrbyfloat","Increments the floating point value of a field by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBYFLOAT_History,0,HINCRBYFLOAT_Tips,0,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBYFLOAT_Keyspecs,1,NULL,3),.args=HINCRBYFLOAT_Args},
 {MAKE_CMD("hkeys","Returns all fields in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HKEYS_History,0,HKEYS_Tips,1,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HKEYS_Keyspecs,1,NULL,1),.args=HKEYS_Args},
@@ -11126,7 +11012,6 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hrandfield","Returns one or more random fields from a hash.","O(N) where N is the number of fields returned","6.2.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HRANDFIELD_History,0,HRANDFIELD_Tips,1,hrandfieldCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,HRANDFIELD_Keyspecs,1,NULL,2),.args=HRANDFIELD_Args},
 {MAKE_CMD("hscan","Iterates over fields and values of a hash.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSCAN_History,0,HSCAN_Tips,1,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,HSCAN_Keyspecs,1,NULL,5),.args=HSCAN_Args},
 {MAKE_CMD("hset","Creates or modifies the value of a field in a hash.","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSET_History,1,HSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSET_Keyspecs,1,NULL,2),.args=HSET_Args},
-{MAKE_CMD("hsetf","For each specified field value pair: set field to value and optionally set the field's remaining time to live / UNIX expiration timestamp in seconds / milliseconds","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSETF_History,0,HSETF_Tips,0,hsetfCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSETF_Keyspecs,1,NULL,9),.args=HSETF_Args},
 {MAKE_CMD("hsetnx","Sets the value of a field in a hash only when the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSETNX_History,0,HSETNX_Tips,0,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSETNX_Keyspecs,1,NULL,3),.args=HSETNX_Args},
 {MAKE_CMD("hstrlen","Returns the length of the value of a field.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSTRLEN_History,0,HSTRLEN_Tips,0,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HSTRLEN_Keyspecs,1,NULL,2),.args=HSTRLEN_Args},
 {MAKE_CMD("httl","Returns the TTL in seconds of a hash field.","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HTTL_History,0,HTTL_Tips,0,httlCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HTTL_Keyspecs,1,NULL,4),.args=HTTL_Args},
