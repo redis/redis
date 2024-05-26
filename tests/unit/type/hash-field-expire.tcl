@@ -817,8 +817,8 @@ start_server {tags {"external:skip needs:debug"}} {
 
         # Check expiry works after listpack converts to ht
         for {set i 0} {$i < 1024} {incr i} {
-            r hset myhash a$i b$i c$i d$i e$i f$i g$i h$i
-            r hpexpire myhash 10 FIELDS 4 a$i c$i e$i g$i
+            r hset myhash f1_$i v1_$i f2_$i v2_$i f3_$i v3_$i f4_$i v4_$i
+            r hpexpire myhash 10 FIELDS 4 f1_$i f2_$i f3_$i f4_$i
         }
 
         assert_encoding hashtable myhash
