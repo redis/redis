@@ -1286,12 +1286,12 @@ start_server {tags {"external:skip needs:debug"}} {
         r config resetstat
         r del myhash
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 100 1 f1 f2 f3
+        r hpexpire myhash 100 FIELDS 3 f1 f2 f3
 
         assert_match  [get_hashes_with_expiry_fields r] 1
         r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         assert_match  [get_hashes_with_expiry_fields r] 1
-        r hpexpire myhash2 100 1 f1 f2 f3
+        r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
         assert_match  [get_hashes_with_expiry_fields r] 2
 
         wait_for_condition 50 50 {

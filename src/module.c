@@ -5375,13 +5375,13 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         if (flags & REDISMODULE_HASH_EXISTS) {
             existsptr = va_arg(ap,int*);
             if (key->value)
-                *existsptr = hashTypeExists(key->db, key->value,field->ptr);
+                *existsptr = hashTypeExists(key->db,key->value,field->ptr);
             else
                 *existsptr = 0;
         } else {
             valueptr = va_arg(ap,RedisModuleString**);
             if (key->value) {
-                *valueptr = hashTypeGetValueObject(key->db, key->value,field->ptr);
+                *valueptr = hashTypeGetValueObject(key->db,key->value,field->ptr);
                 if (*valueptr) {
                     robj *decoded = getDecodedObject(*valueptr);
                     decrRefCount(*valueptr);

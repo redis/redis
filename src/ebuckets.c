@@ -190,7 +190,7 @@ static inline uint64_t raxKey2BucketKey(unsigned char *raxKey) {
  *  Before:                               [segHdr] -> {item1,..,item16} -> [..]
  *  After:   [segHdr] -> {newItem} -> [nextSegHdr] -> {item1,..,item16} -> [..]
  *
- *  Take care to persist `segHdr` to be the same instance after the change.
+ *  Taken care to persist `segHdr` to be the same instance after the change.
  *  This is important because the rax tree is pointing to it. */
 static int ebSegAddExtended(EbucketsType *type, FirstSegHdr *firstSegHdr, eItem newItem) {
     /* Allocate nextSegHdr and let it take the items of first segment header */

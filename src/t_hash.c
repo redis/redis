@@ -797,7 +797,7 @@ robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field) {
     unsigned int vlen;
     long long vll;
 
-    if (hashTypeGetValue(db, o,field,&vstr,&vlen,&vll) == C_ERR) return NULL;
+    if (hashTypeGetValue(db,o,field,&vstr,&vlen,&vll) == C_ERR) return NULL;
     if (vstr) return createStringObject((char*)vstr,vlen);
     else return createStringObjectFromLongLong(vll);
 }
@@ -1676,7 +1676,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
     }
 }
 
-/* NOTE: hexpires can be NULL (Won't attempt to register in global HFE DS) */
+/* NOTE: hexpires can be NULL (Won't register in global HFE DS) */
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);
@@ -4025,7 +4025,9 @@ void hsetfCommand(client *c) {
         return;
 
     hashObj = lookupKeyWrite(c->db, c->argv[1]);
-    if (!hashObj) {
+    if (hashObj) {
+        if (checkType(c, hashObj, OBJ_HASH)) return;
+    } else {
         /* Don't create the object if command has DC or DCF arguments */
         if (flags & HFE_CMD_DC || flags & HFE_CMD_DCF) {
             addReplyOrErrorObject(c, shared.null[c->resp]);
