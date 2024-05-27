@@ -1999,8 +1999,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
                  (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE)) )
                 goto reHashEnd;
 
-            if (hi->expire_time != EB_EXPIRE_TIME_INVALID)
-            {
+            if (hi->expire_time != EB_EXPIRE_TIME_INVALID) {
                 char cmd[] = "*6\r\n$10\r\nHPEXPIREAT\r\n";
                 if ( (!rioWrite(r, cmd, sizeof(cmd) - 1)) ||
                      (!rioWriteBulkObject(r, key)) ||

@@ -3174,7 +3174,7 @@ typedef struct listpackEx {
 
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires);
 void hashTypeTryConversion(redisDb *db, robj *subject, robj **argv, int start, int end);
-int hashTypeExists(redisDb *db, robj *o, sds key);
+int hashTypeExists(redisDb *db, robj *o, sds key, int *isHashDeleted);
 int hashTypeDelete(robj *o, void *key, int isSdsField);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 hashTypeIterator *hashTypeInitIterator(robj *subject);

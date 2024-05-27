@@ -5271,7 +5271,10 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int exists = hashTypeExists(key->db, key->value, field->ptr);
+            int isHashDeleted;
+            int exists = hashTypeExists(key->db, key->value, field->ptr, &isHashDeleted);
+            /* hash-field-expiration is not exposed to modules */
+            serverAssert(isHashDeleted == 0);
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
                 ((flags & REDISMODULE_HASH_NX) && exists))
             {
@@ -5374,10 +5377,14 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         /* Query the hash for existence or value object. */
         if (flags & REDISMODULE_HASH_EXISTS) {
             existsptr = va_arg(ap,int*);
-            if (key->value)
-                *existsptr = hashTypeExists(key->db,key->value,field->ptr);
-            else
+            if (key->value) {
+                int isHashDeleted;
+                *existsptr = hashTypeExists(key->db, key->value, field->ptr, &isHashDeleted);
+                /* hash-field-expiration is not exposed to modules */
+                serverAssert(isHashDeleted == 0);
+            } else {
                 *existsptr = 0;
+            }
         } else {
             int isHashDeleted;
             valueptr = va_arg(ap,RedisModuleString**);

@@ -684,7 +684,21 @@ start_server {tags {"external:skip needs:debug"}} {
             wait_for_condition 20 10 { [r exists myhash] == 0 } else { fail "'myhash' should be expired" }
         } {} {singledb:skip}
 
-        test "HPERSIST - Returns empty array if key does not exist" {
+        test "HMGET - returns empty entries if fields or hash expired ($type)" {
+            r debug set-active-expire 0
+            r del h1 h2
+            r hset h1 f1 v1 f2 v2 f3 v3
+            r hset h2 f1 v1 f2 v2 f3 v3
+            r hpexpire h1 10000000 NX FIELDS 1 f1
+            r hpexpire h1 1 NX FIELDS 2 f2 f3
+            r hpexpire h2 1 NX FIELDS 3 f1 f2 f3
+            after 5
+            assert_equal [r hmget h1 f1 f2 f3] {v1 {} {}}
+            assert_equal [r hmget h2 f1 f2 f3] {{} {} {}}
+            r debug set-active-expire 1
+        }
+
+        test "HPERSIST - Returns empty array if key does not exist ($type)" {
             r del myhash
             # Make sure we can distinguish between an empty array and a null response
             r readraw 1
