@@ -2310,6 +2310,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
             if (expireAt != 0 && iAmMaster() && ((mstime_t)expireAt < now) &&
                 !(rdbflags & RDBFLAGS_AOF_PREAMBLE))
             {
+                /* TODO: aggregate HDELs and send them to replicas. */
                 if (rdbflags & RDBFLAGS_FEED_REPL && db) {
                     /* Caller should have created replication backlog,
                      * and now this path only works when rebooting,
@@ -2733,8 +2734,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                 /* for TTL listpack, find the minimum expiry */
                 uint64_t minExpire = hashTypeGetNextTimeToExpire(o);
 
-                /* Convert listpac to hash table without register in global HFE DS
-                 * since the listpack is not connected yet to the DB */
+                /* Convert listpack to hash table without register in global HFE DS,
+                 * if has HFEs, since the listpack is not connected yet to the DB */
                 if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
                     hashTypeConvert(o, OBJ_ENCODING_HT, NULL /*db->hexpires*/);
 

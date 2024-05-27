@@ -5379,9 +5379,13 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
             else
                 *existsptr = 0;
         } else {
+            int isHashDeleted;
             valueptr = va_arg(ap,RedisModuleString**);
             if (key->value) {
-                *valueptr = hashTypeGetValueObject(key->db,key->value,field->ptr);
+                *valueptr = hashTypeGetValueObject(key->db,key->value,field->ptr, &isHashDeleted);
+
+                /* Currently hash-field-expiration is not exposed to modules */
+                serverAssert(isHashDeleted == 0);
                 if (*valueptr) {
                     robj *decoded = getDecodedObject(*valueptr);
                     decrRefCount(*valueptr);

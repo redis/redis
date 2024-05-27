@@ -383,7 +383,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r httl myhash FIELDS 1 field1] 4 5
         }
 
-        test "Lazy expire - delete hash with expired fields ($type)" {
+        test "Lazy Expire - delete hash with expired fields ($type)" {
             r del myhash
             r debug set-active-expire 0
             r hset myhash k v
@@ -411,7 +411,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
         }
 
-        test "Lazy expire - HLEN does count expired fields ($type)" {
+        test "Lazy Expire - HLEN does count expired fields ($type)" {
             # Enforce only lazy expire
             r debug set-active-expire 0
 
@@ -440,7 +440,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
-        test "Lazy expire - HSCAN does not report expired fields ($type)" {
+        test "Lazy Expire - HSCAN does not report expired fields ($type)" {
             # Enforce only lazy expire
             r debug set-active-expire 0
 
@@ -501,7 +501,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
-        test "Lazy expire - verify various HASH commands handling expired fields ($type)" {
+        test "Lazy Expire - verify various HASH commands handling expired fields ($type)" {
             # Enforce only lazy expire
             r debug set-active-expire 0
             r del h1 h2 h3 h4 h5 h18
@@ -750,6 +750,53 @@ start_server {tags {"external:skip needs:debug"}} {
             r restore myhash 0 $encoded
             assert_equal [lsort [r hgetall myhash]] "1 2 3 a b c"
             assert_equal [r hexpiretime myhash FIELDS 3 a b c] {-1 -1 -1}
+        }
+
+        test {HINCRBY - discards pending expired field and reset its value} {
+            r debug set-active-expire 0
+            r del h1 h2
+            r hset h1 f1 10 f2 2
+            r hset h2 f1 10
+            assert_equal [r HINCRBY h1 f1 2] 12
+            assert_equal [r HINCRBY h2 f1 2] 12
+            r HPEXPIRE h1 10 FIELDS 1 f1
+            r HPEXPIRE h2 10 FIELDS 1 f1
+            after 15
+            assert_equal [r HINCRBY h1 f1 1] 1
+            assert_equal [r HINCRBY h2 f1 1] 1
+            r debug set-active-expire 1
+        }
+
+        test {HINCRBY - preserve expiration time of the field} {
+            r del h1
+            r hset h1 f1 10
+            r hpexpire h1 20 FIELDS 1 f1
+            assert_equal [r HINCRBY h1 f1 2] 12
+            assert_range [r HPTTL h1 FIELDS 1 f1] 1 20
+        }
+
+
+        test {HINCRBYFLOAT - discards pending expired field and reset its value} {
+            r debug set-active-expire 0
+            r del h1 h2
+            r hset h1 f1 10 f2 2
+            r hset h2 f1 10
+            assert_equal [r HINCRBYFLOAT h1 f1 2] 12
+            assert_equal [r HINCRBYFLOAT h2 f1 2] 12
+            r HPEXPIRE h1 10 FIELDS 1 f1
+            r HPEXPIRE h2 10 FIELDS 1 f1
+            after 15
+            assert_equal [r HINCRBYFLOAT h1 f1 1] 1
+            assert_equal [r HINCRBYFLOAT h2 f1 1] 1
+            r debug set-active-expire 1
+        }
+
+        test {HINCRBYFLOAT - preserve expiration time of the field} {
+            r del h1
+            r hset h1 f1 10
+            r hpexpire h1 20 FIELDS 1 f1
+            assert_equal [r HINCRBYFLOAT h1 f1 2.5] 12.5
+            assert_range [r HPTTL h1 FIELDS 1 f1] 1 20
         }
     }
 

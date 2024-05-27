@@ -1968,7 +1968,6 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     hashTypeIterator *hi;
     long long count = 0, items = hashTypeLength(o, 0);
 
-    /* Is expected also hash-fields with expiration (HFE) ? */
     int isHFE = hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID;
     hi = hashTypeInitIterator(o);
 
