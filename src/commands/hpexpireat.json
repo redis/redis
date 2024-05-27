@@ -36,38 +36,30 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
-                {
-                    "description": "Key does not exist.",
-                    "type": "null"
-                },
-                {
-                    "description": "Array of results",
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 4294967295,
-                    "items": {
-                        "oneOf": [
-                            {
-                                "description": "The field does not exist.",
-                                "const": -2
-                            },
-                            {
-                                "description": "Specified NX | XX | GT | LT condition not met",
-                                "const": 0
-                            },
-                            {
-                                "description": "Expiration time was set or updated.",
-                                "const": 1
-                            },
-                            {
-                                "description": "Field deleted because the specified expiration time is in the past.",
-                                "const": 2
-                            }
-                        ]
+            "description": "Array of results. Returns empty array if the key does not exist.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "The field does not exist.",
+                        "const": -2
+                    },
+                    {
+                        "description": "Specified NX | XX | GT | LT condition not met",
+                        "const": 0
+                    },
+                    {
+                        "description": "Expiration time was set or updated.",
+                        "const": 1
+                    },
+                    {
+                        "description": "Field deleted because the specified expiration time is in the past.",
+                        "const": 2
                     }
-                }
-            ]
+                ]
+            }
         },
         "arguments": [
             {

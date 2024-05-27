@@ -35,35 +35,27 @@
             }
         ],
         "reply_schema": {
-            "oneOf": [
-                {
-                    "description": "Key does not exist.",
-                    "type": "null"
-                },
-                {
-                    "description": "Array of results",
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 4294967295,
-                    "items": {
-                        "oneOf": [
-                            {
-                                "description": "The field does not exist.",
-                                "const": -2
-                            },
-                            {
-                                "description": "The field exists but has no associated expire.",
-                                "const": -1
-                            },
-                            {
-                                "description": "TTL in milliseconds.",
-                                "type": "integer",
-                                "minimum": 1
-                            }
-                        ]
+            "description": "Array of results. Returns empty array if the key does not exist.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "The field does not exist.",
+                        "const": -2
+                    },
+                    {
+                        "description": "The field exists but has no associated expire.",
+                        "const": -1
+                    },
+                    {
+                        "description": "TTL in milliseconds.",
+                        "type": "integer",
+                        "minimum": 1
                     }
-                }
-            ]
+                ]
+            }
         },
         "arguments": [
             {
