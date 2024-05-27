@@ -1177,7 +1177,7 @@ commandHistory CLIENT_KILL_History[] = {
 {"3.2.0","Added `master` type in for `TYPE` option."},
 {"5.0.0","Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."},
 {"6.2.0","`LADDR` option."},
-{"8.0.0","`MAXAGE` option."},
+{"7.4.0","`MAXAGE` option."},
 };
 #endif
 
@@ -1214,7 +1214,7 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
 {MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
 {MAKE_ARG("skipme",ARG_TYPE_ONEOF,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_KILL_filter_new_format_skipme_Subargs},
-{MAKE_ARG("maxage",ARG_TYPE_INTEGER,-1,"MAXAGE",NULL,"8.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxage",ARG_TYPE_INTEGER,-1,"MAXAGE",NULL,"7.4.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /* CLIENT KILL filter argument table */
