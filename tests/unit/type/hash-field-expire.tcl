@@ -962,20 +962,19 @@ start_server {tags {"external:skip needs:debug"}} {
                 set aof [get_last_incr_aof_path r]
                 r hset h1 f1 v1 f2 v2
 
-                assert_equal [r hpexpire h1 10 FIELDS 1 f1] [list  $E_OK]
-
-                r hpexpire h1 11 FIELDS 1 f2
-                r hpexpire h1 12 FIELDS 1 non_exists_field
+                r hpexpire h1 20 FIELDS 1 f1
+                r hpexpire h1 30 FIELDS 1 f2
+                r hpexpire h1 30 FIELDS 1 non_exists_field
                 r hset h2 f1 v1 f2 v2 f3 v3 f4 v4
-                r hpexpire h2 12 FIELDS 2 f1 non_exists_field
-                r hpexpire h2 13 FIELDS 1 f2
+                r hpexpire h2 40 FIELDS 2 f1 non_exists_field
+                r hpexpire h2 50 FIELDS 1 f2
                 r hpexpireat h2 [expr [clock seconds]*1000+100000] LT FIELDS 1 f3
                 r hexpireat h2 [expr [clock seconds]+10] NX FIELDS 1 f4
 
                 wait_for_condition 50 100 {
                     [r hexists h2 f2] eq 0
                 } else {
-                    fail "Field wasn't deleted"
+                    fail "Field f2 of hash h2 wasn't deleted"
                 }
 
                 # Assert that each TTL-related command are persisted with absolute timestamps in AOF

@@ -767,16 +767,10 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     }
 
     /* Don't expire anything while loading. It will be done later. */
-    if (server.loading)
-        return GETF_OK;
-
-    if (server.lazy_expire_disabled)
-        return GETF_OK;
-
-    if ((server.masterhost) && (server.current_client && (server.current_client->flags & CLIENT_MASTER)))
-        return GETF_OK;
-
-    if (expiredAt >= (uint64_t) commandTimeSnapshot())
+    if ( (server.loading) ||
+         (server.lazy_expire_disabled) ||
+         ((server.masterhost) && (server.current_client && (server.current_client->flags & CLIENT_MASTER))) ||
+         (expiredAt >= (uint64_t) commandTimeSnapshot()) )
         return GETF_OK;
 
     /* Got expired. Extract attached key from LISTPACK_EX/HT */
@@ -2179,7 +2173,7 @@ void hincrbyCommand(client *c) {
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
 
-    GetFieldRes res = hashTypeGetValue(c->db, o,c->argv[2]->ptr,&vstr,&vlen,&value);
+    GetFieldRes res = hashTypeGetValue(c->db,o,c->argv[2]->ptr,&vstr,&vlen,&value);
     if (res == GETF_OK) {
         if (vstr) {
             if (string2ll((char*)vstr,vlen,&value) == 0) {
@@ -2319,8 +2313,8 @@ void hmgetCommand(client *c) {
         /* If hash got lazy expired since all fields are expired (o is invalid),
          * then fill the rest with trivial nulls and return */
         if (res == GETF_EXPIRED_HASH) {
-            for ( ++i ; i < c->argc; i++)
-                addReply(c, shared.null[c->resp]);
+            while (++i < c->argc)
+                addReplyNull(c);
             return;
         }
     }
@@ -2334,7 +2328,7 @@ void hdelCommand(client *c) {
         checkType(c,o,OBJ_HASH)) return;
 
     for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr, 1)) {
+        if (hashTypeDelete(o,c->argv[j]->ptr,1)) {
             deleted++;
             if (hashTypeLength(o, 0) == 0) {
                 dbDelete(c->db,c->argv[1]);
@@ -2467,7 +2461,7 @@ void hexistsCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addReply(c, hashTypeExists(c->db, o,c->argv[2]->ptr, &isHashDeleted) ? shared.cone : shared.czero);
+    addReply(c,hashTypeExists(c->db,o,c->argv[2]->ptr,&isHashDeleted) ? shared.cone : shared.czero);
 }
 
 void hscanCommand(client *c) {
@@ -2838,6 +2832,7 @@ int hfieldIsExpired(hfield field) {
 /*-----------------------------------------------------------------------------
  * Hash Field Expiration (HFE)
  *----------------------------------------------------------------------------*/
+/*  Can be called either by active-expire cron job or query from the client */
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen) {
     robj *argv[] = {
         shared.hdel,
