@@ -2687,6 +2687,7 @@ void linkClient(client *c);
 void protectClient(client *c);
 void unprotectClient(client *c);
 void initThreadedIO(void);
+void initSharedQueryBuf(void);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);

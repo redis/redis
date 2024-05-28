@@ -1765,6 +1765,9 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
      * connection. */
     server.master->flags |= CLIENT_MASTER;
 
+    /* Allocate a private query buffer for the master client instead of using the shared query buffer.
+     * This is done because the master's query buffer data needs to be preserved for my sub-replicas to use. */
+    server.master->querybuf = sdsempty();
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
     server.master->read_reploff = server.master->reploff;

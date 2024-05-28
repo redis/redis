@@ -24,8 +24,24 @@ start_server {tags {"querybuf slow"}} {
     # The test will run at least 2s to check if client query
     # buffer will be resized when client idle 2s.
     test "query buffer resized correctly" {
-        set rd [redis_client]
+
+        set rd [redis_deferring_client]
+
         $rd client setname test_client
+        $rd read
+
+        # Make sure query buff has size of 0 bytes at start as the client uses the shared qb.
+        assert {[client_query_buffer test_client] == 0}
+
+        # Send partial command to client to make sure it doesn't use the shared qb.
+        $rd write "*3\r\n\$3\r\nset\r\n\$2\r\na"
+        $rd flush
+        after 100
+        # send the rest of the command
+        $rd write "a\r\n\$1\r\nb\r\n"
+        $rd flush
+        assert_equal {OK} [$rd read]
+
         set orig_test_client_qbuf [client_query_buffer test_client]
         # Make sure query buff has less than the peak resize threshold (PROTO_RESIZE_THRESHOLD) 32k
         # but at least the basic IO reading buffer size (PROTO_IOBUF_LEN) 16k
@@ -78,6 +94,11 @@ start_server {tags {"querybuf slow"}} {
         $rd write "*3\r\n\$3\r\nset\r\n\$1\r\na\r\n\$1000000\r\n"
         $rd flush
         
+        after 200
+        # Send the start of the arg and make sure the client is not using shared qb for it rather a private buf of > 1000000 size.
+        $rd write "a" 
+        $rd flush
+
         after 20
         if {[client_query_buffer test_client] < 1000000} {
             fail "query buffer should not be resized when client idle time smaller than 2s"
