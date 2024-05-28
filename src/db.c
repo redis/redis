@@ -1299,11 +1299,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
+    int valueidx = 0;
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         void *key = listNodeValue(node);
-        addReplyBulkCBuffer(c, key, (isKeysHfield) ? mstrlen(key) : sdslen(key));
+        int hfieldkey = isKeysHfield && (no_values || !valueidx);
+        addReplyBulkCBuffer(c, key, hfieldkey ? mstrlen(key) : sdslen(key));
         listDelNode(keys, node);
+        valueidx = !valueidx;
     }
 
     listRelease(keys);
