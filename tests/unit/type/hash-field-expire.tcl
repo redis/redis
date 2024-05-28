@@ -972,7 +972,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hexpireat h2 [expr [clock seconds]+10] NX FIELDS 1 f4
 
                 wait_for_condition 50 100 {
-                    [r hexists h2 f2] eq 0
+                    [r hlen h2] eq 2
                 } else {
                     fail "Field f2 of hash h2 wasn't deleted"
                 }
