@@ -1299,14 +1299,15 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    int valueidx = 0;
+    unsigned long long idx = 0;
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         void *key = listNodeValue(node);
-        int hfieldkey = isKeysHfield && (no_values || !valueidx);
+        /* For HSCAN, list will contain keys value pairs unless no_values arg
+         * was given. We should call mstrlen for the keys only. */
+        int hfieldkey = isKeysHfield && (no_values || (idx++ % 2 == 0));
         addReplyBulkCBuffer(c, key, hfieldkey ? mstrlen(key) : sdslen(key));
         listDelNode(keys, node);
-        valueidx = !valueidx;
     }
 
     listRelease(keys);
