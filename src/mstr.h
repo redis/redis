@@ -209,6 +209,9 @@ static inline int mstrIsMetaAttached(mstr s) { return s[-1] & MSTR_META_MASK; }
 /* return whether if a specific flag-index is set */
 static inline int mstrGetFlag(mstr s, int flagIdx) { return *mstrFlagsRef(s) & (1 << flagIdx); }
 
+/* DEBUG */
+void mstrPrint(mstr s, struct mstrKind *kind, int verbose);
+
 /* See comment above about MSTR-ALIGNMENT(2) */
 static_assert(sizeof(struct mstrhdr5 ) % 2 == 1, "must be odd");
 static_assert(sizeof(struct mstrhdr8 ) % 2 == 1, "must be odd");

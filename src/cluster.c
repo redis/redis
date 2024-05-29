@@ -237,7 +237,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db,0,NULL)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db,NULL)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
@@ -263,7 +263,16 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    dbAdd(c->db,key,obj);
+    dictEntry *de = dbAdd(c->db,key,obj);
+
+    /* register hash in global HFE DS if needed.
+     *
+     * For that purpose rdbLoadObject() took care to write minimum expiration
+     * time as leftover value in the ExpireMeta (Marked as trash) of the object.
+     * That is why we indicate 0 as the expiration time here. */
+    if (obj->type == OBJ_HASH)
+        hashTypeAddToExpires(c->db, dictGetKey(de), obj, 0);
+
     if (ttl) {
         setExpire(c,c->db,key,ttl);
         if (!absttl) {

@@ -103,11 +103,12 @@
 #define RDB_MODULE_OPCODE_STRING 5  /* String. */
 
 /* rdbLoad...() functions flags. */
-#define RDB_LOAD_NONE   0
-#define RDB_LOAD_ENC    (1<<0)
-#define RDB_LOAD_PLAIN  (1<<1)
-#define RDB_LOAD_SDS    (1<<2)
-#define RDB_LOAD_HFLD   (1<<3)
+#define RDB_LOAD_NONE     0
+#define RDB_LOAD_ENC      (1<<0)
+#define RDB_LOAD_PLAIN    (1<<1)
+#define RDB_LOAD_SDS      (1<<2)
+#define RDB_LOAD_HFLD     (1<<3)
+#define RDB_LOAD_HFLD_TTL (1<<4)
 
 /* flags on the purpose of rdb save or load */
 #define RDBFLAGS_NONE 0                 /* No special RDB loading or saving. */
@@ -142,7 +143,7 @@ int rdbSaveToFile(const char *filename);
 int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags);
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
 size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb *db, int rdbflags, int *error);
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb *db, int *error);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);

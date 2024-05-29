@@ -108,20 +108,6 @@ EbucketsType hashFieldExpireBucketsType = {
     .itemsAddrAreOdd = 1,                 /* Addresses of hfield (mstr) are odd!! */
 };
 
-/* Each dict of hash object that has fields with time-Expiration will have the
- * following metadata attached to dict header */
-typedef struct dictExpireMetadata {
-    ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
-                                To be used in order to register the hash in the
-                                global ebuckets (i.e db->hexpires) with next,
-                                minimum, hash-field to expire */
-    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
-    sds key;                 /* reference to the key, same one that stored in
-                               db->dict. Will be used from active-expiration flow
-                               for notification and deletion of the object, if
-                               needed. */
-} dictExpireMetadata;
-
 /* ActiveExpireCtx passed to hashTypeActiveExpire() */
 typedef struct ActiveExpireCtx {
     uint32_t fieldsToExpireQuota;
@@ -489,10 +475,11 @@ static void listpackExAddInternal(robj *o, listpackEntry ent[3]) {
 }
 
 /* Add new field ordered by expire time. */
-void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt) {
+void listpackExAddNew(robj *o, char *field, size_t flen,
+                      char *value, size_t vlen, uint64_t expireAt) {
     listpackEntry ent[3] = {
-        {.sval = (unsigned char*) field, .slen = sdslen(field)},
-        {.sval = (unsigned char*) value, .slen = sdslen(value)},
+        {.sval = (unsigned char*) field, .slen = flen},
+        {.sval = (unsigned char*) value, .slen = vlen},
         {.lval = expireAt}
     };
 
@@ -1064,33 +1051,6 @@ SetExDone:
     return res;
 }
 
-/*
- * hashTypeSetExRdb provide a simplified API for setting fields & expiry by RDB load
- *
- * It is the duty of RDB reading process to track minimal expiration time of the
- * fields and eventually call hashTypeAddToExpires() to update global HFE DS with
- * next expiration time.
- *
- * To just add a field with no expiry, use hashTypeSet instead.
- */
-int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire_at) {
-    /* Dummy struct to be used in hashTypeSetEx() */
-    HashTypeSetEx setEx = {
-            .fieldSetCond = FIELD_DONT_OVRWRT,         /* Shouldn't be any duplication */
-            .expireSetCond = HFE_NX,                   /* Should set expiry once each field */
-            .minExpire = EB_EXPIRE_TIME_INVALID,       /* Won't be used. Accounting made by RDB already */
-            .key = NULL,                               /* Not going to call hashTypeSetExDone() */
-            .hashObj = o,
-            .minExpireFields = EB_EXPIRE_TIME_INVALID, /* Not needed by RDB */
-            .c = NULL,                                 /* No notification required */
-            .cmd = NULL,                               /* No notification required */
-    };
-
-    HashTypeSet setKeyVal = {.value = value, .flags = 0};
-    SetExRes res = hashTypeSetEx(db, o, field, &setKeyVal, expire_at, (expire_at) ? &setEx : NULL);
-    return (res == HSETEX_OK || res == HSET_UPDATE) ? C_OK : C_ERR;
-}
-
 void initDictExpireMetadata(sds key, robj *o) {
     dict *ht = o->ptr;
 
@@ -1278,7 +1238,8 @@ static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeS
 
         if (!fptr) {
             if (setParams) {
-                listpackExAddNew(o, field, setParams->value,
+                listpackExAddNew(o, field, sdslen(field),
+                                 setParams->value, sdslen(setParams->value),
                                  exParams ? expireAt : HASH_LP_NO_TTL);
             } else {
                 res = HSETEX_NO_FIELD;
@@ -2011,29 +1972,33 @@ uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o) {
 
 /* Add hash to global HFE DS and update key for notifications.
  *
- * key - must be the same instance that is stored in db->dict
+ * key         - must be the same key instance that is persisted in db->dict
+ * expireTime  - expiration in msec.
+ *               If eq. 0 then the hash will be added to the global HFE DS with
+ *               the minimum expiration time that is already written in advance
+ *               to attached metadata (which considered as trash as long as it is
+ *               not attached to global HFE DS).
+ *
+ * Precondition: It is a hash of type listpackex or HT with HFE metadata.
  */
 void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime) {
-    if (expireTime == EB_EXPIRE_TIME_INVALID)
+    if (expireTime > EB_EXPIRE_TIME_MAX)
          return;
 
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = hashObj->ptr;
         lpt->key = key;
+        expireTime = (expireTime) ? expireTime : ebGetMetaExpTime(&lpt->meta);
         ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, expireTime);
-        return;
+    } else if (hashObj->encoding == OBJ_ENCODING_HT) {
+        dict *d = hashObj->ptr;
+        if (isDictWithMetaHFE(d)) {
+            dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
+            expireTime = (expireTime) ? expireTime : ebGetMetaExpTime(&meta->expireMeta);
+            meta->key = key;
+            ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, expireTime);
+        }
     }
-    serverAssert(hashObj->encoding == OBJ_ENCODING_HT);
-
-    serverAssert(isDictWithMetaHFE(hashObj->ptr));
-
-    /* Update hash with key for notifications */
-    dict *d = hashObj->ptr;
-    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
-    dictExpireMeta->key = key;
-
-    /* Add hash to global HFE DS */
-    ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, expireTime);
 }
 
 /* DB active expire and update hashes with time-expiration on fields.

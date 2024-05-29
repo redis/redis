@@ -1803,7 +1803,6 @@ struct redisServer {
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
     long long rdb_last_load_keys_expired;  /* number of expired keys when loading RDB */
     long long rdb_last_load_keys_loaded;   /* number of loaded keys when loading RDB */
-    long long rdb_last_load_hash_fields_expired; /* number of expired hash fields when loading RDB */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
@@ -3167,6 +3166,20 @@ typedef struct listpackEx {
                          are ordered by ttl. */
 } listpackEx;
 
+/* Each dict of hash object that has fields with time-Expiration will have the
+ * following metadata attached to dict header */
+typedef struct dictExpireMetadata {
+    ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
+                                To be used in order to register the hash in the
+                                global ebuckets (i.e db->hexpires) with next,
+                                minimum, hash-field to expire */
+    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
+    sds key;                 /* reference to the key, same one that stored in
+                               db->dict. Will be used from active-expiration flow
+                               for notification and deletion of the object, if
+                               needed. */
+} dictExpireMetadata;
+
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
@@ -3203,12 +3216,12 @@ unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o);
 void hashTypeUpdateKeyRef(robj *o, sds newkey);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
-int hashTypeSetExRdb(redisDb *db, robj *o, sds field, sds value, uint64_t expire_at);
 uint64_t hashTypeGetMinExpire(robj *keyObj);
 uint64_t hashTypeGetNextTimeToExpire(robj *o);
 void initDictExpireMetadata(sds key, robj *o);
 struct listpackEx *listpackExCreate(void);
-void listpackExAddNew(robj *o, sds field, sds value, uint64_t expireAt);
+void listpackExAddNew(robj *o, char *field, size_t flen,
+                      char *value, size_t vlen, uint64_t expireAt);
 
 /* Hash-Field data type (of t_hash.c) */
 hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
