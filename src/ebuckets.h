@@ -139,7 +139,7 @@
  * The idea of it is to trim the rax tree depth, avoid having too many branches,
  * and reduce frequent modifications of the tree to the minimum.
  */
-#define EB_BUCKET_KEY_PRECISION 0   /* 1024msec */
+#define EB_BUCKET_KEY_PRECISION 0   /* TBD: modify to 10 */
 
 /* From expiration time to bucket-key */
 #define EB_BUCKET_KEY(exptime) ((exptime) >> EB_BUCKET_KEY_PRECISION)

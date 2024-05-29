@@ -276,6 +276,11 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
         old = dictGetVal(de);
     }
     kvstoreDictSetVal(db->keys, slot, de, val);
+
+    /* if hash with HFEs, take care to remove from global HFE DS */
+    if (old->type == OBJ_HASH)
+        hashTypeRemoveFromExpires(&db->hexpires, old);
+
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key,old,db->id);
     } else {
@@ -1632,7 +1637,8 @@ void copyCommand(client *c) {
     if (expire != -1)
         setExpire(c, dst, newkey, expire);
 
-    /* If hash with expiration on fields then add it to 'dst' global HFE DS */
+    /* If minExpiredField was set, then the object is hash with expiration
+     * on fields and need to register it in global HFE DS */
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
         hashTypeAddToExpires(dst, dictGetKey(deCopy), newobj, minHashExpire);
 
@@ -1768,11 +1774,13 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
+        activedb->hexpires = newdb->hexpires;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
+        newdb->hexpires = aux.hexpires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
 

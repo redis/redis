@@ -23,6 +23,12 @@
  * #define EB_VALIDATE_DEBUG 1
  */
 
+#if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
+#define EB_VALIDATE_STRUCTURE(eb, type) ebValidate(eb, type)
+#else
+#define EB_VALIDATE_STRUCTURE(eb, type) // Do nothing
+#endif
+
 /*** BENCHMARK
  *
  * To benchmark ebuckets creation and active-expire with 10 million items, apply
@@ -190,7 +196,7 @@ static inline uint64_t raxKey2BucketKey(unsigned char *raxKey) {
  *  Before:                               [segHdr] -> {item1,..,item16} -> [..]
  *  After:   [segHdr] -> {newItem} -> [nextSegHdr] -> {item1,..,item16} -> [..]
  *
- *  Take care to persist `segHdr` to be the same instance after the change.
+ *  Taken care to persist `segHdr` to be the same instance after the change.
  *  This is important because the rax tree is pointing to it. */
 static int ebSegAddExtended(EbucketsType *type, FirstSegHdr *firstSegHdr, eItem newItem) {
     /* Allocate nextSegHdr and let it take the items of first segment header */
@@ -1390,9 +1396,8 @@ int ebRemove(ebuckets *eb, EbucketsType *type, eItem item) {
     if (res)
         type->getExpireMeta(item)->trash = 1;
 
-#if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
-    ebValidate(*eb, type);
-#endif
+    EB_VALIDATE_STRUCTURE(*eb, type);
+
     return res;
 }
 
@@ -1435,9 +1440,9 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
         /* Add item to rax */
         res = ebAddToRax(eb, type, item, EB_BUCKET_KEY(expireTime));
     }
-#if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
-    ebValidate(*eb, type);
-#endif
+
+    EB_VALIDATE_STRUCTURE(*eb, type);
+
     return res;
 }
 
@@ -1521,9 +1526,9 @@ END_ACTEXP:
         ebAdd(eb, type, updateList, ebGetMetaExpTime(mItem));
         updateList = next;
     }
-#if (REDIS_TEST || EB_VALIDATE_DEBUG) && !defined(EB_TEST_BENCHMARK)
-    ebValidate(*eb, type);
-#endif
+
+    EB_VALIDATE_STRUCTURE(*eb, type);
+
     return;
 }
 

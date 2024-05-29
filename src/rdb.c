@@ -270,7 +270,7 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
 void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
-    int hfldFlag = flags & RDB_LOAD_HFLD;
+    int hfldFlag = flags & (RDB_LOAD_HFLD|RDB_LOAD_HFLD_TTL);
     int encode = flags & RDB_LOAD_ENC;
     unsigned char enc[4];
     long long val;
@@ -305,7 +305,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         } else if (sdsFlag) {
             p = sdsnewlen(SDS_NOINIT,len);
         } else { /* hfldFlag */
-            p = hfieldNew(NULL, len, 0);
+            p = hfieldNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1);
         }
         memcpy(p,buf,len);
         return p;
@@ -377,7 +377,7 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
 void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
-    int hfldFlag = flags & RDB_LOAD_HFLD;
+    int hfldFlag = flags & (RDB_LOAD_HFLD | RDB_LOAD_HFLD_TTL);
     int robjFlag = (!(plainFlag || sdsFlag || hfldFlag)); /* not plain/sds/hfld */
 
     uint64_t len, clen;
@@ -397,7 +397,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     } else if (sdsFlag || robjFlag) {
         val = sdstrynewlen(SDS_NOINIT,len);
     } else { /* hfldFlag */
-        val = hfieldTryNew(NULL, len, 0);
+        val = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1);
     }
 
     if (!val) {
@@ -505,6 +505,7 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  *                 instead of a Redis object with an sds in it.
  * RDB_LOAD_SDS: Return an SDS string instead of a Redis object.
  * RDB_LOAD_HFLD: Return a hash field object (mstr)
+ * RDB_LOAD_HFLD_TTL: Return a hash field with TTL metadata reserved
  *
  * On I/O error NULL is returned.
  */
@@ -512,7 +513,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     void *buf;
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
-    int hfldFlag = flags & RDB_LOAD_HFLD;
+    int hfldFlag = flags & (RDB_LOAD_HFLD|RDB_LOAD_HFLD_TTL);
     int robjFlag = (!(plainFlag || sdsFlag || hfldFlag)); /* not plain/sds/hfld */
 
     int isencoded;
@@ -555,7 +556,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     } else if (sdsFlag) {
         buf = sdstrynewlen(SDS_NOINIT,len);
     }  else { /* hfldFlag */
-        buf = hfieldTryNew(NULL, len, 0);
+        buf = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1);
     }
     if (!buf) {
         serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
@@ -1888,10 +1889,18 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL.
- * When the function returns NULL and if 'error' is not NULL, the
- * integer pointed by 'error' is set to the type of error that occurred */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
-                    int *error) {
+ *
+ * error - When the function returns NULL and if 'error' is not NULL, the
+ *   integer pointed by 'error' is set to the type of error that occurred
+ * minExpiredField - If loading a hash with expiration on fields, then this value
+ *   will be set to the minimum expire time found in the hash fields. If there are
+ *   no fields with expiration or it is not a hash, then it will set be to
+ *   EB_EXPIRE_TIME_INVALID.
+ */
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
+                    uint64_t *minExpiredField)
+{
+    uint64_t minExpField = EB_EXPIRE_TIME_INVALID;
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2110,7 +2119,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
         sds value;
         hfield field;
         dict *dupSearchDict = NULL;
-        ebuckets *hexpires = (db != NULL ? &db->hexpires : NULL);
 
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
@@ -2120,7 +2128,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
 
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT, hexpires);
+            hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
         else if (deep_integrity_validation) {
             /* In this mode, we need to guarantee that the server won't crash
              * later when the ziplist is converted to a dict.
@@ -2164,7 +2172,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                 sdslen(value) > server.hash_max_listpack_value ||
                 !lpSafeToAdd(o->ptr, hfieldlen(field) + sdslen(value)))
             {
-                hashTypeConvert(o, OBJ_ENCODING_HT, hexpires);
+                hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
                 dictUseStoredKeyApi((dict *)o->ptr, 1);
                 ret = dictAdd((dict*)o->ptr, field, value);
                 dictUseStoredKeyApi((dict *)o->ptr, 0);
@@ -2233,13 +2241,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
         /* All pairs should be read by now */
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
-
         size_t fieldLen;
         sds value, field;
-        uint64_t expire, minExpire = EB_EXPIRE_TIME_INVALID;
-        mstime_t now = mstime();
+        uint64_t expireAt;
         dict *dupSearchDict = NULL;
-        ebuckets *hexpires = (db != NULL ? &db->hexpires : NULL);
 
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
@@ -2248,11 +2253,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
         o = createHashObject();
         /* Too many entries? Use a hash table right from the start. */
         if (len > server.hash_max_listpack_entries) {
-            hashTypeConvert(o, OBJ_ENCODING_HT, hexpires);
+            hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
             dictTypeAddMeta((dict**)&o->ptr, &mstrHashDictTypeWithHFE);
             initDictExpireMetadata(key, o);
         } else {
-            hashTypeConvert(o, OBJ_ENCODING_LISTPACK_EX, hexpires);
+            hashTypeConvert(o, OBJ_ENCODING_LISTPACK_EX, NULL);
             if (deep_integrity_validation) {
                 /* In this mode, we need to guarantee that the server won't crash
                 * later when the listpack is converted to a dict.
@@ -2266,20 +2271,25 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
             len--;
 
             /* read the TTL */
-            if (rdbLoadLenByRef(rdb, NULL, &expire) == -1) {
+            if (rdbLoadLenByRef(rdb, NULL, &expireAt) == -1) {
                 serverLog(LL_WARNING, "failed reading hash TTL");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                 return NULL;
             }
-            if (expire > EB_EXPIRE_TIME_MAX) {
-                rdbReportCorruptRDB("invalid expire time: %llu", (unsigned long long)expire);
+            if (expireAt > EB_EXPIRE_TIME_MAX) {
+                rdbReportCorruptRDB("invalid expireAt time: %llu", (unsigned long long)expireAt);
                 decrRefCount(o);
                 return NULL;
             }
 
-            /* read the field name */
-            if ((field = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &fieldLen)) == NULL) {
+            /* if needed create field with TTL metadata  */
+            if (expireAt !=0)
+                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD_TTL, &fieldLen);
+            else
+                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD, &fieldLen);
+
+            if (field == NULL) {
                 serverLog(LL_WARNING, "failed reading hash field");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
@@ -2291,40 +2301,18 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                 serverLog(LL_WARNING, "failed reading hash value");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                sdsfree(field);
+                hfieldFree(field);
                 return NULL;
             }
 
-            /* Check if the hash field already expired. This function is used when
-            * loading an RDB file from disk, either at startup, or when an RDB was
-            * received from the master. In the latter case, the master is
-            * responsible for hash field expiry. If we would expire hash fields here,
-            * the snapshot taken by the master may not be reflected on the slave.
-            * Similarly, if the base AOF is RDB format, we want to load all
-            * the hash fields there are, since the log of operations in the incr AOF
-            * is assumed to work in the exact keyspace state.
-            * Expired hash fields on the master are silently discarded.
-            * Note that if all fields in a hash has expired, the hash would not be
-            * created in memory (because it is created on the first valid field), and
-            * thus the key would be discarded as an "empty key" */
-            if (expire != 0 && iAmMaster() && ((mstime_t)expire < now) &&  /* note: expire was saved to RDB as unix-time in milliseconds */
-                !(rdbflags & RDBFLAGS_AOF_PREAMBLE))
-            {
-                /* TODO: consider replication (like in rdbLoadAddKeyToDb) */
-                server.rdb_last_load_hash_fields_expired++;
-                sdsfree(field);
-                sdsfree(value);
-                continue;
-            }
-
             /* keep the nearest expiration to connect listpack object to db expiry */
-            if ((expire != 0) && (expire < minExpire)) minExpire = expire;
+            if ((expireAt != 0) && (expireAt < minExpField)) minExpField = expireAt;
 
             /* store the values read - either to listpack or dict */
             if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
                 /* integrity - check for key duplication (if required) */
                 if (dupSearchDict) {
-                    sds field_dup = sdsnewlen(field, sdslen(field));
+                    sds field_dup = sdsnewlen(field, hfieldlen(field));
 
                     if (dictAdd(dupSearchDict, field_dup, NULL) != DICT_OK) {
                         rdbReportCorruptRDB("Hash with dup elements");
@@ -2332,18 +2320,18 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                         decrRefCount(o);
                         sdsfree(field_dup);
                         sdsfree(value);
-                        sdsfree(field);
+                        hfieldFree(field);
                         return NULL;
                     }
                 }
 
                 /* check if the values can be saved to listpack (or should convert to dict encoding) */
-                if (sdslen(field) > server.hash_max_listpack_value ||
+                if (hfieldlen(field) > server.hash_max_listpack_value ||
                     sdslen(value) > server.hash_max_listpack_value ||
-                    !lpSafeToAdd(((listpackEx*)o->ptr)->lp, sdslen(field) + sdslen(value) + lpEntrySizeInteger(expire)))
+                    !lpSafeToAdd(((listpackEx*)o->ptr)->lp, hfieldlen(field) + sdslen(value) + lpEntrySizeInteger(expireAt)))
                 {
                     /* convert to hash */
-                    hashTypeConvert(o, OBJ_ENCODING_HT, hexpires);
+                    hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
 
                     if (len > DICT_HT_INITIAL_SIZE) { /* TODO: this is NOT the original len, but this is also the case for simple hash, is this a bug? */
                         if (dictTryExpand(o->ptr, len) != DICT_OK) {
@@ -2351,36 +2339,40 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                             decrRefCount(o);
                             if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                             sdsfree(value);
-                            sdsfree(field);
+                            hfieldFree(field);
                             return NULL;
                         }
                     }
 
                     /* don't add the values to the new hash: the next if will catch and the values will be added there */
                 } else {
-                    listpackExAddNew(o, field, value, expire);
-                    sdsfree(field);
+                    listpackExAddNew(o, field, hfieldlen(field),
+                                     value, sdslen(value), expireAt);
+                    hfieldFree(field);
                     sdsfree(value);
                 }
             }
 
             if (o->encoding == OBJ_ENCODING_HT) {
-                /* WA for check-rdb mode, when there's no DB so can't attach expired items to ebuckets,
-                 * or when no expiry was not set for this field */
-                if ((db == NULL) || (expire == 0)) {
-                    hashTypeSet(db, o, field, value, 0);
-                } else {
-                    if (hashTypeSetExRdb(db, o, field, value, expire) != C_OK) {
-                        serverLog(LL_WARNING, "failed adding hash field %s to key %s", field, key);
-                        decrRefCount(o);
-                        if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                        sdsfree(value);
-                        sdsfree(field);
-                        return NULL;
-                    }
+                /* Add pair to hash table */
+                dict *d = o->ptr;
+                dictUseStoredKeyApi(d, 1);
+                int ret = dictAdd(d, field, value);
+                dictUseStoredKeyApi(d, 0);
+
+                /* Attach expiry to the hash field and register in hash private HFE DS */
+                if ((ret != DICT_ERR) && expireAt) {
+                    dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(d);
+                    ret = ebAdd(&m->hfe, &hashFieldExpireBucketsType, field, expireAt);
                 }
-                sdsfree(field);
-                sdsfree(value);
+
+                if (ret == DICT_ERR) {
+                    rdbReportCorruptRDB("Duplicate hash fields detected");
+                    sdsfree(value);
+                    hfieldFree(field);
+                    decrRefCount(o);
+                    return NULL;
+                }
             }
         }
 
@@ -2389,10 +2381,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
         /* check for empty key (if all fields were expired) */
         if (hashTypeLength(o, 0) == 0) {
             decrRefCount(o);
-            goto emptykey;
+            goto expiredHash;
         }
-        if ((db != NULL) && (minExpire != EB_EXPIRE_TIME_INVALID))
-            hashTypeAddToExpires(db, key, o, minExpire);
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
@@ -2717,33 +2707,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
                 }
 
                 /* for TTL listpack, find the minimum expiry */
-                uint64_t minExpire = hashTypeGetNextTimeToExpire(o);
+                minExpField = hashTypeGetNextTimeToExpire(o);
 
-                /* check if need to convert to dict encoding */
-                if ((db != NULL) &&
-                    (hashTypeLength(o, 0) > server.hash_max_listpack_entries))  /* TODO: each field length is not verified against server.hash_max_listpack_value */
-                {
-                    hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-                    /*
-                     * hashTypeAddToExpires is presumably called from within
-                     * the convert function (from listpackEx to dict), BUT,
-                     * this call depends on the lpt->meta field to be updated,
-                     * which is not the case here as hashTypeAddToExpires was
-                     * not yet called for the listpack (which is what updating
-                     * its meta).
-                     * Instead, this "manual" call is added here.
-                     * Another approach would be to have the conversion function
-                     * find the minExpire by itself when iterating on the listpack
-                     * instead of relying on the meta and use this value for the
-                     * final ebAdd call.
-                     */
-                    hashTypeAddToExpires(db, key, o, minExpire);
-                } else if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
-                    /* connect the listpack to the DB-global expiry data structure */
-                    if ((minExpire != EB_EXPIRE_TIME_INVALID) && (db != NULL)) { /* DB can be NULL when checking rdb */
-                        hashTypeAddToExpires(db, key, o, minExpire);
-                    }
-                }
+                /* Convert listpack to hash table without registering in global HFE DS,
+                 * if has HFEs, since the listpack is not connected yet to the DB */
+                if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+                    hashTypeConvert(o, OBJ_ENCODING_HT, NULL /*db->hexpires*/);
+
                 break;
             default:
                 /* totally unreachable */
@@ -3128,11 +3098,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int rdbflags,
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
     }
+
+    if (minExpiredField) *minExpiredField = minExpField;
+
     if (error) *error = 0;
     return o;
 
 emptykey:
     if (error) *error = RDB_LOAD_ERR_EMPTY_KEY;
+    return NULL;
+expiredHash:
+    if (error) *error = RDB_LOAD_ERR_EXPIRED_HASH;
     return NULL;
 }
 
@@ -3303,6 +3279,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
+    uint64_t minExpiredField = EB_EXPIRE_TIME_INVALID;
     uint64_t dbid = 0;
     int type, rdbver;
     uint64_t db_size = 0, expires_size = 0;
@@ -3544,7 +3521,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db,rdbflags,&error);
+        val = rdbLoadObject(type,rdb,key,db,&error, &minExpiredField);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -3562,6 +3539,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
                 if(empty_keys_skipped++ < 10)
                     serverLog(LL_NOTICE, "rdbLoadObject skipping empty key: %s", key);
+                sdsfree(key);
+            } else if (error == RDB_LOAD_ERR_EXPIRED_HASH) {
+                /* Valid flow. Continue. */
                 sdsfree(key);
             } else {
                 sdsfree(key);
@@ -3606,6 +3586,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                     serverPanic("Duplicated key found in RDB file");
                 }
             }
+
+            /* If minExpiredField was set, then the object is hash with expiration
+             * on fields and need to register it in global HFE DS */
+             if (minExpiredField != EB_EXPIRE_TIME_INVALID)
+                hashTypeAddToExpires(db, key, val, minExpiredField);
 
             /* Set the expire time if needed */
             if (expiretime != -1) {
@@ -3652,12 +3637,12 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
     if (empty_keys_skipped) {
         serverLog(LL_NOTICE,
-            "Done loading RDB, keys loaded: %lld, keys expired: %lld, hash fields expired: %lld, empty keys skipped: %lld.",
-                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, server.rdb_last_load_hash_fields_expired, empty_keys_skipped);
+            "Done loading RDB, keys loaded: %lld, keys expired: %lld, empty keys skipped: %lld.",
+                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, empty_keys_skipped);
     } else {
         serverLog(LL_NOTICE,
-            "Done loading RDB, keys loaded: %lld, keys expired: %lld, hash fields expired: %lld.",
-                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired, server.rdb_last_load_hash_fields_expired);
+            "Done loading RDB, keys loaded: %lld, keys expired: %lld.",
+                server.rdb_last_load_keys_loaded, server.rdb_last_load_keys_expired);
     }
     return C_OK;
 

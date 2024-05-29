@@ -3757,7 +3757,9 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
  * 1. Make sure there are no "holes" and all the arguments are set.
  * 2. If the original argument vector was longer than the one we
  *    want to end with, it's up to the caller to set c->argc and
- *    free the no longer used objects on c->argv. */
+ *    free the no longer used objects on c->argv.
+ * 3. To remove argument at i'th index, pass NULL as new value
+ */
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
@@ -3775,9 +3777,18 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     }
     oldval = c->argv[i];
     if (oldval) c->argv_len_sum -= getStringObjectLen(oldval);
-    if (newval) c->argv_len_sum += getStringObjectLen(newval);
-    c->argv[i] = newval;
-    incrRefCount(newval);
+
+    if (newval) {
+        c->argv[i] = newval;
+        incrRefCount(newval);
+        c->argv_len_sum += getStringObjectLen(newval);
+    } else {
+        /* move the remaining arguments one step left */
+        for (int j = i+1; j < c->argc; j++) {
+            c->argv[j-1] = c->argv[j];
+        }
+        c->argv[--c->argc] = NULL;
+    }
     if (oldval) decrRefCount(oldval);
 
     /* If this is the command name make sure to fix c->cmd. */
