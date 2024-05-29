@@ -126,9 +126,9 @@ void zslFree(zskiplist *zsl) {
 int zslRandomLevel(void) {
     static const int threshold = ZSKIPLIST_P*RAND_MAX;
     int level = 1;
-    while (random() < threshold)
+    while (level < ZSKIPLIST_MAXLEVEL && random() < threshold)
         level += 1;
-    return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
+    return level;
 }
 
 /* Insert a new node in the skiplist. Assumes the element does not already
