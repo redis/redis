@@ -64,12 +64,12 @@
                 "key_spec_index": 0
             },
             {
-                "name": "numfields",
-                "type": "integer"
-            },
-            {
                 "name": "FIELDS",
                 "type": "string"
+            },
+            {
+                "name": "numfields",
+                "type": "integer"
             },
             {
                 "name": "field",
