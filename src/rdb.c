@@ -1889,10 +1889,18 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL.
- * When the function returns NULL and if 'error' is not NULL, the
- * integer pointed by 'error' is set to the type of error that occurred */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error) {
-    uint64_t minExpiredField = EB_EXPIRE_TIME_INVALID;
+ *
+ * error - When the function returns NULL and if 'error' is not NULL, the
+ *   integer pointed by 'error' is set to the type of error that occurred
+ * minExpiredField - If loading a hash with expiration on fields, then this value
+ *   will be set to the minimum expire time found in the hash fields. If there are
+ *   no fields with expiration or it is not a hash, then it will set be to
+ *   EB_EXPIRE_TIME_INVALID.
+ */
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
+                    uint64_t *minExpiredField)
+{
+    uint64_t minExpField = EB_EXPIRE_TIME_INVALID;
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2298,7 +2306,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error) {
             }
 
             /* keep the nearest expiration to connect listpack object to db expiry */
-            if ((expireAt != 0) && (expireAt < minExpiredField)) minExpiredField = expireAt;
+            if ((expireAt != 0) && (expireAt < minExpField)) minExpField = expireAt;
 
             /* store the values read - either to listpack or dict */
             if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
@@ -2699,7 +2707,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error) {
                 }
 
                 /* for TTL listpack, find the minimum expiry */
-                minExpiredField = hashTypeGetNextTimeToExpire(o);
+                minExpField = hashTypeGetNextTimeToExpire(o);
 
                 /* Convert listpack to hash table without registering in global HFE DS,
                  * if has HFEs, since the listpack is not connected yet to the DB */
@@ -3091,21 +3099,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error) {
         return NULL;
     }
 
-    /* If loaded hash fields with expiration,
-     * write it to the hash ExpireMeta but don't register it in global
-     * HFE DS! If needed the caller of rdbLoadObject() is the one to read
-     * out of the object ExpireMeta the minimum expiration time and register
-     * it in global HFE DS */
-    if (minExpiredField != EB_EXPIRE_TIME_INVALID) {
-        if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-            listpackEx *lpt = o->ptr;
-            ebSetMetaExpTime(&lpt->meta, minExpiredField);
-        } else if (o->encoding == OBJ_ENCODING_HT) {
-            dict *d = o->ptr;
-            dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(d);
-            ebSetMetaExpTime(&m->expireMeta, minExpiredField);
-        }
-    }
+    if (minExpiredField) *minExpiredField = minExpField;
 
     if (error) *error = 0;
     return o;
@@ -3285,6 +3279,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
+    uint64_t minExpiredField = EB_EXPIRE_TIME_INVALID;
     uint64_t dbid = 0;
     int type, rdbver;
     uint64_t db_size = 0, expires_size = 0;
@@ -3526,7 +3521,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db,&error);
+        val = rdbLoadObject(type,rdb,key,db,&error, &minExpiredField);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -3592,13 +3587,10 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 }
             }
 
-            /* register hash in global HFE DS if needed.
-             *
-             * For that purpose rdbLoadObject() took care to write minimum expiration
-             * time as leftover value in the ExpireMeta (Marked as trash) of the object.
-             * That is why we indicate 0 as the expiration time here. */
-            if (val->type == OBJ_HASH)
-                hashTypeAddToExpires(db, key, val, 0);
+            /* If minExpiredField was set, then the object is hash with expiration
+             * on fields and need to register it in global HFE DS */
+             if (minExpiredField != EB_EXPIRE_TIME_INVALID)
+                hashTypeAddToExpires(db, key, val, minExpiredField);
 
             /* Set the expire time if needed */
             if (expiretime != -1) {

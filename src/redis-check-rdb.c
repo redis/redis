@@ -331,7 +331,8 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,NULL,NULL)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,NULL,NULL,NULL)) == NULL)
+            goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;

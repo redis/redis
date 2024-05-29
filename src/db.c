@@ -1633,7 +1633,8 @@ void copyCommand(client *c) {
     if (expire != -1)
         setExpire(c, dst, newkey, expire);
 
-    /* If hash with expiration on fields then add it to 'dst' global HFE DS */
+    /* If minExpiredField was set, then the object is hash with expiration
+     * on fields and need to register it in global HFE DS */
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
         hashTypeAddToExpires(dst, dictGetKey(deCopy), newobj, minHashExpire);
 
