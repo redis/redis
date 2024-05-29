@@ -2728,6 +2728,8 @@ static hfield _hfieldNew(const void *field, size_t fieldlen, int withExpireMeta,
     hfield hf = mstrNewWithMeta(&mstrFieldKind, field, fieldlen,
                                 (mstrFlags) 1 << HFIELD_META_EXPIRE, trymalloc);
 
+    if (!hf) return NULL;
+
     ExpireMeta *expireMeta = mstrMetaRef(hf, &mstrFieldKind, HFIELD_META_EXPIRE);
 
     /* as long as it is not inside ebuckets, it is considered trash */
