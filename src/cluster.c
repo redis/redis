@@ -4,6 +4,8 @@
  *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 /*
@@ -174,6 +176,7 @@ void dumpCommand(client *c) {
 
 /* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] */
 void restoreCommand(client *c) {
+    uint64_t minExpiredField = EB_EXPIRE_TIME_INVALID;
     long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
     rio payload;
     int j, type, replace = 0, absttl = 0;
@@ -237,7 +240,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db,NULL, &minExpiredField)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
@@ -263,7 +266,13 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    dbAdd(c->db,key,obj);
+    dictEntry *de = dbAdd(c->db,key,obj);
+
+    /* If minExpiredField was set, then the object is hash with expiration
+     * on fields and need to register it in global HFE DS */
+    if (minExpiredField != EB_EXPIRE_TIME_INVALID)
+        hashTypeAddToExpires(c->db, dictGetKey(de), obj, minExpiredField);
+
     if (ttl) {
         setExpire(c,c->db,key,ttl);
         if (!absttl) {
@@ -978,6 +987,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     multiCmd mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0,
             existing_keys = 0;
+    int pubsubshard_included = 0; /* Flag to indicate if a pubsub shard cmd is included. */
 
     /* Allow any key to be set if a module disabled cluster redirections. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
@@ -1009,10 +1019,6 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.cmd = cmd;
     }
 
-    int is_pubsubshard = cmd->proc == ssubscribeCommand ||
-                         cmd->proc == sunsubscribeCommand ||
-                         cmd->proc == spublishCommand;
-
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
     for (i = 0; i < ms->count; i++) {
@@ -1024,6 +1030,13 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mcmd = ms->commands[i].cmd;
         margc = ms->commands[i].argc;
         margv = ms->commands[i].argv;
+
+        /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
+        if (!pubsubshard_included &&
+            doesCommandHaveChannelsWithFlags(mcmd, CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE))
+        {
+            pubsubshard_included = 1;
+        }
 
         getKeysResult result = GETKEYS_RESULT_INIT;
         numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
@@ -1088,7 +1101,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * node until the migration completes with CLUSTER SETSLOT <slot>
              * NODE <node-id>. */
             int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY | LOOKUP_NOEXPIRE;
-            if ((migrating_slot || importing_slot) && !is_pubsubshard)
+            if ((migrating_slot || importing_slot) && !pubsubshard_included)
             {
                 if (lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL) missing_keys++;
                 else existing_keys++;
@@ -1105,7 +1118,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (!isClusterHealthy()) {
-        if (is_pubsubshard) {
+        if (pubsubshard_included) {
             if (!server.cluster_allow_pubsubshard_when_down) {
                 if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
                 return NULL;
@@ -1168,7 +1181,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * is serving, we can reply without redirection. */
     int is_write_command = (cmd_flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
+    if (((c->flags & CLIENT_READONLY) || pubsubshard_included) &&
         !is_write_command &&
         clusterNodeIsSlave(myself) &&
         clusterNodeGetSlaveof(myself) == n)

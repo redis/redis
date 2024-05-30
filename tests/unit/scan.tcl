@@ -277,6 +277,32 @@ proc test_scan {type} {
             set res [r hscan hash 0 count 1000 novalues]
             assert_equal [lsort $keys2] [lsort [lindex $res 1]]
         }
+
+        test "{$type} HSCAN with large value $enc" {
+            r del hash
+
+            if {$enc eq {listpack}} {
+                set count 60
+            } else {
+                set count 170
+            }
+
+            set val1 [string repeat "1" $count]
+            r hset hash $val1 $val1
+
+            set val2 [string repeat "2" $count]
+            r hset hash $val2 $val2
+
+            set res [lsort [lindex [r hscan hash 0] 1]]
+            assert_equal $val1 [lindex $res 0]
+            assert_equal $val1 [lindex $res 1]
+            assert_equal $val2 [lindex $res 2]
+            assert_equal $val2 [lindex $res 3]
+
+            set res [lsort [lindex [r hscan hash 0 novalues] 1]]
+            assert_equal $val1 [lindex $res 0]
+            assert_equal $val2 [lindex $res 1]
+        }
     }
 
     foreach enc {listpack skiplist} {

@@ -1657,7 +1657,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
 #define STREAM_RWR_RAWENTRIES (1<<1)    /* Do not emit protocol for array
                                            boundaries, just the entries. */
 #define STREAM_RWR_HISTORY (1<<2)       /* Only serve consumer local PEL. */
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi) {
+size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount) {
     void *arraylen_ptr = NULL;
     size_t arraylen = 0;
     streamIterator si;
@@ -1665,6 +1665,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     streamID id;
     int propagate_last_id = 0;
     int noack = flags & STREAM_RWR_NOACK;
+
+    if (propCount) *propCount = 0;
 
     /* If the client is asking for some history, we serve it using a
      * different function, so that we return entries *solely* from its
@@ -1764,6 +1766,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 robj *idarg = createObjectFromStreamID(&id);
                 streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
                 decrRefCount(idarg);
+                if (propCount) (*propCount)++;
             }
         }
 
@@ -1771,8 +1774,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         if (count && count == arraylen) break;
     }
 
-    if (spi && propagate_last_id)
+    if (spi && propagate_last_id) {
         streamPropagateGroupID(c,spi->keyname,group,spi->groupname);
+        if (propCount) (*propCount)++;
+    }
 
     streamIteratorStop(&si);
     if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
@@ -1808,7 +1813,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
         if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,NULL,NULL,
-                                 STREAM_RWR_RAWENTRIES,NULL) == 0)
+                                 STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
         {
             /* Note that we may have a not acknowledged entry in the PEL
              * about a message that's no longer here because was removed
@@ -2124,7 +2129,7 @@ void xrangeGenericCommand(client *c, int rev) {
         addReplyNullArray(c);
     } else {
         if (count == -1) count = 0;
-        streamReplyWithRange(c,s,&startid,&endid,count,rev,NULL,NULL,0,NULL);
+        streamReplyWithRange(c,s,&startid,&endid,count,rev,NULL,NULL,0,NULL,NULL);
     }
 }
 
@@ -2386,12 +2391,13 @@ void xreadCommand(client *c) {
             addReplyBulk(c,c->argv[streams_arg+i]);
             
             int flags = 0;
+            unsigned long propCount = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
             streamReplyWithRange(c,s,&start,NULL,count,0,
                                  groups ? groups[i] : NULL,
-                                 consumer, flags, &spi);
-            if (groups) server.dirty++;
+                                 consumer, flags, &spi, &propCount);
+            if (propCount) server.dirty++;
         }
     }
 
@@ -3298,7 +3304,7 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
+                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
             }
             arraylen++;
 
@@ -3473,7 +3479,7 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
+            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
         }
         arraylen++;
         count--;
@@ -3697,18 +3703,18 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         end.ms = end.seq = UINT64_MAX;
         addReplyBulkCString(c,"first-entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
-                                       STREAM_RWR_RAWENTRIES,NULL);
+                                       STREAM_RWR_RAWENTRIES,NULL,NULL);
         if (!emitted) addReplyNull(c);
         addReplyBulkCString(c,"last-entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
-                                       STREAM_RWR_RAWENTRIES,NULL);
+                                       STREAM_RWR_RAWENTRIES,NULL,NULL);
         if (!emitted) addReplyNull(c);
     } else {
         /* XINFO STREAM <key> FULL [COUNT <count>] */
 
         /* Stream entries */
         addReplyBulkCString(c,"entries");
-        streamReplyWithRange(c,s,NULL,NULL,count,0,NULL,NULL,0,NULL);
+        streamReplyWithRange(c,s,NULL,NULL,count,0,NULL,NULL,0,NULL,NULL);
 
         /* Consumer groups */
         addReplyBulkCString(c,"groups");

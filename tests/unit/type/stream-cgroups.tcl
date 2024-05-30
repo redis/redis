@@ -1009,6 +1009,68 @@ start_server {
         assert_error "*NOGROUP*" {r XGROUP CREATECONSUMER mystream mygroup consumer}
     }
 
+    test {XREADGROUP of multiple entries changes dirty by one} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATECONSUMER x g1 Alice
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice NOACK COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{3-0 {data c}} {4-0 {data d}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+    }
+
+    test {XREADGROUP from PEL does not change dirty} {
+        # Techinally speaking, XREADGROUP from PEL should cause propagation
+        # because it change the delivery count/time
+        # It was decided that this metadata changes are too insiginificant
+        # to justify propagation
+        # This test covers that.
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATECONSUMER x g1 Alice
+
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 0]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 9000]
+        assert_equal $res {{x {}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty}
+
+        # The current behavior is that we create the consumer (causes dirty++) even
+        # if we onlyneed to read from PEL.
+        # It feels like we shouldn't create the consumer in that case, but I added
+        # this test just for coverage of current behavior
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 noconsumer COUNT 2 STREAMS x 0]
+        assert_equal $res {{x {}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+    }
+
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
         test {XREADGROUP with NOACK creates consumer} {
             r del mystream
@@ -1328,6 +1390,18 @@ start_server {
             set group [lindex [dict get $reply groups] 0]
             assert_equal [dict get $group entries-read] 3
             assert_equal [dict get $group lag] 0
+        }
+
+        test {XREADGROUP from PEL inside MULTI} {
+            # This scenario used to cause propagation of EXEC without MULTI in 6.2
+            $replica config set propagation-error-behavior panic
+            $master del mystream
+            $master xadd mystream 1-0 a b c d e f
+            $master xgroup create mystream mygroup 0
+            assert_equal [$master xreadgroup group mygroup ryan count 1 streams mystream >] {{mystream {{1-0 {a b c d e f}}}}}
+            $master multi
+            $master xreadgroup group mygroup ryan count 1 streams mystream 0
+            $master exec
         }
     }
 

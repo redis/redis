@@ -3,6 +3,7 @@
 #include "atomicvar.h"
 #include "functions.h"
 #include "cluster.h"
+#include "ebuckets.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -22,7 +23,8 @@ void lazyfreeFreeObject(void *args[]) {
 void lazyfreeFreeDatabase(void *args[]) {
     kvstore *da1 = args[0];
     kvstore *da2 = args[1];
-
+    ebuckets oldHfe = args[2];
+    ebDestroy(&oldHfe, &hashExpireBucketsType, NULL);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
     kvstoreRelease(da2);
@@ -201,10 +203,12 @@ void emptyDbAsync(redisDb *db) {
         flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
+    ebuckets oldHfe = db->hexpires;
     db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+    db->hexpires = ebCreate();
     atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldkeys, oldexpires);
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, oldkeys, oldexpires, oldHfe);
 }
 
 /* Free the key tracking table.

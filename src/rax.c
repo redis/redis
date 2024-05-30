@@ -173,11 +173,16 @@ raxNode *raxNewNode(size_t children, int datafield) {
 /* Allocate a new rax and return its pointer. On out of memory the function
  * returns NULL. */
 rax *raxNew(void) {
-    rax *rax = rax_malloc(sizeof(*rax));
+    return raxNewWithMetadata(0);
+}
+
+/* Allocate a new rax with metadata */
+rax *raxNewWithMetadata(int metaSize) {
+    rax *rax = rax_malloc(sizeof(*rax) + metaSize);
     if (rax == NULL) return NULL;
     rax->numele = 0;
     rax->numnodes = 1;
-    rax->head = raxNewNode(0,0);
+    rax->head = raxNewNode(0, 0);
     if (rax->head == NULL) {
         rax_free(rax);
         return NULL;
@@ -1210,10 +1215,38 @@ void raxRecursiveFree(rax *rax, raxNode *n, void (*free_callback)(void*)) {
     rax->numnodes--;
 }
 
+/* Same as raxRecursiveFree() with context argument */
+void raxRecursiveFreeWithCtx(rax *rax, raxNode *n,
+                            void (*free_callback)(void *item, void *ctx), void *ctx) {
+    debugnode("free traversing",n);
+    int numchildren = n->iscompr ? 1 : n->size;
+    raxNode **cp = raxNodeLastChildPtr(n);
+    while(numchildren--) {
+        raxNode *child;
+        memcpy(&child,cp,sizeof(child));
+        raxRecursiveFreeWithCtx(rax,child,free_callback, ctx);
+        cp--;
+    }
+    debugnode("free depth-first",n);
+    if (free_callback && n->iskey && !n->isnull)
+        free_callback(raxGetData(n), ctx);
+    rax_free(n);
+    rax->numnodes--;
+}
+
 /* Free a whole radix tree, calling the specified callback in order to
  * free the auxiliary data. */
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
     raxRecursiveFree(rax,rax->head,free_callback);
+    assert(rax->numnodes == 0);
+    rax_free(rax);
+}
+
+/* Free a whole radix tree, calling the specified callback in order to
+ * free the auxiliary data. */
+void raxFreeWithCbAndContext(rax *rax,
+                             void (*free_callback)(void *item, void *ctx), void *ctx) {
+    raxRecursiveFreeWithCtx(rax,rax->head,free_callback,ctx);
     assert(rax->numnodes == 0);
     rax_free(rax);
 }
