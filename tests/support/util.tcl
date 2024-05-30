@@ -293,6 +293,9 @@ proc findKeyWithType {r type} {
 
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
+    # TODO: Remove usehexpire on next commit, when RDB will support replication
+    set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
+
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
     } else {
@@ -386,6 +389,10 @@ proc createComplexDataset {r ops {opt {}}} {
             {hash} {
                 randpath {{*}$r hset $k $f $v} \
                         {{*}$r hdel $k $f}
+
+                if { [{*}$r hexists $k $f] && $usehexpire && rand() < 0.5} {
+                    {*}$r hexpire $k 1000 FIELDS 1 $f
+                }
             }
         }
     }
@@ -438,8 +445,14 @@ proc csvdump r {
                 hash {
                     set fields [{*}$r hgetall $k]
                     set newfields {}
-                    foreach {k v} $fields {
-                        lappend newfields [list $k $v]
+                    foreach {f v} $fields {
+                        set expirylist [{*}$r hexpiretime $k FIELDS 1 $f]
+                        if {$expirylist eq (-1)} {
+                            lappend newfields [list $f $v]
+                        } else {
+                            set e [lindex $expirylist 0]
+                            lappend newfields [list $f $e $v] # TODO: extract the actual ttl value from the list in $e
+                        }
                     }
                     set fields [lsort -index 0 $newfields]
                     foreach kv $fields {

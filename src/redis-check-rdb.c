@@ -80,6 +80,8 @@ char *rdb_type_string[] = {
     "stream-v2",
     "set-listpack",
     "stream-v3",
+    "hash-hashtable-md",
+    "hash-listpack-md",
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -173,7 +175,6 @@ void rdbCheckSetupSignals(void) {
  * otherwise the already open file 'fp' is checked. */
 int redis_check_rdb(char *rdbfilename, FILE *fp) {
     uint64_t dbid;
-    int selected_dbid = -1;
     int type, rdbver;
     char buf[1024];
     long long expiretime, now = mstime();
@@ -245,7 +246,6 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             if ((dbid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             rdbCheckInfo("Selecting DB ID %llu", (unsigned long long)dbid);
-            selected_dbid = dbid;
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
@@ -331,7 +331,8 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,NULL)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,NULL,NULL,NULL)) == NULL)
+            goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;

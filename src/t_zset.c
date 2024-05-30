@@ -1754,7 +1754,7 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
             *score = *(double*)dictGetVal(de);
     } else if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
         listpackEntry val;
-        lpRandomPair(zsetobj->ptr, zsetsize, key, &val);
+        lpRandomPair(zsetobj->ptr, zsetsize, key, &val, 2);
         if (score) {
             if (val.sval) {
                 *score = zzlStrtod(val.sval,val.slen);
@@ -4263,7 +4263,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             while (count) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
-                lpRandomPairs(zsetobj->ptr, sample_count, keys, vals);
+                lpRandomPairs(zsetobj->ptr, sample_count, keys, vals, 2);
                 zrandmemberReplyWithListpack(c, sample_count, keys, vals);
                 if (c->flags & CLIENT_CLOSE_ASAP)
                     break;
@@ -4317,7 +4317,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         keys = zmalloc(sizeof(listpackEntry)*count);
         if (withscores)
             vals = zmalloc(sizeof(listpackEntry)*count);
-        serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
+        serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals, 2) == count);
         zrandmemberReplyWithListpack(c, count, keys, vals);
         zfree(keys);
         zfree(vals);

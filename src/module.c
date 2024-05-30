@@ -745,7 +745,7 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     case OBJ_LIST: isempty = listTypeLength(o) == 0; break;
     case OBJ_SET: isempty = setTypeSize(o) == 0; break;
     case OBJ_ZSET: isempty = zsetLength(o) == 0; break;
-    case OBJ_HASH: isempty = hashTypeLength(o) == 0; break;
+    case OBJ_HASH: isempty = hashTypeLength(o, 0) == 0; break;
     case OBJ_STREAM: isempty = streamLength(o) == 0; break;
     default: isempty = 0;
     }
@@ -4168,7 +4168,7 @@ size_t RM_ValueLength(RedisModuleKey *key) {
     case OBJ_LIST: return listTypeLength(key->value);
     case OBJ_SET: return setTypeSize(key->value);
     case OBJ_ZSET: return zsetLength(key->value);
-    case OBJ_HASH: return hashTypeLength(key->value);
+    case OBJ_HASH: return hashTypeLength(key->value, 0);  /* OPEN: To subtract expired fields? */
     case OBJ_STREAM: return streamLength(key->value);
     default: return 0;
     }
@@ -5271,7 +5271,10 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int exists = hashTypeExists(key->value, field->ptr);
+            int isHashDeleted;
+            int exists = hashTypeExists(key->db, key->value, field->ptr, &isHashDeleted);
+            /* hash-field-expiration is not exposed to modules */
+            serverAssert(isHashDeleted == 0);
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
                 ((flags & REDISMODULE_HASH_NX) && exists))
             {
@@ -5282,7 +5285,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle deletion if value is REDISMODULE_HASH_DELETE. */
         if (value == REDISMODULE_HASH_DELETE) {
-            count += hashTypeDelete(key->value, field->ptr);
+            count += hashTypeDelete(key->value, field->ptr, 1);
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
             continue;
         }
@@ -5295,8 +5298,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
             low_flags |= HASH_SET_TAKE_FIELD;
 
         robj *argv[2] = {field,value};
-        hashTypeTryConversion(key->value,argv,0,1);
-        int updated = hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
+        hashTypeTryConversion(key->db,key->value,argv,0,1);
+        int updated = hashTypeSet(key->db, key->value, field->ptr, value->ptr, low_flags);
         count += (flags & REDISMODULE_HASH_COUNT_ALL) ? 1 : updated;
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
@@ -5374,14 +5377,22 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         /* Query the hash for existence or value object. */
         if (flags & REDISMODULE_HASH_EXISTS) {
             existsptr = va_arg(ap,int*);
-            if (key->value)
-                *existsptr = hashTypeExists(key->value,field->ptr);
-            else
+            if (key->value) {
+                int isHashDeleted;
+                *existsptr = hashTypeExists(key->db, key->value, field->ptr, &isHashDeleted);
+                /* hash-field-expiration is not exposed to modules */
+                serverAssert(isHashDeleted == 0);
+            } else {
                 *existsptr = 0;
+            }
         } else {
+            int isHashDeleted;
             valueptr = va_arg(ap,RedisModuleString**);
             if (key->value) {
-                *valueptr = hashTypeGetValueObject(key->value,field->ptr);
+                *valueptr = hashTypeGetValueObject(key->db,key->value,field->ptr, &isHashDeleted);
+
+                /* Currently hash-field-expiration is not exposed to modules */
+                serverAssert(isHashDeleted == 0);
                 if (*valueptr) {
                     robj *decoded = getDecodedObject(*valueptr);
                     decrRefCount(*valueptr);
@@ -11071,17 +11082,21 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
     ScanKeyCBData *data = privdata;
     sds key = dictGetKey(de);
     robj *o = data->key->value;
-    robj *field = createStringObject(key, sdslen(key));
+    robj *field = NULL;
     robj *value = NULL;
     if (o->type == OBJ_SET) {
         value = NULL;
     } else if (o->type == OBJ_HASH) {
         sds val = dictGetVal(de);
+        field = createStringObject(key, hfieldlen(key));
         value = createStringObject(val, sdslen(val));
     } else if (o->type == OBJ_ZSET) {
         double *val = (double*)dictGetVal(de);
         value = createStringObjectFromLongDouble(*val, 0);
     }
+
+    /* if type is OBJ_HASH then key is of type hfield. Otherwise sds. */
+    if (!field) field = createStringObject(key, sdslen(key));
 
     data->fn(data->key, field, value, data->user_data);
     decrRefCount(field);

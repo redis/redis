@@ -34,6 +34,7 @@ set ::all_tests {
     unit/type/set
     unit/type/zset
     unit/type/hash
+    unit/type/hash-field-expire
     unit/type/stream
     unit/type/stream-cgroups
     unit/sort
