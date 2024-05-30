@@ -1,4 +1,7 @@
 start_server {tags {"hash"}} {
+    r config set hash-max-listpack-value 64
+    r config set hash-max-listpack-entries 512
+
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {

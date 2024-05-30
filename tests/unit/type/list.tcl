@@ -448,7 +448,7 @@ start_server {
         "list-max-ziplist-size" -1
     }
 } {
-    source "tests/unit/type/list-common.tcl"
+    array set largevalue [generate_largevalue_test_array]
 
     # A helper function to execute either B*POP or BLMPOP* with one input key.
     proc bpop_command {rd pop key timeout} {
