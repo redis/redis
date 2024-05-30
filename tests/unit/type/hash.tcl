@@ -486,7 +486,6 @@ start_server {tags {"hash"}} {
     } {1 0 1 0}
 
     test {Is a ziplist encoded Hash promoted on big payload?} {
-        r config set hash-max-listpack-value 64
         r hset smallhash foo [string repeat a 1024]
         r debug object smallhash
     } {*hashtable*} {needs:debug}
