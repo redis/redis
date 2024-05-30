@@ -9548,15 +9548,7 @@ void revokeClientAuthentication(client *c) {
      * is eventually freed we don't rely on the module to still exist. */
     moduleNotifyUserChanged(c);
 
-    c->user = DefaultUser;
-    c->authenticated = 0;
-    /* We will write replies to this client later, so we can't close it
-     * directly even if async. */
-    if (c == server.current_client) {
-        c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
-    } else {
-        freeClientAsync(c);
-    }
+    deauthenticateAndCloseClient(c);
 }
 
 /* Cleanup all clients that have been authenticated with this module. This

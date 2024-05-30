@@ -1549,6 +1549,18 @@ void clearClientConnectionState(client *c) {
                   CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
 }
 
+void deauthenticateAndCloseClient(client *c) {
+    c->user = DefaultUser;
+    c->authenticated = 0;
+    /* We will write replies to this client later, so we can't
+     * close it directly even if async. */
+    if (c == server.current_client) {
+        c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
+    } else {
+        freeClientAsync(c);
+    }
+}
+
 void freeClient(client *c) {
     listNode *ln;
 
