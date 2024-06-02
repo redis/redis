@@ -4008,6 +4008,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
+            c->duration = 0;
             c->cmd->rejected_calls++;
             return C_OK;
         }
