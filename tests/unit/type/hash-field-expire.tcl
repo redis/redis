@@ -969,45 +969,45 @@ start_server {tags {"external:skip needs:debug"}} {
             r config set hash-max-listpack-entries 512
         }
 
-        # test "Command rewrite and expired hash fields are propagated to replica ($type)" {
-        #     start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
+        test "Command rewrite and expired hash fields are propagated to replica ($type)" {
+            start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
 
-        #         set aof [get_last_incr_aof_path r]
-        #         r hset h1 f1 v1 f2 v2
+                set aof [get_last_incr_aof_path r]
+                r hset h1 f1 v1 f2 v2
 
-        #         r hpexpire h1 20 FIELDS 1 f1
-        #         r hpexpire h1 30 FIELDS 1 f2
-        #         r hpexpire h1 30 FIELDS 1 non_exists_field
-        #         r hset h2 f1 v1 f2 v2 f3 v3 f4 v4
-        #         r hpexpire h2 40 FIELDS 2 f1 non_exists_field
-        #         r hpexpire h2 50 FIELDS 1 f2
-        #         r hpexpireat h2 [expr [clock seconds]*1000+100000] LT FIELDS 1 f3
-        #         r hexpireat h2 [expr [clock seconds]+10] NX FIELDS 1 f4
+                r hpexpire h1 20 FIELDS 1 f1
+                r hpexpire h1 30 FIELDS 1 f2
+                r hpexpire h1 30 FIELDS 1 non_exists_field
+                r hset h2 f1 v1 f2 v2 f3 v3 f4 v4
+                r hpexpire h2 40 FIELDS 2 f1 non_exists_field
+                r hpexpire h2 50 FIELDS 1 f2
+                r hpexpireat h2 [expr [clock seconds]*1000+100000] LT FIELDS 1 f3
+                r hexpireat h2 [expr [clock seconds]+10] NX FIELDS 1 f4
 
-        #         wait_for_condition 50 100 {
-        #             [r hlen h2] eq 2
-        #         } else {
-        #             fail "Field f2 of hash h2 wasn't deleted"
-        #         }
+                wait_for_condition 50 100 {
+                    [r hlen h2] eq 2
+                } else {
+                    fail "Field f2 of hash h2 wasn't deleted"
+                }
 
-        #         # Assert that each TTL-related command are persisted with absolute timestamps in AOF
-        #         assert_aof_content $aof {
-        #             {select *}
-        #             {hset h1 f1 v1 f2 v2}
-        #             {hpexpireat h1 * FIELDS 1 f1}
-        #             {hpexpireat h1 * FIELDS 1 f2}
-        #             {hset h2 f1 v1 f2 v2 f3 v3 f4 v4}
-        #             {hpexpireat h2 * FIELDS 2 f1 non_exists_field}
-        #             {hpexpireat h2 * FIELDS 1 f2}
-        #             {hpexpireat h2 * FIELDS 1 f3}
-        #             {hpexpireat h2 * FIELDS 1 f4}
-        #             {hdel h1 f1}
-        #             {hdel h1 f2}
-        #             {hdel h2 f1}
-        #             {hdel h2 f2}
-        #         }
-        #     }
-        # }
+                # Assert that each TTL-related command are persisted with absolute timestamps in AOF
+                assert_aof_content $aof {
+                    {select *}
+                    {hset h1 f1 v1 f2 v2}
+                    {hpexpireat h1 * FIELDS 1 f1}
+                    {hpexpireat h1 * FIELDS 1 f2}
+                    {hset h2 f1 v1 f2 v2 f3 v3 f4 v4}
+                    {hpexpireat h2 * FIELDS 2 f1 non_exists_field}
+                    {hpexpireat h2 * FIELDS 1 f2}
+                    {hpexpireat h2 * FIELDS 1 f3}
+                    {hpexpireat h2 * FIELDS 1 f4}
+                    {hdel h1 f1}
+                    {hdel h1 f2}
+                    {hdel h2 f1}
+                    {hdel h2 f2}
+                }
+            }
+        }
 
         test "Lazy Expire - fields are lazy deleted and propagated to replicas ($type)" {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
