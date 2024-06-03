@@ -37,9 +37,10 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
-start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    proc test_active_defrag {type} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag" {
+            r flushdb async
             r config set hz 100
             r config set activedefrag no
             r config set active-defrag-threshold-lower 5
@@ -371,6 +372,7 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
 
+        if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag big list" {
             r flushdb
             r config resetstat
@@ -574,7 +576,16 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 assert {$digest eq $newdigest}
                 r save ;# saving an rdb iterates over all the data / pointers
             }
+        } ;# standalone
         }
     }
-}
+    }
+
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
+        test_active_defrag "cluster"
+    }
+
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
+        test_active_defrag "standalone"
+    }
 } ;# run_solo

@@ -2,6 +2,7 @@
 #include "bio.h"
 #include "atomicvar.h"
 #include "functions.h"
+#include "cluster.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -177,6 +178,7 @@ void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires;
     db->dict = dictCreate(&dbDictType);
     db->expires = dictCreate(&dbExpiresDictType);
+    if (server.cluster_enabled) slotToKeyInit(db);
     atomicIncr(lazyfree_objects,dictSize(oldht1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
 }
