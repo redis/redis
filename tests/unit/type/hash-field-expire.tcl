@@ -134,7 +134,7 @@ start_server {tags {"external:skip needs:debug"}} {
             # The expire time can't be negative.
             assert_error {ERR invalid expire time, must be >= 0} {r HEXPIRE myhash -1 FIELDS 1 f1}
             assert_error {ERR invalid expire time, must be >= 0} {r HEXPIRE myhash -9223372036854775808 FIELDS 1 f1}
-            # The expire time cann't be greater than the EB_EXPIRE_TIME_MAX
+            # The expire time can't be greater than the EB_EXPIRE_TIME_MAX
             assert_error {ERR invalid expire time in 'hexpire' command} {r HEXPIRE myhash [expr (1<<48) / 1000] FIELDS 1 f1}
             assert_error {ERR invalid expire time in 'hexpireat' command} {r HEXPIREAT myhash [expr (1<<48) / 1000 + [clock seconds] + 100] FIELDS 1 f1}
             assert_error {ERR invalid expire time in 'hpexpire' command} {r HPEXPIRE myhash [expr (1<<48)] FIELDS 1 f1}
