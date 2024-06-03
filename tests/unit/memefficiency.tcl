@@ -161,6 +161,7 @@ run_solo {defrag} {
         r config set appendonly no
         r config set key-load-delay 0
         
+        if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag eval scripts: $type" {
             r flushdb
             r script flush sync
@@ -372,7 +373,6 @@ run_solo {defrag} {
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
 
-        if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag big list: $type" {
             r flushdb
             r config resetstat
@@ -576,8 +576,8 @@ run_solo {defrag} {
                 assert {$digest eq $newdigest}
                 r save ;# saving an rdb iterates over all the data / pointers
             }
-        } ;# standalone
         }
+        } ;# standalone
     }
     }
 
