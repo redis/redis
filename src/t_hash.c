@@ -446,7 +446,7 @@ void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
         lpt->lp = lpDeleteRange(lpt->lp, 0, expired * 3);
 
     min = hashTypeGetNextTimeToExpire(o);
-    info->nextExpireTime = (min != EB_EXPIRE_TIME_INVALID) ? min : 0;
+    info->nextExpireTime = min;
 }
 
 static void listpackExAddInternal(robj *o, listpackEntry ent[3]) {
@@ -1885,7 +1885,7 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     activeExpireCtx->fieldsToExpireQuota -= info.itemsExpired;
 
     /* If hash has no more fields to expire, remove it from HFE DB */
-    if (info.nextExpireTime == 0) {
+    if (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) {
         if (hashTypeLength(hashObj, 0) == 0) {
             robj *key = createStringObject(keystr, sdslen(keystr));
             dbDelete(activeExpireCtx->db, key);
@@ -1896,10 +1896,9 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
         }
         return ACT_REMOVE_EXP_ITEM;
     } else {
-        /* Hash has more fields to expire. Keep hash to pending items that will
-         * be added back to global HFE DS at the end of ebExpire() */
-        ExpireMeta *expireMeta = hashGetExpireMeta(hashObj);
-        ebSetMetaExpTime(expireMeta, info.nextExpireTime);
+        /* Hash has more fields to expire. Update next expiration time of the hash
+         * and indicate to add it back to global HFE DS */
+        ebSetMetaExpTime(hashGetExpireMeta(hashObj), info.nextExpireTime);
         return ACT_UPDATE_EXP_ITEM;
     }
 }

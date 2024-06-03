@@ -385,6 +385,8 @@ int ebSingleSegExpire(FirstSegHdr *firstSegHdr,
             break;
         }
 
+        /* If indicated to re-insert the item, then chain it to updateList.
+         * it will be ebAdd() back to ebuckets at the end of ebExpire() */
         if (act == ACT_UPDATE_EXP_ITEM) {
             mIter->next = *updateList;
             *updateList = iter;
@@ -457,6 +459,8 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
                 break;
             }
 
+            /* If indicated to re-insert the item, then chain it to updateList.
+             * it will be ebAdd() back to ebuckets at the end of ebExpire() */
             if (act == ACT_UPDATE_EXP_ITEM) {
                 mIter->next = *updateList;
                 *updateList = iter;
@@ -695,6 +699,8 @@ static int ebListExpire(ebuckets *eb,
             break;
         }
 
+        /* If indicated to re-insert the item, then chain it to updateList.
+         * it will be ebAdd() back to ebuckets at the end of ebExpire() */
         if (act == ACT_UPDATE_EXP_ITEM) {
             metaItem->next = *updateList;
             *updateList = item;
@@ -707,7 +713,7 @@ static int ebListExpire(ebuckets *eb,
 
     if (expired == numItems) {
         *eb = NULL;
-        info->nextExpireTime = 0;
+        info->nextExpireTime = EB_EXPIRE_TIME_INVALID;
         return 1;
     }
 
@@ -1458,11 +1464,14 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
 void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
     /* updateList - maintain a list of expired items that the callback `onExpireItem`
      * indicated to update their expiration time rather than removing them.
-     * At the end of this function, `updateList` will be `ebAdd()` back. */
+     * At the end of this function, the items will be `ebAdd()` back.
+     *
+     * Note, this list of items does not allocate any memory, but temporary reuses
+     * the `next` pointer of the `ExpireMeta` structure of the expired items. */
     eItem updateList = NULL;
 
     /* reset info outputs */
-    info->nextExpireTime = 0;
+    info->nextExpireTime = EB_EXPIRE_TIME_INVALID;
     info->itemsExpired = 0;
 
     /* if empty ebuckets */
@@ -1523,7 +1532,14 @@ END_ACTEXP:
     while (updateList) {
         ExpireMeta *mItem = type->getExpireMeta(updateList);
         eItem next = mItem->next;
-        ebAdd(eb, type, updateList, ebGetMetaExpTime(mItem));
+        uint64_t expireAt = ebGetMetaExpTime(mItem);
+
+        /* Update next minimum expire time if needed.
+         * Condition is valid also if nextExpireTime is EB_EXPIRE_TIME_INVALID */
+        if (expireAt < info->nextExpireTime)
+            info->nextExpireTime = expireAt;
+
+        ebAdd(eb, type, updateList, expireAt);
         updateList = next;
     }
 
@@ -2179,7 +2195,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                     assert(info.itemsExpired == 1);
                     if (i == numItems) { /* if last item */
                         assert(eb == NULL);
-                        assert(info.nextExpireTime == 0);
+                        assert(info.nextExpireTime == EB_EXPIRE_TIME_INVALID);
                     } else {
                         assert(info.nextExpireTime == EB_BUCKET_EXP_TIME(i));
                     }
@@ -2209,7 +2225,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 assert(info.itemsExpired == expirePerIter);
                 if (i == numIterations) { /* if last item */
                     assert(eb == NULL);
-                    assert(info.nextExpireTime == 0);
+                    assert(info.nextExpireTime == EB_EXPIRE_TIME_INVALID);
                 } else {
                     assert(info.nextExpireTime == expireTime);
                 }
@@ -2372,6 +2388,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 .itemsExpired = 0};
         ebExpire(&eb, &myEbucketsType2, &info);
         assert(info.itemsExpired == (uint64_t) numItems);
+        assert(info.nextExpireTime == (uint64_t)updateItemTo << EB_BUCKET_KEY_PRECISION);
         assert(ebGetTotalItems(eb, &myEbucketsType2) == 1);
 
         /* active-expire. Expected that all will be expired */
@@ -2383,6 +2400,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 .itemsExpired = 0};
         ebExpire(&eb, &myEbucketsType2, &info2);
         assert(info2.itemsExpired == (uint64_t) 1);
+        assert(info2.nextExpireTime == EB_EXPIRE_TIME_INVALID);
         assert(ebGetTotalItems(eb, &myEbucketsType2) == 0);
 
         ebDestroy(&eb, &myEbucketsType2, NULL);
