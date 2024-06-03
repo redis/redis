@@ -178,7 +178,10 @@ void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires;
     db->dict = dictCreate(&dbDictType);
     db->expires = dictCreate(&dbExpiresDictType);
-    if (server.cluster_enabled) slotToKeyInit(db);
+    if (server.cluster_enabled) {
+        slotToKeyDestroy(db);
+        slotToKeyInit(db);
+    }
     atomicIncr(lazyfree_objects,dictSize(oldht1));
     bioCreateLazyFreeJob(lazyfreeFreeDatabase,2,oldht1,oldht2);
 }
