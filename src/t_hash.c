@@ -2984,6 +2984,10 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     /* Read the expiry time from command */
     if (getLongLongFromObjectOrReply(c, expireArg, &expire, NULL) != C_OK)
         return;
+    if (expire < 0) {
+        addReplyError(c,"invalid expire time, must be >= 0");
+        return;
+    }
 
     if (unit == UNIT_SECONDS) {
         if (expire > (long long) EB_EXPIRE_TIME_MAX / 1000) {
@@ -2991,12 +2995,6 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
             return;
         }
         expire *= 1000;
-    } else {
-        if (expire > (long long) EB_EXPIRE_TIME_MAX) {
-            /* Check expire overflow */
-            addReplyErrorExpireTime(c);
-            return;
-        }
     }
 
     if (expire > (long long) EB_EXPIRE_TIME_MAX - basetime) {
