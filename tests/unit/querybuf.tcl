@@ -45,7 +45,8 @@ start_server {tags {"querybuf slow"}} {
         set orig_test_client_qbuf [client_query_buffer test_client]
         # Make sure query buff has less than the peak resize threshold (PROTO_RESIZE_THRESHOLD) 32k
         # but at least the basic IO reading buffer size (PROTO_IOBUF_LEN) 16k
-        assert {$orig_test_client_qbuf >= 16384 && $orig_test_client_qbuf < 32768}
+        set MAX_QUERY_BUFFER_SIZE [expr 32768 + 2] ; # 32k + 2, allowing for potential greedy allocation of (16k + 1) * 2 bytes for the query buffer.
+        assert {$orig_test_client_qbuf >= 16384 && $orig_test_client_qbuf <= $MAX_QUERY_BUFFER_SIZE}
 
         # Check that the initial query buffer is resized after 2 sec
         wait_for_condition 1000 10 {
