@@ -39,7 +39,7 @@ start_server {tags {"memefficiency external:skip"}} {
 run_solo {defrag} {
     proc test_active_defrag {type} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
-        test "Active defrag" {
+        test "Active defrag: $type" {
             r flushdb async
             r config set hz 100
             r config set activedefrag no
@@ -161,7 +161,7 @@ run_solo {defrag} {
         r config set appendonly no
         r config set key-load-delay 0
         
-        test "Active defrag eval scripts" {
+        test "Active defrag eval scripts: $type" {
             r flushdb
             r script flush sync
             r config resetstat
@@ -243,7 +243,7 @@ run_solo {defrag} {
             r script flush sync
         } {OK}
 
-        test "Active defrag big keys" {
+        test "Active defrag big keys: $type" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -373,7 +373,7 @@ run_solo {defrag} {
         } {OK}
 
         if {$type eq "standalone"} { ;# skip in cluster mode
-        test "Active defrag big list" {
+        test "Active defrag big list: $type" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -475,7 +475,7 @@ run_solo {defrag} {
             r del biglist1 ;# coverage for quicklistBookmarksClear
         } {1}
 
-        test "Active defrag edge case" {
+        test "Active defrag edge case: $type" {
             # there was an edge case in defrag where all the slabs of a certain bin are exact the same
             # % utilization, with the exception of the current slab from which new allocations are made
             # if the current slab is lower in utilization the defragger would have ended up in stagnation,
