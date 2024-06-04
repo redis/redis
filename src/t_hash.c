@@ -2869,7 +2869,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFileds` is more than number of arguments");
+        addReplyError(c, "Parameter `numFields` is more than number of arguments");
         return;
     }
 
@@ -2983,10 +2983,8 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     /* Read the expiry time from command */
     if (getLongLongFromObjectOrReply(c, expireArg, &expire, NULL) != C_OK)
         return;
-
-    /* Check expire overflow */
-    if (expire > (long long) EB_EXPIRE_TIME_MAX) {
-        addReplyErrorExpireTime(c);
+    if (expire < 0) {
+        addReplyError(c,"invalid expire time, must be >= 0");
         return;
     }
 
@@ -2996,13 +2994,9 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
             return;
         }
         expire *= 1000;
-    } else {
-        if (expire > (long long) EB_EXPIRE_TIME_MAX) {
-            addReplyErrorExpireTime(c);
-            return;
-        }
     }
 
+    /* Ensure that the final absolute Unix timestamp does not exceed EB_EXPIRE_TIME_MAX. */
     if (expire > (long long) EB_EXPIRE_TIME_MAX - basetime) {
         addReplyErrorExpireTime(c);
         return;
@@ -3033,7 +3027,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
 
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFileds` is more than number of arguments");
+        addReplyError(c, "Parameter `numFields` is more than number of arguments");
         return;
     }
 
@@ -3130,7 +3124,7 @@ void hpersistCommand(client *c) {
 
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFileds` is more than number of arguments");
+        addReplyError(c, "Parameter `numFields` is more than number of arguments");
         return;
     }
 

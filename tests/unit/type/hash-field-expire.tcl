@@ -128,6 +128,19 @@ start_server {tags {"external:skip needs:debug"}} {
             r readraw 0
         }
 
+        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Verify that the expire time does not overflow" {
+            r del myhash
+            r hset myhash f1 v1
+            # The expire time can't be negative.
+            assert_error {ERR invalid expire time, must be >= 0} {r HEXPIRE myhash -1 FIELDS 1 f1}
+            assert_error {ERR invalid expire time, must be >= 0} {r HEXPIRE myhash -9223372036854775808 FIELDS 1 f1}
+            # The expire time can't be greater than the EB_EXPIRE_TIME_MAX
+            assert_error {ERR invalid expire time in 'hexpire' command} {r HEXPIRE myhash [expr (1<<48) / 1000] FIELDS 1 f1}
+            assert_error {ERR invalid expire time in 'hexpireat' command} {r HEXPIREAT myhash [expr (1<<48) / 1000 + [clock seconds] + 100] FIELDS 1 f1}
+            assert_error {ERR invalid expire time in 'hpexpire' command} {r HPEXPIRE myhash [expr (1<<48)] FIELDS 1 f1}
+            assert_error {ERR invalid expire time in 'hpexpireat' command} {r HPEXPIREAT myhash [expr (1<<48) + [clock milliseconds] + 100] FIELDS 1 f1}
+        }
+
         test "HPEXPIRE(AT) - Test 'NX' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
@@ -192,7 +205,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash f1 v1
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
-            assert_error {*Parameter `numFileds` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            assert_error {*Parameter `numFields` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^48 ($type)" {
