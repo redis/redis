@@ -3115,7 +3115,7 @@ void hpersistCommand(client *c) {
     int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
-    if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray)) == NULL ||
+    if ((hashObj = lookupKeyWriteOrReply(c, c->argv[1], shared.emptyarray)) == NULL ||
         checkType(c, hashObj, OBJ_HASH)) return;
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
