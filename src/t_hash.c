@@ -2997,6 +2997,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
         expire *= 1000;
     }
 
+    /* Ensure that the final absolute Unix timestamp does not exceed EB_EXPIRE_TIME_MAX. */
     if (expire > (long long) EB_EXPIRE_TIME_MAX - basetime) {
         addReplyErrorExpireTime(c);
         return;
