@@ -128,7 +128,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r readraw 0
         }
 
-        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Verify that the expire time is overflow" {
+        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Verify that the expire time does not overflow" {
             r del myhash
             r hset myhash f1 v1
             # The expire time can't be negative.
