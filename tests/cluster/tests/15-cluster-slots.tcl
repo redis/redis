@@ -60,6 +60,33 @@ test "slot migration is valid from primary to another primary" {
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
 }
 
+test "Client unblocks after slot migration from one primary to another" {
+    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    set key mystream
+    set slot [$cluster cluster keyslot $key]
+    array set nodefrom [$cluster masternode_for_slot $slot]
+    array set nodeto [$cluster masternode_notfor_slot $slot]
+
+    # Create a stream group on the source node
+    $nodefrom(link) XGROUP CREATE $key mygroup $ MKSTREAM 
+
+    # block another client on xreadgroup
+    set rd [redis_deferring_client_by_addr $nodefrom(host) $nodefrom(port)]
+    $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS $key ">"
+    wait_for_condition 1000 50 {
+        [getInfoProperty [$nodefrom(link) info clients] blocked_clients] eq {1}
+    } else {
+        fail "client wasn't blocked"
+    }
+
+    # Start slot migration from the source node to the target node.
+    # Because the `unblock_on_nokey` option of xreadgroup is set to 1, the client
+    # will be unblocked when the key `mystream` is migrated.
+    assert_equal {OK} [$nodefrom(link) CLUSTER SETSLOT $slot MIGRATING $nodeto(id)]
+    assert_equal {OK} [$nodeto(link) CLUSTER SETSLOT $slot IMPORTING $nodefrom(id)]
+    $nodefrom(link) MIGRATE $nodeto(host) $nodeto(port) $key 0 5000
+}
+
 test "slot migration is invalid from primary to replica" {
     set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
     set key order1
