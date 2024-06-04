@@ -205,7 +205,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash f1 v1
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
-            assert_error {*Parameter `numFileds` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            assert_error {*Parameter `numFields` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^48 ($type)" {

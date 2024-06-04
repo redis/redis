@@ -2870,7 +2870,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFileds` is more than number of arguments");
+        addReplyError(c, "Parameter `numFields` is more than number of arguments");
         return;
     }
 
@@ -3027,7 +3027,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
 
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFileds` is more than number of arguments");
+        addReplyError(c, "Parameter `numFields` is more than number of arguments");
         return;
     }
 
@@ -3124,7 +3124,7 @@ void hpersistCommand(client *c) {
 
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFileds` is more than number of arguments");
+        addReplyError(c, "Parameter `numFields` is more than number of arguments");
         return;
     }
 
