@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -32,6 +11,7 @@
 #include "cluster.h"
 #include "script.h"
 #include "fpconv_dtoa.h"
+#include "fmtargs.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -48,6 +28,14 @@ int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
  * the client output buffer size. */
 size_t sdsZmallocSize(sds s) {
     void *sh = sdsAllocPtr(s);
+    return zmalloc_size(sh);
+}
+
+/* Return the size consumed from the allocator, for the specified hfield with
+ * metadata (mstr), including internal fragmentation. This function is used in
+ * order to compute the client output buffer size. */
+size_t hfieldZmallocSize(hfield s) {
+    void *sh = hfieldGetAllocPtr(s);
     return zmalloc_size(sh);
 }
 
@@ -413,8 +401,9 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * to a channel which we are subscribed to, then we wanna postpone that message to be added
      * after the command's reply (specifically important during multi-exec). the exception is
      * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
-     * The check for executing_client also avoids affecting push messages that are part of eviction. */
-    if (c == server.current_client && (c->flags & CLIENT_PUSHING) &&
+     * The check for executing_client also avoids affecting push messages that are part of eviction.
+     * Check CLIENT_PUSHING first to avoid race conditions, as it's absent in module's fake client. */
+    if ((c->flags & CLIENT_PUSHING) && c == server.current_client &&
         server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
     {
         _addReplyProtoToList(c,server.pending_push_messages,s,len);
@@ -1116,14 +1105,18 @@ void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext) {
     }
 }
 
-/* Add an array of C strings as status replies with a heading.
- * This function is typically invoked by from commands that support
- * subcommands in response to the 'help' subcommand. The help array
- * is terminated by NULL sentinel. */
-void addReplyHelp(client *c, const char **help) {
+/* This function is similar to the addReplyHelp function but adds the
+ * ability to pass in two arrays of strings. Some commands have
+ * some additional subcommands based on the specific feature implementation
+ * Redis is compiled with (currently just clustering). This function allows
+ * to pass is the common subcommands in `help` and any implementation
+ * specific subcommands in `extended_help`.
+ */
+void addExtendedReplyHelp(client *c, const char **help, const char **extended_help) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     void *blenp = addReplyDeferredLen(c);
     int blen = 0;
+    int idx = 0;
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
@@ -1131,6 +1124,10 @@ void addReplyHelp(client *c, const char **help) {
     sdsfree(cmd);
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
+    if (extended_help) {
+        while (extended_help[idx]) addReplyStatus(c,extended_help[idx++]);
+    }
+    blen += idx;
 
     addReplyStatus(c,"HELP");
     addReplyStatus(c,"    Print this help.");
@@ -1138,6 +1135,14 @@ void addReplyHelp(client *c, const char **help) {
     blen += 1;  /* Account for the header. */
     blen += 2;  /* Account for the footer. */
     setDeferredArrayLen(c,blenp,blen);
+}
+
+/* Add an array of C strings as status replies with a heading.
+ * This function is typically invoked by commands that support
+ * subcommands in response to the 'help' subcommand. The help array
+ * is terminated by NULL sentinel. */
+void addReplyHelp(client *c, const char **help) {
+    addExtendedReplyHelp(c, help, NULL);
 }
 
 /* Add a suggestive error reply.
@@ -1433,7 +1438,7 @@ void unlinkClient(client *c) {
     listNode *ln;
 
     /* If this is marked as current client unset it. */
-    if (server.current_client == c) server.current_client = NULL;
+    if (c->conn && server.current_client == c) server.current_client = NULL;
 
     /* Certain operations must be done only if the client has an active connection.
      * If the client was already unlinked or if it's a "fake client" the
@@ -1477,7 +1482,7 @@ void unlinkClient(client *c) {
     }
 
     /* Remove from the list of pending reads if needed. */
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    serverAssert(!c->conn || io_threads_op == IO_THREADS_OP_IDLE);
     if (c->pending_read_list_node != NULL) {
         listDelNode(server.clients_pending_read,c->pending_read_list_node);
         c->pending_read_list_node = NULL;
@@ -1529,6 +1534,7 @@ void clearClientConnectionState(client *c) {
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
+    unmarkClientAsPubSub(c);
 
     if (c->name) {
         decrRefCount(c->name);
@@ -1539,8 +1545,20 @@ void clearClientConnectionState(client *c) {
      * represent the client library behind the connection. */
     
     /* Selectively clear state flags not covered above */
-    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_PUBSUB|CLIENT_REPLY_OFF|
+    c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_REPLY_OFF|
                   CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
+}
+
+void deauthenticateAndCloseClient(client *c) {
+    c->user = DefaultUser;
+    c->authenticated = 0;
+    /* We will write replies to this client later, so we can't
+     * close it directly even if async. */
+    if (c == server.current_client) {
+        c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
+    } else {
+        freeClientAsync(c);
+    }
 }
 
 void freeClient(client *c) {
@@ -1614,6 +1632,7 @@ void freeClient(client *c) {
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeShardAllChannels(c, 0);
     pubsubUnsubscribeAllPatterns(c,0);
+    unmarkClientAsPubSub(c);
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
@@ -1629,6 +1648,12 @@ void freeClient(client *c) {
 #ifdef LOG_REQ_RES
     reqresReset(c, 1);
 #endif
+
+    /* Remove the contribution that this client gave to our
+     * incrementally computed memory usage. */
+    if (c->conn)
+        server.stat_clients_type_memory[c->last_memory_type] -=
+            c->last_memory_usage;
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -1678,10 +1703,6 @@ void freeClient(client *c) {
      * we lost the connection with the master. */
     if (c->flags & CLIENT_MASTER) replicationHandleMasterDisconnection();
 
-    /* Remove the contribution that this client gave to our
-     * incrementally computed memory usage. */
-    server.stat_clients_type_memory[c->last_memory_type] -=
-        c->last_memory_usage;
     /* Remove client from memory usage buckets */
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
@@ -1700,7 +1721,7 @@ void freeClient(client *c) {
     zfree(c);
 }
 
-/* Schedule a client to free it at a safe time in the serverCron() function.
+/* Schedule a client to free it at a safe time in the beforeSleep() function.
  * This function is useful when we need to terminate a client but we are in
  * a context where calling freeClient() is not possible, because the client
  * should be valid for the continuation of the flow of the program. */
@@ -1793,8 +1814,9 @@ int freeClientsInAsyncFreeQueue(void) {
  * are not registered clients. */
 client *lookupClientByID(uint64_t id) {
     id = htonu64(id);
-    client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
-    return (c == raxNotFound) ? NULL : c;
+    void *c = NULL;
+    raxFind(server.clients_index,(unsigned char*)&id,sizeof(id),&c);
+    return c;
 }
 
 /* This function should be called from _writeToClient when the reply list is not empty,
@@ -2467,7 +2489,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        updateClientMemUsageAndBucket(c);
+        if (c->conn) updateClientMemUsageAndBucket(c);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -2697,7 +2719,13 @@ void readQueryFromClient(connection *conn) {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
 
-    if (!(c->flags & CLIENT_MASTER) && sdslen(c->querybuf) > server.client_max_querybuf_len) {
+    if (!(c->flags & CLIENT_MASTER) &&
+        /* The commands cached in the MULTI/EXEC queue have not been executed yet,
+         * so they are also considered a part of the query buffer in a broader sense.
+         *
+         * For unauthenticated clients, the query buffer cannot exceed 1MB at most. */
+        (c->mstate.argv_len_sums + sdslen(c->querybuf) > server.client_max_querybuf_len ||
+         (c->mstate.argv_len_sums + sdslen(c->querybuf) > 1024*1024 && authRequired(c)))) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
@@ -2705,6 +2733,7 @@ void readQueryFromClient(connection *conn) {
         sdsfree(ci);
         sdsfree(bytes);
         freeClientAsync(c);
+        atomicIncr(server.stat_client_qbuf_limit_disconnections, 1);
         goto done;
     }
 
@@ -2814,39 +2843,38 @@ sds catClientInfoString(sds s, client *client) {
         used_blocks_of_repl_buf = last->id - cur->id + 1;
     }
 
-    sds ret = sdscatfmt(s,
-        "id=%U addr=%s laddr=%s %s name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i ssub=%i multi=%i qbuf=%U qbuf-free=%U argv-mem=%U multi-mem=%U rbs=%U rbp=%U obl=%U oll=%U omem=%U tot-mem=%U events=%s cmd=%s user=%s redir=%I resp=%i lib-name=%s lib-ver=%s",
-        (unsigned long long) client->id,
-        getClientPeerId(client),
-        getClientSockname(client),
-        connGetInfo(client->conn, conninfo, sizeof(conninfo)),
-        client->name ? (char*)client->name->ptr : "",
-        (long long)(server.unixtime - client->ctime),
-        (long long)(server.unixtime - client->lastinteraction),
-        flags,
-        client->db->id,
-        (int) dictSize(client->pubsub_channels),
-        (int) dictSize(client->pubsub_patterns),
-        (int) dictSize(client->pubsubshard_channels),
-        (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
-        (unsigned long long) sdslen(client->querybuf),
-        (unsigned long long) sdsavail(client->querybuf),
-        (unsigned long long) client->argv_len_sum,
-        (unsigned long long) client->mstate.argv_len_sums,
-        (unsigned long long) client->buf_usable_size,
-        (unsigned long long) client->buf_peak,
-        (unsigned long long) client->bufpos,
-        (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
-        (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
-        (unsigned long long) total_mem,
-        events,
-        client->lastcmd ? client->lastcmd->fullname : "NULL",
-        client->user ? client->user->name : "(superuser)",
-        (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
-        client->resp,
-        client->lib_name ? (char*)client->lib_name->ptr : "",
-        client->lib_ver ? (char*)client->lib_ver->ptr : ""
-        );
+    sds ret = sdscatfmt(s, FMTARGS(
+        "id=%U", (unsigned long long) client->id,
+        " addr=%s", getClientPeerId(client),
+        " laddr=%s", getClientSockname(client),
+        " %s", connGetInfo(client->conn, conninfo, sizeof(conninfo)),
+        " name=%s", client->name ? (char*)client->name->ptr : "",
+        " age=%I", (long long)(commandTimeSnapshot() / 1000 - client->ctime),
+        " idle=%I", (long long)(server.unixtime - client->lastinteraction),
+        " flags=%s", flags,
+        " db=%i", client->db->id,
+        " sub=%i", (int) dictSize(client->pubsub_channels),
+        " psub=%i", (int) dictSize(client->pubsub_patterns),
+        " ssub=%i", (int) dictSize(client->pubsubshard_channels),
+        " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
+        " watch=%i", (int) listLength(client->watched_keys),
+        " qbuf=%U", (unsigned long long) sdslen(client->querybuf),
+        " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf),
+        " argv-mem=%U", (unsigned long long) client->argv_len_sum,
+        " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
+        " rbs=%U", (unsigned long long) client->buf_usable_size,
+        " rbp=%U", (unsigned long long) client->buf_peak,
+        " obl=%U", (unsigned long long) client->bufpos,
+        " oll=%U", (unsigned long long) listLength(client->reply) + used_blocks_of_repl_buf,
+        " omem=%U", (unsigned long long) obufmem, /* should not include client->buf since we want to see 0 for static clients. */
+        " tot-mem=%U", (unsigned long long) total_mem,
+        " events=%s", events,
+        " cmd=%s", client->lastcmd ? client->lastcmd->fullname : "NULL",
+        " user=%s", client->user ? client->user->name : "(superuser)",
+        " redir=%I", (client->flags & CLIENT_TRACKING) ? (long long) client->client_tracking_redirection : -1,
+        " resp=%i", client->resp,
+        " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "",
+        " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : ""));
     return ret;
 }
 
@@ -3014,6 +3042,10 @@ void clientCommand(client *c) {
 "      Kill connections authenticated by <username>.",
 "    * SKIPME (YES|NO)",
 "      Skip killing current connection (default: yes).",
+"    * ID <client-id>",
+"      Kill connections by client id.",
+"    * MAXAGE <maxage>",
+"      Kill connections older than the specified age.",
 "LIST [options ...]",
 "    Return information about client connections. Options:",
 "    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
@@ -3125,6 +3157,7 @@ NULL
         user *user = NULL;
         int type = -1;
         uint64_t id = 0;
+        long long max_age = 0;
         int skipme = 1;
         int killed = 0, close_this_client = 0;
 
@@ -3146,6 +3179,18 @@ NULL
                                                       "client-id should be greater than 0") != C_OK)
                         return;
                     id = tmp;
+                } else if (!strcasecmp(c->argv[i]->ptr,"maxage") && moreargs) {
+                    long long tmp;
+
+                    if (getLongLongFromObjectOrReply(c, c->argv[i+1], &tmp,
+                                                     "maxage is not an integer or out of range") != C_OK)
+                        return;
+                    if (tmp <= 0) {
+                        addReplyError(c, "maxage should be greater than 0");
+                        return;
+                    }
+
+                    max_age = tmp;
                 } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
                     type = getClientTypeByName(c->argv[i+1]->ptr);
                     if (type == -1) {
@@ -3195,6 +3240,7 @@ NULL
             if (id != 0 && client->id != id) continue;
             if (user && client->user != user) continue;
             if (c == client && skipme) continue;
+            if (max_age != 0 && (long long)(commandTimeSnapshot() / 1000 - client->ctime) < max_age) continue;
 
             /* Kill it. */
             if (c == client) {
@@ -3723,7 +3769,9 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
  * 1. Make sure there are no "holes" and all the arguments are set.
  * 2. If the original argument vector was longer than the one we
  *    want to end with, it's up to the caller to set c->argc and
- *    free the no longer used objects on c->argv. */
+ *    free the no longer used objects on c->argv.
+ * 3. To remove argument at i'th index, pass NULL as new value
+ */
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
@@ -3741,9 +3789,18 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     }
     oldval = c->argv[i];
     if (oldval) c->argv_len_sum -= getStringObjectLen(oldval);
-    if (newval) c->argv_len_sum += getStringObjectLen(newval);
-    c->argv[i] = newval;
-    incrRefCount(newval);
+
+    if (newval) {
+        c->argv[i] = newval;
+        incrRefCount(newval);
+        c->argv_len_sum += getStringObjectLen(newval);
+    } else {
+        /* move the remaining arguments one step left */
+        for (int j = i+1; j < c->argc; j++) {
+            c->argv[j-1] = c->argv[j];
+        }
+        c->argv[--c->argc] = NULL;
+    }
     if (oldval) decrRefCount(oldval);
 
     /* If this is the command name make sure to fix c->cmd. */
@@ -3808,7 +3865,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
  * classes of clients.
  *
  * The function will return one of the following:
- * CLIENT_TYPE_NORMAL -> Normal client
+ * CLIENT_TYPE_NORMAL -> Normal client, including MONITOR
  * CLIENT_TYPE_SLAVE  -> Slave
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  * CLIENT_TYPE_MASTER -> The client representing our replication master.
@@ -3929,6 +3986,7 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
                       client);
         }
         sdsfree(client);
+        server.stat_client_outbuf_limit_disconnections++;
         return  1;
     }
     return 0;

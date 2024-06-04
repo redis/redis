@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2021, Redis Ltd.
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "script_lua.h"
@@ -51,6 +30,7 @@ static char *libraries_allow_list[] = {
     "math",
     "table",
     "struct",
+    "os",
     NULL,
 };
 
@@ -602,7 +582,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
          * to push 4 elements to the stack. On failure, return error.
          * Notice that we need, in the worst case, 4 elements because returning a map might
          * require push 4 elements to the Lua stack.*/
-        addReplyErrorFormat(c, "reached lua stack limit");
+        addReplyError(c, "reached lua stack limit");
         lua_pop(lua,1); /* pop the element from the stack */
         return;
     }
@@ -818,8 +798,17 @@ static robj **luaArgsToRedisArgv(lua_State *lua, int *argc, int *argv_len) {
             /* We can't use lua_tolstring() for number -> string conversion
              * since Lua uses a format specifier that loses precision. */
             lua_Number num = lua_tonumber(lua,j+1);
-            obj_len = fpconv_dtoa((double)num, dbuf);
-            dbuf[obj_len] = '\0';
+            /* Integer printing function is much faster, check if we can safely use it.
+             * Since lua_Number is not explicitly an integer or a double, we need to make an effort
+             * to convert it as an integer when that's possible, since the string could later be used
+             * in a context that doesn't support scientific notation (e.g. 1e9 instead of 100000000). */
+            long long lvalue;
+            if (double2ll((double)num, &lvalue))
+                obj_len = ll2string(dbuf, sizeof(dbuf), lvalue);
+            else {
+                obj_len = fpconv_dtoa((double)num, dbuf);
+                dbuf[obj_len] = '\0';
+            }
             obj_s = dbuf;
         } else {
             obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);
@@ -1169,7 +1158,7 @@ static int luaLogCommand(lua_State *lua) {
     }
     level = lua_tonumber(lua,-argc);
     if (level < LL_DEBUG || level > LL_WARNING) {
-        luaPushError(lua, "Invalid debug level.");
+        luaPushError(lua, "Invalid log level.");
         return luaError(lua);
     }
     if (level < server.verbosity) return 0;
@@ -1232,6 +1221,7 @@ static void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
     luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
     luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
     luaLoadLib(lua, "cjson", luaopen_cjson);
     luaLoadLib(lua, "struct", luaopen_struct);
     luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
@@ -1239,7 +1229,6 @@ static void luaLoadLibraries(lua_State *lua) {
 
 #if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
     luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
-    luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
 #endif
 }
 

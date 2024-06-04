@@ -19,7 +19,7 @@ typedef enum {
 #define CMD_ARG_MULTIPLE        (1<<1)
 #define CMD_ARG_MULTIPLE_TOKEN  (1<<2)
 
-/* WARNING! This struct must match RedisModuleCommandArg */
+/* Must be compatible with RedisModuleCommandArg. See moduleCopyCommandArgs. */
 typedef struct redisCommandArg {
     const char *name;
     redisCommandArgType type;

@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -117,7 +96,9 @@ aofInfo *aofInfoDup(aofInfo *orig) {
     return ai;
 }
 
-/* Format aofInfo as a string and it will be a line in the manifest. */
+/* Format aofInfo as a string and it will be a line in the manifest.
+ *
+ * When update this format, make sure to update redis-check-aof as well. */
 sds aofInfoFormat(sds buf, aofInfo *ai) {
     sds filename_repr = NULL;
 
@@ -833,7 +814,7 @@ int openNewIncrAofForAppend(void) {
      * is already synced at this point so fsync doesn't matter. */
     if (server.aof_fd != -1) {
         aof_background_fsync_and_close(server.aof_fd);
-        server.aof_last_fsync = server.unixtime;
+        server.aof_last_fsync = server.mstime;
     }
     server.aof_fd = newfd;
 
@@ -954,7 +935,7 @@ void stopAppendOnly(void) {
     if (redis_fsync(server.aof_fd) == -1) {
         serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
     } else {
-        server.aof_last_fsync = server.unixtime;
+        server.aof_last_fsync = server.mstime;
     }
     close(server.aof_fd);
 
@@ -975,18 +956,6 @@ void stopAppendOnly(void) {
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
     serverAssert(server.aof_state == AOF_OFF);
-
-    /* Wait for all bio jobs related to AOF to drain. This prevents a race
-     * between updates to `fsynced_reploff_pending` of the worker thread, belonging
-     * to the previous AOF, and the new one. This concern is specific for a full
-     * sync scenario where we don't wanna risk the ACKed replication offset
-     * jumping backwards or forward when switching to a different master. */
-    bioDrainWorker(BIO_AOF_FSYNC);
-
-    /* Set the initial repl_offset, which will be applied to fsynced_reploff
-     * when AOFRW finishes (after possibly being updated by a bio thread) */
-    atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
-    server.fsynced_reploff = 0;
 
     server.aof_state = AOF_WAIT_REWRITE;
     if (hasActiveChildProcess() && server.child_type != CHILD_TYPE_AOF) {
@@ -1010,7 +979,7 @@ int startAppendOnly(void) {
             return C_ERR;
         }
     }
-    server.aof_last_fsync = server.unixtime;
+    server.aof_last_fsync = server.mstime;
     /* If AOF fsync error in bio job, we just ignore it and log the event. */
     int aof_bio_fsync_status;
     atomicGet(server.aof_bio_fsync_status, aof_bio_fsync_status);
@@ -1086,7 +1055,7 @@ void flushAppendOnlyFile(int force) {
          * the data in page cache cannot be flushed in time. */
         if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
             server.aof_last_incr_fsync_offset != server.aof_last_incr_size &&
-            server.unixtime > server.aof_last_fsync &&
+            server.mstime - server.aof_last_fsync >= 1000 &&
             !(sync_in_progress = aofFsyncInProgress())) {
             goto try_fsync;
 
@@ -1099,6 +1068,13 @@ void flushAppendOnlyFile(int force) {
         {
             goto try_fsync;
         } else {
+            /* All data is fsync'd already: Update fsynced_reploff_pending just in case.
+             * This is needed to avoid a WAITAOF hang in case a module used RM_Call with the NO_AOF flag,
+             * in which case master_repl_offset will increase but fsynced_reploff_pending won't be updated
+             * (because there's no reason, from the AOF POV, to call fsync) and then WAITAOF may wait on
+             * the higher offset (which contains data that was only propagated to replicas, and not to AOF) */
+            if (!sync_in_progress && server.aof_fsync != AOF_FSYNC_NO)
+                atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
             return;
         }
     }
@@ -1114,9 +1090,9 @@ void flushAppendOnlyFile(int force) {
             if (server.aof_flush_postponed_start == 0) {
                 /* No previous write postponing, remember that we are
                  * postponing the flush and return. */
-                server.aof_flush_postponed_start = server.unixtime;
+                server.aof_flush_postponed_start = server.mstime;
                 return;
-            } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
+            } else if (server.mstime - server.aof_flush_postponed_start < 2000) {
                 /* We were already waiting for fsync to finish, but for less
                  * than two seconds this is still ok. Postpone again. */
                 return;
@@ -1265,15 +1241,15 @@ try_fsync:
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
-        server.aof_last_fsync = server.unixtime;
+        server.aof_last_fsync = server.mstime;
         atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
     } else if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
-               server.unixtime > server.aof_last_fsync) {
+               server.mstime - server.aof_last_fsync >= 1000) {
         if (!sync_in_progress) {
             aof_background_fsync(server.aof_fd);
             server.aof_last_incr_fsync_offset = server.aof_last_incr_size;
         }
-        server.aof_last_fsync = server.unixtime;
+        server.aof_last_fsync = server.mstime;
     }
 }
 
@@ -1859,6 +1835,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkString(r,"SADD",4) ||
                 !rioWriteBulkObject(r,key))
             {
+                setTypeReleaseIterator(si);
                 return 0;
             }
         }
@@ -1962,19 +1939,21 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
  *
  * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
-    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
+    if ((hi->encoding == OBJ_ENCODING_LISTPACK) || (hi->encoding == OBJ_ENCODING_LISTPACK_EX)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll);
+        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll, NULL);
         if (vstr)
             return rioWriteBulkString(r, (char*)vstr, vlen);
         else
             return rioWriteBulkLongLong(r, vll);
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        sds value = hashTypeCurrentFromHashTable(hi, what);
-        return rioWriteBulkString(r, value, sdslen(value));
+        char *str;
+        size_t len;
+        hashTypeCurrentFromHashTable(hi, what, &str, &len, NULL);
+        return rioWriteBulkString(r, str, len);
     }
 
     serverPanic("Unknown hash encoding");
@@ -1984,37 +1963,60 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
 /* Emit the commands needed to rebuild a hash object.
  * The function returns 0 on error, 1 on success. */
 int rewriteHashObject(rio *r, robj *key, robj *o) {
+    int res = 0; /*fail*/
+
     hashTypeIterator *hi;
-    long long count = 0, items = hashTypeLength(o);
+    long long count = 0, items = hashTypeLength(o, 0);
 
+    int isHFE = hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID;
     hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi) != C_ERR) {
-        if (count == 0) {
-            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
-                !rioWriteBulkString(r,"HMSET",5) ||
-                !rioWriteBulkObject(r,key)) 
-            {
-                hashTypeReleaseIterator(hi);
-                return 0;
+    if (!isHFE) {
+        while (hashTypeNext(hi, 0) != C_ERR) {
+            if (count == 0) {
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                                AOF_REWRITE_ITEMS_PER_CMD : items;
+                if (!rioWriteBulkCount(r, '*', 2 + cmd_items * 2) ||
+                    !rioWriteBulkString(r, "HMSET", 5) ||
+                    !rioWriteBulkObject(r, key))
+                    goto reHashEnd;
+            }
+
+            if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
+                !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+                goto reHashEnd;
+
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+    } else {
+        while (hashTypeNext(hi, 0) != C_ERR) {
+
+            char hmsetCmd[] = "*4\r\n$5\r\nHMSET\r\n";
+            if ( (!rioWrite(r, hmsetCmd, sizeof(hmsetCmd) - 1)) ||
+                 (!rioWriteBulkObject(r, key)) ||
+                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) ||
+                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE)) )
+                goto reHashEnd;
+
+            if (hi->expire_time != EB_EXPIRE_TIME_INVALID) {
+                char cmd[] = "*6\r\n$10\r\nHPEXPIREAT\r\n";
+                if ( (!rioWrite(r, cmd, sizeof(cmd) - 1)) ||
+                     (!rioWriteBulkObject(r, key)) ||
+                     (!rioWriteBulkLongLong(r, hi->expire_time)) ||
+                     (!rioWriteBulkString(r, "FIELDS", 6)) ||
+                     (!rioWriteBulkString(r, "1", 1)) ||
+                     (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) )
+                    goto reHashEnd;
             }
         }
-
-        if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
-            !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
-        {
-            hashTypeReleaseIterator(hi);
-            return 0;           
-        }
-        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-        items--;
     }
 
-    hashTypeReleaseIterator(hi);
+    res = 1; /* success */
 
-    return 1;
+reHashEnd:
+    hashTypeReleaseIterator(hi);
+    return res;
 }
 
 /* Helper for rewriteStreamObject() that generates a bulk string into the
@@ -2245,11 +2247,11 @@ werr:
 }
 
 int rewriteAppendOnlyFileRio(rio *aof) {
-    dictIterator *di = NULL;
     dictEntry *de;
     int j;
     long key_count = 0;
     long long updated_time = 0;
+    kvstoreIterator *kvs_it = NULL;
 
     /* Record timestamp at the beginning of rewriting AOF. */
     if (server.aof_timestamp_enabled) {
@@ -2262,17 +2264,16 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
-        redisDb *db = server.db+j;
-        dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
+        redisDb *db = server.db + j;
+        if (kvstoreSize(db->keys) == 0) continue;
 
         /* SELECT the new DB */
         if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
+        kvs_it = kvstoreIteratorInit(db->keys);
         /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
+        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
             sds keystr;
             robj key, *o;
             long long expiretime;
@@ -2337,13 +2338,12 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             if (server.rdb_key_save_delay)
                 debugDelay(server.rdb_key_save_delay);
         }
-        dictReleaseIterator(di);
-        di = NULL;
+        kvstoreIteratorRelease(kvs_it);
     }
     return C_OK;
 
 werr:
-    if (di) dictReleaseIterator(di);
+    if (kvs_it) kvstoreIteratorRelease(kvs_it);
     return C_ERR;
 }
 
@@ -2454,7 +2454,23 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
     }
+
+    if (server.aof_state == AOF_WAIT_REWRITE) {
+        /* Wait for all bio jobs related to AOF to drain. This prevents a race
+         * between updates to `fsynced_reploff_pending` of the worker thread, belonging
+         * to the previous AOF, and the new one. This concern is specific for a full
+         * sync scenario where we don't wanna risk the ACKed replication offset
+         * jumping backwards or forward when switching to a different master. */
+        bioDrainWorker(BIO_AOF_FSYNC);
+
+        /* Set the initial repl_offset, which will be applied to fsynced_reploff
+         * when AOFRW finishes (after possibly being updated by a bio thread) */
+        atomicSet(server.fsynced_reploff_pending, server.master_repl_offset);
+        server.fsynced_reploff = 0;
+    }
+
     server.stat_aof_rewrites++;
+
     if ((childpid = redisFork(CHILD_TYPE_AOF)) == 0) {
         char tmpfile[256];
 
