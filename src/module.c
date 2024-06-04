@@ -11188,22 +11188,32 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->done = 1;
         ret = 0;
     } else if (o->type == OBJ_ZSET || o->type == OBJ_HASH) {
-        unsigned char *p = lpSeek(o->ptr,0);
+        unsigned char *lp, *p;
         unsigned char *vstr;
         unsigned int vlen;
         long long vll;
+
+        if (o->type == OBJ_HASH)
+            lp = hashTypeListpackGetLp(o);
+        else
+            lp = o->ptr;
+
+        p = lpSeek(lp,0);
         while(p) {
             vstr = lpGetValue(p,&vlen,&vll);
             robj *field = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createStringObjectFromLongLongWithSds(vll);
-            p = lpNext(o->ptr,p);
+            p = lpNext(lp,p);
             vstr = lpGetValue(p,&vlen,&vll);
             robj *value = (vstr != NULL) ?
                 createStringObject((char*)vstr,vlen) :
                 createStringObjectFromLongLongWithSds(vll);
             fn(key, field, value, privdata);
-            p = lpNext(o->ptr,p);
+            p = lpNext(lp,p);
+            if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX)
+                p = lpNext(lp, p); /* Skip expire time */
+
             decrRefCount(field);
             decrRefCount(value);
         }

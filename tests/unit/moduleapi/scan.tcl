@@ -24,9 +24,27 @@ start_server {tags {"modules"}} {
         lsort [r scan.scan_key hh1]
     } {{f1 1}}
 
+    test {Module scan hash listpack with hexpire} {
+        r hmset hh f1 v1 f2 v2
+        r hexpire hh 100000 fields 1 f1
+        assert_range [r httl hh fields 1 f1] 10000 100000
+        assert_encoding listpackex hh
+        lsort [r scan.scan_key hh]
+    } {{f1 v1} {f2 v2}}
+
     test {Module scan hash dict} {
         r config set hash-max-ziplist-entries 2
         r hmset hh f3 v3
+        assert_encoding hashtable hh
+        lsort [r scan.scan_key hh]
+    } {{f1 v1} {f2 v2} {f3 v3}}
+
+    test {Module scan hash dict with hexpire} {
+        r config set hash-max-listpack-entries 1
+        r del hh
+        r hmset hh f1 v1 f2 v2 f3 v3
+        r hexpire hh 100000 fields 1 f2
+        assert_range [r httl hh fields 1 f2] 10000 100000
         assert_encoding hashtable hh
         lsort [r scan.scan_key hh]
     } {{f1 v1} {f2 v2} {f3 v3}}
