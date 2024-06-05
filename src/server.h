@@ -3191,9 +3191,14 @@ typedef struct dictExpireMetadata {
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
 
+/* Hash field lazy expiration flags (hfeFlags) */
+#define HFE_LAZY_EXPIRE  (0)     /* Delete expired field and hashes */
+#define HFE_NO_FIELD_EXPIRE (1<<0)
+#define HFE_NO_HASH_EXPIRE  (1<<1)
+
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires);
 void hashTypeTryConversion(redisDb *db, robj *subject, robj **argv, int start, int end);
-int hashTypeExists(redisDb *db, robj *o, sds key, int *isHashDeleted);
+int hashTypeExists(redisDb *db, robj *o, sds key, int hfeFlags, int *isHashDeleted);
 int hashTypeDelete(robj *o, void *key, int isSdsField);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
@@ -3210,7 +3215,7 @@ void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
                            unsigned int *vlen, long long *vll, uint64_t *expireTime);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
 hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi);
-robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field, int *isHashDeleted);
+robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field, int hfeFlags, int *isHashDeleted);
 int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags);
 robj *hashTypeDup(robj *o, sds newkey, uint64_t *minHashExpire);
 uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
