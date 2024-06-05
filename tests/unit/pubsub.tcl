@@ -364,7 +364,7 @@ start_server {tags {"pubsub network"}} {
         r hincrby myhash yes 10
         r hexpire myhash 999999 FIELDS 1 yes
         r hexpireat myhash [expr {[clock seconds] + 999999}] NX FIELDS 1 no
-        r hpexpire myhash 5 FIELDS 1 yes
+        r hpexpire myhash 999999 FIELDS 1 yes
         r hpersist myhash FIELDS 1 yes
         assert_encoding $type myhash
         assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
