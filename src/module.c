@@ -5271,7 +5271,15 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int hfeFlags = HFE_NO_HASH_EXPIRE; /* delete expired field but keep hash */
+            int hfeFlags = HFE_NO_HASH_EXPIRE; /* Avoid invalidate the key */
+
+            /* This is a bit tricky: hash might hold expired field. If we lazy
+             * delete it, and command was sent with XX, then operation
+             * will fail and hash will be left wrongly empty. For this case, let's
+             * avoid lazy delete (and let this operation to fail) */
+            if (flags & REDISMODULE_HASH_XX)
+                hfeFlags |= HFE_NO_FIELD_EXPIRE;
+
             int exists = hashTypeExists(key->db, key->value, field->ptr, hfeFlags, NULL);
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
                 ((flags & REDISMODULE_HASH_NX) && exists))
