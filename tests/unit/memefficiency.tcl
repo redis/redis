@@ -37,10 +37,9 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
-    proc test_active_defrag {type} {
+start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
-        test "Active defrag: $type" {
-            r flushdb async
+        test "Active defrag" {
             r config set hz 100
             r config set activedefrag no
             r config set active-defrag-threshold-lower 5
@@ -161,8 +160,7 @@ run_solo {defrag} {
         r config set appendonly no
         r config set key-load-delay 0
         
-        if {$type eq "standalone"} { ;# skip in cluster mode
-        test "Active defrag eval scripts: $type" {
+        test "Active defrag eval scripts" {
             r flushdb
             r script flush sync
             r config resetstat
@@ -244,7 +242,7 @@ run_solo {defrag} {
             r script flush sync
         } {OK}
 
-        test "Active defrag big keys: $type" {
+        test "Active defrag big keys" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -373,7 +371,7 @@ run_solo {defrag} {
             r save ;# saving an rdb iterates over all the data / pointers
         } {OK}
 
-        test "Active defrag big list: $type" {
+        test "Active defrag big list" {
             r flushdb
             r config resetstat
             r config set hz 100
@@ -475,7 +473,7 @@ run_solo {defrag} {
             r del biglist1 ;# coverage for quicklistBookmarksClear
         } {1}
 
-        test "Active defrag edge case: $type" {
+        test "Active defrag edge case" {
             # there was an edge case in defrag where all the slabs of a certain bin are exact the same
             # % utilization, with the exception of the current slab from which new allocations are made
             # if the current slab is lower in utilization the defragger would have ended up in stagnation,
@@ -577,15 +575,59 @@ run_solo {defrag} {
                 r save ;# saving an rdb iterates over all the data / pointers
             }
         }
-        } ;# standalone
     }
-    }
+}
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
-        test_active_defrag "cluster"
-    }
+start_cluster 1 0 {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
+        test "Active defrag stability during async flush or mid stopping in cluster mode" {
+            # Verify that asynchronously empting db doesn't cause defragmentation crashes, see issue #13205.
+            r flushdb async
+            r config set hz 100
+            r config set activedefrag no
+            r config set active-defrag-threshold-lower 1
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 100k
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
-        test_active_defrag "standalone"
+            # create big keys with 10k items
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < 100000} {incr j} {
+                $rd set $j a
+                $rd expire $j 99999
+            }
+            for {set j 0} {$j < 100000} {incr j} {
+                $rd read ; # Discard replies
+                $rd read ; # Discard replies
+            }
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                # It repeatedly enables and disables active defragmentation,
+                # and checks if it crashes, see issue #13307.
+                for {set i 0} {$i < 10} {incr i} {
+                    r config set activedefrag no
+                    # Wait for the active defrag to start working (decision once a second).
+                    wait_for_condition 50 100 {
+                        [s active_defrag_running] eq 0
+                    } else {
+                        after 120 ;# serverCron only updates the info once in 100ms
+                        puts [r info memory]
+                        puts [r memory malloc-stats]
+                        fail "defrag didn't stop."
+                    }
+
+                    # Wait for the active defrag to stop working.
+                    r config set activedefrag yes
+                    wait_for_condition 50 100 {
+                        [s active_defrag_running] ne 0
+                    } else {
+                        fail "defrag not started."
+                    }
+                }
+            }
+            r ping
+        }
     }
+}
 } ;# run_solo
