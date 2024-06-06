@@ -34,7 +34,7 @@ start_server {tags {"modules"}} {
         assert_equal 0 [r hash.set H2 "n" f1 yy]
         assert_equal "f1 f2 v2 yy" [lsort [r hgetall H2]]
         r debug set-active-expire 1
-    }
+    } {OK} {needs:debug}
 
     test {Module hash - set XX of expired field gets failed as expected} {
         r debug set-active-expire 0
@@ -58,7 +58,7 @@ start_server {tags {"modules"}} {
         assert_equal 2 [r hlen H2]
 
         r debug set-active-expire 1
-    }
+    } {OK} {needs:debug}
 
     test "Unload the module - hash" {
         assert_equal {OK} [r module unload hash]
