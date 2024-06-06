@@ -34,7 +34,7 @@ start_server {tags {"modules"}} {
         assert_encoding listpackex hh
         r debug set-active-expire 1
         lsort [r scan.scan_key hh]
-    } {{f1 v1} {f2 v2}}
+    } {{f1 v1} {f2 v2}} {needs:debug}
 
     test {Module scan hash dict} {
         r config set hash-max-ziplist-entries 2
@@ -61,9 +61,9 @@ start_server {tags {"modules"}} {
         r hmset hh f1 v1 f2 v2 f3 v3
         r hpexpire hh 1 fields 3 f1 f2 f3
         after 10
-        assert_equal [lsort [r scan.scan_key hh]] {}
         r debug set-active-expire 1
-    }
+        lsort [r scan.scan_key hh]
+    } {} {needs:debug}
 
     test {Module scan zset listpack} {
         r zadd zz 1 f1 2 f2

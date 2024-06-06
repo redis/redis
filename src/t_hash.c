@@ -713,19 +713,17 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value, uint64_t *e
 /* Higher level function of hashTypeGet*() that returns the hash value
  * associated with the specified field.
  * Arguments:
- * - hfeFlags:   HFE_LAZY_EXPIRE
- *               HFE_NO_FIELD_EXPIRE - Avoid deleting expired field
- *               HFE_NO_HASH_EXPIRE - Avoid deleting hash if the field is the last one
+ * hfeFlags      - Lookup HFE_LAZY_* flags
  *
  * Returned:
- * - GetFieldRes: OK: Return    Field's valid value
+ * GetFieldRes  - OK: Return    Field's valid value
  *                NOT_FOUND:    Field was not found.
  *                EXPIRED:      Field is expired and Lazy deleted
  *                EXPIRED_HASH: Returned only if the field is the last one in the
  *                              hash and the hash is deleted.
- * - vstr, vlen : if string, ref in either *vstr and *vlen if it's
+ * vstr, vlen   - if string, ref in either *vstr and *vlen if it's
  *                returned in string form,
- * - vll        : or stored in *vll if it's returned as a number.
+ * vll          - or stored in *vll if it's returned as a number.
  *                If *vll is populated *vstr is set to NULL, so the caller can
  *                always check the function return by checking the return value
  *                for GETF_OK and checking if vll (or vstr) is NULL.
@@ -767,7 +765,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     /* Field is expired */
 
     /* If indicated to avoid deleting expired field */
-    if (hfeFlags & HFE_NO_FIELD_EXPIRE)
+    if (hfeFlags & HFE_LAZY_NO_FIELD_EXPIRE)
         return GETF_EXPIRED;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
@@ -780,7 +778,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     propagateHashFieldDeletion(db, key, field, sdslen(field));
 
     /* If the field is the last one in the hash, then the hash will be deleted */
-    if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_NO_HASH_EXPIRE))) {
+    if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_LAZY_NO_HASH_EXPIRE))) {
         robj *keyObj = createStringObject(key, sdslen(key));
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
@@ -796,9 +794,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
  * The function returns NULL if the field is not found in the hash. Otherwise
  * a newly allocated string object with the value is returned.
  *
- * hfeFlags      - HFE_LAZY_EXPIRE
- *                 HFE_NO_FIELD_EXPIRE - Avoid deleting expired field
- *                 HFE_NO_HASH_EXPIRE - Avoid deleting hash if the field is the last one *
+ * hfeFlags      - Lookup HFE_LAZY_* flags
  * isHashDeleted - If attempted to access expired field and it's the last field
  *                 in the hash, then the hash will as well be deleted. In this case,
  *                 isHashDeleted will be set to 1.
@@ -826,9 +822,7 @@ robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field, int hfeFlags, int 
 /* Test if the specified field exists in the given hash. If the field is
  * expired (HFE), then it will be lazy deleted
  *
- * hfeFlags      - HFE_LAZY_EXPIRE
- *                 HFE_NO_FIELD_EXPIRE - Avoid deleting expired field
- *                 HFE_NO_HASH_EXPIRE - Avoid deleting hash if the field is the last one *
+ * hfeFlags      - Lookup HFE_LAZY_* flags
  * isHashDeleted - If attempted to access expired field and it is the last field
  *                 in the hash, then the hash will as well be deleted. In this case,
  *                 isHashDeleted will be set to 1.

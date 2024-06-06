@@ -5271,14 +5271,14 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int hfeFlags = HFE_NO_HASH_EXPIRE; /* Avoid invalidate the key */
+            int hfeFlags = HFE_LAZY_NO_HASH_EXPIRE; /* Avoid invalidate the key */
 
             /* This is a bit tricky: hash might hold expired field. If we lazy
              * delete it, and command was sent with XX, then operation
              * will fail and hash will be left wrongly empty. For this case, let's
              * avoid lazy delete (and let this operation to fail) */
             if (flags & REDISMODULE_HASH_XX)
-                hfeFlags |= HFE_NO_FIELD_EXPIRE;
+                hfeFlags |= HFE_LAZY_NO_FIELD_EXPIRE;
 
             int exists = hashTypeExists(key->db, key->value, field->ptr, hfeFlags, NULL);
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
@@ -5363,7 +5363,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * RedisModule_FreeString(), or by enabling automatic memory management.
  */
 int RM_HashGet(RedisModuleKey *key, int flags, ...) {
-    int hfeFlags = HFE_NO_FIELD_EXPIRE | HFE_NO_HASH_EXPIRE;
+    int hfeFlags = HFE_LAZY_NO_FIELD_EXPIRE | HFE_LAZY_NO_HASH_EXPIRE;
     va_list ap;
     if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
 
@@ -11207,8 +11207,8 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         p = lpSeek(lp,0);
         while(p) {
             long long vllField, vllValue, vllExpire;
-            unsigned int lenField, lenValue, lenExpire;
-            unsigned char *pField, *pValue, *pExpire;
+            unsigned int lenField, lenValue;
+            unsigned char *pField, *pValue;
 
             pField = lpGetValue(p,&lenField,&vllField);
             p = lpNext(lp,p);
@@ -11216,9 +11216,8 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             p = lpNext(lp,p);
 
             if (hfe) {
-                pExpire = lpGetValue(p,&lenExpire,&vllExpire);
+                serverAssert(lpGetIntegerValue(p, &vllExpire));
                 p = lpNext(lp, p);
-                serverAssert(pExpire == NULL);
 
                 /* Skip expired fields */
                 if (hashTypeIsExpired(o, vllExpire))
