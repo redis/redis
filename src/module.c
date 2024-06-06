@@ -5273,10 +5273,15 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
             int hfeFlags = HFE_LAZY_NO_HASH_EXPIRE; /* Avoid invalidate the key */
 
-            /* This is a bit tricky: hash might hold expired field. If we lazy
-             * delete it, and command was sent with XX, then operation
-             * will fail and hash will be left wrongly empty. For this case, let's
-             * avoid lazy delete (and let this operation to fail) */
+            /*
+             * The hash might contain expired fields. If we lazily delete expired
+             * field and the command was sent with XX flag, the operation could
+             * fail and leave the hash empty, which the caller might not expect.
+             * To prevent unexpected behavior, we avoid lazy deletion in this case
+             * yet let the operation fail. Note that moduleDelKeyIfEmpty()
+             * below won't delete the hash if it left with single expired key
+             * because hash counts blindly expired fields as well.
+             */
             if (flags & REDISMODULE_HASH_XX)
                 hfeFlags |= HFE_LAZY_NO_FIELD_EXPIRE;
 
