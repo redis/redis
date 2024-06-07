@@ -394,7 +394,7 @@ start_server {tags {"pubsub network"}} {
         r debug set-active-expire 1
 
         $rd1 close
-    }
+    } {0} {needs:debug}
     } ;# foreach
 
     test "Keyspace notifications: stream events test" {
