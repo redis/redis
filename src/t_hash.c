@@ -771,15 +771,17 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     propagateHashFieldDeletion(db, key, field, sdslen(field));
 
     /* If the field is the last one in the hash, then the hash will be deleted */
+    robj *keyObj = createStringObject(key, sdslen(key));
     if (hashTypeLength(o, 0) == 0) {
-        robj *keyObj = createStringObject(key, sdslen(key));
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
-        decrRefCount(keyObj);
-        return GETF_EXPIRED_HASH;
+        res = GETF_EXPIRED_HASH;
+    } else {
+        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", keyObj, db->id);
+        res = GETF_EXPIRED;
     }
-
-    return GETF_EXPIRED;
+    decrRefCount(keyObj);
+    return res;
 }
 
 /* Like hashTypeGetValue() but returns a Redis object, which is useful for
@@ -1126,7 +1128,8 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
         if (ex->c) {
             server.dirty += ex->fieldDeleted + ex->fieldUpdated;
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", ex->key, ex->db->id);
+            notifyKeyspaceEvent(NOTIFY_HASH, ex->fieldDeleted ? "hexpired" : "hexpire",
+                                ex->key, ex->db->id);
         }
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
             dbDelete(ex->db,ex->key);
@@ -1845,10 +1848,11 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     ActiveExpireCtx *activeExpireCtx = (ActiveExpireCtx *) ctx;
     sds keystr = NULL;
     ExpireInfo info = {0};
+    ExpireAction ret = ACT_STOP_ACTIVE_EXP;
 
     /* If no more quota left for this callback, stop */
     if (activeExpireCtx->fieldsToExpireQuota == 0)
-        return ACT_STOP_ACTIVE_EXP;
+        return ret;
 
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         info = (ExpireInfo){
@@ -1885,22 +1889,27 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     activeExpireCtx->fieldsToExpireQuota -= info.itemsExpired;
 
     /* If hash has no more fields to expire, remove it from HFE DB */
+    robj *key = createStringObject(keystr, sdslen(keystr));
     if (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) {
         if (hashTypeLength(hashObj, 0) == 0) {
-            robj *key = createStringObject(keystr, sdslen(keystr));
             dbDelete(activeExpireCtx->db, key);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key, activeExpireCtx->db->id);
-            server.dirty++;
-            signalModifiedKey(NULL, &server.db[0], key);
-            decrRefCount(key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,activeExpireCtx->db->id);
+        } else {
+            notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
         }
-        return ACT_REMOVE_EXP_ITEM;
+        ret = ACT_REMOVE_EXP_ITEM;
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
          * and indicate to add it back to global HFE DS */
         ebSetMetaExpTime(hashGetExpireMeta(hashObj), info.nextExpireTime);
-        return ACT_UPDATE_EXP_ITEM;
+        notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
+        ret = ACT_UPDATE_EXP_ITEM;
     }
+
+    server.dirty++;
+    signalModifiedKey(NULL, activeExpireCtx->db, key);
+    decrRefCount(key);
+    return ret;
 }
 
 /* Return the next/minimum expiry time of the hash-field. This is useful if a

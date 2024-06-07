@@ -360,12 +360,13 @@ start_server {tags {"pubsub network"}} {
         r del myhash
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
-        r hmset myhash yes 1 no 0
+        r hmset myhash yes 1 no 0 f1 1 f2 2
         r hincrby myhash yes 10
         r hexpire myhash 999999 FIELDS 1 yes
         r hexpireat myhash [expr {[clock seconds] + 999999}] NX FIELDS 1 no
         r hpexpire myhash 999999 FIELDS 1 yes
         r hpersist myhash FIELDS 1 yes
+        r hpexpire myhash 0 FIELDS 1 yes
         assert_encoding $type myhash
         assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hincrby" [$rd1 read]
@@ -373,6 +374,25 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+
+        # Test that we wll get `hexpired` notification when
+        # a hash fied is removed by active expire.
+        r hpexpire myhash 10 FIELDS 1 f1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 100 ;# Wait for active expire
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+
+        # Test that we wll get `hexpired` notification when
+        # a hash fied is removed by lazy active.
+        r debug set-active-expire 0
+        r hpexpire myhash 10 FIELDS 1 f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 20
+        r hstrlen myhash f2 ;# Trigger lazy expire
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        r debug set-active-expire 1
+
         $rd1 close
     }
     } ;# foreach
