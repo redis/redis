@@ -376,15 +376,15 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
 
-        # Test that we wll get `hexpired` notification when
-        # a hash fied is removed by active expire.
+        # Test that we will get `hexpired` notification when
+        # a hash field is removed by active expire.
         r hpexpire myhash 10 FIELDS 1 f1
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         after 100 ;# Wait for active expire
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
 
-        # Test that we wll get `hexpired` notification when
-        # a hash fied is removed by lazy active.
+        # Test that we will get `hexpired` notification when
+        # a hash field is removed by lazy active.
         r debug set-active-expire 0
         r hpexpire myhash 10 FIELDS 1 f2
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
