@@ -913,14 +913,9 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
             }
         }
 
-        if (!update) {
+        if (!update)
             listpackExAddNew(o, field, sdslen(field), value, sdslen(value),
                              HASH_LP_NO_TTL);
-
-            /* Check if the listpack needs to be converted to a hash table */
-            if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-                hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-        }
 
         /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
