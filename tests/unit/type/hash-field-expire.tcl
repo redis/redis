@@ -208,12 +208,12 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*Parameter `numFields` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
         }
 
-        test "HPEXPIRE - parameter expire-time near limit of  2^48 ($type)" {
+        test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
             r del myhash
             r hset myhash f1 v1
             # below & above
-            assert_equal [r hpexpire myhash [expr (1<<48) - [clock milliseconds] - 1000 ] FIELDS 1 f1] [list  $E_OK]
-            assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<48) - [clock milliseconds] + 100 ] FIELDS 1 f1}
+            assert_equal [r hpexpire myhash [expr (1<<46) - [clock milliseconds] - 1000 ] FIELDS 1 f1] [list  $E_OK]
+            assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<46) - [clock milliseconds] + 100 ] FIELDS 1 f1}
         }
 
         test "Lazy Expire - fields are lazy deleted ($type)" {
