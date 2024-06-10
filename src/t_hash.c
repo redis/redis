@@ -27,13 +27,10 @@
  */
 #define HFE_MAX_ABS_TIME_MSEC (EB_EXPIRE_TIME_MAX >> 2)
 
-/* Returned by hashTypeGetValue() */
 typedef enum GetFieldRes {
     /* common (Used by hashTypeGet* value family) */
-    GETF_OK = 0,
+    GETF_OK = 0,            /* The field was found. */
     GETF_NOT_FOUND,         /* The field was not found. */
-
-    /* used only by hashTypeGetValue() */
     GETF_EXPIRED,           /* Logically expired (Might be lazy deleted or not) */
     GETF_EXPIRED_HASH,      /* Delete hash since retrieved field was expired and
                              * it was the last field in the hash. */
