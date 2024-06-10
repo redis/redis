@@ -922,6 +922,10 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
                 hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
         }
 
+        /* Check if the listpack needs to be converted to a hash table */
+        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+
     } else if (o->encoding == OBJ_ENCODING_HT) {
         hfield newField = hfieldNew(field, sdslen(field), 0);
         dict *ht = o->ptr;
