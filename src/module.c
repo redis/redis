@@ -5271,10 +5271,21 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int isHashDeleted;
-            int exists = hashTypeExists(key->db, key->value, field->ptr, &isHashDeleted);
-            /* hash-field-expiration is not exposed to modules */
-            serverAssert(isHashDeleted == 0);
+            int hfeFlags = HFE_LAZY_AVOID_HASH_DEL; /* Avoid invalidate the key */
+
+            /*
+             * The hash might contain expired fields. If we lazily delete expired
+             * field and the command was sent with XX flag, the operation could
+             * fail and leave the hash empty, which the caller might not expect.
+             * To prevent unexpected behavior, we avoid lazy deletion in this case
+             * yet let the operation fail. Note that moduleDelKeyIfEmpty()
+             * below won't delete the hash if it left with single expired key
+             * because hash counts blindly expired fields as well.
+             */
+            if (flags & REDISMODULE_HASH_XX)
+                hfeFlags |= HFE_LAZY_AVOID_FIELD_DEL;
+
+            int exists = hashTypeExists(key->db, key->value, field->ptr, hfeFlags, NULL);
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
                 ((flags & REDISMODULE_HASH_NX) && exists))
             {
@@ -5357,6 +5368,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * RedisModule_FreeString(), or by enabling automatic memory management.
  */
 int RM_HashGet(RedisModuleKey *key, int flags, ...) {
+    int hfeFlags = HFE_LAZY_AVOID_FIELD_DEL | HFE_LAZY_AVOID_HASH_DEL;
     va_list ap;
     if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
 
@@ -5378,21 +5390,16 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         if (flags & REDISMODULE_HASH_EXISTS) {
             existsptr = va_arg(ap,int*);
             if (key->value) {
-                int isHashDeleted;
-                *existsptr = hashTypeExists(key->db, key->value, field->ptr, &isHashDeleted);
-                /* hash-field-expiration is not exposed to modules */
-                serverAssert(isHashDeleted == 0);
+                *existsptr = hashTypeExists(key->db, key->value, field->ptr, hfeFlags, NULL);
             } else {
                 *existsptr = 0;
             }
         } else {
-            int isHashDeleted;
             valueptr = va_arg(ap,RedisModuleString**);
             if (key->value) {
-                *valueptr = hashTypeGetValueObject(key->db,key->value,field->ptr, &isHashDeleted);
+                *valueptr = hashTypeGetValueObject(key->db, key->value, field->ptr,
+                                                   hfeFlags, NULL);
 
-                /* Currently hash-field-expiration is not exposed to modules */
-                serverAssert(isHashDeleted == 0);
                 if (*valueptr) {
                     robj *decoded = getDecodedObject(*valueptr);
                     decrRefCount(*valueptr);
@@ -11080,6 +11087,11 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
         value = NULL;
     } else if (o->type == OBJ_HASH) {
         sds val = dictGetVal(de);
+
+        /* If field is expired, then ignore */
+        if (hfieldIsExpired(key))
+            return;
+
         field = createStringObject(key, hfieldlen(key));
         value = createStringObject(val, sdslen(val));
     } else if (o->type == OBJ_ZSET) {
@@ -11189,9 +11201,8 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         ret = 0;
     } else if (o->type == OBJ_ZSET || o->type == OBJ_HASH) {
         unsigned char *lp, *p;
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vll;
+        /* is hash with expiry on fields, then lp tuples are [field][value][expire] */
+        int hfe = o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX;
 
         if (o->type == OBJ_HASH)
             lp = hashTypeListpackGetLp(o);
@@ -11200,19 +11211,32 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
 
         p = lpSeek(lp,0);
         while(p) {
-            vstr = lpGetValue(p,&vlen,&vll);
-            robj *field = (vstr != NULL) ?
-                createStringObject((char*)vstr,vlen) :
-                createStringObjectFromLongLongWithSds(vll);
+            long long vllField, vllValue, vllExpire;
+            unsigned int lenField, lenValue;
+            unsigned char *pField, *pValue;
+
+            pField = lpGetValue(p,&lenField,&vllField);
             p = lpNext(lp,p);
-            vstr = lpGetValue(p,&vlen,&vll);
-            robj *value = (vstr != NULL) ?
-                createStringObject((char*)vstr,vlen) :
-                createStringObjectFromLongLongWithSds(vll);
+            pValue = lpGetValue(p,&lenValue,&vllValue);
+            p = lpNext(lp,p);
+
+            if (hfe) {
+                serverAssert(lpGetIntegerValue(p, &vllExpire));
+                p = lpNext(lp, p);
+
+                /* Skip expired fields */
+                if (hashTypeIsExpired(o, vllExpire))
+                    continue;
+            }
+
+            robj *value = (pValue != NULL) ?
+                          createStringObject((char*)pValue,lenValue) :
+                          createStringObjectFromLongLongWithSds(vllValue);
+
+            robj *field = (pField != NULL) ?
+                          createStringObject((char*)pField,lenField) :
+                          createStringObjectFromLongLongWithSds(vllField);
             fn(key, field, value, privdata);
-            p = lpNext(lp,p);
-            if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX)
-                p = lpNext(lp, p); /* Skip expire time */
 
             decrRefCount(field);
             decrRefCount(value);
@@ -11224,7 +11248,6 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
     errno = 0;
     return ret;
 }
-
 
 /* --------------------------------------------------------------------------
  * ## Module fork API

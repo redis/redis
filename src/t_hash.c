@@ -21,7 +21,7 @@ typedef enum GetFieldRes {
     GETF_NOT_FOUND,         /* The field was not found. */
 
     /* used only by hashTypeGetValue() */
-    GETF_EXPIRED,           /* Logically expired but not yet deleted. */
+    GETF_EXPIRED,           /* Logically expired (Might be lazy deleted or not) */
     GETF_EXPIRED_HASH,      /* Delete hash since retrieved field was expired and
                              * it was the last field in the hash. */
 } GetFieldRes;
@@ -152,21 +152,18 @@ static inline int isDictWithMetaHFE(dict *d) {
 }
 
 /*-----------------------------------------------------------------------------
- * setex* - Set field OR field's expiration
+ * setex* - Set field's expiration
  *
- * Whereas setting plain fields is rather straightforward, setting expiration
- * time to fields might be time-consuming and complex since each update of
- * expiration time, not only updates `ebuckets` of corresponding hash, but also
- * might update `ebuckets` of global HFE DS. It is required to opt sequence of
- * field updates with expirartion for a given hash, such that only once done,
- * the global HFE DS will get updated.
+ * Setting expiration time to fields might be time-consuming and complex since
+ * each update of expiration time, not only updates `ebuckets` of corresponding
+ * hash, but also might update `ebuckets` of global HFE DS. It is required to opt
+ * sequence of field updates with expirartion for a given hash, such that only
+ * once done, the global HFE DS will get updated.
  *
  * To do so, follow the scheme:
  * 1. Call hashTypeSetExInit() to initialize the HashTypeSetEx struct.
  * 2. Call hashTypeSetEx() one time or more, for each field/expiration update.
  * 3. Call hashTypeSetExDone() for notification and update of global HFE.
- *
- * If expiration is not required, then avoid this API and use instead hashTypeSet()
  *----------------------------------------------------------------------------*/
 
 /* Returned value of hashTypeSetEx() */
@@ -178,10 +175,6 @@ typedef enum SetExRes {
     HSETEX_NO_FIELD =         -2,   /* No such hash-field */
     HSETEX_NO_CONDITION_MET =  0,   /* Specified NX | XX | GT | LT condition not met */
     HSETEX_DELETED =           2,   /* Field deleted because the specified time is in the past */
-
-    /* If not provided HashTypeSetEx struct to hashTypeSetEx() (plain HSET) */
-    HSET_UPDATE =              4,   /* Update of the field without expiration time */
-
 } SetExRes;
 
 /* Used by httlGenericCommand() */
@@ -189,14 +182,6 @@ typedef enum GetExpireTimeRes {
     HFE_GET_NO_FIELD =          -2, /* No such hash-field */
     HFE_GET_NO_TTL =            -1, /* No TTL attached to the field */
 } GetExpireTimeRes;
-
-/* on fail return HSETEX_NO_CONDITION_MET */
-typedef enum FieldSetCond {
-    FIELD_CREATE_OR_OVRWRT = 0,
-    FIELD_DONT_CREATE      = 1,
-    FIELD_DONT_CREATE2     = 2,     /* on fail return HSETEX_NO_FIELD */
-    FIELD_DONT_OVRWRT      = 3
-} FieldSetCond;
 
 typedef enum FieldGet { /* TBD */
     FIELD_GET_NONE = 0,
@@ -220,7 +205,6 @@ typedef struct HashTypeSet {
 typedef struct HashTypeSetEx {
 
     /*** config ***/
-    FieldSetCond fieldSetCond;          /* [DCF | DOF] */
     ExpireSetCond expireSetCond;        /* [XX | NX | GT | LT] */
 
     /*** metadata ***/
@@ -239,14 +223,10 @@ typedef struct HashTypeSetEx {
     const char *cmd;
 } HashTypeSetEx;
 
-static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeSet *setParams,
-                                      uint64_t expireAt, HashTypeSetEx *exParams);
-
 int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd,
-                      FieldSetCond fieldSetCond, ExpireSetCond expireSetCond, HashTypeSetEx *ex);
+                      ExpireSetCond expireSetCond, HashTypeSetEx *ex);
 
-SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
-                       uint64_t expireAt, HashTypeSetEx *exInfo);
+SetExRes hashTypeSetEx(robj *o, sds field, uint64_t expireAt, HashTypeSetEx *exInfo);
 
 void hashTypeSetExDone(HashTypeSetEx *e);
 
@@ -712,23 +692,21 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value, uint64_t *e
 
 /* Higher level function of hashTypeGet*() that returns the hash value
  * associated with the specified field.
+ * Arguments:
+ * hfeFlags      - Lookup for HFE_LAZY_* flags
  *
  * Returned:
- * - GetFieldRes: OK: Return    Field's valid value
- *                NOT_FOUND:    Field was not found.
- *                EXPIRED:      Field is expired and Lazy deleted
- *                EXPIRED_HASH: Returned only if the field is the last one in the
- *                              hash and the hash is deleted.
- * - vstr, vlen : if string, ref in either *vstr and *vlen if it's
+ * GetFieldRes  - Result of get operation
+ * vstr, vlen   - if string, ref in either *vstr and *vlen if it's
  *                returned in string form,
- * - vll        : or stored in *vll if it's returned as a number.
+ * vll          - or stored in *vll if it's returned as a number.
  *                If *vll is populated *vstr is set to NULL, so the caller can
  *                always check the function return by checking the return value
  *                for GETF_OK and checking if vll (or vstr) is NULL.
  *
  */
 GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vstr,
-                             unsigned int *vlen, long long *vll) {
+                             unsigned int *vlen, long long *vll, int hfeFlags) {
     uint64_t expiredAt;
     sds key;
     GetFieldRes res;
@@ -760,7 +738,12 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
          (expiredAt >= (uint64_t) commandTimeSnapshot()) )
         return GETF_OK;
 
-    /* Got expired. Extract attached key from LISTPACK_EX/HT */
+    /* Field is expired */
+
+    /* If indicated to avoid deleting expired field */
+    if (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL)
+        return GETF_EXPIRED;
+
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
         key = ((listpackEx *) o->ptr)->key;
     else
@@ -771,10 +754,11 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     propagateHashFieldDeletion(db, key, field, sdslen(field));
 
     /* If the field is the last one in the hash, then the hash will be deleted */
-    if (hashTypeLength(o, 0) == 0) {
+    if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
         robj *keyObj = createStringObject(key, sdslen(key));
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
+        signalModifiedKey(NULL, db, keyObj);
         decrRefCount(keyObj);
         return GETF_EXPIRED_HASH;
     }
@@ -787,24 +771,25 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
  * The function returns NULL if the field is not found in the hash. Otherwise
  * a newly allocated string object with the value is returned.
  *
+ * hfeFlags      - Lookup HFE_LAZY_* flags
  * isHashDeleted - If attempted to access expired field and it's the last field
  *                 in the hash, then the hash will as well be deleted. In this case,
  *                 isHashDeleted will be set to 1.
  */
-robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field, int *isHashDeleted) {
+robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field, int hfeFlags, int *isHashDeleted) {
     unsigned char *vstr;
     unsigned int vlen;
     long long vll;
 
-    *isHashDeleted = 0; /*default*/
-    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll);
+    if (isHashDeleted) *isHashDeleted = 0;
+    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll, hfeFlags);
 
     if (res == GETF_OK) {
         if (vstr) return createStringObject((char*)vstr,vlen);
         else return createStringObjectFromLongLong(vll);
     }
 
-    if (res == GETF_EXPIRED_HASH)
+    if ((res == GETF_EXPIRED_HASH) && (isHashDeleted))
         *isHashDeleted = 1;
 
     /* GETF_EXPIRED_HASH, GETF_EXPIRED, GETF_NOT_FOUND */
@@ -814,19 +799,21 @@ robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field, int *isHashDeleted
 /* Test if the specified field exists in the given hash. If the field is
  * expired (HFE), then it will be lazy deleted
  *
- * Returns 1 if the field exists, and 0 when it doesn't.
- *
+ * hfeFlags      - Lookup HFE_LAZY_* flags
  * isHashDeleted - If attempted to access expired field and it is the last field
  *                 in the hash, then the hash will as well be deleted. In this case,
  *                 isHashDeleted will be set to 1.
+ *
+ * Returns 1 if the field exists, and 0 when it doesn't.
  */
-int hashTypeExists(redisDb *db, robj *o, sds field, int *isHashDeleted) {
+int hashTypeExists(redisDb *db, robj *o, sds field, int hfeFlags, int *isHashDeleted) {
     unsigned char *vstr = NULL;
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll);
-    *isHashDeleted = (res == GETF_EXPIRED_HASH) ? 1 : 0;
+    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll, hfeFlags);
+    if (isHashDeleted)
+        *isHashDeleted = (res == GETF_EXPIRED_HASH) ? 1 : 0;
     return (res == GETF_OK) ? 1 : 0;
 }
 
@@ -839,7 +826,7 @@ int hashTypeExists(redisDb *db, robj *o, sds field, int *isHashDeleted) {
  *
  * HASH_SET_TAKE_FIELD  -- The SDS field ownership passes to the function.
  * HASH_SET_TAKE_VALUE  -- The SDS value ownership passes to the function.
- * HASH_SET_KEEP_FIELD --  keep original field along with TTL if already exists
+ * HASH_SET_KEEP_TTL --  keep original TTL if field already exists
  *
  * When the flags are used the caller does not need to release the passed
  * SDS string(s). It's up to the function to use the string to create a new
@@ -851,164 +838,92 @@ int hashTypeExists(redisDb *db, robj *o, sds field, int *isHashDeleted) {
  */
 #define HASH_SET_TAKE_FIELD  (1<<0)
 #define HASH_SET_TAKE_VALUE  (1<<1)
-#define HASH_SET_KEEP_FIELD (1<<2)
+#define HASH_SET_KEEP_TTL (1<<2)
 #define HASH_SET_COPY 0
 int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
-    HashTypeSet set = {value, flags};
-    return (hashTypeSetEx(db, o, field, &set, 0, NULL) == HSET_UPDATE) ? 1 : 0;
-}
-
-SetExRes hashTypeSetExpiry(HashTypeSetEx *ex, sds field, uint64_t expireAt, dictEntry **de) {
-    dict *ht = ex->hashObj->ptr;
-    dictEntry *newEntry = NULL, *existingEntry = NULL;
-
-    /* New field with expiration metadata */
-    hfield hfNew = hfieldNew(field, sdslen(field), 1 /*withExpireMeta*/);
-
-    if ((ex->fieldSetCond == FIELD_DONT_CREATE) || (ex->fieldSetCond == FIELD_DONT_CREATE2)) {
-        if ((existingEntry = dictFind(ht, field)) == NULL) {
-            hfieldFree(hfNew);
-            return (ex->fieldSetCond == FIELD_DONT_CREATE) ?
-                   HSETEX_NO_CONDITION_MET : HSETEX_NO_FIELD;
-        }
-    } else {
-        dictUseStoredKeyApi(ht, 1);
-        newEntry = dictAddRaw(ht, hfNew, &existingEntry);
-        dictUseStoredKeyApi(ht, 0);
-    }
-
-    if (newEntry) {
-        *de = newEntry;
-
-        if (ex->expireSetCond & (HFE_XX | HFE_LT | HFE_GT)) {
-            dictDelete(ht, field);
-            return HSETEX_NO_CONDITION_MET;
-        }
-    } else { /* field exist */
-        *de = existingEntry;
-
-        if (ex->fieldSetCond == FIELD_DONT_OVRWRT) {
-            hfieldFree(hfNew);
-            return HSETEX_NO_CONDITION_MET;
-        }
-
-        hfield hfOld = dictGetKey(existingEntry);
-
-        /* If field doesn't have expiry metadata attached */
-        if (!hfieldIsExpireAttached(hfOld)) {
-
-            /* For fields without expiry, LT condition is considered valid */
-            if (ex->expireSetCond & (HFE_XX | HFE_GT)) {
-                hfieldFree(hfNew);
-                return HSETEX_NO_CONDITION_MET;
-            }
-
-            /* Delete old field. Below goanna dictSetKey(..,hfNew) */
-            hfieldFree(hfOld);
-
-        } else { /* field has ExpireMeta struct attached */
-
-            /* No need for hfNew (Just modify expire-time of existing field) */
-            hfieldFree(hfNew);
-
-            uint64_t prevExpire = hfieldGetExpireTime(hfOld);
-
-            /* If field has valid expiration time, then check GT|LT|NX */
-            if (prevExpire != EB_EXPIRE_TIME_INVALID) {
-                if (((ex->expireSetCond == HFE_GT) && (prevExpire >= expireAt)) ||
-                    ((ex->expireSetCond == HFE_LT) && (prevExpire <= expireAt)) ||
-                    (ex->expireSetCond == HFE_NX) )
-                    return HSETEX_NO_CONDITION_MET;
-
-                /* remove old expiry time from hash's private ebuckets */
-                dictExpireMetadata *dm = (dictExpireMetadata *) dictMetadata(ht);
-                ebRemove(&dm->hfe, &hashFieldExpireBucketsType, hfOld);
-
-                /* Track of minimum expiration time (only later update global HFE DS) */
-                if (ex->minExpireFields > prevExpire)
-                    ex->minExpireFields = prevExpire;
-
-            } else {
-                /* field has invalid expiry. No need to ebRemove() */
-
-                /* Check XX|LT|GT */
-                if (ex->expireSetCond & (HFE_XX | HFE_GT))
-                    return HSETEX_NO_CONDITION_MET;
-            }
-
-            /* Reuse hfOld as hfNew and rewrite its expiry with ebAdd() */
-            hfNew = hfOld;
-        }
-
-        dictSetKey(ht, existingEntry, hfNew);
-    }
-
-    /* if expiration time is in the past */
-    if (unlikely(checkAlreadyExpired(expireAt))) {
-        hashTypeDelete(ex->hashObj, field, 1);
-        ex->fieldDeleted++;
-        return HSETEX_DELETED;
-    }
-
-    if (ex->minExpireFields > expireAt)
-        ex->minExpireFields = expireAt;
-
-    dictExpireMetadata *dm = (dictExpireMetadata *) dictMetadata(ht);
-    ebAdd(&dm->hfe, &hashFieldExpireBucketsType, hfNew, expireAt);
-    ex->fieldUpdated++;
-    return HSETEX_OK;
-}
-
-/*
- * Set fields OR field's expiration (See also `setex*` comment above)
- *
- * Take care to call first hashTypeSetExInit() and then call this function.
- * Finally, call hashTypeSetExDone() to notify and update global HFE DS.
- *
- * NOTE: this functions is also called during RDB load to set dict-encoded
- *       fields with and without expiration.
- */
-SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
-                       uint64_t expireAt, HashTypeSetEx *exInfo)
-{
-    SetExRes res = HSETEX_OK;
-    int isSetKeyValue  = (setKeyVal) ? 1 : 0;
-    int isSetExpire = (exInfo) ? 1 : 0;
-    int flags = (setKeyVal) ? setKeyVal->flags : 0;
+    int update = 0;
 
     /* Check if the field is too long for listpack, and convert before adding the item.
      * This is needed for HINCRBY* case since in other commands this is handled early by
      * hashTypeTryConversion, so this check will be a NOP. */
-    if (o->encoding == OBJ_ENCODING_LISTPACK ||
-        o->encoding == OBJ_ENCODING_LISTPACK_EX)
-    {
-        if ( (isSetKeyValue) &&
-             (sdslen(field) > server.hash_max_listpack_value ||
-              sdslen(setKeyVal->value) > server.hash_max_listpack_value) )
-        {
+    if (o->encoding == OBJ_ENCODING_LISTPACK  ||
+        o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        if (sdslen(field) > server.hash_max_listpack_value || sdslen(value) > server.hash_max_listpack_value)
             hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-        } else {
-            res = hashTypeSetExListpack(db, o, field, setKeyVal, expireAt, exInfo);
-            goto SetExDone; /*done*/
-        }
     }
 
-    if (o->encoding != OBJ_ENCODING_HT)
-        serverPanic("Unknown hash encoding");
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl, *fptr, *vptr;
 
-    /*** now deal with HT ***/
-    hfield newField;
-    dict *ht = o->ptr;
-    dictEntry *de;
+        zl = o->ptr;
+        fptr = lpFirst(zl);
+        if (fptr != NULL) {
+            fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
+            if (fptr != NULL) {
+                /* Grab pointer to the value (fptr points to the field) */
+                vptr = lpNext(zl, fptr);
+                serverAssert(vptr != NULL);
 
-    /* If needed to set the field along with expiry */
-    if (isSetExpire) {
-        res = hashTypeSetExpiry(exInfo, field, expireAt, &de);
-        if (res != HSETEX_OK) goto SetExDone;
-    } else {
-        dictEntry *existing;
-        /* Cannot leverage HASH_SET_TAKE_FIELD since hfield is not of type sds */
-        newField = hfieldNew(field, sdslen(field), 0);
+                /* Replace value */
+                zl = lpReplace(zl, &vptr, (unsigned char*)value, sdslen(value));
+                update = 1;
+            }
+        }
+
+        if (!update) {
+            /* Push new field/value pair onto the tail of the listpack */
+            zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
+            zl = lpAppend(zl, (unsigned char*)value, sdslen(value));
+        }
+        o->ptr = zl;
+
+        /* Check if the listpack needs to be converted to a hash table */
+        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        unsigned char *fptr = NULL, *vptr = NULL, *tptr = NULL;
+        listpackEx *lpt = o->ptr;
+        long long expireTime = HASH_LP_NO_TTL;
+
+        fptr = lpFirst(lpt->lp);
+        if (fptr != NULL) {
+            fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
+            if (fptr != NULL) {
+                /* Grab pointer to the value (fptr points to the field) */
+                vptr = lpNext(lpt->lp, fptr);
+                serverAssert(vptr != NULL);
+
+                /* Replace value */
+                lpt->lp = lpReplace(lpt->lp, &vptr, (unsigned char *) value, sdslen(value));
+                update = 1;
+
+                fptr = lpPrev(lpt->lp, vptr);
+                serverAssert(fptr != NULL);
+
+                tptr = lpNext(lpt->lp, vptr);
+                serverAssert(tptr && lpGetIntegerValue(tptr, &expireTime));
+
+                if (flags & HASH_SET_KEEP_TTL) {
+                    /* keep old field along with TTL */
+                } else if (expireTime != HASH_LP_NO_TTL) {
+                    /* re-insert field and override TTL */
+                    listpackExUpdateExpiry(o, field, fptr, vptr, HASH_LP_NO_TTL);
+                }
+            }
+        }
+
+        if (!update)
+            listpackExAddNew(o, field, sdslen(field), value, sdslen(value),
+                             HASH_LP_NO_TTL);
+
+        /* Check if the listpack needs to be converted to a hash table */
+        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+
+    } else if (o->encoding == OBJ_ENCODING_HT) {
+        hfield newField = hfieldNew(field, sdslen(field), 0);
+        dict *ht = o->ptr;
+        dictEntry *de, *existing;
 
         /* stored key is different than lookup key */
         dictUseStoredKeyApi(ht, 1);
@@ -1017,8 +932,8 @@ SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
 
         /* If field already exists, then update "field". "Value" will be set afterward */
         if (de == NULL) {
-            if (flags & HASH_SET_KEEP_FIELD) {
-                /* Not keep old field along with TTL */
+            if (flags & HASH_SET_KEEP_TTL) {
+                /* keep old field along with TTL */
                 hfieldFree(newField);
             } else {
                 /* If attached TTL to the old field, then remove it from hash's private ebuckets */
@@ -1028,27 +943,146 @@ SetExRes hashTypeSetEx(redisDb *db, robj *o, sds field, HashTypeSet *setKeyVal,
                 dictSetKey(ht, existing, newField);
             }
             sdsfree(dictGetVal(existing));
-            res = HSET_UPDATE;
+            update = 1;
             de = existing;
         }
-    }
 
-    /* If need to set value */
-    if (isSetKeyValue) {
         if (flags & HASH_SET_TAKE_VALUE) {
-            dictSetVal(ht, de, setKeyVal->value);
+            dictSetVal(ht, de, value);
             flags &= ~HASH_SET_TAKE_VALUE;
         } else {
-            dictSetVal(ht, de, sdsdup(setKeyVal->value));
+            dictSetVal(ht, de, sdsdup(value));
         }
+    } else {
+        serverPanic("Unknown hash encoding");
     }
 
-SetExDone:
     /* Free SDS strings we did not referenced elsewhere if the flags
      * want this function to be responsible. */
     if (flags & HASH_SET_TAKE_FIELD && field) sdsfree(field);
-    if (flags & HASH_SET_TAKE_VALUE && setKeyVal->value) sdsfree(setKeyVal->value);
-    return res;
+    if (flags & HASH_SET_TAKE_VALUE && value) sdsfree(value);
+    return update;
+}
+
+SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt) {
+    dict *ht = exInfo->hashObj->ptr;
+    dictEntry *existingEntry = NULL;
+
+    /* New field with expiration metadata */
+    hfield hfNew = hfieldNew(field, sdslen(field), 1 /*withExpireMeta*/);
+
+    if ((existingEntry = dictFind(ht, field)) == NULL) {
+        hfieldFree(hfNew);
+        return HSETEX_NO_FIELD;
+    }
+
+    hfield hfOld = dictGetKey(existingEntry);
+
+    /* If field doesn't have expiry metadata attached */
+    if (!hfieldIsExpireAttached(hfOld)) {
+
+        /* For fields without expiry, LT condition is considered valid */
+        if (exInfo->expireSetCond & (HFE_XX | HFE_GT)) {
+            hfieldFree(hfNew);
+            return HSETEX_NO_CONDITION_MET;
+        }
+
+        /* Delete old field. Below goanna dictSetKey(..,hfNew) */
+        hfieldFree(hfOld);
+
+    } else { /* field has ExpireMeta struct attached */
+
+        /* No need for hfNew (Just modify expire-time of existing field) */
+        hfieldFree(hfNew);
+
+        uint64_t prevExpire = hfieldGetExpireTime(hfOld);
+
+        /* If field has valid expiration time, then check GT|LT|NX */
+        if (prevExpire != EB_EXPIRE_TIME_INVALID) {
+            if (((exInfo->expireSetCond == HFE_GT) && (prevExpire >= expireAt)) ||
+                ((exInfo->expireSetCond == HFE_LT) && (prevExpire <= expireAt)) ||
+                (exInfo->expireSetCond == HFE_NX) )
+                return HSETEX_NO_CONDITION_MET;
+
+            /* remove old expiry time from hash's private ebuckets */
+            dictExpireMetadata *dm = (dictExpireMetadata *) dictMetadata(ht);
+            ebRemove(&dm->hfe, &hashFieldExpireBucketsType, hfOld);
+
+            /* Track of minimum expiration time (only later update global HFE DS) */
+            if (exInfo->minExpireFields > prevExpire)
+                exInfo->minExpireFields = prevExpire;
+
+        } else {
+            /* field has invalid expiry. No need to ebRemove() */
+
+            /* Check XX|LT|GT */
+            if (exInfo->expireSetCond & (HFE_XX | HFE_GT))
+                return HSETEX_NO_CONDITION_MET;
+        }
+
+        /* Reuse hfOld as hfNew and rewrite its expiry with ebAdd() */
+        hfNew = hfOld;
+    }
+
+    dictSetKey(ht, existingEntry, hfNew);
+
+
+    /* if expiration time is in the past */
+    if (unlikely(checkAlreadyExpired(expireAt))) {
+        hashTypeDelete(exInfo->hashObj, field, 1);
+        exInfo->fieldDeleted++;
+        return HSETEX_DELETED;
+    }
+
+    if (exInfo->minExpireFields > expireAt)
+        exInfo->minExpireFields = expireAt;
+
+    dictExpireMetadata *dm = (dictExpireMetadata *) dictMetadata(ht);
+    ebAdd(&dm->hfe, &hashFieldExpireBucketsType, hfNew, expireAt);
+    exInfo->fieldUpdated++;
+    return HSETEX_OK;
+}
+
+/*
+ * Set field expiration
+ *
+ * Take care to call first hashTypeSetExInit() and then call this function.
+ * Finally, call hashTypeSetExDone() to notify and update global HFE DS.
+ */
+SetExRes hashTypeSetEx(robj *o, sds field, uint64_t expireAt, HashTypeSetEx *exInfo)
+{
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+    {
+        unsigned char *fptr = NULL, *vptr = NULL, *tptr = NULL;
+
+        listpackEx *lpt = o->ptr;
+        long long expireTime = HASH_LP_NO_TTL;
+
+        if ((fptr = lpFirst(lpt->lp)) == NULL)
+            return HSETEX_NO_FIELD;
+
+        fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
+
+        if (!fptr)
+            return HSETEX_NO_FIELD;
+
+        /* Grab pointer to the value (fptr points to the field) */
+        vptr = lpNext(lpt->lp, fptr);
+        serverAssert(vptr != NULL);
+
+        tptr = lpNext(lpt->lp, vptr);
+        serverAssert(tptr && lpGetIntegerValue(tptr, &expireTime));
+
+        /* update TTL */
+        return hashTypeSetExpiryListpack(exInfo, field, fptr, vptr, tptr, expireAt);
+    } else if (o->encoding == OBJ_ENCODING_HT) {
+        /* If needed to set the field along with expiry */
+        return hashTypeSetExpiryHT(exInfo, field, expireAt);
+    } else {
+        serverPanic("Unknown hash encoding");
+    }
+
+    return HSETEX_OK; /* never reach here */
 }
 
 void initDictExpireMetadata(sds key, robj *o) {
@@ -1066,12 +1100,10 @@ void initDictExpireMetadata(sds key, robj *o) {
  * Don't have to provide client and "cmd". If provided, then notification once
  * done by function hashTypeSetExDone().
  */
-int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd, FieldSetCond fieldSetCond,
+int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cmd,
                       ExpireSetCond expireSetCond, HashTypeSetEx *ex)
 {
     dict *ht = o->ptr;
-
-    ex->fieldSetCond = fieldSetCond;
     ex->expireSetCond = expireSetCond;
     ex->minExpire = EB_EXPIRE_TIME_INVALID;
     ex->c = c;
@@ -1123,15 +1155,15 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
     /* Notify keyspace event, update dirty count and update global HFE DS */
     if (ex->fieldDeleted + ex->fieldUpdated > 0) {
 
-        if (ex->c) {
-            server.dirty += ex->fieldDeleted + ex->fieldUpdated;
-            signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", ex->key, ex->db->id);
-        }
+        server.dirty += ex->fieldDeleted + ex->fieldUpdated;
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
             dbDelete(ex->db,ex->key);
-            if (ex->c) notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->key, ex->db->id);
+            signalModifiedKey(ex->c, ex->db, ex->key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->key, ex->db->id);
         } else {
+            signalModifiedKey(ex->c, ex->db, ex->key);
+            notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", ex->key, ex->db->id);
+
             /* If minimum HFE of the hash is smaller than expiration time of the
              * specified fields in the command as well as it is smaller or equal
              * than expiration time provided in the command, then the minimum
@@ -1159,99 +1191,6 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
                 ebAdd(&ex->db->hexpires, &hashExpireBucketsType, ex->hashObj, newMinExpire);
         }
     }
-}
-
-/* Check if the field is too long for listpack, and convert before adding the item.
- * This is needed for HINCRBY* case since in other commands this is handled early by
- * hashTypeTryConversion, so this check will be a NOP. */
-static SetExRes hashTypeSetExListpack(redisDb *db, robj *o, sds field, HashTypeSet *setParams,
-                                      uint64_t expireAt, HashTypeSetEx *exParams)
-{
-    int res = HSETEX_OK;
-    unsigned char *fptr = NULL, *vptr = NULL, *tptr = NULL;
-
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        /* If reached here, then no need to set expiration. Otherwise, as precond
-         * listpack is converted to listpackex by hashTypeSetExInit() */
-
-        unsigned char *zl = o->ptr;
-        fptr = lpFirst(zl);
-        if (fptr != NULL) {
-            fptr = lpFind(zl, fptr, (unsigned char*)field, sdslen(field), 1);
-            if (fptr != NULL) {
-                /* Grab pointer to the value (fptr points to the field) */
-                vptr = lpNext(zl, fptr);
-                serverAssert(vptr != NULL);
-                res = HSET_UPDATE;
-
-                /* Replace value */
-                zl = lpReplace(zl, &vptr, (unsigned char *) setParams->value, sdslen(setParams->value));
-            }
-        }
-
-        if (res != HSET_UPDATE) {
-            /* Push new field/value pair onto the tail of the listpack */
-            zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
-            zl = lpAppend(zl, (unsigned char*)setParams->value, sdslen(setParams->value));
-        }
-        o->ptr = zl;
-        goto out;
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        listpackEx *lpt = o->ptr;
-        long long expireTime = HASH_LP_NO_TTL;
-
-        fptr = lpFirst(lpt->lp);
-        if (fptr != NULL) {
-            fptr = lpFind(lpt->lp, fptr, (unsigned char*)field, sdslen(field), 2);
-            if (fptr != NULL) {
-                /* Grab pointer to the value (fptr points to the field) */
-                vptr = lpNext(lpt->lp, fptr);
-                serverAssert(vptr != NULL);
-
-                if (setParams) {
-                    /* Replace value */
-                    lpt->lp = lpReplace(lpt->lp, &vptr,
-                                        (unsigned char *) setParams->value,
-                                        sdslen(setParams->value));
-
-                    fptr = lpPrev(lpt->lp, vptr);
-                    serverAssert(fptr != NULL);
-                    res = HSET_UPDATE;
-                }
-                tptr = lpNext(lpt->lp, vptr);
-                serverAssert(tptr && lpGetIntegerValue(tptr, &expireTime));
-
-                /* Keep, update or clear TTL */
-                if (setParams && setParams->flags & HASH_SET_KEEP_FIELD) {
-                    /* keep old field along with TTL */
-                } else if (exParams) {
-                    res = hashTypeSetExpiryListpack(exParams, field, fptr, vptr, tptr,
-                                                    expireAt);
-                    if (res != HSETEX_OK)
-                        goto out;
-                } else if (res == HSET_UPDATE && expireTime != HASH_LP_NO_TTL) {
-                    /* Clear TTL */
-                    listpackExUpdateExpiry(o, field, fptr, vptr, HASH_LP_NO_TTL);
-                }
-            }
-        }
-
-        if (!fptr) {
-            if (setParams) {
-                listpackExAddNew(o, field, sdslen(field),
-                                 setParams->value, sdslen(setParams->value),
-                                 exParams ? expireAt : HASH_LP_NO_TTL);
-            } else {
-                res = HSETEX_NO_FIELD;
-            }
-        }
-    }
-out:
-    /* Check if the listpack needs to be converted to a hash table */
-    if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-        hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-
-    return res;
 }
 
 /* Delete an element from a hash.
@@ -2079,7 +2018,7 @@ void hsetnxCommand(client *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
 
-    if (hashTypeExists(c->db, o, c->argv[2]->ptr, &isHashDeleted)) {
+    if (hashTypeExists(c->db, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE, &isHashDeleted)) {
         addReply(c, shared.czero);
         return;
     }
@@ -2137,7 +2076,8 @@ void hincrbyCommand(client *c) {
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
 
-    GetFieldRes res = hashTypeGetValue(c->db,o,c->argv[2]->ptr,&vstr,&vlen,&value);
+    GetFieldRes res = hashTypeGetValue(c->db,o,c->argv[2]->ptr,&vstr,&vlen,&value,
+                                       HFE_LAZY_EXPIRE);
     if (res == GETF_OK) {
         if (vstr) {
             if (string2ll((char*)vstr,vlen,&value) == 0) {
@@ -2162,7 +2102,7 @@ void hincrbyCommand(client *c) {
     }
     value += incr;
     new = sdsfromlonglong(value);
-    hashTypeSet(c->db, o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE | HASH_SET_KEEP_FIELD);
+    hashTypeSet(c->db, o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE | HASH_SET_KEEP_TTL);
     addReplyLongLong(c,value);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
@@ -2183,7 +2123,8 @@ void hincrbyfloatCommand(client *c) {
         return;
     }
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    GetFieldRes res = hashTypeGetValue(c->db, o,c->argv[2]->ptr,&vstr,&vlen,&ll);
+    GetFieldRes res = hashTypeGetValue(c->db, o,c->argv[2]->ptr,&vstr,&vlen,&ll,
+                                       HFE_LAZY_EXPIRE);
     if (res == GETF_OK) {
         if (vstr) {
             if (string2ld((char*)vstr,vlen,&value) == 0) {
@@ -2211,7 +2152,7 @@ void hincrbyfloatCommand(client *c) {
     char buf[MAX_LONG_DOUBLE_CHARS];
     int len = ld2string(buf,sizeof(buf),value,LD_STR_HUMAN);
     new = sdsnewlen(buf,len);
-    hashTypeSet(c->db, o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE | HASH_SET_KEEP_FIELD);
+    hashTypeSet(c->db, o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE | HASH_SET_KEEP_TTL);
     addReplyBulkCBuffer(c,buf,len);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
@@ -2237,7 +2178,8 @@ static GetFieldRes addHashFieldToReply(client *c, robj *o, sds field) {
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll);
+    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll,
+                                       HFE_LAZY_EXPIRE);
     if (res == GETF_OK) {
         if (vstr) {
             addReplyBulkCBuffer(c, vstr, vlen);
@@ -2330,7 +2272,8 @@ void hstrlenCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    GetFieldRes res = hashTypeGetValue(c->db, o, c->argv[2]->ptr, &vstr, &vlen, &vll);
+    GetFieldRes res = hashTypeGetValue(c->db, o, c->argv[2]->ptr, &vstr, &vlen, &vll,
+                                       HFE_LAZY_EXPIRE);
 
     if (res == GETF_NOT_FOUND || res == GETF_EXPIRED || res == GETF_EXPIRED_HASH) {
         addReply(c, shared.czero);
@@ -2421,11 +2364,11 @@ void hgetallCommand(client *c) {
 
 void hexistsCommand(client *c) {
     robj *o;
-    int isHashDeleted;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addReply(c,hashTypeExists(c->db,o,c->argv[2]->ptr,&isHashDeleted) ? shared.cone : shared.czero);
+    addReply(c,hashTypeExists(c->db,o,c->argv[2]->ptr,HFE_LAZY_EXPIRE, NULL) ?
+                                shared.cone : shared.czero);
 }
 
 void hscanCommand(client *c) {
@@ -2847,6 +2790,7 @@ static ExpireMeta *hashGetExpireMeta(const eItem hash) {
         serverPanic("Unknown encoding: %d", hashObj->encoding);
     }
 }
+
 /* HTTL key <FIELDS count field [field ...]>  */
 static void httlGenericCommand(client *c, const char *cmd, long long basetime, int unit) {
     UNUSED(cmd);
@@ -3032,16 +2976,12 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     }
 
     HashTypeSetEx exCtx;
-    hashTypeSetExInit(keyArg, hashObj, c, c->db, cmd,
-                      FIELD_DONT_CREATE2,
-                      expireSetCond,
-                      &exCtx);
-
+    hashTypeSetExInit(keyArg, hashObj, c, c->db, cmd, expireSetCond, &exCtx);
     addReplyArrayLen(c, numFields);
 
     for (int i = 0 ; i < numFields ; i++) {
         sds field = c->argv[numFieldsAt+i+1]->ptr;
-        SetExRes res = hashTypeSetEx(c->db, hashObj, field, NULL, expire, &exCtx);
+        SetExRes res = hashTypeSetEx(hashObj, field, expire, &exCtx);
         addReplyLongLong(c,res);
     }
     hashTypeSetExDone(&exCtx);
@@ -3216,5 +3156,9 @@ void hpersistCommand(client *c) {
 
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
-    if (changed) notifyKeyspaceEvent(NOTIFY_HASH,"hpersist",c->argv[1],c->db->id);
+    if (changed) {
+        notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        server.dirty++;
+    }
 }
