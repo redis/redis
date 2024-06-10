@@ -14,6 +14,19 @@
  * update the expiration time of the hash object in global HFE DS. */
 #define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
 
+/* Reserve 2 bits out of hash-field expiration time for possible future lightweight
+ * indexing/categorizing of fields. It can be achieved by hacking HFE as follows:
+ *
+ *    HPEXPIREAT key [ 2^47 + USER_INDEX ] FIELDS numfields field [field …]
+ *
+ * Redis will also need to expose kind of HEXPIRESCAN and HEXPIRECOUNT for this
+ * idea. Yet to be better defined.
+ *
+ * HFE_MAX_ABS_TIME_MSEC constraint must be enforced only at API level. Internally,
+ * the expiration time can be up to EB_EXPIRE_TIME_MAX for future readiness.
+ */
+#define HFE_MAX_ABS_TIME_MSEC (EB_EXPIRE_TIME_MAX >> 2)
+
 /* Returned by hashTypeGetValue() */
 typedef enum GetFieldRes {
     /* common (Used by hashTypeGet* value family) */
@@ -168,10 +181,7 @@ static inline int isDictWithMetaHFE(dict *d) {
 
 /* Returned value of hashTypeSetEx() */
 typedef enum SetExRes {
-    /* Common res from hashTypeSetEx() */
     HSETEX_OK =                1,   /* Expiration time set/updated as expected */
-
-    /* If provided HashTypeSetEx struct to hashTypeSetEx() */
     HSETEX_NO_FIELD =         -2,   /* No such hash-field */
     HSETEX_NO_CONDITION_MET =  0,   /* Specified NX | XX | GT | LT condition not met */
     HSETEX_DELETED =           2,   /* Field deleted because the specified time is in the past */
@@ -183,23 +193,12 @@ typedef enum GetExpireTimeRes {
     HFE_GET_NO_TTL =            -1, /* No TTL attached to the field */
 } GetExpireTimeRes;
 
-typedef enum FieldGet { /* TBD */
-    FIELD_GET_NONE = 0,
-    FIELD_GET_NEW  = 1,
-    FIELD_GET_OLD  = 2
-} FieldGet;
-
 typedef enum ExpireSetCond {
     HFE_NX = 1<<0,
     HFE_XX = 1<<1,
     HFE_GT = 1<<2,
     HFE_LT = 1<<3
 } ExpireSetCond;
-
-typedef struct HashTypeSet {
-    sds value;
-    int flags;
-} HashTypeSet;
 
 /* Used by hashTypeSetEx() for setting fields or their expiry  */
 typedef struct HashTypeSetEx {
@@ -2933,7 +2932,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     }
 
     if (unit == UNIT_SECONDS) {
-        if (expire > (long long) EB_EXPIRE_TIME_MAX / 1000) {
+        if (expire > (long long) HFE_MAX_ABS_TIME_MSEC / 1000) {
             addReplyErrorExpireTime(c);
             return;
         }
@@ -2941,7 +2940,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     }
 
     /* Ensure that the final absolute Unix timestamp does not exceed EB_EXPIRE_TIME_MAX. */
-    if (expire > (long long) EB_EXPIRE_TIME_MAX - basetime) {
+    if (expire > (long long) HFE_MAX_ABS_TIME_MSEC - basetime) {
         addReplyErrorExpireTime(c);
         return;
     }
