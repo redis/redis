@@ -1103,8 +1103,11 @@ start_server {tags {"external:skip needs:debug"}} {
             r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
             r hset h2 f2 v2
             r hpexpireat h2 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
-            r hset h3 f3 v3 f4 v4
+            r hset h3 f3 v3 f4 v4 f5 v5
+            # hpersist does nothing here. Verify it is not propagated.
+            r hpersist h3 FIELDS 1 f5
             r hexpire h3 100 FIELDS 3 f3 f4 non_exists_field
+            r hpersist h3 FIELDS 1 f3
 
             assert_replication_stream $repl {
                 {select *}
@@ -1112,8 +1115,9 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hpexpireat h1 * NX FIELDS 1 f1}
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
-                {hset h3 f3 v3 f4 v4}
+                {hset h3 f3 v3 f4 v4 f5 v5}
                 {hpexpireat h3 * FIELDS 3 f3 f4 non_exists_field}
+                {hpersist h3 FIELDS 1 f3}
             }
             close_replication_stream $repl
         } {} {needs:repl}

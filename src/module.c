@@ -5271,7 +5271,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int hfeFlags = HFE_LAZY_NO_HASH_EXPIRE; /* Avoid invalidate the key */
+            int hfeFlags = HFE_LAZY_AVOID_HASH_DEL; /* Avoid invalidate the key */
 
             /*
              * The hash might contain expired fields. If we lazily delete expired
@@ -5283,7 +5283,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
              * because hash counts blindly expired fields as well.
              */
             if (flags & REDISMODULE_HASH_XX)
-                hfeFlags |= HFE_LAZY_NO_FIELD_EXPIRE;
+                hfeFlags |= HFE_LAZY_AVOID_FIELD_DEL;
 
             int exists = hashTypeExists(key->db, key->value, field->ptr, hfeFlags, NULL);
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
@@ -5368,7 +5368,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * RedisModule_FreeString(), or by enabling automatic memory management.
  */
 int RM_HashGet(RedisModuleKey *key, int flags, ...) {
-    int hfeFlags = HFE_LAZY_NO_FIELD_EXPIRE | HFE_LAZY_NO_HASH_EXPIRE;
+    int hfeFlags = HFE_LAZY_AVOID_FIELD_DEL | HFE_LAZY_AVOID_HASH_DEL;
     va_list ap;
     if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
 
