@@ -780,6 +780,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", keyObj, db->id);
         res = GETF_EXPIRED;
     }
+    signalModifiedKey(NULL, db, keyObj);
     decrRefCount(keyObj);
     return res;
 }
@@ -1848,11 +1849,10 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     ActiveExpireCtx *activeExpireCtx = (ActiveExpireCtx *) ctx;
     sds keystr = NULL;
     ExpireInfo info = {0};
-    ExpireAction ret = ACT_STOP_ACTIVE_EXP;
 
     /* If no more quota left for this callback, stop */
     if (activeExpireCtx->fieldsToExpireQuota == 0)
-        return ret;
+        return ACT_STOP_ACTIVE_EXP;
 
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         info = (ExpireInfo){
@@ -1889,20 +1889,19 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     activeExpireCtx->fieldsToExpireQuota -= info.itemsExpired;
 
     /* If hash has no more fields to expire, remove it from HFE DB */
+    ExpireAction ret;
     robj *key = createStringObject(keystr, sdslen(keystr));
+    notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
     if (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) {
         if (hashTypeLength(hashObj, 0) == 0) {
             dbDelete(activeExpireCtx->db, key);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,activeExpireCtx->db->id);
-        } else {
-            notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
         }
         ret = ACT_REMOVE_EXP_ITEM;
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
          * and indicate to add it back to global HFE DS */
         ebSetMetaExpTime(hashGetExpireMeta(hashObj), info.nextExpireTime);
-        notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
         ret = ACT_UPDATE_EXP_ITEM;
     }
 
