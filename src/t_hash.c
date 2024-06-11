@@ -2227,7 +2227,7 @@ void hmgetCommand(client *c) {
             deleted += (res == GETF_EXPIRED_HASH);
         } else {
             /* If hash got lazy expired since all fields are expired (o is invalid),
-            * then fill the rest with trivial nulls and return */
+             * then fill the rest with trivial nulls and return. */
             addReplyNull(c);
         }
     }
