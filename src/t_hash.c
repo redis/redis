@@ -754,7 +754,6 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     robj *keyObj = createStringObject(key, sdslen(key));
     notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", keyObj, db->id);
     if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
-        robj *keyObj = createStringObject(key, sdslen(key));
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
         res = GETF_EXPIRED_HASH;
