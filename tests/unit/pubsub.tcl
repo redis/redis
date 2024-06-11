@@ -392,7 +392,7 @@ start_server {tags {"pubsub network"}} {
         r hmget myhash f1 f2 ;# Trigger lazy expire
         # We should get only one `hexpired` notification even two fields was expired.
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
-        # We should get a `del` notificaion after all fields were expired.
+        # We should get a `del` notification after all fields were expired.
         assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
         r debug set-active-expire 1
 
