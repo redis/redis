@@ -1824,27 +1824,30 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     /* Update quota left */
     activeExpireCtx->fieldsToExpireQuota -= info.itemsExpired;
 
-    /* If hash has no more fields to expire, remove it from HFE DB */
-    ExpireAction ret;
-    robj *key = createStringObject(keystr, sdslen(keystr));
-    notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
-    if (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) {
+    /* In some cases, a field might have been deleted without updating the global DS.
+     * As a result, active-expire might not expire any fields, in such cases,
+     * we don't need to send notifications or perform other operations for this key. */
+    if (info.itemsExpired) {
+        robj *key = createStringObject(keystr, sdslen(keystr));
+        notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
         if (hashTypeLength(hashObj, 0) == 0) {
             dbDelete(activeExpireCtx->db, key);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,activeExpireCtx->db->id);
         }
-        ret = ACT_REMOVE_EXP_ITEM;
+        server.dirty++;
+        signalModifiedKey(NULL, activeExpireCtx->db, key);
+        decrRefCount(key);
+    }
+
+    /* If hash has no more fields to expire, remove it from HFE DB */
+    if (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) {
+        return ACT_REMOVE_EXP_ITEM;
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
          * and indicate to add it back to global HFE DS */
         ebSetMetaExpTime(hashGetExpireMeta(hashObj), info.nextExpireTime);
-        ret = ACT_UPDATE_EXP_ITEM;
+        return ACT_UPDATE_EXP_ITEM;
     }
-
-    server.dirty++;
-    signalModifiedKey(NULL, activeExpireCtx->db, key);
-    decrRefCount(key);
-    return ret;
 }
 
 /* Return the next/minimum expiry time of the hash-field. This is useful if a
