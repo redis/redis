@@ -429,8 +429,8 @@ start_server [list overrides [list "dir" $server_path]] {
             r HMSET key a 1 b 2 c 3 d 4 e 5
             # expected to be expired long after restart
             r HEXPIREAT key 2524600800 FIELDS 1 a
-            # expected long TTL value (6 bytes) is saved and loaded correctly
-            r HPEXPIREAT key 188900976391764 FIELDS 1 b
+            # expected long TTL value (46 bits) is saved and loaded correctly
+            r HPEXPIREAT key 65755674080852 FIELDS 1 b
             # expected to be already expired after restart
             r HPEXPIRE key 80 FIELDS 1 d
             # expected to be expired soon after restart
@@ -443,7 +443,7 @@ start_server [list overrides [list "dir" $server_path]] {
             wait_done_loading r
 
             assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
-            assert_equal [r hpexpiretime key FIELDS 3 a b c] {2524600800000 188900976391764 -1}
+            assert_equal [r hpexpiretime key FIELDS 3 a b c] {2524600800000 65755674080852 -1}
             assert_equal [s rdb_last_load_keys_loaded] 1
 
             # wait until expired_hash_fields equals 2

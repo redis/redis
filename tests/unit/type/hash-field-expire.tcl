@@ -208,12 +208,12 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*Parameter `numFields` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
         }
 
-        test "HPEXPIRE - parameter expire-time near limit of  2^48 ($type)" {
+        test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
             r del myhash
             r hset myhash f1 v1
             # below & above
-            assert_equal [r hpexpire myhash [expr (1<<48) - [clock milliseconds] - 1000 ] FIELDS 1 f1] [list  $E_OK]
-            assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<48) - [clock milliseconds] + 100 ] FIELDS 1 f1}
+            assert_equal [r hpexpire myhash [expr (1<<46) - [clock milliseconds] - 1000 ] FIELDS 1 f1] [list  $E_OK]
+            assert_error {*invalid expire time*} {r hpexpire myhash [expr (1<<46) - [clock milliseconds] + 100 ] FIELDS 1 f1}
         }
 
         test "Lazy Expire - fields are lazy deleted ($type)" {
@@ -1103,8 +1103,11 @@ start_server {tags {"external:skip needs:debug"}} {
             r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
             r hset h2 f2 v2
             r hpexpireat h2 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
-            r hset h3 f3 v3 f4 v4
+            r hset h3 f3 v3 f4 v4 f5 v5
+            # hpersist does nothing here. Verify it is not propagated.
+            r hpersist h3 FIELDS 1 f5
             r hexpire h3 100 FIELDS 3 f3 f4 non_exists_field
+            r hpersist h3 FIELDS 1 f3
 
             assert_replication_stream $repl {
                 {select *}
@@ -1112,8 +1115,9 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hpexpireat h1 * NX FIELDS 1 f1}
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
-                {hset h3 f3 v3 f4 v4}
+                {hset h3 f3 v3 f4 v4 f5 v5}
                 {hpexpireat h3 * FIELDS 3 f3 f4 non_exists_field}
+                {hpersist h3 FIELDS 1 f3}
             }
             close_replication_stream $repl
         } {} {needs:repl}
