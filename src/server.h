@@ -3195,6 +3195,8 @@ typedef struct dictExpireMetadata {
 #define HFE_LAZY_EXPIRE           (0) /* Delete expired field, and if last field also the hash */
 #define HFE_LAZY_AVOID_FIELD_DEL  (1<<0) /* Avoid deleting expired field */
 #define HFE_LAZY_AVOID_HASH_DEL   (1<<1) /* Avoid deleting hash if the field is the last one */
+#define HFE_LAZY_NO_NOTIFICATION  (1<<2) /* Do not send notification, used when multiple fields
+                                          * may expire and only one notification is desired. */
 
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires);
 void hashTypeTryConversion(redisDb *db, robj *subject, robj **argv, int start, int end);

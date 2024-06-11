@@ -356,7 +356,7 @@ start_server {tags {"pubsub network"}} {
     foreach {type max_lp_entries} {listpackex 512 hashtable 0} {
     test "Keyspace notifications: hash events test ($type)" {
         r config set hash-max-listpack-entries $max_lp_entries
-        r config set notify-keyspace-events Kh
+        r config set notify-keyspace-events Khg
         r del myhash
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
@@ -378,7 +378,7 @@ start_server {tags {"pubsub network"}} {
 
         # Test that we will get `hexpired` notification when
         # a hash field is removed by active expire.
-        r hpexpire myhash 10 FIELDS 1 f1
+        r hpexpire myhash 10 FIELDS 1 no
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         after 100 ;# Wait for active expire
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
@@ -386,11 +386,14 @@ start_server {tags {"pubsub network"}} {
         # Test that we will get `hexpired` notification when
         # a hash field is removed by lazy active.
         r debug set-active-expire 0
-        r hpexpire myhash 10 FIELDS 1 f2
+        r hpexpire myhash 10 FIELDS 2 f1 f2
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         after 20
-        r hstrlen myhash f2 ;# Trigger lazy expire
+        r hmget myhash f1 f2 ;# Trigger lazy expire
+        # We should get only one `hexpired` notification even two fields was expired.
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        # We should get a `del` notificaion after all fields were expired.
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
         r debug set-active-expire 1
 
         $rd1 close
