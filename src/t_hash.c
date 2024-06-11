@@ -2212,7 +2212,7 @@ void hmgetCommand(client *c) {
     GetFieldRes res = GETF_OK;
     robj *o;
     int i;
-    int expired = 0, deleted = 0;;
+    int expired = 0, deleted = 0;
 
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * hashes, where HMGET should respond with a series of null bulks. */

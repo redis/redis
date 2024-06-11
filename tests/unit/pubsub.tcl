@@ -392,7 +392,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
 
         # Test that we will get `hexpired` notification when
-        # a hash field is removed by lazy active.
+        # a hash field is removed by lazy expire.
         r debug set-active-expire 0
         r hpexpire myhash 10 FIELDS 2 f1 f2
         after 20
