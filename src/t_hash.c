@@ -750,16 +750,19 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     propagateHashFieldDeletion(db, key, field, sdslen(field));
 
     /* If the field is the last one in the hash, then the hash will be deleted */
+    res = GETF_EXPIRED;
+    robj *keyObj = createStringObject(key, sdslen(key));
+    if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
+        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", keyObj, db->id);
     if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
-        robj *keyObj = createStringObject(key, sdslen(key));
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
+        if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
-        signalModifiedKey(NULL, db, keyObj);
-        decrRefCount(keyObj);
-        return GETF_EXPIRED_HASH;
+        res = GETF_EXPIRED_HASH;
     }
-
-    return GETF_EXPIRED;
+    signalModifiedKey(NULL, db, keyObj);
+    decrRefCount(keyObj);
+    return res;
 }
 
 /* Like hashTypeGetValue() but returns a Redis object, which is useful for
@@ -1155,10 +1158,12 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
             dbDelete(ex->db,ex->key);
             signalModifiedKey(ex->c, ex->db, ex->key);
+            notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", ex->key, ex->db->id);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->key, ex->db->id);
         } else {
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", ex->key, ex->db->id);
+            notifyKeyspaceEvent(NOTIFY_HASH, ex->fieldDeleted ? "hexpired" : "hexpire",
+                                ex->key, ex->db->id);
 
             /* If minimum HFE of the hash is smaller than expiration time of the
              * specified fields in the command as well as it is smaller or equal
@@ -1819,16 +1824,23 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     /* Update quota left */
     activeExpireCtx->fieldsToExpireQuota -= info.itemsExpired;
 
+    /* In some cases, a field might have been deleted without updating the global DS.
+     * As a result, active-expire might not expire any fields, in such cases,
+     * we don't need to send notifications or perform other operations for this key. */
+    if (info.itemsExpired) {
+        robj *key = createStringObject(keystr, sdslen(keystr));
+        notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
+        if (hashTypeLength(hashObj, 0) == 0) {
+            dbDelete(activeExpireCtx->db, key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,activeExpireCtx->db->id);
+        }
+        server.dirty++;
+        signalModifiedKey(NULL, activeExpireCtx->db, key);
+        decrRefCount(key);
+    }
+
     /* If hash has no more fields to expire, remove it from HFE DB */
     if (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) {
-        if (hashTypeLength(hashObj, 0) == 0) {
-            robj *key = createStringObject(keystr, sdslen(keystr));
-            dbDelete(activeExpireCtx->db, key);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key, activeExpireCtx->db->id);
-            server.dirty++;
-            signalModifiedKey(NULL, &server.db[0], key);
-            decrRefCount(key);
-        }
         return ACT_REMOVE_EXP_ITEM;
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
@@ -2164,7 +2176,7 @@ void hincrbyfloatCommand(client *c) {
     decrRefCount(newobj);
 }
 
-static GetFieldRes addHashFieldToReply(client *c, robj *o, sds field) {
+static GetFieldRes addHashFieldToReply(client *c, robj *o, sds field, int hfeFlags) {
     if (o == NULL) {
         addReplyNull(c);
         return GETF_NOT_FOUND;
@@ -2174,8 +2186,7 @@ static GetFieldRes addHashFieldToReply(client *c, robj *o, sds field) {
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll,
-                                       HFE_LAZY_EXPIRE);
+    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, hfeFlags);
     if (res == GETF_OK) {
         if (vstr) {
             addReplyBulkCBuffer(c, vstr, vlen);
@@ -2194,13 +2205,14 @@ void hgetCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addHashFieldToReply(c, o, c->argv[2]->ptr);
+    addHashFieldToReply(c, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE);
 }
 
 void hmgetCommand(client *c) {
     GetFieldRes res = GETF_OK;
     robj *o;
     int i;
+    int expired = 0, deleted = 0;
 
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * hashes, where HMGET should respond with a series of null bulks. */
@@ -2209,16 +2221,21 @@ void hmgetCommand(client *c) {
 
     addReplyArrayLen(c, c->argc-2);
     for (i = 2; i < c->argc ; i++) {
-
-        res = addHashFieldToReply(c, o, c->argv[i]->ptr);
-
-        /* If hash got lazy expired since all fields are expired (o is invalid),
-         * then fill the rest with trivial nulls and return */
-        if (res == GETF_EXPIRED_HASH) {
-            while (++i < c->argc)
-                addReplyNull(c);
-            return;
+        if (!deleted) {
+            res = addHashFieldToReply(c, o, c->argv[i]->ptr, HFE_LAZY_NO_NOTIFICATION);
+            expired += (res == GETF_EXPIRED);
+            deleted += (res == GETF_EXPIRED_HASH);
+        } else {
+            /* If hash got lazy expired since all fields are expired (o is invalid),
+             * then fill the rest with trivial nulls and return. */
+            addReplyNull(c);
         }
+    }
+
+    if (expired) {
+        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
+        if (deleted)
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id); 
     }
 }
 
