@@ -932,19 +932,22 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
     const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
-    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);
-    if (prefix == '*' && opt_hdr) {
-        addReplyProto(c,shared.mbulkhdr[ll]->ptr,hdr_len);
-        return;
-    } else if (prefix == '$' && opt_hdr) {
-        addReplyProto(c,shared.bulkhdr[ll]->ptr,hdr_len);
-        return;
-    } else if (prefix == '%' && opt_hdr) {
-        addReplyProto(c,shared.maphdr[ll]->ptr,hdr_len);
-        return;
-    } else if (prefix == '~' && opt_hdr) {
-        addReplyProto(c,shared.sethdr[ll]->ptr,hdr_len);
-        return;
+    if (opt_hdr) {
+        const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);
+        switch (prefix) {
+            case '*':
+                addReplyProto(c,shared.mbulkhdr[ll]->ptr,hdr_len);
+                return;
+            case '$':
+                addReplyProto(c,shared.bulkhdr[ll]->ptr,hdr_len);
+                return;
+            case '%':
+                addReplyProto(c,shared.maphdr[ll]->ptr,hdr_len);
+                return;
+            case '~':
+                addReplyProto(c,shared.sethdr[ll]->ptr,hdr_len);
+                return;
+        }
     }
 
     buf[0] = prefix;
