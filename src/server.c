@@ -2739,6 +2739,7 @@ void initServer(void) {
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
+    server.repl_time.latest_repl_master_timestamp = 0;
     server.last_sig_received = 0;
 
     /* Initiate acl info struct */
@@ -5551,6 +5552,7 @@ void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloc
         *watched_keys = wkeys;
 }
 
+extern ReplTimeContext repl_time_context;
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -5984,6 +5986,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             info = sdscatprintf(info,
                 "min_slaves_good_slaves:%d\r\n",
                 server.repl_good_slaves_count);
+        }
+
+        if (server.masterhost) {
+            info = ReplTime_info(info);
         }
 
         if (listLength(server.slaves)) {
