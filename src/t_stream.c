@@ -1405,7 +1405,6 @@ int streamRangeHasTombstones(stream *s, streamID *start, streamID *end) {
         return 0;
     }
 
-
     if (start) {
         start_id = *start;
     } else {
@@ -1497,6 +1496,10 @@ long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
     if (!s->length && streamCompareID(id,&s->last_id) < 1) {
         return s->entries_added;
     }
+
+    /* There are fragmentations between the `id` and the stream's last-generated-id. */
+    if (!streamIDEqZero(id) && streamCompareID(id,&s->max_deleted_entry_id) < 0)
+        return SCG_INVALID_ENTRIES_READ;
 
     int cmp_last = streamCompareID(id,&s->last_id);
     if (cmp_last == 0) {
