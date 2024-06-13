@@ -2811,8 +2811,9 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
     long numFields = 0, numFieldsAt = 3;
 
     /* Read the hash object */
-    if ((hashObj = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray)) == NULL ||
-        checkType(c, hashObj, OBJ_HASH)) return;
+    hashObj = lookupKeyRead(c->db, c->argv[1]);
+    if (checkType(c, hashObj, OBJ_HASH))
+        return;
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
         addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
@@ -2827,6 +2828,16 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
         addReplyError(c, "Parameter `numFields` is more than number of arguments");
+        return;
+    }
+
+    /* Non-existing keys and empty hashes are the same thing. It also means
+     * fields in the command don't exist in the hash key. */
+    if (!hashObj) {
+        addReplyArrayLen(c, numFields);
+        for (int i = 0; i < numFields; i++) {
+            addReplyLongLong(c, HFE_GET_NO_FIELD);
+        }
         return;
     }
 
@@ -2934,8 +2945,9 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     robj *hashObj, *keyArg = c->argv[1], *expireArg = c->argv[2];
 
     /* Read the hash object */
-    if ((hashObj = lookupKeyWriteOrReply(c, keyArg, shared.emptyarray)) == NULL ||
-        checkType(c, hashObj, OBJ_HASH)) return;
+    hashObj = lookupKeyWrite(c->db, keyArg);
+    if (checkType(c, hashObj, OBJ_HASH))
+        return;
 
     /* Read the expiry time from command */
     if (getLongLongFromObjectOrReply(c, expireArg, &expire, NULL) != C_OK)
@@ -2985,6 +2997,16 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
         addReplyError(c, "Parameter `numFields` is more than number of arguments");
+        return;
+    }
+
+    /* Non-existing keys and empty hashes are the same thing. It also means
+     * fields in the command don't exist in the hash key. */
+    if (!hashObj) {
+        addReplyArrayLen(c, numFields);
+        for (int i = 0; i < numFields; i++) {
+            addReplyLongLong(c, HSETEX_NO_FIELD);
+        }
         return;
     }
 
@@ -3062,8 +3084,9 @@ void hpersistCommand(client *c) {
     int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
-    if ((hashObj = lookupKeyWriteOrReply(c, c->argv[1], shared.emptyarray)) == NULL ||
-        checkType(c, hashObj, OBJ_HASH)) return;
+    hashObj = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c, hashObj, OBJ_HASH))
+        return;
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
         addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
@@ -3078,6 +3101,16 @@ void hpersistCommand(client *c) {
     /* Verify `numFields` is consistent with number of arguments */
     if (numFields > (c->argc - numFieldsAt - 1)) {
         addReplyError(c, "Parameter `numFields` is more than number of arguments");
+        return;
+    }
+
+    /* Non-existing keys and empty hashes are the same thing. It also means
+     * fields in the command don't exist in the hash key. */
+    if (!hashObj) {
+        addReplyArrayLen(c, numFields);
+        for (int i = 0; i < numFields; i++) {
+            addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
+        }
         return;
     }
 
