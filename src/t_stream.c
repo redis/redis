@@ -1683,10 +1683,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&group->last_id,&id)) {
-                /* A valid counter and no future tombstones mean we can 
-                 * increment the read counter to keep tracking the group's
-                 * progress. */
+            if (group->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&group->last_id,NULL)) {
+                /* A valid counter and no tombstones between the group's last-delivered-id
+                 * and the stream's last-generated-id mean we can increment the read counter
+                 * to keep tracking the group's progress. */
                 group->entries_read++;
             } else if (s->entries_added) {
                 /* The group's counter may be invalid, so we try to obtain it. */
