@@ -1025,13 +1025,8 @@ NULL
             }
             dictReleaseIterator(di);
         } else if (sdslen(c->argv[2]->ptr) == 40) {
-            char funcname[43];
-            funcname[0] = 'f';
-            funcname[1] = '_';
-            memcpy(funcname+2, (char*)c->argv[2]->ptr, 40);
-            funcname[42] = '\0';
             dictEntry *de;
-            if ((de = dictFind(getLuaScripts(), funcname+2)) == NULL) {
+            if ((de = dictFind(getLuaScripts(), c->argv[2]->ptr)) == NULL) {
                 addReplyErrorObject(c, shared.noscripterr);
                 return;
             }
