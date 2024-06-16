@@ -2378,11 +2378,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
         if (dupSearchDict != NULL) dictRelease(dupSearchDict);
 
-        /* check for empty key (if all fields were expired) */
-        if (hashTypeLength(o, 0) == 0) {
-            decrRefCount(o);
-            goto emptykey;
-        }
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
