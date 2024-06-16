@@ -2242,7 +2242,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
         size_t fieldLen;
-        sds value, field;
+        sds value;
+        hfield field;
         uint64_t expireAt;
         dict *dupSearchDict = NULL;
 
