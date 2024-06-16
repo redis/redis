@@ -2381,7 +2381,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         /* check for empty key (if all fields were expired) */
         if (hashTypeLength(o, 0) == 0) {
             decrRefCount(o);
-            goto expiredHash;
+            goto emptykey;
         }
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
@@ -3107,9 +3107,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 emptykey:
     if (error) *error = RDB_LOAD_ERR_EMPTY_KEY;
     return NULL;
-expiredHash:
-    if (error) *error = RDB_LOAD_ERR_EXPIRED_HASH;
-    return NULL;
 }
 
 /* Mark that we are loading in the global state and setup the fields
@@ -3539,9 +3536,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
                 if(empty_keys_skipped++ < 10)
                     serverLog(LL_NOTICE, "rdbLoadObject skipping empty key: %s", key);
-                sdsfree(key);
-            } else if (error == RDB_LOAD_ERR_EXPIRED_HASH) {
-                /* Valid flow. Continue. */
                 sdsfree(key);
             } else {
                 sdsfree(key);

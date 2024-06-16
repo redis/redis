@@ -121,8 +121,7 @@
 /* When rdbLoadObject() returns NULL, the err flag is
  * set to hold the type of error that occurred */
 #define RDB_LOAD_ERR_EMPTY_KEY       1   /* Error of empty key */
-#define RDB_LOAD_ERR_EXPIRED_HASH    2   /* Expired hash since all its fields are expired */
-#define RDB_LOAD_ERR_OTHER           3   /* Any other errors */
+#define RDB_LOAD_ERR_OTHER           2   /* Any other errors */
 
 ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
 int rdbSaveType(rio *rdb, unsigned char type);
