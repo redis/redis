@@ -1897,7 +1897,7 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
  *   no fields with expiration or it is not a hash, then it will set be to
  *   EB_EXPIRE_TIME_INVALID.
  */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error,
                     uint64_t *minExpiredField)
 {
     uint64_t minExpField = EB_EXPIRE_TIME_INVALID;
@@ -3048,13 +3048,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         RedisModuleIO io;
         robj keyobj;
         initStaticStringObject(keyobj,key);
-        /* shouldn't happen since db is NULL only in RDB check mode, and
-         * in this mode the module load code returns few lines above after
-         * checking module name, few lines above. So this check is only
-         * for safety.
-         */
-        if (db == NULL) return NULL;
-        moduleInitIOContext(io,mt,rdb,&keyobj,db->id);
+        moduleInitIOContext(io,mt,rdb,&keyobj,dbid);
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
         void *ptr = mt->rdb_load(&io,moduleid&1023);
@@ -3513,7 +3507,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db,&error, &minExpiredField);
+        val = rdbLoadObject(type,rdb,key,db->id,&error, &minExpiredField);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
