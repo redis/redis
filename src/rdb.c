@@ -2241,7 +2241,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         /* All pairs should be read by now */
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
-        size_t fieldLen;
         sds value;
         hfield field;
         uint64_t expireAt;
@@ -2286,9 +2285,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
             /* if needed create field with TTL metadata  */
             if (expireAt !=0)
-                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD_TTL, &fieldLen);
+                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD_TTL, NULL);
             else
-                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD, &fieldLen);
+                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD, NULL);
 
             if (field == NULL) {
                 serverLog(LL_WARNING, "failed reading hash field");
