@@ -2542,64 +2542,49 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 
     /* CASE 3:
-     * The number of elements inside the hash is not greater than
+     * The number of elements inside the hash of type dict is not greater than
      * HRANDFIELD_SUB_STRATEGY_MUL times the number of requested elements.
-     * In this case we create a hash from scratch with all the elements, and
-     * subtract random elements to reach the requested number of elements.
+     * In this case we create an array of dictEntry pointers from the original hash,
+     * and subtract random elements to reach the requested number of elements.
      *
      * This is done because if the number of requested elements is just
      * a bit less than the number of elements in the hash, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
         /* Hashtable encoding (generic implementation) */
-        dict *d = dictCreate(&sdsReplyDictType);  /* without metadata! */
-        dictExpand(d, size);
-        hashTypeIterator *hi = hashTypeInitIterator(hash);
+        dict *ht = hash->ptr;
+        dictIterator *di;
+        dictEntry *de;
+        unsigned long idx = 0;
 
-        /* Add all the elements into the temporary dictionary. */
-        while ((hashTypeNext(hi, 0)) != C_ERR) {
-            int ret = DICT_ERR;
-            sds key, value = NULL;
+        /* Create an array of dictEntry pointers */
+        struct FieldValPair {
+            hfield field;
+            sds value;
+        } *pairs = zmalloc(sizeof(struct FieldValPair) * size);
 
-            key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
-            if (withvalues)
-                value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
-            ret = dictAdd(d, key, value);
-
-            serverAssert(ret == DICT_OK);
-        }
-        serverAssert(dictSize(d) == size);
-        hashTypeReleaseIterator(hi);
+        /* Add all the elements into the temporary array. */
+        di = dictGetIterator(ht);
+        while((de = dictNext(di)) != NULL)
+              pairs[idx++] = (struct FieldValPair) {dictGetKey(de), dictGetVal(de)};
+        dictReleaseIterator(di);
 
         /* Remove random elements to reach the right count. */
         while (size > count) {
-            dictEntry *de;
-            de = dictGetFairRandomKey(d);
-            dictUseStoredKeyApi(d, 1);
-            dictUnlink(d,dictGetKey(de));
-            dictUseStoredKeyApi(d, 0);
-            sdsfree(dictGetKey(de));
-            sdsfree(dictGetVal(de));
-            dictFreeUnlinkedEntry(d,de);
-            size--;
+            unsigned long toDiscardIdx = rand() % size;
+            pairs[toDiscardIdx] = pairs[--size];
         }
 
-        /* Reply with what's in the dict and release memory */
-        dictIterator *di;
-        dictEntry *de;
-        di = dictGetIterator(d);
-        while ((de = dictNext(di)) != NULL) {
-            sds key = dictGetKey(de);
-            sds value = dictGetVal(de);
+        /* Reply with what's in the array */
+        for (idx = 0; idx < size; idx++) {
             if (withvalues && c->resp > 2)
                 addReplyArrayLen(c,2);
-            addReplyBulkSds(c, key);
+            addReplyBulkCBuffer(c, pairs[idx].field, hfieldlen(pairs[idx].field));
             if (withvalues)
-                addReplyBulkSds(c, value);
+                addReplyBulkCBuffer(c, pairs[idx].value, sdslen(pairs[idx].value));
         }
 
-        dictReleaseIterator(di);
-        dictRelease(d);
+        zfree(pairs);
     }
 
     /* CASE 4: We have a big hash compared to the requested number of elements.
@@ -2607,34 +2592,41 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * to the temporary hash, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
+        /* Allocate temporary dictUnique to find unique elements. Just keep ref
+         * to key-value from the original hash. This dict relaxes hash function
+         * to be based on field's pointer */
+        dictType uniqueDictType = { .hashFunction =  dictPtrHash };
+        dict *dictUnique = dictCreate(&uniqueDictType);
+        dictExpand(dictUnique, count);
+
         /* Hashtable encoding (generic implementation) */
         unsigned long added = 0;
-        listpackEntry key, value;
-        dict *d = dictCreate(&hashDictType);
-        dictExpand(d, count);
+
         while(added < count) {
-            hashTypeRandomElement(hash, size, &key, withvalues? &value : NULL);
+            dictEntry *de = dictGetFairRandomKey(hash->ptr);
+            serverAssert(de != NULL);
+            hfield field = dictGetKey(de);
+            sds value = dictGetVal(de);
 
             /* Try to add the object to the dictionary. If it already exists
             * free it, otherwise increment the number of objects we have
             * in the result dictionary. */
-            sds skey = hashSdsFromListpackEntry(&key);
-            if (dictAdd(d,skey,NULL) != DICT_OK) {
-                sdsfree(skey);
+            if (dictAdd(dictUnique, field, value) != DICT_OK)
                 continue;
-            }
+
             added++;
 
             /* We can reply right away, so that we don't need to store the value in the dict. */
             if (withvalues && c->resp > 2)
                 addReplyArrayLen(c,2);
-            hashReplyFromListpackEntry(c, &key);
+
+            addReplyBulkCBuffer(c, field, hfieldlen(field));
             if (withvalues)
-                hashReplyFromListpackEntry(c, &value);
+                addReplyBulkCBuffer(c, value, sdslen(value));
         }
 
         /* Release memory */
-        dictRelease(d);
+        dictRelease(dictUnique);
     }
 }
 
