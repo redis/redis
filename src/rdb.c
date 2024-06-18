@@ -1900,7 +1900,7 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
 robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error,
                     uint64_t *minExpiredField)
 {
-    uint64_t minExpField = EB_EXPIRE_TIME_INVALID;
+    uint64_t minExpField = EB_EXPIRE_TIME_INVALID; /* counterpart of minExpiredField */
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2305,7 +2305,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error,
                 return NULL;
             }
 
-            /* keep the nearest expiration to connect listpack object to db expiry */
             if ((expireAt != 0) && (expireAt < minExpField)) minExpField = expireAt;
 
             /* store the values read - either to listpack or dict */
