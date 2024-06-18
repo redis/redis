@@ -941,6 +941,7 @@ void activeDefragCycle(void) {
             defrag_later_cursor = 0;
             current_db = -1;
             cursor = 0;
+            expires_cursor = 0;
             db = NULL;
             goto update_metrics;
         }
