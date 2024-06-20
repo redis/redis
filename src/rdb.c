@@ -699,7 +699,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
             return rdbSaveType(rdb,RDB_TYPE_HASH_LISTPACK_EX);
         else if (o->encoding == OBJ_ENCODING_HT) {
-            if (hashTypeGetMinExpire(o) == EB_EXPIRE_TIME_INVALID)
+            if (hashTypeGetMinExpire(o, 0) == EB_EXPIRE_TIME_INVALID)
                 return rdbSaveType(rdb,RDB_TYPE_HASH);
             else
                 return rdbSaveType(rdb,RDB_TYPE_HASH_METADATA);
@@ -960,7 +960,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
              * RDB_TYPE_HASH_METADATA layout, including tuples of [ttl][field][value].
              * Otherwise, use the standard RDB_TYPE_HASH layout containing only
              * the tuples [field][value]. */
-            int with_ttl = (hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID);
+            int with_ttl = (hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID);
 
             /* save number of fields in hash */
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) {
@@ -2707,7 +2707,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
                 }
 
                 /* for TTL listpack, find the minimum expiry */
-                minExpField = hashTypeGetNextTimeToExpire(o);
+                minExpField = hashTypeGetMinExpire(o, 1 /*accurate*/);
 
                 /* Convert listpack to hash table without registering in global HFE DS,
                  * if has HFEs, since the listpack is not connected yet to the DB */

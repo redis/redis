@@ -36,12 +36,16 @@ typedef enum GetFieldRes {
                              * it was the last field in the hash. */
 } GetFieldRes;
 
+typedef struct ExpireCtx ExpireCtx; /* forward declaration */
+typedef listpackEntry CommonEntry; /* extend usage beyond lp */
+
 /* hash field expiration (HFE) funcs */
 static ExpireAction onFieldExpire(eItem item, void *ctx);
 static ExpireMeta* hfieldGetExpireMeta(const eItem field);
 static ExpireMeta *hashGetExpireMeta(const eItem hash);
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit);
 static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
+static uint64_t hashTypeExpire(robj *o, ExpireCtx *expireCtx, int updateGlobalHFE);
 static void hfieldPersist(robj *hashObj, hfield field);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
 
@@ -119,10 +123,10 @@ EbucketsType hashFieldExpireBucketsType = {
 };
 
 /* ActiveExpireCtx passed to hashTypeActiveExpire() */
-typedef struct ActiveExpireCtx {
+typedef struct ExpireCtx {
     uint32_t fieldsToExpireQuota;
     redisDb *db;
-} ActiveExpireCtx;
+} ExpireCtx;
 
 /* OnFieldExpireCtx passed to OnFieldExpire() */
 typedef struct OnFieldExpireCtx {
@@ -421,7 +425,7 @@ void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
     if (expired)
         lpt->lp = lpDeleteRange(lpt->lp, 0, expired * 3);
 
-    min = hashTypeGetNextTimeToExpire(o);
+    min = hashTypeGetMinExpire(o, 1 /*accurate*/);
     info->nextExpireTime = min;
 }
 
@@ -1142,7 +1146,8 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
         }
     }
 
-    ex->minExpire = hashTypeGetMinExpire(ex->hashObj);
+    /* Read minExpire from attached ExpireMeta to the hash */
+    ex->minExpire = hashTypeGetMinExpire(ex->hashObj, 0);
     return C_OK;
 }
 
@@ -1172,8 +1177,8 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
             if ((ex->minExpire < ex->minExpireFields))
                 return;
 
-            /* retrieve new expired time. It might have changed. */
-            uint64_t newMinExpire = hashTypeGetNextTimeToExpire(ex->hashObj);
+            /* Retrieve new expired time. It might have changed. */
+            uint64_t newMinExpire = hashTypeGetMinExpire(ex->hashObj, 1 /*accurate*/);
 
             /* Calculate the diff between old minExpire and newMinExpire. If it is
              * only few seconds, then don't have to update global HFE DS. At the worst
@@ -1580,7 +1585,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
         dict *dict;
         dictExpireMetadata *dictExpireMeta;
         listpackEx *lpt = o->ptr;
-        uint64_t minExpire = hashTypeGetMinExpire(o);
+        uint64_t minExpire = hashTypeGetMinExpire(o, 0);
 
         if (hexpires && lpt->meta.trash != 1)
             ebRemove(hexpires, &hashExpireBucketsType, o);
@@ -1745,7 +1750,7 @@ void hashReplyFromListpackEntry(client *c, listpackEntry *e) {
  * 'key' and 'val' will be set to hold the element.
  * The memory in them is not to be freed or modified by the caller.
  * 'val' can be NULL in which case it's not extracted. */
-void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, listpackEntry *key, listpackEntry *val) {
+void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *key, CommonEntry *val) {
     if (hashobj->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictGetFairRandomKey(hashobj->ptr);
         hfield field = dictGetKey(de);
@@ -1757,9 +1762,10 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, listpackEntry 
             val->slen = sdslen(s);
         }
     } else if (hashobj->encoding == OBJ_ENCODING_LISTPACK) {
-        lpRandomPair(hashobj->ptr, hashsize, key, val, 2);
+        lpRandomPair(hashobj->ptr, hashsize, (listpackEntry *) key, (listpackEntry *) val, 2);
     } else if (hashobj->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        lpRandomPair(hashTypeListpackGetLp(hashobj), hashsize, key, val, 3);
+        lpRandomPair(hashTypeListpackGetLp(hashobj), hashsize, (listpackEntry *) key,
+                     (listpackEntry *) val, 3);
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -1780,38 +1786,61 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, listpackEntry 
  *   by returning ACT_REMOVE_EXP_ITEM.
  * - If hash has no more fields afterward, it will remove the hash from keyspace.
  */
-static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
-    robj *hashObj = (robj *) _hashObj;
-    ActiveExpireCtx *activeExpireCtx = (ActiveExpireCtx *) ctx;
+static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
+    ExpireCtx *expireCtx = (ExpireCtx *) ctx;
+
+    /* If no more quota left for this callback, stop */
+    if (expireCtx->fieldsToExpireQuota == 0)
+        return ACT_STOP_ACTIVE_EXP;
+
+    uint64_t nextExpTime = hashTypeExpire((robj *) item, expireCtx, 0);
+
+    /* If hash has no more fields to expire or got deleted, indicate
+     * to remove it from HFE DB to the caller ebExpire() */
+    if (nextExpTime == EB_EXPIRE_TIME_INVALID || nextExpTime == 0) {
+        return ACT_REMOVE_EXP_ITEM;
+    } else {
+        /* Hash has more fields to expire. Update next expiration time of the hash
+         * and indicate to add it back to global HFE DS */
+        ebSetMetaExpTime(hashGetExpireMeta((robj *) item), nextExpTime);
+        return ACT_UPDATE_EXP_ITEM;
+    }
+}
+
+/* Delete all expired fields from the hash and delete the hash if left empty.
+ *
+ * updateGlobalHFE - If the hash should be updated in the global HFE DS with new
+ *                   expiration time in case expired fields were deleted.
+ *
+ * Return next Expire time of the hash
+ * - 0 if hash got deleted
+ * - EB_EXPIRE_TIME_INVALID if no more fields to expire
+ */
+static uint64_t hashTypeExpire(robj *o, ExpireCtx *expireCtx, int updateGlobalHFE) {
+    uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
+    redisDb * db = expireCtx->db;
     sds keystr = NULL;
     ExpireInfo info = {0};
 
-    /* If no more quota left for this callback, stop */
-    if (activeExpireCtx->fieldsToExpireQuota == 0)
-        return ACT_STOP_ACTIVE_EXP;
-
-    if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        info = (ExpireInfo){
-                .maxToExpire = activeExpireCtx->fieldsToExpireQuota,
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        info = (ExpireInfo) {
+                .maxToExpire = expireCtx->fieldsToExpireQuota,
                 .now = commandTimeSnapshot(),
                 .itemsExpired = 0};
 
-        listpackExExpire(activeExpireCtx->db, hashObj, &info);
+        listpackExExpire(db, o, &info);
         server.stat_expired_hash_fields += info.itemsExpired;
-        keystr = ((listpackEx*)hashObj->ptr)->key;
+        keystr = ((listpackEx*)o->ptr)->key;
     } else {
-        serverAssert(hashObj->encoding == OBJ_ENCODING_HT);
+        serverAssert(o->encoding == OBJ_ENCODING_HT);
 
-        dict *d = hashObj->ptr;
+        dict *d = o->ptr;
         dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
 
-        OnFieldExpireCtx onFieldExpireCtx = {
-            .hashObj = hashObj,
-            .db = activeExpireCtx->db
-        };
+        OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db };
 
         info = (ExpireInfo){
-            .maxToExpire = activeExpireCtx->fieldsToExpireQuota,
+            .maxToExpire = expireCtx->fieldsToExpireQuota,
             .onExpireItem = onFieldExpire,
             .ctx = &onFieldExpireCtx,
             .now = commandTimeSnapshot()
@@ -1822,39 +1851,90 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
     }
 
     /* Update quota left */
-    activeExpireCtx->fieldsToExpireQuota -= info.itemsExpired;
+    expireCtx->fieldsToExpireQuota -= info.itemsExpired;
 
     /* In some cases, a field might have been deleted without updating the global DS.
      * As a result, active-expire might not expire any fields, in such cases,
      * we don't need to send notifications or perform other operations for this key. */
     if (info.itemsExpired) {
         robj *key = createStringObject(keystr, sdslen(keystr));
-        notifyKeyspaceEvent(NOTIFY_HASH,"hexpired",key,activeExpireCtx->db->id);
-        if (hashTypeLength(hashObj, 0) == 0) {
-            dbDelete(activeExpireCtx->db, key);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,activeExpireCtx->db->id);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", key, db->id);
+
+        if (updateGlobalHFE)
+            ebRemove(&db->hexpires, &hashExpireBucketsType, o);
+
+        if (hashTypeLength(o, 0) == 0) {
+            dbDelete(db, key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, db->id);
+            noExpireLeftRes = 0;
+        } else {
+            if ((updateGlobalHFE) && (info.nextExpireTime != EB_EXPIRE_TIME_INVALID))
+                ebAdd(&db->hexpires, &hashExpireBucketsType, o, info.nextExpireTime);
         }
+
         server.dirty++;
-        signalModifiedKey(NULL, activeExpireCtx->db, key);
+        signalModifiedKey(NULL, db, key);
         decrRefCount(key);
     }
 
-    /* If hash has no more fields to expire, remove it from HFE DB */
-    if (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) {
-        return ACT_REMOVE_EXP_ITEM;
-    } else {
-        /* Hash has more fields to expire. Update next expiration time of the hash
-         * and indicate to add it back to global HFE DS */
-        ebSetMetaExpTime(hashGetExpireMeta(hashObj), info.nextExpireTime);
-        return ACT_UPDATE_EXP_ITEM;
-    }
+    /* return 0 if hash got deleted, EB_EXPIRE_TIME_INVALID if no more fields
+     * with expiration. Else return next expiration time */
+    return (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) ? noExpireLeftRes : info.nextExpireTime;
 }
 
-/* Return the next/minimum expiry time of the hash-field. This is useful if a
- * field with the minimum expiry is deleted, and you want to get the next
- * minimum expiry. Otherwise, consider using hashTypeGetMinExpire() which will
- * be faster. If there is no field with expiry, returns EB_EXPIRE_TIME_INVALID */
-uint64_t hashTypeGetNextTimeToExpire(robj *o) {
+/* Delete all expired fields in hash if needed
+ *
+ * Return 1 if the entire hash was deleted, 0 otherwise.
+ * This function might be pricy in case there are many expired fields.
+ */
+static int hashTypeExpireIfNeeded(redisDb *db, robj *o) {
+    uint64_t nextExpireTime;
+    uint64_t minExpire = hashTypeGetMinExpire(o, 1 /*accurate*/);
+
+    if ((mstime_t) minExpire >= commandTimeSnapshot())
+        return 0;
+
+    /* Take care to expire all the fields */
+    ExpireCtx expireCtx = { .db = db, .fieldsToExpireQuota = UINT32_MAX };
+    nextExpireTime = hashTypeExpire(o, &expireCtx, 1);
+    return nextExpireTime == 0;
+}
+
+/* Return the next/minimum expiry time of the hash-field.
+ * accurate=1 - Return the exact time by looking into the object DS.
+ * accurate=0 - Return the minimum expiration time maintained in expireMeta which
+ *              might not be accurate due to optimization reasons.
+ *
+ * If not found, return EB_EXPIRE_TIME_INVALID
+ */
+uint64_t hashTypeGetMinExpire(robj *o, int accurate) {
+    ExpireMeta *expireMeta = NULL;
+
+    if (!accurate) {
+        if (o->encoding == OBJ_ENCODING_LISTPACK) {
+            return EB_EXPIRE_TIME_INVALID;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            listpackEx *lpt = o->ptr;
+            expireMeta = &lpt->meta;
+        } else {
+            serverAssert(o->encoding == OBJ_ENCODING_HT);
+
+            dict *d = o->ptr;
+            if (!isDictWithMetaHFE(d))
+                return EB_EXPIRE_TIME_INVALID;
+
+            expireMeta = &((dictExpireMetadata *) dictMetadata(d))->expireMeta;
+        }
+
+        /* Keep aside next hash-field expiry before updating HFE DS. Verify it is not trash */
+        if (expireMeta->trash == 1)
+            return EB_EXPIRE_TIME_INVALID;
+
+        return ebGetMetaExpTime(expireMeta);
+    }
+
+    /* accurate == 1 */
+
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         return EB_EXPIRE_TIME_INVALID;
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
@@ -1869,33 +1949,6 @@ uint64_t hashTypeGetNextTimeToExpire(robj *o) {
         dictExpireMetadata *expireMeta = (dictExpireMetadata *) dictMetadata(d);
         return ebGetNextTimeToExpire(expireMeta->hfe, &hashFieldExpireBucketsType);
     }
-}
-
-/* Return the next/minimum expiry time of the hash-field.
- * If not found, return EB_EXPIRE_TIME_INVALID */
-uint64_t hashTypeGetMinExpire(robj *o) {
-    ExpireMeta *expireMeta = NULL;
-
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        return EB_EXPIRE_TIME_INVALID;
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        listpackEx *lpt = o->ptr;
-        expireMeta = &lpt->meta;
-    } else {
-        serverAssert(o->encoding == OBJ_ENCODING_HT);
-
-        dict *d = o->ptr;
-        if (!isDictWithMetaHFE(d))
-            return EB_EXPIRE_TIME_INVALID;
-
-        expireMeta = &((dictExpireMetadata *) dictMetadata(d))->expireMeta;
-    }
-
-    /* Keep aside next hash-field expiry before updating HFE DS. Verify it is not trash */
-    if (expireMeta->trash == 1)
-        return EB_EXPIRE_TIME_INVALID;
-
-    return ebGetMetaExpTime(expireMeta);
 }
 
 uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o) {
@@ -1961,7 +2014,7 @@ void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTi
  * Returns number of fields active-expired.
  */
 uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire) {
-    ActiveExpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire };
+    ExpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire };
     ExpireInfo info = {
             .maxToExpire = UINT64_MAX, /* Only maxFieldsToExpire play a role */
             .onExpireItem = hashTypeActiveExpire,
@@ -2343,7 +2396,7 @@ void genericHgetallCommand(client *c, int flags) {
 
     /* Skip expired fields if the hash has an expire time set at global HFE DS. We could
      * set it to constant 1, but then it will make another lookup for each field expiration */
-    int skipExpiredFields = (EB_EXPIRE_TIME_INVALID == hashTypeGetMinExpire(o)) ? 0 : 1;
+    int skipExpiredFields = (EB_EXPIRE_TIME_INVALID == hashTypeGetMinExpire(o, 0)) ? 0 : 1;
 
     while (hashTypeNext(hi, skipExpiredFields) != C_ERR) {
         if (flags & OBJ_HASH_KEY) {
@@ -2429,8 +2482,6 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
 
     if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,hash,OBJ_HASH)) return;
-    /* TODO: Active-expire */
-    size = hashTypeLength(hash, 0);
 
     if(l >= 0) {
         count = (unsigned long) l;
@@ -2438,6 +2489,15 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         count = -l;
         uniq = 0;
     }
+
+    /* Delete all expired fields. If the entire hash got deleted then return empty array. */
+    if (hashTypeExpireIfNeeded(c->db, hash)) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+
+    /* Delete expired fields */
+    size = hashTypeLength(hash, 0);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
@@ -2635,7 +2695,7 @@ void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;
     robj *hash;
-    listpackEntry ele;
+    CommonEntry ele;
 
     if (c->argc >= 3) {
         if (getRangeLongFromObjectOrReply(c,c->argv[2],-LONG_MAX,LONG_MAX,&l,NULL) != C_OK) return;
@@ -2659,8 +2719,18 @@ void hrandfieldCommand(client *c) {
         return;
     }
 
+    /* Delete all expired fields. If the entire hash got deleted then return null. */
+    if (hashTypeExpireIfNeeded(c->db, hash)) {
+        addReply(c,shared.null[c->resp]);
+        return;
+    }
+
     hashTypeRandomElement(hash,hashTypeLength(hash, 0),&ele,NULL);
-    hashReplyFromListpackEntry(c, &ele);
+
+    if (ele.sval)
+        addReplyBulkCBuffer(c, ele.sval, ele.slen);
+    else
+        addReplyBulkLongLong(c, ele.lval);
 }
 
 /*-----------------------------------------------------------------------------

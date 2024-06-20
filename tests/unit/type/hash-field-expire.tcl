@@ -32,13 +32,6 @@ proc get_hashes_with_expiry_fields {r} {
     return 0
 }
 
-proc create_hash {key entries} {
-    r del $key
-    foreach entry $entries {
-        r hset $key [lindex $entry 0] [lindex $entry 1]
-    }
-}
-
 proc get_keys {l} {
     set res {}
     foreach entry $l {
@@ -46,22 +39,6 @@ proc get_keys {l} {
         lappend res $key
     }
     return $res
-}
-
-proc cmp_hrandfield_result {hash_name expected_result} {
-    # Accumulate hrandfield results
-    unset -nocomplain myhash
-    array set myhash {}
-    for {set i 0} {$i < 100} {incr i} {
-        set key [r hrandfield $hash_name]
-        set myhash($key) 1
-    }
-     set res [lsort [array names myhash]]
-     if {$res eq $expected_result} {
-        return 1
-     } else {
-        return $res
-     }
 }
 
 proc dumpAllHashes {client} {
@@ -75,36 +52,6 @@ proc dumpAllHashes {client} {
         }
     }
     return [array get keyAndFields]
-}
-
-proc hrandfieldTest {activeExpireConfig} {
-    r debug set-active-expire $activeExpireConfig
-    r del myhash
-    set contents {{field1 1} {field2 2} }
-    create_hash myhash $contents
-
-    set factorValgrind [expr {$::valgrind ? 2 : 1}]
-
-    # Set expiration time for field1 and field2 such that field1 expires first
-    r hpexpire myhash 1 NX FIELDS 1 field1
-    r hpexpire myhash 100 NX FIELDS 1 field2
-
-    # On call hrandfield command lazy expire deletes field1 first
-    wait_for_condition 8 10 {
-        [cmp_hrandfield_result myhash "field2"] == 1
-    } else {
-        fail "Expected field2 to be returned by HRANDFIELD."
-    }
-
-    # On call hrandfield command lazy expire deletes field2 as well
-    wait_for_condition 8 20 {
-        [cmp_hrandfield_result myhash "{}"] == 1
-    } else {
-        fail "Expected {} to be returned by HRANDFIELD."
-    }
-
-    # restore the default value
-    r debug set-active-expire 1
 }
 
 ############################### TESTS #########################################
@@ -396,22 +343,33 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
-        # OPEN: To decide if to delete expired fields at start of HRANDFIELD.
-        #    test "Test HRANDFIELD does not return expired fields ($type)" {
-        #        hrandfieldTest 0
-        #        hrandfieldTest 1
-        #    }
-
-        test "Test HRANDFIELD can return expired fields ($type)" {
+        test "Test HRANDFIELD deletes all expired fields ($type)" {
             r debug set-active-expire 0
-            r del myhash
+            r flushall
             r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-            r hpexpire myhash 1 NX FIELDS 4 f1 f2 f3 f4
+            r hpexpire myhash 1 FIELDS 2 f1 f2
             after 5
-            set res [cmp_hrandfield_result myhash "f1 f2 f3 f4 f5"]
-            assert {$res == 1}
-            r debug set-active-expire 1
+            assert_equal [lsort [r hrandfield myhash 5]] "f3 f4 f5"
+            r hpexpire myhash 1 FIELDS 3 f3 f4 f5
+            after 5
+            assert_equal [lsort [r hrandfield myhash 5]] ""
+            assert_equal [r keys *] ""
 
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hpexpire myhash 1 FIELDS 1 f1
+            after 5
+            set res [r hrandfield myhash]
+            assert {$res == "f2" || $res == "f3"}
+            r hpexpire myhash 1 FIELDS 1 f2
+            after 5
+            assert_equal [lsort [r hrandfield myhash 5]] "f3"
+            r hpexpire myhash 1 FIELDS 1 f3
+            after 5
+            assert_equal [r hrandfield myhash] ""
+            assert_equal [r keys *] ""
+
+            r debug set-active-expire 1
         }
 
         test "Lazy Expire - HLEN does count expired fields ($type)" {
