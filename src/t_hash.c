@@ -36,7 +36,12 @@ typedef enum GetFieldRes {
                              * it was the last field in the hash. */
 } GetFieldRes;
 
-typedef struct ExpireCtx ExpireCtx; /* forward declaration */
+/* ActiveExpireCtx passed to hashTypeActiveExpire() */
+typedef struct ExpireCtx {
+    uint32_t fieldsToExpireQuota;
+    redisDb *db;
+} ExpireCtx;
+
 typedef listpackEntry CommonEntry; /* extend usage beyond lp */
 
 /* hash field expiration (HFE) funcs */
@@ -121,12 +126,6 @@ EbucketsType hashFieldExpireBucketsType = {
     .getExpireMeta = hfieldGetExpireMeta, /* get ExpireMeta attached to each field */
     .itemsAddrAreOdd = 1,                 /* Addresses of hfield (mstr) are odd!! */
 };
-
-/* ActiveExpireCtx passed to hashTypeActiveExpire() */
-typedef struct ExpireCtx {
-    uint32_t fieldsToExpireQuota;
-    redisDb *db;
-} ExpireCtx;
 
 /* OnFieldExpireCtx passed to OnFieldExpire() */
 typedef struct OnFieldExpireCtx {
