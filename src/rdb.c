@@ -1897,10 +1897,8 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
  *   no fields with expiration or it is not a hash, then it will set be to
  *   EB_EXPIRE_TIME_INVALID.
  */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
-                    uint64_t *minExpiredField)
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 {
-    uint64_t minExpField = EB_EXPIRE_TIME_INVALID;
     robj *o = NULL, *ele, *dec;
     uint64_t len;
     unsigned int i;
@@ -2241,8 +2239,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         /* All pairs should be read by now */
         serverAssert(len == 0);
     } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
-        size_t fieldLen;
-        sds value, field;
+        sds value;
+        hfield field;
         uint64_t expireAt;
         dict *dupSearchDict = NULL;
 
@@ -2285,9 +2283,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
             /* if needed create field with TTL metadata  */
             if (expireAt !=0)
-                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD_TTL, &fieldLen);
+                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD_TTL, NULL);
             else
-                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD, &fieldLen);
+                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD, NULL);
 
             if (field == NULL) {
                 serverLog(LL_WARNING, "failed reading hash field");
@@ -2304,9 +2302,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
                 hfieldFree(field);
                 return NULL;
             }
-
-            /* keep the nearest expiration to connect listpack object to db expiry */
-            if ((expireAt != 0) && (expireAt < minExpField)) minExpField = expireAt;
 
             /* store the values read - either to listpack or dict */
             if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
@@ -2378,11 +2373,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
 
         if (dupSearchDict != NULL) dictRelease(dupSearchDict);
 
-        /* check for empty key (if all fields were expired) */
-        if (hashTypeLength(o, 0) == 0) {
-            decrRefCount(o);
-            goto expiredHash;
-        }
     } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST || rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (len == 0) goto emptykey;
@@ -2705,9 +2695,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
                     decrRefCount(o);
                     goto emptykey;
                 }
-
-                /* for TTL listpack, find the minimum expiry */
-                minExpField = hashTypeGetNextTimeToExpire(o);
 
                 /* Convert listpack to hash table without registering in global HFE DS,
                  * if has HFEs, since the listpack is not connected yet to the DB */
@@ -3053,13 +3040,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         RedisModuleIO io;
         robj keyobj;
         initStaticStringObject(keyobj,key);
-        /* shouldn't happen since db is NULL only in RDB check mode, and
-         * in this mode the module load code returns few lines above after
-         * checking module name, few lines above. So this check is only
-         * for safety.
-         */
-        if (db == NULL) return NULL;
-        moduleInitIOContext(io,mt,rdb,&keyobj,db->id);
+        moduleInitIOContext(io,mt,rdb,&keyobj,dbid);
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
         void *ptr = mt->rdb_load(&io,moduleid&1023);
@@ -3099,16 +3080,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb* db, int *error,
         return NULL;
     }
 
-    if (minExpiredField) *minExpiredField = minExpField;
-
     if (error) *error = 0;
     return o;
 
 emptykey:
     if (error) *error = RDB_LOAD_ERR_EMPTY_KEY;
-    return NULL;
-expiredHash:
-    if (error) *error = RDB_LOAD_ERR_EXPIRED_HASH;
     return NULL;
 }
 
@@ -3279,7 +3255,6 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
 int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
-    uint64_t minExpiredField = EB_EXPIRE_TIME_INVALID;
     uint64_t dbid = 0;
     int type, rdbver;
     uint64_t db_size = 0, expires_size = 0;
@@ -3521,7 +3496,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
             goto eoferr;
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db,&error, &minExpiredField);
+        val = rdbLoadObject(type,rdb,key,db->id,&error);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -3539,9 +3514,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             if (error == RDB_LOAD_ERR_EMPTY_KEY) {
                 if(empty_keys_skipped++ < 10)
                     serverLog(LL_NOTICE, "rdbLoadObject skipping empty key: %s", key);
-                sdsfree(key);
-            } else if (error == RDB_LOAD_ERR_EXPIRED_HASH) {
-                /* Valid flow. Continue. */
                 sdsfree(key);
             } else {
                 sdsfree(key);
@@ -3589,8 +3561,11 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
             /* If minExpiredField was set, then the object is hash with expiration
              * on fields and need to register it in global HFE DS */
-             if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-                hashTypeAddToExpires(db, key, val, minExpiredField);
+            if (val->type == OBJ_HASH) {
+                uint64_t minExpiredField = hashTypeGetNextTimeToExpire(val);
+                if (minExpiredField != EB_EXPIRE_TIME_INVALID)
+                    hashTypeAddToExpires(db, key, val, minExpiredField);
+            }
 
             /* Set the expire time if needed */
             if (expiretime != -1) {

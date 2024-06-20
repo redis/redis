@@ -121,8 +121,7 @@
 /* When rdbLoadObject() returns NULL, the err flag is
  * set to hold the type of error that occurred */
 #define RDB_LOAD_ERR_EMPTY_KEY       1   /* Error of empty key */
-#define RDB_LOAD_ERR_EXPIRED_HASH    2   /* Expired hash since all its fields are expired */
-#define RDB_LOAD_ERR_OTHER           3   /* Any other errors */
+#define RDB_LOAD_ERR_OTHER           2   /* Any other errors */
 
 ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
 int rdbSaveType(rio *rdb, unsigned char type);
@@ -143,7 +142,7 @@ int rdbSaveToFile(const char *filename);
 int rdbSave(int req, char *filename, rdbSaveInfo *rsi, int rdbflags);
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
 size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, redisDb *db, int *error, uint64_t *minExpiredField);
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);

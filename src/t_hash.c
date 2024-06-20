@@ -1853,7 +1853,9 @@ static ExpireAction hashTypeActiveExpire(eItem _hashObj, void *ctx) {
 /* Return the next/minimum expiry time of the hash-field. This is useful if a
  * field with the minimum expiry is deleted, and you want to get the next
  * minimum expiry. Otherwise, consider using hashTypeGetMinExpire() which will
- * be faster. If there is no field with expiry, returns EB_EXPIRE_TIME_INVALID */
+ * be faster but less accurate.
+ *
+ * Return next min expiry. If none return EB_EXPIRE_TIME_INVALID  */
 uint64_t hashTypeGetNextTimeToExpire(robj *o) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         return EB_EXPIRE_TIME_INVALID;
