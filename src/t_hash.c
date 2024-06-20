@@ -2689,7 +2689,35 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 }
 
-/* HRANDFIELD key [<count> [WITHVALUES]] */
+/*
+ * HRANDFIELD - Return a random field from the hash value stored at key.
+ * CLI usage: HRANDFIELD key [<count> [WITHVALUES]]
+ *
+ * Considerations for the current imp of HRANDFIELD & HFE feature:
+ *  HRANDFIELD might access any of the fields in the hash as some of them might
+ *  be expired. And so the Implementation of HRANDFIELD along with HFEs
+ *  might be one of the two options:
+ *  1. Expire hash-fields before diving into handling HRANDFIELD.
+ *  2. Refine HRANDFIELD cases to deal with expired fields.
+ *
+ *  Regarding the first option, as reference, the command RANDOMKEY also declares
+ *  on O(1) complexity, yet might be stuck on a very long (but not infinite) loop
+ *  trying to find non-expired keys. Furthermore RANDOMKEY also evicts expired keys
+ *  along the way even though it is categorized as a read-only command. Note that
+ *  the case of HRANDFIELD is more lightweight versus RANDOMKEY since HFEs have
+ *  much more effective and aggressive active-expiration for fields behind.
+ *
+ *  The second option introduces additional implementation complexity to HRANDFIELD.
+ *  We could further refine HRANDFIELD cases to differentiate between scenarios
+ *  with many expired fields versus few expired fields, and adjust based on the
+ *  percentage of expired fields. However, this approach could still lead to long
+ *  loops or necessitate expiring fields before selecting them. For the “lightweight”
+ *  cases it is also expected to have a lightweight expiration.
+ *
+ *  Considering the pros and cons, and the fact that HRANDFIELD is an infrequent
+ *  command (particularly with HFEs) and the fact we have effective active-expiration
+ *  behind for hash-fields, it is better to keep it simple and choose the option #1.
+ */
 void hrandfieldCommand(client *c) {
     long l;
     int withvalues = 0;
