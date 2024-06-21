@@ -1,5 +1,4 @@
-# Top-level Makefile
-# The main Makefile is located in the src directory
+# Top level makefile, the real stuff is at src/Makefile
 
 default: all
 
