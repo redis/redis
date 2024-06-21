@@ -74,6 +74,7 @@ extern scriptFlag scripts_flags_def[];
 
 void luaEnvInit(void);
 lua_State *createLuaState(void);
+dict *getLuaScripts(void);
 uint64_t scriptFlagsToCmdFlags(uint64_t cmd_flags, uint64_t script_flags);
 int scriptPrepareForRun(scriptRunCtx *r_ctx, client *engine_client, client *caller, const char *funcname, uint64_t script_flags, int ro);
 void scriptResetRun(scriptRunCtx *r_ctx);
