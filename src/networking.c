@@ -1733,6 +1733,9 @@ void freeClientAsync(client *c) {
      * idle. */
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_SCRIPT) return;
     c->flags |= CLIENT_CLOSE_ASAP;
+    /* Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the
+     * replication backlog from been trimmed. */
+    if (c->flags & CLIENT_SLAVE) freeReplicaReferencedReplBuffer(c);
     if (server.io_threads_num == 1) {
         /* no need to bother with locking if there's just one thread (the main thread) */
         listAddNodeTail(server.clients_to_close,c);
