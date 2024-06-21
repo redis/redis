@@ -16,6 +16,37 @@
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
+#if !defined(__x86_64__)
+#include <x86intrin.h>
+
+long long redisPopcount(void *s, long count) {
+    long long bits = 0;
+    unsigned char *p = s;
+    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
+
+    uint64_t v;
+    long i = 0;
+
+#define ITER { \
+        v = *(uint64_t*)(p + i); \
+        bits += _popcnt64(v); \
+        i += 8; \
+    }
+
+    while (i + 4*8 <= count) {
+        ITER ITER ITER ITER
+    }
+#undef ITER
+
+    /* Count the remaining bytes. */
+    while (i < count) {
+        bits += bitsinbyte[*p];
+        i++;
+    }
+
+    return bits;
+}
+#else
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
@@ -69,6 +100,7 @@ long long redisPopcount(void *s, long count) {
     while(count--) bits += bitsinbyte[*p++];
     return bits;
 }
+#endif
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
