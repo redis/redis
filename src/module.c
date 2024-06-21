@@ -3524,9 +3524,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  *
  * The replicated commands are always wrapped into the MULTI/EXEC that
  * contains all the commands replicated in a given module command
- * execution. However the commands replicated with RedisModule_Call()
- * are the first items, the ones replicated with RedisModule_Replicate()
- * will all follow before the EXEC.
+ * execution, in the order they were executed.
  *
  * Modules should try to use one interface or the other.
  *
@@ -3548,9 +3546,8 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  * the callback, and will propagate all the commands wrapped in a MULTI/EXEC
  * transaction. However when calling this function from a threaded safe context
  * that can live an undefined amount of time, and can be locked/unlocked in
- * at will, the behavior is different: MULTI/EXEC wrapper is not emitted
- * and the command specified is inserted in the AOF and replication stream
- * immediately.
+ * at will, it is important to note that this API is not thread-safe and
+ * must be executed while holding the GIL.
  *
  * #### Return value
  *
@@ -3588,14 +3585,17 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 }
 
 /* This function will replicate the command exactly as it was invoked
- * by the client. Note that this function will not wrap the command into
- * a MULTI/EXEC stanza, so it should not be mixed with other replication
- * commands.
+ * by the client. Note that the replicated commands are always wrapped
+ * into the MULTI/EXEC that contains all the commands replicated in a
+ * given module command execution, in the order they were executed.
  *
  * Basically this form of replication is useful when you want to propagate
  * the command to the slaves and AOF file exactly as it was called, since
  * the command can just be re-executed to deterministically re-create the
  * new state starting from the old one.
+ *
+ * It is important to note that this API is not thread-safe and
+ * must be executed while holding the GIL.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
