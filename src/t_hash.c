@@ -1871,7 +1871,6 @@ static uint64_t hashTypeExpire(robj *o, ExpireCtx *expireCtx, int updateGlobalHF
                 ebAdd(&db->hexpires, &hashExpireBucketsType, o, info.nextExpireTime);
         }
 
-        server.dirty++;
         signalModifiedKey(NULL, db, key);
         decrRefCount(key);
     }
