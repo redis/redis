@@ -1017,8 +1017,8 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hset h2 f1 v1 f2 v2
                 r hpexpire h2 1 FIELDS 1 f1
                 r hpexpire h2 50 FIELDS 1 f2
-                after 100
                 assert_equal [r hrandfield h4 2] ""
+                after 200
 
                 assert_aof_content $aof {
                     {select *}
