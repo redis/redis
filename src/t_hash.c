@@ -730,17 +730,22 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
         serverPanic("Unknown hash encoding");
     }
 
-    /* Don't expire anything while loading. It will be done later. */
-    if ( (server.loading) ||
-         (server.lazy_expire_disabled) ||
-         ((server.masterhost) && (server.current_client && (server.current_client->flags & CLIENT_MASTER))) ||
-         (expiredAt >= (uint64_t) commandTimeSnapshot()) )
+    if (expiredAt >= (uint64_t) commandTimeSnapshot())
         return GETF_OK;
 
-    /* Field is expired */
+    if (server.masterhost) {
+        /* If CLIENT_MASTER, assume valid as long as it didn't get delete */
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER))
+            return GETF_OK;
 
-    /* If indicated to avoid deleting expired field */
-    if (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL)
+        /* If user client, then act as if expired, but don't delete! */
+        return GETF_EXPIRED;
+    }
+
+    if ((server.loading) ||
+        (server.lazy_expire_disabled) ||
+        (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL) ||
+        (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return GETF_EXPIRED;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
@@ -1880,7 +1885,7 @@ static uint64_t hashTypeExpire(robj *o, ExpireCtx *expireCtx, int updateGlobalHF
     return (info.nextExpireTime == EB_EXPIRE_TIME_INVALID) ? noExpireLeftRes : info.nextExpireTime;
 }
 
-/* Delete all expired fields in hash if needed
+/* Delete all expired fields in hash if needed (Currently used only by HRANDFIELD)
  *
  * Return 1 if the entire hash was deleted, 0 otherwise.
  * This function might be pricy in case there are many expired fields.
@@ -1889,12 +1894,21 @@ static int hashTypeExpireIfNeeded(redisDb *db, robj *o) {
     uint64_t nextExpireTime;
     uint64_t minExpire = hashTypeGetMinExpire(o, 1 /*accurate*/);
 
+    /* Nothing to expire */
     if ((mstime_t) minExpire >= commandTimeSnapshot())
+        return 0;
+
+    /* Follow expireIfNeeded() conditions of when not lazy-expire */
+    if ( (server.loading) ||
+         (server.lazy_expire_disabled) ||
+         (server.masterhost) ||  /* master-client or user-client, don't delete */
+         (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return 0;
 
     /* Take care to expire all the fields */
     ExpireCtx expireCtx = { .db = db, .fieldsToExpireQuota = UINT32_MAX };
     nextExpireTime = hashTypeExpire(o, &expireCtx, 1);
+    /* return 1 if the entire hash was deleted */
     return nextExpireTime == 0;
 }
 
