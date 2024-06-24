@@ -761,3 +761,29 @@ tags "modules aof" {
     }
     }
 }
+
+test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replication backlog from been trimmed} {
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set replica [srv 0 client]
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            $master config set client-output-buffer-limit "replica 10mb 5mb 0"
+
+            # Start the replication process...
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            test {module propagates from timer} {
+                # Replicate large commands to make the replica disconnected.
+                $master propagate-test.verbatim 100000 [string repeat "a" 1000] ;# almost 100mb
+                # Wait for the replica to be disconnected.
+                wait_for_log_messages 0 {"*flags=S*scheduled to be closed ASAP for overcoming of output buffer limits*"} 0 1500 10
+                # The replica will be closed when its memory usage exceeds soft limit(5mb),
+                # and the global replication buffer will start to be trimmed due to dereference.
+                assert_lessthan [s used_memory_peak] 10000000;# less than 10mb
+            }
+        }
+    }
+}
