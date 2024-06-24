@@ -1791,7 +1791,7 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
  * - If hash has no more fields afterward, it will remove the hash from keyspace.
  */
 static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
-    ExpireCtx *expireCtx = (ExpireCtx *) ctx;
+    ExpireCtx *expireCtx = ctx;
 
     /* If no more quota left for this callback, stop */
     if (expireCtx->fieldsToExpireQuota == 0)
@@ -1806,7 +1806,7 @@ static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
          * and indicate to add it back to global HFE DS */
-        ebSetMetaExpTime(hashGetExpireMeta((robj *) item), nextExpTime);
+        ebSetMetaExpTime(hashGetExpireMeta(item), nextExpTime);
         return ACT_UPDATE_EXP_ITEM;
     }
 }
@@ -1822,7 +1822,7 @@ static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
  */
 static uint64_t hashTypeExpire(robj *o, ExpireCtx *expireCtx, int updateGlobalHFE) {
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
-    redisDb * db = expireCtx->db;
+    redisDb *db = expireCtx->db;
     sds keystr = NULL;
     ExpireInfo info = {0};
 
@@ -2629,7 +2629,8 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         dictEntry *de;
         unsigned long idx = 0;
 
-        /* Create an array of dictEntry pointers */
+        /* Allocate a temporary array of pointers to stored key-values in dict and
+         * assist it to remove random elements to reach the right count. */
         struct FieldValPair {
             hfield field;
             sds value;
