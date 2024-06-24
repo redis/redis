@@ -699,7 +699,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
             return rdbSaveType(rdb,RDB_TYPE_HASH_LISTPACK_EX);
         else if (o->encoding == OBJ_ENCODING_HT) {
-            if (hashTypeGetMinExpire(o) == EB_EXPIRE_TIME_INVALID)
+            if (hashTypeGetMinExpire(o, 0) == EB_EXPIRE_TIME_INVALID)
                 return rdbSaveType(rdb,RDB_TYPE_HASH);
             else
                 return rdbSaveType(rdb,RDB_TYPE_HASH_METADATA);
@@ -960,7 +960,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
              * RDB_TYPE_HASH_METADATA layout, including tuples of [ttl][field][value].
              * Otherwise, use the standard RDB_TYPE_HASH layout containing only
              * the tuples [field][value]. */
-            int with_ttl = (hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID);
+            int with_ttl = (hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID);
 
             /* save number of fields in hash */
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) {
@@ -3562,7 +3562,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             /* If minExpiredField was set, then the object is hash with expiration
              * on fields and need to register it in global HFE DS */
             if (val->type == OBJ_HASH) {
-                uint64_t minExpiredField = hashTypeGetNextTimeToExpire(val);
+                uint64_t minExpiredField = hashTypeGetMinExpire(val, 1);
                 if (minExpiredField != EB_EXPIRE_TIME_INVALID)
                     hashTypeAddToExpires(db, key, val, minExpiredField);
             }

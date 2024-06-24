@@ -3164,7 +3164,9 @@ robj *setTypeDup(robj *o);
 typedef struct listpackEx {
     ExpireMeta meta;  /* To be used in order to register the hash in the
                          global ebuckets (i.e. db->hexpires) with next,
-                         minimum, hash-field to expire. */
+                         minimum, hash-field to expire. TTL value might be
+                         inaccurate up-to few seconds due to optimization
+                         consideration.  */
     sds key;          /* reference to the key, same one that stored in
                          db->dict. Will be used from active-expiration flow
                          for notification and deletion of the object, if
@@ -3179,7 +3181,9 @@ typedef struct dictExpireMetadata {
     ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
                                 To be used in order to register the hash in the
                                 global ebuckets (i.e db->hexpires) with next,
-                                minimum, hash-field to expire */
+                                minimum, hash-field to expire. TTL value might be
+                                inaccurate up-to few seconds due to optimization
+                                consideration. */
     ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
     sds key;                 /* reference to the key, same one that stored in
                                db->dict. Will be used from active-expiration flow
@@ -3225,13 +3229,10 @@ uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
 void hashTypeAddToExpires(redisDb *db, sds key, robj *hashObj, uint64_t expireTime);
 void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
-uint64_t hashTypeGetMinExpire(robj *o);
 unsigned char *hashTypeListpackGetLp(robj *o);
-uint64_t hashTypeGetMinExpire(robj *o);
+uint64_t hashTypeGetMinExpire(robj *o, int accurate);
 void hashTypeUpdateKeyRef(robj *o, sds newkey);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
-uint64_t hashTypeGetMinExpire(robj *keyObj);
-uint64_t hashTypeGetNextTimeToExpire(robj *o);
 void initDictExpireMetadata(sds key, robj *o);
 struct listpackEx *listpackExCreate(void);
 void listpackExAddNew(robj *o, char *field, size_t flen,
@@ -3539,6 +3540,7 @@ void startEvictionTimeProc(void);
 
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);
+uint64_t dictPtrHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
 int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored);

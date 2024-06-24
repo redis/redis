@@ -270,7 +270,7 @@ void restoreCommand(client *c) {
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
     if (obj->type == OBJ_HASH) {
-        uint64_t minExpiredField = hashTypeGetNextTimeToExpire(obj);
+        uint64_t minExpiredField = hashTypeGetMinExpire(obj, 1);
         if (minExpiredField != EB_EXPIRE_TIME_INVALID)
             hashTypeAddToExpires(c->db, dictGetKey(de), obj, minExpiredField);
     }
