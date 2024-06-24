@@ -783,6 +783,7 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
                 # The replica will be closed when its memory usage exceeds soft limit(5mb),
                 # and the global replication buffer will start to be trimmed due to dereference.
                 assert_lessthan [s used_memory_peak] 10000000;# less than 10mb
+                assert_lessthan [s mem_replication_backlog] 10000000;# less than 10mb
             }
         }
     }
