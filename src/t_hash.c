@@ -542,10 +542,10 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
 
     /* If expired, then delete the field and propagate the deletion.
      * If replica, continue like the field is valid */
-    if (unlikely((checkAlreadyExpired(expireAt)) && (server.masterhost == NULL))) {
+    if (unlikely(checkAlreadyExpired(expireAt))) {
         propagateHashFieldDeletion(ex->db, ex->key->ptr, field, sdslen(field));
         hashTypeDelete(ex->hashObj, field, 1);
-        ex->fieldDeleted++ ;
+        ex->fieldDeleted++;
         return HSETEX_DELETED;
     }
 
@@ -1038,7 +1038,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
 
     /* If expired, then delete the field and propagate the deletion.
      * If replica, continue like the field is valid */
-    if (unlikely((checkAlreadyExpired(expireAt)))) {
+    if (unlikely(checkAlreadyExpired(expireAt))) {
         /* replicas should not initiate deletion of fields */
         propagateHashFieldDeletion(exInfo->db, exInfo->key->ptr, field, sdslen(field));
         hashTypeDelete(exInfo->hashObj, field, 1);
@@ -3165,7 +3165,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
         return;
     }
 
-    /* If some numFields were dropped, rewrite the number of numFields */
+    /* If some fields were dropped, rewrite the number of fields */
     if (fieldsNotSet) {
         robj *numFieldsObj = createStringObjectFromLongLong(exCtx.fieldUpdated);
         rewriteClientCommandArgument(c, numFieldsAt, numFieldsObj);
