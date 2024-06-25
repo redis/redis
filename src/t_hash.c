@@ -3045,7 +3045,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  *   converted to absolute time in milliseconds.
  *
  *   As we need to propagate H(P)EXPIRE(AT) command to the replica, each field that
- *   is mentioned in the command should be categorized into one of the three options:
+ *   is mentioned in the command should be categorized into one of the four options:
  *   1. Field’s expiration time updated successfully - Propagate it to replica as
  *      part of the HPEXPIREAT command.
  *   2. The field got deleted since the time is in the past - propagate also HDEL
@@ -3053,6 +3053,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  *      HPEXPIREAT command.
  *   3. Condition not met for the field - Remove the field from the propagated
  *      HPEXPIREAT command.
+ *   4. Field doesn't exists - Remove the field from propagated HPEXPIREAT command.
  *
  *   If none of the provided fields match option #1, that is provided time of the
  *   command is in the past, then avoid propagating the HPEXPIREAT command to the
