@@ -1254,6 +1254,10 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         dictEntry *de;
         dictIterator *di;
 
+        /* If the client is blocked on module authentication, don't unblock it */    
+        if (c->bstate.btype == BLOCKED_MODULE && clientHasModuleAuthInProgress(c))
+            return 0;
+
         /* If the cluster is down, unblock the client with the right error.
          * If the cluster is configured to allow reads on cluster down, we
          * still want to emit this error since a write will be required
