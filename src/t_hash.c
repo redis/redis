@@ -1038,11 +1038,11 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
 
     /* If expired, then delete the field and propagate the deletion.
      * If replica, continue like the field is valid */
-    if (unlikely((checkAlreadyExpired(expireAt)) && (server.masterhost == NULL))) {
+    if (unlikely((checkAlreadyExpired(expireAt)))) {
         /* replicas should not initiate deletion of fields */
         propagateHashFieldDeletion(exInfo->db, exInfo->key->ptr, field, sdslen(field));
         hashTypeDelete(exInfo->hashObj, field, 1);
-        exInfo->fieldDeleted++ ;
+        exInfo->fieldDeleted++;
         return HSETEX_DELETED;
     }
 
