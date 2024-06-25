@@ -39,7 +39,7 @@ long long redisPopcount(void *s, long count) {
 
     /* Count the remaining bytes. */
     while (i < count) {
-        bits += bitsinbyte[*p];
+        bits += bitsinbyte[p[i]];
         i++;
     }
 
