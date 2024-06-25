@@ -762,6 +762,8 @@ tags "modules aof" {
     }
 }
 
+# This test does not really test module functionality, but rather uses a module
+# command to test Redis replication mechanisms.
 test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replication backlog from been trimmed} {
     start_server [list overrides [list loadmodule "$testmodule"]] {
         set replica [srv 0 client]
@@ -777,13 +779,22 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
 
             test {module propagates from timer} {
                 # Replicate large commands to make the replica disconnected.
-                $master propagate-test.verbatim 100000 [string repeat "a" 1000] ;# almost 100mb
+                $master write [format_command propagate-test.verbatim 100000 [string repeat "a" 1000]] ;# almost 100mb
+                # Execute this command together with module commands within the same
+                # event loop to prevent periodic cleanup of replication backlog.
+                $master write [format_command info memory]
+                $master flush
+                $master read ;# propagate-test.verbatim
+                set res [$master read] ;# info memory
+
                 # Wait for the replica to be disconnected.
                 wait_for_log_messages 0 {"*flags=S*scheduled to be closed ASAP for overcoming of output buffer limits*"} 0 1500 10
-                # The replica will be closed when its memory usage exceeds soft limit(5mb),
-                # and the global replication buffer will start to be trimmed due to dereference.
-                assert_lessthan [s used_memory_peak] 10000000;# less than 10mb
-                assert_lessthan [s mem_replication_backlog] 10000000;# less than 10mb
+                # Due to the replica reaching the soft limit (5MB), memory peaks should not significantly
+                # exceed the replica soft limit. Furthermore, as the replica release its reference to
+                # replication backlog, it should be properly trimmed, the memory usage of replication
+                # backlog should not significantly exceed repl-backlog-size (default 1MB). */
+                assert_lessthan [getInfoProperty $res used_memory_peak] 10000000;# less than 10mb
+                assert_lessthan [getInfoProperty $res mem_replication_backlog] 2000000;# less than 2mb
             }
         }
     }
