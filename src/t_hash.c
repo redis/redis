@@ -3044,17 +3044,19 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  *   The command will be translated into HPEXPIREAT and the expiration time will be
  *   converted to absolute time in milliseconds.
  *
- *   As we need to propagate H(P)EXPIRE(AT) command to the replica, each field that is
- *   mentioned in the command should be categorized into one of the three options:
+ *   As we need to propagate H(P)EXPIRE(AT) command to the replica, each field that
+ *   is mentioned in the command should be categorized into one of the three options:
  *   1. Field’s expiration time updated successfully - Propagate it to replica as
  *      part of the HPEXPIREAT command.
- *   2. The field got deleted since the time is in the past - propagate also DEL command
- *      to delete the field and remove the field from the propagated HPEXPIREAT command.
+ *   2. The field got deleted since the time is in the past - propagate also HDEL
+ *      command to delete the field. Also remove the field from the propagated
+ *      HPEXPIREAT command.
  *   3. Condition not met for the field - Remove the field from the propagated
  *      HPEXPIREAT command.
  *
- *   If none of the provided fields match option #1, then avoid propagating the
- *   HPEXPIREAT command to the replica.
+ *   If none of the provided fields match option #1, that is provided time of the
+ *   command is in the past, then avoid propagating the HPEXPIREAT command to the
+ *   replica.
  *
  *   This approach is aligned with existing EXPIRE command. If a given key has already
  *   expired, then DEL will be propagated instead of EXPIRE command. If condition
@@ -3062,7 +3064,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  *   propagated for given key.
  */
 static void hexpireGenericCommand(client *c, const char *cmd, long long basetime, int unit) {
-    long numFields = 0, nFieldsOK, numFieldsAt = 4;
+    long numFields = 0, numFieldsAt = 4;
     long long expire; /* unix time in msec */
     int fieldAt, fieldsNotSet = 0, expireSetCond = 0;
     robj *hashObj, *keyArg = c->argv[1], *expireArg = c->argv[2];
@@ -3155,17 +3157,17 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
 
     hashTypeSetExDone(&exCtx);
 
-    nFieldsOK = c->argc - numFieldsAt - 1;
-
-    /* If all numFields were dropped, prevent command propagation */
-    if (!nFieldsOK) {
+    /* Avoid propagating command if not even one field was updated (Either because
+     * the time is in the past, and corresponding HDELs were sent, or conditions
+     * not met) then it is useless and invalid to propagate command with no fields */
+    if (exCtx.fieldUpdated == 0) {
         preventCommandPropagation(c);
         return;
     }
 
     /* If some numFields were dropped, rewrite the number of numFields */
     if (fieldsNotSet) {
-        robj *numFieldsObj = createStringObjectFromLongLong(nFieldsOK);
+        robj *numFieldsObj = createStringObjectFromLongLong(exCtx.fieldUpdated);
         rewriteClientCommandArgument(c, numFieldsAt, numFieldsObj);
         decrRefCount(numFieldsObj);
     }
