@@ -942,7 +942,7 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hpexpireat h1 * FIELDS 1 f1}
                     {hpexpireat h1 * FIELDS 1 f2}
                     {hset h2 f1 v1 f2 v2 f3 v3 f4 v4}
-                    {hpexpireat h2 * FIELDS 2 f1 non_exists_field}
+                    {hpexpireat h2 * FIELDS 1 f1}
                     {hpexpireat h2 * FIELDS 1 f2}
                     {hpexpireat h2 * FIELDS 1 f3}
                     {hpexpireat h2 * FIELDS 1 f4}
@@ -1072,7 +1072,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
                 {hset h3 f3 v3 f4 v4 f5 v5}
-                {hpexpireat h3 * FIELDS 3 f3 f4 non_exists_field}
+                {hpexpireat h3 * FIELDS 2 f3 f4}
                 {hpersist h3 FIELDS 1 f3}
             }
             close_replication_stream $repl

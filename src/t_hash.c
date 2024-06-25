@@ -543,16 +543,8 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
     /* If expired, then delete the field and propagate the deletion.
      * If replica, continue like the field is valid */
     if (unlikely((checkAlreadyExpired(expireAt)) && (server.masterhost == NULL))) {
-         /* replicas should not initiate deletion of fields */
-        incrRefCount(ex->key);
-        robj *argv[] = { shared.hdel, ex->key, createStringObject(field, sdslen(field)) };
-        int prev_replication_allowed = server.replication_allowed;
-        server.replication_allowed = 1;
-        alsoPropagate(ex->db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
-        server.replication_allowed = prev_replication_allowed;
-        decrRefCount(argv[2]);
-
-        serverAssert(hashTypeDelete(ex->hashObj, field, 1));
+        propagateHashFieldDeletion(ex->db, ex->key->ptr, field, sdslen(field));
+        hashTypeDelete(ex->hashObj, field, 1);
         ex->fieldDeleted++ ;
         return HSETEX_DELETED;
     }
@@ -1048,13 +1040,8 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
      * If replica, continue like the field is valid */
     if (unlikely((checkAlreadyExpired(expireAt)) && (server.masterhost == NULL))) {
         /* replicas should not initiate deletion of fields */
-        robj *argv[] = { shared.hdel, exInfo->key, createStringObject(field, sdslen(field)) };
-        int prev_replication_allowed = server.replication_allowed;
-        server.replication_allowed = 1;
-        alsoPropagate(exInfo->db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
-        server.replication_allowed = prev_replication_allowed;
-        decrRefCount(argv[2]);
-        serverAssert(hashTypeDelete(exInfo->hashObj, field, 1));
+        propagateHashFieldDeletion(exInfo->db, exInfo->key->ptr, field, sdslen(field));
+        hashTypeDelete(exInfo->hashObj, field, 1);
         exInfo->fieldDeleted++ ;
         return HSETEX_DELETED;
     }
