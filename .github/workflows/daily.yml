@@ -873,7 +873,7 @@ jobs:
   build-macos:
     strategy:
       matrix:
-        os: [macos-11, macos-13]
+        os: [macos-12, macos-14]
     runs-on: ${{ matrix.os }}
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
