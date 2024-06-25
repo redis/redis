@@ -914,14 +914,29 @@ start_server {tags {"external:skip needs:debug"}} {
             r config set hash-max-listpack-entries 512
         }
 
-        test "Command rewrite and expired hash fields are propagated to replica ($type)" {
+        test "Test Command propagated to replica as expected ($type)" {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
 
                 set aof [get_last_incr_aof_path r]
+
+                # Time is in the past so it should propagate HDELs to replica
+                # and delete the fields
+                r hset h0 x1 y1 x2 y2
+                r hexpireat h0 1 fields 3 x1 x2 non_exists_field
+
                 r hset h1 f1 v1 f2 v2
 
+                # Next command won't be propagated to replica
+                # because XX condition not met or field not exists
+                r hexpire h1 10 XX FIELDS 1 f1 f2 non_exists_field
+
                 r hpexpire h1 20 FIELDS 1 f1
-                r hpexpire h1 30 FIELDS 1 f2
+
+                # Next command will be propagate with only field 'f2'
+                # because NX condition not met for field 'f1'
+                r hpexpire h1 30 NX FIELDS 1 f1 f2
+
+                # Non exists field should be ignored
                 r hpexpire h1 30 FIELDS 1 non_exists_field
                 r hset h2 f1 v1 f2 v2 f3 v3 f4 v4
                 r hpexpire h2 40 FIELDS 2 f1 non_exists_field
@@ -938,11 +953,16 @@ start_server {tags {"external:skip needs:debug"}} {
                 # Assert that each TTL-related command are persisted with absolute timestamps in AOF
                 assert_aof_content $aof {
                     {select *}
+                    {hset h0 x1 y1 x2 y2}
+                    {multi}
+                        {hdel h0 x1}
+                        {hdel h0 x2}
+                    {exec}
                     {hset h1 f1 v1 f2 v2}
                     {hpexpireat h1 * FIELDS 1 f1}
                     {hpexpireat h1 * FIELDS 1 f2}
                     {hset h2 f1 v1 f2 v2 f3 v3 f4 v4}
-                    {hpexpireat h2 * FIELDS 2 f1 non_exists_field}
+                    {hpexpireat h2 * FIELDS 1 f1}
                     {hpexpireat h2 * FIELDS 1 f2}
                     {hpexpireat h2 * FIELDS 1 f3}
                     {hpexpireat h2 * FIELDS 1 f4}
@@ -1072,7 +1092,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
                 {hset h3 f3 v3 f4 v4 f5 v5}
-                {hpexpireat h3 * FIELDS 3 f3 f4 non_exists_field}
+                {hpexpireat h3 * FIELDS 2 f3 f4}
                 {hpersist h3 FIELDS 1 f3}
             }
             close_replication_stream $repl
