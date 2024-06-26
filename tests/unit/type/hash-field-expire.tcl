@@ -149,7 +149,9 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash f1 v1
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
-            assert_error {*Parameter `numFields` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            # <count> not match with actual number of fields
+            assert_error {*is different than} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            assert_error {*is different than} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
@@ -262,8 +264,9 @@ start_server {tags {"external:skip needs:debug"}} {
 
             foreach cmd {HTTL HPTTL} {
                 assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
-                # Set numFields less than actual number of fields. Fine.
-                assert_equal [r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2] "$T_NO_FIELD"
+                # <count> not match with actual number of fields
+                assert_error {*is different*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
+                assert_error {*is different*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
             }
         }
 
@@ -674,6 +677,9 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 1}
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
+            # <count> not match with actual number of fields
+            assert_error {*is different*} {r hpersist myhash FIELDS 2 f1 f2 f3}
+            assert_error {*is different*} {r hpersist myhash FIELDS 4 f1 f2 f3}
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
@@ -928,13 +934,13 @@ start_server {tags {"external:skip needs:debug"}} {
 
                 # Next command won't be propagated to replica
                 # because XX condition not met or field not exists
-                r hexpire h1 10 XX FIELDS 1 f1 f2 non_exists_field
+                r hexpire h1 10 XX FIELDS 3 f1 f2 non_exists_field
 
                 r hpexpire h1 20 FIELDS 1 f1
 
                 # Next command will be propagate with only field 'f2'
                 # because NX condition not met for field 'f1'
-                r hpexpire h1 30 NX FIELDS 1 f1 f2
+                r hpexpire h1 30 NX FIELDS 2 f1 f2
 
                 # Non exists field should be ignored
                 r hpexpire h1 30 FIELDS 1 non_exists_field
