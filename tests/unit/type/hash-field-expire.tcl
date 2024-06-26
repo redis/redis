@@ -150,8 +150,8 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
             # <count> not match with actual number of fields
-            assert_error {*is different than*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
-            assert_error {*is different than*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
@@ -265,8 +265,8 @@ start_server {tags {"external:skip needs:debug"}} {
             foreach cmd {HTTL HPTTL} {
                 assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
                 # <count> not match with actual number of fields
-                assert_error {*is different*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
-                assert_error {*is different*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
+                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
+                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
             }
         }
 
@@ -678,8 +678,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
             # <count> not match with actual number of fields
-            assert_error {*is different*} {r hpersist myhash FIELDS 2 f1 f2 f3}
-            assert_error {*is different*} {r hpersist myhash FIELDS 4 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 2 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 4 f1 f2 f3}
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
