@@ -2929,8 +2929,8 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
-    if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFields` is more than number of arguments");
+    if (numFields != (c->argc - numFieldsAt - 1)) {
+        addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
 
@@ -3078,6 +3078,7 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
     /* Read the expiry time from command */
     if (getLongLongFromObjectOrReply(c, expireArg, &expire, NULL) != C_OK)
         return;
+
     if (expire < 0) {
         addReplyError(c,"invalid expire time, must be >= 0");
         return;
@@ -3121,8 +3122,8 @@ static void hexpireGenericCommand(client *c, const char *cmd, long long basetime
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
-    if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFields` is more than number of arguments");
+    if (numFields != (c->argc - numFieldsAt - 1)) {
+        addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
 
@@ -3249,8 +3250,8 @@ void hpersistCommand(client *c) {
         return;
 
     /* Verify `numFields` is consistent with number of arguments */
-    if (numFields > (c->argc - numFieldsAt - 1)) {
-        addReplyError(c, "Parameter `numFields` is more than number of arguments");
+    if (numFields != (c->argc - numFieldsAt - 1)) {
+        addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
 
