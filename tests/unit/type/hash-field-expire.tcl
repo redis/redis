@@ -1099,26 +1099,46 @@ start_server {tags {"external:skip needs:debug"}} {
         } {} {needs:repl}
 
         test {HRANDFIELD delete expired fields and propagate DELs to replica} {
+            r debug set-active-expire 0
             r flushall
             set repl [attach_to_replication_stream]
 
-            r hset h4 f1 v1 f2 v2
-            r hpexpire h4 1 FIELDS 1 f1
-            r hpexpire h4 2 FIELDS 1 f2
-            after 100
-            assert_equal [r hrandfield h4 2] ""
+            # HRANDFIELD delete expired fields and propagate MULTI-EXEC DELs. Reply none.
+            r hset h1 f1 v1 f2 v2
+            r hpexpire h1 1 FIELDS 2 f1 f2
+            after 5
+            assert_equal [r hrandfield h1 2] ""
 
+            # HRANDFIELD delete expired field and propagate DEL. Reply non-expired field.
+            r hset h2 f1 v1 f2 v2
+            r hpexpire h2 1 FIELDS 1 f1
+            after 5
+            assert_equal [r hrandfield h2 2] "f2"
+
+            # HRANDFIELD delete expired field and propagate DEL. Reply none.
+            r hset h3 f1 v1
+            r hpexpire h3 1 FIELDS 1 f1
+            after 5
+            assert_equal [r hrandfield h3 2] ""
 
             assert_replication_stream $repl {
                 {select *}
-                {hset h4 f1 v1 f2 v2}
-                {hpexpireat h4 * FIELDS 1 f1}
-                {hpexpireat h4 * FIELDS 1 f2}
-                {hdel h4 f1}
-                {hdel h4 f2}
+                {hset h1 f1 v1 f2 v2}
+                {hpexpireat h1 * FIELDS 2 f1 f2}
+                {multi}
+                {hdel h1 *}
+                {hdel h1 *}
+                {exec}
+                {hset h2 f1 v1 f2 v2}
+                {hpexpireat h2 * FIELDS 1 f1}
+                {hdel h2 f1}
+                {hset h3 f1 v1}
+                {hpexpireat h3 * FIELDS 1 f1}
+                {hdel h3 f1}
             }
             close_replication_stream $repl
-        } {} {needs:repl}
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
 
         # Start another server to test replication of TTLs
         start_server {tags {needs:repl external:skip}} {
@@ -1163,4 +1183,3 @@ start_server {tags {"external:skip needs:debug"}} {
         }
     }
 }
-
