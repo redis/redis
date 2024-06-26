@@ -302,6 +302,21 @@ int propagateTestIncr(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+int propagateTestVerbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 2){
+        RedisModule_WrongArity(ctx);
+        return REDISMODULE_OK;
+    }
+
+    long long replicate_num;
+    RedisModule_StringToLongLong(argv[1], &replicate_num);
+    /* Replicate the command verbatim for the specified number of times. */
+    for (long long i = 0; i < replicate_num; i++)
+        RedisModule_ReplicateVerbatim(ctx);
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -368,6 +383,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 propagateTestIncr,
                 "write",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
+        
+    if (RedisModule_CreateCommand(ctx,"propagate-test.verbatim",
+            propagateTestVerbatim,
+            "write",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }
