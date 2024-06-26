@@ -1041,8 +1041,8 @@ start_server {tags {"external:skip needs:debug"}} {
 
                 # Verify HRANDFIELD deletes expired fields and propagates it
                 r hset h2 f1 v1 f2 v2
-                r hpexpire h2 1 FIELDS 1 f1
-                r hpexpire h2 50 FIELDS 1 f2
+                r hpexpire h2 1 FIELDS 2 f1 f2
+                after 5
                 assert_equal [r hrandfield h4 2] ""
                 after 200
 
@@ -1054,10 +1054,9 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hpexpireat h1 * NX FIELDS 3 f3 f4 f5}
                     {hpexpireat h1 * FIELDS 1 f6}
                     {hset h2 f1 v1 f2 v2}
-                    {hpexpireat h2 * FIELDS 1 f1}
-                    {hpexpireat h2 * FIELDS 1 f2}
-                    {hdel h2 f1}
-                    {hdel h2 f2}
+                    {hpexpireat h2 * FIELDS 2 f1 f2}
+                    {hdel h2 *}
+                    {hdel h2 *}
                 }
 
                 array set keyAndFields1 [dumpAllHashes r]
