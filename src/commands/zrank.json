@@ -19,6 +19,9 @@
         "acl_categories": [
             "SORTEDSET"
         ],
+        "command_tips": [
+            "CACHEABLE_REPLY"
+        ],
         "key_specs": [
             {
                 "flags": [
