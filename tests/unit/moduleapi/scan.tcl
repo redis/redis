@@ -25,12 +25,16 @@ start_server {tags {"modules"}} {
     } {{f1 1}}
 
     test {Module scan hash listpack with hexpire} {
-        r hmset hh f1 v1 f2 v2
+        r debug set-active-expire 0
+        r hmset hh f1 v1 f2 v2 f3 v3
         r hexpire hh 100000 fields 1 f1
+        r hpexpire hh 1 fields 1 f3
+        after 10
         assert_range [r httl hh fields 1 f1] 10000 100000
         assert_encoding listpackex hh
+        r debug set-active-expire 1
         lsort [r scan.scan_key hh]
-    } {{f1 v1} {f2 v2}}
+    } {{f1 v1} {f2 v2}} {needs:debug}
 
     test {Module scan hash dict} {
         r config set hash-max-ziplist-entries 2
@@ -44,10 +48,22 @@ start_server {tags {"modules"}} {
         r del hh
         r hmset hh f1 v1 f2 v2 f3 v3
         r hexpire hh 100000 fields 1 f2
+        r hpexpire hh 5 fields 1 f3
         assert_range [r httl hh fields 1 f2] 10000 100000
         assert_encoding hashtable hh
+        after 10
         lsort [r scan.scan_key hh]
-    } {{f1 v1} {f2 v2} {f3 v3}}
+    } {{f1 v1} {f2 v2}}
+
+    test {Module scan hash with hexpire can return no items} {
+        r del hh
+        r debug set-active-expire 0
+        r hmset hh f1 v1 f2 v2 f3 v3
+        r hpexpire hh 1 fields 3 f1 f2 f3
+        after 10
+        r debug set-active-expire 1
+        lsort [r scan.scan_key hh]
+    } {} {needs:debug}
 
     test {Module scan zset listpack} {
         r zadd zz 1 f1 2 f2

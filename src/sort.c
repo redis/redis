@@ -95,7 +95,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
         int isHashDeleted;
-        o = hashTypeGetValueObject(db, o, fieldobj->ptr, &isHashDeleted);
+        o = hashTypeGetValueObject(db, o, fieldobj->ptr, HFE_LAZY_EXPIRE, &isHashDeleted);
 
         if (isHashDeleted)
             goto noobj;

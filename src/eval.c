@@ -1737,3 +1737,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
         rctx->start_time = getMonotonicUs();
     }
 }
+
+dict *getLuaScripts(void) {
+    return lctx.lua_scripts;
+}

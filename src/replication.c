@@ -189,6 +189,9 @@ int canFeedReplicaReplBuffer(client *replica) {
     /* Don't feed replicas that are still waiting for BGSAVE to start. */
     if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) return 0;
 
+    /* Don't feed replicas that are going to be closed ASAP. */
+    if (replica->flags & CLIENT_CLOSE_ASAP) return 0;
+
     return 1;
 }
 

@@ -1968,7 +1968,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     hashTypeIterator *hi;
     long long count = 0, items = hashTypeLength(o, 0);
 
-    int isHFE = hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID;
+    int isHFE = hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
     hi = hashTypeInitIterator(o);
 
     if (!isHFE) {
