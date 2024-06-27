@@ -176,7 +176,6 @@ void dumpCommand(client *c) {
 
 /* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] */
 void restoreCommand(client *c) {
-    uint64_t minExpiredField = EB_EXPIRE_TIME_INVALID;
     long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
     rio payload;
     int j, type, replace = 0, absttl = 0;
@@ -240,7 +239,7 @@ void restoreCommand(client *c) {
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db,NULL, &minExpiredField)) == NULL))
+        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL))
     {
         addReplyError(c,"Bad data format");
         return;
@@ -270,8 +269,11 @@ void restoreCommand(client *c) {
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
-    if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-        hashTypeAddToExpires(c->db, dictGetKey(de), obj, minExpiredField);
+    if (obj->type == OBJ_HASH) {
+        uint64_t minExpiredField = hashTypeGetMinExpire(obj, 1);
+        if (minExpiredField != EB_EXPIRE_TIME_INVALID)
+            hashTypeAddToExpires(c->db, dictGetKey(de), obj, minExpiredField);
+    }
 
     if (ttl) {
         setExpire(c,c->db,key,ttl);

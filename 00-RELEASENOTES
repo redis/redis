@@ -13,6 +13,26 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.4 RC2   Released Thu 27 Jun 2024 10:00:00 IST
+================================================================================
+
+Upgrade urgency LOW: This is the second Release Candidate for Redis 7.4.
+
+Performance and resource utilization improvements
+=================================================
+* #13296 Optimize CPU cache efficiency
+
+Changes to new 7.4 new features (compared to 7.4 RC1)
+=====================================================
+* #13343 Hash - expiration of individual fields: when key does not exist - reply with an array (nonexisting code for each field)
+* #13329 Hash - expiration of individual fields: new keyspace event: `hexpired`
+
+Modules API - Potentially breaking changes to new 7.4 features (compared to 7.4 RC1)
+====================================================================================
+* #13326 Hash - expiration of individual fields: avoid lazy expire when called from a Modules API function
+
+
+================================================================================
 Redis 7.4 RC1   Released Thu 6 Jun 2024 10:00:00 IST
 ================================================================================
 
@@ -75,7 +95,7 @@ Other general improvements
 * #13020 Allow adjusting defrag configurations while active defragmentation is running
 * #12949 Increase the accuracy of avg_ttl (the average keyspace keys TTL)
 * #12977 Allow running `WAITAOF` in scripts
-* #12782 Implement TCP Keep-Alives across most Unix-like systems
+* #12782 Implement TCP keep-alive across most Unix-like systems
 * #12707 Improved error codes when rejecting scripts in cluster mode
 * #12596 Support `XREAD ... BLOCK` in scripts; rejected only if it ends up blocking
 
