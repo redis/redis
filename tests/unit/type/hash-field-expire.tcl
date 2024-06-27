@@ -149,7 +149,9 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash f1 v1
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
-            assert_error {*Parameter `numFields` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            # <count> not match with actual number of fields
+            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
@@ -262,8 +264,9 @@ start_server {tags {"external:skip needs:debug"}} {
 
             foreach cmd {HTTL HPTTL} {
                 assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
-                # Set numFields less than actual number of fields. Fine.
-                assert_equal [r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2] "$T_NO_FIELD"
+                # <count> not match with actual number of fields
+                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
+                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
             }
         }
 
@@ -685,6 +688,9 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 1}
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
+            # <count> not match with actual number of fields
+            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 2 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 4 f1 f2 f3}
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
@@ -939,13 +945,13 @@ start_server {tags {"external:skip needs:debug"}} {
 
                 # Next command won't be propagated to replica
                 # because XX condition not met or field not exists
-                r hexpire h1 10 XX FIELDS 1 f1 f2 non_exists_field
+                r hexpire h1 10 XX FIELDS 3 f1 f2 non_exists_field
 
                 r hpexpire h1 20 FIELDS 1 f1
 
                 # Next command will be propagate with only field 'f2'
                 # because NX condition not met for field 'f1'
-                r hpexpire h1 30 NX FIELDS 1 f1 f2
+                r hpexpire h1 30 NX FIELDS 2 f1 f2
 
                 # Non exists field should be ignored
                 r hpexpire h1 30 FIELDS 1 non_exists_field
@@ -1044,11 +1050,8 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hpexpire h1 100000 NX FIELDS 3 f3 f4 f5
                 r hexpire h1 100000 FIELDS 1 f6
 
-                # Verify HRANDFIELD deletes expired fields and propagates it
                 r hset h2 f1 v1 f2 v2
-                r hpexpire h2 10 FIELDS 1 f1
-                r hpexpire h2 50 FIELDS 1 f2
-                assert_equal [r hrandfield h4 2] ""
+                r hpexpire h2 1 FIELDS 2 f1 f2
                 after 200
 
                 assert_aof_content $aof {
@@ -1059,10 +1062,9 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hpexpireat h1 * NX FIELDS 3 f3 f4 f5}
                     {hpexpireat h1 * FIELDS 1 f6}
                     {hset h2 f1 v1 f2 v2}
-                    {hpexpireat h2 * FIELDS 1 f1}
-                    {hpexpireat h2 * FIELDS 1 f2}
-                    {hdel h2 f1}
-                    {hdel h2 f2}
+                    {hpexpireat h2 * FIELDS 2 f1 f2}
+                    {hdel h2 *}
+                    {hdel h2 *}
                 }
 
                 array set keyAndFields1 [dumpAllHashes r]
@@ -1108,26 +1110,46 @@ start_server {tags {"external:skip needs:debug"}} {
         } {} {needs:repl}
 
         test {HRANDFIELD delete expired fields and propagate DELs to replica} {
+            r debug set-active-expire 0
             r flushall
             set repl [attach_to_replication_stream]
 
-            r hset h4 f1 v1 f2 v2
-            r hpexpire h4 1 FIELDS 1 f1
-            r hpexpire h4 2 FIELDS 1 f2
-            after 100
-            assert_equal [r hrandfield h4 2] ""
+            # HRANDFIELD delete expired fields and propagate MULTI-EXEC DELs. Reply none.
+            r hset h1 f1 v1 f2 v2
+            r hpexpire h1 1 FIELDS 2 f1 f2
+            after 5
+            assert_equal [r hrandfield h1 2] ""
 
+            # HRANDFIELD delete expired field and propagate DEL. Reply non-expired field.
+            r hset h2 f1 v1 f2 v2
+            r hpexpire h2 1 FIELDS 1 f1
+            after 5
+            assert_equal [r hrandfield h2 2] "f2"
+
+            # HRANDFIELD delete expired field and propagate DEL. Reply none.
+            r hset h3 f1 v1
+            r hpexpire h3 1 FIELDS 1 f1
+            after 5
+            assert_equal [r hrandfield h3 2] ""
 
             assert_replication_stream $repl {
                 {select *}
-                {hset h4 f1 v1 f2 v2}
-                {hpexpireat h4 * FIELDS 1 f1}
-                {hpexpireat h4 * FIELDS 1 f2}
-                {hdel h4 f1}
-                {hdel h4 f2}
+                {hset h1 f1 v1 f2 v2}
+                {hpexpireat h1 * FIELDS 2 f1 f2}
+                {multi}
+                {hdel h1 *}
+                {hdel h1 *}
+                {exec}
+                {hset h2 f1 v1 f2 v2}
+                {hpexpireat h2 * FIELDS 1 f1}
+                {hdel h2 f1}
+                {hset h3 f1 v1}
+                {hpexpireat h3 * FIELDS 1 f1}
+                {hdel h3 f1}
             }
             close_replication_stream $repl
-        } {} {needs:repl}
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
 
         # Start another server to test replication of TTLs
         start_server {tags {needs:repl external:skip}} {
@@ -1172,4 +1194,3 @@ start_server {tags {"external:skip needs:debug"}} {
         }
     }
 }
-
