@@ -346,10 +346,12 @@ start_server {tags {"external:skip needs:debug"}} {
         test "Test HRANDFIELD deletes all expired fields ($type)" {
             r debug set-active-expire 0
             r flushall
+            r config resetstat
             r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
             r hpexpire myhash 1 FIELDS 2 f1 f2
             after 5
             assert_equal [lsort [r hrandfield myhash 5]] "f3 f4 f5"
+            assert_equal [s expired_hash_fields] 2
             r hpexpire myhash 1 FIELDS 3 f3 f4 f5
             after 5
             assert_equal [lsort [r hrandfield myhash 5]] ""
@@ -473,39 +475,48 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset h5 1 1 2 22 3 333 4 4444 5 55555
             r hset h6 01 01 02 02 03 03 04 04 05 05 06 06
             r hset h18 01 01 02 02 03 03 04 04 05 05 06 06 07 07 08 08 09 09 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18
-            r hpexpire h1 100 NX FIELDS 1 01
-            r hpexpire h2 100 NX FIELDS 1 01
-            r hpexpire h2 100 NX FIELDS 1 02
-            r hpexpire h3 100 NX FIELDS 1 01
-            r hpexpire h4 100 NX FIELDS 1 2
-            r hpexpire h5 100 NX FIELDS 1 3
-            r hpexpire h6 100 NX FIELDS 1 05
-            r hpexpire h18 100 NX FIELDS 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
+            r hpexpire h1 1 NX FIELDS 1 01
+            r hpexpire h2 1 NX FIELDS 1 01
+            r hpexpire h2 1 NX FIELDS 1 02
+            r hpexpire h3 1 NX FIELDS 1 01
+            r hpexpire h4 1 NX FIELDS 1 2
+            r hpexpire h5 1 NX FIELDS 1 3
+            r hpexpire h6 1 NX FIELDS 1 05
+            r hpexpire h18 1 NX FIELDS 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
 
-            after 150
+            after 5
 
             # Verify HDEL not ignore expired field. It is too much overhead to check
             # if the field is expired before deletion.
             assert_equal [r HDEL h1 01] "1"
 
             # Verify HGET ignore expired field
+            r config resetstat
             assert_equal [r HGET h2 01] ""
+            assert_equal [s expired_hash_fields] 1
             assert_equal [r HGET h2 02] ""
+            assert_equal [s expired_hash_fields] 2
             assert_equal [r HGET h3 01] ""
             assert_equal [r HGET h3 02] "02"
             assert_equal [r HGET h3 03] "03"
+            assert_equal [s expired_hash_fields] 3
             # Verify HINCRBY ignore expired field
             assert_equal [r HINCRBY h4 2 1] "1"
+            assert_equal [s expired_hash_fields] 4
             assert_equal [r HINCRBY h4 3 1] "100"
             # Verify HSTRLEN ignore expired field
             assert_equal [r HSTRLEN h5 3] "0"
+            assert_equal [s expired_hash_fields] 5
             assert_equal [r HSTRLEN h5 4] "4"
             assert_equal [lsort [r HKEYS h6]] "01 02 03 04 06"
+            assert_equal [s expired_hash_fields] 5
             # Verify HEXISTS ignore expired field
             assert_equal [r HEXISTS h18 07] "0"
+            assert_equal [s expired_hash_fields] 6
             assert_equal [r HEXISTS h18 18] "1"
             # Verify HVALS ignore expired field
             assert_equal [lsort [r HVALS h18]] "18"
+            assert_equal [s expired_hash_fields] 6
             # Restore to support active expire
             r debug set-active-expire 1
         }
