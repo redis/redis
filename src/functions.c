@@ -130,7 +130,7 @@ static void engineFunctionDispose(dict *d, void *obj) {
     }
     engine *engine = fi->li->ei->engine;
     engine->free_function(engine->engine_ctx, fi->function);
-    engine->gc(engine->engine_ctx);
+    engine->gc_step(engine->engine_ctx, 1);
     zfree(fi);
 }
 
@@ -970,7 +970,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     if (engine->create(engine->engine_ctx, new_li, md.code, timeout, err) != C_OK) {
         goto error;
     }
-    engine->gc(engine->engine_ctx);
+    engine->gc_step(engine->engine_ctx, 1);
 
     if (dictSize(new_li->functions) == 0) {
         *err = sdsnew("No functions registered");
@@ -1107,4 +1107,15 @@ int functionsInit(void) {
     curr_functions_lib_ctx = functionsLibCtxCreate();
 
     return C_OK;
+}
+
+void functionsGC(void) {
+    dictIterator *iter = dictGetIterator(engines);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        engineInfo *ei = dictGetVal(entry);
+        engine *engine = ei->engine;
+        engine->gc_step(engine->engine_ctx, 1);
+    }
+    dictReleaseIterator(iter);
 }

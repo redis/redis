@@ -183,16 +183,11 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
     zfree(f_ctx);
 }
 
-#define LUA_GC_CYCLE_PERIOD 50
-static void luaEnglineGC(void *engine_ctx) {
-    static long gc_count = 0;
-    gc_count++;
-    if (gc_count >= LUA_GC_CYCLE_PERIOD) {
-        luaEngineCtx *lua_engine_ctx = engine_ctx;
-        lua_State *lua = lua_engine_ctx->lua;
-        lua_gc(lua, LUA_GCSTEP, LUA_GC_CYCLE_PERIOD);
-        gc_count = 0;
-    }
+static void luaEnglineGCStep(void *engine_ctx, int steps) {
+    luaEngineCtx *lua_engine_ctx = engine_ctx;
+    lua_State *lua = lua_engine_ctx->lua;
+    lua_gc(lua, LUA_GCSTEP, 1); // by size
+    // lua_gc_step(lua, steps); // by step
 }
 
 static void luaRegisterFunctionArgsInitialize(registerFunctionArgs *register_f_args,
@@ -213,6 +208,8 @@ static void luaRegisterFunctionArgsDispose(lua_State *lua, registerFunctionArgs 
     sdsfree(register_f_args->name);
     if (register_f_args->desc) sdsfree(register_f_args->desc);
     lua_unref(lua, register_f_args->lua_f_ctx->lua_function_ref);
+    // lua_gc_step(lua, 1);
+    // lua_gc(lua, LUA_GCSTEP, 1);
     zfree(register_f_args->lua_f_ctx);
 }
 
@@ -336,6 +333,8 @@ error:
     if (desc) sdsfree(desc);
     if (lua_f_ctx) {
         lua_unref(lua, lua_f_ctx->lua_function_ref);
+        // lua_gc_step(lua, 1);
+        // lua_gc(lua, LUA_GCSTEP, 1);
         zfree(lua_f_ctx);
     }
     luaPushError(lua, err);
@@ -492,7 +491,7 @@ int luaEngineInitEngine(void) {
         .get_function_memory_overhead = luaEngineFunctionMemoryOverhead,
         .get_engine_memory_overhead = luaEngineMemoryOverhead,
         .free_function = luaEngineFreeFunction,
-        .gc = luaEnglineGC,
+        .gc_step = luaEnglineGCStep,
     };
     return functionsRegisterEngine(LUA_ENGINE_NAME, lua_engine);
 }

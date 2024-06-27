@@ -1391,6 +1391,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     run_with_period(100) {
         luaGC();
+        functionsGC();
     }
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
