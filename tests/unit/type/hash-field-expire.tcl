@@ -1046,7 +1046,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
                 # Verify HRANDFIELD deletes expired fields and propagates it
                 r hset h2 f1 v1 f2 v2
-                r hpexpire h2 1 FIELDS 1 f1
+                r hpexpire h2 10 FIELDS 1 f1
                 r hpexpire h2 50 FIELDS 1 f2
                 assert_equal [r hrandfield h4 2] ""
                 after 200
@@ -1066,8 +1066,6 @@ start_server {tags {"external:skip needs:debug"}} {
                 }
 
                 array set keyAndFields1 [dumpAllHashes r]
-                # Let some time pass and reload data from AOF
-                after 2000
                 r debug loadaof
                 array set keyAndFields2 [dumpAllHashes r]
 
