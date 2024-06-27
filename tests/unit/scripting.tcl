@@ -2383,3 +2383,19 @@ start_server {tags {"scripting"}} {
         }
     }
 }
+
+start_server {tags {"scripting"}} {
+    test "test" {
+        set dummy_script "--[string repeat x 40]\nreturn "
+        set n 150000
+        for {set i 0} {$i < $n} {incr i} {
+            set val "$dummy_script[format "%06d" $i]"
+            r script load $val
+        }
+        # Output
+        # Before this fix: 63539200
+        # Now: 53990400
+        # 17% more memory usage
+        puts [s used_memory_lua]
+    }
+}

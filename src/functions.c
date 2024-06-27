@@ -130,6 +130,7 @@ static void engineFunctionDispose(dict *d, void *obj) {
     }
     engine *engine = fi->li->ei->engine;
     engine->free_function(engine->engine_ctx, fi->function);
+    engine->gc(engine->engine_ctx);
     zfree(fi);
 }
 
@@ -969,6 +970,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     if (engine->create(engine->engine_ctx, new_li, md.code, timeout, err) != C_OK) {
         goto error;
     }
+    engine->gc(engine->engine_ctx);
 
     if (dictSize(new_li->functions) == 0) {
         *err = sdsnew("No functions registered");

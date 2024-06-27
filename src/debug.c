@@ -1016,7 +1016,7 @@ NULL
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr,"list")) {
-            dictIterator *di = dictGetIterator(getLuaScripts());
+            dictIterator *di = dictGetIterator(evalScriptsDict());
             dictEntry *de;
             while ((de = dictNext(di)) != NULL) {
                 luaScript *script = dictGetVal(de);
@@ -1026,7 +1026,7 @@ NULL
             dictReleaseIterator(di);
         } else if (sdslen(c->argv[2]->ptr) == 40) {
             dictEntry *de;
-            if ((de = dictFind(getLuaScripts(), c->argv[2]->ptr)) == NULL) {
+            if ((de = dictFind(evalScriptsDict(), c->argv[2]->ptr)) == NULL) {
                 addReplyErrorObject(c, shared.noscripterr);
                 return;
             }

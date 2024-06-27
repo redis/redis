@@ -281,6 +281,22 @@ void scriptingReset(int async) {
     scriptingInit(0);
 }
 
+/* Call the Lua garbage collector from time to time to avoid a
+ * full cycle performed by Lua, which adds too latency.
+ *
+ * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
+ * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
+ * for every command uses too much CPU. */
+#define LUA_GC_CYCLE_PERIOD 50
+static inline void scriptingGC(void) {
+    static long gc_count = 0;
+    (gc_count)++;
+    if (gc_count >= LUA_GC_CYCLE_PERIOD) {
+        lua_gc(lctx.lua, LUA_GCSTEP, LUA_GC_CYCLE_PERIOD);
+        gc_count = 0;
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * EVAL and SCRIPT commands implementation
  * ------------------------------------------------------------------------- */
@@ -457,6 +473,8 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
         return NULL;
     }
 
+    scriptingGC();
+
     serverAssert(lua_isfunction(lctx.lua, -1));
 
     lua_setfield(lctx.lua, LUA_REGISTRYINDEX, funcname);
@@ -600,6 +618,7 @@ void evalGenericCommand(client *c, int evalsha) {
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
+    scriptingGC();
 
     if (l->node) {
         /* Quick removal and re-insertion after the script is called to
@@ -1738,6 +1757,6 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
     }
 }
 
-dict *getLuaScripts(void) {
-    return lctx.lua_scripts;
+void luaGC(void) {
+    lua_gc_step(lctx.lua, 1);
 }

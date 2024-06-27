@@ -631,6 +631,27 @@ void luaC_step (lua_State *L) {
   }
 }
 
+void luaC_stepgc (lua_State *L, int steps) {
+  global_State *g = G(L);
+  g->gcdept += g->totalbytes - g->GCthreshold;
+  do {
+    singlestep(L);
+    if (g->gcstate == GCSpause)
+      break;
+  } while (steps-- > 0);
+  if (g->gcstate != GCSpause) {
+    if (g->gcdept < GCSTEPSIZE)
+      g->GCthreshold = g->totalbytes + GCSTEPSIZE;
+    else {
+      g->gcdept -= GCSTEPSIZE;
+      g->GCthreshold = g->totalbytes;
+    }
+  }
+  else {
+    setthreshold(g);
+  }
+}
+
 
 void luaC_fullgc (lua_State *L) {
   global_State *g = G(L);

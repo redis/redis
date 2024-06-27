@@ -67,6 +67,9 @@ typedef struct engine {
 
     /* free the given function */
     void (*free_function)(void *engine_ctx, void *compiled_function);
+
+    /* Perform the garbage collector */
+    void (*gc)(void *engine_ctx);
 } engine;
 
 /* Hold information about an engine.

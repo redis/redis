@@ -960,7 +960,19 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
   return res;
 }
 
-
+LUA_API int lua_gc_step (lua_State *L, int steps) {
+  int res = 0;
+  global_State *g;
+  lua_lock(L);
+  g = G(L);
+  g->GCthreshold = g->totalbytes;
+  luaC_stepgc(L, steps);
+  if (g->gcstate == GCSpause) {  /* end of cycle? */
+    res = 1;  /* signal it */
+  }
+  lua_unlock(L);
+  return res;
+}
 
 /*
 ** miscellaneous functions

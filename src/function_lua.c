@@ -183,6 +183,18 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
     zfree(f_ctx);
 }
 
+#define LUA_GC_CYCLE_PERIOD 50
+static void luaEnglineGC(void *engine_ctx) {
+    static long gc_count = 0;
+    gc_count++;
+    if (gc_count >= LUA_GC_CYCLE_PERIOD) {
+        luaEngineCtx *lua_engine_ctx = engine_ctx;
+        lua_State *lua = lua_engine_ctx->lua;
+        lua_gc(lua, LUA_GCSTEP, LUA_GC_CYCLE_PERIOD);
+        gc_count = 0;
+    }
+}
+
 static void luaRegisterFunctionArgsInitialize(registerFunctionArgs *register_f_args,
     sds name,
     sds desc,
@@ -480,6 +492,7 @@ int luaEngineInitEngine(void) {
         .get_function_memory_overhead = luaEngineFunctionMemoryOverhead,
         .get_engine_memory_overhead = luaEngineMemoryOverhead,
         .free_function = luaEngineFreeFunction,
+        .gc = luaEnglineGC,
     };
     return functionsRegisterEngine(LUA_ENGINE_NAME, lua_engine);
 }
