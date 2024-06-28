@@ -281,6 +281,10 @@ void scriptingReset(int async) {
     scriptingInit(0);
 }
 
+void scriptingGC(void) {
+    lua_gc_step(lctx.lua, 1);
+}
+
 /* ---------------------------------------------------------------------------
  * EVAL and SCRIPT commands implementation
  * ------------------------------------------------------------------------- */
@@ -734,6 +738,10 @@ unsigned long evalScriptsMemory(void) {
             dictMemUsage(lctx.lua_scripts) +
             dictSize(lctx.lua_scripts) * sizeof(luaScript) +
             listLength(lctx.lua_scripts_lru_list) * sizeof(listNode);
+}
+
+void evalScriptsGC(void) {
+    lua_gc_step(lctx.lua, 1);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1736,8 +1744,4 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
         }
         rctx->start_time = getMonotonicUs();
     }
-}
-
-void luaGC(void) {
-    lua_gc_step(lctx.lua, 1);
 }

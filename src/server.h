@@ -3475,6 +3475,7 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory(void);
 dict* evalScriptsDict(void);
 unsigned long evalScriptsMemory(void);
+void evalScriptsGC(void);
 uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
 uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
 int isInsideYieldingLongCommand(void);
@@ -3829,8 +3830,6 @@ void free(void *ptr) __attribute__ ((deprecated));
 void *malloc(size_t size) __attribute__ ((deprecated));
 void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 #endif
-
-void luaGC(void);
 
 /* Debugging stuff */
 void _serverAssertWithInfo(const client *c, const robj *o, const char *estr, const char *file, int line);

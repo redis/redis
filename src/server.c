@@ -1390,7 +1390,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     databasesCron();
 
     run_with_period(100) {
-        luaGC();
+        evalScriptsGC();
         functionsGC();
     }
 
