@@ -631,6 +631,7 @@ void luaC_step (lua_State *L) {
   }
 }
 
+
 void luaC_fullgc (lua_State *L) {
   global_State *g = G(L);
   if (g->gcstate <= GCSpropagate) {

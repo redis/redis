@@ -281,10 +281,6 @@ void scriptingReset(int async) {
     scriptingInit(0);
 }
 
-void scriptingGC(void) {
-    lua_gc_step(lctx.lua, 1);
-}
-
 /* ---------------------------------------------------------------------------
  * EVAL and SCRIPT commands implementation
  * ------------------------------------------------------------------------- */
