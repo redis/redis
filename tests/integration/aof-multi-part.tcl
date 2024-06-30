@@ -38,9 +38,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.2.incr.aof seq 2 type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -65,9 +65,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -93,9 +93,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.3.incr.aof seq 3 type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -125,9 +125,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -152,9 +152,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -179,9 +179,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -206,9 +206,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -233,9 +233,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -260,9 +260,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i newkey\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -277,9 +277,9 @@ tags {"external:skip"} {
         create_aof_manifest $aof_dirpath $aof_manifest_file {
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -292,9 +292,9 @@ tags {"external:skip"} {
 
     test {Multi Part AOF can start when no aof and no manifest} {
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
+            assert_equal 1 [is_alive [srv pid]]
 
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
 
             assert_equal OK [$client set k1 v1]
             assert_equal v1 [$client get k1]
@@ -307,7 +307,7 @@ tags {"external:skip"} {
         create_aof_dir $aof_dirpath
 
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
+            assert_equal 1 [is_alive [srv pid]]
         }
     }
 
@@ -331,8 +331,8 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            assert_equal 1 [is_alive [srv pid]]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal v1 [$client get k1]
@@ -363,8 +363,8 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            assert_equal 1 [is_alive [srv pid]]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal v1 [$client get k1]
@@ -394,8 +394,8 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            assert_equal 1 [is_alive [srv pid]]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal v1 [$client get k1]
@@ -414,9 +414,9 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
+            assert_equal 1 [is_alive [srv pid]]
 
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal v1 [$client get k1]
@@ -455,9 +455,9 @@ tags {"external:skip"} {
     test {Multi Part AOF can load data from old version redis (rdb preamble yes)} {
         exec cp tests/assets/rdb-preamble.aof $aof_old_name_old_path
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
+            assert_equal 1 [is_alive [srv pid]]
 
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             # k1 k2 in rdb header and k3 in AOF tail
@@ -507,9 +507,9 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
+            assert_equal 1 [is_alive [srv pid]]
 
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal v1 [$client get k1]
@@ -546,9 +546,9 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            assert_equal 1 [is_alive $srv]
+            assert_equal 1 [is_alive [srv pid]]
 
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal 0 [$client exists k1]
@@ -577,9 +577,9 @@ tags {"external:skip"} {
             append_to_manifest "file appendonly.aof seq 1 type b\n"
         }
 
-        start_server_aof [list dir $server_path] {
+        start_server_aof_ex [list dir $server_path] [list wait_ready false] {
             wait_for_condition 100 50 {
-                ! [is_alive $srv]
+                ! [is_alive [srv pid]]
             } else {
                 fail "AOF loading didn't fail"
             }
@@ -604,7 +604,7 @@ tags {"external:skip"} {
         }
 
         start_server_aof [list dir $server_path] {
-            set redis1 [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set redis1 [redis [srv host] [srv port] 0 $::tls]
 
             start_server [list overrides [list dir $server_path appendonly yes appendfilename appendonly.aof2]] {
                 set redis2 [redis [srv host] [srv port] 0 $::tls]
@@ -702,7 +702,7 @@ tags {"external:skip"} {
 
     test {Multi Part AOF can create BASE (RDB format) when redis starts from empty} {
         start_server_aof [list dir $server_path] {
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::rdb_format_suffix}"]
@@ -725,7 +725,7 @@ tags {"external:skip"} {
 
     test {Multi Part AOF can create BASE (AOF format) when redis starts from empty} {
         start_server_aof [list dir $server_path aof-use-rdb-preamble no] {
-            set client [redis [dict get $srv host] [dict get $srv port] 0 $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
 
             assert_equal 1 [check_file_exist $aof_dirpath "${aof_basename}.1${::base_aof_sufix}${::aof_format_suffix}"]

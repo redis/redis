@@ -8,8 +8,7 @@
         "get_keys_function": "xreadGetKeys",
         "command_flags": [
             "BLOCKING",
-            "READONLY",
-            "BLOCKING"
+            "READONLY"
         ],
         "acl_categories": [
             "STREAM"

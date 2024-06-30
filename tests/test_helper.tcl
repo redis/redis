@@ -1,6 +1,10 @@
-# Redis test suite. Copyright (C) 2009 Salvatore Sanfilippo antirez@gmail.com
-# This software is released under the BSD License. See the COPYING file for
-# more information.
+# Redis test suite.
+#
+# Copyright (C) 2014-Present, Redis Ltd.
+# All Rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
 
 package require Tcl 8.5
 
@@ -13,96 +17,22 @@ source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
 
-set ::all_tests {
-    unit/printver
-    unit/dump
-    unit/auth
-    unit/protocol
-    unit/keyspace
-    unit/scan
-    unit/info
-    unit/info-command
-    unit/type/string
-    unit/type/incr
-    unit/type/list
-    unit/type/list-2
-    unit/type/list-3
-    unit/type/set
-    unit/type/zset
-    unit/type/hash
-    unit/type/stream
-    unit/type/stream-cgroups
-    unit/sort
-    unit/expire
-    unit/other
-    unit/multi
-    unit/quit
-    unit/aofrw
-    unit/acl
-    unit/acl-v2
-    unit/latency-monitor
-    integration/block-repl
-    integration/replication
-    integration/replication-2
-    integration/replication-3
-    integration/replication-4
-    integration/replication-psync
-    integration/replication-buffer
-    integration/shutdown
-    integration/aof
-    integration/aof-race
-    integration/aof-multi-part
-    integration/rdb
-    integration/corrupt-dump
-    integration/corrupt-dump-fuzzer
-    integration/convert-zipmap-hash-on-load
-    integration/convert-ziplist-hash-on-load
-    integration/convert-ziplist-zset-on-load
-    integration/logging
-    integration/psync2
-    integration/psync2-reg
-    integration/psync2-pingoff
-    integration/psync2-master-restart
-    integration/failover
-    integration/redis-cli
-    integration/redis-benchmark
-    integration/dismiss-mem
-    unit/pubsub
-    unit/pubsubshard
-    unit/slowlog
-    unit/scripting
-    unit/functions
-    unit/maxmemory
-    unit/introspection
-    unit/introspection-2
-    unit/limits
-    unit/obuf-limits
-    unit/bitops
-    unit/bitfield
-    unit/geo
-    unit/memefficiency
-    unit/hyperloglog
-    unit/lazyfree
-    unit/wait
-    unit/pause
-    unit/querybuf
-    unit/tls
-    unit/tracking
-    unit/oom-score-adj
-    unit/shutdown
-    unit/networking
-    unit/client-eviction
-    unit/violations
-    unit/replybufsize
-    unit/cluster/misc
-    unit/cluster/cli
-    unit/cluster/scripting
-    unit/cluster/hostnames
-    unit/cluster/human-announced-nodename
-    unit/cluster/multi-slot-operations
-    unit/cluster/slot-ownership
-    unit/cluster/links
-    unit/cluster/cluster-response-tls
+set dir [pwd]
+set ::all_tests []
+
+set test_dirs {
+    unit
+    unit/type
+    unit/cluster
+    integration
+}
+
+foreach test_dir $test_dirs {
+    set files [glob -nocomplain $dir/tests/$test_dir/*.tcl]
+
+    foreach file $files {
+        lappend ::all_tests $test_dir/[file root [file tail $file]]
+    }
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -197,6 +127,12 @@ proc srv {args} {
     dict get $srv $property
 }
 
+# Take an index to get a srv.
+proc get_srv {level} {
+    set srv [lindex $::servers end+$level]
+    return $srv
+}
+
 # Provide easy access to the client for the inner server. It's possible to
 # prepend the argument list with a negative level to access clients for
 # servers running in outer blocks.
@@ -276,7 +212,7 @@ proc redis_client {args} {
         set args [lrange $args 1 end]
     }
 
-    # create client that defers reading reply
+    # create client that won't defers reading reply
     set client [redis [srv $level "host"] [srv $level "port"] 0 $::tls]
 
     # select the right db and read the response (OK), or at least ping
