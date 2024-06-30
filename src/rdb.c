@@ -3766,7 +3766,7 @@ void killRDBChild(void) {
      * - resetChildState
      * - rdbRemoveTempFile */
 
-    /* However, there's a chance the child already exited, and will not recieve the signal,
+    /* However, there's a chance the child already exited, and will not receive the signal,
      * in that case it could have been resulsted in success and the done handler will override some
      * server metrics (e.g. the dirty counter) which it shouldn't (e.g. in case of FLUSHALL).
      * so we just for completion once (don't wait for it). */

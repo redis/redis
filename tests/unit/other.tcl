@@ -77,6 +77,7 @@ start_server {tags {"other"}} {
         }
 
         test {FLUSHALL and bgsave} {
+            r config set save "3600 1 300 100 60 10000"
             r set x y
             r bgsave
             r set x y
