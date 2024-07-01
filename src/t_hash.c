@@ -414,7 +414,7 @@ void listpackExExpire(redisDb *db, robj *o, ExpireInfo *info) {
             break;
 
         propagateHashFieldDeletion(db, ((listpackEx *) o->ptr)->key, (char *)((fref) ? fref : intbuf), flen);
-        server.stat_expired_hash_fields++;
+        server.stat_expired_subkeys++;
 
         ptr = lpNext(lpt->lp, ptr);
 
@@ -546,7 +546,7 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
     if (unlikely(checkAlreadyExpired(expireAt))) {
         propagateHashFieldDeletion(ex->db, ex->key->ptr, field, sdslen(field));
         hashTypeDelete(ex->hashObj, field, 1);
-        server.stat_expired_hash_fields++;
+        server.stat_expired_subkeys++;
         ex->fieldDeleted++;
         return HSETEX_DELETED;
     }
@@ -760,7 +760,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     /* delete the field and propagate the deletion */
     serverAssert(hashTypeDelete(o, field, 1) == 1);
     propagateHashFieldDeletion(db, key, field, sdslen(field));
-    server.stat_expired_hash_fields++;
+    server.stat_expired_subkeys++;
 
     /* If the field is the last one in the hash, then the hash will be deleted */
     res = GETF_EXPIRED;
@@ -1045,7 +1045,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
         /* replicas should not initiate deletion of fields */
         propagateHashFieldDeletion(exInfo->db, exInfo->key->ptr, field, sdslen(field));
         hashTypeDelete(exInfo->hashObj, field, 1);
-        server.stat_expired_hash_fields++;
+        server.stat_expired_subkeys++;
         exInfo->fieldDeleted++;
         return HSETEX_DELETED;
     }
@@ -2890,7 +2890,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
     propagateHashFieldDeletion(expCtx->db, dictExpireMeta->key, hf, hfieldlen(hf));
     serverAssert(hashTypeDelete(expCtx->hashObj, hf, 0) == 1);
-    server.stat_expired_hash_fields++;
+    server.stat_expired_subkeys++;
     return ACT_REMOVE_EXP_ITEM;
 }
 

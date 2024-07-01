@@ -19,12 +19,12 @@ set P_OK           1
 
 ############################### AUX FUNCS ######################################
 
-proc get_hashes_with_expiry_fields {r} {
+proc get_stat_subexpiry {r} {
     set input_string [r info keyspace]
     set hash_count 0
 
     foreach line [split $input_string \n] {
-        if {[regexp {hashes_with_expiry_fields=(\d+)} $line -> value]} {
+        if {[regexp {subexpiry=(\d+)} $line -> value]} {
             return $value
         }
     }
@@ -354,7 +354,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hpexpire myhash 1 FIELDS 2 f1 f2
             after 5
             assert_equal [lsort [r hrandfield myhash 5]] "f3 f4 f5"
-            assert_equal [s expired_hash_fields] 2
+            assert_equal [s expired_subkeys] 2
             r hpexpire myhash 1 FIELDS 3 f3 f4 f5
             after 5
             assert_equal [lsort [r hrandfield myhash 5]] ""
@@ -496,30 +496,30 @@ start_server {tags {"external:skip needs:debug"}} {
             # Verify HGET ignore expired field
             r config resetstat
             assert_equal [r HGET h2 01] ""
-            assert_equal [s expired_hash_fields] 1
+            assert_equal [s expired_subkeys] 1
             assert_equal [r HGET h2 02] ""
-            assert_equal [s expired_hash_fields] 2
+            assert_equal [s expired_subkeys] 2
             assert_equal [r HGET h3 01] ""
             assert_equal [r HGET h3 02] "02"
             assert_equal [r HGET h3 03] "03"
-            assert_equal [s expired_hash_fields] 3
+            assert_equal [s expired_subkeys] 3
             # Verify HINCRBY ignore expired field
             assert_equal [r HINCRBY h4 2 1] "1"
-            assert_equal [s expired_hash_fields] 4
+            assert_equal [s expired_subkeys] 4
             assert_equal [r HINCRBY h4 3 1] "100"
             # Verify HSTRLEN ignore expired field
             assert_equal [r HSTRLEN h5 3] "0"
-            assert_equal [s expired_hash_fields] 5
+            assert_equal [s expired_subkeys] 5
             assert_equal [r HSTRLEN h5 4] "4"
             assert_equal [lsort [r HKEYS h6]] "01 02 03 04 06"
-            assert_equal [s expired_hash_fields] 5
+            assert_equal [s expired_subkeys] 5
             # Verify HEXISTS ignore expired field
             assert_equal [r HEXISTS h18 07] "0"
-            assert_equal [s expired_hash_fields] 6
+            assert_equal [s expired_subkeys] 6
             assert_equal [r HEXISTS h18 18] "1"
             # Verify HVALS ignore expired field
             assert_equal [lsort [r HVALS h18]] "18"
-            assert_equal [s expired_hash_fields] 6
+            assert_equal [s expired_subkeys] 6
             # Restore to support active expire
             r debug set-active-expire 1
         }
@@ -909,14 +909,14 @@ start_server {tags {"external:skip needs:debug"}} {
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         r hpexpire myhash 100 FIELDS 3 f1 f2 f3
 
-        assert_match  [get_hashes_with_expiry_fields r] 1
+        assert_match  [get_stat_subexpiry r] 1
         r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        assert_match  [get_hashes_with_expiry_fields r] 1
+        assert_match  [get_stat_subexpiry r] 1
         r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
-        assert_match  [get_hashes_with_expiry_fields r] 2
+        assert_match  [get_stat_subexpiry r] 2
 
         wait_for_condition 50 50 {
-                [get_hashes_with_expiry_fields r] == 0
+                [get_stat_subexpiry r] == 0
         } else {
                 fail "Hash field expiry statistics failed"
         }
