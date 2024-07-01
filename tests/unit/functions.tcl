@@ -288,6 +288,22 @@ start_server {tags {"scripting"}} {
         r function flush async
         assert_match {} [r function list]
 
+        # LAZYFREE_THRESHOLD is 64
+        for {set i 0} {$i < 100} {incr i} {
+            r function load REPLACE [get_function_code lua test$i test$i {local a = 1 while true do a = a + 1 end}]
+        }
+        assert_morethan [s used_memory_vm_functions] 100000
+        r config resetstat
+        r function flush async
+        # Wait for the completion of the lazy free
+        wait_for_condition 50 100 {
+            [s lazyfreed_objects] == 100
+        } else {
+            fail "Unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
+        }
+        assert_match {} [r function list]
+        assert_lessthan [s used_memory_vm_functions] 40000
+
         r function load REPLACE [get_function_code lua test test {local a = 1 while true do a = a + 1 end}]
         assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
         r function flush sync
