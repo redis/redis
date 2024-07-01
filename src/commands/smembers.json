@@ -13,7 +13,8 @@
             "SET"
         ],
         "command_tips": [
-            "NONDETERMINISTIC_OUTPUT_ORDER"
+            "NONDETERMINISTIC_OUTPUT_ORDER",
+            "CACHEABLE_REPLY"
         ],
         "key_specs": [
             {
