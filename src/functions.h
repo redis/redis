@@ -67,6 +67,9 @@ typedef struct engine {
 
     /* free the given function */
     void (*free_function)(void *engine_ctx, void *compiled_function);
+
+    /* Free the engine context. */
+    void (*free_ctx)(void *engine_ctx);
 } engine;
 
 /* Hold information about an engine.
@@ -98,6 +101,7 @@ struct functionLibInfo {
 };
 
 int functionsRegisterEngine(const char *engine_name, engine *engine_ctx);
+void functionsEngineCtxClear(dict *engs);
 sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx, size_t timeout);
 unsigned long functionsMemory(void);
 unsigned long functionsMemoryOverhead(void);
@@ -116,5 +120,6 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
 
 int luaEngineInitEngine(void);
 int functionsInit(void);
+void functionsFree(functionsLibCtx *lib_ctx, dict *engs);
 
 #endif /* __FUNCTIONS_H_ */

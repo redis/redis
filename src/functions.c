@@ -163,13 +163,29 @@ void functionsLibCtxClear(functionsLibCtx *lib_ctx) {
     curr_functions_lib_ctx->cache_memory = 0;
 }
 
+/* Clears all engine contexts within the provided dictionary by calling
+ * the `free_ctx` function pointer for each engine. */
+void functionsEngineCtxClear(dict *engs) {
+    dictIterator *iter = dictGetIterator(engs);
+    dictEntry *entry = NULL;
+    while ((entry = dictNext(iter))) {
+        engineInfo *ei = dictGetVal(entry);
+        engine *engine = ei->engine;
+        engine->free_ctx(engine->engine_ctx);
+    }
+    dictReleaseIterator(iter);
+    dictRelease(engs);
+}
+
 void functionsLibCtxClearCurrent(int async) {
     if (async) {
         functionsLibCtx *old_l_ctx = curr_functions_lib_ctx;
-        curr_functions_lib_ctx = functionsLibCtxCreate();
-        freeFunctionsAsync(old_l_ctx);
+        dict *old_engines = engines;
+        freeFunctionsAsync(old_l_ctx, old_engines);
+        functionsInit();
     } else {
-        functionsLibCtxClear(curr_functions_lib_ctx);
+        functionsFree(curr_functions_lib_ctx, engines);
+        functionsInit();
     }
 }
 
@@ -1105,4 +1121,9 @@ int functionsInit(void) {
     curr_functions_lib_ctx = functionsLibCtxCreate();
 
     return C_OK;
+}
+
+void functionsFree(functionsLibCtx *lib_ctx, dict *engs) {
+    functionsLibCtxClear(lib_ctx);
+    functionsEngineCtxClear(engs); 
 }
