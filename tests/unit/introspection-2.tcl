@@ -133,6 +133,10 @@ start_server {tags {"introspection"}} {
         assert_equal {{k1 {RO access}} {k2 {OW update}}} [r command getkeysandflags sort k1 store k2]
     }
 
+    test {COMMAND GETKEYSANDFLAGS invalid args} {
+        assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE zz 1443677133621497600 asdf}
+    }
+
     test {COMMAND GETKEYS MEMORY USAGE} {
         assert_equal {key} [r command getkeys memory usage key]
     }
