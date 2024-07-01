@@ -75,7 +75,7 @@ void lazyFreeFunctionsCtx(void *args[]) {
     dict *engs = args[1];
     size_t len = functionsLibCtxFunctionsLen(functions_lib_ctx);
     functionsLibCtxFree(functions_lib_ctx);
-    functionsEngineCtxClear(engs);
+    dictRelease(engs);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -254,7 +254,8 @@ void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx, dict *engs) {
         atomicIncr(lazyfree_objects,functionsLibCtxFunctionsLen(functions_lib_ctx));
         bioCreateLazyFreeJob(lazyFreeFunctionsCtx,2,functions_lib_ctx,engs);
     } else {
-        functionsFree(functions_lib_ctx, engs);
+        functionsLibCtxFree(functions_lib_ctx);
+        dictRelease(engs);
     }
 }
 
