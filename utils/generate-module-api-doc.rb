@@ -137,23 +137,6 @@ def is_func_line(src, i)
          src[i-1] =~ /\*\//
 end
 
-puts "---\n"
-puts "categories:\n"
-puts "- docs\n"
-puts "- develop\n"
-puts "- stack\n"
-puts "- oss\n"
-puts "- rs\n"
-puts "- rc\n"
-puts "- oss\n"
-puts "- kubernetes\n"
-puts "- clients\n"
-puts "description: Reference for the Redis Modules API\n"
-puts "linkTitle: API reference\n"
-puts "title: Modules API reference\n"
-puts "weight: 1\n"
-puts "---\n"
-puts "\n"
 puts "<!-- This file is generated from module.c using\n"
 puts "     redis/redis:utils/generate-module-api-doc.rb -->\n\n"
 src = File.open(File.dirname(__FILE__) ++ "/../src/module.c").to_a
