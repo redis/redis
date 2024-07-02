@@ -1576,7 +1576,8 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
         }
         /*  Remove the pipe read handler if at least one write handler was set. */
         if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
-            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
+            if (server.rdb_pipe_read != -1)
+                aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
             break;
         }
     }
@@ -1598,6 +1599,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
+
+        /* We can get here via freeClient()->killRDBChild()->checkChildrenDone(). skip disconnected slaves. */
+        if (!slave->conn) continue;
 
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;

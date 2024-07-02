@@ -2131,7 +2131,7 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
  *                               found in other valid keyspecs. 
  */
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
-    int j, i, last, first, step;
+    long j, i, last, first, step;
     keyReference *keys;
     serverAssert(result->numkeys == 0); /* caller should initialize or reset it */
 
@@ -2191,19 +2191,19 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
 
             first += spec->fk.keynum.firstkey;
-            last = first + (int)numkeys-1;
+            last = first + (long)numkeys-1;
         } else {
             /* unknown spec */
             goto invalid_spec;
         }
 
-        int count = ((last - first)+1);
-        keys = getKeysPrepareResult(result, result->numkeys + count);
-
         /* First or last is out of bounds, which indicates a syntax error */
         if (last >= argc || last < first || first >= argc) {
             goto invalid_spec;
         }
+
+        int count = ((last - first)+1);
+        keys = getKeysPrepareResult(result, result->numkeys + count);
 
         for (i = first; i <= last; i += step) {
             if (i >= argc || i < first) {
