@@ -297,11 +297,12 @@ start_server {tags {"scripting"}} {
         r function flush async
         # Wait for the completion of lazy free for both functions and engines.
         set start_time [clock seconds]
-        set i 0
-        while {[s lazyfreed_objects] < 101 && [expr {[clock seconds] - $start_time}] <= 5} {
-            incr i
-            # Tests for race conditions between async function flushes and main thread Lua vm operations.
+        while {1} {
+            # Tests for race conditions between async function flushes and main thread Lua VM operations.
             r function load REPLACE [get_function_code lua test test {local a = 1 while true do a = a + 1 end}]
+            if {[s lazyfreed_objects] == 101 || [expr {[clock seconds] - $start_time}] > 5} {
+                break
+            }
         }
         if {[s lazyfreed_objects] != 101} {
             error "Timeout or unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
