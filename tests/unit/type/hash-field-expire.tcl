@@ -19,12 +19,12 @@ set P_OK           1
 
 ############################### AUX FUNCS ######################################
 
-proc get_hashes_with_expiry_fields {r} {
+proc get_stat_subexpiry {r} {
     set input_string [r info keyspace]
     set hash_count 0
 
     foreach line [split $input_string \n] {
-        if {[regexp {hashes_with_expiry_fields=(\d+)} $line -> value]} {
+        if {[regexp {subexpiry=(\d+)} $line -> value]} {
             return $value
         }
     }
@@ -163,9 +163,6 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "Lazy Expire - fields are lazy deleted ($type)" {
-
-            # TODO remove the SELECT once dbid will be embedded inside dict/listpack
-            r select 0
             r debug set-active-expire 0
             r del myhash
 
@@ -349,10 +346,12 @@ start_server {tags {"external:skip needs:debug"}} {
         test "Test HRANDFIELD deletes all expired fields ($type)" {
             r debug set-active-expire 0
             r flushall
+            r config resetstat
             r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
             r hpexpire myhash 1 FIELDS 2 f1 f2
             after 5
             assert_equal [lsort [r hrandfield myhash 5]] "f3 f4 f5"
+            assert_equal [s expired_subkeys] 2
             r hpexpire myhash 1 FIELDS 3 f3 f4 f5
             after 5
             assert_equal [lsort [r hrandfield myhash 5]] ""
@@ -476,39 +475,48 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset h5 1 1 2 22 3 333 4 4444 5 55555
             r hset h6 01 01 02 02 03 03 04 04 05 05 06 06
             r hset h18 01 01 02 02 03 03 04 04 05 05 06 06 07 07 08 08 09 09 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18
-            r hpexpire h1 100 NX FIELDS 1 01
-            r hpexpire h2 100 NX FIELDS 1 01
-            r hpexpire h2 100 NX FIELDS 1 02
-            r hpexpire h3 100 NX FIELDS 1 01
-            r hpexpire h4 100 NX FIELDS 1 2
-            r hpexpire h5 100 NX FIELDS 1 3
-            r hpexpire h6 100 NX FIELDS 1 05
-            r hpexpire h18 100 NX FIELDS 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
+            r hpexpire h1 1 NX FIELDS 1 01
+            r hpexpire h2 1 NX FIELDS 1 01
+            r hpexpire h2 1 NX FIELDS 1 02
+            r hpexpire h3 1 NX FIELDS 1 01
+            r hpexpire h4 1 NX FIELDS 1 2
+            r hpexpire h5 1 NX FIELDS 1 3
+            r hpexpire h6 1 NX FIELDS 1 05
+            r hpexpire h18 1 NX FIELDS 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
 
-            after 150
+            after 5
 
             # Verify HDEL not ignore expired field. It is too much overhead to check
             # if the field is expired before deletion.
             assert_equal [r HDEL h1 01] "1"
 
             # Verify HGET ignore expired field
+            r config resetstat
             assert_equal [r HGET h2 01] ""
+            assert_equal [s expired_subkeys] 1
             assert_equal [r HGET h2 02] ""
+            assert_equal [s expired_subkeys] 2
             assert_equal [r HGET h3 01] ""
             assert_equal [r HGET h3 02] "02"
             assert_equal [r HGET h3 03] "03"
+            assert_equal [s expired_subkeys] 3
             # Verify HINCRBY ignore expired field
             assert_equal [r HINCRBY h4 2 1] "1"
+            assert_equal [s expired_subkeys] 4
             assert_equal [r HINCRBY h4 3 1] "100"
             # Verify HSTRLEN ignore expired field
             assert_equal [r HSTRLEN h5 3] "0"
+            assert_equal [s expired_subkeys] 5
             assert_equal [r HSTRLEN h5 4] "4"
             assert_equal [lsort [r HKEYS h6]] "01 02 03 04 06"
+            assert_equal [s expired_subkeys] 5
             # Verify HEXISTS ignore expired field
             assert_equal [r HEXISTS h18 07] "0"
+            assert_equal [s expired_subkeys] 6
             assert_equal [r HEXISTS h18 18] "1"
             # Verify HVALS ignore expired field
             assert_equal [lsort [r HVALS h18]] "18"
+            assert_equal [s expired_subkeys] 6
             # Restore to support active expire
             r debug set-active-expire 1
         }
@@ -898,14 +906,14 @@ start_server {tags {"external:skip needs:debug"}} {
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         r hpexpire myhash 100 FIELDS 3 f1 f2 f3
 
-        assert_match  [get_hashes_with_expiry_fields r] 1
+        assert_match  [get_stat_subexpiry r] 1
         r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        assert_match  [get_hashes_with_expiry_fields r] 1
+        assert_match  [get_stat_subexpiry r] 1
         r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
-        assert_match  [get_hashes_with_expiry_fields r] 2
+        assert_match  [get_stat_subexpiry r] 2
 
         wait_for_condition 50 50 {
-                [get_hashes_with_expiry_fields r] == 0
+                [get_stat_subexpiry r] == 0
         } else {
                 fail "Hash field expiry statistics failed"
         }
@@ -1039,11 +1047,8 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hpexpire h1 100000 NX FIELDS 3 f3 f4 f5
                 r hexpire h1 100000 FIELDS 1 f6
 
-                # Verify HRANDFIELD deletes expired fields and propagates it
                 r hset h2 f1 v1 f2 v2
                 r hpexpire h2 1 FIELDS 2 f1 f2
-                after 5
-                assert_equal [r hrandfield h4 2] ""
                 after 200
 
                 assert_aof_content $aof {
@@ -1060,8 +1065,6 @@ start_server {tags {"external:skip needs:debug"}} {
                 }
 
                 array set keyAndFields1 [dumpAllHashes r]
-                # Let some time pass and reload data from AOF
-                after 2000
                 r debug loadaof
                 array set keyAndFields2 [dumpAllHashes r]
 
