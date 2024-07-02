@@ -483,7 +483,7 @@ void debugCommand(client *c) {
 "DICT-RESIZING <0|1>",
 "    Enable or disable the main dict and expire dict resizing.",
 "SCRIPT <LIST|<sha>>",
-"    Output SHA and content of all scripts or of a specific script with its SHA. ",
+"    Output SHA and content of all scripts or of a specific script with its SHA.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
