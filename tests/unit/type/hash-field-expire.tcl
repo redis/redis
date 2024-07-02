@@ -163,9 +163,6 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "Lazy Expire - fields are lazy deleted ($type)" {
-
-            # TODO remove the SELECT once dbid will be embedded inside dict/listpack
-            r select 0
             r debug set-active-expire 0
             r del myhash
 
