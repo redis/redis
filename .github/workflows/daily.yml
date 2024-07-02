@@ -655,12 +655,12 @@ jobs:
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
 
-  test-centos-jemalloc:
+  test-centos7-jemalloc:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'centos')
-    container: centos:8
+    container: centos:7
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -695,12 +695,12 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
-  test-centos-tls-module:
+  test-centos7-tls-module:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    container: centos:8
+    container: centos:7
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -742,12 +742,12 @@ jobs:
       run: |
         ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
 
-  test-centos8-tls-module-no-tls:
+  test-centos7-tls-module-no-tls:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    container: centos:8
+    container: centos:7
     timeout-minutes: 14400
     steps:
     - name: prep
