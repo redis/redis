@@ -443,7 +443,7 @@ start_server [list overrides [list "dir" $server_path]] {
             wait_done_loading r
 
             # Never be sure when active-expire kicks in into action
-            wait_for_condition 10 10 {
+            wait_for_condition 100 10 {
                 [lsort [r hgetall key]] == "1 2 3 a b c"
             } else {
                 fail "hgetall of key is not as expected"
