@@ -442,7 +442,13 @@ start_server [list overrides [list "dir" $server_path]] {
             restart_server 0 true false
             wait_done_loading r
 
-            assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
+            # Never be sure when active-expire kicks in into action
+            wait_for_condition 10 10 {
+                [lsort [r hgetall key]] == "1 2 3 a b c"
+            } else {
+                fail "hgetall of key is not as expected"
+            }
+
             assert_equal [r hpexpiretime key FIELDS 3 a b c] {2524600800000 65755674080852 -1}
             assert_equal [s rdb_last_load_keys_loaded] 1
 
