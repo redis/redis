@@ -655,12 +655,12 @@ jobs:
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
 
-  test-centos-jemalloc:
+  test-centos7-jemalloc:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'centos')
-    container: centos:8
+    container: centos:7
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -678,6 +678,10 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
+        # Workaround the fact that CentOS 7 is EOL
+        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+        yum-config-manager --disable centos-sclo-rh
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
     - name: testprep
@@ -695,12 +699,12 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
-  test-centos-tls-module:
+  test-centos7-tls-module:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    container: centos:8
+    container: centos:7
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -718,6 +722,10 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
+        # Workaround the fact that CentOS 7 is EOL
+        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+        yum-config-manager --disable centos-sclo-rh
         yum -y install centos-release-scl epel-release
         yum -y install devtoolset-7 openssl-devel openssl
         scl enable devtoolset-7 "make BUILD_TLS=module REDIS_CFLAGS='-Werror'"
@@ -742,12 +750,12 @@ jobs:
       run: |
         ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
 
-  test-centos-tls-module-no-tls:
+  test-centos7-tls-module-no-tls:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    container: centos:8
+    container: centos:7
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -765,6 +773,10 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
+        # Workaround the fact that CentOS 7 is EOL
+        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+        yum-config-manager --disable centos-sclo-rh
         yum -y install centos-release-scl epel-release
         yum -y install devtoolset-7 openssl-devel openssl
         scl enable devtoolset-7 "make BUILD_TLS=module REDIS_CFLAGS='-Werror'"
@@ -873,7 +885,7 @@ jobs:
   build-macos:
     strategy:
       matrix:
-        os: [macos-12, macos-14]
+        os: [macos-11, macos-13]
     runs-on: ${{ matrix.os }}
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
