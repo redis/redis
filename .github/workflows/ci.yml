@@ -77,12 +77,12 @@ jobs:
     container: centos:7
     steps:
     - uses: actions/checkout@v3
+    - name: fix centos7 EOL
+      run: |
+        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - name: make
       run: |
-        # Workaround the fact that CentOS 7 is EOL
-        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-        yum-config-manager --disable centos-sclo-rh
         yum -y install gcc make
         make REDIS_CFLAGS='-Werror'
 
