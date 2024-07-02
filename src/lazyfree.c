@@ -75,6 +75,7 @@ void lazyFreeFunctionsCtx(void *args[]) {
     dict *engs = args[1];
     size_t len = functionsLibCtxFunctionsLen(functions_lib_ctx);
     functionsLibCtxFree(functions_lib_ctx);
+    len += dictSize(engs);
     dictRelease(engs);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
