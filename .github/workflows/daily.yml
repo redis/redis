@@ -676,6 +676,10 @@ jobs:
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: fix centos7 EOL
+      run: |
+        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - name: make
       run: |
         yum -y install gcc make
@@ -716,9 +720,17 @@ jobs:
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: fix centos7 EOL
+      run: |
+        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+        yum -y install centos-release-scl epel-release
+        yum clean all
+        rm -rf /var/cache/yum/*
+        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-SCLo*.repo
+        sed -i -r 's|# ?baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-SCLo*.repo
     - name: make
       run: |
-        yum -y install centos-release-scl epel-release
         yum -y install devtoolset-7 openssl-devel openssl
         scl enable devtoolset-7 "make BUILD_TLS=module REDIS_CFLAGS='-Werror'"
     - name: testprep
@@ -763,9 +775,17 @@ jobs:
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: fix centos7 EOL
+      run: |
+        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+        yum -y install centos-release-scl epel-release
+        yum clean all
+        rm -rf /var/cache/yum/*
+        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-SCLo*.repo
+        sed -i -r 's|# ?baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-SCLo*.repo
     - name: make
       run: |
-        yum -y install centos-release-scl epel-release
         yum -y install devtoolset-7 openssl-devel openssl
         scl enable devtoolset-7 "make BUILD_TLS=module REDIS_CFLAGS='-Werror'"
     - name: testprep
@@ -873,7 +893,7 @@ jobs:
   build-macos:
     strategy:
       matrix:
-        os: [macos-11, macos-13]
+        os: [macos-12, macos-14]
     runs-on: ${{ matrix.os }}
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
