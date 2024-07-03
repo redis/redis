@@ -962,7 +962,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             if ((n = rdbSaveRawString(rdb,lp_ptr,l)) == -1) return -1;
             nwritten += n;
         } else if (o->encoding == OBJ_ENCODING_HT) {
-            int hashWithMeta = false;  /* RDB_TYPE_HASH_METADATA */
+            int hashWithMeta = 0;  /* RDB_TYPE_HASH_METADATA */
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
             /* Determine the hash layout to use based on the presence of at least
@@ -974,7 +974,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
             /* if RDB_TYPE_HASH_METADATA (Can have TTLs on fields) */
             if (minExpire != EB_EXPIRE_TIME_INVALID) {
-                hashWithMeta = true;
+                hashWithMeta = 1;
                 /* Save next field expire time of hash */
                 if (rdbSaveMillisecondTime(rdb, minExpire) == -1) {
                     dictReleaseIterator(di);
