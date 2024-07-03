@@ -69,7 +69,7 @@ typedef struct engine {
     void (*free_function)(void *engine_ctx, void *compiled_function);
 
     /* Perform the garbage collector */
-    void (*gc_step)(void *engine_ctx, int steps);
+    void (*cron)(void *engine_ctx);
 } engine;
 
 /* Hold information about an engine.
@@ -119,6 +119,6 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
 
 int luaEngineInitEngine(void);
 int functionsInit(void);
-void functionsGC(void);
+void functionsCron(void);
 
 #endif /* __FUNCTIONS_H_ */
