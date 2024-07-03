@@ -1390,8 +1390,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     databasesCron();
 
     /* Do some jobs for scripts and functions, such as garbage collection. */
-    evalScriptsCron();
-    functionsCron();
+    run_with_period(100) {
+        evalScriptsCron();
+        functionsCron();
+    }
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
