@@ -965,7 +965,12 @@ LUA_API int lua_gc_step (lua_State *L, int steps) {
   global_State *g;
   lua_lock(L);
   g = G(L);
-  g->GCthreshold = 0;
+  lu_mem a = (cast(lu_mem, 1) << 10); /* Avoid too deep */
+  if (a <= g->totalbytes)
+    g->GCthreshold = g->totalbytes - a;
+  else
+    g->GCthreshold = 0;
+  g->gcdept += g->totalbytes - g->GCthreshold;
   while (steps--) {
     luaC_step(L);
     if (g->gcstate == GCSpause) {  /* end of cycle? */
