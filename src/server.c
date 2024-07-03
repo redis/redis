@@ -3949,7 +3949,7 @@ int processCommand(client *c) {
         }
     }
 
-    uint64_t cmd_flags = getCommandFlags(c);
+    const uint64_t cmd_flags = getCommandFlags(c);
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
@@ -4004,7 +4004,7 @@ int processCommand(client *c) {
     {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-                                        &c->slot,&error_code);
+                                        &c->slot,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
