@@ -68,7 +68,7 @@ typedef struct engine {
     /* free the given function */
     void (*free_function)(void *engine_ctx, void *compiled_function);
 
-    /* Perform the garbage collector */
+    /* perform periodic tasks. */
     void (*cron)(void *engine_ctx);
 } engine;
 
