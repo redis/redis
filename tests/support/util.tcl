@@ -293,7 +293,6 @@ proc findKeyWithType {r type} {
 
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
-    # TODO: Remove usehexpire on next commit, when RDB will support replication
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {

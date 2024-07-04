@@ -442,15 +442,21 @@ start_server [list overrides [list "dir" $server_path]] {
             restart_server 0 true false
             wait_done_loading r
 
-            assert_equal [lsort [r hgetall key]] "1 2 3 a b c"
+            # Never be sure when active-expire kicks in into action
+            wait_for_condition 100 10 {
+                [lsort [r hgetall key]] == "1 2 3 a b c"
+            } else {
+                fail "hgetall of key is not as expected"
+            }
+
             assert_equal [r hpexpiretime key FIELDS 3 a b c] {2524600800000 65755674080852 -1}
             assert_equal [s rdb_last_load_keys_loaded] 1
 
-            # wait until expired_hash_fields equals 2
+            # wait until expired_subkeys equals 2
             wait_for_condition 10 100 {
-                [s expired_hash_fields] == 2
+                [s expired_subkeys] == 2
             } else {
-                fail "Value of expired_hash_fields is not as expected"
+                fail "Value of expired_subkeys is not as expected"
             }
         }
     }
@@ -562,9 +568,9 @@ foreach {type lp_entries} {listpack 512 dict 0} {
 
             # wait at most 2 secs to make sure 'c' and 'd' will active-expire
             wait_for_condition 20 100 {
-                [s expired_hash_fields] == 2
+                [s expired_subkeys] == 2
             } else {
-                fail "expired hash fields is [s expired_hash_fields] != 2"
+                fail "expired hash fields is [s expired_subkeys] != 2"
             }
 
             assert_equal [s rdb_last_load_keys_loaded] 1
@@ -597,7 +603,7 @@ foreach {type lp_entries} {listpack 512 dict 0} {
             after 500
 
             assert_equal [s rdb_last_load_keys_loaded] 1
-            assert_equal [s expired_hash_fields] 0
+            assert_equal [s expired_subkeys] 0
 
             # hgetall will lazy expire fields, so it's only called after the stat asserts
             assert_equal [lsort [r hgetall key]] "1 2 5 6 a b e f"
