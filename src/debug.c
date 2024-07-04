@@ -482,6 +482,8 @@ void debugCommand(client *c) {
 "    Enable or disable the reply buffer resize cron job",
 "DICT-RESIZING <0|1>",
 "    Enable or disable the main dict and expire dict resizing.",
+"SCRIPT <LIST|<sha>>",
+"    Output SHA and content of all scripts or of a specific script with its SHA.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1016,7 +1018,7 @@ NULL
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr,"list")) {
-            dictIterator *di = dictGetIterator(getLuaScripts());
+            dictIterator *di = dictGetIterator(evalScriptsDict());
             dictEntry *de;
             while ((de = dictNext(di)) != NULL) {
                 luaScript *script = dictGetVal(de);
@@ -1026,7 +1028,7 @@ NULL
             dictReleaseIterator(di);
         } else if (sdslen(c->argv[2]->ptr) == 40) {
             dictEntry *de;
-            if ((de = dictFind(getLuaScripts(), c->argv[2]->ptr)) == NULL) {
+            if ((de = dictFind(evalScriptsDict(), c->argv[2]->ptr)) == NULL) {
                 addReplyErrorObject(c, shared.noscripterr);
                 return;
             }
