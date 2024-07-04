@@ -487,8 +487,9 @@ test-cluster: $(REDIS_SERVER_NAME) $(REDIS_CLI_NAME)
 check: test
 
 lcov:
+	@lcov --version
 	$(MAKE) gcov
-	@(set -e; cd ..; ./runtest --clients 1)
+	@(set -e; cd ..; ./runtest)
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
 
