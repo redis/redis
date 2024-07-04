@@ -102,4 +102,17 @@ tags "modules" {
             assert_equal {OK} [r set x 1 EX 1]
         }
     }
+
+    start_server {} {
+        test {OnLoad failure will handle un-registration} {
+            catch {r module load $testmodule noload}
+            r set x 1
+            r hset y f v
+            r lpush z 1 2 3
+            r sadd p 1 2 3
+            r zadd t 1 f1 2 f2
+            r xadd s * f v
+            r ping
+        }
+    }
 }

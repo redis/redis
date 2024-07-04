@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014, Matt Stancliff <matt@genges.com>.
- * Copyright (c) 2015-2016, Salvatore Sanfilippo <antirez@gmail.com>.
+ * Copyright (c) 2015-current, Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -300,7 +300,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
 
-        if ((ln = zslFirstInRange(zsl, &range)) == NULL) {
+        if ((ln = zslNthInRange(zsl, &range, 0)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
             return 0;
         }
@@ -690,7 +690,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     }
 
     if (any && !count) {
-        addReplyErrorFormat(c, "the ANY argument requires COUNT argument");
+        addReplyError(c, "the ANY argument requires COUNT argument");
         return;
     }
 

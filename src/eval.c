@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2011-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -38,6 +17,9 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+#if defined(USE_JEMALLOC)
+#include <lstate.h>
+#endif
 #include <ctype.h>
 #include <math.h>
 
@@ -46,6 +28,7 @@ void ldbDisable(client *c);
 void ldbEnable(client *c);
 void evalGenericCommandWithDebugging(client *c, int evalsha);
 sds ldbCatStackValue(sds s, lua_State *lua, int idx);
+listNode *luaScriptsLRUAdd(client *c, sds sha, int evalsha);
 
 static void dictLuaScriptDestructor(dict *d, void *val) {
     UNUSED(d);
@@ -58,7 +41,7 @@ static uint64_t dictStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-/* server.lua_scripts sha (as sds string) -> scripts (as luaScript) cache. */
+/* lctx.lua_scripts sha (as sds string) -> scripts (as luaScript) cache. */
 dictType shaScriptObjectDictType = {
         dictStrCaseHash,            /* hash function */
         NULL,                       /* key dup */
@@ -74,6 +57,7 @@ struct luaCtx {
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
+    list *lua_scripts_lru_list; /* A list of SHA1, first in first out LRU eviction. */
     unsigned long long lua_scripts_mem;  /* Cached scripts' memory + oh */
 } lctx;
 
@@ -181,18 +165,23 @@ int luaRedisReplicateCommandsCommand(lua_State *lua) {
  *
  * However it is simpler to just call scriptingReset() that does just that. */
 void scriptingInit(int setup) {
-    lua_State *lua = lua_open();
-
     if (setup) {
         lctx.lua_client = NULL;
         server.script_disable_deny_script = 0;
         ldbInit();
     }
 
+    lua_State *lua = createLuaState();
+    if (lua == NULL) {
+        serverLog(LL_WARNING, "Failed creating the lua VM.");
+        exit(1);
+    }
+
     /* Initialize a dictionary we use to map SHAs to scripts.
-     * This is useful for replication, as we need to replicate EVALSHA
-     * as EVAL, so we need to remember the associated script. */
+     * Initialize a list we use for lua script evictions, it shares the
+     * sha with the dictionary, so free fn is not set. */
     lctx.lua_scripts = dictCreate(&shaScriptObjectDictType);
+    lctx.lua_scripts_lru_list = listCreate();
     lctx.lua_scripts_mem = 0;
 
     luaRegisterRedisAPI(lua);
@@ -264,15 +253,27 @@ void scriptingInit(int setup) {
     lctx.lua = lua;
 }
 
+/* Free lua_scripts dict and close lua interpreter. */
+void freeLuaScriptsSync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State *lua) {
+    dictRelease(lua_scripts);
+    listRelease(lua_scripts_lru_list);
+    lua_close(lua);
+
+#if defined(USE_JEMALLOC)
+    /* When lua is closed, destroy the previously used private tcache. */
+    void *ud = (global_State*)G(lua)->ud;
+    unsigned int lua_tcache = (unsigned int)(uintptr_t)ud;
+    je_mallctl("tcache.destroy", NULL, NULL, (void *)&lua_tcache, sizeof(unsigned int));
+#endif
+}
+
 /* Release resources related to Lua scripting.
  * This function is used in order to reset the scripting environment. */
 void scriptingRelease(int async) {
     if (async)
-        freeLuaScriptsAsync(lctx.lua_scripts);
+        freeLuaScriptsAsync(lctx.lua_scripts, lctx.lua_scripts_lru_list, lctx.lua);
     else
-        dictRelease(lctx.lua_scripts);
-    lctx.lua_scripts_mem = 0;
-    lua_close(lctx.lua);
+        freeLuaScriptsSync(lctx.lua_scripts, lctx.lua_scripts_lru_list, lctx.lua);
 }
 
 void scriptingReset(int async) {
@@ -418,8 +419,11 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
  * exists, and in such a case, it behaves like in the success case.
  *
  * If 'c' is not NULL, on error the client is informed with an appropriate
- * error describing the nature of the problem and the Lua interpreter error. */
-sds luaCreateFunction(client *c, robj *body) {
+ * error describing the nature of the problem and the Lua interpreter error.
+ *
+ * 'evalsha' indicating whether the lua function is created from the EVAL context
+ * or from the SCRIPT LOAD. */
+sds luaCreateFunction(client *c, robj *body, int evalsha) {
     char funcname[43];
     dictEntry *de;
     uint64_t script_flags;
@@ -436,7 +440,9 @@ sds luaCreateFunction(client *c, robj *body) {
     ssize_t shebang_len = 0;
     sds err = NULL;
     if (evalExtractShebangFlags(body->ptr, &script_flags, &shebang_len, &err) == C_ERR) {
-        addReplyErrorSds(c, err);
+        if (c != NULL) {
+            addReplyErrorSds(c, err);
+        }
         return NULL;
     }
 
@@ -462,11 +468,69 @@ sds luaCreateFunction(client *c, robj *body) {
     l->body = body;
     l->flags = script_flags;
     sds sha = sdsnewlen(funcname+2,40);
+    l->node = luaScriptsLRUAdd(c, sha, evalsha);
     int retval = dictAdd(lctx.lua_scripts,sha,l);
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
     return sha;
+}
+
+/* Delete a Lua function with the specified sha.
+ *
+ * This will delete the lua function from the lua interpreter and delete
+ * the lua function from server. */
+void luaDeleteFunction(client *c, sds sha) {
+    /* Delete the script from lua interpreter. */
+    char funcname[43];
+    funcname[0] = 'f';
+    funcname[1] = '_';
+    memcpy(funcname+2, sha, 40);
+    funcname[42] = '\0';
+    lua_pushnil(lctx.lua);
+    lua_setfield(lctx.lua, LUA_REGISTRYINDEX, funcname);
+
+    /* Delete the script from server. */
+    dictEntry *de = dictUnlink(lctx.lua_scripts, sha);
+    serverAssertWithInfo(c ? c : lctx.lua_client, NULL, de);
+    luaScript *l = dictGetVal(de);
+    /* We only delete `EVAL` scripts, which must exist in the LRU list. */
+    serverAssert(l->node);
+    listDelNode(lctx.lua_scripts_lru_list, l->node);
+    lctx.lua_scripts_mem -= sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(l->body);
+    dictFreeUnlinkedEntry(lctx.lua_scripts, de);
+}
+
+/* Users who abuse EVAL will generate a new lua script on each call, which can
+ * consume large amounts of memory over time. Since EVAL is mostly the one that
+ * abuses the lua cache, and these won't have pipeline issues (scripts won't
+ * disappear when EVALSHA needs it and cause failure), we implement script eviction
+ * only for these (not for one loaded with SCRIPT LOAD). Considering that we don't
+ * have many scripts, then unlike keys, we don't need to worry about the memory
+ * usage of keeping a true sorted LRU linked list.
+ *
+ * 'evalsha' indicating whether the lua function is added from the EVAL context
+ * or from the SCRIPT LOAD.
+ *
+ * Returns the corresponding node added, which is used to save it in luaScript
+ * and use it for quick removal and re-insertion into an LRU list each time the
+ * script is used. */
+#define LRU_LIST_LENGTH 500
+listNode *luaScriptsLRUAdd(client *c, sds sha, int evalsha) {
+    /* Script eviction only applies to EVAL, not SCRIPT LOAD. */
+    if (evalsha) return NULL;
+
+    /* Evict oldest. */
+    while (listLength(lctx.lua_scripts_lru_list) >= LRU_LIST_LENGTH) {
+        listNode *ln = listFirst(lctx.lua_scripts_lru_list);
+        sds oldest = listNodeValue(ln);
+        luaDeleteFunction(c, oldest);
+        server.stat_evictedscripts++;
+    }
+
+    /* Add current. */
+    listAddNodeTail(lctx.lua_scripts_lru_list, sha);
+    return listLast(lctx.lua_scripts_lru_list);
 }
 
 void evalGenericCommand(client *c, int evalsha) {
@@ -507,7 +571,7 @@ void evalGenericCommand(client *c, int evalsha) {
             addReplyErrorObject(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c,c->argv[1]) == NULL) {
+        if (luaCreateFunction(c, c->argv[1], evalsha) == NULL) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
@@ -536,6 +600,13 @@ void evalGenericCommand(client *c, int evalsha) {
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
+
+    if (l->node) {
+        /* Quick removal and re-insertion after the script is called to
+         * maintain the LRU list. */
+        listUnlinkNode(lctx.lua_scripts_lru_list, l->node);
+        listLinkNodeTail(lctx.lua_scripts_lru_list, l->node);
+    }
 }
 
 void evalCommand(client *c) {
@@ -621,7 +692,7 @@ NULL
                 addReply(c,shared.czero);
         }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
-        sds sha = luaCreateFunction(c,c->argv[2]);
+        sds sha = luaCreateFunction(c, c->argv[2], 1);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
         addReplyBulkCBuffer(c,sha,40);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
@@ -661,7 +732,8 @@ dict* evalScriptsDict(void) {
 unsigned long evalScriptsMemory(void) {
     return lctx.lua_scripts_mem +
             dictMemUsage(lctx.lua_scripts) +
-            dictSize(lctx.lua_scripts) * sizeof(luaScript);
+            dictSize(lctx.lua_scripts) * sizeof(luaScript) +
+            listLength(lctx.lua_scripts_lru_list) * sizeof(listNode);
 }
 
 /* ---------------------------------------------------------------------------

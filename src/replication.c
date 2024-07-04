@@ -1,31 +1,10 @@
 /* Asynchronous replication implementation.
  *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 
@@ -209,6 +188,9 @@ int canFeedReplicaReplBuffer(client *replica) {
 
     /* Don't feed replicas that are still waiting for BGSAVE to start. */
     if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) return 0;
+
+    /* Don't feed replicas that are going to be closed ASAP. */
+    if (replica->flags & CLIENT_CLOSE_ASAP) return 0;
 
     return 1;
 }
@@ -616,6 +598,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     while((ln = listNext(&li))) {
         client *monitor = ln->value;
         addReply(monitor,cmdobj);
+        updateClientMemUsageAndBucket(monitor);
     }
     decrRefCount(cmdobj);
 }
@@ -883,7 +866,7 @@ int startBgsaveForReplication(int mincapa, int req) {
             retval = rdbSaveToSlavesSockets(req,rsiptr);
         else {
             /* Keep the page cache since it'll get used soon */
-            retval = rdbSaveBackground(req,server.rdb_filename,rsiptr,RDBFLAGS_KEEP_CACHE);
+            retval = rdbSaveBackground(req, server.rdb_filename, rsiptr, RDBFLAGS_REPLICATION | RDBFLAGS_KEEP_CACHE);
         }
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
@@ -956,7 +939,11 @@ void syncCommand(client *c) {
         }
 
         if (!strcasecmp(c->argv[1]->ptr,server.replid)) {
-            replicationUnsetMaster();
+            if (server.cluster_enabled) {
+                clusterPromoteSelfToMaster();
+            } else {
+                replicationUnsetMaster();
+            }
             sds client = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE,
                 "MASTER MODE enabled (failover request from '%s')",client);
@@ -1259,7 +1246,7 @@ void replconfCommand(client *c) {
             int filter_count, i;
             sds *filters;
             if (!(filters = sdssplitargs(c->argv[j+1]->ptr, &filter_count))) {
-                addReplyErrorFormat(c, "Missing rdb-filter-only values");
+                addReplyError(c, "Missing rdb-filter-only values");
                 return;
             }
             /* By default filter out all parts of the rdb */
@@ -1594,7 +1581,8 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
         }
         /*  Remove the pipe read handler if at least one write handler was set. */
         if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
-            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
+            if (server.rdb_pipe_read != -1)
+                aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
             break;
         }
     }
@@ -1616,6 +1604,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
+
+        /* We can get here via freeClient()->killRDBChild()->checkChildrenDone(). skip disconnected slaves. */
+        if (!slave->conn) continue;
 
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
@@ -1740,7 +1731,7 @@ int slaveIsInHandshakeState(void) {
  * not, since the byte is indivisible.
  *
  * The function is called in two contexts: while we flush the current
- * data with emptyDb(), and while we load the new data received as an
+ * data with emptyData(), and while we load the new data received as an
  * RDB file from the master. */
 void replicationSendNewlineToMaster(void) {
     static time_t newline_sent;
@@ -1751,7 +1742,7 @@ void replicationSendNewlineToMaster(void) {
     }
 }
 
-/* Callback used by emptyDb() while flushing away old data to load
+/* Callback used by emptyData() while flushing away old data to load
  * the new dataset received by the master and by discardTempDb()
  * after loading succeeded or failed. */
 void replicationEmptyDbCallback(dict *d) {
@@ -2240,6 +2231,10 @@ void readSyncBulkPayload(connection *conn) {
                                     "disabled");
                 bg_unlink(server.rdb_filename);
             }
+
+            /* If disk-based RDB loading fails, remove the half-loaded dataset. */
+            emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
+
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */
             return;
@@ -2254,6 +2249,7 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         zfree(server.repl_transfer_tmpfile);
+        close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
         server.repl_transfer_tmpfile = NULL;
     }
@@ -3777,7 +3773,7 @@ void replicationCron(void) {
          * match the one stored into 'mf_master_offset' state. */
         int manual_failover_in_progress =
             ((server.cluster_enabled &&
-              server.cluster->mf_end) ||
+              clusterManualFailoverTimeLimit()) ||
             server.failover_end_time) &&
             isPausedActionsWithUpdate(PAUSE_ACTION_REPLICA);
 
@@ -4064,12 +4060,10 @@ void abortFailover(const char *err) {
  * will attempt forever and must be manually aborted.
  */
 void failoverCommand(client *c) {
-    if (server.cluster_enabled) {
-        addReplyError(c,"FAILOVER not allowed in cluster mode. "
-                        "Use CLUSTER FAILOVER command instead.");
+    if (!clusterAllowFailoverCmd(c)) {
         return;
     }
-    
+
     /* Handle special case for abort */
     if ((c->argc == 2) && !strcasecmp(c->argv[1]->ptr,"abort")) {
         if (server.failover_state == NO_FAILOVER) {
