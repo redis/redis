@@ -662,6 +662,8 @@ jobs:
       !contains(github.event.inputs.skipjobs, 'centos')
     container: centos:7
     timeout-minutes: 14400
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -705,6 +707,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
     container: centos:7
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -760,6 +764,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
     container: centos:7
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -1067,4 +1073,3 @@ jobs:
         path: "./utils/req-res-validator/requirements.txt"
     - name: validator
       run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
-
