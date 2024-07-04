@@ -508,8 +508,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 void showLatestBacklog(void) {
     if (server.repl_backlog == NULL) return;
     if (listLength(server.repl_buffer_blocks) == 0) return;
-    if (server.hide_client_log) {
-        serverLog(LL_NOTICE,"hide-client-log is on, skip logging backlog content to avid spilling PII.");
+    if (server.hide_user_data_from_log) {
+        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging backlog content to avid spilling PII.");
         return;
     }
 
@@ -544,7 +544,7 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
     /* Debugging: this is handy to see the stream sent from master
      * to slaves. Disabled with if(0). */
     if (0) {
-        if (!server.hide_client_log) {
+        if (!server.hide_user_data_from_log) {
             printf("%zu:",buflen);
             for (size_t j = 0; j < buflen; j++) {
                 printf("%c", isprint(buf[j]) ? buf[j] : '.');

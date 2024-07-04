@@ -1071,7 +1071,7 @@ void _serverAssert(const char *estr, const char *file, int line) {
 
 /* Returns the amount of client's command arguments we allow logging */
 int clientArgsToLog(const client *c) {
-    return server.hide_client_log ? 1 : c->argc;
+    return server.hide_user_data_from_log ? 1 : c->argc;
 }
 
 void _serverAssertPrintClientInfo(const client *c) {
@@ -1286,8 +1286,8 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 
 REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
-    if (server.hide_client_log) {
-        serverLog(LL_NOTICE,"hide-client-log is on, skip logging stack content to avid spilling PII.");
+    if (server.hide_user_data_from_log) {
+        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging stack content to avid spilling PII.");
         return;
     }
     int i;

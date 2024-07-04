@@ -1733,7 +1733,7 @@ struct redisServer {
 
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
-    int hide_client_log;            /* In the event of an assertion failure, hide command arguments from the operator */
+    int hide_user_data_from_log;    /* In the event of an assertion failure, hide command arguments from the operator */
     int maxidletime;                /* Client timeout in seconds */
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
