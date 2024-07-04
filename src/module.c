@@ -6515,7 +6515,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
+        const uint64_t cmd_flags = getCommandFlags(c);
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,cmd_flags,&error_code) !=
                            getMyClusterNode())
         {
             sds msg = NULL;
