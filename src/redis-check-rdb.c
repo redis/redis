@@ -26,6 +26,7 @@ struct {
     unsigned long keys;             /* Number of keys processed. */
     unsigned long expires;          /* Number of keys with an expire. */
     unsigned long already_expired;  /* Number of keys already expired. */
+    unsigned long subexpires;        /* Number of keys with subexpires */
     int doing;                      /* The state while reading the RDB. */
     int error_set;                  /* True if error is populated. */
     char error[1024];
@@ -80,6 +81,8 @@ char *rdb_type_string[] = {
     "stream-v2",
     "set-listpack",
     "stream-v3",
+    "hash-hashtable-md-pre-release",
+    "hash-listpack-md-pre-release",
     "hash-hashtable-md",
     "hash-listpack-md",
 };
@@ -89,6 +92,7 @@ void rdbShowGenericInfo(void) {
     printf("[info] %lu keys read\n", rdbstate.keys);
     printf("[info] %lu expires\n", rdbstate.expires);
     printf("[info] %lu already expired\n", rdbstate.already_expired);
+    printf("[info] %lu subexpire\n", rdbstate.subexpires);
 }
 
 /* Called on RDB errors. Provides details about the RDB and the offset
@@ -339,6 +343,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
         if (expiretime != -1) rdbstate.expires++;
+        /* If hash with HFEs then with expiration on fields then need to count it */
+        if ((val->type == OBJ_HASH) && (hashTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID))
+            rdbstate.subexpires++;
+
         rdbstate.key = NULL;
         decrRefCount(key);
         decrRefCount(val);

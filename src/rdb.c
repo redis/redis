@@ -2258,8 +2258,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
-    } else if (rdbtype == RDB_TYPE_HASH_METADATA ||
-               rdbtype == RDB_TYPE_HASH_METADATA_PRE_GA) {
+    } else if (rdbtype == RDB_TYPE_HASH_METADATA || rdbtype == RDB_TYPE_HASH_METADATA_PRE_GA) {
         sds value;
         hfield field;
         uint64_t expireAt;
@@ -2272,7 +2271,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
              * directly to FLASH (while keeping in mem its next expiration time) */
             UNUSED(minExpire);
             if (rioGetReadError(rdb)) {
-                rdbReportCorruptRDB( "Hash failed loading minExpire");
+                rdbReportCorruptRDB("Hash failed loading minExpire");
                 return NULL;
             }
         }
