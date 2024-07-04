@@ -737,7 +737,7 @@ unsigned long evalScriptsMemory(void) {
 }
 
 void evalScriptsCron(void) {
-    lua_gc_step(lctx.lua, 1);
+    lua_gc_step(lctx.lua);
 }
 
 /* ---------------------------------------------------------------------------

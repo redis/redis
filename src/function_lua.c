@@ -186,7 +186,7 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
 static void luaEnglineCron(void *engine_ctx) {
     luaEngineCtx *lua_engine_ctx = engine_ctx;
     lua_State *lua = lua_engine_ctx->lua;
-    lua_gc_step(lua, 1);
+    lua_gc_step(lua);
 }
 
 static void luaRegisterFunctionArgsInitialize(registerFunctionArgs *register_f_args,
