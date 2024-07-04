@@ -5,7 +5,7 @@ coverage:
         informational: true
     project:
       default:
-        target: 65%  # the required coverage value
+        target: 68%  # the required coverage value
         threshold: 1% # the leniency in hitting the target
         # Use Codecov in informational mode. The CI will pass no matter what 
         # the coverage is or what other settings are specified.
