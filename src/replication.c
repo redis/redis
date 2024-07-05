@@ -541,18 +541,6 @@ void showLatestBacklog(void) {
  * to our sub-slaves. */
 #include <ctype.h>
 void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
-    /* Debugging: this is handy to see the stream sent from master
-     * to slaves. Disabled with if(0). */
-    if (0) {
-        if (!server.hide_user_data_from_log) {
-            printf("%zu:",buflen);
-            for (size_t j = 0; j < buflen; j++) {
-                printf("%c", isprint(buf[j]) ? buf[j] : '.');
-            }
-            printf("\n");
-        }
-    }
-
     /* There must be replication backlog if having attached slaves. */
     if (listLength(server.slaves)) serverAssert(server.repl_backlog != NULL);
     if (server.repl_backlog) {
