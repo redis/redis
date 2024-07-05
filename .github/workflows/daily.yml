@@ -1057,3 +1057,156 @@ jobs:
         path: "./utils/req-res-validator/requirements.txt"
     - name: validator
       run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
+
+  test-old-chain-jemalloc:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'centos')
+    container: ubuntu:20.04
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: |
+        apt-get update
+        apt-get install -y gnupg2 
+        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
+        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
+        apt-get update
+        apt-get install -y make gcc-4.8
+        make CC=gcc-4.8 REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: apt-get install -y tcl tcltls tclx
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: module api test
+      if: true && !contains(github.event.inputs.skiptests, 'modules')
+      run: LD=gcc-4.8 CC=gcc-4.8 CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
+      run: LD=gcc-4.8 CC=gcc-4.8 ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
+    - name: cluster tests
+      if: true && !contains(github.event.inputs.skiptests, 'cluster')
+      run: LD=gcc-4.8 CC=gcc-4.8 ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
+
+  test-old-chain-tls-module:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'tls')
+    container: ubuntu:20.04
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: |
+        apt-get update
+        apt-get install -y gnupg2 
+        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
+        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
+        apt-get update
+        apt-get install -y make gcc-4.8 openssl libssl-dev
+        make BUILD_TLS=module CC=gcc-4.8 REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: |
+        apt-get install -y tcl tcltls tclx
+        ./utils/gen-test-certs.sh
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: |
+        ./runtest --accurate --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
+    - name: module api test
+      if: true && !contains(github.event.inputs.skiptests, 'modules')
+      run: |
+        LD=gcc-4.8 CC=gcc-4.8 CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs --tls-module --dump-logs ${{github.event.inputs.test_args}}
+    - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
+      run: |
+        LD=gcc-4.8 CC=gcc-4.8 ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
+    - name: cluster tests
+      if: true && !contains(github.event.inputs.skiptests, 'cluster')
+      run: |
+        LD=gcc-4.8 CC=gcc-4.8 ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
+
+  test-old-chain-tls-module-no-tls:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'tls')
+    container: ubuntu:20.04
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: |
+        apt-get update
+        apt-get install -y gnupg2 
+        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
+        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
+        apt-get update
+        apt-get install -y make gcc-4.8 openssl libssl-dev
+        make BUILD_TLS=module CC=gcc-4.8 REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: |
+        apt-get install -y tcl tcltls tclx
+        ./utils/gen-test-certs.sh
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: |
+        ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: module api test
+      if: true && !contains(github.event.inputs.skiptests, 'modules')
+      run: |
+        LD=gcc-4.8 CC=gcc-4.8 CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: sentinel tests
+      if: true && !contains(github.event.inputs.skiptests, 'sentinel')
+      run: |
+        LD=gcc-4.8 CC=gcc-4.8 ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
+    - name: cluster tests
+      if: true && !contains(github.event.inputs.skiptests, 'cluster')
+      run: |
+        LD=gcc-4.8 CC=gcc-4.8 ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
