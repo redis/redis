@@ -655,12 +655,12 @@ jobs:
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
 
-  test-centos8-jemalloc:
+  test-centos-jemalloc:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'centos')
-    container: centos:8
+    container: quay.io/centos/centos:stream9
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -676,16 +676,14 @@ jobs:
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
-    - name: fix centos8 EOL
-      run: |
-        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - name: make
       run: |
-        yum -y install gcc make
+        dnf -y install which gcc make
         make REDIS_CFLAGS='-Werror'
     - name: testprep
-      run: yum -y install which tcl
+      run: |
+        dnf -y install epel-release
+        dnf -y install tcl tcltls procps-ng /usr/bin/kill
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
@@ -699,12 +697,12 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
-  test-centos8-tls-module:
+  test-centos-tls-module:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    container: centos:8
+    container: quay.io/centos/centos:stream9
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -720,17 +718,14 @@ jobs:
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
-    - name: fix centos8 EOL
-      run: |
-        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - name: make
       run: |
-        yum -y install epel-release openssl-devel openssl gcc make
+        dnf -y install which gcc make openssl-devel openssl
         make BUILD_TLS=module REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
-        yum -y install which tcl tcltls
+        dnf -y install epel-release
+        dnf -y install tcl tcltls procps-ng /usr/bin/kill
         ./utils/gen-test-certs.sh
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
@@ -754,7 +749,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'tls')
-    container: centos:8
+    container: quay.io/centos/centos:stream9
     timeout-minutes: 14400
     steps:
     - name: prep
@@ -770,17 +765,14 @@ jobs:
       with:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
-    - name: fix centos8 EOL
-      run: |
-        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - name: make
       run: |
-        yum -y install epel-release openssl-devel openssl gcc make
+        dnf -y install which gcc make openssl-devel openssl
         make BUILD_TLS=module REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
-        yum -y install which tcl tcltls
+        dnf -y install epel-release
+        dnf -y install tcl tcltls procps-ng /usr/bin/kill
         ./utils/gen-test-certs.sh
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
