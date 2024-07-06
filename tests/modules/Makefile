@@ -12,12 +12,8 @@ else	# Linux, others
 endif
 
 ifeq ($(uname_S),Linux)
-    ifeq ($(LD),)
-        LD = gcc
-    endif
-    ifeq ($(CC),)
-        CC = gcc
-    endif
+    LD = gcc
+    CC = gcc
 endif
 
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
