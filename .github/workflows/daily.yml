@@ -744,7 +744,7 @@ jobs:
       run: |
         ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
 
-  test-centos8-tls-module-no-tls:
+  test-centos-tls-module-no-tls:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
