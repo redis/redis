@@ -1054,7 +1054,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'centos')
+      !contains(github.event.inputs.skipjobs, 'ubuntu')
     container: ubuntu:20.04
     timeout-minutes: 14400
     steps:
