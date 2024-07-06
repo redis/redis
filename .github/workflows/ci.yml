@@ -72,18 +72,14 @@ jobs:
     - name: make
       run: make REDIS_CFLAGS='-Werror' MALLOC=libc
 
-  build-centos8-jemalloc:
+  build-centos-jemalloc:
     runs-on: ubuntu-latest
-    container: centos:8
+    container: quay.io/centos/centos:stream9
     steps:
     - uses: actions/checkout@v4
-    - name: fix centos8 EOL
-      run: |
-        sed -i 's/^mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
     - name: make
       run: |
-        yum -y install gcc make
+        dnf -y install which gcc make
         make REDIS_CFLAGS='-Werror'
 
   build-old-chain-jemalloc:
