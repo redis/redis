@@ -1122,7 +1122,7 @@ jobs:
     - name: make
       run: |
         apt-get update
-        apt-get install -y gnupg2 
+        apt-get install -y gnupg2
         echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
         echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
