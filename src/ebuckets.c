@@ -282,60 +282,132 @@ static int ebSegAddAvail(EbucketsType *type, FirstSegHdr *seg, eItem item) {
 }
 
 /* Return 1 if split segment to two succeeded. Else, return 0. The only reason
- * the split can fail is that All the items in the segment have the same bucket-key */
-static int ebTrySegSplit(EbucketsType *type, FirstSegHdr *seg, EBucketNew *newBucket) {
-    int minMidDist=(EB_SEG_MAX_ITEMS / 2), bestMiddleIndex = -1;
-    uint64_t splitKey = -1;
+ * the split can fail is that All the items in the segment have the same bucket-key.
+ * On success, we also insert the item into one of the two parts resulting from
+ * the split. */
+static int ebTrySegSplitAndInsert(EbucketsType *type, FirstSegHdr *seg, eItem item, EBucketNew *newBucket) {
+    int bestFirstPartSize = -1;
+    int twoPartsDiff, minTwoPartsDiff = EB_SEG_MAX_ITEMS + 1;
+    uint64_t splitKey = -1, iterKey, nextKey;
     eItem firstItemSecondPart;
     ExpireMeta *mLastItemFirstPart, *mFirstItemSecondPart;
 
-    eItem head = seg->head;
+    eItem head = seg->head, next;
     ExpireMeta *mHead = type->getExpireMeta(head);
-    ExpireMeta *mNext, *mIter = mHead;
+    ExpireMeta *mNext, *mIter = mHead, *mIterNext, *mItem = type->getExpireMeta(item);
+    uint64_t itemExpireTime = ebGetMetaExpTime(mItem);
 
-    /* Search for best middle index to split the segment into two segments. As the
+    int itemInsertInFirstPart = 0;
+    int findInsertionPos = 0;
+    ExpireMeta *mItemBeforeInsert = NULL;
+
+    /* Check if we need to insert before head */
+    if (ebGetMetaExpTime(mHead) > itemExpireTime) {
+        findInsertionPos = 1;
+        /* We do not insert it now because at this time we can not assure that the
+         * split operation will success */
+    }
+
+    /* Search for the best middle index to split the segment into two segments with
+     * the minimum difference between the sizes of these two segments. As the
      * items are arranged in ascending order, it cannot split between two items that
      * have the same expiration time and therefore the split won't necessarily be
      * balanced (Or won't be possible to split at all if all have the same exp-time!)
+     * We are also looking for the position to insert the new item during the traversal.
+     * The new item to be inserted is also considered when we look for the best split place.
      */
     for (int i = 0 ; i < EB_SEG_MAX_ITEMS-1 ; i++) {
-        //printf ("i=%d\n", i);
-        mNext = type->getExpireMeta(mIter->next);
-        if (EB_BUCKET_KEY(ebGetMetaExpTime(mNext)) > EB_BUCKET_KEY(
-                                                         ebGetMetaExpTime(mIter))) {
-            /* If found better middle index before reaching halfway, save it */
-            if (i < (EB_SEG_MAX_ITEMS/2)) {
-                splitKey = EB_BUCKET_KEY(ebGetMetaExpTime(mNext));
-                bestMiddleIndex = i;
-                mLastItemFirstPart = mIter;
-                mFirstItemSecondPart = mNext;
-                firstItemSecondPart = mIter->next;
-                minMidDist = (EB_SEG_MAX_ITEMS / 2) - bestMiddleIndex;
+        next = mIter->next;
+        mNext = mIterNext = type->getExpireMeta(next);
+        /* In most cases, mIterNext are the same as mNext, but if we insert mItem
+         * between mIter and mNext and split between mIter and the mItem, then we
+         * update mNext to mItem while mIterNext stays unchanged, used to traverse
+         * the list ('mIter = mIterNext;' at the end of this loop). */
+        iterKey = EB_BUCKET_KEY(ebGetMetaExpTime(mIter));
+        nextKey = EB_BUCKET_KEY(ebGetMetaExpTime(mNext));
+        if (findInsertionPos) {
+            itemInsertInFirstPart = 1;
+        } else if (ebGetMetaExpTime(mNext) > itemExpireTime) {
+            /* Insert mItem between mIter and mNext, but only record where to insert
+             * without actually inserting it, we insert outside this traversal */
+            findInsertionPos = 1;
+            mItemBeforeInsert = mIter;
+            assert(iterKey <= EB_BUCKET_KEY(itemExpireTime) && EB_BUCKET_KEY(itemExpireTime) <= nextKey);
+            /* Find out which strategy is better: split between mIter and mItem, or
+             * split between mItem and mNext. The case of failure of the split because
+             * of the same EB_BUCKET_KEY() will be checked later by comparing iterKey
+             * and nextKey */
+            assert(itemInsertInFirstPart == 0);
+            if (iterKey == EB_BUCKET_KEY(itemExpireTime)) {
+                itemInsertInFirstPart = 1;
+            } else if (EB_BUCKET_KEY(itemExpireTime) < nextKey && i + 1 < EB_SEG_MAX_ITEMS - i - 1) {
+                itemInsertInFirstPart = 1;
+            }
+            if (itemInsertInFirstPart) {
+                /* Split between mItem and mNext, so update mIter to mItem */
+                mIter = mItem;
+                iterKey = EB_BUCKET_KEY(itemExpireTime);
             } else {
-                /* after crossing the middle need only to look for the first diff */
-                if (minMidDist > (i + 1 - EB_SEG_MAX_ITEMS / 2)) {
-                    splitKey = EB_BUCKET_KEY(ebGetMetaExpTime(mNext));
-                    bestMiddleIndex = i;
-                    mLastItemFirstPart = mIter;
-                    mFirstItemSecondPart = mNext;
-                    firstItemSecondPart = mIter->next;
-                    minMidDist = i + 1 - EB_SEG_MAX_ITEMS / 2;
-                }
+                /* Split between mIter and mItem, so update next and mNext */
+                next = item;
+                mNext = mItem;
+                nextKey = EB_BUCKET_KEY(itemExpireTime);
             }
         }
-        mIter = mNext;
+        /* Check if we can split between mIter and mNext */
+        if (nextKey > iterKey) {
+	        /* Size of the first part: i + 1 + itemInsertInFirstPart
+             * Size of the second part: EB_SEG_MAX_ITEMS + 1 - (i + 1 + itemInsertInFirstPart)
+             * Note that if we can split here then the item will be inserted into one of the two
+             * parts so that the total number of items of the two parts is EB_SEG_MAX_ITEMS + 1
+             */
+            twoPartsDiff = abs(EB_SEG_MAX_ITEMS + 1 - 2 * (i + 1 + itemInsertInFirstPart));
+            if (twoPartsDiff < minTwoPartsDiff) {
+                splitKey = nextKey;
+                bestFirstPartSize = i + 1 + itemInsertInFirstPart;
+                mLastItemFirstPart = mIter;
+                mFirstItemSecondPart = mNext;
+                firstItemSecondPart = next;
+                minTwoPartsDiff = twoPartsDiff;
+            }
+        }
+        mIter = mIterNext;
     }
 
     /* If cannot find index to split because all with same EB_BUCKET_KEY(), then
      * segment should be treated as extended segment */
-    if (bestMiddleIndex == -1)
+    if (bestFirstPartSize == -1)
         return 0;
+
+    assert(mItem->firstItemBucket == 0);
+    assert(mItem->numItems == 0);
+    assert(mItem->lastItemBucket == 0);
+    assert(mItem->lastInSegment == 0);
+    assert(mItem->trash == 0);
+    /* Split success without finding the insertion position means we have to insert
+     * at the end */
+    if (findInsertionPos == 0) {
+        mIter->next = item;
+        mIter->lastInSegment = 0;
+        mIter->lastItemBucket = 0;
+        mIter = mItem; /* Let mIter points to the last item */
+    } else if (mItemBeforeInsert == NULL) { /* Insert before the head */
+        mItem->next = head;
+        mItem->firstItemBucket = mHead->firstItemBucket;
+        mHead->firstItemBucket = 0;
+        mHead->numItems = 0;
+        seg->head = item;
+        mHead = mItem;
+    } else {
+        mItem->next = mItemBeforeInsert->next;
+        mItemBeforeInsert->next = item;
+    }
 
     /* New bucket */
     newBucket->segment.head = firstItemSecondPart;
     newBucket->segment.numSegs = 1;
-    newBucket->segment.totalItems = EB_SEG_MAX_ITEMS - bestMiddleIndex - 1;
-    mFirstItemSecondPart->numItems = EB_SEG_MAX_ITEMS - bestMiddleIndex - 1;
+    newBucket->segment.totalItems = EB_SEG_MAX_ITEMS + 1 - bestFirstPartSize;
+    mFirstItemSecondPart->numItems = EB_SEG_MAX_ITEMS + 1 - bestFirstPartSize;
     newBucket->mLast = mIter;
     newBucket->ebKey = splitKey;
     mIter->lastInSegment = 1;
@@ -344,8 +416,8 @@ static int ebTrySegSplit(EbucketsType *type, FirstSegHdr *seg, EBucketNew *newBu
     mFirstItemSecondPart->firstItemBucket = 1;
 
     /* update existing bucket */
-    seg->totalItems = bestMiddleIndex + 1;
-    mHead->numItems = bestMiddleIndex + 1;
+    seg->totalItems = bestFirstPartSize;
+    mHead->numItems = bestFirstPartSize;
     mLastItemFirstPart->lastInSegment = 1;
     mLastItemFirstPart->lastItemBucket = 1;
     mLastItemFirstPart->next = seg;
@@ -860,26 +932,10 @@ static int ebAddToBucket(EbucketsType *type,
             return ebSegAddAvail(type, firstSegBkt, item);
 
         /* If bucket is a single, full segment, and segment split succeeded */
-        if (ebTrySegSplit(type, firstSegBkt, newBucket) == 1) {
+        if (ebTrySegSplitAndInsert(type, firstSegBkt, item, newBucket) == 1) {
             /* The split got failed only because all items in the segment have the
              * same bucket-key */
-            ExpireMeta *mItem = type->getExpireMeta(item);
-
-            /* Check which of the two segments the new item should be added to. Note that
-             * after the split, bucket-key of `newBucket` is bigger than bucket-key of
-             * `firstSegBkt`. That is `firstSegBkt` preserves its bucket-key value
-             * (and its location in rax tree) before the split */
-            if (EB_BUCKET_KEY(ebGetMetaExpTime(type->getExpireMeta(item))) < newBucket->ebKey) {
-                return ebSegAddAvail(type, firstSegBkt, item);
-            } else {
-                /* Add the `item` to the new bucket */
-                ebSegAddAvail(type, &(newBucket->segment), item);
-
-                /* if new item is now last item in the segment, then update lastItemBucket */
-                if (mItem->lastItemBucket)
-                    newBucket->mLast = mItem;
-                return 0;
-            }
+            return 0;
         }
     }
 
