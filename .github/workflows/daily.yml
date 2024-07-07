@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -1054,7 +1054,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'ubuntu')
+      !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:20.04
     timeout-minutes: 14400
     steps:
@@ -1102,7 +1102,8 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'tls')
+      !contains(github.event.inputs.skipjobs, 'tls') &&
+      !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:20.04
     timeout-minutes: 14400
     steps:
@@ -1156,7 +1157,8 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'tls')
+      !contains(github.event.inputs.skipjobs, 'tls') &&
+      !contains(github.event.inputs.skipjobs, 'oldTC')
     container: ubuntu:20.04
     timeout-minutes: 14400
     steps:
