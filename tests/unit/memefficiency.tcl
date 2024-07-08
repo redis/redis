@@ -186,7 +186,7 @@ run_solo {defrag} {
             r script flush sync
             r config set hz 100
             r config set activedefrag no
-            wait_for_defrag_stop 2000 100
+            wait_for_defrag_stop 500 100
             r config resetstat
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
@@ -245,7 +245,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 2000 100
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -265,7 +265,7 @@ run_solo {defrag} {
             r flushdb
             r config set hz 100
             r config set activedefrag no
-            wait_for_defrag_stop 2000 100
+            wait_for_defrag_stop 500 100
             r config resetstat
             r config set active-defrag-max-scan-fields 1000
             r config set active-defrag-threshold-lower 5
@@ -361,7 +361,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 2000 100
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -400,7 +400,7 @@ run_solo {defrag} {
             r flushdb
             r config set hz 100
             r config set activedefrag no
-            wait_for_defrag_stop 2000 100
+            wait_for_defrag_stop 500 100
             r config resetstat
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
@@ -460,7 +460,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 2000 100
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -493,7 +493,7 @@ run_solo {defrag} {
             r flushdb
             r config set hz 100
             r config set activedefrag no
-            wait_for_defrag_stop 2000 100
+            wait_for_defrag_stop 500 100
             r config resetstat
             # TODO: Lower the threshold after defraging the ebuckets.
             # Now just to ensure that the reference is updated correctly.
@@ -568,7 +568,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 2000 100
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -587,7 +587,7 @@ run_solo {defrag} {
             r flushdb
             r config set hz 100
             r config set activedefrag no
-            wait_for_defrag_stop 2000 100
+            wait_for_defrag_stop 500 100
             r config resetstat
             r config set active-defrag-max-scan-fields 1000
             r config set active-defrag-threshold-lower 5
@@ -642,7 +642,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 2000 100
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -696,7 +696,7 @@ run_solo {defrag} {
                 r flushdb
                 r config set hz 100
                 r config set activedefrag no
-                wait_for_defrag_stop 2000 100
+                wait_for_defrag_stop 500 100
                 r config resetstat
                 r config set active-defrag-max-scan-fields 1000
                 r config set active-defrag-threshold-lower 5
@@ -763,7 +763,7 @@ run_solo {defrag} {
                     }
 
                     # wait for the active defrag to stop working
-                    wait_for_defrag_stop 2000 100
+                    wait_for_defrag_stop 500 100
 
                     # test the fragmentation is lower
                     after 120 ;# serverCron only updates the info once in 100ms
