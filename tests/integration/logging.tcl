@@ -110,7 +110,7 @@ if {!$::valgrind} {
         }
     }
 
-    set server_path [tmpdir server4.log]
+    set server_path [tmpdir server5.log]
     start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Crash report generated on DEBUG SEGFAULT with user data hidden when 'hide-user-data-from-log' is enabled" {
             r config set hide-user-data-from-log yes
@@ -134,7 +134,7 @@ if {$backtrace_supported} {
         }
     }
 
-    set server_path [tmpdir server5.log]
+    set server_path [tmpdir server6.log]
     start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
         test "Generate stacktrace on assertion with user data hidden when 'hide-user-data-from-log' is enabled" {
             r config set hide-user-data-from-log yes
