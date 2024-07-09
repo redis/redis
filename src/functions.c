@@ -1106,3 +1106,14 @@ int functionsInit(void) {
 
     return C_OK;
 }
+
+void functionsCron(void) {
+    dictEntry *entry = NULL;
+    dictIterator *iter = dictGetIterator(engines);
+    while ((entry = dictNext(iter))) {
+        engineInfo *ei = dictGetVal(entry);
+        engine *engine = ei->engine;
+        engine->cron(engine->engine_ctx);
+    }
+    dictReleaseIterator(iter);
+}

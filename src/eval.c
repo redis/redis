@@ -736,6 +736,10 @@ unsigned long evalScriptsMemory(void) {
             listLength(lctx.lua_scripts_lru_list) * sizeof(listNode);
 }
 
+void evalScriptsCron(void) {
+    lua_gc_step(lctx.lua);
+}
+
 /* ---------------------------------------------------------------------------
  * LDB: Redis Lua debugging facilities
  * ------------------------------------------------------------------------- */

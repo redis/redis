@@ -1389,6 +1389,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Handle background operations on Redis databases. */
     databasesCron();
 
+    /* Do some jobs for scripts and functions, such as garbage collection. */
+    run_with_period(100) {
+        evalScriptsCron();
+        functionsCron();
+    }
+
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
     if (!hasActiveChildProcess() &&

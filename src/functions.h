@@ -67,6 +67,9 @@ typedef struct engine {
 
     /* free the given function */
     void (*free_function)(void *engine_ctx, void *compiled_function);
+
+    /* perform periodic tasks. */
+    void (*cron)(void *engine_ctx);
 } engine;
 
 /* Hold information about an engine.
@@ -116,5 +119,6 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
 
 int luaEngineInitEngine(void);
 int functionsInit(void);
+void functionsCron(void);
 
 #endif /* __FUNCTIONS_H_ */

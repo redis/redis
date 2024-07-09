@@ -2383,3 +2383,21 @@ start_server {tags {"scripting"}} {
         }
     }
 }
+
+start_server {tags {"scripting"}} {
+    test "LUA gc in cron" {
+        set dummy_script "--[string repeat x 40]\nreturn "
+        set n 150000
+        for {set i 0} {$i < $n} {incr i} {
+            set val "$dummy_script[format "%06d" $i]"
+            r script load $val
+        }
+
+        # we expect the gabages in the LUA VM to be collected in the cron.
+        wait_for_condition 500 10 {
+            [s used_memory_lua] < 60000000
+        } else {
+            fail "LUA gc in cron doesn't work"
+        }
+    }
+}

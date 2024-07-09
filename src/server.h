@@ -3478,6 +3478,7 @@ void sha1hex(char *digest, char *script, size_t len);
 unsigned long evalMemory(void);
 dict* evalScriptsDict(void);
 unsigned long evalScriptsMemory(void);
+void evalScriptsCron(void);
 uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
 uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
 int isInsideYieldingLongCommand(void);
