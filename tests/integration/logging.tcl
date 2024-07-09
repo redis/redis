@@ -135,7 +135,7 @@ if {$backtrace_supported} {
     }
 
     set server_path [tmpdir server6.log]
-    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
+    start_server [list overrides [list dir $server_path use-exit-on-panic yes crash-memcheck-enabled no]] {
         test "Generate stacktrace on assertion with user data hidden when 'hide-user-data-from-log' is enabled" {
             r config set hide-user-data-from-log yes
             catch {r debug assert}
