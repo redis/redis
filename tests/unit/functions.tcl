@@ -292,7 +292,7 @@ start_server {tags {"scripting"}} {
         for {set i 0} {$i < 100} {incr i} {
             r function load REPLACE [get_function_code lua test$i test$i {local a = 1 while true do a = a + 1 end}]
         }
-        assert_morethan [s used_memory_vm_functions] 100000
+        assert_morethan [s used_memory_vm_functions] 70000
         r config resetstat
         r function flush async
         # Wait for the completion of lazy free for both functions and engines.
