@@ -121,7 +121,6 @@ if {$backtrace_supported} {
             check_log_backtrace_for_debug "*ASSERTION FAILED*"
         }
     }
-
 }
 
 # Tests that when `hide-user-data-from-log` is enabled, user information from logs is hidden
