@@ -302,6 +302,8 @@ start_server {tags {"scripting"}} {
         assert_morethan [s used_memory_vm_functions] 70000
         r config resetstat
         r function flush async
+        assert_lessthan [s used_memory_vm_functions] 40000
+
         # Wait for the completion of lazy free for both functions and engines.
         set start_time [clock seconds]
         while {1} {
@@ -315,7 +317,6 @@ start_server {tags {"scripting"}} {
             error "Timeout or unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
         }
         assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
-        assert_lessthan [s used_memory_vm_functions] 40000
     }
 
     test {FUNCTION - test function wrong argument} {
