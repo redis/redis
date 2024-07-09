@@ -288,6 +288,13 @@ start_server {tags {"scripting"}} {
         r function flush async
         assert_match {} [r function list]
 
+        r function load REPLACE [get_function_code lua test test {local a = 1 while true do a = a + 1 end}]
+        assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
+        r function flush sync
+        assert_match {} [r function list]
+    }
+
+    test {FUNCTION - async function flush rebuilds Lua VM without causing race condition between main and lazyfree thread} {
         # LAZYFREE_THRESHOLD is 64
         for {set i 0} {$i < 100} {incr i} {
             r function load REPLACE [get_function_code lua test$i test$i {local a = 1 while true do a = a + 1 end}]
@@ -309,11 +316,6 @@ start_server {tags {"scripting"}} {
         }
         assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
         assert_lessthan [s used_memory_vm_functions] 40000
-
-        r function load REPLACE [get_function_code lua test test {local a = 1 while true do a = a + 1 end}]
-        assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
-        r function flush sync
-        assert_match {} [r function list]
     }
 
     test {FUNCTION - test function wrong argument} {
