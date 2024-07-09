@@ -1159,6 +1159,7 @@ proc system_backtrace_supported {} {
             return 1
         }
     }
+    return 0;
 }
 
 proc generate_largevalue_test_array {} {
