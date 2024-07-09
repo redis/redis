@@ -1085,7 +1085,7 @@ void _serverAssertPrintClientInfo(const client *c) {
     serverLog(LL_WARNING,"client->argc = %d", c->argc);
     for (j=0; j < c->argc; j++) {
         if (j >= clientArgsToLog(c)) {
-            serverLog(LL_WARNING|LL_RAW,"client->argv[%d]: *redacted*", j);
+            serverLog(LL_WARNING,"client->argv[%d] = *redacted*",j);
             continue;
         }
         char buf[128];
@@ -1287,7 +1287,7 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     if (server.hide_user_data_from_log) {
-        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging stack content to avid spilling PII.");
+        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging stack content to avoid spilling PII.");
         return;
     }
     int i;
@@ -2066,7 +2066,7 @@ void logCurrentClient(client *cc, const char *title) {
     serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
         if (j >= clientArgsToLog(cc)) {
-            serverLog(LL_WARNING|LL_RAW,"argv[%d]: *redacted*", j);
+            serverLog(LL_WARNING|LL_RAW,"argv[%d]: *redacted*\n",j);
             continue;
         }
         robj *decoded;

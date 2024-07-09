@@ -509,7 +509,7 @@ void showLatestBacklog(void) {
     if (server.repl_backlog == NULL) return;
     if (listLength(server.repl_buffer_blocks) == 0) return;
     if (server.hide_user_data_from_log) {
-        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging backlog content to avid spilling PII.");
+        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging backlog content to avoid spilling PII.");
         return;
     }
 

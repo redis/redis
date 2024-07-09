@@ -109,6 +109,18 @@ if {!$::valgrind} {
             assert_equal "PONG" [r ping]
         }
     }
+
+    set server_path [tmpdir server4.log]
+    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
+        test "Crash report generated on DEBUG SEGFAULT with user data hidden when 'hide-user-data-from-log' is enabled" {
+            r config set hide-user-data-from-log yes
+            catch {r debug segfault}
+            $check_cb "*crashed by signal*"
+            $check_cb "*argv*0*: *debug*"
+            $check_cb "*argv*1*: *redacted*"
+            $check_cb "*hide-user-data-from-log is on, skip logging stack content to avoid spilling PII*"
+        }
+    }
 }
 
 # test DEBUG ASSERT
@@ -119,6 +131,17 @@ if {$backtrace_supported} {
         test "Generate stacktrace on assertion" {
             catch {r debug assert}
             check_log_backtrace_for_debug "*ASSERTION FAILED*"
+        }
+    }
+
+    set server_path [tmpdir server5.log]
+    start_server [list overrides [list dir $server_path crash-memcheck-enabled no]] {
+        test "Generate stacktrace on assertion with user data hidden when 'hide-user-data-from-log' is enabled" {
+            r config set hide-user-data-from-log yes
+            catch {r debug assert}
+            check_log_backtrace_for_debug "*ASSERTION FAILED*"
+            check_log_backtrace_for_debug "*argv*0* = *debug*"
+            check_log_backtrace_for_debug "*argv*1* = *redacted*"
         }
     }
 }
