@@ -419,6 +419,7 @@ static int luaRegisterFunction(lua_State *lua) {
         sdsfree(err);
         return luaError(lua);
     }
+
     return 0;
 }
 
