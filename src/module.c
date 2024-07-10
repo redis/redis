@@ -8261,7 +8261,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
          * argument, but better to be safe than sorry. */
         if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
         if (bc->unblocked) return REDISMODULE_OK;
-        if (bc->client) moduleBlockedClientTimedOut(bc->client);
+        if (bc->client) moduleBlockedClientTimedOut(bc->client, 1);
     }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
@@ -8427,7 +8427,7 @@ int moduleBlockedClientMayTimeout(client *c) {
  * If this function is called from the main thread, we must handle the unblocking
  * of the client synchronously. This ensures that we can reply to the client before
  * resetClient() is called. */
-void moduleBlockedClientTimedOut(client *c) {
+void moduleBlockedClientTimedOut(client *c, int from_module) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
     /* Protect against re-processing: don't serve clients that are already
