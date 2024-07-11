@@ -8372,9 +8372,7 @@ void moduleHandleBlockedClients(void) {
          * called from moduleUnblockClientOnKey
          */
         if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
-            int had_errors = c->deferred_reply_errors ? !!listLength(c->deferred_reply_errors) :
-                (server.stat_total_error_replies != prev_error_replies);
-            updateStatsOnUnblock(c, bc->background_duration, reply_us, had_errors);
+            updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
         }
 
         if (c != NULL) {
