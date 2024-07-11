@@ -1171,11 +1171,11 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
             dbDelete(ex->db,ex->key);
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", ex->key, ex->db->id);
+            notifyKeyspaceEvent(NOTIFY_HASH, "hdel", ex->key, ex->db->id);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->key, ex->db->id);
         } else {
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, ex->fieldDeleted ? "hexpired" : "hexpire",
+            notifyKeyspaceEvent(NOTIFY_HASH, ex->fieldDeleted ? "hdel" : "hexpire",
                                 ex->key, ex->db->id);
 
             /* If minimum HFE of the hash is smaller than expiration time of the
@@ -1917,8 +1917,9 @@ static int hashTypeExpireIfNeeded(redisDb *db, robj *o) {
 
 /* Return the next/minimum expiry time of the hash-field.
  * accurate=1 - Return the exact time by looking into the object DS.
- * accurate=0 - Return the minimum expiration time maintained in expireMeta which
- *              might not be accurate due to optimization reasons.
+ * accurate=0 - Return the minimum expiration time maintained in expireMeta
+ *              (Verify it is not trash before using it) which might not be
+ *              accurate due to optimization reasons.
  *
  * If not found, return EB_EXPIRE_TIME_INVALID
  */
