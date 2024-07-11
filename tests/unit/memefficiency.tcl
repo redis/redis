@@ -38,16 +38,17 @@ start_server {tags {"memefficiency external:skip"}} {
 
 run_solo {defrag} {
     proc wait_for_defrag_stop {maxtries delay} {
-    wait_for_condition $maxtries $delay {
-        [s active_defrag_running] eq 0
-    } else {
-        after 120 ;# serverCron only updates the info once in 100ms
-        puts [r info memory]
-        puts [r info stats]
-        puts [r memory malloc-stats]
-        fail "defrag didn't stop."
+        wait_for_condition $maxtries $delay {
+            [s active_defrag_running] eq 0
+        } else {
+            after 120 ;# serverCron only updates the info once in 100ms
+            puts [r info memory]
+            puts [r info stats]
+            puts [r memory malloc-stats]
+            fail "defrag didn't stop."
+        }
     }
-}
+
     proc test_active_defrag {type} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
