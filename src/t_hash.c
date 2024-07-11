@@ -1171,11 +1171,11 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
         if (ex->fieldDeleted && hashTypeLength(ex->hashObj, 0) == 0) {
             dbDelete(ex->db,ex->key);
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", ex->key, ex->db->id);
+            notifyKeyspaceEvent(NOTIFY_HASH, "hdel", ex->key, ex->db->id);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",ex->key, ex->db->id);
         } else {
             signalModifiedKey(ex->c, ex->db, ex->key);
-            notifyKeyspaceEvent(NOTIFY_HASH, ex->fieldDeleted ? "hexpired" : "hexpire",
+            notifyKeyspaceEvent(NOTIFY_HASH, ex->fieldDeleted ? "hdel" : "hexpire",
                                 ex->key, ex->db->id);
 
             /* If minimum HFE of the hash is smaller than expiration time of the
