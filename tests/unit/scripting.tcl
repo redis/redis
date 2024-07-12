@@ -266,6 +266,7 @@ start_server {tags {"scripting"}} {
     } {0}
 
     test {EVAL - Scripts do not block on waitaof} {
+        r config set appendonly no
         run_script {return redis.pcall('waitaof','0','1','0')} 0
     } {0 0}
 
