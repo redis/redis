@@ -811,12 +811,13 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
     test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
         run_command $fd "select 0\x0D"
-        run_command $fd "set vitah vitah-0000\x0D"
+        run_command $fd "set a vitah-0000\x0D"
 
         run_command $fd "select 6\x0D"
-        run_command $fd "set vitah vitah-6666\x0D"
+        run_command $fd "set a vitah-6666\x0D"
 
         set pid [s process_id]
+        set port [srv port]
         r save
 
         # kill server and restart
@@ -824,29 +825,16 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
         catch {[run_command $fd "ping\x0D"]} err
         restart_server 0 true false 0
-        run_command $fd "ping\x0D"
 
-        # redis-cli show db6 connected should return 6666
-        set result [run_command $fd "GET vitah\x0D"]
-        if {[regexp {127\.0\.0\.1:\d+(?:\[(\d+)\])?>} $result match dbnum]} {
-            if {$dbnum == ""} {
-                set dbnum 0
-            } else {
-                set dbnum [expr {$dbnum + 0}]  ;# 转换为数字
-            }
+        # redis-cli should show '[6]' after reconnected and return 'vitah-6666'
+        set result [run_command $fd "GET a\x0D"]
 
-            if {$dbnum == 6} {
-                set pattern {127\.0\.0\.1:\d+\[6\]> GET vitah\n"vitah-6666"\n127\.0\.0\.1:\d+\[6\]>}
-            } elseif {$dbnum == 0} {
-                set pattern {127\.0\.0\.1:\d+\[0\]> GET vitah\n"vitah-0000"\n127\.0\.0\.1:\d+\[0\]>}
-            } else {
-                error "Unsupported database number: $dbnum"
-            }
-            assert_equal 1 [regexp $pattern $result]
-        } else {
-            error "Failed to extract database number from result"
-        }
-        #set pattern {127\.0\.0\.1:\d+\[6\]> GET vitah\n"vitah-6666"\n127\.0\.0\.1:\d+\[6\]>}
-        #assert_equal 1 [regexp $pattern $result]
+        set all_line [split $result "\n"]
+        set num_elements [llength $all_line]
+        set second_last_line [lindex $all_line [expr {$num_elements - 2}]]
+        set last_line [lindex $all_line [expr {$num_elements - 1}]]
+
+        assert_equal $second_last_line "\"vitah-6666\""
+        assert_equal $last_line "127.0.0.1:$port\[6\]> "
     }
 }
