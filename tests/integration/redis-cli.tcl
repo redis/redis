@@ -809,32 +809,34 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmdline ZRANGE new_zset 0 -1 WITHSCORES]
     }
 
-    test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
-        run_command $fd "select 0\x0D"
-        run_command $fd "set a vitah-0000\x0D"
+    tags {"external:skip"} {
+        test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
+            run_command $fd "select 0\x0D"
+            run_command $fd "set a vitah-0000\x0D"
 
-        run_command $fd "select 6\x0D"
-        run_command $fd "set a vitah-6666\x0D"
+            run_command $fd "select 6\x0D"
+            run_command $fd "set a vitah-6666\x0D"
 
-        set pid [s process_id]
-        set port [srv port]
-        r save
+            set pid [s process_id]
+            set port [srv port]
+            r save
 
-        # kill server and restart
-        exec kill $pid
-        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
-        catch {[run_command $fd "ping\x0D"]} err
-        restart_server 0 true false 0
+            # kill server and restart
+            exec kill $pid
+            wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+            catch {[run_command $fd "ping\x0D"]} err
+            restart_server 0 true false 0
 
-        # redis-cli should show '[6]' after reconnected and return 'vitah-6666'
-        set result [run_command $fd "GET a\x0D"]
+            # redis-cli should show '[6]' after reconnected and return 'vitah-6666'
+            set result [run_command $fd "GET a\x0D"]
 
-        set all_line [split $result "\n"]
-        set num_elements [llength $all_line]
-        set second_last_line [lindex $all_line [expr {$num_elements - 2}]]
-        set last_line [lindex $all_line [expr {$num_elements - 1}]]
+            set all_line [split $result "\n"]
+            set num_elements [llength $all_line]
+            set second_last_line [lindex $all_line [expr {$num_elements - 2}]]
+            set last_line [lindex $all_line [expr {$num_elements - 1}]]
 
-        assert_equal $second_last_line "\"vitah-6666\""
-        assert_equal $last_line "127.0.0.1:$port\[6\]> "
+            assert_equal $second_last_line "\"vitah-6666\""
+            assert_equal $last_line "127.0.0.1:$port\[6\]> "
+        }
     }
 }
