@@ -374,7 +374,7 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
-        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
 
         # Test that we will get `hexpired` notification when
         # a hash field is removed by active expire.
