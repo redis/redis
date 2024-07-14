@@ -229,6 +229,8 @@ SetExRes hashTypeSetEx(robj *o, sds field, uint64_t expireAt, HashTypeSetEx *exI
 
 void hashTypeSetExDone(HashTypeSetEx *e);
 
+void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire);
+
 /*-----------------------------------------------------------------------------
  * Accessor functions for dictType of hash
  *----------------------------------------------------------------------------*/
@@ -2112,6 +2114,98 @@ void hsetnxCommand(client *c) {
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     server.dirty++;
+}
+
+
+/*
+ *  HSETE key
+ *  [NX|XX]
+ *  [EX seconds]
+ *  field value [field value ...]
+ */
+#define HSETE_NX (1<<0)
+#define HSETE_XX (1<<1)
+#define HSETE_EX (1<<2)
+void hseteCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *o;
+    if ((o = hashTypeLookupWriteOrCreate(c, key)) == NULL) return;
+
+    int data_start = -1;
+    int flag = 0;
+    robj *expire_obj = NULL;
+    parseHseteArgs(c, &data_start, &flag, &expire_obj);
+
+    int ex = (flag & HSETE_EX);
+    int nx = (flag & HSETE_NX);
+    int xx = (flag & HSETE_XX);
+    if (ex && expire_obj == NULL){
+        addReplyError(c,"set ex but not found expired time");
+        return;
+    }
+    if (data_start == -1){
+        addReplyError(c,"not found field and value");
+        return;
+    }
+    if ((c->argc-data_start) & 1){
+        addReplyError(c,"field and value err");
+        return;
+    }
+    long long expire = 0;
+    if (ex && getLongLongFromObject(expire_obj, &expire)){
+        addReplyError(c,"expired time error");
+        return;
+    }
+    expire += expire*1000 + commandTimeSnapshot();
+    hashTypeTryConversion(c->db,o,c->argv,data_start,c->argc-1);
+    int update = 0;
+    for (int i = data_start; i < c->argc; i += 2){
+        sds field = c->argv[i]->ptr;
+        sds value = c->argv[i+1]->ptr;
+        int isHashDeleted;
+        int exist = hashTypeExists(c->db, o, field, HFE_LAZY_EXPIRE, &isHashDeleted);
+        /* already exist but nx */
+        if (nx && exist) continue;
+        /* not exist but xx */
+        if (!exist && xx) continue;
+        int flags = !ex ? HASH_SET_COPY : HASH_SET_KEEP_TTL;
+        hashTypeSet(c->db, o, field, value, flags);
+        update++;
+        /* expire */
+        if (ex){
+            int expireSetCond = 0;
+            HashTypeSetEx exCtx;
+            hashTypeSetExInit(key, o, c, c->db, "hsete", expireSetCond, &exCtx);
+            hashTypeSetEx(o, field, expire, &exCtx);
+            hashTypeSetExDone(&exCtx);
+        }
+    }
+    addReplyLongLong(c, update);
+    signalModifiedKey(c, c->db, key);
+    notifyKeyspaceEvent(NOTIFY_HASH,"hsete",key,c->db->id);
+}
+
+void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire) {
+    for (int i = 2; i < c->argc; ++i) {
+        char *opt = c->argv[i]->ptr;
+        if (!strcasecmp(opt, "nx")){
+            (*flag) |= HSETE_NX;
+            continue;
+        }
+        if (!strcasecmp(opt, "xx")){
+            (*flag) |= HSETE_XX;
+            continue;
+        }
+        if (!strcasecmp(opt, "ex")){
+            (*flag) |= HSETE_EX;
+            // save expired
+            (*expire) = c->argv[i+1];
+            i++;
+            continue;
+        }
+        (*data_start) = i;
+        break;
+    }
 }
 
 void hsetCommand(client *c) {
