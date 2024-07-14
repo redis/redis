@@ -2168,7 +2168,7 @@ void hseteCommand(client *c) {
         if (nx && exist) continue;
         /* not exist but xx */
         if (!exist && xx) continue;
-        int flags = !ex ? HASH_SET_COPY : HASH_SET_KEEP_TTL;
+        int flags = ex ? HASH_SET_KEEP_TTL : HASH_SET_COPY;
         hashTypeSet(c->db, o, field, value, flags);
         update++;
         /* expire */
