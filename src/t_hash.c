@@ -2198,7 +2198,6 @@ void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire) 
         }
         if (!strcasecmp(opt, "ex")){
             (*flag) |= HSETE_EX;
-            // save expired
             (*expire) = c->argv[i+1];
             i++;
             continue;
