@@ -1700,7 +1700,7 @@ unsigned long luaMemory(lua_State *lua) {
  * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
  * for every command uses too much CPU.
  * 
- * Each Lua script and Lua function maintains its own unique `gc_count`
+ * Each script VM / State (Eval and Functions) maintains its own unique `gc_count`
  * to control GC independently. */
 #define LUA_GC_CYCLE_PERIOD 50
 void luaGC(lua_State *lua, int *gc_count) {
