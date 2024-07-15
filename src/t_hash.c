@@ -2194,14 +2194,14 @@ void parseHseteArgs(const client *c, int *data_start, char *flag, robj **expire)
         if (!((*flag) & HSETE_XX) &&
             !((*flag) & HSETE_NX) &&
             !strcasecmp(opt, "nx")){
-            /* first found nx */
+            /* first found nx and not set xx */
             (*flag) |= HSETE_NX;
             continue;
         }
         if (!((*flag) & HSETE_NX) &&
             !((*flag) & HSETE_XX) &&
             !strcasecmp(opt, "xx")){
-            /* first found xx */
+            /* first found xx and not set nx */
             (*flag) |= HSETE_XX;
             continue;
         }
