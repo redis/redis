@@ -2191,18 +2191,22 @@ void hseteCommand(client *c) {
 void parseHseteArgs(const client *c, int *data_start, char *flag, robj **expire) {
     for (int i = 2; i < c->argc; ++i) {
         char *opt = c->argv[i]->ptr;
-        if (!strcasecmp(opt, "nx")){
+        if (!((*flag) & HSETE_NX) &&
+            !strcasecmp(opt, "nx")){
+            /* first found nx */
             (*flag) |= HSETE_NX;
             continue;
         }
-        if (!strcasecmp(opt, "xx")){
+        if (!((*flag) & HSETE_XX) &&
+            !strcasecmp(opt, "xx")){
+            /* first found xx */
             (*flag) |= HSETE_XX;
             continue;
         }
         if (!((*flag) & HSETE_EX) &&
             !((*flag) & HSETE_PX) &&
             !strcasecmp(opt, "ex")){
-            /* first found ex and no set px */
+            /* first found ex and not set px */
             (*flag) |= HSETE_EX;
             (*expire) = c->argv[i+1];
             i++;
@@ -2211,7 +2215,7 @@ void parseHseteArgs(const client *c, int *data_start, char *flag, robj **expire)
         if (!((*flag) & HSETE_PX) &&
             !((*flag) & HSETE_EX) &&
             !strcasecmp(opt, "px")){
-            /* first found px and no set ex */
+            /* first found px and not set ex */
             (*flag) |= HSETE_PX;
             (*expire) = c->argv[i+1];
             i++;
