@@ -947,12 +947,22 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         if ((o->encoding == OBJ_ENCODING_LISTPACK) ||
             (o->encoding == OBJ_ENCODING_LISTPACK_EX))
         {
+            /* Save min/next HFE expiration time if needed */
+            if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+                uint64_t minExpire = hashTypeGetMinExpire(o, 0);
+                /* if invalid time then save 0 */
+                if (minExpire == EB_EXPIRE_TIME_INVALID)
+                    minExpire = 0;
+                if (rdbSaveMillisecondTime(rdb, minExpire) == -1)
+                    return -1;
+            }
             unsigned char *lp_ptr = hashTypeListpackGetLp(o);
             size_t l = lpBytes(lp_ptr);
 
             if ((n = rdbSaveRawString(rdb,lp_ptr,l)) == -1) return -1;
             nwritten += n;
         } else if (o->encoding == OBJ_ENCODING_HT) {
+            int hashWithMeta = 0;  /* RDB_TYPE_HASH_METADATA */
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
             /* Determine the hash layout to use based on the presence of at least
@@ -960,7 +970,17 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
              * RDB_TYPE_HASH_METADATA layout, including tuples of [ttl][field][value].
              * Otherwise, use the standard RDB_TYPE_HASH layout containing only
              * the tuples [field][value]. */
-            int with_ttl = (hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID);
+            uint64_t minExpire = hashTypeGetMinExpire(o, 0);
+
+            /* if RDB_TYPE_HASH_METADATA (Can have TTLs on fields) */
+            if (minExpire != EB_EXPIRE_TIME_INVALID) {
+                hashWithMeta = 1;
+                /* Save next field expire time of hash */
+                if (rdbSaveMillisecondTime(rdb, minExpire) == -1) {
+                    dictReleaseIterator(di);
+                    return -1;
+                }
+            }
 
             /* save number of fields in hash */
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) {
@@ -975,7 +995,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 sds value = dictGetVal(de);
 
                 /* save the TTL */
-                if (with_ttl) {
+                if (hashWithMeta) {
                     uint64_t ttl = hfieldGetExpireTime(field);
                     /* 0 is used to indicate no TTL is set for this field */
                     if (ttl == EB_EXPIRE_TIME_INVALID) ttl = 0;
@@ -2238,11 +2258,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
-    } else if (rdbtype == RDB_TYPE_HASH_METADATA) {
+    } else if (rdbtype == RDB_TYPE_HASH_METADATA || rdbtype == RDB_TYPE_HASH_METADATA_PRE_GA) {
         sds value;
         hfield field;
         uint64_t expireAt;
         dict *dupSearchDict = NULL;
+
+        /* If hash with TTLs, load next/min expiration time */
+        if (rdbtype == RDB_TYPE_HASH_METADATA) {
+            uint64_t minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
+            /* This value was serialized for future use-case of streaming the object
+             * directly to FLASH (while keeping in mem its next expiration time) */
+            UNUSED(minExpire);
+            if (rioGetReadError(rdb)) {
+                rdbReportCorruptRDB("Hash failed loading minExpire");
+                return NULL;
+            }
+        }
 
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
@@ -2456,9 +2488,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                rdbtype == RDB_TYPE_ZSET_LISTPACK ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
                rdbtype == RDB_TYPE_HASH_LISTPACK ||
+               rdbtype == RDB_TYPE_HASH_LISTPACK_EX_PRE_GA ||
                rdbtype == RDB_TYPE_HASH_LISTPACK_EX)
     {
         size_t encoded_len;
+
+        /* If Hash TTLs, Load next/min expiration time before the `encoded` */
+        if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
+            uint64_t minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
+            /* This value was serialized for future use-case of streaming the object
+             * directly to FLASH (while keeping in mem its next expiration time) */
+            UNUSED(minExpire);
+            if (rioGetReadError(rdb)) {
+                rdbReportCorruptRDB( "Hash listpackex integrity check failed.");
+                return NULL;
+            }
+        }
+
         unsigned char *encoded =
             rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
         if (encoded == NULL) return NULL;
@@ -2665,11 +2711,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     break;
                 }
             case RDB_TYPE_HASH_LISTPACK:
+            case RDB_TYPE_HASH_LISTPACK_EX_PRE_GA:
             case RDB_TYPE_HASH_LISTPACK_EX:
                 /* listpack-encoded hash with TTL requires its own struct
                  * pointed to by o->ptr */
                 o->type = OBJ_HASH;
-                if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
+                if ( (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) ||
+                     (rdbtype == RDB_TYPE_HASH_LISTPACK_EX_PRE_GA) ) {
                     listpackEx *lpt = listpackExCreate();
                     lpt->lp = encoded;
                     lpt->key = key;
