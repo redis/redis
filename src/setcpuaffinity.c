@@ -26,9 +26,6 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
 #ifdef __linux__
 #include <sched.h>
 #endif
@@ -44,7 +41,6 @@
 #include <pthread.h>
 #include <sched.h>
 #endif
-#include "config.h"
 
 #ifdef USE_SETCPUAFFINITY
 static const char *next_token(const char *q,  int sep) {

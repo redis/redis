@@ -20,9 +20,6 @@
 
 #include "functions.h"
 #include "script_lua.h"
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
 
 #define LUA_ENGINE_NAME "LUA"
 #define REGISTRY_ENGINE_CTX_NAME "__ENGINE_CTX__"

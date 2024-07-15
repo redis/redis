@@ -28,7 +28,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "fmacros.h"
 #include "fpconv_dtoa.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -41,7 +40,6 @@
 #include <float.h>
 #include <stdint.h>
 #include <errno.h>
-#include <time.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>

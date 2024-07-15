@@ -7,17 +7,12 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-#include "fmacros.h"
 #include "cli_common.h"
 #include "version.h"
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
 #include <errno.h>
-#include <hiredis.h>
-#include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
-#include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>

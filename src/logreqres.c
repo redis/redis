@@ -47,7 +47,6 @@
  */
 
 #include "server.h"
-#include <ctype.h>
 
 #ifdef LOG_REQ_RES
 

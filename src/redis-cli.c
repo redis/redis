@@ -7,8 +7,6 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-#include "fmacros.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,7 +16,6 @@
 #include <time.h>
 #include <ctype.h>
 #include <errno.h>
-#include <sys/stat.h>
 #include <sys/time.h>
 #include <assert.h>
 #include <fcntl.h>
@@ -33,7 +30,6 @@
 #include <hiredis_ssl.h>
 #endif
 #include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
-#include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
 #include "dict.h"
 #include "adlist.h"
 #include "zmalloc.h"

@@ -31,8 +31,6 @@
 #include "server.h"
 
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <regex.h>
 #include <libgen.h>
 
 #define AOF_CHECK_OK 0

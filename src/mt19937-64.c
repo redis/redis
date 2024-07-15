@@ -55,7 +55,6 @@
 
 
 #include "mt19937-64.h"
-#include <stdio.h>
 
 #define NN 312
 #define MM 156

@@ -10,7 +10,6 @@
 #include "script.h"
 #include "cluster.h"
 
-#include <lua.h>
 #include <lauxlib.h>
 
 scriptFlag scripts_flags_def[] = {

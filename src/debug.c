@@ -11,15 +11,11 @@
 #include "server.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
-#include "crc64.h"
 #include "bio.h"
 #include "quicklist.h"
 #include "fpconv_dtoa.h"
 #include "cluster.h"
-#include "threads_mngr.h"
-#include "script.h"
 
-#include <arpa/inet.h>
 #include <signal.h>
 #include <dlfcn.h>
 #include <fcntl.h>

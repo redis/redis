@@ -10,15 +10,10 @@
 #include "fpconv_dtoa.h"
 
 #include "server.h"
-#include "sha1.h"
 #include "rand.h"
-#include "cluster.h"
 #include "monotonic.h"
 #include "resp_parser.h"
 #include "version.h"
-#include <lauxlib.h>
-#include <lualib.h>
-#include <ctype.h>
 #include <math.h>
 
 /* Globals that are added by the Lua libraries */

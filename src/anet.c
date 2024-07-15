@@ -7,8 +7,6 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-#include "fmacros.h"
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>

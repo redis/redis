@@ -13,10 +13,8 @@
 #include "anet.h"
 #include "redisassert.h"
 
-#include <stdio.h>
 #include <sys/time.h>
 #include <sys/types.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <poll.h>
 #include <string.h>

@@ -14,7 +14,6 @@
 #include "functions.h"
 
 #include <signal.h>
-#include <ctype.h>
 #include "bio.h"
 
 /*-----------------------------------------------------------------------------

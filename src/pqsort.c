@@ -37,9 +37,7 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <stdint.h>
-#include <errno.h>
 #include <stdlib.h>
 
 static inline char	*med3 (char *, char *, char *,

@@ -10,7 +10,6 @@
 
 #include "server.h"
 #include "connhelpers.h"
-#include "adlist.h"
 
 #if (USE_OPENSSL == 1 /* BUILD_YES */ ) || ((USE_OPENSSL == 2 /* BUILD_MODULE */) && (BUILD_TLS_MODULE == 2))
 

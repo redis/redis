@@ -8,20 +8,13 @@
 
 #include "server.h"
 #include "sha1.h"
-#include "rand.h"
-#include "cluster.h"
 #include "monotonic.h"
 #include "resp_parser.h"
 #include "script_lua.h"
 
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
 #if defined(USE_JEMALLOC)
 #include <lstate.h>
 #endif
-#include <ctype.h>
-#include <math.h>
 
 void ldbInit(void);
 void ldbDisable(client *c);

@@ -5,20 +5,11 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
-#include "fmacros.h"
-#include "config.h"
 #include "syscheck.h"
 #include "sds.h"
-#include "anet.h"
 
 #include <time.h>
-#include <sys/resource.h>
-#include <unistd.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <sys/wait.h>
 
 #ifdef __linux__
 #include <sys/mman.h>

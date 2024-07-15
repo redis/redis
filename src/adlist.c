@@ -7,8 +7,6 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-
-#include <stdlib.h>
 #include "adlist.h"
 #include "zmalloc.h"
 

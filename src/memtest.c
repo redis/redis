@@ -11,7 +11,6 @@
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
-#include <termios.h>
 #include <sys/ioctl.h>
 #if defined(__sun)
 #include <stropts.h>

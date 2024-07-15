@@ -54,7 +54,6 @@
  * This lowers the constant times considerably.
  */
 
-#include <stdio.h>
 #include <string.h>
 #include "zmalloc.h"
 #include "endianconv.h"

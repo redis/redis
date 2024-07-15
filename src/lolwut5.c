@@ -14,7 +14,6 @@
 
 #include "server.h"
 #include "lolwut.h"
-#include <math.h>
 
 /* Translate a group of 8 pixels (2x4 vertical rectangle) to the corresponding
  * braille character. The byte should correspond to the pixels arranged as
@@ -29,7 +28,6 @@
  * The corresponding utf8 encoded character is set into the three bytes
  * pointed by 'output'.
  */
-#include <stdio.h>
 void lwTranslatePixelsGroup(int byte, char *output) {
     int code = 0x2800 + byte;
     /* Convert to unicode. This is in the U0800-UFFFF range, so we need to

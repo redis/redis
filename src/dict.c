@@ -12,13 +12,10 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-#include "fmacros.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
 

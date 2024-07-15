@@ -44,8 +44,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
-#include "fmacros.h"
 #include "fpconv_dtoa.h"
 #include <string.h>
 #include <stdio.h>

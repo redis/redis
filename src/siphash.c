@@ -40,8 +40,6 @@
       relevant test vector.
  */
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 #include <ctype.h>
 
 /* Fast tolower() alike function that does not care about locale

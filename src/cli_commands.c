@@ -1,4 +1,3 @@
-#include <stddef.h>
 #include "cli_commands.h"
 
 /* Definitions to configure commands.c to generate the above structs. */

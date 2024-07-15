@@ -19,7 +19,6 @@
 #include <glob.h>
 #include <string.h>
 #include <locale.h>
-#include <ctype.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
