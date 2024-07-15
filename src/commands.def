@@ -3911,28 +3911,34 @@ struct COMMAND_ARG HSET_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* HSETE key specs */
 keySpec HSETE_Keyspecs[1] = {
-        {NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 
 /* HSETE condition argument table */
 struct COMMAND_ARG HSETE_condition_Subargs[] = {
-        {MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-        {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* HSETE expiration argument table */
 struct COMMAND_ARG HSETE_expiration_Subargs[] = {
-        {MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-        {MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* HSETE data argument table */
+struct COMMAND_ARG HSETE_data_Subargs[] = {
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* HSETE argument table */
 struct COMMAND_ARG HSETE_Args[] = {
-        {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-        {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HSETE_condition_Subargs},
-        {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HSETE_expiration_Subargs},
-        {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSET_data_Subargs},
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HSETE_condition_Subargs},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=HSETE_expiration_Subargs},
+{MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HSETE_data_Subargs},
 };
 
 /********** HSETNX ********************/
