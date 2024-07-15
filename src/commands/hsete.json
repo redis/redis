@@ -71,8 +71,12 @@
                     {
                         "name": "seconds",
                         "type": "integer",
-                        "token": "EX",
-                        "since": "2.6.12"
+                        "token": "EX"
+                    },
+                    {
+                        "name": "milliseconds",
+                        "type": "integer",
+                        "token": "PX"
                     }
                 ]
             },

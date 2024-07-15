@@ -2126,6 +2126,7 @@ void hsetnxCommand(client *c) {
 #define HSETE_NX (1<<0)
 #define HSETE_XX (1<<1)
 #define HSETE_EX (1<<2)
+#define HSETE_PX (1<<3)
 void hseteCommand(client *c) {
     robj *key = c->argv[1];
     robj *o;
@@ -2137,6 +2138,7 @@ void hseteCommand(client *c) {
     parseHseteArgs(c, &data_start, &flag, &expire_obj);
 
     int ex = (flag & HSETE_EX);
+    int px = (flag & HSETE_PX);
     int nx = (flag & HSETE_NX);
     int xx = (flag & HSETE_XX);
     if (ex && expire_obj == NULL){
@@ -2151,12 +2153,17 @@ void hseteCommand(client *c) {
         addReplyError(c,"field and value err");
         return;
     }
+    if (ex && px){
+        addReplyError(c,"ex px both exist");
+        return;
+    }
     long long expire = 0;
-    if (ex && getLongLongFromObject(expire_obj, &expire)){
+    if ((ex || px) && getLongLongFromObject(expire_obj, &expire)){
         addReplyError(c,"expired time error");
         return;
     }
-    expire += expire*1000 + commandTimeSnapshot();
+    int enlarge = ex ? 1000 : 1;
+    expire = expire*enlarge + commandTimeSnapshot();
     hashTypeTryConversion(c->db,o,c->argv,data_start,c->argc-1);
     int update = 0;
     for (int i = data_start; i < c->argc; i += 2){
@@ -2172,7 +2179,7 @@ void hseteCommand(client *c) {
         hashTypeSet(c->db, o, field, value, flags);
         update++;
         /* expire */
-        if (ex){
+        if (ex || px){
             int expireSetCond = 0;
             HashTypeSetEx exCtx;
             hashTypeSetExInit(key, o, c, c->db, "hsete", expireSetCond, &exCtx);
@@ -2196,8 +2203,18 @@ void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire) 
             (*flag) |= HSETE_XX;
             continue;
         }
-        if (!strcasecmp(opt, "ex")){
+        if (!((*flag) & HSETE_EX) &&
+            !((*flag) & HSETE_PX) &&
+            !strcasecmp(opt, "ex")){
             (*flag) |= HSETE_EX;
+            (*expire) = c->argv[i+1];
+            i++;
+            continue;
+        }
+        if (!((*flag) & HSETE_PX) &&
+            !((*flag) & HSETE_EX) &&
+            !strcasecmp(opt, "px")){
+            (*flag) |= HSETE_PX;
             (*expire) = c->argv[i+1];
             i++;
             continue;
