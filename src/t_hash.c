@@ -229,7 +229,7 @@ SetExRes hashTypeSetEx(robj *o, sds field, uint64_t expireAt, HashTypeSetEx *exI
 
 void hashTypeSetExDone(HashTypeSetEx *e);
 
-void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire);
+void parseHseteArgs(const client *c, int *data_start, char *flag, robj **expire);
 
 /*-----------------------------------------------------------------------------
  * Accessor functions for dictType of hash
@@ -2133,16 +2133,16 @@ void hseteCommand(client *c) {
     if ((o = hashTypeLookupWriteOrCreate(c, key)) == NULL) return;
 
     int data_start = -1;
-    int flag = 0;
+    char flag = 0;
     robj *expire_obj = NULL;
     parseHseteArgs(c, &data_start, &flag, &expire_obj);
 
-    int ex = (flag & HSETE_EX);
-    int px = (flag & HSETE_PX);
-    int nx = (flag & HSETE_NX);
-    int xx = (flag & HSETE_XX);
-    if (ex && expire_obj == NULL){
-        addReplyError(c,"set ex but not found expired time");
+    char ex = (flag & HSETE_EX);
+    char px = (flag & HSETE_PX);
+    char nx = (flag & HSETE_NX);
+    char xx = (flag & HSETE_XX);
+    if ((px || ex) && expire_obj == NULL){
+        addReplyError(c,"set ex or px but not found expired time");
         return;
     }
     if (data_start == -1){
@@ -2151,10 +2151,6 @@ void hseteCommand(client *c) {
     }
     if ((c->argc-data_start) & 1){
         addReplyError(c,"field and value err");
-        return;
-    }
-    if (ex && px){
-        addReplyError(c,"ex px both exist");
         return;
     }
     long long expire = 0;
@@ -2192,7 +2188,7 @@ void hseteCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_HASH,"hsete",key,c->db->id);
 }
 
-void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire) {
+void parseHseteArgs(const client *c, int *data_start, char *flag, robj **expire) {
     for (int i = 2; i < c->argc; ++i) {
         char *opt = c->argv[i]->ptr;
         if (!strcasecmp(opt, "nx")){
@@ -2206,6 +2202,7 @@ void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire) 
         if (!((*flag) & HSETE_EX) &&
             !((*flag) & HSETE_PX) &&
             !strcasecmp(opt, "ex")){
+            /* first found ex and no set px */
             (*flag) |= HSETE_EX;
             (*expire) = c->argv[i+1];
             i++;
@@ -2214,6 +2211,7 @@ void parseHseteArgs(const client *c, int *data_start, int *flag, robj **expire) 
         if (!((*flag) & HSETE_PX) &&
             !((*flag) & HSETE_EX) &&
             !strcasecmp(opt, "px")){
+            /* first found px and no set ex */
             (*flag) |= HSETE_PX;
             (*expire) = c->argv[i+1];
             i++;
