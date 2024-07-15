@@ -1939,6 +1939,13 @@ int main(int argc, char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("hsete")) {
+            len = redisFormatCommand(&cmd,
+                                     "HSETE myhash%s EX 10 element:__rand_int__ %s",tag,data);
+            benchmark("HSETE",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("spop")) {
             len = redisFormatCommand(&cmd,"SPOP myset%s",tag);
             benchmark("SPOP",cmd,len);
