@@ -31,6 +31,8 @@
 #define LIBRARY_API_NAME "__LIBRARY_API__"
 #define GLOBALS_API_NAME "__GLOBALS_API__"
 
+static int gc_count = 0; /* Counter for the number of GC requests, reset after each GC execution */
+
 /* Lua engine ctx */
 typedef struct luaEngineCtx {
     lua_State *lua;
@@ -54,22 +56,6 @@ typedef struct registerFunctionArgs {
     luaFunctionCtx *lua_f_ctx;
     uint64_t f_flags;
 } registerFunctionArgs;
-
-/* Call the Lua garbage collector from time to time to avoid a
- * full cycle performed by Lua, which adds too latency.
- *
- * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
- * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
- * for every command uses too much CPU. */
-#define LUA_GC_CYCLE_PERIOD 50
-static inline void luaEngineGC(lua_State *lua) {
-    static long gc_count = 0;
-    (gc_count)++;
-    if (gc_count >= LUA_GC_CYCLE_PERIOD) {
-        lua_gc(lua, LUA_GCSTEP, LUA_GC_CYCLE_PERIOD);
-        gc_count = 0;
-    }
-}
 
 /* Hook for FUNCTION LOAD execution.
  * Used to cancel the execution in case of a timeout (500ms).
@@ -133,7 +119,7 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, size
         luaErrorInformationDiscard(&err_info);
         goto done;
     }
-    luaEngineGC(lua);
+    luaGC(lua, &gc_count);
 
     ret = C_OK;
 
@@ -176,7 +162,7 @@ static void luaEngineCall(scriptRunCtx *run_ctx,
 
     luaCallFunction(run_ctx, lua, keys, nkeys, args, nargs, 0);
     lua_pop(lua, 1); /* Pop error handler */
-    luaEngineGC(lua);
+    luaGC(lua, &gc_count);
 }
 
 static size_t luaEngineGetUsedMemoy(void *engine_ctx) {

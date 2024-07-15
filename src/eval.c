@@ -23,6 +23,8 @@
 #include <ctype.h>
 #include <math.h>
 
+static int gc_count = 0; /* Counter for the number of GC requests, reset after each GC execution */
+
 void ldbInit(void);
 void ldbDisable(client *c);
 void ldbEnable(client *c);
@@ -281,22 +283,6 @@ void scriptingReset(int async) {
     scriptingInit(0);
 }
 
-/* Call the Lua garbage collector from time to time to avoid a
- * full cycle performed by Lua, which adds too latency.
- *
- * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
- * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
- * for every command uses too much CPU. */
-#define LUA_GC_CYCLE_PERIOD 50
-static inline void scriptingGC(void) {
-    static long gc_count = 0;
-    (gc_count)++;
-    if (gc_count >= LUA_GC_CYCLE_PERIOD) {
-        lua_gc(lctx.lua, LUA_GCSTEP, LUA_GC_CYCLE_PERIOD);
-        gc_count = 0;
-    }
-}
-
 /* ---------------------------------------------------------------------------
  * EVAL and SCRIPT commands implementation
  * ------------------------------------------------------------------------- */
@@ -492,7 +478,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
 
     /* Perform GC after creating the script and adding it to the LRU list,
      * as script may be evicted during addition. */
-    scriptingGC();
+    luaGC(lctx.lua, &gc_count);
 
     return sha;
 }
@@ -621,7 +607,7 @@ void evalGenericCommand(client *c, int evalsha) {
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
-    scriptingGC();
+    luaGC(lua, &gc_count);
 
     if (l->node) {
         /* Quick removal and re-insertion after the script is called to
