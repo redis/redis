@@ -119,7 +119,6 @@ static int luaEngineCreate(void *engine_ctx, functionLibInfo *li, sds blob, size
         luaErrorInformationDiscard(&err_info);
         goto done;
     }
-    luaGC(lua, &gc_count);
 
     ret = C_OK;
 
@@ -134,6 +133,7 @@ done:
 
     lua_sethook(lua,NULL,0,0); /* Disable hook */
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
+    luaGC(lua, &gc_count);
     return ret;
 }
 

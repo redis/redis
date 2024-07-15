@@ -456,6 +456,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
+        luaGC(lctx.lua, &gc_count);
         return NULL;
     }
 
