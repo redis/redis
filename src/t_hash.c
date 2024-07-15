@@ -2120,7 +2120,7 @@ void hsetnxCommand(client *c) {
 /*
  *  HSETE key
  *  [NX|XX]
- *  [EX seconds]
+ *  [EX seconds|PX milliseconds]
  *  field value [field value ...]
  */
 #define HSETE_NX (1<<0)
