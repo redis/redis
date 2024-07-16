@@ -369,10 +369,14 @@ proc run_external_server_test {code overrides} {
     r flushall
     r function flush
 
-    # store overrides
+    # store configs
     set saved_config {}
+    foreach {param val} [r config get *] {
+        dict set saved_config $param $val
+    }
+
+    # apply overrides
     foreach {param val} $overrides {
-        dict set saved_config $param [lindex [r config get $param] 1]
         r config set $param $val
 
         # If we enable appendonly, wait for for rewrite to complete. This is
@@ -400,7 +404,8 @@ proc run_external_server_test {code overrides} {
 
     # restore overrides
     dict for {param val} $saved_config {
-        r config set $param $val
+        # some may fail, specifically immutable ones.
+        catch {r config set $param $val}
     }
 
     set srv [lpop ::servers]
