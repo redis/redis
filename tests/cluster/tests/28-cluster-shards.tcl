@@ -246,25 +246,6 @@ test "New replica receives primary's shard id" {
     assert_not_equal [R 8 cluster myshardid] [R $id cluster myshardid]
     assert_equal {OK} [R 8 cluster replicate [R $id cluster myid]]
     assert_equal [R 8 cluster myshardid] [R $id cluster myshardid]
-
-    puts [get_node_info_from_shard [R $id cluster myshardid] 0 "shard"]
-    exit
-    assert_equal {} [dict get [get_node_info_from_shard [R $id cluster myshardid] 8 "shard"] slots]
-
-    # set shards_response [R $id cluster shards]
-    # foreach shard_response $shards_response {
-    #     puts [dict get $shard_response slots]
-    # }
-    # exit
-
-
-    # puts [dict get [R $id cluster shards] slots]
-    # puts [get_node_info_from_shard 8 [R $id cluster myshardid] "shard"]
-    # puts [dict get [get_node_info_from_shard [R $id cluster myshardid] 0 "shard"] slots]
-
-    # assert_equal {} [dict get [get_node_info_from_shard $node_8_id 0 "shard"] slots]
-    # puts [R 4 cluster shards]
-    exit 
 }
 
 test "CLUSTER MYSHARDID reports same shard id after shard restart" {
