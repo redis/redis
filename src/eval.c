@@ -23,6 +23,8 @@
 #include <ctype.h>
 #include <math.h>
 
+static int gc_count = 0; /* Counter for the number of GC requests, reset after each GC execution */
+
 void ldbInit(void);
 void ldbDisable(client *c);
 void ldbEnable(client *c);
@@ -454,6 +456,7 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
                 lua_tostring(lctx.lua,-1));
         }
         lua_pop(lctx.lua,1);
+        luaGC(lctx.lua, &gc_count);
         return NULL;
     }
 
@@ -473,6 +476,11 @@ sds luaCreateFunction(client *c, robj *body, int evalsha) {
     serverAssertWithInfo(c ? c : lctx.lua_client,NULL,retval == DICT_OK);
     lctx.lua_scripts_mem += sdsZmallocSize(sha) + getStringObjectSdsUsedMemory(body);
     incrRefCount(body);
+
+    /* Perform GC after creating the script and adding it to the LRU list,
+     * as script may be evicted during addition. */
+    luaGC(lctx.lua, &gc_count);
+
     return sha;
 }
 
@@ -600,6 +608,7 @@ void evalGenericCommand(client *c, int evalsha) {
     luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
     lua_pop(lua,1); /* Remove the error handler. */
     scriptResetRun(&rctx);
+    luaGC(lua, &gc_count);
 
     if (l->node) {
         /* Quick removal and re-insertion after the script is called to
