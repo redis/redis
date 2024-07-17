@@ -485,8 +485,9 @@ proc find_available_port {start count} {
             set port $start
         }
         set fd1 -1
-        if {[catch {set fd1 [socket -server 127.0.0.1 $port]}] ||
-            [catch {set fd2 [socket -server 127.0.0.1 [expr $port+10000]]}]} {
+        proc dummy_accept {chan addr port} {}
+        if {[catch {set fd1 [socket -server dummy_accept -myaddr 127.0.0.1 $port]}] ||
+            [catch {set fd2 [socket -server dummy_accept -myaddr 127.0.0.1 [expr $port+10000]]}]} {
             if {$fd1 != -1} {
                 close $fd1
             }

@@ -53,6 +53,8 @@ proc accept {sock host port} {
     close $sock
 }
 
-socket -server accept $port
+set sockfd [socket -server accept -myaddr 127.0.0.1 $port]
 after 5000 set done timeout
 vwait done
+close $sockfd
+
