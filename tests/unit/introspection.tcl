@@ -670,7 +670,7 @@ start_server {tags {"introspection"}} {
         set r1 [redis_client]
         assert_equal [$r1 ping] "PONG"
         $r1 close
-        #close $sockfd
+        close $sockfd
     }
 
     test {CONFIG SET duplicate configs} {
