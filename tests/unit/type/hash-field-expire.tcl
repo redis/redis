@@ -575,6 +575,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [lsort [r hgetall myhash]] [lsort "f1 f2 f3 v1 v2 v3"]
 
             # hash that all fields are expired return empty result
+            r del myhash
             r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6
             r hpexpire myhash 1 FIELDS 6 f1 f2 f3 f4 f5 f6
             after 10
