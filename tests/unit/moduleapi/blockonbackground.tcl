@@ -1,7 +1,5 @@
 set testmodule [file normalize tests/modules/blockonbackground.so]
 
-source tests/support/util.tcl
-
 proc latency_percentiles_usec {cmd} {
     return [latencyrstat_percentiles $cmd r]
 }
