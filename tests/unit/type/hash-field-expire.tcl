@@ -580,6 +580,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hpexpire myhash 1 FIELDS 6 f1 f2 f3 f4 f5 f6
             after 10
             assert_equal [r hgetall myhash] ""
+            r debug set-active-expire 1
         }
 
         test "Test RENAME hash with fields to be expired ($type)" {
