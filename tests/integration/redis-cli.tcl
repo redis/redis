@@ -825,8 +825,6 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
 
             # redis-cli should show '[6]' after reconnected and return 'zoo-6'
             set result [run_command $fd "GET a\x0D"]
-
-            set result [run_command $fd "GET a\x0D"]
             set regex {not connected> GET a.*"zoo-6".*127\.0\.0\.1:[0-9]*\[6\]>}
             assert_equal 1 [regexp $regex $result]
         }
