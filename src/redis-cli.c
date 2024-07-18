@@ -3264,6 +3264,7 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
                 config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
+            // Reset dbnum after reconnecting so we can re-select the previous db in cliSelect()
             config.dbnum = 0;
             cliSelect();
         }
