@@ -2640,9 +2640,14 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
      * As the cluster progressively upgrades to version 7.2, we can expect the shard_ids
      * across all nodes to naturally converge and align.
      *
+     * If the node send us a shard-id but it is inconsistent with its master, it means
+     * the master does not support it.
+     *
      * If sender is a replica, set the shard_id to the shard_id of its master.
-     * Otherwise, we'll set it now. */
-    if (ext_shardid == NULL) ext_shardid = clusterNodeGetMaster(sender)->shard_id;
+     * If sender is a master, set the shard_id to its own randomly generated shard_id. */
+    clusterNode *master = clusterNodeGetMaster(sender);
+    if (ext_shardid == NULL || memcmp(ext_shardid, master->shard_id, CLUSTER_NAMELEN) != 0)
+        ext_shardid = master->shard_id;
 
     updateShardId(sender, ext_shardid);
 }
