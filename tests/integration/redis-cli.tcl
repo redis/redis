@@ -826,13 +826,9 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
             # redis-cli should show '[6]' after reconnected and return 'zoo-6'
             set result [run_command $fd "GET a\x0D"]
 
-            set all_line [split $result "\n"]
-            set num_elements [llength $all_line]
-            set second_last_line [lindex $all_line [expr {$num_elements - 2}]]
-            set last_line [lindex $all_line [expr {$num_elements - 1}]]
-
-            assert_equal $second_last_line "\"zoo-6\""
-            assert_equal $last_line "127.0.0.1:[srv port]\[6\]> "
+            set result [run_command $fd "GET a\x0D"]
+            set regex {not connected> GET a.*"zoo-6".*127\.0\.0\.1:[0-9]*\[6\]>}
+            assert_equal 1 [regexp $regex $result]
         }
     }
 }
