@@ -813,16 +813,12 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
             run_command $fd "select 0\x0D"
             run_command $fd "set a zoo-0\x0D"
-
             run_command $fd "select 6\x0D"
             run_command $fd "set a zoo-6\x0D"
-
-            set pid [s process_id]
-            set port [srv port]
             r save
 
             # kill server and restart
-            exec kill $pid
+            exec kill [s process_id]
             wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
             catch {[run_command $fd "ping\x0D"]} err
             restart_server 0 true false 0
@@ -836,7 +832,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
             set last_line [lindex $all_line [expr {$num_elements - 1}]]
 
             assert_equal $second_last_line "\"zoo-6\""
-            assert_equal $last_line "127.0.0.1:$port\[6\]> "
+            assert_equal $last_line "127.0.0.1:[srv port]\[6\]> "
         }
     }
 }
