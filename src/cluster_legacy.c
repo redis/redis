@@ -908,6 +908,26 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
         memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
         clusterAddNodeToShard(shard_id, node);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+
+        if (node->slaveof == NULL) {
+            for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
+                clusterNode *slavenode = clusterNodeGetSlave(node, i);
+                if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+                    clusterRemoveNodeFromShard(slavenode);
+                    memcpy(slavenode->shard_id, shard_id, CLUSTER_NAMELEN);
+                    clusterAddNodeToShard(shard_id, slavenode);
+                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+                }
+            }
+        } else {
+            clusterNode *masternode = node->slaveof;
+            if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+                clusterRemoveNodeFromShard(masternode);
+                memcpy(masternode->shard_id, shard_id, CLUSTER_NAMELEN);
+                clusterAddNodeToShard(shard_id, masternode);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+            }
+        }
     }
     if (shard_id && myself != node && myself->slaveof == node) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
@@ -2640,14 +2660,9 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
      * As the cluster progressively upgrades to version 7.2, we can expect the shard_ids
      * across all nodes to naturally converge and align.
      *
-     * If the node send us a shard-id but it is inconsistent with its master, it means
-     * the master does not support it.
-     *
      * If sender is a replica, set the shard_id to the shard_id of its master.
-     * If sender is a master, set the shard_id to its own randomly generated shard_id. */
-    clusterNode *master = clusterNodeGetMaster(sender);
-    if (ext_shardid == NULL || memcmp(ext_shardid, master->shard_id, CLUSTER_NAMELEN) != 0)
-        ext_shardid = master->shard_id;
+     * Otherwise, we'll set it now. */
+    if (ext_shardid == NULL) ext_shardid = clusterNodeGetMaster(sender)->shard_id;
 
     updateShardId(sender, ext_shardid);
 }
