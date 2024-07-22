@@ -810,7 +810,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     }
 }
 
-start_server {tags { "cli external:skip" }} {
+start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
         run_command $fd "select 0\x0D"
         run_command $fd "set a zoo-0\x0D"
