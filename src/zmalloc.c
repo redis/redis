@@ -71,7 +71,7 @@ void zlibc_free(void *ptr) {
 #define THREAD_MASK (MAX_THREADS - 1)
 
 typedef struct used_memory_entry {
-    redisAtomic long used_memory;
+    redisAtomic long long used_memory;
     char padding[CACHE_LINE_SIZE - sizeof(long)];
 } used_memory_entry;
 
