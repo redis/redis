@@ -19,24 +19,17 @@ set P_OK           1
 
 ############################### AUX FUNCS ######################################
 
-proc get_hashes_with_expiry_fields {r} {
+proc get_stat_subexpiry {r} {
     set input_string [r info keyspace]
     set hash_count 0
 
     foreach line [split $input_string \n] {
-        if {[regexp {hashes_with_expiry_fields=(\d+)} $line -> value]} {
+        if {[regexp {subexpiry=(\d+)} $line -> value]} {
             return $value
         }
     }
 
     return 0
-}
-
-proc create_hash {key entries} {
-    r del $key
-    foreach entry $entries {
-        r hset $key [lindex $entry 0] [lindex $entry 1]
-    }
 }
 
 proc get_keys {l} {
@@ -46,22 +39,6 @@ proc get_keys {l} {
         lappend res $key
     }
     return $res
-}
-
-proc cmp_hrandfield_result {hash_name expected_result} {
-    # Accumulate hrandfield results
-    unset -nocomplain myhash
-    array set myhash {}
-    for {set i 0} {$i < 100} {incr i} {
-        set key [r hrandfield $hash_name]
-        set myhash($key) 1
-    }
-     set res [lsort [array names myhash]]
-     if {$res eq $expected_result} {
-        return 1
-     } else {
-        return $res
-     }
 }
 
 proc dumpAllHashes {client} {
@@ -77,36 +54,6 @@ proc dumpAllHashes {client} {
     return [array get keyAndFields]
 }
 
-proc hrandfieldTest {activeExpireConfig} {
-    r debug set-active-expire $activeExpireConfig
-    r del myhash
-    set contents {{field1 1} {field2 2} }
-    create_hash myhash $contents
-
-    set factorValgrind [expr {$::valgrind ? 2 : 1}]
-
-    # Set expiration time for field1 and field2 such that field1 expires first
-    r hpexpire myhash 1 NX FIELDS 1 field1
-    r hpexpire myhash 100 NX FIELDS 1 field2
-
-    # On call hrandfield command lazy expire deletes field1 first
-    wait_for_condition 8 10 {
-        [cmp_hrandfield_result myhash "field2"] == 1
-    } else {
-        fail "Expected field2 to be returned by HRANDFIELD."
-    }
-
-    # On call hrandfield command lazy expire deletes field2 as well
-    wait_for_condition 8 20 {
-        [cmp_hrandfield_result myhash "{}"] == 1
-    } else {
-        fail "Expected {} to be returned by HRANDFIELD."
-    }
-
-    # restore the default value
-    r debug set-active-expire 1
-}
-
 ############################### TESTS #########################################
 
 start_server {tags {"external:skip needs:debug"}} {
@@ -117,15 +64,12 @@ start_server {tags {"external:skip needs:debug"}} {
             r config set hash-max-listpack-entries 512
         }
 
-        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Returns empty array if key does not exist" {
+        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Returns array if the key does not exist" {
             r del myhash
-            # Make sure we can distinguish between an empty array and a null response
-            r readraw 1
-            assert_equal {*0} [r HEXPIRE myhash 1000 FIELDS 1 a]
-            assert_equal {*0} [r HEXPIREAT myhash 1000 FIELDS 1 a]
-            assert_equal {*0} [r HPEXPIRE myhash 1000 FIELDS 1 a]
-            assert_equal {*0} [r HPEXPIREAT myhash 1000 FIELDS 1 a]
-            r readraw 0
+            assert_equal [r HEXPIRE myhash 1000 FIELDS 1 a] [list $E_NO_FIELD]
+            assert_equal [r HEXPIREAT myhash 1000 FIELDS 1 a] [list $E_NO_FIELD]
+            assert_equal [r HPEXPIRE myhash 1000 FIELDS 2 a b] [list $E_NO_FIELD $E_NO_FIELD]
+            assert_equal [r HPEXPIREAT myhash 1000 FIELDS 2 a b] [list $E_NO_FIELD $E_NO_FIELD]
         }
 
         test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Verify that the expire time does not overflow" {
@@ -205,7 +149,9 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myhash
             r hset myhash f1 v1
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
-            assert_error {*Parameter `numFields` is more than number of arguments} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            # <count> not match with actual number of fields
+            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
@@ -217,9 +163,6 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "Lazy Expire - fields are lazy deleted ($type)" {
-
-            # TODO remove the SELECT once dbid will be embedded inside dict/listpack
-            r select 0
             r debug set-active-expire 0
             r del myhash
 
@@ -305,13 +248,10 @@ start_server {tags {"external:skip needs:debug"}} {
             r flushall async
         }
 
-        test "HTTL/HPTTL - Returns empty array if key does not exist" {
+        test "HTTL/HPTTL - Returns array if the key does not exist" {
             r del myhash
-            # Make sure we can distinguish between an empty array and a null response
-            r readraw 1
-            assert_equal {*0} [r HTTL myhash FIELDS 1 a]
-            assert_equal {*0} [r HPTTL myhash FIELDS 1 a]
-            r readraw 0
+            assert_equal [r HTTL myhash FIELDS 1 a] [list $T_NO_FIELD]
+            assert_equal [r HPTTL myhash FIELDS 2 a b] [list $T_NO_FIELD $T_NO_FIELD]
         }
 
         test "HTTL/HPTTL - Input validation gets failed on nonexists field or field without expire ($type)" {
@@ -320,10 +260,10 @@ start_server {tags {"external:skip needs:debug"}} {
             r HPEXPIRE myhash 1000 NX FIELDS 1 field1
 
             foreach cmd {HTTL HPTTL} {
-                assert_equal [r $cmd non_exists_key FIELDS 1 f] {}
                 assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
-                # Set numFields less than actual number of fields. Fine.
-                assert_equal [r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2] "$T_NO_FIELD"
+                # <count> not match with actual number of fields
+                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
+                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
             }
         }
 
@@ -337,13 +277,10 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range $ttl 1000 2000
         }
 
-        test "HEXPIRETIME/HPEXPIRETIME - Returns empty array if key does not exist" {
+        test "HEXPIRETIME/HPEXPIRETIME - Returns array if the key does not exist" {
             r del myhash
-            # Make sure we can distinguish between an empty array and a null response
-            r readraw 1
-            assert_equal {*0} [r HEXPIRETIME myhash FIELDS 1 a]
-            assert_equal {*0} [r HPEXPIRETIME myhash FIELDS 1 a]
-            r readraw 0
+            assert_equal [r HEXPIRETIME myhash FIELDS 1 a] [list $T_NO_FIELD]
+            assert_equal [r HPEXPIRETIME myhash FIELDS 2 a b] [list $T_NO_FIELD $T_NO_FIELD]
         }
 
         test "HEXPIRETIME - returns TTL in Unix timestamp ($type)" {
@@ -406,22 +343,35 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
-        # OPEN: To decide if to delete expired fields at start of HRANDFIELD.
-        #    test "Test HRANDFIELD does not return expired fields ($type)" {
-        #        hrandfieldTest 0
-        #        hrandfieldTest 1
-        #    }
-
-        test "Test HRANDFIELD can return expired fields ($type)" {
+        test "Test HRANDFIELD deletes all expired fields ($type)" {
             r debug set-active-expire 0
-            r del myhash
+            r flushall
+            r config resetstat
             r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-            r hpexpire myhash 1 NX FIELDS 4 f1 f2 f3 f4
+            r hpexpire myhash 1 FIELDS 2 f1 f2
             after 5
-            set res [cmp_hrandfield_result myhash "f1 f2 f3 f4 f5"]
-            assert {$res == 1}
-            r debug set-active-expire 1
+            assert_equal [lsort [r hrandfield myhash 5]] "f3 f4 f5"
+            assert_equal [s expired_subkeys] 2
+            r hpexpire myhash 1 FIELDS 3 f3 f4 f5
+            after 5
+            assert_equal [lsort [r hrandfield myhash 5]] ""
+            assert_equal [r keys *] ""
 
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hpexpire myhash 1 FIELDS 1 f1
+            after 5
+            set res [r hrandfield myhash]
+            assert {$res == "f2" || $res == "f3"}
+            r hpexpire myhash 1 FIELDS 1 f2
+            after 5
+            assert_equal [lsort [r hrandfield myhash 5]] "f3"
+            r hpexpire myhash 1 FIELDS 1 f3
+            after 5
+            assert_equal [r hrandfield myhash] ""
+            assert_equal [r keys *] ""
+
+            r debug set-active-expire 1
         }
 
         test "Lazy Expire - HLEN does count expired fields ($type)" {
@@ -525,39 +475,48 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset h5 1 1 2 22 3 333 4 4444 5 55555
             r hset h6 01 01 02 02 03 03 04 04 05 05 06 06
             r hset h18 01 01 02 02 03 03 04 04 05 05 06 06 07 07 08 08 09 09 10 10 11 11 12 12 13 13 14 14 15 15 16 16 17 17 18 18
-            r hpexpire h1 100 NX FIELDS 1 01
-            r hpexpire h2 100 NX FIELDS 1 01
-            r hpexpire h2 100 NX FIELDS 1 02
-            r hpexpire h3 100 NX FIELDS 1 01
-            r hpexpire h4 100 NX FIELDS 1 2
-            r hpexpire h5 100 NX FIELDS 1 3
-            r hpexpire h6 100 NX FIELDS 1 05
-            r hpexpire h18 100 NX FIELDS 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
+            r hpexpire h1 1 NX FIELDS 1 01
+            r hpexpire h2 1 NX FIELDS 1 01
+            r hpexpire h2 1 NX FIELDS 1 02
+            r hpexpire h3 1 NX FIELDS 1 01
+            r hpexpire h4 1 NX FIELDS 1 2
+            r hpexpire h5 1 NX FIELDS 1 3
+            r hpexpire h6 1 NX FIELDS 1 05
+            r hpexpire h18 1 NX FIELDS 17 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17
 
-            after 150
+            after 5
 
             # Verify HDEL not ignore expired field. It is too much overhead to check
             # if the field is expired before deletion.
             assert_equal [r HDEL h1 01] "1"
 
             # Verify HGET ignore expired field
+            r config resetstat
             assert_equal [r HGET h2 01] ""
+            assert_equal [s expired_subkeys] 1
             assert_equal [r HGET h2 02] ""
+            assert_equal [s expired_subkeys] 2
             assert_equal [r HGET h3 01] ""
             assert_equal [r HGET h3 02] "02"
             assert_equal [r HGET h3 03] "03"
+            assert_equal [s expired_subkeys] 3
             # Verify HINCRBY ignore expired field
             assert_equal [r HINCRBY h4 2 1] "1"
+            assert_equal [s expired_subkeys] 4
             assert_equal [r HINCRBY h4 3 1] "100"
             # Verify HSTRLEN ignore expired field
             assert_equal [r HSTRLEN h5 3] "0"
+            assert_equal [s expired_subkeys] 5
             assert_equal [r HSTRLEN h5 4] "4"
             assert_equal [lsort [r HKEYS h6]] "01 02 03 04 06"
+            assert_equal [s expired_subkeys] 5
             # Verify HEXISTS ignore expired field
             assert_equal [r HEXISTS h18 07] "0"
+            assert_equal [s expired_subkeys] 6
             assert_equal [r HEXISTS h18 18] "1"
             # Verify HVALS ignore expired field
             assert_equal [lsort [r HVALS h18]] "18"
+            assert_equal [s expired_subkeys] 6
             # Restore to support active expire
             r debug set-active-expire 1
         }
@@ -711,12 +670,10 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
-        test "HPERSIST - Returns empty array if key does not exist ($type)" {
+        test "HPERSIST - Returns array if the key does not exist ($type)" {
             r del myhash
-            # Make sure we can distinguish between an empty array and a null response
-            r readraw 1
-            assert_equal {*0} [r HPERSIST myhash FIELDS 1 a]
-            r readraw 0
+            assert_equal [r HPERSIST myhash FIELDS 1 a] [list $P_NO_FIELD]
+            assert_equal [r HPERSIST myhash FIELDS 2 a b] [list $P_NO_FIELD $P_NO_FIELD]
         }
 
         test "HPERSIST - input validation ($type)" {
@@ -726,9 +683,11 @@ start_server {tags {"external:skip needs:debug"}} {
             r hexpire myhash 1000 NX FIELDS 1 f1
             assert_error {*wrong number of arguments*} {r hpersist myhash}
             assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 1}
-            assert_equal [r hpersist not-exists-key FIELDS 1 f1] {}
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
+            # <count> not match with actual number of fields
+            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 2 f1 f2 f3}
+            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 4 f1 f2 f3}
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
@@ -947,14 +906,14 @@ start_server {tags {"external:skip needs:debug"}} {
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         r hpexpire myhash 100 FIELDS 3 f1 f2 f3
 
-        assert_match  [get_hashes_with_expiry_fields r] 1
+        assert_match  [get_stat_subexpiry r] 1
         r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        assert_match  [get_hashes_with_expiry_fields r] 1
+        assert_match  [get_stat_subexpiry r] 1
         r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
-        assert_match  [get_hashes_with_expiry_fields r] 2
+        assert_match  [get_stat_subexpiry r] 2
 
         wait_for_condition 50 50 {
-                [get_hashes_with_expiry_fields r] == 0
+                [get_stat_subexpiry r] == 0
         } else {
                 fail "Hash field expiry statistics failed"
         }
@@ -969,14 +928,29 @@ start_server {tags {"external:skip needs:debug"}} {
             r config set hash-max-listpack-entries 512
         }
 
-        test "Command rewrite and expired hash fields are propagated to replica ($type)" {
+        test "Test Command propagated to replica as expected ($type)" {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
 
                 set aof [get_last_incr_aof_path r]
+
+                # Time is in the past so it should propagate HDELs to replica
+                # and delete the fields
+                r hset h0 x1 y1 x2 y2
+                r hexpireat h0 1 fields 3 x1 x2 non_exists_field
+
                 r hset h1 f1 v1 f2 v2
 
+                # Next command won't be propagated to replica
+                # because XX condition not met or field not exists
+                r hexpire h1 10 XX FIELDS 3 f1 f2 non_exists_field
+
                 r hpexpire h1 20 FIELDS 1 f1
-                r hpexpire h1 30 FIELDS 1 f2
+
+                # Next command will be propagate with only field 'f2'
+                # because NX condition not met for field 'f1'
+                r hpexpire h1 30 NX FIELDS 2 f1 f2
+
+                # Non exists field should be ignored
                 r hpexpire h1 30 FIELDS 1 non_exists_field
                 r hset h2 f1 v1 f2 v2 f3 v3 f4 v4
                 r hpexpire h2 40 FIELDS 2 f1 non_exists_field
@@ -993,11 +967,16 @@ start_server {tags {"external:skip needs:debug"}} {
                 # Assert that each TTL-related command are persisted with absolute timestamps in AOF
                 assert_aof_content $aof {
                     {select *}
+                    {hset h0 x1 y1 x2 y2}
+                    {multi}
+                        {hdel h0 x1}
+                        {hdel h0 x2}
+                    {exec}
                     {hset h1 f1 v1 f2 v2}
                     {hpexpireat h1 * FIELDS 1 f1}
                     {hpexpireat h1 * FIELDS 1 f2}
                     {hset h2 f1 v1 f2 v2 f3 v3 f4 v4}
-                    {hpexpireat h2 * FIELDS 2 f1 non_exists_field}
+                    {hpexpireat h2 * FIELDS 1 f1}
                     {hpexpireat h2 * FIELDS 1 f2}
                     {hpexpireat h2 * FIELDS 1 f3}
                     {hpexpireat h2 * FIELDS 1 f4}
@@ -1067,7 +1046,10 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hpexpireat h1 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
                 r hpexpire h1 100000 NX FIELDS 3 f3 f4 f5
                 r hexpire h1 100000 FIELDS 1 f6
-                r hset h5 f1 v1
+
+                r hset h2 f1 v1 f2 v2
+                r hpexpire h2 1 FIELDS 2 f1 f2
+                after 200
 
                 assert_aof_content $aof {
                     {select *}
@@ -1076,12 +1058,13 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hpexpireat h1 * FIELDS 1 f2}
                     {hpexpireat h1 * NX FIELDS 3 f3 f4 f5}
                     {hpexpireat h1 * FIELDS 1 f6}
-                    {hset h5 f1 v1}
+                    {hset h2 f1 v1 f2 v2}
+                    {hpexpireat h2 * FIELDS 2 f1 f2}
+                    {hdel h2 *}
+                    {hdel h2 *}
                 }
 
                 array set keyAndFields1 [dumpAllHashes r]
-                # Let some time pass and reload data from AOF
-                after 2000
                 r debug loadaof
                 array set keyAndFields2 [dumpAllHashes r]
 
@@ -1099,6 +1082,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r flushall ; # Clean up keyspace to avoid interference by keys from other tests
             set repl [attach_to_replication_stream]
 
+            # HEXPIRE/HPEXPIRE should be translated into HPEXPIREAT
             r hset h1 f1 v1
             r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
             r hset h2 f2 v2
@@ -1116,11 +1100,53 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
                 {hset h3 f3 v3 f4 v4 f5 v5}
-                {hpexpireat h3 * FIELDS 3 f3 f4 non_exists_field}
+                {hpexpireat h3 * FIELDS 2 f3 f4}
                 {hpersist h3 FIELDS 1 f3}
             }
             close_replication_stream $repl
         } {} {needs:repl}
+
+        test {HRANDFIELD delete expired fields and propagate DELs to replica} {
+            r debug set-active-expire 0
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            # HRANDFIELD delete expired fields and propagate MULTI-EXEC DELs. Reply none.
+            r hset h1 f1 v1 f2 v2
+            r hpexpire h1 1 FIELDS 2 f1 f2
+            after 5
+            assert_equal [r hrandfield h1 2] ""
+
+            # HRANDFIELD delete expired field and propagate DEL. Reply non-expired field.
+            r hset h2 f1 v1 f2 v2
+            r hpexpire h2 1 FIELDS 1 f1
+            after 5
+            assert_equal [r hrandfield h2 2] "f2"
+
+            # HRANDFIELD delete expired field and propagate DEL. Reply none.
+            r hset h3 f1 v1
+            r hpexpire h3 1 FIELDS 1 f1
+            after 5
+            assert_equal [r hrandfield h3 2] ""
+
+            assert_replication_stream $repl {
+                {select *}
+                {hset h1 f1 v1 f2 v2}
+                {hpexpireat h1 * FIELDS 2 f1 f2}
+                {multi}
+                {hdel h1 *}
+                {hdel h1 *}
+                {exec}
+                {hset h2 f1 v1 f2 v2}
+                {hpexpireat h2 * FIELDS 1 f1}
+                {hdel h2 f1}
+                {hset h3 f1 v1}
+                {hpexpireat h3 * FIELDS 1 f1}
+                {hdel h3 f1}
+            }
+            close_replication_stream $repl
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
 
         # Start another server to test replication of TTLs
         start_server {tags {needs:repl external:skip}} {
@@ -1165,4 +1191,3 @@ start_server {tags {"external:skip needs:debug"}} {
         }
     }
 }
-

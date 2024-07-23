@@ -63,17 +63,20 @@
                 "key_spec_index": 0
             },
             {
-                "name": "FIELDS",
-                "type": "string"
-            },
-            {
-                "name": "numfields",
-                "type": "integer"
-            },
-            {
-                "name": "field",
-                "type": "string",
-                "multiple": true
+                "name": "fields",
+                "token": "FIELDS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "numfields",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "field",
+                        "type": "string",
+                        "multiple": true
+                    }
+                ]
             }
         ]
     }

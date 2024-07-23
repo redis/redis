@@ -26,6 +26,7 @@ struct {
     unsigned long keys;             /* Number of keys processed. */
     unsigned long expires;          /* Number of keys with an expire. */
     unsigned long already_expired;  /* Number of keys already expired. */
+    unsigned long subexpires;        /* Number of keys with subexpires */
     int doing;                      /* The state while reading the RDB. */
     int error_set;                  /* True if error is populated. */
     char error[1024];
@@ -80,6 +81,8 @@ char *rdb_type_string[] = {
     "stream-v2",
     "set-listpack",
     "stream-v3",
+    "hash-hashtable-md-pre-release",
+    "hash-listpack-md-pre-release",
     "hash-hashtable-md",
     "hash-listpack-md",
 };
@@ -89,6 +92,7 @@ void rdbShowGenericInfo(void) {
     printf("[info] %lu keys read\n", rdbstate.keys);
     printf("[info] %lu expires\n", rdbstate.expires);
     printf("[info] %lu already expired\n", rdbstate.already_expired);
+    printf("[info] %lu subexpires\n", rdbstate.subexpires);
 }
 
 /* Called on RDB errors. Provides details about the RDB and the offset
@@ -175,6 +179,7 @@ void rdbCheckSetupSignals(void) {
  * otherwise the already open file 'fp' is checked. */
 int redis_check_rdb(char *rdbfilename, FILE *fp) {
     uint64_t dbid;
+    int selected_dbid = -1;
     int type, rdbver;
     char buf[1024];
     long long expiretime, now = mstime();
@@ -246,6 +251,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             if ((dbid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             rdbCheckInfo("Selecting DB ID %llu", (unsigned long long)dbid);
+            selected_dbid = dbid;
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
@@ -331,12 +337,16 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,NULL,NULL,NULL)) == NULL)
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,NULL)) == NULL)
             goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
         if (expiretime != -1) rdbstate.expires++;
+        /* If hash with HFEs then with expiration on fields then need to count it */
+        if ((val->type == OBJ_HASH) && (hashTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID))
+            rdbstate.subexpires++;
+
         rdbstate.key = NULL;
         decrRefCount(key);
         decrRefCount(val);
