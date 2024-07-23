@@ -2265,7 +2265,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     } else if (rdbtype == RDB_TYPE_HASH_METADATA || rdbtype == RDB_TYPE_HASH_METADATA_PRE_GA) {
         sds value;
         hfield field;
-        uint64_t minExpire, ttl, expireAt;
+        uint64_t ttl, expireAt, minExpire = EB_EXPIRE_TIME_INVALID;
         dict *dupSearchDict = NULL;
 
         /* If hash with TTLs, load next/min expiration time
