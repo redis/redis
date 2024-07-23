@@ -79,7 +79,7 @@ static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[M
 static redisAtomic size_t num_active_threads = 0;
 static __thread long my_thread_index = -1;
 
-static void init_my_thread_index() {
+static void init_my_thread_index(void) {
     if (my_thread_index == -1) {
         atomicGetIncr(num_active_threads, my_thread_index, 1);
         my_thread_index &= THREAD_MASK;
