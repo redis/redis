@@ -31,6 +31,7 @@ void zlibc_free(void *ptr) {
 #include <string.h>
 #include "zmalloc.h"
 #include "atomicvar.h"
+#include "redisassert.h"
 
 #define UNUSED(x) ((void)(x))
 
@@ -461,7 +462,7 @@ char *zstrdup(const char *s) {
 
 size_t zmalloc_used_memory(void) {
     size_t local_num_active_threads;
-    size_t totol_mem = 0;
+    long long total_mem = 0;
     atomicGet(num_active_threads,local_num_active_threads);
     if (local_num_active_threads > MAX_THREADS) {
         local_num_active_threads = MAX_THREADS;
@@ -469,9 +470,10 @@ size_t zmalloc_used_memory(void) {
     for (size_t i = 0; i < local_num_active_threads; ++i) {
         long long thread_used_mem;
         atomicGet(used_memory[i].used_memory, thread_used_mem);
-        totol_mem += thread_used_mem;
+        total_mem += thread_used_mem;
     }
-    return totol_mem;
+    assert(total_mem >= 0);
+    return total_mem;
 }
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
@@ -687,8 +689,6 @@ size_t zmalloc_get_rss(void) {
 #endif
 
 #if defined(USE_JEMALLOC)
-
-#include "redisassert.h"
 
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
  * Done by summing the memory in unused regs in all slabs of all small bins.
