@@ -72,26 +72,26 @@ void zlibc_free(void *ptr) {
 
 typedef struct used_memory_entry {
     redisAtomic long long used_memory;
-    char padding[CACHE_LINE_SIZE - sizeof(long)];
+    char padding[CACHE_LINE_SIZE - sizeof(long long)];
 } used_memory_entry;
 
 static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[MAX_THREADS];
 static redisAtomic size_t num_active_threads = 0;
 static __thread long my_thread_index = -1;
 
-static void init_my_thread_index(void) {
-    if (my_thread_index == -1) {
+static inline void init_my_thread_index(void) {
+    if (unlikely(my_thread_index == -1)) {
         atomicGetIncr(num_active_threads, my_thread_index, 1);
         my_thread_index &= THREAD_MASK;
     }
 }
 
-static void update_zmalloc_stat_alloc(long num) {
+static void update_zmalloc_stat_alloc(long long num) {
     init_my_thread_index();
     atomicIncr(used_memory[my_thread_index].used_memory, num);
 }
 
-static void update_zmalloc_stat_free(long num) {
+static void update_zmalloc_stat_free(long long num) {
     init_my_thread_index();
     atomicDecr(used_memory[my_thread_index].used_memory, num);
 }
@@ -467,7 +467,7 @@ size_t zmalloc_used_memory(void) {
         local_num_active_threads = MAX_THREADS;
     }
     for (size_t i = 0; i < local_num_active_threads; ++i) {
-        size_t thread_used_mem;
+        long long thread_used_mem;
         atomicGet(used_memory[i].used_memory, thread_used_mem);
         totol_mem += thread_used_mem;
     }
