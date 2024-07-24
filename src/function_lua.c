@@ -31,6 +31,8 @@
 #define LIBRARY_API_NAME "__LIBRARY_API__"
 #define GLOBALS_API_NAME "__GLOBALS_API__"
 
+static int gc_count = 0; /* Counter for the number of GC requests, reset after each GC execution */
+
 /* Lua engine ctx */
 typedef struct luaEngineCtx {
     lua_State *lua;
@@ -131,6 +133,7 @@ done:
 
     lua_sethook(lua,NULL,0,0); /* Disable hook */
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
+    luaGC(lua, &gc_count);
     return ret;
 }
 
@@ -159,6 +162,7 @@ static void luaEngineCall(scriptRunCtx *run_ctx,
 
     luaCallFunction(run_ctx, lua, keys, nkeys, args, nargs, 0);
     lua_pop(lua, 1); /* Pop error handler */
+    luaGC(lua, &gc_count);
 }
 
 static size_t luaEngineGetUsedMemoy(void *engine_ctx) {

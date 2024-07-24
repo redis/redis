@@ -93,6 +93,11 @@ start_server {} {
         set n [expr $maxmemory_clients_actual / 2]
         $rr write [join [list "*1\r\n\$$n\r\n" [string repeat v $n]] ""]
         $rr flush
+        wait_for_condition 100 10 {
+            [client_field $cname tot-mem] >= $n
+        } else {
+            fail "Failed to fill qbuf for test"
+        }
         set tot_mem [client_field $cname tot-mem]
         assert {$tot_mem >= $n && $tot_mem < $maxmemory_clients_actual}
 

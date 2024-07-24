@@ -1568,12 +1568,14 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
 
         if (stillAlive == 0) {
             serverLog(LL_WARNING,"Diskless rdb transfer, last replica dropped, killing fork child.");
+            /* Avoid deleting events after killRDBChild as it may trigger new bgsaves for other replicas. */
+            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE); 
             killRDBChild();
+            break;
         }
-        /*  Remove the pipe read handler if at least one write handler was set. */
-        if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
-            if (server.rdb_pipe_read != -1)
-                aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
+        /* Remove the pipe read handler if at least one write handler was set. */
+        else if (server.rdb_pipe_numconns_writing) {
+            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
             break;
         }
     }
