@@ -785,47 +785,51 @@ unsigned int countKeysInSlot(unsigned int slot) {
 
 /* Add detailed information of a node to the output buffer of the given client. */
 void addNodeDetailsToShardReply(client *c, clusterNode *node) {
+
     int reply_count = 0;
+    char *hostname;
     void *node_replylen = addReplyDeferredLen(c);
+
     addReplyBulkCString(c, "id");
-    addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
+    addReplyBulkCBuffer(c, clusterNodeGetName(node), CLUSTER_NAMELEN);
     reply_count++;
 
-    if (node->tcp_port) {
+    if (clusterNodeTcpPort(node)) {
         addReplyBulkCString(c, "port");
-        addReplyLongLong(c, node->tcp_port);
+        addReplyLongLong(c, clusterNodeTcpPort(node));
         reply_count++;
     }
 
-    if (node->tls_port) {
+    if (clusterNodeTlsPort(node)) {
         addReplyBulkCString(c, "tls-port");
-        addReplyLongLong(c, node->tls_port);
+        addReplyLongLong(c, clusterNodeTlsPort(node));
         reply_count++;
     }
 
     addReplyBulkCString(c, "ip");
-    addReplyBulkCString(c, node->ip);
+    addReplyBulkCString(c, clusterNodeIp(node));
     reply_count++;
 
     addReplyBulkCString(c, "endpoint");
     addReplyBulkCString(c, clusterNodePreferredEndpoint(node));
     reply_count++;
 
-    if (sdslen(node->hostname) != 0) {
+    hostname = clusterNodeHostname(node);
+    if (hostname != NULL && *hostname != '\0') {
         addReplyBulkCString(c, "hostname");
-        addReplyBulkCBuffer(c, node->hostname, sdslen(node->hostname));
+        addReplyBulkCString(c, hostname);
         reply_count++;
     }
 
     long long node_offset;
-    if (node->flags & CLUSTER_NODE_MYSELF) {
-        node_offset = nodeIsSlave(node) ? replicationGetSlaveOffset() : server.master_repl_offset;
+    if (clusterNodeIsMyself(node)) {
+        node_offset = clusterNodeIsSlave(node) ? replicationGetSlaveOffset() : server.master_repl_offset;
     } else {
-        node_offset = node->repl_offset;
+        node_offset = clusterNodeReplOffset(node);
     }
 
     addReplyBulkCString(c, "role");
-    addReplyBulkCString(c, nodeIsSlave(node) ? "replica" : "master");
+    addReplyBulkCString(c, clusterNodeIsSlave(node) ? "replica" : "master");
     reply_count++;
 
     addReplyBulkCString(c, "replication-offset");
@@ -834,9 +838,9 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 
     addReplyBulkCString(c, "health");
     const char *health_msg = NULL;
-    if (nodeFailed(node)) {
+    if (clusterNodeIsFailing(node)) {
         health_msg = "fail";
-    } else if (nodeIsSlave(node) && node_offset == 0) {
+    } else if (clusterNodeIsSlave(node) && node_offset == 0) {
         health_msg = "loading";
     } else {
         health_msg = "online";
@@ -847,64 +851,60 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
     setDeferredMapLen(c, node_replylen, reply_count);
 }
 
-static clusterNode *clusterGetMasterFromShard(list *nodes) {
+static clusterNode *clusterGetMasterFromShard(void *shard_handle) {
     clusterNode *n = NULL;
-    listIter li;
-    listNode *ln;
-    listRewind(nodes,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        clusterNode *node = listNodeValue(ln);
-        if (!nodeFailed(node)) {
-            n = node;
+    void *node_it = clusterShardHandleGetNodeIterator(shard_handle);
+    while((n = clusterShardNodeIteratorNext(node_it)) != NULL) {
+        if (!clusterNodeIsFailing(n)) {
             break;
         }
     }
+    clusterShardNodeIteratorFree(node_it);
     if (!n) return NULL;
     return clusterNodeGetMaster(n);
 }
 
 /* Add the shard reply of a single shard based off the given primary node. */
-void addShardReplyForClusterShards(client *c, list *nodes) {
-    serverAssert(listLength(nodes) > 0);
-
+void addShardReplyForClusterShards(client *c, void *shard_handle) {
+    serverAssert(clusterGetShardNodeCount(shard_handle) > 0);
     addReplyMapLen(c, 2);
     addReplyBulkCString(c, "slots");
 
     /* Use slot_info_pairs from the primary only */
-    clusterNode *n = clusterGetMasterFromShard(nodes);
-    if (n && n->slot_info_pairs != NULL) {
-        serverAssert((n->slot_info_pairs_count % 2) == 0);
-        addReplyArrayLen(c, n->slot_info_pairs_count);
-        for (int i = 0; i < n->slot_info_pairs_count; i++)
-            addReplyLongLong(c, (unsigned long)n->slot_info_pairs[i]);
+    clusterNode *master_node = clusterGetMasterFromShard(shard_handle);
+
+    if (master_node && clusterNodeHasSlotInfo(master_node)) {
+        serverAssert((clusterNodeSlotInfoCount(master_node) % 2) == 0);
+        addReplyArrayLen(c, clusterNodeSlotInfoCount(master_node));
+        for (int i = 0; i < clusterNodeSlotInfoCount(master_node); i++)
+            addReplyLongLong(c, (unsigned long)clusterNodeSlotInfoEntry(master_node, i));
     } else {
         /* If no slot info pair is provided, the node owns no slots */
         addReplyArrayLen(c, 0);
     }
 
     addReplyBulkCString(c, "nodes");
-    addReplyArrayLen(c, listLength(nodes));
-    listIter li;
-    listRewind(nodes, &li);
-    for (listNode *ln = listNext(&li); ln != NULL; ln = listNext(&li)) {
-        clusterNode *n = listNodeValue(ln);
+    addReplyArrayLen(c, clusterGetShardNodeCount(shard_handle));
+    void *node_it = clusterShardHandleGetNodeIterator(shard_handle);
+    for (clusterNode *n = clusterShardNodeIteratorNext(node_it); n != NULL; n = clusterShardNodeIteratorNext(node_it)) {
         addNodeDetailsToShardReply(c, n);
         clusterFreeNodesSlotsInfo(n);
     }
+    clusterShardNodeIteratorFree(node_it);
 }
 
 /* Add to the output buffer of the given client, an array of slot (start, end)
  * pair owned by the shard, also the primary and set of replica(s) along with
  * information about each node. */
 void clusterCommandShards(client *c) {
-    addReplyArrayLen(c, dictSize(server.cluster->shards));
+    addReplyArrayLen(c, clusterGetShardCount());
     /* This call will add slot_info_pairs to all nodes */
     clusterGenNodesSlotsInfo(0);
-    dictIterator *di = dictGetSafeIterator(server.cluster->shards);
-    for(dictEntry *de = dictNext(di); de != NULL; de = dictNext(di)) {
-        addShardReplyForClusterShards(c, dictGetVal(de));
+    dictIterator *shard_it = clusterGetShardIterator();
+    for(void *shard_handle = clusterNextShardHandle(shard_it); shard_handle != NULL; shard_handle = clusterNextShardHandle(shard_it)) {
+        addShardReplyForClusterShards(c, shard_handle);
     }
-    dictReleaseIterator(di);
+    clusterFreeShardIterator(shard_it);
 }
 
 void clusterCommandHelp(client *c) {

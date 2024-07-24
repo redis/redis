@@ -97,7 +97,7 @@ int clusterManualFailoverTimeLimit(void);
 void clusterCommandSlots(client * c);
 void clusterCommandMyId(client *c);
 void clusterCommandMyShardId(client *c);
-void clusterCommandShards(client *c);
+
 sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary);
 
 int clusterNodeCoversSlot(clusterNode *n, int slot);
@@ -142,4 +142,23 @@ int isValidAuxString(char *s, unsigned int length);
 void migrateCommand(client *c);
 void clusterCommand(client *c);
 ConnectionType *connTypeOfCluster(void);
+
+void clusterGenNodesSlotsInfo(int filter);
+void clusterFreeNodesSlotsInfo(clusterNode *n);
+int clusterNodeSlotInfoCount(clusterNode *n);
+uint16_t clusterNodeSlotInfoEntry(clusterNode *n, int idx);
+int clusterNodeHasSlotInfo(clusterNode *n);
+
+int clusterGetShardCount(void);
+void *clusterGetShardIterator(void);
+void *clusterNextShardHandle(void *shard_iterator);
+void clusterFreeShardIterator(void *shard_iterator);
+int clusterGetShardNodeCount(void *shard);
+void *clusterShardHandleGetNodeIterator(void *shard);
+clusterNode *clusterShardNodeIteratorNext(void *node_iterator);
+void clusterShardNodeIteratorFree(void *node_iterator);
+clusterNode *clusterShardNodeFirst(void *shard);
+
+int clusterNodeTcpPort(clusterNode *node);
+int clusterNodeTlsPort(clusterNode *node);
 #endif /* __CLUSTER_H */
