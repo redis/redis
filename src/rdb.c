@@ -3781,7 +3781,8 @@ static void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
 void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     int type = server.rdb_child_type;
     time_t save_end = time(NULL);
-
+    if (server.bgsave_aborted)
+        bysignal = SIGUSR1;
     switch(server.rdb_child_type) {
     case RDB_CHILD_TYPE_DISK:
         backgroundSaveDoneHandlerDisk(exitcode,bysignal,save_end);
@@ -3797,6 +3798,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_save_time_last = save_end-server.rdb_save_time_start;
     server.rdb_save_time_start = -1;
+    server.bgsave_aborted = 0;
     /* Possibly there are slaves waiting for a BGSAVE in order to be served
      * (the first stage of SYNC is a bulk transfer of dump.rdb) */
     updateSlavesWaitingBgsave((!bysignal && exitcode == 0) ? C_OK : C_ERR, type);
@@ -3814,11 +3816,11 @@ void killRDBChild(void) {
      * - resetChildState
      * - rdbRemoveTempFile */
 
-    /* However, there's a chance the child already exited, and will not receive the signal,
-     * in that case it could have been resulsted in success and the done handler will override some
-     * server metrics (e.g. the dirty counter) which it shouldn't (e.g. in case of FLUSHALL).
-     * so we just for completion once (don't wait for it). */
-     checkChildrenDone();
+    /* However, there's a chance the child already exited (or about to exit), and will
+     * not receive the signal, in that case it could result in success and the done
+     * handler will override some server metrics (e.g. the dirty counter) which it
+     * shouldn't (e.g. in case of FLUSHALL), or the synchronously created RDB file. */
+     server.bgsave_aborted = 1;
 }
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
